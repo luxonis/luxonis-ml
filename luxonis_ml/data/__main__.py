@@ -95,6 +95,84 @@ def _present_classes(records: "Iterable[DatasetRecord]") -> list[str]:
     return list(seen)
 
 
+def _present_sample_metadata(sample_metadata: dict) -> dict:
+    """Reshape batched-augmentation sample metadata for a readable side panel.
+
+    A batch augmentation (e.g. MixUp, Mosaic) fuses several source samples into
+    one output. The loader keeps the first sample's metadata at the top level and
+    also stashes *every* input's metadata under ``batch_augmentation_metadata`` as
+    a list of ``{"input_index", "sample_metadata"}`` entries (see
+    `luxonis_ml.data.LuxonisLoader`) — handy for machine use, but it prints as a
+    redundant, confusing blob (sample one appears twice, wrapped in bookkeeping
+    keys). When that key is present this instead presents one clearly-labelled
+    ``"sample N"`` group per contributing input, dropping the duplicated top-level
+    copy; a single input collapses back to its plain metadata, and anything
+    without the key is returned unchanged. Each sample's single-source
+    ``filenames`` mapping is also flattened (see `_flatten_filenames`).
+
+    Args:
+        sample_metadata: The raw per-sample metadata from the loader.
+
+    Returns:
+        Metadata shaped for display: per-input ``"sample N"`` groups when the
+        sample is a batch-augmentation fusion, else the input unchanged.
+
+    """
+    batch = sample_metadata.get("batch_augmentation_metadata")
+    if not isinstance(batch, list) or not batch:
+        return _flatten_filenames(sample_metadata)
+
+    def sample_md(entry: object, fallback: int) -> tuple[int, dict]:
+        if isinstance(entry, dict):
+            index = entry.get("input_index", fallback)
+            return int(index), dict(entry.get("sample_metadata") or {})
+        return fallback, {}
+
+    if len(batch) == 1:
+        return _flatten_filenames(sample_md(batch[0], 0)[1])
+    presented: dict = {}
+    for position, entry in enumerate(batch):
+        index, md = sample_md(entry, position)
+        presented[f"sample {index + 1}"] = _flatten_filenames(md) or (
+            "(no metadata)"
+        )
+    return presented
+
+
+def _flatten_filenames(sample_metadata: dict) -> dict:
+    """Collapse a single-source ``filenames`` mapping to a ``filename`` field.
+
+    Records support multiple image sources, so the loader always reports
+    ``filenames`` as a ``{source_name: basename}`` mapping (see
+    `luxonis_ml.data.LuxonisLoader`). In the common single-image case that
+    renders as a needless one-entry nested block, so this replaces it in place
+    with a ``"filename"`` field wrapped in `luxonis_ml.vizlab.Block` — the panel
+    then shows it as a labelled line with the name below (full width, ellipsized
+    if very long) rather than cramped after an inline prefix. Multi-source
+    records keep the full mapping; metadata without ``filenames`` is unchanged.
+
+    Args:
+        sample_metadata: One sample's metadata.
+
+    Returns:
+        The metadata with a lone ``filenames`` entry flattened, or the input
+        unchanged (same object) when there is nothing to flatten.
+
+    """
+    from luxonis_ml.vizlab import Block
+
+    files = sample_metadata.get("filenames")
+    if not (isinstance(files, dict) and len(files) == 1):
+        return sample_metadata
+    only = next(iter(files.values()))
+    return {
+        ("filename" if key == "filenames" else key): (
+            Block(only) if key == "filenames" else value
+        )
+        for key, value in sample_metadata.items()
+    }
+
+
 def _print_comparison_summary(
     report: "ComparisonReport",
     gt_name: str,
@@ -320,7 +398,7 @@ def inspect(
     list_augmentations: Annotated[
         bool,
         Parameter(negative=""),
-    ] = False,
+    ] = True,
     skeletons: Annotated[
         bool,
         Parameter(negative=""),
@@ -356,14 +434,16 @@ def inspect(
     Hovering the mouse over a detection that carries annotation metadata shows
     that metadata in a tooltip, so dense scenes stay uncluttered.
 
-    Interactive controls (also shown as a HUD on each window):
+    Interactive controls (also listed, and clickable, in the side panel):
 
     - ``m`` / ``k`` / ``b`` / ``l`` — toggle masks / keypoints / boxes / labels.
     - ``d`` — toggle decluttering (on by default): in busy scenes, tiny
       detections ringed by many others are hidden as noise; press to show all.
     - ``c`` — cycle a class focus through the classes present in the sample
-      (isolating one class at a time; again to show all).
-    - ``[`` / ``]`` — decrease / increase the shape fill opacity.
+      (isolating one class at a time; again to show all). After toggling classes
+      by clicking the legend, ``c`` first resets them and restarts the cycle.
+    - click a control row in the panel to trigger it, or a legend swatch to
+      toggle that class on/off (disabled classes stay in the legend, dimmed).
     - any other key advances to the next sample; ``q`` quits.
 
     Args:
@@ -463,12 +543,13 @@ def inspect(
         from luxonis_ml.vizlab import (
             DARK_THEME,
             LIGHT_THEME,
+            Controls,
             Frame,
             Image,
-            Legend,
             MaskOutline,
             Palette,
             RenderOptions,
+            Swatches,
             fit_grid,
             grid_hits,
             set_default_options,
@@ -514,20 +595,48 @@ def inspect(
     # (so bare Images in this command pick up the theme/palette too).
     set_default_options(options)
 
-    def current_legend() -> "Legend | None":
-        """Build a legend of the classes present in the current sample.
+    # The legend reserves width for the dataset's longest class name (capped, so
+    # one very long outlier does not blow the panel out), keeping the panel a
+    # stable width sample to sample.
+    longest_class = max(class_names, key=len, default="")[:24]
 
-        Keyed to what is actually drawn (``viewer.layers.classes``, refreshed per
-        sample), so the legend stays a short, relevant key even on datasets with
-        many classes; colors come from the full-dataset palette so they are stable.
+    def sidebar(panel: dict, *, controls: bool = True) -> dict:
+        """Prepend the CONTROLS and CLASSES sections to a sample's metadata panel.
+
+        The interactive controls and the class-color legend live in the side
+        panel now (not floated over the image): controls come from the shared
+        `viewer.layers` (so they reflect the current toggles and refresh on every
+        keypress-triggered re-render), and the class swatches are keyed to the
+        classes present in the sample (``viewer.layers.classes``) with stable
+        full-dataset palette colors. ``controls=False`` omits the controls for the
+        non-interactive per-instance view, whose stepping toggles nothing.
         """
+        out: dict = {}
+        if controls:
+            out["controls"] = Controls(
+                tuple(
+                    (c.key, c.name, c.value, c.active)
+                    for c in viewer.layers.controls()
+                )
+            )
         names = viewer.layers.classes
-        if not (legend and names):
-            return None
-        return Legend(entries=list(names), palette=palette, title="classes")
+        if legend and names:
+            out["classes"] = Swatches(
+                tuple((palette.color_for(name), name) for name in names),
+                disabled=frozenset(viewer.layers.hidden),
+                # Hold the legend (and panel) width to the dataset's longest class
+                # name so it stays put as the per-sample class set changes.
+                reserve=longest_class,
+            )
+        out.update(panel)
+        return out
 
     def build_panel(sample_labels: dict, sample_metadata: dict) -> dict:
-        panel = dict(sample_metadata) if sample_metadata else {}
+        panel = (
+            dict(_present_sample_metadata(sample_metadata))
+            if sample_metadata
+            else {}
+        )
         arrays = {
             get_task_name(k): list(v.shape)
             for k, v in sample_labels.items()
@@ -544,7 +653,9 @@ def inspect(
     # vizlab now owns layout, screen-fit sizing, hover hit-testing, and the
     # interactive window loop; this command only prepares data and hands frames
     # (and their hit maps) to the viewer.
-    viewer = Viewer()
+    # The controls live in the side panel now (see `sidebar`), so the viewer does
+    # not also float its HUD over the image.
+    viewer = Viewer(hud=False)
     # Decluttering hides tiny detections in crowded scenes by default; --show-all
     # starts with it off (the `d` key still toggles it live either way).
     viewer.layers.declutter = not show_all
@@ -612,17 +723,11 @@ def inspect(
     def framed(frame: Frame, panel: dict) -> Frame:
         """Attach the class legend (overlay) and metadata panel (right side).
 
-        Both are coordinate-preserving — the legend draws on top and the panel
-        sits outside the image — so ``frame``'s hit map stays valid; keep it via
-        `Frame.with_image`.
+        The panel (controls + classes + metadata) reframes the image as a rounded
+        surface at a margin offset, so `Frame.with_panel` shifts the hover map to
+        match. It is always attached now — the controls make it non-empty.
         """
-        image = frame.image
-        legend_card = current_legend()
-        if legend_card is not None:
-            image.add(legend_card)
-        if panel:
-            image = image.with_panel(panel, title="Sample metadata")
-        return frame.with_image(image)
+        return frame.with_panel(sidebar(panel))
 
     def build_frame(
         image: np.ndarray, records: dict, panel: dict, reserve: float
@@ -691,14 +796,10 @@ def inspect(
                 lone_object_card=True,
             ):
                 viz.add(overlay)
-            legend_card = current_legend()
-            if legend_card is not None:
-                viz.add(legend_card)
-            display = (
-                viz.with_panel(panel, title="Sample metadata")
-                if panel
-                else viz
-            )
+            # Per-instance stepping is non-interactive, so the panel carries the
+            # class legend and metadata but no (inapplicable) controls.
+            side = sidebar(panel, controls=False)
+            display = viz.with_panel(side) if side else viz
             if viewer.show_blocking(source_name, display) == "q":
                 return True
         return False

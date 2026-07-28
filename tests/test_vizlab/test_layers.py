@@ -97,23 +97,42 @@ def test_labels_off_empties_classification_tags() -> None:
     assert tag.tags == []
 
 
-def test_focus_isolates_a_single_class() -> None:
+def test_hidden_class_is_dropped_but_others_stay() -> None:
     car = BBox(x=0.0, y=0.0, w=0.4, h=0.4, label="car")
     person = BBox(x=0.5, y=0.5, w=0.4, h=0.4, label="person")
-    out = LayerState(focus="car").apply_layers([car, person], PALETTE)
+    out = LayerState(hidden={"person"}).apply_layers([car, person], PALETTE)
     assert [b.label for b in out] == ["car"]
 
 
-def test_focus_keeps_unlabeled_scene_annotations() -> None:
+def test_hidden_keeps_unlabeled_scene_annotations() -> None:
     tag = Classification(tags=["scene"])  # no class of its own
-    out = LayerState(focus="car").apply_layers([tag], PALETTE)
+    out = LayerState(hidden={"car"}).apply_layers([tag], PALETTE)
     assert len(out) == 1
 
 
-def test_fill_alpha_override_layers_onto_shapes() -> None:
-    (box,) = LayerState(fill_alpha=0.8).apply_layers([_detection()], PALETTE)
-    assert box.style_overrides["fill_alpha"] == 0.8
-    assert box.style_overrides["mask_alpha"] == 0.8
+def test_toggle_class_flips_visibility() -> None:
+    state = LayerState(classes=("car", "person"))
+    state.toggle_class("car")
+    assert state.hidden == {"car"}
+    state.toggle_class("car")
+    assert state.hidden == set()
+
+
+def test_toggle_all_classes_hides_then_shows_everything() -> None:
+    state = LayerState(classes=("car", "person", "dog"))
+    state.toggle_all_classes()  # all shown -> hide the whole set
+    assert state.hidden == {"car", "person", "dog"}
+    state.toggle_all_classes()  # any hidden -> show all again
+    assert state.hidden == set()
+
+
+def test_toggle_all_classes_shows_all_from_a_partial_selection() -> None:
+    state = LayerState(classes=("car", "person"))
+    state.toggle_class("car")  # one already hidden
+    state.toggle_all_classes()  # a partial selection clears to all shown
+    assert state.hidden == set()
+    state.handle("c")  # the isolate cursor was reset, so c restarts cleanly
+    assert state.hidden == {"person"}
 
 
 def _busy_scene() -> list[BBox]:
@@ -187,44 +206,41 @@ def test_handle_toggles_layers_and_reports_control_keys() -> None:
     assert not state.handle("x")
 
 
-def test_update_classes_syncs_the_focus_set_and_drops_a_stale_focus() -> None:
-    state = LayerState(focus="car")
-    state.update_classes(["car", "person"])
-    assert state.classes == ("car", "person")
-    assert state.focus == "car"  # still present -> kept
-
-    state.update_classes(["dog"])  # car no longer on screen
-    assert state.classes == ("dog",)
-    assert state.focus is None  # stale focus reset so the frame is not blank
-
-
-def test_handle_cycles_class_focus() -> None:
+def test_update_classes_keeps_hidden_and_drops_a_stale_cursor() -> None:
     state = LayerState(classes=("car", "person"))
-    assert state.focus is None
-    state.handle("c")
-    assert state.focus == "car"
-    state.handle("c")
-    assert state.focus == "person"
-    state.handle("c")
-    assert state.focus is None  # wraps back to "all"
+    state.toggle_class("car")  # hide car (persists across samples)
+    state.update_classes(["car", "person", "dog"])
+    assert state.classes == ("car", "person", "dog")
+    assert state.hidden == {"car"}  # the hidden set persists
 
 
-def test_handle_cycle_is_a_noop_without_classes() -> None:
+def test_handle_c_cycles_isolate_then_wraps() -> None:
+    state = LayerState(classes=("car", "person"))
+    state.handle("c")  # isolate car -> hide person
+    assert state.hidden == {"person"}
+    state.handle("c")  # isolate person -> hide car
+    assert state.hidden == {"car"}
+    state.handle("c")  # wrap back to all shown
+    assert state.hidden == set()
+
+
+def test_handle_c_resets_after_manual_toggles() -> None:
+    state = LayerState(classes=("car", "person", "dog"))
+    state.toggle_class("car")
+    state.toggle_class("person")
+    assert state.hidden == {"car", "person"}
+    state.handle(
+        "c"
+    )  # a manual set -> the first c resets to "all", restarting
+    assert state.hidden == set()
+    state.handle("c")  # then the cycle isolates the first class
+    assert state.hidden == {"person", "dog"}
+
+
+def test_handle_c_is_a_noop_without_classes() -> None:
     state = LayerState()
     assert state.handle("c")  # still a recognized control key
-    assert state.focus is None
-
-
-def test_fill_nudge_moves_and_clamps_to_unit_range() -> None:
-    state = LayerState()
-    state.handle("]")
-    assert state.fill_alpha == 0.4  # starts from 0.3, +0.1
-    for _ in range(20):
-        state.handle("]")
-    assert state.fill_alpha == 1.0
-    for _ in range(20):
-        state.handle("[")
-    assert state.fill_alpha == 0.0
+    assert state.hidden == set()
 
 
 def test_controls_report_current_state() -> None:
@@ -235,20 +251,26 @@ def test_controls_report_current_state() -> None:
         "off",
         False,
     )
-    assert (controls["keypoints"].value, controls["keypoints"].active) == (
-        "on",
-        True,
-    )
     assert controls["boxes"].value == "off"
     assert controls["declutter"].value == "on"  # on by default
+    # No fill control any more.
+    assert "fill" not in controls
 
 
-def test_controls_reflect_class_focus_and_fill() -> None:
-    controls = {
-        c.name: c for c in LayerState(focus="car", fill_alpha=0.8).controls()
-    }
-    # A class focus and a fill override read as "active" (highlighted); an
-    # unset one is neutral (active is None).
-    assert (controls["class"].value, controls["class"].active) == ("car", True)
-    assert controls["fill"].value == "0.80"
-    assert LayerState().controls()[-2].active is None  # class "all" -> neutral
+def test_controls_class_reflects_visibility() -> None:
+    # All shown -> neutral "all".
+    allc = {c.name: c for c in LayerState(classes=("car",)).controls()}[
+        "class"
+    ]
+    assert (allc.value, allc.active) == ("all", None)
+    # A manual toggle -> "N off".
+    state = LayerState(classes=("car", "person"))
+    state.toggle_class("car")
+    off = {c.name: c for c in state.controls()}["class"]
+    assert (off.value, off.active) == ("1 off", True)
+    # An isolate cycle counts the hidden classes too (it never names the kept
+    # one — the legend already shows that, and a name would jump the width).
+    state.handle("c")  # resets, then...
+    state.handle("c")  # isolate car -> hide the other
+    iso = {c.name: c for c in state.controls()}["class"]
+    assert (iso.value, iso.active) == ("1 off", True)

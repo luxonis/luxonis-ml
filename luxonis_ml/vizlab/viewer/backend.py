@@ -21,8 +21,9 @@ from typing import Protocol
 
 import numpy as np
 
-#: Called with the cursor's ``(x, y)`` in frame pixels on every mouse move.
-MouseHandler = Callable[[int, int], None]
+#: Called with the cursor's ``(x, y)`` in frame pixels and whether this was a
+#: click (left-button press) rather than a move, on every mouse move or click.
+MouseHandler = Callable[[int, int, bool], None]
 
 #: Called with a backend key code on each keypress (push backends only).
 KeyHandler = Callable[[int], None]

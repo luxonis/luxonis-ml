@@ -288,19 +288,35 @@ class Canvas:
         )
         return out
 
-    def blit(self, rgba: np.ndarray, x: float, y: float) -> None:
+    def blit(
+        self, rgba: np.ndarray, x: float, y: float, *, radius: float = 0.0
+    ) -> None:
         """Draw an RGBA image onto the canvas with its top-left at ``(x, y)``.
 
         Args:
             rgba: An ``(H, W, 4)`` ``uint8`` RGBA array.
             x: Destination left in pixels.
             y: Destination top in pixels.
+            radius: Corner radius in pixels; ``> 0`` clips the image to a rounded
+                rectangle (anti-aliased) so it reads as a rounded surface.
 
         """
         image = skia.Image.fromarray(
             np.ascontiguousarray(rgba), colorType=_RGBA
         )
-        self._canvas.drawImage(image, float(x), float(y))
+        if radius > 0.0:
+            height, width = rgba.shape[:2]
+            rrect = skia.RRect.MakeRectXY(
+                skia.Rect.MakeXYWH(float(x), float(y), width, height),
+                radius,
+                radius,
+            )
+            self._canvas.save()
+            self._canvas.clipRRect(rrect, doAntiAlias=True)
+            self._canvas.drawImage(image, float(x), float(y))
+            self._canvas.restore()
+        else:
+            self._canvas.drawImage(image, float(x), float(y))
 
     # -- primitives ---------------------------------------------------------
 

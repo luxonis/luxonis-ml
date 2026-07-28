@@ -26,11 +26,6 @@ from luxonis_ml.vizlab.annotations import (
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.style import Palette, derive_child_color
 
-#: Fill opacity a first ``[``/``]`` press starts from (before it had been nudged).
-_FILL_START = 0.3
-#: Step per ``[``/``]`` press.
-_FILL_STEP = 0.1
-
 #: Decluttering only touches scenes with at least this many detection boxes;
 #: below it a scene is not busy enough for a tiny box to read as noise.
 _DECLUTTER_MIN_SCENE = 20
@@ -70,11 +65,11 @@ def _is_mask(annotation: Annotation) -> bool:
 
 @dataclass
 class LayerState:
-    """Which annotation kinds are shown, plus a class focus and fill opacity.
+    """Which annotation kinds are shown, plus per-class visibility.
 
     A `Viewer` keeps one of these per interactive session and applies it to every
-    window's scene. `handle` maps a keypress to a mutation; `apply_layers` renders
-    the state onto a list of annotations.
+    window's scene. `handle` maps a keypress to a mutation, `toggle_class` a
+    legend click; `apply_layers` renders the state onto a list of annotations.
 
     Attributes:
         masks: Whether instance/semantic masks are drawn.
@@ -88,12 +83,12 @@ class LayerState:
             busy scenes, so a dense pile of unreadable specks does not bury the
             frame (see `_declutter`). On by default; toggle off to see every
             detection.
-        fill_alpha: Fill/mask opacity override in ``[0, 1]``, or ``None`` to keep
-            each annotation's own (themed) opacity.
-        focus: A single class name to isolate — every detection of another class
-            is hidden — or ``None`` to show all classes.
-        classes: The class names ``c`` cycles focus through (kept in sync with the
-            classes actually present via `update_classes`).
+        hidden: Class names currently switched off — their detections are not
+            drawn (but stay in the legend, shown disabled). Toggled per class via
+            `toggle_class` (a legend click); the ``c`` key cycles an isolate-one
+            sequence over them (see `handle`).
+        classes: The class names present in the current view, in order (kept in
+            sync via `update_classes`); drives the legend and the ``c`` cycle.
 
     """
 
@@ -102,9 +97,12 @@ class LayerState:
     boxes: bool = True
     labels: bool = True
     declutter: bool = True
-    fill_alpha: float | None = None
-    focus: str | None = None
+    hidden: set[str] = field(default_factory=set)
     classes: tuple[str, ...] = field(default_factory=tuple)
+    #: Cursor for the ``c`` isolate cycle: ``None`` = all shown, else the index
+    #: in ``classes`` of the one class kept. A legend click clears it (the manual
+    #: visibility no longer matches the cycle), so the next ``c`` restarts it.
+    _focus: int | None = None
 
     def is_default(self) -> bool:
         """Whether nothing is toggled (so `apply_layers` can skip its work)."""
@@ -113,24 +111,48 @@ class LayerState:
             and self.keypoints
             and self.boxes
             and self.labels
-            and self.fill_alpha is None
-            and self.focus is None
+            and not self.hidden
         )
 
     def update_classes(self, classes: Sequence[str]) -> None:
-        """Set the classes ``c`` cycles through, dropping a now-absent focus.
+        """Set the classes present in the current view (order preserved).
 
-        Called with the classes present in the current view so cycling only
-        offers what is on screen; if the active focus is no longer among them it
-        resets to "all" so the frame never goes blank after navigating.
+        Drives the legend and the ``c`` isolate cycle. The hidden set persists
+        across samples (a class switched off stays off when it reappears), but a
+        stale isolate cursor is reset so the cycle stays consistent.
 
         Args:
             classes: The class names present in what is being shown.
 
         """
         self.classes = tuple(classes)
-        if self.focus is not None and self.focus not in self.classes:
-            self.focus = None
+        if self._focus is not None and self._focus >= len(self.classes):
+            self._focus = None
+
+    def toggle_class(self, name: str) -> None:
+        """Show/hide one class (a legend click), leaving the ``c`` cycle to reset.
+
+        Args:
+            name: The class to flip on/off.
+
+        """
+        if name in self.hidden:
+            self.hidden.discard(name)
+        else:
+            self.hidden.add(name)
+        # Manual visibility no longer matches the isolate cycle, so the next
+        # ``c`` press resets rather than blindly advancing (see `_cycle_class`).
+        self._focus = None
+
+    def toggle_all_classes(self) -> None:
+        """Show every class if any is hidden, else hide them all (a master toggle).
+
+        The switch beside the legend heading: one click clears every hidden
+        class, the next hides the whole set. Either way the ``c`` isolate cursor
+        is reset so its cycle restarts cleanly.
+        """
+        self.hidden = set() if self.hidden else set(self.classes)
+        self._focus = None
 
     def handle(self, key: str) -> bool:
         """Apply the keypress ``key``; return whether it was a control key.
@@ -158,54 +180,59 @@ class LayerState:
         elif lowered == "d":
             self.declutter = not self.declutter
         elif lowered == "c":
-            self._cycle_focus()
-        elif key == "[":
-            self._nudge(-_FILL_STEP)
-        elif key == "]":
-            self._nudge(_FILL_STEP)
+            self._cycle_class()
         else:
             return False
         return True
 
-    def _cycle_focus(self) -> None:
-        """Step focus ``all -> class 0 -> class 1 -> ... -> all``."""
+    def _implied_hidden(self) -> set[str]:
+        """Return the hidden set the isolate cursor currently stands for."""
+        if self._focus is None or self._focus >= len(self.classes):
+            return set()
+        keep = self.classes[self._focus]
+        return {name for name in self.classes if name != keep}
+
+    def _cycle_class(self) -> None:
+        """Step the isolate cycle ``all -> class 0 -> ... -> all``.
+
+        If the visibility was changed by legend clicks (so it no longer matches
+        the cursor), the first ``c`` press resets to "all shown" and restarts the
+        cycle from the beginning rather than advancing from an arbitrary state.
+        """
         if not self.classes:
             return
-        order: list[str | None] = [None, *self.classes]
-        current = self.focus if self.focus in order else None
-        self.focus = order[(order.index(current) + 1) % len(order)]
-
-    def _nudge(self, delta: float) -> None:
-        """Move the fill opacity by ``delta``, clamped to ``[0, 1]``."""
-        base = _FILL_START if self.fill_alpha is None else self.fill_alpha
-        self.fill_alpha = max(0.0, min(1.0, round(base + delta, 2)))
+        if self.hidden != self._implied_hidden():
+            self._focus = None
+            self.hidden = set()
+            return
+        order: list[int | None] = [None, *range(len(self.classes))]
+        index = order.index(self._focus) if self._focus in order else 0
+        self._focus = order[(index + 1) % len(order)]
+        self.hidden = self._implied_hidden()
 
     def controls(self) -> list[Control]:
-        """Describe the current controls, for the viewer's HUD.
+        """Describe the current controls, for the panel's controls section.
 
-        Returns one `Control` per key: the toggles carry their on/off state, the
-        class control shows the focus (or ``all``), and fill shows its opacity.
+        Returns one `Control` per key: the layer toggles carry their on/off state,
+        and the class control shows ``all`` or ``N off``. It deliberately does not
+        name the isolated class — the legend already shows which classes are on,
+        and a variable-length class name would make the panel width jump.
         """
 
         def toggle(key: str, name: str, on: bool) -> Control:
             return Control(key, name, "on" if on else "off", on)
 
-        fill = "auto" if self.fill_alpha is None else f"{self.fill_alpha:.2f}"
+        if not self.hidden:
+            class_value, class_active = "all", None
+        else:
+            class_value, class_active = f"{len(self.hidden)} off", True
         return [
             toggle("m", "masks", self.masks),
             toggle("k", "keypoints", self.keypoints),
             toggle("b", "boxes", self.boxes),
             toggle("l", "labels", self.labels),
             toggle("d", "declutter", self.declutter),
-            Control(
-                "c",
-                "class",
-                self.focus or "all",
-                None if self.focus is None else True,
-            ),
-            Control(
-                "[ ]", "fill", fill, None if self.fill_alpha is None else True
-            ),
+            Control("c", "class", class_value, class_active),
         ]
 
     def apply_layers(
@@ -214,11 +241,10 @@ class LayerState:
         """Return ``annotations`` filtered and adjusted for the current state.
 
         Tiny crowded detections are dropped first (when `declutter` is on); then
-        hidden masks/keypoints (and detections of a non-focused class) are
-        dropped, with labels off chip text is removed while each shape keeps its
-        color, and a fill override is layered onto every shape. Inputs are never
-        mutated — a pruned copy is returned (the same annotations, in a new list,
-        when nothing changes them).
+        detections of a hidden class and hidden masks/keypoints are dropped, and
+        with labels off chip text is removed while each shape keeps its color.
+        Inputs are never mutated — a pruned copy is returned (the same
+        annotations, in a new list, when nothing changes them).
 
         Args:
             annotations: The scene's top-level annotations.
@@ -236,18 +262,13 @@ class LayerState:
             return kept
         out: list[Annotation] = []
         for annotation in kept:
-            if self.focus is not None and not self._in_focus(annotation):
+            if (
+                annotation.label is not None
+                and annotation.label in self.hidden
+            ):
                 continue
             out.extend(self._transform(annotation, palette, None))
         return out
-
-    def _in_focus(self, annotation: Annotation) -> bool:
-        """Whether a top-level annotation belongs to the focused class.
-
-        A labeled detection of another class is out; an unlabeled or scene-level
-        annotation (no class of its own) is kept so focusing never blanks the frame.
-        """
-        return annotation.label is None or annotation.label == self.focus
 
     def _transform(
         self,
@@ -279,12 +300,6 @@ class LayerState:
             return children
         clone = annotation.model_copy()
         clone.children = children
-        if self.fill_alpha is not None:
-            clone.style_overrides = {
-                **clone.style_overrides,
-                "fill_alpha": self.fill_alpha,
-                "mask_alpha": self.fill_alpha,
-            }
         if not self.labels:
             _strip_label(clone, palette)
         return [clone]

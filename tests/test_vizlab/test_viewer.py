@@ -80,7 +80,7 @@ def test_show_arms_hover_and_wait_draws_tooltip_then_quits() -> None:
     assert backend.created == ["w"]
     base = backend.shown[-1][1]
 
-    backend.handlers["w"](100, 60)  # over the box center
+    backend.handlers["w"](100, 60, False)  # over the box center
     key = viewer.wait()  # -1 -> redraw dirty, then "q"
     assert key == "q"
     assert not np.array_equal(backend.shown[-1][1], base)  # tooltip drawn
@@ -93,7 +93,7 @@ def test_hover_outside_boxes_keeps_base_frame() -> None:
     viewer.show("w", image.frame())
     base = backend.shown[-1][1]
 
-    backend.handlers["w"](3, 3)  # corner, outside the box -> no tooltip
+    backend.handlers["w"](3, 3, False)  # corner, outside the box -> no tooltip
     viewer.wait()
     assert np.array_equal(backend.shown[-1][1], base)
 
@@ -240,8 +240,53 @@ def test_run_delivers_keys_and_hovers_inline() -> None:
 
     # Hover now repaints inline (no wait loop): the shown frame changes.
     base = backend.shown[-1][1]
-    backend.handlers["w"](100, 60)  # over the box center
+    backend.handlers["w"](100, 60, False)  # over the box center
     assert not np.array_equal(backend.shown[-1][1], base)
+
+
+def test_hud_flag_gates_the_floating_controls() -> None:
+    # With hud=False (controls shown in a panel instead) the floating HUD is not
+    # drawn; with hud=True it composites the controls card onto the frame.
+    frame = np.zeros((200, 300, 3), np.uint8)
+    off = frame.copy()
+    Viewer(FakeBackend(), hud=False)._draw_hud(off)
+    assert np.array_equal(off, frame)  # untouched
+
+    on = frame.copy()
+    Viewer(FakeBackend(), hud=True)._draw_hud(on)
+    assert not np.array_equal(on, frame)  # controls drawn
+
+
+def test_apply_action_dispatches_control_and_class_clicks() -> None:
+    viewer = Viewer(FakeBackend(), hud=False)
+    viewer.layers.classes = ("car", "person")
+    viewer._apply_action("class:car")
+    assert viewer.layers.hidden == {"car"}  # a legend click hides a class
+    viewer._apply_action("key:m")
+    assert viewer.layers.masks is False  # a control click triggers its key
+    # The master switch: with "car" already hidden, one click shows all...
+    viewer._apply_action("classes:toggle")
+    assert viewer.layers.hidden == set()
+    viewer._apply_action("classes:toggle")  # ...and the next hides every class
+    assert viewer.layers.hidden == {"car", "person"}
+
+
+def test_panel_click_toggles_a_class_through_wait() -> None:
+    from luxonis_ml.vizlab.geometry import Rect
+    from luxonis_ml.vizlab.hitmap import ClickMap
+
+    backend = FakeBackend(keys=[-1, ord("q")])
+    viewer = Viewer(backend, hud=False)
+    viewer.layers.classes = ("car",)
+    image, _ = _tooltip_image()
+    frame = Frame(
+        image, clickmap=ClickMap([(Rect(0, 0, 50, 50), "class:car")])
+    )
+    viewer.show("w", frame, render=lambda _state: frame)
+
+    backend.handlers["w"](10, 10, True)  # click inside the swatch region
+    viewer.wait()  # -1 -> apply the pending click action, then "q"
+    assert viewer.layers.hidden == {"car"}
 
 
 def test_cv2_backend_is_pull_only() -> None:
@@ -297,7 +342,7 @@ def test_controls_card_is_rgba_and_scales_with_size() -> None:
     from luxonis_ml.vizlab.viewer.hud import render_controls_card
 
     controls = LayerState(
-        masks=False, focus="car", classes=("car",)
+        masks=False, hidden={"person"}, classes=("car", "person")
     ).controls()
     small = render_controls_card(controls, 12)
     large = render_controls_card(controls, 22)

@@ -170,27 +170,33 @@ class NotebookBackend:
             self._key_handler(ord(char[0]))
 
     def _wire_mouse(self, name: str, image: Any) -> None:
-        """Route mouse-move over ``image`` to the window's handler, if possible."""
+        """Route mouse move/click over ``image`` to the window's handler.
+
+        Moves drive hover tooltips; clicks (left button) drive the panel's
+        interactive controls and class legend. Both are optional — without
+        ``ipyevents`` the navigation buttons still work.
+        """
         try:
             ipyevents = importlib.import_module("ipyevents")
         except ImportError:
-            return  # hover is optional; buttons still drive navigation
-        event = ipyevents.Event(source=image, watched_events=["mousemove"])
+            return  # hover/clicks are optional; buttons still drive navigation
+        event = ipyevents.Event(
+            source=image, watched_events=["mousemove", "click"]
+        )
 
-        def on_move(payload: dict) -> None:
+        def on_event(payload: dict) -> None:
             handler = self._mouse.get(name)
             if handler is None:
                 return
             frame_w, frame_h = self._frame_size.get(name, (0, 0))
-            handler(
-                *_relative_to_frame(
-                    payload.get("relativeX", 0),
-                    payload.get("relativeY", 0),
-                    payload.get("boundingRectWidth", frame_w),
-                    payload.get("boundingRectHeight", frame_h),
-                    frame_w,
-                    frame_h,
-                )
+            x, y = _relative_to_frame(
+                payload.get("relativeX", 0),
+                payload.get("relativeY", 0),
+                payload.get("boundingRectWidth", frame_w),
+                payload.get("boundingRectHeight", frame_h),
+                frame_w,
+                frame_h,
             )
+            handler(x, y, payload.get("type") == "click")
 
-        event.on_dom_event(on_move)
+        event.on_dom_event(on_event)

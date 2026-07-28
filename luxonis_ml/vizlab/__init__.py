@@ -217,7 +217,7 @@ with guard_missing_extra("viz"):
         default_options,
         set_default_options,
     )
-    from .panel import with_panel
+    from .panel import Block, Controls, Swatches, with_panel
     from .presets import COCO_CLASSES
     from .style import (
         DARK_THEME,
@@ -243,12 +243,14 @@ __all__ = [
     "LIGHT_THEME",
     "Annotation",
     "BBox",
+    "Block",
     "Caption",
     "ClassDistribution",
     "Classification",
     "Color",
     "ComparisonReport",
     "ComparisonResult",
+    "Controls",
     "Corner",
     "Frame",
     "GoldenRatioColors",
@@ -269,6 +271,7 @@ __all__ = [
     "RenderOptions",
     "SemanticMask",
     "Style",
+    "Swatches",
     "Theme",
     "Tooltip",
     "Verdict",

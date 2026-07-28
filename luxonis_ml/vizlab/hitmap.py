@@ -87,3 +87,63 @@ class HitMap:
     def __or__(self, other: "HitMap") -> "HitMap":
         """``self | other`` — shorthand for `merge`."""
         return self.merge(other)
+
+
+@dataclass
+class ClickMap:
+    """Click hit-test entries in final frame pixels.
+
+    Each entry is a ``(rect, action)`` pair, where ``action`` is an opaque string
+    a viewer dispatches when the region is clicked (e.g. ``"key:m"`` for a control
+    or ``"class:car"`` for a legend swatch). Mirrors `HitMap`, but the payload is
+    an action rather than a `Tooltip`; smallest containing rectangle wins.
+
+    Attributes:
+        items: The ``(rect, action)`` entries, in draw order.
+
+    """
+
+    items: list[tuple[Rect, str]] = field(default_factory=list)
+
+    @classmethod
+    def empty(cls) -> "ClickMap":
+        """Return a click map with no entries."""
+        return cls([])
+
+    def hit(self, x: float, y: float) -> str | None:
+        """Return the action of the smallest box containing ``(x, y)``.
+
+        Args:
+            x: Point x in frame pixels.
+            y: Point y in frame pixels.
+
+        Returns:
+            The matching action string, or ``None`` when no box contains the
+            point. On ties the first (earliest-drawn) box wins.
+
+        """
+        best: str | None = None
+        best_area: float | None = None
+        for rect, action in self.items:
+            if rect.left <= x <= rect.right and rect.top <= y <= rect.bottom:
+                area = rect.area
+                if best_area is None or area < best_area:
+                    best, best_area = action, area
+        return best
+
+    def scaled(self, factor: float) -> "ClickMap":
+        """Return a copy with every rectangle scaled about the origin."""
+        return ClickMap(
+            [
+                (
+                    Rect(
+                        r.left * factor,
+                        r.top * factor,
+                        r.right * factor,
+                        r.bottom * factor,
+                    ),
+                    a,
+                )
+                for r, a in self.items
+            ]
+        )

@@ -52,6 +52,91 @@ class _FakeBackend:
         pass
 
 
+def test_present_sample_metadata_splits_batch_into_labelled_samples() -> None:
+    # A batch augmentation's merged metadata becomes one "sample N" group per
+    # contributing input, dropping the duplicated top-level copy and the
+    # machine-only input_index/sample_metadata wrapping.
+    merged = {
+        "record_id": 123,
+        "source": "a.jpg",
+        "batch_augmentation_metadata": [
+            {"input_index": 0, "sample_metadata": {"record_id": 123}},
+            {"input_index": 1, "sample_metadata": {"record_id": 456}},
+        ],
+    }
+    assert data_main._present_sample_metadata(merged) == {
+        "sample 1": {"record_id": 123},
+        "sample 2": {"record_id": 456},
+    }
+
+
+def test_present_sample_metadata_collapses_single_input() -> None:
+    merged = {
+        "record_id": 7,
+        "batch_augmentation_metadata": [
+            {"input_index": 0, "sample_metadata": {"record_id": 7}}
+        ],
+    }
+    assert data_main._present_sample_metadata(merged) == {"record_id": 7}
+
+
+def test_present_sample_metadata_passes_non_batched_through() -> None:
+    plain = {"record_id": 1, "source": "x.jpg"}
+    assert data_main._present_sample_metadata(plain) is plain
+
+
+def test_present_sample_metadata_flattens_single_source_filenames() -> None:
+    # The common single-image record: the one-entry filenames dict collapses to
+    # a "filename" Block field (its own labelled line), keeping the other fields.
+    from luxonis_ml.vizlab import Block
+
+    md = {"filenames": {"image": "frame_001.jpg"}, "record_id": 5}
+    assert data_main._present_sample_metadata(md) == {
+        "filename": Block("frame_001.jpg"),
+        "record_id": 5,
+    }
+
+
+def test_present_sample_metadata_keeps_multi_source_filenames() -> None:
+    # A true multi-image record keeps the full mapping (nothing to collapse).
+    md = {"filenames": {"image": "a.jpg", "depth": "a.png"}, "record_id": 5}
+    assert data_main._present_sample_metadata(md) == md
+
+
+def test_present_sample_metadata_flattens_filenames_per_batch_sample() -> None:
+    from luxonis_ml.vizlab import Block
+
+    merged = {
+        "batch_augmentation_metadata": [
+            {
+                "input_index": 0,
+                "sample_metadata": {"filenames": {"image": "a.jpg"}},
+            },
+            {
+                "input_index": 1,
+                "sample_metadata": {"filenames": {"image": "b.jpg"}},
+            },
+        ],
+    }
+    assert data_main._present_sample_metadata(merged) == {
+        "sample 1": {"filename": Block("a.jpg")},
+        "sample 2": {"filename": Block("b.jpg")},
+    }
+
+
+def test_present_sample_metadata_labels_empty_inputs() -> None:
+    merged = {
+        "batch_augmentation_metadata": [
+            {"input_index": 0, "sample_metadata": {"record_id": 1}},
+            {"input_index": 1, "sample_metadata": {}},
+        ],
+    }
+    assert data_main._present_sample_metadata(merged) == {
+        "sample 1": {"record_id": 1},
+        "sample 2": "(no metadata)",
+    }
+
+
 def test_per_instance_inspect_attaches_augmentation_panel(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -129,7 +214,9 @@ def test_per_instance_inspect_attaches_augmentation_panel(
     monkeypatch.setattr(data_main, "AugmentationsCollector", _Collector)
     # inspect imports Viewer from the viewer package at call time, so patch it
     # there; the real viewer drives a headless fake backend.
-    monkeypatch.setattr(viewer_module, "Viewer", lambda: RealViewer(backend))
+    monkeypatch.setattr(
+        viewer_module, "Viewer", lambda **_k: RealViewer(backend)
+    )
     monkeypatch.setattr(
         label_converter,
         "loader_output_to_records",
@@ -222,7 +309,9 @@ def test_inspect_grid_renders_real_frames(
     monkeypatch.setattr(data_main, "check_exists", lambda *_args: None)
     monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
     monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
-    monkeypatch.setattr(viewer_module, "Viewer", lambda: RealViewer(backend))
+    monkeypatch.setattr(
+        viewer_module, "Viewer", lambda **_k: RealViewer(backend)
+    )
     monkeypatch.setattr(
         label_converter,
         "loader_output_to_records",
@@ -292,7 +381,7 @@ def test_inspect_layer_key_rerenders_and_toggles_state(
     backend = _FakeBackend(keys=[ord("m"), ord("q")])
     created: list[RealViewer] = []
 
-    def make_viewer() -> RealViewer:
+    def make_viewer(**_k: object) -> RealViewer:
         viewer = RealViewer(backend)
         created.append(viewer)
         return viewer
@@ -383,7 +472,7 @@ def test_inspect_show_all_starts_with_decluttering_off(
     def declutter_after(*, show_all: bool) -> bool:
         created.clear()
 
-        def make_viewer() -> RealViewer:
+        def make_viewer(**_k: object) -> RealViewer:
             viewer = RealViewer(_FakeBackend(keys=[ord("q")]))
             created.append(viewer)
             return viewer
@@ -464,7 +553,7 @@ def test_inspect_fast_lightens_the_render_style(
         monkeypatch.setattr(
             viewer_module,
             "Viewer",
-            lambda: RealViewer(_FakeBackend(keys=[ord("q")])),
+            lambda **_k: RealViewer(_FakeBackend(keys=[ord("q")])),
         )
         try:
             data_main.inspect("dataset", fast=fast)
@@ -555,7 +644,9 @@ def _compare_mocks(
     monkeypatch.setattr(data_main, "check_exists", lambda *_args: None)
     monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
     monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
-    monkeypatch.setattr(viewer_module, "Viewer", lambda: real_viewer(backend))
+    monkeypatch.setattr(
+        viewer_module, "Viewer", lambda **_k: real_viewer(backend)
+    )
     monkeypatch.setattr(
         label_converter,
         "loader_output_to_records",

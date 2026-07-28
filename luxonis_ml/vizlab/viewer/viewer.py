@@ -15,7 +15,7 @@ import numpy as np
 
 from luxonis_ml.vizlab import io
 from luxonis_ml.vizlab.frame import Frame
-from luxonis_ml.vizlab.hitmap import HitMap
+from luxonis_ml.vizlab.hitmap import ClickMap, HitMap
 from luxonis_ml.vizlab.image import Image
 from luxonis_ml.vizlab.tooltip import Tooltip
 
@@ -39,9 +39,12 @@ class _HoverState:
 
     base: np.ndarray
     hitmap: HitMap
+    clickmap: ClickMap = field(default_factory=ClickMap.empty)
     hover: Tooltip | None = None
     mouse: tuple[int, int] = field(default=(0, 0))
     dirty: bool = False
+    #: Action string from a panel click, awaiting the `wait` loop to apply it.
+    pending: str | None = None
     render: RenderFn | None = None
 
 
@@ -67,13 +70,19 @@ class Viewer:
 
     Args:
         backend: The window backend to drive; defaults to `Cv2Backend`.
+        hud: Whether to float the controls HUD over each interactive window. Turn
+            it off when the controls are shown elsewhere (e.g. a side panel that
+            already lists them, as ``luxonis_ml data inspect`` does).
 
     """
 
-    def __init__(self, backend: WindowBackend | None = None) -> None:
+    def __init__(
+        self, backend: WindowBackend | None = None, *, hud: bool = True
+    ) -> None:
         self._backend: WindowBackend = (
             backend if backend is not None else Cv2Backend()
         )
+        self._hud = hud
         self._screen = self._backend.screen_size()
         self._windows: dict[str, _HoverState] = {}
         self._live: set[str] = set()
@@ -98,14 +107,14 @@ class Viewer:
         return self._layers
 
     def _prepare(
-        self, display: Image, hitmap: HitMap
-    ) -> tuple[np.ndarray, HitMap]:
-        """Render ``display`` to a screen-fitted BGR frame and scale the map.
+        self, display: Image, hitmap: HitMap, clickmap: ClickMap
+    ) -> tuple[np.ndarray, HitMap, ClickMap]:
+        """Render ``display`` to a screen-fitted BGR frame and scale the maps.
 
         The image is rendered once at its natural size to learn its dimensions
         (which may already reflect a `Image.render_at` size); if that overflows
         the screen it is re-rendered smaller — so labels stay crisp rather than
-        being resampled afterwards — and the hit map is scaled to match.
+        being resampled afterwards — and the hit/click maps are scaled to match.
         """
         rgba = display.render()
         out_h, out_w = rgba.shape[:2]
@@ -120,7 +129,8 @@ class Viewer:
             size = (max(1, round(out_w * fit)), max(1, round(out_h * fit)))
             rgba = display.render(size)
             hitmap = hitmap.scaled(fit)
-        return io.export(rgba, "bgr"), hitmap
+            clickmap = clickmap.scaled(fit)
+        return io.export(rgba, "bgr"), hitmap, clickmap
 
     def _open(self, name: str, frame: np.ndarray) -> None:
         """Create (if needed), size, and center the window for ``frame``."""
@@ -149,11 +159,15 @@ class Viewer:
                 callback and a small controls HUD is drawn on it.
 
         """
-        bgr, hitmap = self._prepare(frame.image, frame.hitmap)
+        bgr, hitmap, clickmap = self._prepare(
+            frame.image, frame.hitmap, frame.clickmap
+        )
         self._open(name, bgr)
         if render is not None:
             self._draw_hud(bgr)
-        state = _HoverState(base=bgr, hitmap=hitmap, render=render)
+        state = _HoverState(
+            base=bgr, hitmap=hitmap, clickmap=clickmap, render=render
+        )
         self._windows[name] = state
         self._backend.set_mouse_handler(name, self._handler(name, state))
         self._backend.show(name, bgr)
@@ -162,8 +176,12 @@ class Viewer:
         """Draw the controls HUD (current `LayerState`) at the frame's lower-left.
 
         The type size scales with the frame so the HUD stays proportional on both
-        small and large (screen-fitted) windows, matching the hover tooltips.
+        small and large (screen-fitted) windows, matching the hover tooltips. A
+        no-op when the viewer was created with ``hud=False`` (controls shown
+        elsewhere).
         """
+        if not self._hud:
+            return
         height, width = frame.shape[:2]
         size = int(min(22, max(12, round(min(width, height) / 52))))
         card = render_controls_card(self._layers.controls(), size)
@@ -181,17 +199,20 @@ class Viewer:
         if state.render is None:
             return
         frame = state.render(self._layers)
-        bgr, hitmap = self._prepare(frame.image, frame.hitmap)
+        bgr, hitmap, clickmap = self._prepare(
+            frame.image, frame.hitmap, frame.clickmap
+        )
         self._draw_hud(bgr)
         state.base = bgr
         state.hitmap = hitmap
+        state.clickmap = clickmap
         state.hover = None
         state.dirty = False
         self._backend.show(name, bgr)
 
     def show_blocking(self, name: str, display: Image) -> str:
         """Show one frame (no hover) and block until a key; return its char."""
-        bgr, _ = self._prepare(display, HitMap.empty())
+        bgr, _, _ = self._prepare(display, HitMap.empty(), ClickMap.empty())
         self._open(name, bgr)
         self._windows.pop(name, None)
         self._backend.show(name, bgr)
@@ -211,6 +232,19 @@ class Viewer:
                         self._rerender(name, state)
                     continue
                 return char
+            pending = next(
+                (
+                    s.pending
+                    for s in self._windows.values()
+                    if s.pending is not None
+                ),
+                None,
+            )
+            if pending is not None:
+                for state in self._windows.values():
+                    state.pending = None
+                self._apply_action(pending)
+                continue
             for name, state in self._windows.items():
                 if state.dirty:
                     state.dirty = False
@@ -267,13 +301,24 @@ class Viewer:
         self._windows.clear()
 
     def _handler(self, name: str, state: _HoverState) -> MouseHandler:
-        """Build the mouse-move handler that tracks the hovered tooltip.
+        """Build the mouse handler tracking hover and dispatching panel clicks.
 
-        Pull mode marks the window dirty for `wait` to repaint; driven mode
-        repaints inline (there is no loop to defer to).
+        A click on a panel control/legend region applies its action to the shared
+        `LayerState` and re-renders; a move updates the hover tooltip. Pull mode
+        defers the work to `wait` (via ``dirty``/``pending``); driven mode does it
+        inline (there is no loop to defer to).
         """
 
-        def handler(x: int, y: int) -> None:
+        def handler(x: int, y: int, clicked: bool) -> None:
+            if clicked:
+                action = state.clickmap.hit(x, y)
+                if action is None:
+                    return
+                if self._driven:
+                    self._apply_action(action)
+                else:
+                    state.pending = action
+                return
             tooltip = state.hitmap.hit(x, y)
             pos = (int(x), int(y))
             changed = tooltip is not state.hover or (
@@ -289,3 +334,22 @@ class Viewer:
                 state.dirty = True
 
         return handler
+
+    def _apply_action(self, action: str) -> None:
+        """Apply a panel-click ``action`` to the layers and re-render every window.
+
+        ``"key:<k>"`` presses control key ``k`` (same as the keyboard); ``"class:
+        <name>"`` toggles that class's visibility (a legend click); ``"classes:
+        toggle"`` flips every class on/off (the legend's master switch).
+        """
+        kind, _, arg = action.partition(":")
+        if kind == "key":
+            self._layers.handle(arg)
+        elif kind == "class":
+            self._layers.toggle_class(arg)
+        elif kind == "classes" and arg == "toggle":
+            self._layers.toggle_all_classes()
+        else:
+            return
+        for name, state in self._windows.items():
+            self._rerender(name, state)

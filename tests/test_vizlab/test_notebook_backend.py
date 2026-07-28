@@ -13,6 +13,7 @@ from luxonis_ml.vizlab.viewer.notebook_backend import (
 )
 
 _HAS_IPYWIDGETS = importlib.util.find_spec("ipywidgets") is not None
+_HAS_IPYEVENTS = importlib.util.find_spec("ipyevents") is not None
 
 
 def test_encode_png_swaps_bgr_to_rgb() -> None:
@@ -91,3 +92,45 @@ def test_show_sets_png_on_real_widget(
     widget = backend._images["w"]
     assert widget.value[:8] == b"\x89PNG\r\n\x1a\n"
     assert widget.layout.width == "60px"
+
+
+@pytest.mark.skipif(
+    not (_HAS_IPYWIDGETS and _HAS_IPYEVENTS),
+    reason="needs the 'notebook' extra (ipywidgets + ipyevents)",
+)
+def test_mouse_events_route_move_and_click(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A DOM move dispatches with clicked=False (hover), a click with True (panel
+    # interaction); both are scaled from the displayed element size.
+    import ipyevents
+    import IPython.display
+
+    monkeypatch.setattr(IPython.display, "display", lambda *a, **k: None)
+
+    captured: dict = {}
+
+    class FakeEvent:
+        def __init__(self, *, source: object, watched_events: list) -> None:
+            captured["watched"] = watched_events
+
+        def on_dom_event(self, callback: object) -> None:
+            captured["callback"] = callback
+
+    monkeypatch.setattr(ipyevents, "Event", FakeEvent)
+
+    backend = NotebookBackend()
+    backend.create_window("w")
+    backend._frame_size["w"] = (100, 60)
+    calls: list[tuple[int, int, bool]] = []
+    backend.set_mouse_handler(
+        "w", lambda x, y, clicked: calls.append((x, y, clicked))
+    )
+
+    dispatch = captured["callback"]
+    rect = {"boundingRectWidth": 200, "boundingRectHeight": 120}
+    dispatch({"type": "mousemove", "relativeX": 100, "relativeY": 60, **rect})
+    dispatch({"type": "click", "relativeX": 20, "relativeY": 40, **rect})
+
+    assert {"mousemove", "click"} <= set(captured["watched"])
+    assert calls == [(50, 30, False), (10, 20, True)]  # scaled, click flagged

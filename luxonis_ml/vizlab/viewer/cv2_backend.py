@@ -77,7 +77,9 @@ class Cv2Backend:
             event: int, x: int, y: int, flags: int, param: object
         ) -> None:
             if event == cv2.EVENT_MOUSEMOVE:
-                handler(x, y)
+                handler(x, y, False)
+            elif event == cv2.EVENT_LBUTTONDOWN:
+                handler(x, y, True)
 
         self._callbacks[name] = callback
         cv2.setMouseCallback(name, callback)
