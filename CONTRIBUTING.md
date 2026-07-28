@@ -4,7 +4,7 @@ This guide is the starting point for local development and pull requests.
 For API usage details, use the generated docs at
 <https://luxonis.github.io/luxonis-ml/latest/>.
 
-## First 10 Minutes
+## Preparation
 
 ```bash
 git clone git@github.com:luxonis/luxonis-ml.git
@@ -49,7 +49,7 @@ PIP_CONSTRAINT=/tmp/luxonis-ml-constraints.txt python -m pip install -e '.[dev]'
 Package dependencies are defined in `pyproject.toml` and loaded from the
 module requirement files plus `extra_requirements/`.
 
-## Daily Workflow
+## Pre-commit checks
 
 Run the same formatting and static checks before pushing:
 
@@ -122,6 +122,10 @@ Good doc changes should:
 - include compact examples for non-obvious data shapes;
 - use readable spacing in JSON and Python snippets;
 - avoid restating implementation details that users do not need.
+
+> [!IMPORTANT]
+> Use direct names in docstrings rather than Sphinx cross-reference roles (`:func:`, `:mod:`, `:attr:`, *etc.*);
+> pydoctor resolves supported references automatically.
 
 ## Type Checking and Security
 
