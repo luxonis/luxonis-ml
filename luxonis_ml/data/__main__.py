@@ -1,6 +1,6 @@
 import shutil
 from pathlib import Path
-from typing import Annotated, Literal, TypeAlias
+from typing import Annotated, Literal, TypeAlias, cast
 
 import cv2
 import matplotlib.pyplot as plt
@@ -41,16 +41,6 @@ app = App(help="Dataset utilities.")
 
 
 BucketStorageT: TypeAlias = Annotated[BucketStorage, Parameter(alias="-b")]
-
-
-def _get_applied_augmentations(metadata: Params) -> list[str]:
-    augmentations = metadata.get("augmentations", [])
-    if not isinstance(augmentations, dict) or not all(
-        isinstance(path, str) and isinstance(params, dict)
-        for path, params in augmentations.items()
-    ):
-        return []
-    return list(augmentations)
 
 
 @app.command
@@ -271,6 +261,13 @@ def inspect(
         bucket_storage: Storage type of the dataset.
 
     """
+
+    def _get_applied_augmentations(metadata: Params) -> list[str]:
+        augmentations = metadata.get("augmentations")
+        if not isinstance(augmentations, dict):
+            return []
+        return list(cast(Params, augmentations))
+
     check_exists(name, bucket_storage)
 
     view = view or ["train"]

@@ -761,15 +761,12 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         if isinstance(value, Mapping):
             return AlbumentationsEngine._normalize_augmentation_params(value)
         if isinstance(value, (list, tuple)):
-            return [
-                normalized_item
-                for item in value
-                if (
-                    normalized_item
-                    := AlbumentationsEngine._normalize_augmentation_value(item)
-                )
-                is not _SKIP_AUGMENTATION_PARAM
-            ]
+            normalized = []
+            for item in value:
+                item = AlbumentationsEngine._normalize_augmentation_value(item)
+                if item is not _SKIP_AUGMENTATION_PARAM:
+                    normalized.append(item)
+            return normalized
         if isinstance(value, (str, int, float, bool)) or value is None:
             return value
         return str(value)
