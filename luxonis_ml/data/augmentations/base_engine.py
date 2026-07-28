@@ -112,7 +112,7 @@ class AugmentationEngine(
     def batch_augmentation_indices(self) -> list[int]:
         """Input positions contributing to the last augmented output.
 
-        Engines that do not expose this information return the first input
-        position, so loaders preserve its metadata.
+        Engines that do not expose this information are assumed to use every
+        input position, preserving the behavior of existing batch engines.
         """
-        return [0]
+        return list(range(self.batch_size))

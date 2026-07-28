@@ -161,6 +161,14 @@ class CompatibilityOnlyEngine(
         return 1
 
 
+class CompatibilityBatchEngine(
+    CompatibilityOnlyEngine, register_name="compatibility_batch_engine"
+):
+    @property
+    def batch_size(self) -> int:
+        return 2
+
+
 @contextmanager
 def set_seed(seed: int):
     np_state = np.random.get_state()
@@ -299,6 +307,42 @@ def test_loader_passes_is_validation_pipeline_to_legacy_engines(
     )
 
     assert CompatibilityOnlyEngine.last_is_validation_pipeline is True
+
+
+def test_loader_preserves_metadata_for_custom_batch_engines(
+    dataset_name: str, tempdir: Path
+) -> None:
+    def generator() -> DatasetIterator:
+        for i in range(2):
+            yield {
+                "file": create_image(i, tempdir),
+                "sample_metadata": {"record_id": i},
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    loader = LuxonisLoader(
+        dataset,
+        view="train",
+        height=256,
+        width=256,
+        autopopulate_metadata=False,
+        augmentation_engine="compatibility_batch_engine",
+        augmentation_config=[{"name": "Normalize"}],
+    )
+
+    metadata = loader[0].metadata
+    batch_metadata = cast(
+        list[dict[str, Params]], metadata["batch_augmentation_metadata"]
+    )
+
+    assert [cast(int, entry["input_index"]) for entry in batch_metadata] == [
+        0,
+        1,
+    ]
+    assert {
+        cast(int, entry["sample_metadata"]["record_id"])
+        for entry in batch_metadata
+    } == {0, 1}
 
 
 @pytest.mark.parametrize(
