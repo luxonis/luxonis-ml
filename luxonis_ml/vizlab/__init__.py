@@ -200,7 +200,7 @@ with guard_missing_extra("viz"):
         hstack,
         vstack,
     )
-    from .convert import VizConfig, visualize_record
+    from .convert import visualize_record
     from .frame import Frame
     from .geometry import Rect
     from .gradient import (
@@ -277,7 +277,6 @@ __all__ = [
     "Theme",
     "Tooltip",
     "Verdict",
-    "VizConfig",
     "blend",
     "combine",
     "combine_hits",

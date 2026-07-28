@@ -1503,7 +1503,7 @@ def _batch_demo_dataset() -> tuple["LuxonisDataset", list[str]]:
 def _aug_viz_config(
     dataset: "LuxonisDataset", *, font_scale: float = 1.0
 ) -> "RenderOptions":
-    """Build a `VizConfig` sharing the dataset palette and keypoint skeletons.
+    """Build `RenderOptions` sharing the dataset palette and keypoint skeletons.
 
     ``font_scale`` enlarges the class-label font; the samples are large and get
     scaled down to the display height, which otherwise leaves the labels small.

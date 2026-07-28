@@ -11,7 +11,7 @@ constructor (see `BBox.from_ldf` and
 friends). This module wires those constructors together: it walks a
 ``Detection`` tree into a vizlab annotation tree, aggregates record-level
 semantic segmentation and classification, and threads the rendering context
-(class palette, skeletons, keypoint label mode) through a `VizConfig`.
+(class palette, skeletons, keypoint label mode) through `RenderOptions`.
 """
 
 from collections.abc import Iterable, Mapping
@@ -29,9 +29,6 @@ from .annotations import (
 )
 from .options import RenderOptions
 from .tooltip import Tooltip
-
-#: Backwards-compatible alias: the LDF-adapter config is now `RenderOptions`.
-VizConfig: TypeAlias = RenderOptions
 
 if TYPE_CHECKING:
     from luxonis_ml.ldf import (
@@ -59,7 +56,7 @@ if TYPE_CHECKING:
 
 
 def _spatial_annotations(
-    detection: "Detection", options: VizConfig, task_name: str
+    detection: "Detection", options: RenderOptions, task_name: str
 ) -> list[Annotation]:
     """Build the spatial annotations for one detection (no record-level parts).
 
@@ -121,7 +118,7 @@ def _attach(
 
 def _keypoints_annotation(
     keypoints: "KeypointAnnotation",
-    options: VizConfig,
+    options: RenderOptions,
     task_name: str,
     label: str | None,
 ) -> Keypoints:
@@ -143,7 +140,7 @@ def _keypoints_annotation(
 
 def detection_to_annotations(
     detection: "Detection",
-    options: VizConfig | None = None,
+    options: RenderOptions | None = None,
     *,
     task_name: str = "",
 ) -> list[Annotation]:
@@ -185,7 +182,7 @@ def detection_to_annotations(
 
 def blend_records_to_annotations(
     records: "Iterable[DatasetRecord]",
-    options: VizConfig | None = None,
+    options: RenderOptions | None = None,
 ) -> list[Annotation]:
     """Merge several records' detections into one flat annotation list.
 
@@ -256,7 +253,7 @@ def _suppress_redundant_mask_labels(annotations: list[Annotation]) -> None:
 
 
 def _detection_tooltip(
-    detection: "Detection", options: VizConfig
+    detection: "Detection", options: RenderOptions
 ) -> Tooltip | None:
     """Build a hover `Tooltip` from a boxed detection's metadata.
 
@@ -354,7 +351,7 @@ def metadata_annotations(
 
 
 def to_render_annotations(
-    obj: "RenderableLDF", options: VizConfig | None = None
+    obj: "RenderableLDF", options: RenderOptions | None = None
 ) -> list[Annotation]:
     """Convert one supported LDF object into render annotations.
 
@@ -418,7 +415,7 @@ def visualize_record(
     record: "DatasetRecord",
     image: "ImageSource",
     *,
-    options: VizConfig | None = None,
+    options: RenderOptions | None = None,
     panel: dict | None = None,
     size: tuple[int, int] | None = None,
 ) -> "Renderable":
@@ -519,7 +516,7 @@ def _is_pure_classification(detection: "Detection") -> bool:
 
 def _scan_detection(
     detection: "Detection",
-    options: VizConfig,
+    options: RenderOptions,
     task_name: str,
     img: "Image",
     segmentations: "list[tuple[str | None, SegmentationAnnotation]]",
