@@ -19,6 +19,7 @@ from .palette import (
 from .style import (
     DEFAULT_STYLE,
     LabelPlacement,
+    MaskOutline,
     Style,
     current_default_style,
     current_style_overrides,
@@ -40,6 +41,7 @@ __all__ = [
     "ColorGenerator",
     "GoldenRatioColors",
     "LabelPlacement",
+    "MaskOutline",
     "Palette",
     "SequenceColors",
     "Style",

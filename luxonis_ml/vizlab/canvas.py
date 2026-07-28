@@ -162,7 +162,11 @@ class Canvas:
     """A drawable RGBA raster backed by a Skia surface."""
 
     def __init__(
-        self, surface: skia.Surface, fonts: FontManager = DEFAULT_FONTS
+        self,
+        surface: skia.Surface,
+        fonts: FontManager = DEFAULT_FONTS,
+        *,
+        antialias: bool = True,
     ) -> None:
         """Wrap an existing Skia surface.
 
@@ -171,15 +175,24 @@ class Canvas:
         Args:
             surface: The Skia surface to draw on.
             fonts: Font manager used for text primitives.
+            antialias: Whether shape fills and strokes are anti-aliased. ``False``
+                gives jagged edges but noticeably faster rasterization of dense
+                scenes; text stays anti-aliased regardless, so labels stay legible.
 
         """
         self._surface = surface
         self._canvas = surface.getCanvas()
         self._fonts = fonts
+        self._antialias = antialias
 
     @classmethod
     def blank(
-        cls, width: int, height: int, fonts: FontManager = DEFAULT_FONTS
+        cls,
+        width: int,
+        height: int,
+        fonts: FontManager = DEFAULT_FONTS,
+        *,
+        antialias: bool = True,
     ) -> "Canvas":
         """Create a transparent canvas of the given size.
 
@@ -187,6 +200,7 @@ class Canvas:
             width: Width in pixels.
             height: Height in pixels.
             fonts: Font manager used for text primitives.
+            antialias: Whether shape fills and strokes are anti-aliased.
 
         Returns:
             A new, fully transparent `Canvas`.
@@ -194,26 +208,31 @@ class Canvas:
         """
         info = skia.ImageInfo.Make(int(width), int(height), _RGBA, _UNPREMUL)
         surface = skia.Surface.MakeRaster(info)
-        canvas = cls(surface, fonts)
+        canvas = cls(surface, fonts, antialias=antialias)
         canvas._canvas.clear(skia.Color4f(0, 0, 0, 0))
         return canvas
 
     @classmethod
     def from_rgba(
-        cls, rgba: np.ndarray, fonts: FontManager = DEFAULT_FONTS
+        cls,
+        rgba: np.ndarray,
+        fonts: FontManager = DEFAULT_FONTS,
+        *,
+        antialias: bool = True,
     ) -> "Canvas":
         """Create a canvas initialized with an RGBA image.
 
         Args:
             rgba: An ``(H, W, 4)`` ``uint8`` array in RGBA order.
             fonts: Font manager used for text primitives.
+            antialias: Whether shape fills and strokes are anti-aliased.
 
         Returns:
             A new `Canvas` with ``rgba`` drawn as its background.
 
         """
         height, width = rgba.shape[:2]
-        canvas = cls.blank(width, height, fonts)
+        canvas = cls.blank(width, height, fonts, antialias=antialias)
         image = skia.Image.fromarray(
             np.ascontiguousarray(rgba), colorType=_RGBA
         )
@@ -257,7 +276,9 @@ class Canvas:
 
         """
         image = self._surface.makeImageSnapshot()
-        out = Canvas.blank(int(width), int(height), self._fonts)
+        out = Canvas.blank(
+            int(width), int(height), self._fonts, antialias=self._antialias
+        )
         out._canvas.drawImageRect(
             image,
             skia.Rect.MakeWH(self.width, self.height),
@@ -294,7 +315,9 @@ class Canvas:
 
         """
         return skia.Paint(
-            Color=_color4f(color), AntiAlias=True, Style=skia.Paint.kFill_Style
+            Color=_color4f(color),
+            AntiAlias=self._antialias,
+            Style=skia.Paint.kFill_Style,
         )
 
     def _stroke_paint(
@@ -316,7 +339,7 @@ class Canvas:
         """
         paint = skia.Paint(
             Color=_color4f(color),
-            AntiAlias=True,
+            AntiAlias=self._antialias,
             Style=skia.Paint.kStroke_Style,
             StrokeWidth=float(width),
             # Butt caps keep dash gaps crisp; round caps would bridge them.
@@ -743,14 +766,24 @@ class Canvas:
 
         """
         m = mask > 0.5 if mask.dtype.kind == "f" else mask.astype(bool)
-        rgba = np.zeros((self.height, self.width, 4), dtype=np.uint8)
-        rgba[m] = (
+        # Paint only the mask's bounding box: an instance mask covers a small
+        # patch, so allocating and compositing a full-canvas RGBA buffer per mask
+        # is almost all wasted work. Crop to the set pixels and blit that patch.
+        rows = np.any(m, axis=1)
+        if not rows.any():
+            return
+        cols = np.any(m, axis=0)
+        y0 = int(np.argmax(rows))
+        y1 = int(len(rows) - np.argmax(rows[::-1]))
+        x0 = int(np.argmax(cols))
+        x1 = int(len(cols) - np.argmax(cols[::-1]))
+        patch = m[y0:y1, x0:x1]
+        rgba = np.zeros((y1 - y0, x1 - x0, 4), dtype=np.uint8)
+        rgba[patch] = (
             color.r,
             color.g,
             color.b,
             round(max(0.0, min(1.0, alpha)) * 255),
         )
-        image = skia.Image.fromarray(
-            np.ascontiguousarray(rgba), colorType=_RGBA
-        )
-        self._canvas.drawImage(image, 0, 0)
+        image = skia.Image.fromarray(rgba, colorType=_RGBA)
+        self._canvas.drawImage(image, float(x0), float(y0))

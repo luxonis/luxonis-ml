@@ -425,12 +425,18 @@ class Image:
         options = self._resolve_options()
         theme = options.theme
         gradient = options.gradient
-        key = (
-            render_size,
-            _render_signature(self._annotations, theme, gradient),
-        )
-        if not capture and self._cache is not None and self._cache_key == key:
-            return self._cache.copy(), None
+        # The render cache is only consulted/filled on the plain `render` path;
+        # `render_hits` runs once per displayed frame and never reuses a cached
+        # result, so it skips signing the scene (a full freeze + hash of every
+        # annotation) entirely.
+        key: tuple[tuple[int, int], bytes] | None = None
+        if not capture:
+            key = (
+                render_size,
+                _render_signature(self._annotations, theme, gradient),
+            )
+            if self._cache is not None and self._cache_key == key:
+                return self._cache.copy(), None
 
         # Background layers (semantic segmentation) render beneath every other
         # spatial annotation; overlays (image-level chrome) render on top. A
@@ -442,7 +448,9 @@ class Image:
         overlays = [a for a in self._annotations if a.OVERLAY]
 
         # Pass 1: raster fills at the source resolution.
-        canvas = self._render_fills(spatial, theme, gradient)
+        canvas = self._render_fills(
+            spatial, theme, gradient, options.antialias
+        )
         # Scale the filled raster once to the display size.
         if target is not None and target != (canvas.width, canvas.height):
             canvas = canvas.scaled(target[0], target[1])
@@ -468,9 +476,15 @@ class Image:
         spatial: list[Annotation],
         theme: Theme,
         gradient: "Gradient | str | None",
+        antialias: bool = True,
     ) -> Canvas:
-        """First pass: paint every annotation's raster fill at source resolution."""
-        canvas = Canvas.from_rgba(self._rgba)
+        """First pass: paint every annotation's raster fill at source resolution.
+
+        The ``antialias`` flag is set on the canvas here and carried through the
+        display-scaled canvas (`Canvas.scaled`) into the vector pass, so it
+        governs every shape fill and stroke in the render.
+        """
+        canvas = Canvas.from_rgba(self._rgba, antialias=antialias)
         ctx = RenderContext(
             canvas=canvas, depth=0, theme=theme, gradient=gradient
         )

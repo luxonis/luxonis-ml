@@ -27,6 +27,25 @@ class LabelPlacement(Enum):
     """Always inside the box, at the top-left corner."""
 
 
+class MaskOutline(Enum):
+    """How much work a mask's contour outline is worth.
+
+    A speed/quality knob for mask and semantic-segmentation outlines. It only
+    affects masks; and the smoothing it governs only runs when a mask is
+    *upscaled*, so downscaled views render the same under every setting.
+    """
+
+    SMOOTH = "smooth"
+    """Traced outline, corner-rounded when upscaled (the crisp default)."""
+
+    CRISP = "crisp"
+    """Traced outline without the corner-rounding pass — faster, but the
+    pixel staircase shows through on an upscaled mask."""
+
+    NONE = "none"
+    """No outline at all; masks are drawn as translucent fills only (fastest)."""
+
+
 @dataclass(frozen=True)
 class Style:
     """The resolved visual style for one annotation.
@@ -51,6 +70,9 @@ class Style:
         keypoint_radius: Radius of a keypoint joint, in pixels.
         keypoint_outline_width: White outline width around each joint, in pixels.
         mask_alpha: Fill opacity for masks, in ``[0, 1]``.
+        mask_outline: Detail level of mask/semantic contours — ``SMOOTH`` (default,
+            corner-rounded when upscaled), ``CRISP`` (traced but unsmoothed, faster),
+            or ``NONE`` (fill only, fastest). Only masks are affected.
         shadow: Whether shapes cast a soft drop shadow.
 
     Examples:
@@ -82,6 +104,7 @@ class Style:
     keypoint_radius: float = 5.0
     keypoint_outline_width: float = 1.5
     mask_alpha: float = 0.45
+    mask_outline: MaskOutline = MaskOutline.SMOOTH
     shadow: bool = True
 
     @property

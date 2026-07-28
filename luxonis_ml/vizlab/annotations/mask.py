@@ -14,11 +14,12 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
+from pydantic import PrivateAttr
 
 from luxonis_ml.ldf import InstanceSegmentationAnnotation
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
-from luxonis_ml.vizlab.style import Palette, Style
+from luxonis_ml.vizlab.style import MaskOutline, Palette, Style
 
 from .base import Annotation, RenderContext
 from .chip import place_label
@@ -44,7 +45,9 @@ def _mask_contours(mask_bool: np.ndarray) -> list[np.ndarray]:
         import cv2
     except ImportError:
         return []
-    m = np.ascontiguousarray(mask_bool.astype(np.uint8))
+    # Cast and contiguity in one pass; a mask that is already contiguous uint8
+    # (an instance mask straight from ``to_numpy``) is used without a copy.
+    m = np.ascontiguousarray(mask_bool, dtype=np.uint8)
     contours, _ = cv2.findContours(
         m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
     )
@@ -154,13 +157,21 @@ def _resize_mask(mask: np.ndarray, width: int, height: int) -> np.ndarray:
 
 
 def _nonzero_bounds(binary: np.ndarray) -> Rect | None:
-    """Return the bounding rect of a binary mask's set pixels, or ``None`` if empty."""
-    ys, xs = np.nonzero(binary)
-    if len(xs) == 0:
+    """Return the bounding rect of a binary mask's set pixels, or ``None`` if empty.
+
+    Reduces along each axis (``any``) and reads the first/last set row and column,
+    which avoids materializing the coordinate arrays of every set pixel that
+    ``np.nonzero`` would build for a large mask.
+    """
+    rows = np.any(binary, axis=1)
+    if not rows.any():
         return None
-    return Rect(
-        float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max())
-    )
+    cols = np.any(binary, axis=0)
+    y0 = int(np.argmax(rows))
+    y1 = int(len(rows) - 1 - np.argmax(rows[::-1]))
+    x0 = int(np.argmax(cols))
+    x1 = int(len(cols) - 1 - np.argmax(cols[::-1]))
+    return Rect(float(x0), float(y0), float(x1), float(y1))
 
 
 class Mask(InstanceSegmentationAnnotation, Annotation):
@@ -190,6 +201,23 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
 
     fill_alpha: float | None = None
     contour: bool = True
+
+    #: Memoized dense mask. A single render decodes the RLE three times (fill,
+    #: contour, and label passes); caching it turns that into one decode. The
+    #: mask data is treated as immutable once the annotation is built.
+    _dense_cache: np.ndarray | None = PrivateAttr(default=None)
+
+    def _dense(self) -> np.ndarray:
+        """Return the decoded ``(H, W)`` mask, decoding once and caching it.
+
+        The decode (pycocotools) yields a Fortran-ordered array; it is made
+        C-contiguous here once so the per-pixel passes over it — the bounds
+        reduction, the fill, the contour extraction — all run on cache-friendly
+        row-major memory instead of paying a strided copy each time.
+        """
+        if self._dense_cache is None:
+            self._dense_cache = np.ascontiguousarray(self.to_numpy())
+        return self._dense_cache
 
     @classmethod
     def from_ldf(
@@ -238,7 +266,7 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
 
     def extent(self) -> Rect | None:
         """Return the mask's pixel bounds, or ``None`` when empty."""
-        return _nonzero_bounds(self.to_numpy())
+        return _nonzero_bounds(self._dense())
 
     def draw_fill(
         self, ctx: RenderContext, style: Style, color: Color
@@ -255,7 +283,7 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
             style.mask_alpha if self.fill_alpha is None else self.fill_alpha
         )
         canvas = ctx.canvas
-        binary = _resize_mask(self.to_numpy(), canvas.width, canvas.height)
+        binary = _resize_mask(self._dense(), canvas.width, canvas.height)
         canvas.overlay_mask(binary, color, alpha=alpha)
 
     def draw(self, ctx: RenderContext, style: Style, color: Color) -> None:
@@ -270,18 +298,22 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
             color: The resolved fill color.
 
         """
-        if not self.contour:
+        if not self.contour or style.mask_outline is MaskOutline.NONE:
             return
         canvas = ctx.canvas
-        binary = self.to_numpy()
+        binary = self._dense()
         mask_h, mask_w = binary.shape[:2]
         sx = canvas.width / mask_w
         sy = canvas.height / mask_h
-        smoothing = _contour_smoothing(sx, sy)
+        smoothing = (
+            _contour_smoothing(sx, sy)
+            if style.mask_outline is MaskOutline.SMOOTH
+            else 0
+        )
         # A nested sub-label fills in its own class color but traces its contour in
         # the parent's, so it stays tied to the parent (see outline_color).
         stroke = self.outline_color(ctx, color)
-        for ring in _mask_contours(binary > 0):
+        for ring in _mask_contours(binary):
             canvas.polygon(
                 _contour_path(ring, sx, sy, smoothing),
                 stroke=stroke,
@@ -301,7 +333,7 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
 
         """
         canvas = ctx.canvas
-        binary = self.to_numpy()
+        binary = self._dense()
         mask_h, mask_w = binary.shape[:2]
         region = _nonzero_bounds(binary)
         if region is not None:
@@ -361,6 +393,17 @@ class SemanticMask(Annotation):
     ignore_index: int | list[int] = 0
     color_map: dict[int, ColorLike] | None = None
     fill_alpha: float | None = None
+
+    #: Memoized sorted class ids present in ``labels``. Both the fill pass and the
+    #: contour pass iterate them, and finding them sorts the whole label map, so
+    #: it is computed once. The label map is treated as immutable once built.
+    _ids_cache: np.ndarray | None = PrivateAttr(default=None)
+
+    def _ids(self) -> np.ndarray:
+        """Return the unique class ids in ``labels`` (computed once, cached)."""
+        if self._ids_cache is None:
+            self._ids_cache = np.unique(np.asarray(self.labels))
+        return self._ids_cache
 
     @classmethod
     def from_ldf(
@@ -487,7 +530,7 @@ class SemanticMask(Annotation):
         labels = _resize_mask(
             np.asarray(self.labels), canvas.width, canvas.height
         )
-        for class_id in np.unique(labels):
+        for class_id in self._ids():
             cid = int(class_id)
             if cid in ignore:
                 continue
@@ -507,7 +550,11 @@ class SemanticMask(Annotation):
             color: Unused (colors are per class id).
 
         """
-        if self.labels is None or style.stroke_width <= 0:
+        if (
+            self.labels is None
+            or style.stroke_width <= 0
+            or style.mask_outline is MaskOutline.NONE
+        ):
             return
         canvas = ctx.canvas
         palette = self.resolved_palette(ctx)
@@ -516,8 +563,12 @@ class SemanticMask(Annotation):
         mask_h, mask_w = labels.shape[:2]
         sx = canvas.width / mask_w
         sy = canvas.height / mask_h
-        smoothing = _contour_smoothing(sx, sy)
-        for class_id in np.unique(labels):
+        smoothing = (
+            _contour_smoothing(sx, sy)
+            if style.mask_outline is MaskOutline.SMOOTH
+            else 0
+        )
+        for class_id in self._ids():
             cid = int(class_id)
             if cid in ignore:
                 continue

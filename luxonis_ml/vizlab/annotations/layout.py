@@ -14,8 +14,9 @@ draw a thin connector line back to it — the pushed-out label still reads as
 belonging to its box instead of floating free.
 """
 
-import math
 from dataclasses import dataclass
+
+import numpy as np
 
 from luxonis_ml.vizlab.geometry import XY, Rect
 from luxonis_ml.vizlab.style import LabelPlacement
@@ -132,13 +133,6 @@ def _ring_candidates(region: Rect, width: float, height: float) -> list[XY]:
     return out
 
 
-def _gap(a: Rect, b: Rect) -> float:
-    """Edge-to-edge distance between two rectangles (``0`` when they touch/overlap)."""
-    dx = max(0.0, a.left - b.right, b.left - a.right)
-    dy = max(0.0, a.top - b.bottom, b.top - a.bottom)
-    return math.hypot(dx, dy)
-
-
 def _clamp_point(rect: Rect, x: float, y: float) -> XY:
     """Return the point on/inside ``rect`` closest to ``(x, y)``."""
     return (
@@ -178,6 +172,24 @@ class LabelLayout:
         self.height = height
         self.placed: list[Rect] = []
         self.overlay_positions: dict[int, list[Rect]] = {}
+        # Mirror of ``placed`` as a growing ``(N, 4)`` [left, top, right, bottom]
+        # buffer, so a new chip's overlap against every placed one is a single
+        # vectorized pass instead of a Python loop (placement is O(chips²)).
+        self._bounds = np.empty((8, 4), dtype=float)
+        self._count = 0
+
+    def _record(self, rect: Rect) -> None:
+        """Mark ``rect`` as occupied, in both the list and the numpy mirror."""
+        if self._count == len(self._bounds):
+            self._bounds = np.resize(self._bounds, (2 * self._count, 4))
+        self._bounds[self._count] = (
+            rect.left,
+            rect.top,
+            rect.right,
+            rect.bottom,
+        )
+        self._count += 1
+        self.placed.append(rect)
 
     def _clamp(self, x: float, y: float, width: float, height: float) -> Rect:
         """Clamp a chip of the given size fully inside the canvas."""
@@ -216,22 +228,52 @@ class LabelLayout:
         options = candidates
         if region is not None:
             options = [*candidates, *_ring_candidates(region, width, height)]
-        best: Rect | None = None
-        best_cost = float("inf")
-        best_gap = 0.0
-        for x, y in options:
-            rect = self._clamp(x, y, width, height)
-            overlap = sum(_overlap_area(rect, other) for other in self.placed)
-            gap = _gap(rect, region) if region is not None else 0.0
-            cost = overlap + _DISPLACEMENT_WEIGHT * gap
-            if cost < best_cost:
-                best, best_cost, best_gap = rect, cost, gap
-                if cost == 0.0:
-                    break
-        assert best is not None  # options is always non-empty
-        self.placed.append(best)
+
+        # Clamp every candidate fully inside the canvas (vectorized `_clamp`).
+        xy = np.asarray(options, dtype=float)
+        left = np.maximum(0.0, np.minimum(xy[:, 0], self.width - width))
+        top = np.maximum(0.0, np.minimum(xy[:, 1], self.height - height))
+        cand = np.column_stack((left, top, left + width, top + height))
+
+        # Overlap area against every placed chip, summed per candidate.
+        cost = np.zeros(len(cand))
+        if self._count:
+            placed = self._bounds[: self._count]
+            dx = np.minimum(cand[:, 2, None], placed[:, 2]) - np.maximum(
+                cand[:, 0, None], placed[:, 0]
+            )
+            dy = np.minimum(cand[:, 3, None], placed[:, 3]) - np.maximum(
+                cand[:, 1, None], placed[:, 1]
+            )
+            np.clip(dx, 0.0, None, out=dx)
+            np.clip(dy, 0.0, None, out=dy)
+            cost = np.einsum("cp,cp->c", dx, dy)
+
+        gaps = np.zeros(len(cand))
+        if region is not None:
+            gx = np.maximum(
+                0.0,
+                np.maximum(
+                    region.left - cand[:, 2], cand[:, 0] - region.right
+                ),
+            )
+            gy = np.maximum(
+                0.0,
+                np.maximum(
+                    region.top - cand[:, 3], cand[:, 1] - region.bottom
+                ),
+            )
+            gaps = np.hypot(gx, gy)
+            cost = cost + _DISPLACEMENT_WEIGHT * gaps
+
+        # First candidate with minimal cost wins, matching the preference order
+        # of the original scan (which kept the earliest of equal-cost options).
+        index = int(np.argmin(cost))
+        row = cand[index]
+        best = Rect(float(row[0]), float(row[1]), float(row[2]), float(row[3]))
+        self._record(best)
         leader: XY | None = None
-        if region is not None and best_gap > _LEADER_MIN_GAP:
+        if region is not None and float(gaps[index]) > _LEADER_MIN_GAP:
             leader = _clamp_point(region, *best.center)
         return Placement(best, leader)
 
@@ -242,4 +284,4 @@ class LabelLayout:
             rect: The chip rectangle to mark as taken.
 
         """
-        self.placed.append(rect)
+        self._record(rect)

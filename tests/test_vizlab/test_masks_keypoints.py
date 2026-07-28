@@ -10,6 +10,7 @@ from luxonis_ml.vizlab import (
     Image,
     Keypoints,
     Mask,
+    MaskOutline,
     SemanticMask,
     Style,
 )
@@ -43,6 +44,73 @@ def test_mask_array_without_contour() -> None:
     base = _canvas()
     base.add(Mask(mask=_disc(80, 60, 40, 30, 15), contour=False))  # type: ignore
     assert base.render()[..., 3].max() > 0
+
+
+def test_mask_outline_none_skips_the_contour_like_no_contour(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # NONE traces no contour (the mask's only polygon draw), exactly like
+    # `contour=False`; SMOOTH still traces it. Asserted on the draw calls, which
+    # is immune to the sub-pixel raster noise a pixel comparison would expose.
+    from luxonis_ml.vizlab.canvas import Canvas
+
+    real_polygon = Canvas.polygon
+    disc = _disc(80, 60, 40, 30, 15)
+
+    def contour_draws(mask: Mask) -> int:
+        count = 0
+
+        def counting(self: Canvas, *args: object, **kwargs: object) -> None:
+            nonlocal count
+            count += 1
+            return real_polygon(self, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(Canvas, "polygon", counting)
+        # Upscaled render so a contour, if drawn, is smoothed and traced.
+        _canvas().add(mask).render((160, 120))
+        return count
+
+    smooth = Mask(mask=disc)  # type: ignore[call-arg]
+    none = Mask(mask=disc).styled(mask_outline=MaskOutline.NONE)  # type: ignore[call-arg]
+    off = Mask(mask=disc, contour=False)  # type: ignore[call-arg]
+    assert contour_draws(smooth) > 0  # SMOOTH (default) traces the outline
+    assert contour_draws(none) == 0  # the NONE knob skips it
+    assert contour_draws(off) == 0  # as does contour=False
+
+
+def test_mask_outline_crisp_drops_only_the_smoothing_on_upscale() -> None:
+    # On an upscaled mask, CRISP keeps the outline but skips the corner-rounding,
+    # so it differs from SMOOTH (rounded) yet still draws more than NONE (none).
+    disc = _disc(80, 60, 40, 30, 15)
+    size = (160, 120)  # 2x upscale -> SMOOTH would smooth the contour
+
+    def render(outline: MaskOutline) -> np.ndarray:
+        return (
+            _canvas()
+            .add(Mask(mask=disc, label="m").styled(mask_outline=outline))  # type: ignore
+            .render(size)
+        )
+
+    smooth, crisp, none = (
+        render(MaskOutline.SMOOTH),
+        render(MaskOutline.CRISP),
+        render(MaskOutline.NONE),
+    )
+    assert not np.array_equal(smooth, crisp)  # smoothing dropped
+    assert not np.array_equal(crisp, none)  # outline still present
+
+
+def test_semantic_outline_none_removes_contours() -> None:
+    labels = np.zeros((60, 80), np.int32)
+    labels[:, 40:] = 1
+    size = (160, 120)
+    smooth = _canvas().add(SemanticMask(labels=labels)).render(size)
+    none = (
+        _canvas()
+        .add(SemanticMask(labels=labels).styled(mask_outline=MaskOutline.NONE))
+        .render(size)
+    )
+    assert not np.array_equal(smooth, none)
 
 
 def test_mask_reuses_ldf_rle_to_numpy() -> None:

@@ -13,6 +13,22 @@ def _blank() -> Canvas:
     return Canvas.blank(40, 30)
 
 
+def test_antialias_flag_controls_shape_edge_smoothing() -> None:
+    # A filled circle: anti-aliased edges carry partial alpha; with the flag off
+    # the edge is binary (only fully-inside or fully-outside pixels).
+    def circle_alpha(antialias: bool) -> np.ndarray:
+        canvas = Canvas.blank(40, 40, antialias=antialias)
+        canvas.circle((20, 20), 12.0, fill=_RED)
+        return canvas.to_rgba()[..., 3]
+
+    soft = circle_alpha(antialias=True)
+    hard = circle_alpha(antialias=False)
+    assert np.any((soft > 0) & (soft < 255))  # smooth edge -> partial alpha
+    assert not np.any(
+        (hard > 0) & (hard < 255)
+    )  # jagged edge -> 0 or 255 only
+
+
 def test_line_and_circle_draw() -> None:
     canvas = _blank()
     canvas.line((2, 2), (30, 20), _RED, width=3.0)

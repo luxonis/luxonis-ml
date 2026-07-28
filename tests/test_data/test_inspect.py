@@ -320,6 +320,93 @@ def test_inspect_layer_key_rerenders_and_toggles_state(
     assert backend.shown == ["image", "image"]
 
 
+def test_inspect_fast_lightens_the_render_style(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `--fast` installs a theme whose default style skips mask contours and drop
+    # shadows, while the default run keeps the crisp, shadowed look.
+    image = np.zeros((40, 60, 3), dtype=np.uint8)
+    record = DatasetRecord.model_construct(
+        files={},
+        sample_metadata={},
+        annotation=[
+            Detection(
+                class_name="car",
+                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+            )
+        ],
+        task_name="objects",
+    )
+
+    class _Dataset:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return 1
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"objects": {"car": 0}}
+
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"objects": ["car"]}
+
+        def get_categorical_encodings(self) -> dict[str, object]:
+            return {}
+
+        def get_skeletons(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self._augmentations = None
+
+        def __iter__(self) -> Iterator[SimpleNamespace]:
+            yield SimpleNamespace(
+                images={"image": image}, labels={}, metadata={}
+            )
+
+    from luxonis_ml.data.loaders import label_converter
+    from luxonis_ml.vizlab import (
+        MaskOutline,
+        RenderOptions,
+        current_options,
+        set_default_options,
+    )
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    monkeypatch.setattr(data_main, "check_exists", lambda *_args: None)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    monkeypatch.setattr(
+        label_converter,
+        "loader_output_to_records",
+        lambda *_args, **_kwargs: {"objects": record},
+    )
+
+    def run(*, fast: bool = False) -> tuple[MaskOutline, bool, bool]:
+        monkeypatch.setattr(
+            viewer_module,
+            "Viewer",
+            lambda: RealViewer(_FakeBackend(keys=[ord("q")])),
+        )
+        try:
+            data_main.inspect("dataset", fast=fast)
+            opts = current_options()
+            return (
+                opts.theme.style.mask_outline,
+                opts.theme.style.shadow,
+                opts.antialias,
+            )
+        finally:
+            set_default_options(RenderOptions())
+
+    # default: crisp, shadowed, anti-aliased
+    assert run() == (MaskOutline.SMOOTH, True, True)
+    # --fast: fill-only masks, no shadows, no shape anti-aliasing
+    assert run(fast=True) == (MaskOutline.NONE, False, False)
+
+
 def _compare_mocks(
     monkeypatch: pytest.MonkeyPatch,
     image: np.ndarray,

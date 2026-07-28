@@ -337,6 +337,10 @@ def inspect(
         bool,
         Parameter(alias="-bg", negative=""),
     ] = False,
+    fast: Annotated[
+        bool,
+        Parameter(alias="-fa", negative=""),
+    ] = False,
     theme: Annotated[
         Literal["dark", "light"],
         Parameter(alias="-t"),
@@ -380,6 +384,11 @@ def inspect(
         legend: Draw a class-color legend on each image.
         show_background: Render the semantic-segmentation background class
             (hidden by default) and include it in the palette and legend.
+        fast: Lighter, much faster rendering for large or dense datasets: draw
+            masks as fills only (no contour outlines), drop the soft drop shadows,
+            and turn off shape anti-aliasing. Shape edges look slightly harder and
+            text stays anti-aliased; every mask still shows (the ``m`` key still
+            toggles them).
         theme: Visual theme of the visualization: ``dark`` or ``light``.
         bucket_storage: Storage type of the dataset.
 
@@ -448,6 +457,7 @@ def inspect(
             Frame,
             Image,
             Legend,
+            MaskOutline,
             Palette,
             RenderOptions,
             fit_grid,
@@ -472,6 +482,13 @@ def inspect(
     )
 
     viz_theme = LIGHT_THEME if theme == "light" else DARK_THEME
+    if fast:
+        # Lighter rendering for big/dense datasets via the theme's default style:
+        # fill-only masks (contour tracing is the biggest per-mask cost) and no
+        # soft drop shadows. Shape anti-aliasing is dropped below, on the options.
+        viz_theme = viz_theme.with_style(
+            viz_theme.style.merge(mask_outline=MaskOutline.NONE, shadow=False)
+        )
     # The palette is pinned to the dataset's class order for stable colors; it
     # lives on the theme, and the whole bundle is the render options.
     palette = Palette(class_names)
@@ -481,6 +498,8 @@ def inspect(
         keypoint_label_mode=keypoint_labels,
         draw_skeletons=skeletons,
         hover_metadata=True,
+        # --fast also drops shape anti-aliasing (a render-wide setting).
+        antialias=not fast,
     )
     # Make single images, panels, and grid backgrounds all follow the options
     # (so bare Images in this command pick up the theme/palette too).

@@ -43,6 +43,9 @@ class RenderOptions:
         draw_skeletons: Whether to draw skeleton limbs between keypoints.
         hover_metadata: When ``True``, a boxed detection's metadata is attached as
             a hover `Tooltip` instead of crowding the frame.
+        antialias: Whether shape fills and strokes are anti-aliased. ``False`` is a
+            render-wide speed trade for dense scenes — jagged shape edges, but
+            faster; text stays anti-aliased so labels stay legible.
 
     Examples:
         >>> from luxonis_ml.vizlab import RenderOptions, DARK_THEME
@@ -60,6 +63,7 @@ class RenderOptions:
     keypoint_label_mode: KeypointLabelMode = "numbers"
     draw_skeletons: bool = False
     hover_metadata: bool = False
+    antialias: bool = True
 
     def replace(self, **changes: Any) -> "RenderOptions":
         """Return a copy with the given fields replaced."""
