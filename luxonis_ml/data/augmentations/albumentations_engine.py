@@ -11,7 +11,7 @@ from loguru import logger
 from pydantic import Field
 from typing_extensions import override
 
-from luxonis_ml.data.utils.task_utils import get_task_name, task_is_metadata
+from luxonis_ml.data.utils.task_utils import get_task_type, task_is_metadata
 from luxonis_ml.typing import ConfigItem, LoaderMultiOutput, Params
 from luxonis_ml.utils import deprecated
 
@@ -369,14 +369,16 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
         Raises:
             ValueError: If a target task type is unsupported, more than
-                one transform is marked for resizing, or a configured
-                transform is not an Albumentations transform.
+                one bounding-box target belongs to the same task group,
+                more than one transform is marked for resizing, or a
+                configured transform is not an Albumentations transform.
             TypeError: If a resizing transform has a non-numeric
                 probability ``p``.
 
         """
         self._targets: dict[str, TargetType] = {}
         self._target_names_to_tasks = {}
+        self._target_names_to_task_groups = {}
         self._n_classes = n_classes
         self._image_size = (height, width)
         self._source_names = source_names
@@ -439,6 +441,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
             self._targets[target_name] = target_type
             self._target_names_to_tasks[target_name] = task
+            self._target_names_to_task_groups[target_name] = (
+                self._get_task_group(task)
+            )
 
         for source_name in source_names:
             self._targets[source_name] = "image"
@@ -577,9 +582,35 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         # Warning issued when "bbox_params" or "keypoint_params"
         # are provided to a compose with transformations that
         # do not use them. We don't care about these warnings.
+        bbox_targets_by_group = {}
+        for bbox_target, bbox_type in self._targets.items():
+            if bbox_type != "bboxes":
+                continue
+            task_group = self._target_names_to_task_groups[bbox_target]
+            if task_group in bbox_targets_by_group:
+                raise ValueError(
+                    "Multiple bounding-box targets belong to task group "
+                    f"'{task_group}'."
+                )
+            bbox_targets_by_group[task_group] = bbox_target
+
+        self._bbox_task_groups = set(bbox_targets_by_group)
+        bbox_associations = {}
+        for task_group, bbox_target in bbox_targets_by_group.items():
+            bbox_associations[bbox_target] = {
+                target_name: target_type
+                for target_name, target_type in self._targets.items()
+                if target_type
+                in {"instance_mask", "keypoints", "array", "metadata"}
+                and self._target_names_to_task_groups[target_name]
+                == task_group
+            }
+
         with warnings.catch_warnings(record=True):
             self._batch_transform = BatchCompose(
-                batch_transforms, **_get_params(is_custom=True)
+                batch_transforms,
+                bbox_associations=bbox_associations,
+                **_get_params(is_custom=True),
             )
             self._spatial_transform = self._wrap_transform(
                 A.Compose(wrapped_spatial_ops, **_get_params())
@@ -756,13 +787,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 continue
 
             task = self._target_names_to_tasks[target_name]
-            task_name = get_task_name(task)
+            task_group = self._target_names_to_task_groups[target_name]
 
             if target_type == "bboxes":
                 out_labels[task], index = postprocess_bboxes(
                     array, self._bbox_area_threshold
                 )
-                bboxes_indices[task_name] = index
+                bboxes_indices[task_group] = index
 
         for target_name, target_type in self._targets.items():
             if target_name not in data:
@@ -773,10 +804,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 continue
 
             task = self._target_names_to_tasks[target_name]
-            task_name = get_task_name(task)
+            task_group = self._target_names_to_task_groups[target_name]
 
-            if task_name not in bboxes_indices:
-                if "bboxes" in self._targets.values():
+            if task_group not in bboxes_indices:
+                if task_group in self._bbox_task_groups:
                     bbox_ordering = np.array([], dtype=int)
                 elif target_type == "keypoints":
                     bbox_ordering = np.arange(
@@ -785,7 +816,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 else:
                     bbox_ordering = np.arange(array.shape[0])
             else:
-                bbox_ordering = bboxes_indices[task_name]
+                bbox_ordering = bboxes_indices[task_group]
 
             if target_type == "mask":
                 out_labels[task] = postprocess_mask(array)
@@ -895,6 +926,15 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         if hasattr(A, config.name):
             return getattr(A, config.name)(**params)
         return TRANSFORMATIONS.get(config.name)(**params)  # type: ignore
+
+    @staticmethod
+    def _get_task_group(task: str) -> str:
+        """Return the complete task path without its task-type suffix."""
+        task_type = get_task_type(task)
+        suffix = f"/{task_type}"
+        if task.endswith(suffix):
+            return task[: -len(suffix)]
+        return ""
 
     @staticmethod
     def _task_to_target_name(task: str) -> str:

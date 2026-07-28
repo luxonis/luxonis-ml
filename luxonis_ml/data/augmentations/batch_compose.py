@@ -21,11 +21,18 @@ class BatchCompose(A.Compose):
 
     transforms: list[BatchTransform]
 
-    def __init__(self, transforms: TransformsSeqType, **kwargs):
+    def __init__(
+        self,
+        transforms: TransformsSeqType,
+        bbox_associations: dict[str, dict[str, str]] | None = None,
+        **kwargs,
+    ):
         """Compose batch transforms.
 
         Args:
             transforms: Transformations to compose.
+            bbox_associations: Bbox fields mapped to their associated target
+                fields and target types.
             **kwargs: Additional arguments passed to `A.Compose`_.
 
         .. _A.Compose:
@@ -33,6 +40,7 @@ class BatchCompose(A.Compose):
 
         """
         super().__init__(transforms, is_check_shapes=False, **kwargs)
+        self._bbox_associations = bbox_associations or {}
 
         random.seed(self.seed)
         np.random.seed(self.seed)
@@ -80,8 +88,10 @@ class BatchCompose(A.Compose):
                 if isinstance(next(iter(data.values())), list):
                     data = {key: value[0] for key, value in batch.items()}
 
-                self._reindex_bboxes(data)
+                bbox_counts = self._reindex_bboxes(data)
                 data = self.check_data_post_transform(data)
+                self._compact_bbox_associated_labels(data, bbox_counts)
+                self._reindex_bboxes(data)
                 new_batch.append(data)
             data_batch = new_batch
 
@@ -96,32 +106,95 @@ class BatchCompose(A.Compose):
 
         return data
 
-    def _reindex_bboxes(self, data: dict[str, np.ndarray]) -> None:
-        """Reindex boxes to match their associated batched labels.
+    def _reindex_bboxes(self, data: dict[str, np.ndarray]) -> dict[str, int]:
+        """Give each bbox field contiguous indices and return its size.
 
-        Batch transforms can reduce several input samples to one output. In
-        particular, when a transform is skipped, the retained sample can keep
-        bbox indices assigned for its position in the original input batch.
-        Instance masks and other bbox-associated labels are compacted with the
-        output, so subsequent batch transforms require contiguous indices.
-
-        The last bbox column is the stable index that ``_postprocess`` uses to
-        pair each surviving box with its instance mask channel (and keypoints,
-        arrays, metadata). After a batch transform those labels are
-        concatenated in the same order as the boxes, so position ``i`` in the
-        box array lines up with channel ``i`` in the concatenated labels.
-        Assigning ``arange`` restores that alignment only while the two are
-        still in lockstep, so this must run on the *complete* set of boxes,
-        before ``check_data_post_transform`` drops any of them. Reindexing
-        after a drop would renumber the survivors ``0..M-1`` while the label
-        channels stay un-dropped, silently pairing boxes with the wrong
-        instances.
+        The indices are local positions into bbox-associated labels. They are
+        assigned before bbox filtering so the surviving indices can be used to
+        compact those labels in lockstep.
         """
-        for field_name in self.processors["bboxes"].data_fields:
+        bbox_counts = {}
+        bbox_processor = self.processors.get("bboxes")
+        if bbox_processor is None:
+            return bbox_counts
+
+        for field_name in bbox_processor.data_fields:
             bboxes = data.get(field_name)
-            if bboxes is None or bboxes.size == 0:
+            if bboxes is None:
                 continue
+            bbox_counts[field_name] = len(bboxes)
+            if bboxes.size == 0:
+                continue
+            if bboxes.ndim < 2:
+                raise ValueError(
+                    f"Bbox field '{field_name}' must be a 2D array."
+                )
             bboxes[:, -1] = np.arange(len(bboxes), dtype=bboxes.dtype)
+        return bbox_counts
+
+    def _compact_bbox_associated_labels(
+        self, data: dict[str, np.ndarray], bbox_counts: dict[str, int]
+    ) -> None:
+        """Drop labels associated with bboxes filtered from the current stage."""
+        for bbox_field, associations in self._bbox_associations.items():
+            bboxes = data.get(bbox_field)
+            if bboxes is None:
+                continue
+
+            bbox_count = bbox_counts.get(bbox_field, 0)
+            if bboxes.size == 0:
+                indices = np.array([], dtype=int)
+            elif bboxes.ndim < 2:
+                raise ValueError(
+                    f"Bbox field '{bbox_field}' must be a 2D array."
+                )
+            else:
+                indices = bboxes[:, -1].astype(int)
+
+            for field_name, target_type in associations.items():
+                value = data.get(field_name)
+                if value is None:
+                    continue
+
+                if bbox_count == 0:
+                    if target_type == "instance_mask" and value.ndim > 1:
+                        data[field_name] = value[..., :0]
+                    else:
+                        data[field_name] = value[:0]
+                    continue
+
+                if value.size == 0:
+                    continue
+
+                if target_type == "instance_mask":
+                    if value.shape[-1] != bbox_count:
+                        raise ValueError(
+                            f"Instance-mask field '{field_name}' has "
+                            f"{value.shape[-1]} instances for {bbox_count} "
+                            f"bboxes in '{bbox_field}'."
+                        )
+                    data[field_name] = value[..., indices]
+                elif target_type == "keypoints":
+                    if value.shape[0] % bbox_count:
+                        raise ValueError(
+                            f"Keypoint field '{field_name}' has "
+                            f"{value.shape[0]} rows, which cannot be grouped "
+                            f"across {bbox_count} bboxes in '{bbox_field}'."
+                        )
+                    keypoints_per_bbox = value.shape[0] // bbox_count
+                    grouped = value.reshape(
+                        bbox_count, keypoints_per_bbox, *value.shape[1:]
+                    )
+                    data[field_name] = grouped[indices].reshape(
+                        -1, *value.shape[1:]
+                    )
+                else:
+                    if len(value) != bbox_count:
+                        raise ValueError(
+                            f"Field '{field_name}' has {len(value)} values for "
+                            f"{bbox_count} bboxes in '{bbox_field}'."
+                        )
+                    data[field_name] = value[indices]
 
     @staticmethod
     def _make_contiguous(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
