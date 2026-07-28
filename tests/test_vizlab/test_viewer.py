@@ -233,6 +233,20 @@ def test_hud_is_drawn_only_on_interactive_windows() -> None:
     assert not np.array_equal(plain, live)  # the HUD card was composited on
 
 
+def test_controls_card_is_rgba_and_scales_with_size() -> None:
+    from luxonis_ml.vizlab.viewer.hud import render_controls_card
+
+    controls = LayerState(
+        masks=False, focus="car", classes=("car",)
+    ).controls()
+    small = render_controls_card(controls, 12)
+    large = render_controls_card(controls, 22)
+    assert small.ndim == 3
+    assert small.shape[2] == 4  # RGBA
+    assert large.shape[0] > small.shape[0]  # bigger type -> bigger card
+    assert large.shape[1] > small.shape[1]
+
+
 def test_run_swallows_control_keys_and_forwards_the_rest() -> None:
     backend = FakeBackend()
     viewer = Viewer(backend)

@@ -413,6 +413,7 @@ def fit_grid(
     bg: ColorLike = _DEFAULT_BG,
     titles: Sequence[str] | None = None,
     style: Style = DEFAULT_STYLE,
+    allow_upscale: bool = False,
 ) -> "Frame":
     """Grid ``images`` scaled so the whole composite fits within ``target``.
 
@@ -433,6 +434,10 @@ def fit_grid(
         bg: Background color.
         titles: Optional per-image titles.
         style: Style whose font is used for titles.
+        allow_upscale: When ``True``, tiles smaller than the budget are scaled
+            *up* to fill it (rendered crisply at the larger size), so a small
+            image is not shown tiny on a big screen. Defaults to ``False``, which
+            only ever shrinks (the composite never exceeds its native size).
 
     Returns:
         A `Frame` (grid image plus hover map), fitted to ``target``.
@@ -454,7 +459,9 @@ def fit_grid(
     title_h = _fit_title_h(cell_w, cell_h, titles, style)
     avail_w = max(1.0, target[0] - pad * (cols + 1) - reserve)
     avail_h = max(1.0, target[1] - pad * (rows + 1) - rows * title_h)
-    scale = min(avail_w / (cols * cell_w), avail_h / (rows * cell_h), 1.0)
+    scale = min(avail_w / (cols * cell_w), avail_h / (rows * cell_h))
+    if not allow_upscale:
+        scale = min(scale, 1.0)
 
     scaled = [
         img.copy().render_at(

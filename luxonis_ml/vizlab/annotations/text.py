@@ -6,6 +6,7 @@ rows inside a single card. Both are corner-stacked overlays (drawn on top of
 everything, and reserved so box labels avoid them).
 """
 
+import math
 from collections.abc import Sequence
 
 from luxonis_ml.utils.color import brand
@@ -185,6 +186,129 @@ def _swatch_rows(
             metrics = canvas.measure_spans(line, size)
             rows.append((line, metrics, color if i == 0 else None))
     return rows
+
+
+def _ellipsize(
+    canvas: Canvas, text: str, size: float, weight: int, max_w: float
+) -> str:
+    """Truncate ``text`` with a trailing ``…`` so it fits within ``max_w`` px."""
+    if canvas.measure_text(text, size, weight=weight).width <= max_w:
+        return text
+    cut = text
+    while (
+        cut
+        and canvas.measure_text(cut + "…", size, weight=weight).width > max_w
+    ):
+        cut = cut[:-1]
+    return cut + "…" if cut else "…"
+
+
+def _legend_columns_cell(
+    canvas: Canvas,
+    style: Style,
+    title_lines: list[_Line],
+    items: "list[tuple[str, Color]]",
+    swatch: float,
+    chrome: brand.Chrome,
+    avail_w: float,
+    avail_h: float,
+) -> Cell:
+    """Lay a legend that overflows one column into several, capped with "+N more".
+
+    Entries flow column-major into as many columns as fit the width, each row a
+    single (ellipsized) name; if even that cannot hold every class the last slot
+    becomes a muted ``+N more`` so the count is never silently dropped.
+    """
+    size, weight = style.font_size, style.font_weight
+    swatch_col = swatch + _SWATCH_GAP
+    col_gap = _PAD * 1.5
+    row_m = canvas.measure_text("Ag", size)
+    row_h = row_m.height
+    step = row_h + _ROW_GAP
+
+    title_line_h = max((m.height for _, m in title_lines), default=0.0)
+    title_h = (
+        len(title_lines) * title_line_h + _ROW_GAP if title_lines else 0.0
+    )
+    inner_w = max(1.0, avail_w - 2 * _PAD)
+    inner_h = max(1.0, avail_h - 2 * _PAD - title_h)
+    rows_per_col = max(1, int((inner_h + _ROW_GAP) // step))
+
+    min_name = canvas.measure_text("MMMM", size, weight=weight).width
+    max_cols = max(
+        1, int((inner_w + col_gap) // (swatch_col + min_name + col_gap))
+    )
+    n_cols = min(max(1, math.ceil(len(items) / rows_per_col)), max_cols)
+
+    capacity = n_cols * rows_per_col
+    shown = list(items)
+    overflow = 0
+    if len(items) > capacity:
+        shown = shown[: capacity - 1]
+        overflow = len(items) - len(shown)
+
+    max_name = max(
+        (canvas.measure_text(n, size, weight=weight).width for n, _ in shown),
+        default=min_name,
+    )
+    name_w = max(
+        min_name,
+        min(max_name, inner_w / n_cols - swatch_col - col_gap),
+    )
+    col_w = swatch_col + name_w
+
+    cells: list[tuple[str, Color | None]] = [
+        (_ellipsize(canvas, name, size, weight, name_w), color)
+        for name, color in shown
+    ]
+    if overflow:
+        cells.append((f"+{overflow} more", None))
+    per_col = max(1, math.ceil(len(cells) / n_cols))
+
+    card_w = 2 * _PAD + n_cols * col_w + (n_cols - 1) * col_gap
+    card_h = 2 * _PAD + title_h + per_col * step - _ROW_GAP
+
+    def _draw(cv: Canvas, rect: Rect) -> None:
+        cv.rounded_rect(
+            rect,
+            radius=9.0,
+            fill=chrome.card_bg,
+            stroke=chrome.border,
+            stroke_width=1.0 if chrome.border is not None else 0.0,
+            shadow=Shadow(blur=6.0, dy=2.0) if style.shadow else None,
+        )
+        y0 = rect.top + _PAD
+        for line, metrics in title_lines:
+            cv.draw_spans(
+                (rect.left + _PAD, y0 + metrics.ascent),
+                line,
+                size=style.font_size * 1.05,
+                color=chrome.card_title,
+            )
+            y0 += title_line_h
+        if title_lines:
+            y0 += _ROW_GAP
+        for i, (name, color) in enumerate(cells):
+            x = rect.left + _PAD + (i // per_col) * (col_w + col_gap)
+            y = y0 + (i % per_col) * step
+            if color is not None:
+                sw_top = y + (row_h - swatch) / 2
+                cv.rounded_rect(
+                    Rect(x, sw_top, x + swatch, sw_top + swatch),
+                    radius=3.0,
+                    fill=color,
+                    stroke=swatch_outline(chrome.card_bg),
+                    stroke_width=1.0,
+                )
+            cv.text(
+                (x + swatch_col, y + row_m.ascent),
+                name,
+                size=size,
+                color=chrome.card_text,
+                weight=weight,
+            )
+
+    return Cell(card_w, card_h, _draw)
 
 
 class Caption(CornerStack):
@@ -380,7 +504,24 @@ class Legend(CornerStack):
             if self.title is not None
             else []
         )
-        cell = _card_cell(
-            style, title_lines, rows, swatch, resolve_chrome(ctx)
-        )
-        return [cell] if cell is not None else []
+        chrome = resolve_chrome(ctx)
+        cell = _card_cell(style, title_lines, rows, swatch, chrome)
+        if cell is None:
+            return []
+        # A tall class list would run off the image; flow it into columns (and,
+        # if still too many, cap with "+N more") so the card always fits.
+        avail_h = canvas.height - 2 * self.margin
+        if cell.height <= avail_h:
+            return [cell]
+        return [
+            _legend_columns_cell(
+                canvas,
+                style,
+                title_lines,
+                self._resolved_entries(ctx),
+                swatch,
+                chrome,
+                canvas.width - 2 * self.margin,
+                avail_h,
+            )
+        ]

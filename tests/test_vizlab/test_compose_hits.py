@@ -101,6 +101,22 @@ def test_fit_grid_scales_within_target() -> None:
     assert _within(hits, composite)
 
 
+def test_fit_grid_upscales_small_tiles_only_when_allowed() -> None:
+    a, _ = _tile("A")
+    b, _ = _tile("B")
+    native, _ = _split(grid_hits([a, b], ncols=2))
+    # Small tiles, a big budget: by default they stay native (never upscaled)...
+    kept, _ = _split(fit_grid([a, b], target=(4000, 2000), ncols=2))
+    assert (kept.width, kept.height) == (native.width, native.height)
+    # ...but allow_upscale grows them to fill the budget.
+    grown, grown_hits = _split(
+        fit_grid([a, b], target=(4000, 2000), ncols=2, allow_upscale=True)
+    )
+    assert grown.width > native.width
+    assert grown.height > native.height
+    assert _within(grown_hits, grown)
+
+
 def hits_title(hits: HitMap, x: float, y: float) -> str | None:
     tooltip = hits.hit(x, y)
     return tooltip.title if tooltip is not None else None

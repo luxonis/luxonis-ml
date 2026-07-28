@@ -25,12 +25,31 @@ from luxonis_ml.vizlab.annotations import (
 )
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.style import Palette, derive_child_color
-from luxonis_ml.vizlab.tooltip import Tooltip
 
 #: Fill opacity a first ``[``/``]`` press starts from (before it had been nudged).
 _FILL_START = 0.3
 #: Step per ``[``/``]`` press.
 _FILL_STEP = 0.1
+
+
+@dataclass(frozen=True)
+class Control:
+    """One row of the controls HUD: a key, what it does, and its current value.
+
+    Attributes:
+        key: The key(s) that trigger it (e.g. ``"m"`` or ``"[ ]"``).
+        name: The layer/action name (e.g. ``"masks"``).
+        value: The current value shown (e.g. ``"on"``, ``"off"``, a class, or a
+            fill fraction).
+        active: ``True`` if engaged (drawn brightly), ``False`` if off (dimmed),
+            or ``None`` for a neutral value that is neither (e.g. ``class all``).
+
+    """
+
+    key: str
+    name: str
+    value: str
+    active: bool | None
 
 
 def _is_mask(annotation: Annotation) -> bool:
@@ -143,20 +162,32 @@ class LayerState:
         base = _FILL_START if self.fill_alpha is None else self.fill_alpha
         self.fill_alpha = max(0.0, min(1.0, round(base + delta, 2)))
 
-    def hud(self) -> Tooltip:
-        """Return a compact card describing the controls and current state."""
-        fill = "auto" if self.fill_alpha is None else f"{self.fill_alpha:.1f}"
-        return Tooltip(
-            title="Controls",
-            rows=(
-                ("m", "masks " + ("on" if self.masks else "off")),
-                ("k", "keypoints " + ("on" if self.keypoints else "off")),
-                ("b", "boxes " + ("on" if self.boxes else "off")),
-                ("l", "labels " + ("on" if self.labels else "off")),
-                ("c", "class " + (self.focus or "all")),
-                ("[ ]", "fill " + fill),
+    def controls(self) -> list[Control]:
+        """Describe the current controls, for the viewer's HUD.
+
+        Returns one `Control` per key: the toggles carry their on/off state, the
+        class control shows the focus (or ``all``), and fill shows its opacity.
+        """
+
+        def toggle(key: str, name: str, on: bool) -> Control:
+            return Control(key, name, "on" if on else "off", on)
+
+        fill = "auto" if self.fill_alpha is None else f"{self.fill_alpha:.2f}"
+        return [
+            toggle("m", "masks", self.masks),
+            toggle("k", "keypoints", self.keypoints),
+            toggle("b", "boxes", self.boxes),
+            toggle("l", "labels", self.labels),
+            Control(
+                "c",
+                "class",
+                self.focus or "all",
+                None if self.focus is None else True,
             ),
-        )
+            Control(
+                "[ ]", "fill", fill, None if self.fill_alpha is None else True
+            ),
+        ]
 
     def apply_layers(
         self, annotations: Sequence[Annotation], palette: Palette

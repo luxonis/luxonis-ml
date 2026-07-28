@@ -170,8 +170,27 @@ def test_fill_nudge_moves_and_clamps_to_unit_range() -> None:
     assert state.fill_alpha == 0.0
 
 
-def test_hud_reports_current_state() -> None:
-    rows = dict(LayerState(masks=False, boxes=False).hud().rows)
-    assert rows["m"] == "masks off"
-    assert rows["k"] == "keypoints on"
-    assert rows["b"] == "boxes off"
+def test_controls_report_current_state() -> None:
+    controls = {
+        c.name: c for c in LayerState(masks=False, boxes=False).controls()
+    }
+    assert (controls["masks"].value, controls["masks"].active) == (
+        "off",
+        False,
+    )
+    assert (controls["keypoints"].value, controls["keypoints"].active) == (
+        "on",
+        True,
+    )
+    assert controls["boxes"].value == "off"
+
+
+def test_controls_reflect_class_focus_and_fill() -> None:
+    controls = {
+        c.name: c for c in LayerState(focus="car", fill_alpha=0.8).controls()
+    }
+    # A class focus and a fill override read as "active" (highlighted); an
+    # unset one is neutral (active is None).
+    assert (controls["class"].value, controls["class"].active) == ("car", True)
+    assert controls["fill"].value == "0.80"
+    assert LayerState().controls()[-2].active is None  # class "all" -> neutral

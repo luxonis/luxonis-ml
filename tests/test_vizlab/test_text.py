@@ -3,10 +3,20 @@
 import numpy as np
 
 from luxonis_ml.vizlab import BBox, Caption, Corner, Image, Legend
+from luxonis_ml.vizlab.annotations.base import RenderContext
+from luxonis_ml.vizlab.annotations.overlay import Cell
+from luxonis_ml.vizlab.canvas import Canvas
 
 
 def _img() -> Image:
     return Image(np.full((120, 200, 3), 20, np.uint8))
+
+
+def _legend_cell(legend: Legend, width: int, height: int) -> Cell:
+    """Build ``legend``'s single card cell on a ``width`` x ``height`` canvas."""
+    ctx = RenderContext(canvas=Canvas.blank(width, height))
+    (cell,) = legend._cells(ctx, legend.resolve_style(ctx))
+    return cell
 
 
 def test_caption_renders() -> None:
@@ -41,6 +51,34 @@ def test_legend_title_only_and_empty() -> None:
         base.copy().add(Legend(entries=[], title="only")).render(), plain
     )
     assert np.array_equal(base.copy().add(Legend(entries=[])).render(), plain)
+
+
+def test_legend_stays_single_column_when_it_fits() -> None:
+    few = Legend(entries=["car", "person", "bus"], title="classes")
+    narrow = _legend_cell(few, 800, 600)
+    # A few classes fit in one column: the card is narrow (one swatch+name wide).
+    assert narrow.width < 300
+
+
+def test_many_class_legend_flows_into_columns_and_fits_the_canvas() -> None:
+    names = [f"class_{i:02d}" for i in range(40)]
+    legend = Legend(entries=names, title="classes")
+    tall = _legend_cell(legend, 760, 520)
+    # It never runs off the image, in either dimension...
+    assert tall.height <= 520 - 2 * legend.margin + 1
+    assert tall.width <= 760 - 2 * legend.margin + 1
+    # ...and it used more than one column (wider than a single-column card would).
+    single = _legend_cell(Legend(entries=["class_00"]), 760, 520)
+    assert tall.width > single.width * 2
+
+
+def test_legend_caps_with_overflow_when_even_columns_cannot_fit() -> None:
+    names = [f"class_{i:02d}" for i in range(60)]
+    legend = Legend(entries=names, title="classes")
+    # A small canvas cannot hold 60 rows even in columns: it must still fit.
+    cell = _legend_cell(legend, 320, 200)
+    assert cell.height <= 200 - 2 * legend.margin + 1
+    assert cell.width <= 320 - 2 * legend.margin + 1
 
 
 def test_overlays_render_on_top_regardless_of_add_order() -> None:

@@ -21,19 +21,12 @@ from luxonis_ml.vizlab.tooltip import Tooltip
 
 from .backend import MouseHandler, WindowBackend
 from .cv2_backend import Cv2Backend
+from .hud import render_controls_card
 from .layers import LayerState
-from .tooltip_render import (
-    blit_rgba_on_bgr,
-    draw_tooltip,
-    render_tooltip_card,
-)
+from .tooltip_render import blit_rgba_on_bgr, draw_tooltip
 
 #: A per-window callback that re-renders the window's `Frame` for a `LayerState`.
 RenderFn = Callable[[LayerState], Frame]
-
-#: Type size and inset (px) of the controls HUD drawn on interactive windows.
-_HUD_SIZE = 13
-_HUD_INSET = 10
 
 
 @dataclass
@@ -166,10 +159,17 @@ class Viewer:
         self._backend.show(name, bgr)
 
     def _draw_hud(self, frame: np.ndarray) -> None:
-        """Draw the controls HUD (current `LayerState`) at the frame's lower-left."""
-        card = render_tooltip_card(self._layers.hud(), _HUD_SIZE)
-        y = frame.shape[0] - card.shape[0] - _HUD_INSET
-        blit_rgba_on_bgr(frame, card, _HUD_INSET, y)
+        """Draw the controls HUD (current `LayerState`) at the frame's lower-left.
+
+        The type size scales with the frame so the HUD stays proportional on both
+        small and large (screen-fitted) windows, matching the hover tooltips.
+        """
+        height, width = frame.shape[:2]
+        size = int(min(22, max(12, round(min(width, height) / 52))))
+        card = render_controls_card(self._layers.controls(), size)
+        inset = round(size * 1.1)
+        y = height - card.shape[0] - inset
+        blit_rgba_on_bgr(frame, card, inset, y)
 
     def _controllable(self) -> bool:
         """Whether any open window has a re-render callback (is interactive)."""

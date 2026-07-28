@@ -486,11 +486,17 @@ def inspect(
     # (so bare Images in this command pick up the theme/palette too).
     set_default_options(options)
 
-    class_legend = (
-        Legend(entries=class_names, palette=palette, title="classes")
-        if legend and class_names
-        else None
-    )
+    def current_legend() -> "Legend | None":
+        """Build a legend of the classes present in the current sample.
+
+        Keyed to what is actually drawn (``viewer.layers.classes``, refreshed per
+        sample), so the legend stays a short, relevant key even on datasets with
+        many classes; colors come from the full-dataset palette so they are stable.
+        """
+        names = viewer.layers.classes
+        if not (legend and names):
+            return None
+        return Legend(entries=list(names), palette=palette, title="classes")
 
     def build_panel(sample_labels: dict, sample_metadata: dict) -> dict:
         panel = dict(sample_metadata) if sample_metadata else {}
@@ -524,15 +530,16 @@ def inspect(
         """Display size for one source image, or ``None`` to keep native.
 
         An explicit ``--size-multiplier`` scales the source directly; ``auto``
-        fits it within 90% of the screen (leaving room for the panel), never
-        upscaling. ``None`` means render at the source size.
+        fits it to 90% of the screen (leaving room for the panel), scaling a
+        small image *up* as well as a large one down so it is never shown tiny.
+        ``None`` means render at the source size.
         """
         if size_multiplier != "auto":
             scale = size_multiplier
         elif screen is not None:
             avail_w = max(1.0, 0.9 * screen[0] - reserve)
             avail_h = max(1.0, 0.9 * screen[1])
-            scale = min(avail_w / width, avail_h / height, 1.0)
+            scale = min(avail_w / width, avail_h / height)
         else:
             return None
         if scale == 1.0:
@@ -565,6 +572,7 @@ def inspect(
                 reserve=reserve,
                 titles=titles,
                 bg=viz_theme.background,
+                allow_upscale=True,
             )
         return grid_hits(
             tiles, ncols=cols, titles=titles, bg=viz_theme.background
@@ -578,8 +586,9 @@ def inspect(
         `Frame.with_image`.
         """
         image = frame.image
-        if class_legend is not None:
-            image.add(class_legend)
+        legend_card = current_legend()
+        if legend_card is not None:
+            image.add(legend_card)
         if panel:
             image = image.with_panel(panel, title="Sample metadata")
         return frame.with_image(image)
@@ -651,8 +660,9 @@ def inspect(
                 lone_object_card=True,
             ):
                 viz.add(overlay)
-            if class_legend is not None:
-                viz.add(class_legend)
+            legend_card = current_legend()
+            if legend_card is not None:
+                viz.add(legend_card)
             display = (
                 viz.with_panel(panel, title="Sample metadata")
                 if panel
