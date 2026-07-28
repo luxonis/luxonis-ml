@@ -69,7 +69,9 @@ class LuxonisLoader(BaseLoader):
     ``sample.metadata`` contains **record-level metadata** from
     `DatasetRecord.sample_metadata`. When ``autopopulate_metadata`` is enabled,
     the loader also adds a ``"filenames"`` mapping from source name to file
-    basename.
+    basename. Augmented outputs additionally include an ``"augmentations"``
+    mapping from configured transformation paths to the runtime parameters
+    selected during augmentation.
 
     Label keys use ``"task_name/task_type"``. If a dataset was created
     without a task name, the default task name is empty and keys look like
@@ -86,7 +88,8 @@ class LuxonisLoader(BaseLoader):
         color_space: Output color space per source.
         height: Optional output image height.
         width: Optional output image width.
-        augmentations: Optional augmentation engine.
+        augmentations: Optional augmentation engine. Its applied configured
+            paths are added to augmented output metadata.
         exclude_empty_annotations: Whether empty annotations are omitted.
         sync_mode: Whether the dataset is remote and pulled before loading.
         keep_categorical_as_strings: Whether categorical metadata remains
@@ -160,7 +163,8 @@ class LuxonisLoader(BaseLoader):
                 such as source filenames. When enabled, returned metadata
                 includes a ``"filenames"`` dictionary keyed by source name.
                 Set to ``False`` to return only metadata stored in
-                `DatasetRecord.sample_metadata`.
+                `DatasetRecord.sample_metadata`, apart from runtime
+                augmentation provenance on augmented outputs.
 
         Raises:
             ValueError: If `color_space` is neither a string nor a
@@ -590,6 +594,9 @@ class LuxonisLoader(BaseLoader):
 
         img_dict, labels = self._augmentations.apply(loaded_anns)
         sample_etadata = self._merge_sample_metadata(sample_metadata_list)
+        sample_etadata["augmentations"] = (
+            self._augmentations.applied_augmentations
+        )
         return img_dict, labels, sample_etadata
 
     @staticmethod

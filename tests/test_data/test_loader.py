@@ -289,7 +289,7 @@ def test_loader_passes_is_validation_pipeline_to_legacy_engines(
         dataset_name, generator(), splits={"custom_split": 1.0}
     )
 
-    LuxonisLoader(
+    loader = LuxonisLoader(
         dataset,
         view="custom_split",
         height=256,
@@ -299,6 +299,47 @@ def test_loader_passes_is_validation_pipeline_to_legacy_engines(
     )
 
     assert CompatibilityOnlyEngine.last_is_validation_pipeline is True
+    assert loader[0].metadata["augmentations"] == {}
+
+
+def test_loader_records_augmentations_in_sample_metadata(
+    dataset_name: str, tempdir: Path
+):
+    def generator() -> DatasetIterator:
+        img = create_image(0, tempdir)
+        yield {
+            "file": img,
+            "sample_metadata": {
+                "augmentations": ["stored-value"],
+                "record_id": "sample-1",
+            },
+            "annotation": {"class": "person"},
+        }
+
+    dataset = create_dataset(dataset_name, generator())
+    loader = LuxonisLoader(
+        dataset,
+        height=512,
+        width=512,
+        augmentation_config=[{"name": "HorizontalFlip", "params": {"p": 1.0}}],
+        autopopulate_metadata=False,
+    )
+
+    metadata = loader[0].metadata
+
+    assert metadata == {
+        "augmentations": {"HorizontalFlip": {"shape": [512, 512, 3]}},
+        "record_id": "sample-1",
+        "batch_augmentation_metadata": [
+            {
+                "input_index": 0,
+                "sample_metadata": {
+                    "augmentations": ["stored-value"],
+                    "record_id": "sample-1",
+                },
+            }
+        ],
+    }
 
 
 def load_annotations(annotation_name: str) -> list[dict[str, Any]]:

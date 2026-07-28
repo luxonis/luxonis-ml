@@ -1,6 +1,7 @@
 import warnings
 from collections import defaultdict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
+from copy import deepcopy
 from math import prod
 from typing import Any, Literal, TypeAlias, cast
 
@@ -381,6 +382,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         self._image_size = (height, width)
         self._source_names = source_names
         self._bbox_area_threshold = bbox_area_threshold
+        self._applied_augmentations: dict[str, Params] = {}
 
         for task, task_type in targets.items():
             target_name = self._task_to_target_name(task)
@@ -558,6 +560,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 width=width,
             )
 
+        self._configured_augmentation_paths = set(
+            self._flatten_config_augmentation_paths(validated_config)
+        )
+
         def _get_params(is_custom: bool = False) -> dict[str, Any]:
             return {
                 "bbox_params": A.BboxParams(
@@ -581,31 +587,48 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             self._batch_transform = BatchCompose(
                 batch_transforms, **_get_params(is_custom=True)
             )
-            self._spatial_transform = self._wrap_transform(
-                A.Compose(wrapped_spatial_ops, **_get_params())
+            self._spatial_compose = A.Compose(
+                wrapped_spatial_ops, **_get_params()
             )
+            self._spatial_transform = self._wrap_transform(
+                self._spatial_compose
+            )
+            self._pixel_compose = A.Compose(pixel_transforms)
             self._pixel_transform = self._wrap_transform(
-                A.Compose(pixel_transforms),
+                self._pixel_compose,
                 is_pixel=True,
                 source_names=source_names,
             )
-            self._resize_transform = self._wrap_transform(
-                A.Compose([resize_transform], **_get_params())
+            self._resize_compose = A.Compose(
+                [resize_transform], **_get_params()
             )
-            self._custom_transform = self._wrap_transform(
-                A.Compose(custom_transforms, **_get_params(is_custom=True))
+            self._resize_transform = self._wrap_transform(self._resize_compose)
+            self._custom_compose = A.Compose(
+                custom_transforms, **_get_params(is_custom=True)
             )
+            self._custom_transform = self._wrap_transform(self._custom_compose)
 
     @property
     @override
     def batch_size(self) -> int:
         return self._batch_transform.batch_size
 
+    @property
+    @override
+    def applied_augmentations(self) -> dict[str, Params]:
+        """Configured paths and runtime parameters from the latest call."""
+        return deepcopy(self._applied_augmentations)
+
     @override
     def apply(self, input_batch: list[LoaderMultiOutput]) -> LoaderMultiOutput:
+        self._applied_augmentations.clear()
+        for transform in self._tracked_transforms:
+            self._reset_transform_params(transform)
+
         data_batch, n_keypoints = self._preprocess_batch(input_batch)
 
         data = self._batch_transform(data_batch)
+        self._record_applied_augmentations(self._batch_transform)
 
         for target_name in list(data.keys()):
             value = data[target_name]
@@ -613,7 +636,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 del data[target_name]
 
         data = self._spatial_transform(**data)
+        self._record_applied_augmentations(self._spatial_compose)
         data = self._custom_transform(**data)
+        self._record_applied_augmentations(self._custom_compose)
 
         transformed_size = data["image"].shape[:2]
 
@@ -623,14 +648,149 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
             if transformed_size > target_size:
                 data = self._resize_transform(**data)
+                self._record_applied_augmentations(self._resize_compose)
                 data = self._pixel_transform(**data)
+                self._record_applied_augmentations(self._pixel_compose)
             else:
                 data = self._pixel_transform(**data)
+                self._record_applied_augmentations(self._pixel_compose)
                 data = self._resize_transform(**data)
+                self._record_applied_augmentations(self._resize_compose)
         else:
             data = self._pixel_transform(**data)
+            self._record_applied_augmentations(self._pixel_compose)
 
         return self._postprocess(data, n_keypoints)
+
+    @property
+    def _tracked_transforms(self) -> tuple[A.BaseCompose, ...]:
+        return (
+            self._batch_transform,
+            self._spatial_compose,
+            self._custom_compose,
+            self._pixel_compose,
+            self._resize_compose,
+        )
+
+    def _record_applied_augmentations(self, transform: A.BaseCompose) -> None:
+        for path, applied_transform in self._collect_applied_transforms(
+            transform
+        ):
+            if (
+                path in self._configured_augmentation_paths
+                and path not in self._applied_augmentations
+            ):
+                self._applied_augmentations[path] = (
+                    self._normalize_augmentation_params(
+                        applied_transform.params
+                    )
+                )
+
+    @staticmethod
+    def _reset_transform_params(transform: Any) -> None:
+        if hasattr(transform, "params"):
+            transform.params = {}
+        for child in getattr(transform, "transforms", []):
+            AlbumentationsEngine._reset_transform_params(child)
+
+    @staticmethod
+    def _collect_applied_transforms(
+        transform: Any, parent_path: tuple[str, ...] = ()
+    ) -> list[tuple[str, Any]]:
+        transform_name = type(transform).__name__
+        child_transforms = getattr(transform, "transforms", None)
+
+        if child_transforms is not None:
+            next_path = (
+                parent_path
+                if transform_name in {"Compose", "BatchCompose"}
+                else (*parent_path, transform_name)
+            )
+            return [
+                applied_transform
+                for child in child_transforms
+                for applied_transform in AlbumentationsEngine._collect_applied_transforms(
+                    child, next_path
+                )
+            ]
+
+        if transform_name == "Lambda" or not getattr(transform, "params", {}):
+            return []
+
+        return [("/".join((*parent_path, transform_name)), transform)]
+
+    @staticmethod
+    def _normalize_augmentation_params(value: Any) -> Params:
+        return {
+            str(key): AlbumentationsEngine._normalize_augmentation_value(val)
+            for key, val in value.items()
+        }
+
+    @staticmethod
+    def _normalize_augmentation_value(value: Any) -> Any:
+        if isinstance(value, np.ndarray):
+            return AlbumentationsEngine._normalize_augmentation_value(
+                value.tolist()
+            )
+        if isinstance(value, np.generic):
+            return AlbumentationsEngine._normalize_augmentation_value(
+                value.item()
+            )
+        if isinstance(value, Mapping):
+            return {
+                str(key): AlbumentationsEngine._normalize_augmentation_value(
+                    val
+                )
+                for key, val in value.items()
+            }
+        if isinstance(value, (list, tuple)):
+            return [
+                AlbumentationsEngine._normalize_augmentation_value(item)
+                for item in value
+            ]
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        return str(value)
+
+    @staticmethod
+    def _flatten_config_augmentation_paths(
+        config: Iterable[AlbumentationConfigItem],
+        parent_path: tuple[str, ...] = (),
+    ) -> list[str]:
+        paths: list[str] = []
+        for item in config:
+            current_path = (*parent_path, item.name)
+            paths.append("/".join(current_path))
+            if AlbumentationsEngine._is_probabilistic_resize_transform(item):
+                paths.append("/".join((*parent_path, "OneOf", item.name)))
+
+            nested_transforms = item.params.get("transforms")
+            if not isinstance(nested_transforms, list):
+                continue
+
+            nested_config = [
+                AlbumentationConfigItem.model_validate(nested_item)
+                for nested_item in nested_transforms
+                if isinstance(nested_item, dict)
+            ]
+            paths.extend(
+                AlbumentationsEngine._flatten_config_augmentation_paths(
+                    nested_config, current_path
+                )
+            )
+        return paths
+
+    @staticmethod
+    def _is_probabilistic_resize_transform(
+        item: AlbumentationConfigItem,
+    ) -> bool:
+        probability = item.params.get("p", 1.0)
+        return (
+            item.use_for_resizing
+            and not isinstance(probability, bool)
+            and isinstance(probability, (int, float))
+            and float(probability) < 1.0
+        )
 
     def _preprocess_batch(
         self, labels_batch: list[LoaderMultiOutput]

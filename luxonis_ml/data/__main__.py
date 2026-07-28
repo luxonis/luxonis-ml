@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import rich.box
 from cyclopts import App, Parameter, validators
-from loguru import logger
 from rich import print
 from rich.console import Console
 from rich.prompt import Confirm
@@ -19,9 +18,6 @@ from luxonis_ml.data import (
     LuxonisLoader,
     LuxonisParser,
     UpdateMode,
-)
-from luxonis_ml.data.utils.augmentations_collector import (
-    AugmentationsCollector,
 )
 from luxonis_ml.data.utils.cli_utils import (
     check_exists,
@@ -39,11 +35,22 @@ from luxonis_ml.data.utils.visualizations import (
     visualize,
 )
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.typing import Params
 
 app = App(help="Dataset utilities.")
 
 
 BucketStorageT: TypeAlias = Annotated[BucketStorage, Parameter(alias="-b")]
+
+
+def _get_applied_augmentations(metadata: Params) -> list[str]:
+    augmentations = metadata.get("augmentations", [])
+    if not isinstance(augmentations, dict) or not all(
+        isinstance(path, str) and isinstance(params, dict)
+        for path, params in augmentations.items()
+    ):
+        return []
+    return list(augmentations)
 
 
 @app.command
@@ -296,24 +303,6 @@ def inspect(
             seed=42 if deterministic else None,
         )
 
-    if list_augmentations:
-        if aug_config is None:
-            logger.warning(
-                "--list-augmentations was set but --aug-config was not "
-                "provided. No augmentations will be shown."
-            )
-            get_applied_augmentations = list
-        elif loader._augmentations is not None:
-            collector = AugmentationsCollector(
-                loader._augmentations,  # type: ignore
-                aug_config,
-            )
-            get_applied_augmentations = collector.get_applied_augmentations
-        else:
-            get_applied_augmentations = list
-    else:
-        get_applied_augmentations = list
-
     classes = dataset.get_classes()
     categorical_encodings = dataset.get_categorical_encodings()
     keypoint_skeletons = (
@@ -379,7 +368,8 @@ def inspect(
                     )
                     if list_augmentations:
                         instance_image = add_augmentation_footer(
-                            instance_image, get_applied_augmentations()
+                            instance_image,
+                            _get_applied_augmentations(data.metadata),
                         )
                     cv2.resizeWindow(
                         source_name,
@@ -408,7 +398,8 @@ def inspect(
                 )
                 if list_augmentations:
                     labeled_image = add_augmentation_footer(
-                        labeled_image, get_applied_augmentations()
+                        labeled_image,
+                        _get_applied_augmentations(data.metadata),
                     )
                 cv2.resizeWindow(
                     source_name, labeled_image.shape[1], labeled_image.shape[0]

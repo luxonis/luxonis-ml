@@ -89,7 +89,9 @@ class LoaderOutput(
         labels: Label arrays keyed by ``"task_name/task_type"``.
         metadata: **Record-level metadata** from
             `DatasetRecord.sample_metadata`, plus any automatic loader
-            metadata such as ``"filenames"`` when enabled.
+            metadata such as ``"filenames"`` when enabled. Augmented outputs
+            also include an ``"augmentations"`` mapping from configured paths
+            to the runtime parameters selected during augmentation.
 
     Example:
         .. python::

@@ -93,6 +93,17 @@ class AugmentationEngine(
         ...
 
     @property
+    def applied_augmentations(self) -> dict[str, Params]:
+        """Configured augmentations applied by the latest `apply` call.
+
+        The mapping keys are configured augmentation paths and values are the
+        runtime parameters selected by the engine. Engines that do not support
+        provenance tracking return an empty dictionary. Implementations must
+        return a new dictionary so callers cannot mutate their tracked state.
+        """
+        return {}
+
+    @property
     @abstractmethod
     def batch_size(self) -> int:
         r"""The batch size required by the augmentation pipeline.
