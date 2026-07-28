@@ -643,7 +643,9 @@ class BaseParser(ABC):
                 item = DatasetRecord(**item)
 
             if self._task_name is not None:
-                if item.annotation is None:
+                if item.annotation is None or (
+                    isinstance(item.annotation, list) and not item.annotation
+                ):
                     for task_name in dict.fromkeys(self._task_name.values()):
                         yield item.model_copy(
                             update={"task_name": task_name}, deep=True

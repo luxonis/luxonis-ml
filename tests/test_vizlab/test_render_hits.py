@@ -2,7 +2,8 @@
 
 import numpy as np
 
-from luxonis_ml.vizlab import BBox, Image, Keypoints, Tooltip
+from luxonis_ml.vizlab import BBox, HitMap, Image, Keypoints, Tooltip
+from luxonis_ml.vizlab.geometry import Rect
 
 
 def _blank(h: int = 60, w: int = 100) -> Image:
@@ -51,6 +52,23 @@ def test_hit_region_scales_with_render_size() -> None:
     # Box left/top of (0.1, 0.2) -> (20, 24) px at the doubled size.
     assert rect.left == 20.0
     assert rect.top == 24.0
+
+
+def test_carried_hit_region_scales_independently_on_each_axis() -> None:
+    tip = Tooltip(title="car")
+    image = Image(np.zeros((100, 100, 3), np.uint8)).with_hitmap(
+        HitMap([(Rect(10, 20, 30, 40), tip)])
+    )
+
+    _, hits = image.render_hits((200, 50))
+
+    rect, _ = hits.items[0]
+    assert (rect.left, rect.top, rect.right, rect.bottom) == (
+        20,
+        10,
+        60,
+        20,
+    )
 
 
 def test_chip_less_box_with_tooltip_still_hits() -> None:

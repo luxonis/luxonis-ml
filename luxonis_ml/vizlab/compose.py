@@ -153,6 +153,7 @@ def _pad_annotation(
         clone.height = rle["height"]
         clone.width = rle["width"]
         clone.counts = rle["counts"].encode("utf-8")
+        clone._dense_cache = None
     elif isinstance(clone, SemanticMask) and clone.labels is not None:
         labels = _resize_mask(
             np.asarray(clone.labels), source_width, source_height

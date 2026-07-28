@@ -443,6 +443,29 @@ def test_match_on_ldf_detections() -> None:
     assert isinstance(result.matches[0].pred, Detection)
 
 
+def test_ldf_metadata_controls_score_filtering_and_ranking() -> None:
+    gt = [_det(0.1, 0.1, label="car")]
+    dropped = _det(0.7, 0.7, label="car").model_copy(
+        update={"metadata": {"score": 0.1}}
+    )
+    weak = _det(0.1, 0.1, label="car").model_copy(
+        update={"metadata": {"score": 0.4}}
+    )
+    strong = _det(0.12, 0.12, label="car").model_copy(
+        update={"metadata": {"confidence": 0.9}}
+    )
+
+    result = match_detections(
+        gt, [dropped, weak, strong], score_threshold=0.25
+    )
+
+    assert result.n_tp == 1
+    assert result.n_fp == 1
+    tp = next(match for match in result.matches if match.verdict is Verdict.TP)
+    assert tp.pred is strong
+    assert tp.score == 0.9
+
+
 def test_keypoint_only_detection_matched_by_extent() -> None:
     # Neither side has a box; bounds come from the keypoints' extent.
     kps = {"keypoints": [(0.2, 0.2, 2), (0.4, 0.4, 2)]}
@@ -450,6 +473,41 @@ def test_keypoint_only_detection_matched_by_extent() -> None:
     pred = [Detection.model_validate({"class_name": "pose", "keypoints": kps})]
     result = match_detections(gt, pred)
     assert result.n_tp == 1
+
+
+def test_keypoint_bounds_exclude_invisible_placeholders() -> None:
+    gt = [
+        Detection.model_validate(
+            {
+                "class_name": "pose",
+                "keypoints": {
+                    "keypoints": [
+                        (0.0, 0.0, 0),
+                        (0.8, 0.8, 2),
+                        (0.9, 0.9, 2),
+                    ]
+                },
+            }
+        )
+    ]
+    pred = [
+        Detection.model_validate(
+            {
+                "class_name": "pose",
+                "keypoints": {
+                    "keypoints": [
+                        (0.0, 0.0, 0),
+                        (0.6, 0.8, 2),
+                        (0.7, 0.9, 2),
+                    ]
+                },
+            }
+        )
+    ]
+
+    result = match_detections(gt, pred)
+
+    assert set(_verdicts(result)) == {Verdict.FP, Verdict.FN}
 
 
 def test_mask_only_detection_has_no_bounds_and_is_skipped() -> None:

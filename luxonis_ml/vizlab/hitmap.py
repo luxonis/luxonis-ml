@@ -63,16 +63,20 @@ class HitMap:
             ]
         )
 
-    def scaled(self, factor: float) -> "HitMap":
-        """Return a copy with every rectangle scaled about the origin."""
+    def scaled(
+        self, factor_x: float, factor_y: float | None = None
+    ) -> "HitMap":
+        """Return a copy with rectangles scaled about the origin on each axis."""
+        if factor_y is None:
+            factor_y = factor_x
         return HitMap(
             [
                 (
                     Rect(
-                        r.left * factor,
-                        r.top * factor,
-                        r.right * factor,
-                        r.bottom * factor,
+                        r.left * factor_x,
+                        r.top * factor_y,
+                        r.right * factor_x,
+                        r.bottom * factor_y,
                     ),
                     t,
                 )

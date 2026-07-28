@@ -253,8 +253,14 @@ def _label(obj: "Detectionish") -> str | None:
 
 
 def _score(obj: "Detectionish") -> float | None:
-    """Return the confidence of a box; LDF detections carry none."""
-    return obj.score if isinstance(obj, BBox) else None
+    """Return a native score or one preserved as LDF detection metadata."""
+    if isinstance(obj, BBox):
+        return obj.score
+    for key in ("score", "confidence"):
+        value = obj.metadata.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+    return None
 
 
 def _bounds(obj: "Detectionish") -> Rect | None:
@@ -270,7 +276,8 @@ def _bounds(obj: "Detectionish") -> Rect | None:
         return Rect(box.x, box.y, box.x + box.w, box.y + box.h)
     keypoints = obj.keypoints
     if keypoints is not None and keypoints.keypoints:
-        return bounding_rect([(p[0], p[1]) for p in keypoints.keypoints])
+        visible = [(p[0], p[1]) for p in keypoints.keypoints if p[2] > 0]
+        return bounding_rect(visible) if visible else None
     return None
 
 

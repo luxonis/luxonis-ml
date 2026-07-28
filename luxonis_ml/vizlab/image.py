@@ -23,7 +23,7 @@ from .canvas import Canvas
 from .geometry import Rect
 from .hitmap import HitMap
 from .options import RenderOptions, current_options
-from .style import Theme
+from .style import Theme, current_default_style, current_style_overrides
 from .tooltip import Tooltip
 
 if TYPE_CHECKING:
@@ -110,11 +110,17 @@ def _freeze_render_state(value: object) -> Hashable:
 
 def _render_signature(
     annotations: list[Annotation],
-    theme: Theme,
-    gradient: "Gradient | str | None" = None,
+    options: RenderOptions,
 ) -> bytes:
     """Return a digest of all mutable state that can affect rendered pixels."""
-    state = _freeze_render_state((annotations, theme, gradient))
+    state = _freeze_render_state(
+        (
+            annotations,
+            options,
+            current_default_style(),
+            current_style_overrides(),
+        )
+    )
     return hashlib.sha256(repr(state).encode("utf-8")).digest()
 
 
@@ -330,8 +336,9 @@ class Renderable:
         if self._hits is not None:
             # A carried map lives in this scene's own pixels; scale it to the
             # render size the same way annotation hits are captured at it.
-            factor = render_size[0] / self.width if self.width else 1.0
-            hitmap = hitmap.merge(self._hits.scaled(factor))
+            factor_x = render_size[0] / self.width if self.width else 1.0
+            factor_y = render_size[1] / self.height if self.height else 1.0
+            hitmap = hitmap.merge(self._hits.scaled(factor_x, factor_y))
         return rgba, hitmap
 
     def with_hitmap(self, hitmap: HitMap) -> Self:
@@ -571,8 +578,8 @@ class Image(Renderable):
         image is scaled for display while painting heavy fills only once, at the
         source resolution.
 
-        The result is cached per size, active theme, and mutable scene-graph
-        state. A copy is returned on every call.
+        The result is cached per size, resolved render options, scoped style, and
+        mutable scene-graph state. A copy is returned on every call.
 
         Args:
             size: ``(width, height)`` to render at; ``None`` uses the size set via
@@ -583,14 +590,13 @@ class Image(Renderable):
             freely; the cache holds a separate copy.
 
         """
-        # Cache by render size, theme, and mutable scene state; render_hits (the
-        # capture path) runs once per frame and never consults this cache.
+        # Cache by render size and every resolved/ambient pixel input;
+        # render_hits (the capture path) runs once per frame and never consults
+        # this cache.
         options = self._resolve_options()
         key = (
             self._resolved_size(size),
-            _render_signature(
-                self._annotations, options.theme, options.gradient
-            ),
+            _render_signature(self._annotations, options),
         )
         if self._cache is not None and self._cache_key == key:
             return self._cache.copy()

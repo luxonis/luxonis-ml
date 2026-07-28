@@ -3,6 +3,8 @@
 import numpy as np
 
 from luxonis_ml.vizlab import BBox, Frame, HitMap, Image, Tooltip
+from luxonis_ml.vizlab.geometry import Rect
+from luxonis_ml.vizlab.hitmap import ClickMap
 
 
 def _tooltip_image() -> Image:
@@ -37,8 +39,13 @@ def test_frame_render_matches_image_render() -> None:
 
 
 def test_with_image_keeps_hitmap() -> None:
-    frame = _tooltip_image().frame()
+    frame = Frame(
+        _tooltip_image(),
+        HitMap.empty(),
+        ClickMap([(Rect(1, 2, 3, 4), "key:m")]),
+    )
     replacement = Image(np.zeros((80, 120, 3), np.uint8))
     swapped = frame.with_image(replacement)
     assert swapped.image is replacement
     assert swapped.hitmap is frame.hitmap
+    assert swapped.clickmap is frame.clickmap

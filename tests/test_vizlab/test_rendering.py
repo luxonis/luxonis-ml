@@ -22,7 +22,9 @@ from luxonis_ml.vizlab import (
     Keypoints,
     Mask,
     Rect,
+    RenderOptions,
     SemanticMask,
+    default_options,
     get_default_theme,
     grid,
     hstack,
@@ -186,6 +188,31 @@ def test_render_cache_tracks_annotation_mutations() -> None:
     assert not np.array_equal(nested, appended)
 
 
+def test_render_cache_tracks_scoped_style_state() -> None:
+    base = np.full((80, 120, 3), 20, np.uint8)
+    image = Image(base).add(BBox(x=0.13, y=0.17, w=0.61, h=0.53))
+    regular = image.render()
+
+    with Style.override(fill_alpha=0.8, stroke_width=8.0, shadow=False):
+        overridden = image.render()
+    with Style(fill_alpha=0.0, stroke_width=1.0).as_default():
+        replaced = image.render()
+
+    assert not np.array_equal(regular, overridden)
+    assert not np.array_equal(regular, replaced)
+
+
+def test_render_cache_tracks_scoped_antialias_option() -> None:
+    base = np.full((80, 120, 3), 20, np.uint8)
+    image = Image(base).add(BBox(x=0.133, y=0.177, w=0.611, h=0.533))
+    antialiased = image.render()
+
+    with default_options(RenderOptions(antialias=False)):
+        hard_edges = image.render()
+
+    assert not np.array_equal(antialiased, hard_edges)
+
+
 def test_semantic_segmentation_renders_beneath_other_masks() -> None:
     """A `SemanticMask` is a background layer, drawn under every other spatial
     annotation regardless of the order it was added.
@@ -290,6 +317,7 @@ def test_blend_transforms_annotations_for_padded_images() -> None:
     small = Image(np.zeros((10, 20, 3), np.uint8)).add(box)
     large = Image(np.zeros((30, 40, 3), np.uint8))
 
+    small.render()  # populate the source mask's decoded-array cache
     merged = large.blend(small)
     transformed = merged.annotations[0]
 
@@ -305,7 +333,7 @@ def test_blend_transforms_annotations_for_padded_images() -> None:
     mask = next(
         child for child in transformed.children if isinstance(child, Mask)
     )
-    mask_array = mask.to_numpy()
+    mask_array = mask._dense()
     assert mask_array.shape == (30, 40)
     assert np.all(mask_array[:10, :20] == 1)
     assert np.all(mask_array[10:, :] == 0)

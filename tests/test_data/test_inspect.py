@@ -15,12 +15,17 @@ from luxonis_ml.ldf import BBoxAnnotation, DatasetRecord, Detection
 class _FakeBackend:
     """A headless `WindowBackend` recording shown windows, replaying keys."""
 
-    def __init__(self, keys: list[int]) -> None:
+    def __init__(
+        self,
+        keys: list[int],
+        screen: tuple[int, int] | None = None,
+    ) -> None:
         self._keys = list(keys)
+        self._screen = screen
         self.shown: list[str] = []
 
     def screen_size(self) -> tuple[int, int] | None:
-        return None
+        return self._screen
 
     def create_window(self, name: str) -> None:
         pass
@@ -67,6 +72,18 @@ def test_present_sample_metadata_splits_batch_into_labelled_samples() -> None:
     assert data_main._present_sample_metadata(merged) == {
         "sample 1": {"record_id": 123},
         "sample 2": {"record_id": 456},
+    }
+
+
+def test_array_shapes_keep_complete_nested_task_paths() -> None:
+    labels = {
+        "parent/depth/array": np.zeros((2, 3)),
+        "parent/flow/array": np.zeros((4, 5, 2)),
+    }
+
+    assert data_main._array_shapes(labels) == {
+        "parent/depth": [2, 3],
+        "parent/flow": [4, 5, 2],
     }
 
 
@@ -620,11 +637,19 @@ def _compare_mocks(
     class _Loader:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
             self._augmentations = None
+            self._sample = SimpleNamespace(
+                images={"image": image},
+                labels={},
+                metadata={"filenames": {"image": "frame.jpg"}},
+            )
 
         def __iter__(self) -> Iterator[SimpleNamespace]:
-            yield SimpleNamespace(
-                images={"image": image}, labels={}, metadata={}
-            )
+            yield self._sample
+
+        def __getitem__(self, index: int) -> SimpleNamespace:
+            if index != 0:
+                raise IndexError(index)
+            return self._sample
 
     from luxonis_ml.data.loaders import label_converter
     from luxonis_ml.vizlab import Image
@@ -734,6 +759,113 @@ def test_compare_command_summary_writes_confusion_figure(
     assert (tmp_path / "gt_vs_preds_confusion.png").exists()
 
 
+def test_compare_matches_by_filename_and_reports_unpaired_samples(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    image = np.zeros((40, 60, 3), dtype=np.uint8)
+
+    def sample(filename: str, label: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            images={"image": image},
+            labels={"label": label},
+            metadata={"filenames": {"image": filename}},
+        )
+
+    samples = {
+        "gt": [
+            sample("a.jpg", "car"),
+            sample("b.jpg", "bus"),
+            sample("missing.jpg", "car"),
+        ],
+        "pred": [
+            sample("b.jpg", "bus"),
+            sample("a.jpg", "car"),
+            sample("extra.jpg", "car"),
+        ],
+    }
+
+    class _Dataset:
+        def __init__(self, name: str, **_kwargs: object) -> None:
+            self.name = name
+
+        def __len__(self) -> int:
+            return len(samples[self.name])
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"objects": {"car": 0, "bus": 1}}
+
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"objects": ["car", "bus"]}
+
+        def get_categorical_encodings(self) -> dict[str, object]:
+            return {}
+
+        def get_skeletons(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(self, dataset: _Dataset, **_kwargs: object) -> None:
+            self._samples = samples[dataset.name]
+
+        def __iter__(self) -> Iterator[SimpleNamespace]:
+            yield from self._samples
+
+        def __getitem__(self, index: int) -> SimpleNamespace:
+            return self._samples[index]
+
+    def record(label: str) -> DatasetRecord:
+        return DatasetRecord.model_construct(
+            files={},
+            sample_metadata={},
+            annotation=[
+                Detection(
+                    class_name=label,
+                    instance_id=1,
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+                )
+            ],
+            task_name="objects",
+        )
+
+    from luxonis_ml.data.loaders import label_converter
+    from luxonis_ml.vizlab import Image, RenderOptions, set_default_options
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    metrics: list[dict] = []
+
+    def capture_panel(self: Image, data: object, **_kwargs: object) -> Image:
+        assert isinstance(data, dict)
+        metrics.append(data)
+        return self
+
+    monkeypatch.setattr(data_main, "check_exists", lambda *_args: None)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    monkeypatch.setattr(
+        label_converter,
+        "loader_output_to_records",
+        lambda labels, **_kwargs: {"objects": record(labels["label"])},
+    )
+    monkeypatch.setattr(Image, "with_panel", capture_panel)
+    monkeypatch.setattr(
+        viewer_module,
+        "Viewer",
+        lambda **_kwargs: RealViewer(_FakeBackend(keys=[ord("x"), ord("q")])),
+    )
+
+    try:
+        data_main.compare("gt", "pred")
+    finally:
+        set_default_options(RenderOptions())
+
+    assert [item["TP"] for item in metrics] == [1, 1]
+    assert [item["class errors"] for item in metrics] == [0, 0]
+    output = capsys.readouterr().out
+    assert "Missing prediction samples (1): image=missing.jpg" in output
+    assert "Extra prediction samples (1): image=extra.jpg" in output
+
+
 def _save_mocks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -834,3 +966,60 @@ def test_inspect_save_plain_drops_the_panel(
     plain = cv2.imread(str(tmp_path / "plain" / "0000_frame01.png"))
     assert plain.shape[1] == 60  # just the source image, no panel
     assert paneled.shape[1] > plain.shape[1]  # the panel widened it
+
+
+def test_inspect_plain_drops_the_interactive_panel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from luxonis_ml.vizlab import Frame, RenderOptions, set_default_options
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    _save_mocks(monkeypatch)
+    panel_calls = 0
+
+    def capture_panel(self: Frame, *_args: object, **_kwargs: object) -> Frame:
+        nonlocal panel_calls
+        panel_calls += 1
+        return self
+
+    monkeypatch.setattr(Frame, "with_panel", capture_panel)
+    monkeypatch.setattr(
+        viewer_module,
+        "Viewer",
+        lambda **_kwargs: RealViewer(_FakeBackend(keys=[ord("q")])),
+    )
+    try:
+        data_main.inspect("ds", plain=True)
+    finally:
+        set_default_options(RenderOptions())
+
+    assert panel_calls == 0
+
+
+def test_inspect_auto_size_reserves_space_for_controls_panel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from luxonis_ml.vizlab import Frame, RenderOptions, set_default_options
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    _save_mocks(monkeypatch)
+    image_widths: list[int] = []
+
+    def capture_panel(self: Frame, *_args: object, **_kwargs: object) -> Frame:
+        image_widths.append(self.render().shape[1])
+        return self
+
+    monkeypatch.setattr(Frame, "with_panel", capture_panel)
+    monkeypatch.setattr(
+        viewer_module,
+        "Viewer",
+        lambda **_kwargs: RealViewer(
+            _FakeBackend(keys=[ord("q")], screen=(1000, 800))
+        ),
+    )
+    try:
+        data_main.inspect("ds")
+    finally:
+        set_default_options(RenderOptions())
+
+    assert image_widths == [500]

@@ -30,7 +30,7 @@ from luxonis_ml.data.utils.cli_utils import (
     print_info,
 )
 from luxonis_ml.data.utils.enums import BucketStorage
-from luxonis_ml.data.utils.task_utils import get_task_name, get_task_type
+from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
 
 if TYPE_CHECKING:
@@ -47,6 +47,7 @@ app = App(help="Dataset utilities.")
 
 
 BucketStorageT: TypeAlias = Annotated[BucketStorage, Parameter(alias="-b")]
+_SampleIdentity: TypeAlias = tuple[tuple[str, str], ...]
 
 
 def _deduped_class_names(
@@ -93,6 +94,16 @@ def _present_classes(records: "Iterable[DatasetRecord]") -> list[str]:
             if name:
                 seen.setdefault(name, None)
     return list(seen)
+
+
+def _array_shapes(labels: dict) -> dict[str, list[int]]:
+    """Return array shapes keyed by the complete task path."""
+    suffix = "/array"
+    return {
+        key[: -len(suffix)]: list(value.shape)
+        for key, value in labels.items()
+        if get_task_type(key) == "array" and key.endswith(suffix)
+    }
 
 
 def _present_sample_metadata(sample_metadata: dict) -> dict:
@@ -684,11 +695,7 @@ def inspect(
             if sample_metadata
             else {}
         )
-        arrays = {
-            get_task_name(k): list(v.shape)
-            for k, v in sample_labels.items()
-            if get_task_type(k) == "array"
-        }
+        arrays = _array_shapes(sample_labels)
         if arrays:
             panel["arrays"] = arrays
         if list_augmentations:
@@ -823,8 +830,11 @@ def inspect(
 
         The panel (controls + classes + metadata) reframes the image as a rounded
         surface at a margin offset, so `Frame.with_panel` shifts the hover map to
-        match. It is always attached now — the controls make it non-empty.
+        match. Unless ``--plain`` is active, it is always attached — the controls
+        make it non-empty.
         """
+        if plain:
+            return frame
         return frame.with_panel(sidebar(panel, viewer.layers))
 
     def build_frame(
@@ -882,7 +892,7 @@ def inspect(
             # Per-instance stepping is non-interactive, so the panel carries the
             # class legend and metadata but no (inapplicable) controls.
             side = sidebar(panel, viewer.layers, controls=False)
-            display = viz.with_panel(side) if side else viz
+            display = viz if plain or not side else viz.with_panel(side)
             if viewer.show_blocking(source_name, display) == "q":
                 return True
         return False
@@ -906,7 +916,12 @@ def inspect(
             or detection.keypoints is not None
             or detection.instance_segmentation is not None
         ]
-        reserve = panel_reserve if panel else 0.0
+        has_sidebar = not plain and (
+            not per_instance
+            or bool(panel)
+            or bool(legend and viewer.layers.classes)
+        )
+        reserve = panel_reserve if has_sidebar else 0.0
 
         quit_requested = False
         needs_wait = False
@@ -984,8 +999,9 @@ def compare(
     matches them sample by sample (COCO-style: greedy by confidence, class-aware,
     at ``--iou-threshold``), and draws each frame colored by outcome — green hit,
     red false alarm, dashed-amber miss, orange class error — with a metrics side
-    panel. Matched poses are graded per keypoint. The two datasets are assumed to
-    share the same samples and settings. Press any key to advance, 'q' to quit.
+    panel. Matched poses are graded per keypoint. Samples are paired by their
+    source filenames, and missing/extra samples are reported. Press any key to
+    advance, 'q' to quit.
 
     Args:
         name: Name of the ground-truth dataset.
@@ -995,7 +1011,9 @@ def compare(
             (ground truth beside prediction, colored by identity), or ``triple``
             (ground truth | prediction | verdict diff).
         iou_threshold: Overlap threshold for a localized match.
-        score_threshold: Confidence cutoff for predictions.
+        score_threshold: Confidence cutoff for predictions. LDF prediction
+            datasets preserve confidence as per-instance ``score`` or
+            ``confidence`` metadata.
         class_agnostic: Match regardless of class label (no class-error verdict).
         per_class: Add a per-class precision/recall breakdown to the panel.
         errors_only: Draw only mistakes (false alarms, misses, class errors),
@@ -1104,6 +1122,59 @@ def compare(
             render_background=show_background,
         )
 
+    def sample_identity(data: object) -> _SampleIdentity:
+        """Stable sample identity from the loader's source-name/filename map."""
+        metadata = getattr(data, "metadata", None)
+        filenames = (
+            metadata.get("filenames") if isinstance(metadata, dict) else None
+        )
+        if not isinstance(filenames, dict) or not filenames:
+            raise ValueError(
+                "Dataset comparison requires loader filename metadata to match "
+                "samples by identity."
+            )
+        return tuple(
+            sorted(
+                (str(source), str(filename))
+                for source, filename in filenames.items()
+            )
+        )
+
+    def identity_index(
+        loader: LuxonisLoader, dataset_name: str
+    ) -> dict[_SampleIdentity, int]:
+        """Map unique sample identities to loader indices."""
+        indexed: dict[_SampleIdentity, int] = {}
+        for index, data in enumerate(loader):
+            identity = sample_identity(data)
+            if identity in indexed:
+                shown = ", ".join(
+                    f"{source}={filename}" for source, filename in identity
+                )
+                raise ValueError(
+                    f"Dataset '{dataset_name}' contains duplicate sample "
+                    f"identity: {shown}."
+                )
+            indexed[identity] = index
+        return indexed
+
+    def identity_label(identity: _SampleIdentity) -> str:
+        return ", ".join(
+            f"{source}={filename}" for source, filename in identity
+        )
+
+    def report_unpaired(
+        identities: set[_SampleIdentity], *, description: str
+    ) -> None:
+        if not identities:
+            return
+        ordered = sorted(identity_label(identity) for identity in identities)
+        preview = ", ".join(ordered[:10])
+        remainder = len(ordered) - 10
+        if remainder > 0:
+            preview += f", and {remainder} more"
+        print(f"[yellow]{description} ({len(ordered)}): {preview}.[/yellow]")
+
     def match_sample(
         gt_records: dict, pred_records: dict
     ) -> "ComparisonResult":
@@ -1119,30 +1190,40 @@ def compare(
             class_aware=not class_agnostic,
         )
 
-    def short() -> bool:
-        print(
-            "[yellow]Prediction dataset has fewer samples than the ground "
-            "truth; stopping.[/yellow]"
+    gt_indices = identity_index(gt_loader, name)
+    pred_indices = identity_index(pred_loader, predictions)
+    gt_identities = set(gt_indices)
+    pred_identities = set(pred_indices)
+    report_unpaired(
+        gt_identities - pred_identities,
+        description="Missing prediction samples",
+    )
+    report_unpaired(
+        pred_identities - gt_identities,
+        description="Extra prediction samples",
+    )
+    shared = sorted(
+        gt_identities & pred_identities, key=lambda item: gt_indices[item]
+    )
+    if not shared:
+        raise ValueError(
+            "The ground-truth and prediction datasets have no samples in "
+            "common by source filename."
         )
-        return True
-
-    pred_iterator = iter(pred_loader)
 
     # ``--summary``: iterate the whole view headlessly, accumulate a report,
     # print it, and write a confusion-matrix figure — no interactive window.
     if summary:
         report = ComparisonReport()
-        for index, gt_data in enumerate(gt_loader):
-            pred_data = next(pred_iterator, None)
-            if pred_data is None:
-                short()
-                break
+        for identity in shared:
+            gt_data = gt_loader[gt_indices[identity]]
+            pred_data = pred_loader[pred_indices[identity]]
             report.add(
                 match_sample(
                     records_for(gt_data, gt_classes, gt_categorical),
                     records_for(pred_data, pred_classes, pred_categorical),
                 ),
-                name=str(index),
+                name=identity_label(identity),
             )
         _print_comparison_summary(report, name, predictions, per_class)
         out_path = Path(f"{name}_vs_{predictions}_confusion.png")
@@ -1200,11 +1281,9 @@ def compare(
             display.with_panel(metrics, title="Comparison")
         )
 
-    for gt_data in gt_loader:
-        pred_data = next(pred_iterator, None)
-        if pred_data is None:
-            short()
-            break
+    for identity in shared:
+        gt_data = gt_loader[gt_indices[identity]]
+        pred_data = pred_loader[pred_indices[identity]]
         gt_records = records_for(gt_data, gt_classes, gt_categorical)
         pred_records = records_for(pred_data, pred_classes, pred_categorical)
         for source_name, image in gt_data.images.items():

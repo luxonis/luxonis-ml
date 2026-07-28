@@ -146,6 +146,26 @@ def test_metadata_only_task_yields_detections() -> None:
     assert [d.metadata["text"] for d in detections] == ["HELLO", "WORLD"]
 
 
+def test_loader_conversion_preserves_prediction_scores() -> None:
+    import numpy as np
+
+    labels = {
+        "det/boundingbox": np.array(
+            [[0, 0.1, 0.1, 0.2, 0.2], [0, 0.5, 0.5, 0.2, 0.2]]
+        ),
+        "det/metadata/score": np.array([0.15, 0.9]),
+    }
+
+    detections = loader_output_to_records(labels, classes={"det": {"car": 0}})[
+        "det"
+    ]._annotations()
+
+    assert [detection.metadata["score"] for detection in detections] == [
+        0.15,
+        0.9,
+    ]
+
+
 def test_background_class_is_not_labeled() -> None:
     """The 'background' class never becomes a visible label."""
     import numpy as np

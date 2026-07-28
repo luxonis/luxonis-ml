@@ -46,14 +46,14 @@ class Frame:
         return self.image.render(size)
 
     def with_image(self, image: Renderable) -> "Frame":
-        """Return a copy carrying ``image`` but this frame's hit map.
+        """Return a copy carrying ``image`` but this frame's interaction maps.
 
         For coordinate-preserving changes only: an overlay (e.g. a `Legend`) drawn
-        on top leaves the existing hit rectangles valid, so the map is reused
-        as-is. To attach a side panel (which reframes the image at an offset) use
-        `with_panel`, which shifts the map to match.
+        on top leaves the existing hover and click rectangles valid, so both maps
+        are reused as-is. To attach a side panel (which reframes the image at an
+        offset) use `with_panel`, which shifts the map to match.
         """
-        return Frame(image, self.hitmap)
+        return Frame(image, self.hitmap, self.clickmap)
 
     def with_panel(
         self,
