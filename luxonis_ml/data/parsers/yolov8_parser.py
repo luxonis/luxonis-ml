@@ -319,13 +319,7 @@ class YOLOv8Parser(SplitParserPlugin):
                         }
 
                     elif task_type == "keypoints":
-                        kpt_shape = classes_data.get("kpt_shape")
-                        if kpt_shape is None:
-                            raise ValueError(
-                                "`kpt_shape` is required for keypoint "
-                                "annotations."
-                            )
-                        n_kpts, kpt_dim = kpt_shape
+                        n_kpts, kpt_dim = classes_data["kpt_shape"]
                         class_id, *points = annotation_elements
                         x_center, y_center, width, height, *keypoints = points
                         keypoints = [float(p) for p in keypoints]
