@@ -38,6 +38,7 @@ from luxonis_ml.vizlab.annotations.layout import (
     label_candidates,
 )
 from luxonis_ml.vizlab.canvas import Canvas
+from luxonis_ml.vizlab.scene.image import _freeze_render_state
 from luxonis_ml.vizlab.style import (
     DEFAULT_STYLE,
     LabelPlacement,
@@ -186,6 +187,10 @@ def test_render_cache_tracks_annotation_mutations() -> None:
     image.annotations.append(Classification(tags=["scene"]))
     appended = image.render()
     assert not np.array_equal(nested, appended)
+
+
+def test_render_state_freezes_sets_deterministically() -> None:
+    assert _freeze_render_state({3, 1, 2}) == _freeze_render_state({2, 3, 1})
 
 
 def test_render_cache_tracks_scoped_style_state() -> None:
@@ -341,6 +346,27 @@ def test_blend_transforms_annotations_for_padded_images() -> None:
     assert np.all(mask_array[10:, :] == 0)
     assert np.all(mask_array[:, 20:] == 0)
     assert (box.x, box.y, box.w, box.h) == (0.5, 0.3, 0.4, 0.5)
+
+
+def test_blend_pads_semantic_mask_labels() -> None:
+    labels = np.ones((10, 20), dtype=np.int32)
+    small = Image(np.zeros((10, 20, 3), np.uint8)).add(
+        SemanticMask(labels=labels)
+    )
+    large = Image(np.zeros((30, 40, 3), np.uint8))
+
+    merged = large.blend(small)
+
+    semantic = next(
+        annotation
+        for annotation in merged.annotations
+        if isinstance(annotation, SemanticMask)
+    )
+    assert semantic.labels is not None
+    assert semantic.labels.shape == (30, 40)
+    assert np.all(semantic.labels[:10, :20] == 1)
+    assert np.all(semantic.labels[10:, :] == 0)
+    assert np.all(semantic.labels[:, 20:] == 0)
 
 
 def test_blend_only_mixes_base_and_keeps_labels_crisp() -> None:

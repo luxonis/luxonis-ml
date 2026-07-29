@@ -15,6 +15,7 @@ from luxonis_ml.vizlab import (
     confusion_matrix_figure,
     match_detections,
 )
+from luxonis_ml.vizlab.annotations import Annotation
 from luxonis_ml.vizlab.color import ColorLike
 from luxonis_ml.vizlab.compare import (
     CLASS_ERROR_COLOR,
@@ -23,7 +24,17 @@ from luxonis_ml.vizlab.compare import (
     NONE_LABEL,
     TP_COLOR,
 )
+from luxonis_ml.vizlab.comparison.core import (
+    Match,
+    _ghost,
+    _grade_keypoints,
+    _keypoints_of,
+    _recolor,
+    _render_match,
+    _with_keypoint_verdicts,
+)
 from luxonis_ml.vizlab.geometry import Rect
+from luxonis_ml.vizlab.options import RenderOptions
 
 
 def _box(
@@ -414,6 +425,11 @@ def test_carried_hitmap_scales_with_render_size() -> None:
     assert abs(far.right - 2 * near.right) < 1.0
 
 
+def test_compare_requires_inputs_or_a_result() -> None:
+    with pytest.raises(ValueError, match="needs gt and pred"):
+        compare(_blank(), panel=False)
+
+
 # --------------------------------------------------------------------------- #
 # LDF Detection support
 # --------------------------------------------------------------------------- #
@@ -474,6 +490,25 @@ def test_keypoint_only_detection_matched_by_extent() -> None:
     pred = [Detection.model_validate({"class_name": "pose", "keypoints": kps})]
     result = match_detections(gt, pred)
     assert result.n_tp == 1
+
+
+def test_keypoint_only_match_renders_a_top_level_graded_pose() -> None:
+    keypoints = {"keypoints": [(0.2, 0.2, 2), (0.4, 0.4, 2)]}
+    gt = Detection.model_validate(
+        {"class_name": "pose", "keypoints": keypoints}
+    )
+    pred = Detection.model_validate(
+        {"class_name": "pose", "keypoints": keypoints}
+    )
+
+    image = compare(_blank(), gt=[gt], pred=[pred], panel=False)
+
+    pose = next(
+        annotation
+        for annotation in image.annotations
+        if isinstance(annotation, Keypoints)
+    )
+    assert pose.point_colors == [TP_COLOR, TP_COLOR]
 
 
 def test_keypoint_bounds_exclude_invisible_placeholders() -> None:
@@ -602,3 +637,40 @@ def test_unmatched_pose_keeps_one_verdict_color() -> None:
     img = compare(_blank(), gt=[_pose(box, joints)], pred=[], panel=False)
     roots = [a for a in img.annotations if isinstance(a, BBox)]
     assert any(a.color == FN_COLOR for a in roots)
+
+
+def test_comparison_helpers_handle_unrenderable_and_partial_inputs() -> None:
+    options = RenderOptions()
+    empty = Detection(class_name=None)
+    assert _recolor(empty, options, TP_COLOR) == []
+    assert _ghost(empty) == []
+    assert _keypoints_of(empty) is None
+
+    pose = Detection.model_validate(
+        {
+            "class_name": "pose",
+            "keypoints": {"keypoints": [(0.2, 0.2, 2)]},
+        }
+    )
+    match = Match(Verdict.TP, pose, pose, 1.0)
+    annotations: list[Annotation] = [BBox(x=0.1, y=0.1, w=0.2, h=0.2)]
+    assert _with_keypoint_verdicts(annotations, match) is annotations
+
+
+def test_grade_keypoints_marks_an_invented_joint_false_positive() -> None:
+    points, colors = _grade_keypoints(
+        [(0.3, 0.4, 2)],
+        [(0.0, 0.0, 0)],
+        Rect(0.0, 0.0, 1.0, 1.0),
+    )
+    assert points == [(0.3, 0.4, 2)]
+    assert colors == [FP_COLOR]
+
+
+def test_render_match_ignores_incomplete_match() -> None:
+    incomplete = Match(Verdict.TP, None, None)
+    assert _render_match(incomplete, RenderOptions()) == []
+
+
+def test_empty_comparison_report_per_class_is_empty() -> None:
+    assert ComparisonReport().per_class() == {}

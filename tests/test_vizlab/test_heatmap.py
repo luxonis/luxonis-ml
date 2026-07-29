@@ -149,3 +149,13 @@ def test_heatmap_constant_field_normalizes_to_zero() -> None:
     assert np.array_equal(
         Heatmap(values=field)._normalized(field), np.zeros((4, 4))
     )
+
+
+def test_heatmap_without_normalization_uses_unit_range() -> None:
+    field = np.array([[-1.0, 0.5, 2.0]])
+    normalized = Heatmap(normalize=False)._normalized(field)
+    assert np.array_equal(normalized, [[0.0, 0.5, 1.0]])
+
+
+def test_heatmap_extent_is_none() -> None:
+    assert Heatmap(values=np.ones((2, 2))).extent() is None

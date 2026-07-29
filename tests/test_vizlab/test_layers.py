@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from luxonis_ml.vizlab import BBox, Classification, Keypoints, Mask
+from luxonis_ml.vizlab import BBox, Classification, Color, Keypoints, Mask
 from luxonis_ml.vizlab.annotations import Annotation
 from luxonis_ml.vizlab.style import Palette, derive_child_color
 from luxonis_ml.vizlab.viewer import LayerState
@@ -214,6 +214,12 @@ def test_update_classes_keeps_hidden_and_drops_a_stale_cursor() -> None:
     assert state.hidden == {"car"}  # the hidden set persists
 
 
+def test_update_classes_resets_an_out_of_range_focus() -> None:
+    state = LayerState(classes=("car", "person", "dog"), _focus=2)
+    state.update_classes(["car"])
+    assert state._focus is None
+
+
 def test_handle_c_cycles_isolate_then_wraps() -> None:
     state = LayerState(classes=("car", "person"))
     state.handle("c")  # isolate car -> hide person
@@ -274,3 +280,35 @@ def test_controls_class_reflects_visibility() -> None:
     state.handle("c")  # isolate car -> hide the other
     iso = {c.name: c for c in state.controls()}["class"]
     assert (iso.value, iso.active) == ("1 off", True)
+
+
+def test_declutter_returns_original_when_busy_scene_has_no_tiny_boxes() -> (
+    None
+):
+    scene = [
+        BBox(
+            x=0.1 + 0.01 * (index % 5),
+            y=0.1 + 0.01 * (index // 5),
+            w=0.1,
+            h=0.1,
+            label="car",
+        )
+        for index in range(25)
+    ]
+    out = LayerState().apply_layers(scene, PALETTE)
+    assert all(
+        actual is expected for actual, expected in zip(out, scene, strict=True)
+    )
+
+
+def test_explicit_annotation_color_is_preserved_when_boxes_are_hidden() -> (
+    None
+):
+    box = _detection()
+    box.color = "#123456"
+    promoted = LayerState(boxes=False).apply_layers([box], PALETTE)
+    assert promoted
+    assert all(
+        child.color == derive_child_color(Color.parse("#123456"))
+        for child in promoted
+    )

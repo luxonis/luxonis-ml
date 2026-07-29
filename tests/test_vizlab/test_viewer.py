@@ -30,6 +30,7 @@ class FakeBackend:
         self.destroyed: list[str] = []
         self.handlers: dict[str, MouseHandler] = {}
         self.key_handler: KeyHandler | None = None
+        self.closed = False
 
     def screen_size(self) -> tuple[int, int] | None:
         return self._screen
@@ -61,7 +62,7 @@ class FakeBackend:
         self.key_handler = handler
 
     def close(self) -> None:
-        pass
+        self.closed = True
 
 
 def _tooltip_image(h: int = 120, w: int = 200) -> tuple[Image, Tooltip]:
@@ -109,6 +110,10 @@ def test_show_fits_frame_to_screen() -> None:
     assert height <= 90
 
 
+def test_screen_property_exposes_backend_size() -> None:
+    assert Viewer(FakeBackend(screen=(640, 480))).screen == (640, 480)
+
+
 def test_show_prepared_does_not_render_the_frame_again(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -151,6 +156,18 @@ def test_destroy_stale_closes_absent_windows() -> None:
     viewer.show("b", frame)
     viewer.destroy_stale({"a"})
     assert backend.destroyed == ["b"]
+
+
+def test_close_resets_windows_and_closes_backend() -> None:
+    backend = FakeBackend()
+    viewer = Viewer(backend)
+    viewer.show("w", _tooltip_image()[0].frame())
+
+    viewer.close()
+
+    assert backend.closed
+    assert viewer._live == set()
+    assert viewer._windows == {}
 
 
 def test_draw_tooltip_modifies_frame_and_clamps() -> None:
@@ -226,6 +243,36 @@ def test_draw_tooltip_empty_is_noop() -> None:
     before = frame.copy()
     draw_tooltip(frame, Tooltip(), (10, 10))
     assert np.array_equal(frame, before)
+
+
+def test_draw_tooltip_too_large_for_frame_is_noop() -> None:
+    frame = np.full((8, 8, 3), 40, np.uint8)
+    before = frame.copy()
+    draw_tooltip(
+        frame,
+        Tooltip(title="large", rows=(("description", "too large"),)),
+        (1, 1),
+    )
+    assert np.array_equal(frame, before)
+
+
+def test_blit_outside_frame_is_noop() -> None:
+    from luxonis_ml.vizlab.viewer.tooltip_render import blit_rgba_on_bgr
+
+    frame = np.full((20, 20, 3), 40, np.uint8)
+    before = frame.copy()
+    card = np.full((5, 5, 4), 255, np.uint8)
+    blit_rgba_on_bgr(frame, card, 30, 30)
+    assert np.array_equal(frame, before)
+
+
+def test_small_frost_blur_uses_full_resolution_path() -> None:
+    from luxonis_ml.vizlab.viewer.tooltip_render import _blur_bgr
+
+    roi = np.arange(20 * 20 * 3, dtype=np.uint8).reshape(20, 20, 3)
+    blurred = _blur_bgr(roi, 1.0)
+    assert blurred.shape == roi.shape
+    assert blurred.dtype == np.float32
 
 
 def test_render_tooltip_card_is_rgba() -> None:
@@ -333,6 +380,34 @@ def test_panel_click_toggles_a_class_through_wait() -> None:
     assert viewer.layers.hidden == {"car"}
 
 
+def test_click_outside_clickmap_is_ignored() -> None:
+    backend = FakeBackend()
+    viewer = Viewer(backend)
+    image, _ = _tooltip_image()
+    viewer.show("w", image.frame())
+    backend.handlers["w"](1, 1, True)
+    assert viewer.layers.hidden == set()
+
+
+def test_driven_click_applies_action_immediately() -> None:
+    from luxonis_ml.vizlab.geometry import Rect
+    from luxonis_ml.vizlab.hitmap import ClickMap
+
+    backend = FakeBackend()
+    viewer = Viewer(backend, hud=False)
+    viewer.layers.classes = ("car",)
+    image, _ = _tooltip_image()
+    frame = Frame(
+        image, clickmap=ClickMap([(Rect(0, 0, 50, 50), "class:car")])
+    )
+    viewer.show("w", frame, render=lambda _state: frame)
+    viewer.run(lambda _key: None)
+
+    backend.handlers["w"](10, 10, True)
+
+    assert viewer.layers.hidden == {"car"}
+
+
 def test_cv2_backend_is_pull_only() -> None:
     # Constructing it touches neither cv2 nor Tk; only the raise is exercised.
     with pytest.raises(NotImplementedError):
@@ -369,6 +444,17 @@ def test_control_keys_pass_through_without_a_render_callback() -> None:
     viewer = Viewer(backend)
     viewer.show("w", _layer_image().frame())  # not interactive
     assert viewer.wait() == "m"  # forwarded to the caller unchanged
+
+
+def test_rerender_is_noop_without_a_render_callback() -> None:
+    backend = FakeBackend()
+    viewer = Viewer(backend)
+    viewer.show("w", _layer_image().frame())
+    shown = len(backend.shown)
+    viewer._rerender("w", viewer._windows["w"])
+    assert len(backend.shown) == shown
+    viewer._render_hover("w", viewer._windows["w"])
+    assert len(backend.shown) == shown + 1
 
 
 def test_hud_is_drawn_only_on_interactive_windows() -> None:
@@ -412,3 +498,9 @@ def test_run_swallows_control_keys_and_forwards_the_rest() -> None:
     backend.key_handler(ord("n"))  # non-control: forwarded
     assert got == ["n"]
     assert viewer.layers.keypoints is False
+
+
+def test_unknown_panel_action_is_ignored() -> None:
+    viewer = Viewer(FakeBackend())
+    viewer._apply_action("unknown:value")
+    assert viewer.layers.is_default()

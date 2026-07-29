@@ -7,10 +7,13 @@ import pytest
 
 from luxonis_ml.vizlab import (
     BBox,
+    Caption,
     Classification,
     Color,
+    Corner,
     Image,
     Palette,
+    Tooltip,
     vstack,
 )
 from luxonis_ml.vizlab.annotations.base import RenderContext
@@ -42,6 +45,12 @@ def test_bounding_rect_empty_raises() -> None:
         bounding_rect([])
 
 
+def test_rect_union_contains_both_rectangles() -> None:
+    assert Rect(1.0, 4.0, 5.0, 8.0).union(Rect(-2.0, 6.0, 3.0, 10.0)) == Rect(
+        -2.0, 4.0, 5.0, 10.0
+    )
+
+
 def test_palette_at_is_deterministic() -> None:
     assert Palette().at(3) == Palette().at(3)
 
@@ -65,6 +74,18 @@ def test_base_reserve_is_noop_for_spatial() -> None:
     assert BBox(x=0.1, y=0.1, w=0.4, h=0.4).reserve(ctx) is None
     assert ctx.layout is not None
     assert ctx.layout.placed == []
+
+
+def test_render_context_legacy_hit_collection() -> None:
+    hits: list[tuple[Rect, Tooltip]] = []
+    tooltip = Tooltip(title="car")
+    ctx = RenderContext(canvas=Canvas.blank(10, 10), hits=hits)
+    region = Rect(1.0, 2.0, 3.0, 4.0)
+
+    ctx.emit_hit(region, None)
+    ctx.emit_hit(region, tooltip)
+
+    assert hits == [(region, tooltip)]
 
 
 def test_classification_edge_cases() -> None:
@@ -123,3 +144,23 @@ def test_image_show_uses_pil(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(Image, "to_pil", lambda self: _Dummy())
     Image(np.zeros((2, 2, 3), np.uint8)).show()
     assert shown["called"]
+
+
+def test_label_layout_grows_and_clamps() -> None:
+    layout = LabelLayout(20, 10)
+    for index in range(9):
+        layout._record(Rect(float(index), 0.0, float(index + 1), 1.0))
+
+    assert len(layout.placed) == 9
+    assert layout._clamp(-5.0, 20.0, 4.0, 3.0) == Rect(0.0, 7.0, 4.0, 10.0)
+
+
+def test_corner_stack_empty_size_and_nonoverlapping_reservation() -> None:
+    caption = Caption(text="", corner=Corner.TOP_LEFT)
+    assert caption.content_size() == (0.0, 0.0)
+
+    populated = Caption(text="hello", corner=Corner.TOP_LEFT)
+    ctx = RenderContext(canvas=Canvas.blank(200, 100))
+    positioned = populated._positioned(ctx, populated.resolve_style(ctx))
+    reserved = [Rect(180.0, 0.0, 200.0, 20.0)]
+    assert populated._avoid_reserved(positioned, reserved) == positioned

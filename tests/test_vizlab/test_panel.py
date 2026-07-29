@@ -4,6 +4,7 @@ import numpy as np
 
 from luxonis_ml.vizlab import BBox, Image, with_panel
 from luxonis_ml.vizlab.color import Color
+from luxonis_ml.vizlab.layout.panel import _format_scalar
 from luxonis_ml.vizlab.panel import (
     _MARGIN,
     _PAD,
@@ -51,6 +52,19 @@ def test_format_tree_scalars_and_types() -> None:
         (0, "•", False, ""),
         (1, "x: ", True, "1"),
     ]
+
+
+def test_format_scalar_unwraps_block() -> None:
+    from luxonis_ml.vizlab import Block
+
+    assert _format_scalar(Block("frame.jpg")) == "frame.jpg"
+
+
+def test_format_sections_accepts_a_scalar_root() -> None:
+    sections = _format_sections("ready")
+    assert len(sections) == 1
+    assert sections[0].heading is None
+    assert sections[0].lines == [(0, "", False, "ready")]
 
 
 def test_format_tree_truncates_long_string() -> None:
@@ -212,6 +226,28 @@ def test_format_sections_marks_disabled_swatches() -> None:
     ]
 
 
+def test_disabled_swatches_render_hollow_and_struck_through() -> None:
+    from luxonis_ml.vizlab import Swatches
+
+    rendered = with_panel(
+        _img(200, 140),
+        {
+            "classes": Swatches(
+                ((Color(255, 0, 0), "car"),),
+                frozenset({"car"}),
+            )
+        },
+    ).render()
+    assert rendered.shape[2] == 4
+
+
+def test_empty_swatches_take_no_rows() -> None:
+    from luxonis_ml.vizlab.panel import _layout_swatches
+
+    m = _metrics(1.0, Color(24, 24, 28))
+    assert _layout_swatches(None, (), 0.0, 0.0, 17.0, 200.0, m, 20.0) == 17.0
+
+
 def test_swatches_reserve_keeps_the_panel_width_stable() -> None:
     from luxonis_ml.vizlab import Swatches
     from luxonis_ml.vizlab.panel import _auto_width
@@ -361,6 +397,21 @@ def test_block_value_is_middle_ellipsized_when_too_long() -> None:
     assert "…" in out
     assert out.startswith("/data")  # keeps the start ...
     assert out.endswith(".jpg")  # ... and the end (the extension)
+
+
+def test_block_panel_renders_and_extreme_ellipsize_falls_back_to_mark() -> (
+    None
+):
+    from luxonis_ml.vizlab import Block
+    from luxonis_ml.vizlab.panel import _middle_ellipsize
+
+    m = _metrics(1.0, Color(24, 24, 28))
+    assert _middle_ellipsize("abcdef", 0.0, m) == "…"
+    rendered = with_panel(
+        _img(120, 80),
+        {"path": Block("/datasets/coco/images/frame.jpg")},
+    ).render()
+    assert rendered.shape[2] == 4
 
 
 def test_panel_frames_the_image_with_an_outer_margin() -> None:

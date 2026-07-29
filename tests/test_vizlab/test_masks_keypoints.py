@@ -434,3 +434,38 @@ def test_keypoints_compose_with_box() -> None:
 def test_mask_rect_helper_is_available() -> None:
     # Sanity: geometry Rect still imports for downstream use.
     assert Rect(0.0, 0.0, 1.0, 1.0).width == 1.0
+
+
+def test_mask_contours_skip_single_point_rings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import cv2
+
+    monkeypatch.setattr(
+        cv2,
+        "findContours",
+        lambda _mask, _mode, _method: (
+            [np.array([[[1, 1]]], dtype=np.int32)],
+            None,
+        ),
+    )
+    assert _mask_contours(np.ones((3, 3), dtype=bool)) == []
+
+
+def test_empty_semantic_mask_from_ldf() -> None:
+    semantic = SemanticMask.from_ldf([])
+    assert semantic.labels is None
+
+
+def test_confidence_keypoint_visibility_scales_joint_radius() -> None:
+    rendered = (
+        _canvas()
+        .add(
+            Keypoints(
+                keypoints=[(0.3, 0.5, 1), (0.7, 0.5, 1)],
+                visibility_threshold=0.0,
+            )
+        )
+        .render()
+    )
+    assert rendered.shape == (60, 80, 4)

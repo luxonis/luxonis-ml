@@ -2,11 +2,15 @@
 
 from collections.abc import Iterator
 from contextvars import ContextVar
+from queue import Full, Queue
 from threading import Event, Thread, get_ident
 
 import pytest
 
 from luxonis_ml.vizlab.viewer import PrefetchIterator
+from luxonis_ml.vizlab.viewer.prefetch import _End, _Failure, _Value
+
+_QueuedInt = _Value[int] | _Failure | _End
 
 
 def test_prefetch_loads_in_background_and_preserves_order() -> None:
@@ -90,3 +94,63 @@ def test_close_waits_for_in_flight_source_work() -> None:
 
     assert source_finished.is_set()
     assert close_finished.is_set()
+
+
+def test_close_wakes_a_blocked_consumer() -> None:
+    source_started = Event()
+    release_source = Event()
+    consumer_finished = Event()
+
+    def source() -> Iterator[int]:
+        source_started.set()
+        assert release_source.wait(timeout=1.0)
+        yield 1
+
+    items = PrefetchIterator(source(), capacity=1)
+    assert source_started.wait(timeout=1.0)
+
+    def consume() -> None:
+        with pytest.raises(StopIteration):
+            next(items)
+        consumer_finished.set()
+
+    consumer = Thread(target=consume)
+    consumer.start()
+    closer = Thread(target=items.close)
+    closer.start()
+    release_source.set()
+    closer.join(timeout=1.0)
+
+    assert consumer_finished.wait(timeout=1.0)
+    consumer.join(timeout=1.0)
+
+
+def test_next_after_close_stops_immediately() -> None:
+    items = PrefetchIterator([1], capacity=1)
+    items.close()
+    with pytest.raises(StopIteration):
+        next(items)
+
+
+def test_prefetch_retries_when_the_queue_is_temporarily_full(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_put = Queue.put
+    raised = False
+
+    def put_with_one_full(
+        queue: Queue[_QueuedInt],
+        item: _QueuedInt,
+        block: bool = True,
+        timeout: float | None = None,
+    ) -> None:
+        nonlocal raised
+        if not raised:
+            raised = True
+            raise Full
+        original_put(queue, item, block=block, timeout=timeout)
+
+    monkeypatch.setattr(Queue, "put", put_with_one_full)
+    with PrefetchIterator([1], capacity=1) as items:
+        assert list(items) == [1]
+    assert raised

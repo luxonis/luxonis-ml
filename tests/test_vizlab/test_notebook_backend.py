@@ -105,6 +105,51 @@ def test_show_sets_png_on_real_widget(
 
 
 @pytest.mark.skipif(
+    not _HAS_IPYWIDGETS, reason="needs the 'notebook' extra (ipywidgets)"
+)
+def test_real_widget_window_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import IPython.display
+
+    monkeypatch.setattr(IPython.display, "display", lambda *a, **k: None)
+    backend = NotebookBackend()
+    backend.create_window("a")
+    first = backend._images["a"]
+    backend.create_window("a")
+    assert backend._images["a"] is first
+
+    backend.resize("a", 120, 80)
+    backend.center("a", 120, 80, (800, 600))
+    backend.set_mouse_handler("a", lambda _x, _y, _clicked: None)
+    backend.destroy_window("a")
+    assert "a" not in backend._images
+
+    backend.create_window("b")
+    backend.create_window("c")
+    backend.set_key_handler(lambda _key: None)
+    backend.close()
+    assert backend._images == {}
+    assert backend._key_handler is None
+
+
+@pytest.mark.skipif(
+    not _HAS_IPYWIDGETS, reason="needs the 'notebook' extra (ipywidgets)"
+)
+def test_existing_root_requires_initialized_stack(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import IPython.display
+
+    monkeypatch.setattr(IPython.display, "display", lambda *a, **k: None)
+    backend = NotebookBackend()
+    backend.create_window("a")
+    backend._stack = None
+    with pytest.raises(RuntimeError, match="stack is not initialized"):
+        backend._ensure_root()
+
+
+@pytest.mark.skipif(
     not (_HAS_IPYWIDGETS and _HAS_IPYEVENTS),
     reason="needs the 'notebook' extra (ipywidgets + ipyevents)",
 )
@@ -140,12 +185,13 @@ def test_mouse_events_route_move_and_click(
     backend.create_window("w")
     backend._frame_size["w"] = (100, 60)
     calls: list[tuple[int, int, bool]] = []
+    dispatch = captured.callback
+    assert dispatch is not None
+    dispatch({"type": "mousemove"})
     backend.set_mouse_handler(
         "w", lambda x, y, clicked: calls.append((x, y, clicked))
     )
 
-    dispatch = captured.callback
-    assert dispatch is not None
     dispatch(
         {
             "type": "mousemove",

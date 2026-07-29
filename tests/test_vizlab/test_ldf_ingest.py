@@ -26,6 +26,10 @@ from luxonis_ml.vizlab import (
     SemanticMask,
     visualize_record,
 )
+from luxonis_ml.vizlab.adapters.ldf import (
+    _metadata_to_panel_data,
+    to_render_annotations,
+)
 from luxonis_ml.vizlab.annotations.base import RenderContext
 from luxonis_ml.vizlab.canvas import Canvas
 
@@ -108,12 +112,62 @@ def test_image_add_detection_builds_tree():
     assert img.render().shape == (50, 50, 4)
 
 
+def test_image_add_detection_attaches_instance_mask() -> None:
+    detection = Detection(
+        class_name="car",
+        boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.4, h=0.4),
+        instance_segmentation=InstanceSegmentationAnnotation(
+            mask=np.ones((12, 12), np.uint8)  # type: ignore[arg-type]
+        ),
+    )
+
+    image = Image(np.zeros((20, 20, 3), np.uint8)).add(detection)
+
+    root = image.annotations[0]
+    assert isinstance(root, BBox)
+    assert any(isinstance(child, Mask) for child in root.children)
+
+
 def test_image_add_individual_annotation_models():
     img = Image(np.zeros((20, 20, 3), np.uint8))
     img.add(BBoxAnnotation(x=0.1, y=0.1, w=0.2, h=0.2))
     img.add(KeypointAnnotation(keypoints=[(0.5, 0.5, 2)]))
     assert isinstance(img.annotations[0], BBox)
     assert isinstance(img.annotations[1], Keypoints)
+
+
+def test_image_add_individual_mask_annotation_models() -> None:
+    img = Image(np.zeros((20, 20, 3), np.uint8))
+    img.add(
+        InstanceSegmentationAnnotation(
+            mask=np.eye(4, dtype=np.uint8)  # type: ignore[arg-type]
+        )
+    )
+    img.add(
+        SegmentationAnnotation(
+            mask=np.eye(4, dtype=np.uint8)  # type: ignore[arg-type]
+        )
+    )
+
+    assert all(isinstance(annotation, Mask) for annotation in img.annotations)
+
+
+def test_to_render_annotations_expands_dataset_record() -> None:
+    record = DatasetRecord.model_construct(
+        files={},
+        annotation=[
+            Detection(
+                class_name="car",
+                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.2, h=0.2),
+                metadata={"id": 7},
+            )
+        ],
+        task_name="objects",
+    )
+
+    annotations = to_render_annotations(record)
+
+    assert any(isinstance(annotation, BBox) for annotation in annotations)
 
 
 def test_image_add_rejects_unknown_type():
@@ -138,6 +192,33 @@ def test_visualize_record_renders_with_panel():
     )
     # sample_metadata attaches a side-panel, widening the output.
     assert img.render().shape[1] > 60
+
+
+def test_visualize_record_merges_explicit_panel_data() -> None:
+    record = DatasetRecord.model_construct(
+        files={},
+        annotation=[],
+        task_name="empty",
+        sample_metadata={},
+    )
+
+    rendered = visualize_record(
+        record,
+        np.zeros((30, 40, 3), np.uint8),
+        panel={"review": {"status": "ready"}},
+    )
+
+    assert rendered.width > 40
+
+
+def test_metadata_panel_normalization_recurses_json_values() -> None:
+    assert _metadata_to_panel_data(
+        {"path": "a.jpg", "flags": [True, None], 3: 1.25}
+    ) == {
+        "path": "a.jpg",
+        "flags": [True, None],
+        "3": 1.25,
+    }
 
 
 def test_visualize_record_collects_nested_record_annotations(

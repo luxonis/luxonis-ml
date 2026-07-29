@@ -56,6 +56,11 @@ def test_combine_empty_group_raises() -> None:
         combine([])
 
 
+def test_combine_empty_mapping_raises() -> None:
+    with pytest.raises(ValueError, match="empty group"):
+        combine({})
+
+
 def test_combine_bad_type_raises() -> None:
     with pytest.raises(TypeError, match="unsupported group type"):
         combine(42)  # type: ignore[arg-type]
@@ -66,6 +71,16 @@ def test_combine_bad_sequence_member_raises() -> None:
     # not a cryptic AttributeError from calling .render() on the member.
     with pytest.raises(TypeError, match="unsupported group member type"):
         combine([np.zeros((4, 4, 3), np.uint8)])  # type: ignore[list-item]
+
+
+def test_combine_bad_mapping_member_raises() -> None:
+    with pytest.raises(TypeError, match="unsupported group member type"):
+        combine({"bad": 42})  # type: ignore[dict-item]
+
+
+def test_combine_unwraps_single_image_mapping_members() -> None:
+    rendered = combine({"only": [_cell()]}).render()
+    assert rendered.shape[2] == 4
 
 
 def test_smart_cols_single() -> None:

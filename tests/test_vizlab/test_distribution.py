@@ -92,6 +92,20 @@ def test_empty_distribution_is_noop() -> None:
     assert np.array_equal(plain, empty)
 
 
+@pytest.mark.parametrize("mode", ["chips", "gauge", "stacked", "pie", "donut"])
+def test_empty_distribution_is_noop_in_every_mode(
+    mode: DistributionMode,
+) -> None:
+    base = _canvas()
+    plain = base.copy().render()
+    empty = (
+        base.copy()
+        .add(ClassDistribution(probabilities={}, mode=mode))
+        .render()
+    )
+    assert np.array_equal(plain, empty)
+
+
 def test_empty_distribution_has_no_extent() -> None:
     assert ClassDistribution(probabilities={}).extent() is None
 
@@ -302,3 +316,84 @@ def test_content_size_positive_and_grows_with_classes() -> None:
     assert bw > 0
     # More rows -> a taller card.
     assert bh > sh
+
+
+@pytest.mark.parametrize("mode", ["bars", "gauge", "stacked", "pie", "donut"])
+def test_chart_titles_render_in_every_supported_mode(
+    mode: DistributionMode,
+) -> None:
+    rendered = (
+        _canvas(260, 260)
+        .add(
+            ClassDistribution(
+                probabilities={"cat": 0.7, "dog": 0.3},
+                mode=mode,
+                title="prediction",
+                ground_truth="dog",
+                top_k=None,
+            )
+        )
+        .render()
+    )
+    assert rendered.shape == (260, 260, 4)
+
+
+@pytest.mark.parametrize("mode", ["stacked", "pie", "donut"])
+def test_segment_charts_roll_truncated_values_into_other(
+    mode: DistributionMode,
+) -> None:
+    distribution = ClassDistribution(
+        probabilities={"cat": 0.7, "dog": 0.2, "fox": 0.1},
+        mode=mode,
+        top_k=1,
+    )
+    rendered = _canvas(260, 260).add(distribution).render()
+
+    assert distribution._keyed_segments([("cat", 0.7)], 1.0) == [
+        ("cat", 0.7),
+        ("other", pytest.approx(0.3)),
+    ]
+    assert rendered.shape == (260, 260, 4)
+
+
+def test_zero_value_stacked_segment_is_skipped() -> None:
+    rendered = (
+        _canvas(260, 260)
+        .add(
+            ClassDistribution(
+                probabilities={"cat": 1.0, "dog": 0.0},
+                mode="stacked",
+                top_k=None,
+            )
+        )
+        .render()
+    )
+    assert rendered.shape == (260, 260, 4)
+
+
+@pytest.mark.parametrize("mode", ["pie", "donut"])
+def test_zero_total_pie_uses_empty_fill(mode: DistributionMode) -> None:
+    rendered = (
+        _canvas(260, 260)
+        .add(
+            ClassDistribution(
+                probabilities={"cat": 0.0},
+                mode=mode,
+                top_k=None,
+            )
+        )
+        .render()
+    )
+    assert rendered.shape == (260, 260, 4)
+
+
+def test_empty_chip_text_is_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    distribution = ClassDistribution(probabilities={"": 1.0}, mode="chips")
+    monkeypatch.setattr(
+        ClassDistribution,
+        "_value_label",
+        lambda self, value, total: "",
+    )
+    assert distribution.content_size() == (0.0, 0.0)

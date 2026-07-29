@@ -1,11 +1,15 @@
 """Coverage for Caption and Legend overlays."""
 
+from collections.abc import Sequence
+
 import numpy as np
+import pytest
 
 from luxonis_ml.vizlab import BBox, Caption, Corner, Image, Legend
 from luxonis_ml.vizlab.annotations.base import RenderContext
 from luxonis_ml.vizlab.annotations.overlay import Cell
 from luxonis_ml.vizlab.canvas import Canvas
+from luxonis_ml.vizlab.markup import Span
 
 
 def _img() -> Image:
@@ -35,6 +39,15 @@ def test_caption_title_and_empty() -> None:
     titled = base.copy().add(Caption(text="Title", title=True)).render()
     assert not np.array_equal(titled, plain)
     assert np.array_equal(base.copy().add(Caption(text="")).render(), plain)
+
+
+def test_caption_with_explicit_background_renders() -> None:
+    base = _img()
+    plain = base.copy().render()
+    captioned = (
+        base.copy().add(Caption(text="custom", background="#f5d142")).render()
+    )
+    assert not np.array_equal(captioned, plain)
 
 
 def test_legend_palette_and_explicit_entries() -> None:
@@ -70,6 +83,33 @@ def test_many_class_legend_flows_into_columns_and_fits_the_canvas() -> None:
     # ...and it used more than one column (wider than a single-column card would).
     single = _legend_cell(Legend(entries=["class_00"]), 760, 520)
     assert tall.width > single.width * 2
+
+
+def test_many_class_legend_draws_column_swatches() -> None:
+    names = [f"class_{index:02d}" for index in range(60)]
+    image = Image(np.full((200, 760, 3), 20, np.uint8))
+    rendered = image.add(Legend(entries=names, title="classes")).render()
+    assert rendered.shape == (200, 760, 4)
+
+
+def test_caption_skips_when_wrapping_produces_no_lines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def no_lines(
+        self: Canvas,
+        spans: Sequence[Span],
+        size: float,
+        *,
+        max_width: float,
+    ) -> list[list[Span]]:
+        return []
+
+    monkeypatch.setattr(Canvas, "wrap_spans", no_lines)
+    base = _img()
+    assert np.array_equal(
+        base.copy().add(Caption(text="hidden")).render(),
+        base.copy().render(),
+    )
 
 
 def test_legend_caps_with_overflow_when_even_columns_cannot_fit() -> None:

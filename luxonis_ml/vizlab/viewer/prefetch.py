@@ -74,6 +74,8 @@ class PrefetchIterator(Iterator[ItemT]):
         if self._closed:
             raise StopIteration
         item = self._queue.get()
+        if self._closed:
+            raise StopIteration
         if isinstance(item, _Value):
             return item.value
         self.close()
@@ -101,6 +103,7 @@ class PrefetchIterator(Iterator[ItemT]):
         self._discard_queued()
         self._thread.join()
         self._discard_queued()
+        self._queue.put_nowait(_END)
 
     def _discard_queued(self) -> None:
         """Remove queued events, including any enqueued during shutdown."""

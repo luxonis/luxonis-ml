@@ -6,6 +6,7 @@ import pytest
 from luxonis_ml.vizlab.canvas import Canvas, gaussian_blur
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import Rect
+from luxonis_ml.vizlab.markup import Span
 
 _RED = Color(220, 60, 60)
 
@@ -117,6 +118,17 @@ def test_blit_places_image() -> None:
     assert tuple(canvas.to_rgba()[8, 8, :3]) == (200, 100, 50)
 
 
+def test_blit_and_scaled_blit_clip_rounded_corners() -> None:
+    patch = np.full((10, 10, 4), 255, dtype=np.uint8)
+    direct = Canvas.blank(30, 20)
+    direct.blit(patch, 2, 2, radius=4.0)
+    scaled = Canvas.blank(30, 20)
+    scaled.blit_scaled(patch, 2, 2, 20, 14, radius=5.0)
+
+    assert direct.to_rgba()[7, 7, 3] > 0
+    assert scaled.to_rgba()[9, 12, 3] > 0
+
+
 def test_svg_records_vectors_and_embeds_rasters() -> None:
     canvas = Canvas.svg(120, 80)
     base = np.zeros((40, 60, 4), np.uint8)
@@ -168,3 +180,25 @@ def test_rounded_rect_dashed_and_shadow() -> None:
         shadow=Shadow(),
     )
     assert canvas.to_rgba()[..., 3].max() > 0
+
+
+def test_empty_spans_measure_and_draw_as_noop() -> None:
+    canvas = _blank()
+    assert canvas.measure_spans([], 14.0) == canvas.measure_text("", 14.0)
+    canvas.draw_spans(
+        (2.0, 15.0),
+        [Span(""), Span("visible")],
+        size=14.0,
+        color=_RED,
+    )
+    assert canvas.to_rgba()[..., 3].max() > 0
+
+
+def test_overlay_empty_mask_is_noop() -> None:
+    canvas = _blank()
+    canvas.overlay_mask(
+        np.zeros((30, 40), dtype=np.uint8),
+        _RED,
+        alpha=0.5,
+    )
+    assert canvas.to_rgba()[..., 3].max() == 0

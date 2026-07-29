@@ -2,6 +2,7 @@
 
 from luxonis_ml.vizlab import HitMap, Tooltip
 from luxonis_ml.vizlab.geometry import Rect
+from luxonis_ml.vizlab.hitmap import ClickMap, InteractionCapture
 
 
 def _entry(
@@ -68,3 +69,18 @@ def test_merge_and_or_concatenate() -> None:
     b = HitMap([_entry(2.0, 2.0, 3.0, 3.0, "b")])
     assert [t.title for _, t in a.merge(b).items] == ["a", "b"]
     assert [t.title for _, t in (a | b).items] == ["a", "b"]
+
+
+def test_clickmap_or_concatenates() -> None:
+    a = ClickMap([(Rect(0.0, 0.0, 1.0, 1.0), "a")])
+    b = ClickMap([(Rect(2.0, 2.0, 3.0, 3.0), "b")])
+    assert [action for _, action in (a | b).items] == ["a", "b"]
+
+
+def test_interaction_capture_adds_clickmap_with_transform() -> None:
+    capture = InteractionCapture().transformed(5.0, 7.0, 2.0, 3.0)
+    capture.add_clickmap(ClickMap([(Rect(1.0, 2.0, 3.0, 4.0), "class:car")]))
+
+    rect, action = capture.clicks[0]
+    assert rect == Rect(7.0, 13.0, 11.0, 19.0)
+    assert action == "class:car"

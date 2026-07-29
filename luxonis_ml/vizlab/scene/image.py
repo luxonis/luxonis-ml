@@ -408,8 +408,7 @@ class Renderable:
             capture=True,
             environment=environment,
         )
-        if interactions is None:
-            return Frame(self, environment=environment)
+        assert interactions is not None
         return Frame(
             self,
             HitMap(interactions.hover),

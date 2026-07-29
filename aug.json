@@ -1,0 +1,127 @@
+[
+  {
+    "name": "Mosaic4",
+    "params": {
+      "width": 640,
+      "height": 640,
+      "p": 0.5
+    }
+  },
+  {
+    "name": "HorizontalFlip",
+    "params": {
+      "p": 0.5
+    }
+  },
+  {
+    "name": "VerticalFlip",
+    "params": {
+      "p": 0.2
+    }
+  },
+  {
+    "name": "Transpose",
+    "params": {
+      "p": 0.25
+    }
+  },
+  {
+    "name": "RandomRotate90",
+    "params": {
+      "p": 0.35
+    }
+  },
+  {
+    "name": "Rotate",
+    "params": {
+      "limit": [
+        -35,
+        35
+      ],
+      "interpolation": 1,
+      "mask_interpolation": 0,
+      "border_mode": 0,
+      "fill": [
+        0,
+        0,
+        0
+      ],
+      "fill_mask": 0,
+      "rotate_method": "largest_box",
+      "p": 0.7
+    }
+  },
+  {
+    "name": "Perspective",
+    "params": {
+      "scale": [
+        0.03,
+        0.08
+      ],
+      "keep_size": true,
+      "fit_output": false,
+      "interpolation": 1,
+      "mask_interpolation": 0,
+      "border_mode": 0,
+      "fill": [
+        0,
+        0,
+        0
+      ],
+      "fill_mask": 0,
+      "p": 0.5
+    }
+  },
+  {
+    "name": "Affine",
+    "params": {
+      "scale": {
+        "x": [
+          0.75,
+          1.25
+        ],
+        "y": [
+          0.75,
+          1.25
+        ]
+      },
+      "translate_percent": {
+        "x": [
+          -0.15,
+          0.15
+        ],
+        "y": [
+          -0.12,
+          0.12
+        ]
+      },
+      "rotate": [
+        -30,
+        30
+      ],
+      "shear": {
+        "x": [
+          -12,
+          12
+        ],
+        "y": [
+          -8,
+          8
+        ]
+      },
+      "interpolation": 1,
+      "mask_interpolation": 0,
+      "border_mode": 0,
+      "fill": [
+        0,
+        0,
+        0
+      ],
+      "fill_mask": 0,
+      "fit_output": false,
+      "keep_ratio": false,
+      "rotate_method": "largest_box",
+      "p": 0.85
+    }
+  }
+]

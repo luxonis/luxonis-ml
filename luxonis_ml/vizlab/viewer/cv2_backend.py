@@ -5,9 +5,24 @@
 actual window is opened (mirroring `luxonis_ml.vizlab.annotations.mask`).
 """
 
+import contextlib
+from typing import Protocol, cast
+
 import numpy as np
 
 from .backend import KeyHandler, MouseHandler
+
+
+class _TkRoot(Protocol):
+    """Subset of a Tk root used for screen-size discovery."""
+
+    def withdraw(self) -> None: ...
+
+    def winfo_screenwidth(self) -> int: ...
+
+    def winfo_screenheight(self) -> int: ...
+
+    def destroy(self) -> None: ...
 
 
 class Cv2Backend:
@@ -24,17 +39,20 @@ class Cv2Backend:
         Uses Tk (standard library); returns ``None`` on any failure (headless
         session, Tk missing), letting the viewer skip scaling and centering.
         """
+        root: _TkRoot | None = None
         try:
             import tkinter as tk
 
-            root = tk.Tk()
+            root = cast(_TkRoot, tk.Tk())
             root.withdraw()
             size = (root.winfo_screenwidth(), root.winfo_screenheight())
-            root.destroy()
         except Exception:
             return None
-        else:
-            return size
+        finally:
+            if root is not None:
+                with contextlib.suppress(Exception):
+                    root.destroy()
+        return size
 
     def create_window(self, name: str) -> None:
         import cv2

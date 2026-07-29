@@ -131,6 +131,25 @@ def test_fit_grid_matches_grid_hits_when_unscaled() -> None:
     assert hits_title(fit_hits, 10 + 50, 10 + 30) == "A"
 
 
+def test_fit_grid_rejects_empty_images() -> None:
+    with pytest.raises(ValueError, match="empty sequence"):
+        fit_grid([], target=(100, 100))
+
+
+def test_fit_grid_reserves_title_height() -> None:
+    a, _ = _tile("A")
+    b, _ = _tile("B")
+    untitled = fit_grid([a, b], target=(240, 120), ncols=2)
+    titled = fit_grid(
+        [a, b],
+        target=(240, 120),
+        ncols=2,
+        titles=["left", "right"],
+    )
+    assert titled.image.height <= 120
+    assert titled.image.height >= untitled.image.height
+
+
 def test_fit_grid_scales_within_target() -> None:
     a, _ = _tile("A")
     b, _ = _tile("B")
