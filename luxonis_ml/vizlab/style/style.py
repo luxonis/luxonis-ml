@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from enum import Enum
-from typing import Any, Literal
+from typing import Literal, TypeAlias
 
 FontFamily = Literal["sans", "mono"]
 """Which bundled family a label uses: proportional Inter or monospace JetBrains Mono."""
@@ -44,6 +44,22 @@ class MaskOutline(Enum):
 
     NONE = "none"
     """No outline at all; masks are drawn as translucent fills only (fastest)."""
+
+
+StyleValue: TypeAlias = (
+    float
+    | int
+    | bool
+    | str
+    | LabelPlacement
+    | MaskOutline
+    | tuple[float, float]
+    | None
+)
+"""A value accepted by one of `Style`'s configurable fields."""
+
+StyleOverrides: TypeAlias = Mapping[str, StyleValue]
+"""A partial set of `Style` fields keyed by dataclass field name."""
 
 
 @dataclass(frozen=True)
@@ -112,7 +128,7 @@ class Style:
         """Whether labels render with the monospace family."""
         return self.font_family == "mono"
 
-    def merge(self, **overrides) -> "Style":
+    def merge(self, **overrides: StyleValue) -> "Style":
         """Return a copy with the given fields replaced.
 
         Args:
@@ -187,8 +203,8 @@ class Style:
     @classmethod
     @contextmanager
     def override(
-        cls, **overrides: Any
-    ) -> "Generator[Mapping[str, Any], None, None]":
+        cls, **overrides: StyleValue
+    ) -> "Generator[StyleOverrides, None, None]":
         """Layer style ``overrides`` over the default within a ``with`` block.
 
         Unlike `as_default` (which replaces the whole style), this merges only the
@@ -224,7 +240,7 @@ _AMBIENT_STYLE: ContextVar[Style | None] = ContextVar(
     "vizlab_ambient_style", default=None
 )
 #: Scoped field overrides accumulated by `Style.override` (``None`` when unset).
-_AMBIENT_OVERRIDES: ContextVar[Mapping[str, Any] | None] = ContextVar(
+_AMBIENT_OVERRIDES: ContextVar[StyleOverrides | None] = ContextVar(
     "vizlab_ambient_style_overrides", default=None
 )
 
@@ -234,6 +250,6 @@ def current_default_style() -> Style | None:
     return _AMBIENT_STYLE.get()
 
 
-def current_style_overrides() -> Mapping[str, Any]:
+def current_style_overrides() -> StyleOverrides:
     """Return the scope's accumulated `Style.override` fields (possibly empty)."""
     return _AMBIENT_OVERRIDES.get() or {}

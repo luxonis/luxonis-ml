@@ -20,13 +20,14 @@ import numpy as np
 from luxonis_ml.data.utils.task_utils import get_task_name, get_task_type
 from luxonis_ml.ldf import (
     BBoxAnnotation,
+    Category,
     DatasetRecord,
     Detection,
     InstanceSegmentationAnnotation,
     KeypointAnnotation,
     SegmentationAnnotation,
 )
-from luxonis_ml.typing import Labels, Params
+from luxonis_ml.typing import Labels
 
 _BACKGROUND = "background"
 
@@ -161,14 +162,17 @@ def _instance_detections(
 
     detections: list[Detection] = []
     for i in range(n_instances):
-        fields: dict = {"instance_id": i}
+        class_name: str | None = None
+        boundingbox: BBoxAnnotation | None = None
+        keypoint_annotation: KeypointAnnotation | None = None
+        instance_segmentation: InstanceSegmentationAnnotation | None = None
         if boxes is not None and i < len(boxes):
             row = boxes[i]
             class_id = int(row[0])
             name = id_to_name.get(class_id)
             # "background" is a bookkeeping class, not a real label.
-            fields["class_name"] = None if name == _BACKGROUND else name
-            fields["boundingbox"] = BBoxAnnotation(
+            class_name = None if name == _BACKGROUND else name
+            boundingbox = BBoxAnnotation(
                 x=float(row[1]),
                 y=float(row[2]),
                 w=float(row[3]),
@@ -176,7 +180,7 @@ def _instance_detections(
             )
         if keypoints is not None and i < len(keypoints):
             triples = np.asarray(keypoints[i], dtype=float).reshape(-1, 3)
-            fields["keypoints"] = KeypointAnnotation.model_validate(
+            keypoint_annotation = KeypointAnnotation.model_validate(
                 {
                     "keypoints": [
                         (float(x), float(y), round(v)) for x, y, v in triples
@@ -184,14 +188,21 @@ def _instance_detections(
                 }
             )
         if instance_masks is not None and i < len(instance_masks):
-            fields["instance_segmentation"] = (
+            instance_segmentation = (
                 InstanceSegmentationAnnotation.model_validate(
                     {"mask": np.asarray(instance_masks[i]).astype(np.uint8)}
                 )
             )
-        if i in metadata:
-            fields["metadata"] = metadata[i]
-        detections.append(Detection(**fields))
+        detections.append(
+            Detection(
+                instance_id=i,
+                class_name=class_name,
+                boundingbox=boundingbox,
+                keypoints=keypoint_annotation,
+                instance_segmentation=instance_segmentation,
+                metadata=metadata.get(i, {}),
+            )
+        )
     return detections
 
 
@@ -240,14 +251,16 @@ def _decode_metadata(
     task_types: dict[str, np.ndarray],
     n_instances: int,
     categorical_encodings: dict[str, dict[str, int]],
-) -> dict[int, Params]:
+) -> dict[int, dict[str, int | float | str | Category]]:
     """Recover per-instance metadata dicts keyed by instance index.
 
     Only metadata arrays whose length matches the instance count are attached;
     categorical values are decoded back to their string names when an encoding
     for the task is available.
     """
-    per_instance: dict[int, Params] = defaultdict(dict)
+    per_instance: dict[int, dict[str, int | float | str | Category]] = (
+        defaultdict(dict)
+    )
     for task_type, array in task_types.items():
         if not task_type.startswith("metadata/"):
             continue
@@ -266,5 +279,8 @@ def _decode_metadata(
             item = value.item() if hasattr(value, "item") else value
             if decoder is not None:
                 item = decoder.get(int(item), item)
-            per_instance[i][key] = item
+            if isinstance(item, (str, int, float, Category)):
+                per_instance[i][key] = item
+            else:
+                per_instance[i][key] = str(item)
     return dict(per_instance)

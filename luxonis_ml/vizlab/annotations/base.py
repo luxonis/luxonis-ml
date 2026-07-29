@@ -20,7 +20,7 @@ from abc import abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import Self
@@ -34,6 +34,7 @@ from luxonis_ml.vizlab.style import (
     DEFAULT_STYLE,
     Palette,
     Style,
+    StyleValue,
     Theme,
     derive_child_color,
     derive_child_style,
@@ -190,7 +191,7 @@ class Annotation(BaseModel):
     payload: str | int | float | None = None
     color: ColorLike | None = None
     style: Style | None = None
-    style_overrides: dict[str, Any] = Field(default_factory=dict)
+    style_overrides: dict[str, StyleValue] = Field(default_factory=dict)
     palette: Palette | None = None
     tooltip: Tooltip | None = None
     children: list["Annotation"] = Field(default_factory=list)
@@ -258,9 +259,9 @@ class Annotation(BaseModel):
 
     def styled(
         self,
-        style: "Style | Mapping[str, Any] | None" = None,
+        style: "Style | Mapping[str, StyleValue] | None" = None,
         /,
-        **fields: Any,
+        **fields: StyleValue,
     ) -> Self:
         """Set this annotation's style and return ``self``.
 
@@ -298,7 +299,7 @@ class Annotation(BaseModel):
         if isinstance(style, Style):
             self.style = style.merge(**fields) if fields else style
         else:
-            merged = {**self.style_overrides}
+            merged: dict[str, StyleValue] = dict(self.style_overrides)
             if style is not None:
                 merged.update(style)
             merged.update(fields)

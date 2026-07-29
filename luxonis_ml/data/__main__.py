@@ -1,7 +1,8 @@
 import math
 import shutil
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Literal, TypeAlias
+from typing import TYPE_CHECKING, Annotated, Literal, TypeAlias, cast
 
 import cv2
 import numpy as np
@@ -36,18 +37,22 @@ from luxonis_ml.enums import DatasetType
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from luxonis_ml.ldf import DatasetRecord
+    from luxonis_ml.data.utils.data_utils import ClassDistributionRow
+    from luxonis_ml.ldf import DatasetRecord, Detection
+    from luxonis_ml.typing import Labels, LoaderOutput, Params, ParamValue
     from luxonis_ml.vizlab import (
         ComparisonReport,
         ComparisonResult,
         Renderable,
     )
+    from luxonis_ml.vizlab.panel import PanelData
 
 app = App(help="Dataset utilities.")
 
 
 BucketStorageT: TypeAlias = Annotated[BucketStorage, Parameter(alias="-b")]
 _SampleIdentity: TypeAlias = tuple[tuple[str, str], ...]
+_ClassMappings: TypeAlias = dict[str, dict[str, int]]
 
 
 def _deduped_class_names(
@@ -96,7 +101,7 @@ def _present_classes(records: "Iterable[DatasetRecord]") -> list[str]:
     return list(seen)
 
 
-def _array_shapes(labels: dict) -> dict[str, list[int]]:
+def _array_shapes(labels: "Labels") -> dict[str, list[int]]:
     """Return array shapes keyed by the complete task path."""
     suffix = "/array"
     return {
@@ -106,7 +111,20 @@ def _array_shapes(labels: dict) -> dict[str, list[int]]:
     }
 
 
-def _present_sample_metadata(sample_metadata: dict) -> dict:
+def _panel_value(value: "ParamValue") -> "PanelData":
+    """Normalize recursive loader metadata to the panel's data model."""
+    if isinstance(value, Mapping):
+        return {str(key): _panel_value(item) for key, item in value.items()}
+    if isinstance(value, str):
+        return value
+    if isinstance(value, Sequence):
+        return [_panel_value(item) for item in value]
+    return value
+
+
+def _present_sample_metadata(
+    sample_metadata: "Params",
+) -> "dict[str, PanelData]":
     """Reshape batched-augmentation sample metadata for a readable side panel.
 
     A batch augmentation (e.g. MixUp, Mosaic) fuses several source samples into
@@ -133,15 +151,24 @@ def _present_sample_metadata(sample_metadata: dict) -> dict:
     if not isinstance(batch, list) or not batch:
         return _flatten_filenames(sample_metadata)
 
-    def sample_md(entry: object, fallback: int) -> tuple[int, dict]:
-        if isinstance(entry, dict):
-            index = entry.get("input_index", fallback)
-            return int(index), dict(entry.get("sample_metadata") or {})
+    def sample_md(entry: "ParamValue", fallback: int) -> tuple[int, "Params"]:
+        if isinstance(entry, Mapping):
+            raw_index = entry.get("input_index", fallback)
+            index = (
+                int(raw_index)
+                if isinstance(raw_index, (str, int, float))
+                else fallback
+            )
+            raw_metadata = entry.get("sample_metadata")
+            if isinstance(raw_metadata, Mapping):
+                return index, {
+                    str(key): value for key, value in raw_metadata.items()
+                }
         return fallback, {}
 
     if len(batch) == 1:
         return _flatten_filenames(sample_md(batch[0], 0)[1])
-    presented: dict = {}
+    presented: dict[str, PanelData] = {}
     for position, entry in enumerate(batch):
         index, md = sample_md(entry, position)
         presented[f"sample {index + 1}"] = _flatten_filenames(md) or (
@@ -150,7 +177,9 @@ def _present_sample_metadata(sample_metadata: dict) -> dict:
     return presented
 
 
-def _flatten_filenames(sample_metadata: dict) -> dict:
+def _flatten_filenames(
+    sample_metadata: "Params",
+) -> "dict[str, PanelData]":
     """Collapse a single-source ``filenames`` mapping to a ``filename`` field.
 
     Records support multiple image sources, so the loader always reports
@@ -173,14 +202,19 @@ def _flatten_filenames(sample_metadata: dict) -> dict:
     from luxonis_ml.vizlab import Block
 
     files = sample_metadata.get("filenames")
-    if not (isinstance(files, dict) and len(files) == 1):
-        return sample_metadata
+    if not (isinstance(files, Mapping) and len(files) == 1):
+        # Params and PanelData describe the same recursive scalar/container
+        # values here; this branch deliberately preserves the caller's dict.
+        return cast("dict[str, PanelData]", sample_metadata)
+    normalized = {
+        key: _panel_value(value) for key, value in sample_metadata.items()
+    }
     only = next(iter(files.values()))
     return {
         ("filename" if key == "filenames" else key): (
-            Block(only) if key == "filenames" else value
+            Block(str(only)) if key == "filenames" else value
         )
-        for key, value in sample_metadata.items()
+        for key, value in normalized.items()
     }
 
 
@@ -635,8 +669,11 @@ def inspect(
     longest_class = max(class_names, key=len, default="")[:24]
 
     def sidebar(
-        panel: dict, layers: "LayerState", *, controls: bool = True
-    ) -> dict:
+        panel: "Mapping[str, PanelData]",
+        layers: "LayerState",
+        *,
+        controls: bool = True,
+    ) -> "dict[str, PanelData]":
         """Prepend the CONTROLS and CLASSES sections to a sample's metadata panel.
 
         The interactive controls and the class-color legend live in the side
@@ -647,7 +684,7 @@ def inspect(
         controls where they do not apply — the per-instance stepping view and the
         non-interactive saved renders.
         """
-        out: dict = {}
+        out: dict[str, PanelData] = {}
         if controls:
             out["controls"] = Controls(
                 tuple(
@@ -668,7 +705,9 @@ def inspect(
         return out
 
     def blend_annotations(
-        image: np.ndarray, records: dict, layers: "LayerState"
+        image: np.ndarray,
+        records: "Mapping[str, DatasetRecord]",
+        layers: "LayerState",
     ) -> Image:
         """Draw every record's annotations onto one image, layer toggles applied.
 
@@ -689,7 +728,9 @@ def inspect(
             viz.add(overlay)
         return viz
 
-    def build_panel(sample_labels: dict, sample_metadata: dict) -> dict:
+    def build_panel(
+        sample_labels: "Labels", sample_metadata: "Params"
+    ) -> "dict[str, PanelData]":
         panel = (
             dict(_present_sample_metadata(sample_metadata))
             if sample_metadata
@@ -825,7 +866,7 @@ def inspect(
             tiles, ncols=cols, titles=titles, bg=viz_theme.background
         )
 
-    def framed(frame: Frame, panel: dict) -> Frame:
+    def framed(frame: Frame, panel: "Mapping[str, PanelData]") -> Frame:
         """Attach the class legend (overlay) and metadata panel (right side).
 
         The panel (controls + classes + metadata) reframes the image as a rounded
@@ -838,7 +879,10 @@ def inspect(
         return frame.with_panel(sidebar(panel, viewer.layers))
 
     def build_frame(
-        image: np.ndarray, records: dict, panel: dict, reserve: float
+        image: np.ndarray,
+        records: "Mapping[str, DatasetRecord]",
+        panel: "Mapping[str, PanelData]",
+        reserve: float,
     ) -> Frame:
         """Build the display `Frame` for one non-per-instance source."""
         height, width = image.shape[:2]
@@ -870,8 +914,8 @@ def inspect(
     def show_instances(
         source_name: str,
         image: np.ndarray,
-        instances: list,
-        panel: dict,
+        instances: "list[tuple[str, Detection]]",
+        panel: "Mapping[str, PanelData]",
         reserve: float,
     ) -> bool:
         """Show each instance in its own window; return ``True`` on quit."""
@@ -1114,15 +1158,19 @@ def compare(
         {Verdict.FP, Verdict.FN, Verdict.CLASS_ERROR} if errors_only else None
     )
 
-    def records_for(data: object, classes: dict, categorical: dict) -> dict:
+    def records_for(
+        data: "LoaderOutput",
+        classes: _ClassMappings,
+        categorical: _ClassMappings,
+    ) -> "dict[str, DatasetRecord]":
         return loader_output_to_records(
-            data.labels,  # type: ignore[attr-defined]
+            data.labels,
             classes=classes,
             categorical_encodings=categorical,
             render_background=show_background,
         )
 
-    def sample_identity(data: object) -> _SampleIdentity:
+    def sample_identity(data: "LoaderOutput") -> _SampleIdentity:
         """Stable sample identity from the loader's source-name/filename map."""
         metadata = getattr(data, "metadata", None)
         filenames = (
@@ -1176,7 +1224,8 @@ def compare(
         print(f"[yellow]{description} ({len(ordered)}): {preview}.[/yellow]")
 
     def match_sample(
-        gt_records: dict, pred_records: dict
+        gt_records: "Mapping[str, DatasetRecord]",
+        pred_records: "Mapping[str, DatasetRecord]",
     ) -> "ComparisonResult":
         gt_dets = [d for r in gt_records.values() for d in r._annotations()]
         pred_dets = [
@@ -1251,7 +1300,9 @@ def compare(
         return (max(1, round(width * scale)), max(1, round(height * scale)))
 
     def build_frame(
-        image: np.ndarray, gt_records: dict, pred_records: dict
+        image: np.ndarray,
+        gt_records: "Mapping[str, DatasetRecord]",
+        pred_records: "Mapping[str, DatasetRecord]",
     ) -> Frame:
         """Match GT vs predictions for one image and build its display frame."""
         result = match_sample(gt_records, pred_records)
@@ -1274,7 +1325,7 @@ def compare(
             if not isinstance(display, Image):
                 display = Image(frame.render()).with_hitmap(frame.hitmap)
             display.add(class_legend)
-        metrics: dict = dict(result.summary())
+        metrics: dict[str, PanelData] = dict(result.summary())
         if per_class and len(result.per_class) > 1:
             metrics["by class"] = result.per_class_panel()
         return display.with_panel(metrics, title="Comparison").frame()
@@ -1644,9 +1695,15 @@ def health(
 
         def render_grid(
             s: float,
-            _dist: dict = class_dist_by_type,
-            _heat: dict = heatmaps_by_type,
-            _cls: dict = class_heatmaps_by_type,
+            _dist: "Mapping[str, list[ClassDistributionRow]]" = (
+                class_dist_by_type
+            ),
+            _heat: "Mapping[str, Sequence[Sequence[float]] | None]" = (
+                heatmaps_by_type
+            ),
+            _cls: (
+                "Mapping[str, Mapping[str, Sequence[Sequence[float]]]]"
+            ) = class_heatmaps_by_type,
         ) -> "Renderable":
             return health_plots.build_health_grid(
                 _dist,

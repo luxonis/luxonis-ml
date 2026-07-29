@@ -15,10 +15,11 @@ that hint if the extra is missing.
 
 import math
 from collections.abc import Mapping, Sequence
-from typing import Any, Literal
+from typing import Literal
 
 import numpy as np
 
+from luxonis_ml.data.utils.data_utils import ClassDistributionRow
 from luxonis_ml.vizlab import (
     Caption,
     ClassDistribution,
@@ -93,7 +94,7 @@ def _placeholder(
 
 
 def _distribution_panel(
-    task_data: list[dict[str, Any]],
+    task_data: list[ClassDistributionRow],
     *,
     theme: Theme,
     mode: DistributionMode,
@@ -230,7 +231,7 @@ def _class_heatmaps_panel(
 
 
 def build_health_grid(
-    class_dist_by_type: Mapping[str, list[dict[str, Any]]],
+    class_dist_by_type: Mapping[str, list[ClassDistributionRow]],
     heatmaps_by_type: Mapping[str, Sequence[Sequence[float]] | None],
     *,
     class_heatmaps_by_type: Mapping[

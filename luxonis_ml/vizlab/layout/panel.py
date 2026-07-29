@@ -9,10 +9,9 @@ never occludes pixels or labels and the original is untouched.
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import NamedTuple, TypeAlias
+from typing import NamedTuple, TypeAlias, TypeGuard
 
 from luxonis_ml.utils.color import brand
-from luxonis_ml.vizlab._util import is_sequence
 from luxonis_ml.vizlab.canvas import Canvas, TextMetrics
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
@@ -83,17 +82,21 @@ class Controls:
 #: JSON-like metadata a panel can render: a scalar, a `Block` / `Swatches` /
 #: `Controls` field, or a mapping/sequence nested arbitrarily. Anything else is
 #: stringified as a leaf.
+PanelKey: TypeAlias = str
+"""A JSON-compatible mapping key accepted by panel data."""
+
+PanelLeaf: TypeAlias = (
+    Block | Swatches | Controls | str | int | float | bool | None
+)
+"""A non-container value accepted by a panel."""
+
+PanelContainer: TypeAlias = (
+    Mapping[PanelKey, "PanelData"] | Sequence["PanelData"]
+)
+"""A recursively nested mapping or non-string sequence of panel values."""
+
 PanelData: TypeAlias = (
-    Mapping[str, "PanelData"]
-    | Sequence["PanelData"]
-    | Block
-    | Swatches
-    | Controls
-    | str
-    | int
-    | float
-    | bool
-    | None
+    Mapping[PanelKey, "PanelData"] | Sequence["PanelData"] | PanelLeaf
 )
 
 # Nominal metrics at the style-reference resolution; scaled up on larger images
@@ -217,12 +220,17 @@ def _metrics(scale: float, background: Color) -> _Metrics:
     )
 
 
-def _is_container(value: object) -> bool:
+def _is_sequence(value: PanelData) -> TypeGuard[Sequence[PanelData]]:
+    """Whether ``value`` is a non-string sequence of panel values."""
+    return isinstance(value, Sequence) and not isinstance(value, (str, bytes))
+
+
+def _is_container(value: PanelData) -> TypeGuard[PanelContainer]:
     """Whether a value is a nested container (mapping or non-string sequence)."""
-    return isinstance(value, Mapping) or is_sequence(value)
+    return isinstance(value, Mapping) or _is_sequence(value)
 
 
-def _format_scalar(value: object) -> str:
+def _format_scalar(value: PanelData) -> str:
     """Format a leaf value as a compact single-line string."""
     if isinstance(value, Block):
         return _format_scalar(value.value)
@@ -257,12 +265,14 @@ def _format_tree(data: "PanelData", depth: int = 0) -> list[Line]:
     """
     if isinstance(data, Mapping):
         return _mapping_lines(data, depth)
-    if is_sequence(data):
+    if _is_sequence(data):
         return _sequence_lines(data, depth)
     return [(depth, "", False, _format_scalar(data))]
 
 
-def _mapping_lines(data: Mapping, depth: int) -> list[Line]:
+def _mapping_lines(
+    data: Mapping[PanelKey, PanelData], depth: int
+) -> list[Line]:
     """Format a mapping's items as key/value (or key-header) lines."""
     lines: list[Line] = []
     for key, value in data.items():
@@ -281,7 +291,7 @@ def _mapping_lines(data: Mapping, depth: int) -> list[Line]:
     return lines
 
 
-def _sequence_lines(data: Sequence, depth: int) -> list[Line]:
+def _sequence_lines(data: Sequence[PanelData], depth: int) -> list[Line]:
     """Format a sequence's items as bulleted lines."""
     lines: list[Line] = []
     for item in data:

@@ -338,10 +338,18 @@ Important:
 import json
 import warnings
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from pathlib import Path
-from typing import Annotated, Any, Literal, Optional, TypeAlias
+from typing import (
+    Annotated,
+    Any,
+    Literal,
+    Optional,
+    TypeAlias,
+    TypedDict,
+    cast,
+)
 
 import numpy as np
 import pycocotools.mask
@@ -378,6 +386,21 @@ The values indicate the visibility of a keypoint in an image:
 """
 NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
 """A float value normalized to the range [0, 1]."""
+
+
+class _EncodedRLE(TypedDict):
+    """Compressed COCO RLE returned by pycocotools."""
+
+    size: list[int]
+    counts: bytes
+
+
+class _SerializedRLE(TypedDict):
+    """JSON-compatible RLE fields stored by segmentation annotations."""
+
+    height: int
+    width: int
+    counts: str
 
 
 class Category(str):
@@ -982,10 +1005,16 @@ class SegmentationAnnotation(Annotation):
                     )
 
             with warnings.catch_warnings(record=True):
-                rle: Any = pycocotools.mask.frPyObjects(
-                    {"counts": counts, "size": [height, width]},  # type: ignore
-                    height,
-                    width,
+                rle = cast(
+                    _EncodedRLE,
+                    pycocotools.mask.frPyObjects(
+                        {
+                            "counts": counts,
+                            "size": [height, width],
+                        },  # type: ignore
+                        height,
+                        width,
+                    ),
                 )
             values["counts"] = rle["counts"]
             values["height"] = rle["size"][0]
@@ -994,10 +1023,10 @@ class SegmentationAnnotation(Annotation):
         return values
 
     @staticmethod
-    def _numpy_to_rle(mask: np.ndarray) -> dict[str, Any]:
+    def _numpy_to_rle(mask: np.ndarray) -> _SerializedRLE:
         mask = np.asfortranarray(mask.astype(np.uint8))
         with warnings.catch_warnings(record=True):
-            rle = pycocotools.mask.encode(mask)
+            rle = cast(_EncodedRLE, pycocotools.mask.encode(mask))
         return {
             "height": rle["size"][0],
             "width": rle["size"][1],
@@ -1433,7 +1462,7 @@ class DatasetRecord(BaseModelExtraForbid):
             )
 
     @staticmethod
-    def decode_metadata(value: Any) -> Params:
+    def decode_metadata(value: object) -> Params:
         """Decode serialized record metadata into a dictionary.
 
         Args:
@@ -1461,7 +1490,7 @@ def load_annotation(
         "instance_segmentation",
         "array",
     ],
-    data: dict[str, Any],
+    data: Mapping[str, object],
 ) -> "Annotation":
     """Load an annotation from serialized data.
 
@@ -1486,4 +1515,4 @@ def load_annotation(
     }
     if task_type not in classes:
         raise ValueError(f"Unknown label type: {task_type}")
-    return classes[task_type](**data)
+    return classes[task_type].model_validate(data)

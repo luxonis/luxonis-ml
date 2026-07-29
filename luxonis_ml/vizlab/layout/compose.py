@@ -8,7 +8,7 @@ purity unambiguous, unlike the in-place ``Image.add``.
 
 import math
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, overload
 
 import numpy as np
 
@@ -514,6 +514,26 @@ CombineGroup = (
 )
 
 
+@overload
+def combine(
+    group: Image,
+    /,
+    *,
+    pad: int = 10,
+    bg: ColorLike = _DEFAULT_BG,
+    style: Style = DEFAULT_STYLE,
+) -> Image: ...
+
+
+@overload
+def combine(
+    *groups: CombineGroup,
+    pad: int = 10,
+    bg: ColorLike = _DEFAULT_BG,
+    style: Style = DEFAULT_STYLE,
+) -> Renderable: ...
+
+
 def combine(
     *groups: CombineGroup,
     pad: int = 10,
@@ -619,7 +639,7 @@ def _as_images(member: "Sequence[object]") -> list[Image]:
 
 
 def _resolve_member(
-    member: "Renderable | Sequence[Renderable]",
+    member: "Renderable | Sequence[object]",
     *,
     pad: int,
     bg: ColorLike,

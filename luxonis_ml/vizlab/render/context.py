@@ -2,10 +2,10 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
 
 from luxonis_ml.vizlab.style import (
     Style,
+    StyleValue,
     current_default_style,
     current_style_overrides,
 )
@@ -22,7 +22,7 @@ class RenderEnvironment:
     """
 
     default_style: Style | None
-    style_overrides: Mapping[str, Any]
+    style_overrides: Mapping[str, StyleValue]
 
     @classmethod
     def current(cls) -> "RenderEnvironment":

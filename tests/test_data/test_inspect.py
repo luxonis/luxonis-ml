@@ -10,6 +10,7 @@ import pytest
 import luxonis_ml.data.__main__ as data_main
 import luxonis_ml.vizlab.viewer as viewer_module
 from luxonis_ml.ldf import BBoxAnnotation, DatasetRecord, Detection
+from luxonis_ml.typing import Params
 
 
 class _FakeBackend:
@@ -61,7 +62,7 @@ def test_present_sample_metadata_splits_batch_into_labelled_samples() -> None:
     # A batch augmentation's merged metadata becomes one "sample N" group per
     # contributing input, dropping the duplicated top-level copy and the
     # machine-only input_index/sample_metadata wrapping.
-    merged = {
+    merged: Params = {
         "record_id": 123,
         "source": "a.jpg",
         "batch_augmentation_metadata": [
@@ -88,7 +89,7 @@ def test_array_shapes_keep_complete_nested_task_paths() -> None:
 
 
 def test_present_sample_metadata_collapses_single_input() -> None:
-    merged = {
+    merged: Params = {
         "record_id": 7,
         "batch_augmentation_metadata": [
             {"input_index": 0, "sample_metadata": {"record_id": 7}}
@@ -123,7 +124,7 @@ def test_present_sample_metadata_keeps_multi_source_filenames() -> None:
 def test_present_sample_metadata_flattens_filenames_per_batch_sample() -> None:
     from luxonis_ml.vizlab import Block
 
-    merged = {
+    merged: Params = {
         "batch_augmentation_metadata": [
             {
                 "input_index": 0,
@@ -142,7 +143,7 @@ def test_present_sample_metadata_flattens_filenames_per_batch_sample() -> None:
 
 
 def test_present_sample_metadata_labels_empty_inputs() -> None:
-    merged = {
+    merged: Params = {
         "batch_augmentation_metadata": [
             {"input_index": 0, "sample_metadata": {"record_id": 1}},
             {"input_index": 1, "sample_metadata": {}},

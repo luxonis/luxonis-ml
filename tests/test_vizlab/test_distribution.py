@@ -4,6 +4,10 @@ import numpy as np
 import pytest
 
 from luxonis_ml.vizlab import ClassDistribution, Image, Palette
+from luxonis_ml.vizlab.annotations.distribution import (
+    DistributionMode,
+    ValueFormat,
+)
 
 _DIST = {"cat": 0.6, "dog": 0.25, "fox": 0.1, "owl": 0.03, "bat": 0.02}
 
@@ -66,7 +70,7 @@ def test_top_k_none_shows_all() -> None:
 @pytest.mark.parametrize(
     "mode", ["bars", "chips", "gauge", "stacked", "pie", "donut"]
 )
-def test_each_mode_renders(mode: str) -> None:
+def test_each_mode_renders(mode: DistributionMode) -> None:
     out = (
         _canvas()
         .add(
@@ -93,7 +97,7 @@ def test_empty_distribution_has_no_extent() -> None:
 
 
 @pytest.mark.parametrize("mode", ["bars", "chips", "stacked", "pie", "donut"])
-def test_ground_truth_marker_changes_pixels(mode: str) -> None:
+def test_ground_truth_marker_changes_pixels(mode: DistributionMode) -> None:
     base = _canvas()
     without = (
         base.copy()
@@ -189,7 +193,7 @@ def test_bar_scale_percent_is_absolute_count_is_share_of_total() -> None:
 
 
 @pytest.mark.parametrize("fmt", ["count", "count+percent"])
-def test_count_mode_renders(fmt: str) -> None:
+def test_count_mode_renders(fmt: ValueFormat) -> None:
     counts = {"person": 1240.0, "car": 712.0, "dog": 143.0}
     out = (
         _canvas()

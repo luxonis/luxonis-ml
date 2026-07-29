@@ -31,7 +31,7 @@ vizlab feature figures — each a self-contained group that drops into the docs:
 - ``compare_keypoints.png`` — keypoint comparison graded per joint (green
   correct, red off, amber missed): no match, partial keypoints, full match.
 - ``confusion_matrix.png`` — a dataset-level confusion matrix accumulated with
-  ``ComparisonReport`` (truth × prediction, with a ``∅`` miss/false-alarm row).
+  ``ComparisonReport`` (truth by prediction, with a ``∅`` miss/false-alarm row).
 - ``heatmaps.png`` — one field under several gradient themes.
 - ``distributions.png`` — one prediction under every distribution mode.
 - ``compose.png`` — blend / stack / grid composition.
@@ -81,6 +81,7 @@ from luxonis_ml.vizlab import (
     Caption,
     ClassDistribution,
     Classification,
+    ComparisonReport,
     Corner,
     Gradient,
     Heatmap,
@@ -93,7 +94,6 @@ from luxonis_ml.vizlab import (
     RenderOptions,
     SemanticMask,
     Style,
-    ComparisonReport,
     blend,
     combine,
     compare,
@@ -481,7 +481,7 @@ def render_themes() -> Path:
 
 
 def render_styling() -> Path:
-    """The ways to control appearance, from broadest to most local.
+    """Show ways to control appearance, from broadest to most local.
 
     Four cells over the same two-box scene:
 
@@ -764,10 +764,14 @@ def render_compare_keypoints() -> Path:
     edges = [(0, 1), (0, 2), (1, 3), (2, 4), (3, 4), (3, 5), (4, 6)]
     options = RenderOptions(draw_skeletons=True, skeletons={"": ([], edges)})
 
-    def shift(joints: list, dx: float) -> list:
+    def shift(
+        joints: list[tuple[float, float, int]], dx: float
+    ) -> list[tuple[float, float, int]]:
         return [(x + dx, y, v) for x, y, v in joints]
 
-    def bounds(joints: list) -> dict:
+    def bounds(
+        joints: list[tuple[float, float, int]],
+    ) -> dict[str, float]:
         xs = [x for x, _, _ in joints]
         ys = [y for _, y, _ in joints]
         return {
@@ -777,7 +781,9 @@ def render_compare_keypoints() -> Path:
             "h": max(ys) - min(ys) + 0.06,
         }
 
-    def person(joints: list, box: dict) -> Detection:
+    def person(
+        joints: list[tuple[float, float, int]], box: dict[str, float]
+    ) -> Detection:
         return Detection.model_validate(
             {
                 "class_name": "person",

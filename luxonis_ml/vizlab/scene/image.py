@@ -7,7 +7,7 @@ in one pass.
 """
 
 import hashlib
-from collections.abc import Callable, Hashable
+from collections.abc import Callable, Hashable, Mapping
 from dataclasses import fields, is_dataclass
 from enum import Enum
 from pathlib import Path
@@ -69,7 +69,7 @@ def _freeze_fields(value: object, names: "list[str]") -> Hashable:
     )
 
 
-def _freeze_dict(value: dict) -> Hashable:
+def _freeze_dict(value: Mapping[object, object]) -> Hashable:
     """Freeze a dict into a repr-sorted tuple of frozen key/value pairs."""
     items = [
         (_freeze_render_state(key), _freeze_render_state(item))

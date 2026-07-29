@@ -15,6 +15,7 @@ from luxonis_ml.vizlab import (
     confusion_matrix_figure,
     match_detections,
 )
+from luxonis_ml.vizlab.color import ColorLike
 from luxonis_ml.vizlab.compare import (
     CLASS_ERROR_COLOR,
     FN_COLOR,
@@ -535,7 +536,9 @@ def test_compare_renders_detection_tree() -> None:
 # --------------------------------------------------------------------------- #
 # Per-keypoint verdicts
 # --------------------------------------------------------------------------- #
-def _pose(box: dict, joints: list) -> Detection:
+def _pose(
+    box: dict[str, float], joints: list[tuple[float, float, int]]
+) -> Detection:
     return Detection.model_validate(
         {
             "class_name": "person",
@@ -545,7 +548,7 @@ def _pose(box: dict, joints: list) -> Detection:
     )
 
 
-def _joint_colors(img: Image) -> list:
+def _joint_colors(img: Image) -> list[ColorLike | None]:
     root = next(
         a
         for a in img.annotations

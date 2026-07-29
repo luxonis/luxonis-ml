@@ -7,6 +7,7 @@ from luxonis_ml.vizlab import (
     BBox,
     Frame,
     Image,
+    Renderable,
     Tooltip,
     combine,
     combine_hits,
@@ -18,7 +19,7 @@ from luxonis_ml.vizlab.compose import grid_placed
 from luxonis_ml.vizlab.hitmap import HitMap
 
 
-def _split(frame: Frame) -> tuple[Image, HitMap]:
+def _split(frame: Frame) -> tuple[Renderable, HitMap]:
     """Unpack a `Frame` into its typed ``(image, hitmap)`` parts."""
     return frame.image, frame.hitmap
 
@@ -35,7 +36,7 @@ def _titles(hits: HitMap) -> set[str | None]:
     return {tooltip.title for _, tooltip in hits.items}
 
 
-def _within(hits: HitMap, image: Image) -> bool:
+def _within(hits: HitMap, image: Renderable) -> bool:
     return all(
         r.left >= 0
         and r.right <= image.width

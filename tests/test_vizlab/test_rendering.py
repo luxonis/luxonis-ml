@@ -52,7 +52,7 @@ def _rgb_distance(a: tuple[int, int, int], b: tuple[int, int, int]) -> float:
     return math.dist(a, b)
 
 
-def _closest_pair_distance(colors: list) -> float:
+def _closest_pair_distance(colors: list[Color]) -> float:
     rgbs = [(c.r, c.g, c.b) for c in colors]
     return min(
         _rgb_distance(rgbs[i], rgbs[j])
@@ -220,11 +220,13 @@ def test_semantic_segmentation_renders_beneath_other_masks() -> None:
     assert SemanticMask.BACKGROUND is True
     assert Mask.BACKGROUND is False
 
-    instance = Mask(
-        mask=np.ones((20, 20), np.uint8),
-        color="#ff0000",
-        fill_alpha=1.0,
-        contour=False,
+    instance = Mask.model_validate(
+        {
+            "mask": np.ones((20, 20), np.uint8),
+            "color": "#ff0000",
+            "fill_alpha": 1.0,
+            "contour": False,
+        }
     )
     semantic = SemanticMask(
         labels=np.ones((20, 20), np.int32),
@@ -467,6 +469,7 @@ def test_dense_labels_escape_with_leaders_back_to_their_box() -> None:
     )
     # Every leader anchors on the box it belongs to.
     for p in detached:
+        assert p.leader is not None
         ax, ay = p.leader
         assert region.left <= ax <= region.right
         assert region.top <= ay <= region.bottom

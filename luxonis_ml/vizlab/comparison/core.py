@@ -32,7 +32,7 @@ import math
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, overload
 
 import numpy as np
 
@@ -40,6 +40,7 @@ from luxonis_ml.vizlab.annotations import Annotation, BBox, Keypoints
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import XY, Rect, bounding_rect
 from luxonis_ml.vizlab.options import RenderOptions
+from luxonis_ml.vizlab.style import StyleValue
 from luxonis_ml.vizlab.tooltip import Tooltip
 
 if TYPE_CHECKING:
@@ -74,6 +75,9 @@ _IDENTITY_COLORS = (
 #: A predicted keypoint within this fraction of the match bounds' diagonal of its
 #: ground-truth counterpart counts as correct (a PCK-style tolerance).
 KEYPOINT_TOLERANCE = 0.1
+
+ComparisonKeypoint = tuple[float, float, int]
+"""One normalized ``(x, y, visibility)`` keypoint used during comparison."""
 
 
 def _faded(color: Color, alpha: int = 120) -> Color:
@@ -530,7 +534,9 @@ def _recolor(
         root.label = relabel
     if not keep_score:
         root.score = None
-    overrides = {"dash": dash} if dash is not None else None
+    overrides: dict[str, StyleValue] | None = (
+        {"dash": dash} if dash is not None else None
+    )
     for annotation in annotations:
         if color is not None:
             annotation.color = color
@@ -557,19 +563,26 @@ def _ghost(
     return [box]
 
 
-def _keypoints_of(obj: "Detectionish | None") -> list | None:
+def _keypoints_of(
+    obj: "Detectionish | None",
+) -> list[ComparisonKeypoint] | None:
     """Index-aligned ``(x, y, visibility)`` keypoints of a detection, or None."""
     if obj is None or isinstance(obj, BBox):
         return None
     keypoints = obj.keypoints
     if keypoints is None or not keypoints.keypoints:
         return None
-    return list(keypoints.keypoints)
+    return [
+        (float(x), float(y), int(visibility))
+        for x, y, visibility in keypoints.keypoints
+    ]
 
 
 def _grade_keypoints(
-    pred_kps: list, gt_kps: list, bounds: Rect
-) -> tuple[list[tuple[float, float, float]], list[Color]]:
+    pred_kps: Sequence[ComparisonKeypoint],
+    gt_kps: Sequence[ComparisonKeypoint],
+    bounds: Rect,
+) -> tuple[list[ComparisonKeypoint], list[Color]]:
     """Grade predicted joints against the ground truth, index by index.
 
     Returns the points to draw and an index-aligned color per joint: a predicted
@@ -581,7 +594,7 @@ def _grade_keypoints(
     tolerance = KEYPOINT_TOLERANCE * (
         math.hypot(bounds.width, bounds.height) or 1.0
     )
-    points: list[tuple[float, float, float]] = []
+    points: list[ComparisonKeypoint] = []
     colors: list[Color] = []
     for i, (px, py, pv) in enumerate(pred_kps):
         gx, gy, gv = gt_kps[i] if i < len(gt_kps) else (px, py, 0)
@@ -762,6 +775,42 @@ _LAYOUTS = {
     "side_by_side": _side_by_side_image,
     "triptych": _triptych_image,
 }
+
+
+@overload
+def compare(
+    image: "ImageSource",
+    *,
+    gt: "Sequence[Detectionish] | None" = None,
+    pred: "Sequence[Detectionish] | None" = None,
+    result: ComparisonResult | None = None,
+    options: RenderOptions | None = None,
+    iou_threshold: float = 0.5,
+    score_threshold: float = 0.25,
+    class_aware: bool = True,
+    show: Literal["overlay"] = "overlay",
+    panel: Literal[False],
+    per_class: bool = False,
+    verdicts: "Collection[Verdict] | None" = None,
+) -> "Image": ...
+
+
+@overload
+def compare(
+    image: "ImageSource",
+    *,
+    gt: "Sequence[Detectionish] | None" = None,
+    pred: "Sequence[Detectionish] | None" = None,
+    result: ComparisonResult | None = None,
+    options: RenderOptions | None = None,
+    iou_threshold: float = 0.5,
+    score_threshold: float = 0.25,
+    class_aware: bool = True,
+    show: Literal["overlay", "side_by_side", "triptych"] = "overlay",
+    panel: bool = True,
+    per_class: bool = False,
+    verdicts: "Collection[Verdict] | None" = None,
+) -> "Renderable": ...
 
 
 def compare(

@@ -1,14 +1,21 @@
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import TypeAlias
 
 import numpy as np
 import polars as pl
 import pytest
 
 from luxonis_ml.data import DatasetIterator, LuxonisParser
+from luxonis_ml.data.utils.data_utils import (
+    ClassDistributionRow,
+    ClassHeatmapRow,
+    HeatmapRow,
+)
 
 from .utils import create_dataset, create_image
+
+ClassDistributionsByType: TypeAlias = dict[str, list[ClassDistributionRow]]
 
 
 @pytest.mark.parametrize("url", ["COCO_people_subset.zip"])
@@ -220,7 +227,7 @@ def test_per_class_heatmaps_share_sample(
         sample_size: int | None,
         *,
         with_class: bool,
-    ) -> Iterable[dict[str, Any]]:
+    ) -> Iterable[HeatmapRow | ClassHeatmapRow]:
         nonlocal sample_calls
         sample_calls += 1
         return original_heatmap_rows(df, sample_size, with_class=with_class)
@@ -241,7 +248,7 @@ def test_build_health_grid_per_class_heatmaps() -> None:
     pytest.importorskip("luxonis_ml.vizlab")
     from luxonis_ml.data.utils.health_plots import build_health_grid
 
-    class_dist = {
+    class_dist: ClassDistributionsByType = {
         "boundingbox": [
             {"class_name": "person", "count": 100},
             {"class_name": "car", "count": 40},
@@ -272,7 +279,7 @@ def test_build_health_grid_renders() -> None:
     pytest.importorskip("luxonis_ml.vizlab")
     from luxonis_ml.data.utils.health_plots import build_health_grid
 
-    class_dist = {
+    class_dist: ClassDistributionsByType = {
         "boundingbox": [
             {"class_name": "person", "count": 1240},
             {"class_name": "car", "count": 712},
@@ -298,7 +305,7 @@ def test_build_health_grid_omits_metadata_and_task_name_from_titles() -> None:
     pytest.importorskip("luxonis_ml.vizlab")
     from luxonis_ml.data.utils import health_plots
 
-    spatial_class_dist = {
+    spatial_class_dist: ClassDistributionsByType = {
         "boundingbox": [{"class_name": "person", "count": 1}]
     }
     heatmaps = {"boundingbox": [[1] * 15 for _ in range(15)]}
@@ -328,7 +335,7 @@ def test_many_task_types_use_a_wide_layout() -> None:
     pytest.importorskip("luxonis_ml.vizlab")
     from luxonis_ml.data.utils.health_plots import build_health_grid
 
-    cd = [{"class_name": "person", "count": 10}]
+    cd: list[ClassDistributionRow] = [{"class_name": "person", "count": 10}]
     hm = [[1] * 15 for _ in range(15)]
     types = [
         "boundingbox",
@@ -357,7 +364,7 @@ def test_build_health_grid_theme_style_options() -> None:
     from luxonis_ml.data.utils.health_plots import build_health_grid
     from luxonis_ml.vizlab import LIGHT_THEME
 
-    class_dist = {
+    class_dist: ClassDistributionsByType = {
         "boundingbox": [
             {"class_name": "person", "count": 1240},
             {"class_name": "car", "count": 712},

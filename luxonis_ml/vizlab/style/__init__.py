@@ -21,6 +21,8 @@ from .style import (
     LabelPlacement,
     MaskOutline,
     Style,
+    StyleOverrides,
+    StyleValue,
     current_default_style,
     current_style_overrides,
 )
@@ -45,6 +47,8 @@ __all__ = [
     "Palette",
     "SequenceColors",
     "Style",
+    "StyleOverrides",
+    "StyleValue",
     "Theme",
     "current_default_style",
     "current_style_overrides",

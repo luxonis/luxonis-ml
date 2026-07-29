@@ -155,7 +155,7 @@ def _busy_scene() -> list[BBox]:
     return [*large, *cluster, lonely]
 
 
-def _labels(annotations: list) -> list[str]:
+def _labels(annotations: list[Annotation]) -> list[str | None]:
     return [a.label for a in annotations]
 
 

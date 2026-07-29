@@ -17,7 +17,7 @@ from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal
+from typing import Literal, TypeAlias
 
 from .gradient import DEFAULT_GRADIENT, Gradient
 from .style import DARK_THEME, Theme
@@ -27,6 +27,11 @@ KeypointLabelMode = Literal["none", "numbers", "names", "full"]
 
 SkeletonDef = tuple[list[str], list[tuple[int, int]]]
 """A keypoint skeleton as ``(labels, edges)`` — ``get_skeletons()``'s shape."""
+
+RenderOptionValue: TypeAlias = (
+    Theme | Gradient | str | Mapping[str, SkeletonDef] | bool
+)
+"""A value accepted by one of `RenderOptions`' configurable fields."""
 
 
 @dataclass(frozen=True)
@@ -65,7 +70,7 @@ class RenderOptions:
     hover_metadata: bool = False
     antialias: bool = True
 
-    def replace(self, **changes: Any) -> "RenderOptions":
+    def replace(self, **changes: RenderOptionValue) -> "RenderOptions":
         """Return a copy with the given fields replaced."""
         return replace(self, **changes)
 

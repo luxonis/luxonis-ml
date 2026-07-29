@@ -2,6 +2,8 @@
 
 import importlib.util
 import io
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 
 import numpy as np
 import pytest
@@ -9,11 +11,19 @@ import pytest
 from luxonis_ml.vizlab.viewer import NotebookBackend
 from luxonis_ml.vizlab.viewer.notebook_backend import (
     _encode_png,
+    _ImageWidget,
+    _MousePayload,
     _relative_to_frame,
 )
 
 _HAS_IPYWIDGETS = importlib.util.find_spec("ipywidgets") is not None
 _HAS_IPYEVENTS = importlib.util.find_spec("ipyevents") is not None
+
+
+@dataclass
+class _CapturedEvent:
+    watched: Sequence[str] | None = None
+    callback: Callable[[_MousePayload], None] | None = None
 
 
 def test_encode_png_swaps_bgr_to_rgb() -> None:
@@ -108,14 +118,21 @@ def test_mouse_events_route_move_and_click(
 
     monkeypatch.setattr(IPython.display, "display", lambda *a, **k: None)
 
-    captured: dict = {}
+    captured = _CapturedEvent()
 
     class FakeEvent:
-        def __init__(self, *, source: object, watched_events: list) -> None:
-            captured["watched"] = watched_events
+        def __init__(
+            self,
+            *,
+            source: _ImageWidget,
+            watched_events: Sequence[str],
+        ) -> None:
+            captured.watched = watched_events
 
-        def on_dom_event(self, callback: object) -> None:
-            captured["callback"] = callback
+        def on_dom_event(
+            self, callback: Callable[[_MousePayload], None]
+        ) -> None:
+            captured.callback = callback
 
     monkeypatch.setattr(ipyevents, "Event", FakeEvent)
 
@@ -127,10 +144,27 @@ def test_mouse_events_route_move_and_click(
         "w", lambda x, y, clicked: calls.append((x, y, clicked))
     )
 
-    dispatch = captured["callback"]
-    rect = {"boundingRectWidth": 200, "boundingRectHeight": 120}
-    dispatch({"type": "mousemove", "relativeX": 100, "relativeY": 60, **rect})
-    dispatch({"type": "click", "relativeX": 20, "relativeY": 40, **rect})
+    dispatch = captured.callback
+    assert dispatch is not None
+    dispatch(
+        {
+            "type": "mousemove",
+            "relativeX": 100.0,
+            "relativeY": 60.0,
+            "boundingRectWidth": 200.0,
+            "boundingRectHeight": 120.0,
+        }
+    )
+    dispatch(
+        {
+            "type": "click",
+            "relativeX": 20.0,
+            "relativeY": 40.0,
+            "boundingRectWidth": 200.0,
+            "boundingRectHeight": 120.0,
+        }
+    )
 
-    assert {"mousemove", "click"} <= set(captured["watched"])
+    assert captured.watched is not None
+    assert {"mousemove", "click"} <= set(captured.watched)
     assert calls == [(50, 30, False), (10, 20, True)]  # scaled, click flagged

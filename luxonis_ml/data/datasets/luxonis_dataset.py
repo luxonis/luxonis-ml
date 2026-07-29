@@ -59,6 +59,10 @@ from luxonis_ml.data.utils import (
     warn_on_duplicates,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
+from luxonis_ml.data.utils.data_utils import (
+    DatasetStatistics,
+    DatasetStatisticsWithClassHeatmaps,
+)
 from luxonis_ml.data.utils.ldf_equivalence import ldf_equivalent
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.enums.enums import DatasetType
@@ -1890,13 +1894,40 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         logger.info(f"Dataset successfully exported to: {out_path}")
         return out_path
 
+    @overload
+    def get_statistics(
+        self,
+        sample_size: int | None = None,
+        view: str | None = None,
+        *,
+        per_class_heatmaps: Literal[True],
+    ) -> DatasetStatisticsWithClassHeatmaps: ...
+
+    @overload
+    def get_statistics(
+        self,
+        sample_size: int | None = None,
+        view: str | None = None,
+        *,
+        per_class_heatmaps: Literal[False] = False,
+    ) -> DatasetStatistics: ...
+
+    @overload
+    def get_statistics(
+        self,
+        sample_size: int | None = None,
+        view: str | None = None,
+        *,
+        per_class_heatmaps: bool,
+    ) -> DatasetStatistics | DatasetStatisticsWithClassHeatmaps: ...
+
     def get_statistics(
         self,
         sample_size: int | None = None,
         view: str | None = None,
         *,
         per_class_heatmaps: bool = False,
-    ) -> dict[str, Any]:
+    ) -> DatasetStatistics | DatasetStatisticsWithClassHeatmaps:
         """Return dataset statistics for a view or the full dataset.
 
         The returned statistics include:
@@ -1925,14 +1956,21 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         """
         df = self._load_df_offline(lazy=True)
 
-        stats = {
-            "duplicates": {},
-            "missing_annotations": 0,
+        stats: DatasetStatistics = {
+            "duplicates": {
+                "duplicate_uuids": [],
+                "duplicate_annotations": [],
+            },
+            "missing_annotations": [],
             "heatmaps": {},
             "class_distributions": {},
         }
 
         if df is None:
+            if per_class_heatmaps:
+                return DatasetStatisticsWithClassHeatmaps(
+                    **stats, class_heatmaps={}
+                )
             return stats
 
         splits = self.get_splits()
@@ -1946,12 +1984,16 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         stats["missing_annotations"] = get_missing_annotations(df)
 
         if per_class_heatmaps:
-            stats["heatmaps"], stats["class_heatmaps"] = (
-                get_heatmap_statistics(df, sample_size)
+            heatmaps, class_heatmaps = get_heatmap_statistics(df, sample_size)
+            return DatasetStatisticsWithClassHeatmaps(
+                duplicates=stats["duplicates"],
+                missing_annotations=stats["missing_annotations"],
+                heatmaps=heatmaps,
+                class_distributions=stats["class_distributions"],
+                class_heatmaps=class_heatmaps,
             )
-        else:
-            stats["heatmaps"] = get_heatmaps(df, sample_size)
 
+        stats["heatmaps"] = get_heatmaps(df, sample_size)
         return stats
 
     def remove_duplicates(self) -> None:

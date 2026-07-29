@@ -39,8 +39,10 @@ if TYPE_CHECKING:
         KeypointAnnotation,
         SegmentationAnnotation,
     )
+    from luxonis_ml.typing import ParamValue
     from luxonis_ml.vizlab.image import Image, Renderable
     from luxonis_ml.vizlab.io import ImageSource
+    from luxonis_ml.vizlab.panel import PanelData
 
     #: Any LDF object `Image.add`/`to_render_annotations` renders: a whole
     #: record, a detection tree, or a single spatial annotation model.
@@ -296,7 +298,10 @@ def _collect_boxless(detection: "Detection", rows: list[str]) -> None:
         _collect_boxless(sub, rows)
 
 
-def _meta_rows(detection: "Detection", metadata: "Mapping") -> list[str]:
+def _meta_rows(
+    detection: "Detection",
+    metadata: "Mapping[str, int | float | str]",
+) -> list[str]:
     """Format a detection's metadata as card rows."""
     rows: list[str] = []
     prefix = ""
@@ -415,7 +420,7 @@ def visualize_record(
     image: "ImageSource",
     *,
     options: RenderOptions | None = None,
-    panel: dict | None = None,
+    panel: "Mapping[str, PanelData] | None" = None,
     size: tuple[int, int] | None = None,
 ) -> "Renderable":
     """Build one complete record visualization over its source image.
@@ -563,12 +568,29 @@ def _collect_record_annotations(
 def _panel_data(
     record: "DatasetRecord",
     array_shapes: dict[str, list[int]],
-    panel: dict | None,
-) -> dict:
+    panel: "Mapping[str, PanelData] | None",
+) -> "dict[str, PanelData]":
     """Merge sample metadata, array shapes, and an extra panel into panel data."""
-    data: dict = dict(record.sample_metadata) if record.sample_metadata else {}
+    data: dict[str, PanelData] = {
+        key: _metadata_to_panel_data(value)
+        for key, value in record.sample_metadata.items()
+    }
     if array_shapes:
         data["arrays"] = array_shapes
     if panel:
         data.update(panel)
     return data
+
+
+def _metadata_to_panel_data(value: "ParamValue") -> "PanelData":
+    """Normalize JSON-like metadata to the panel's string-keyed data model."""
+    if isinstance(value, Mapping):
+        return {
+            str(key): _metadata_to_panel_data(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, str):
+        return value
+    if isinstance(value, Iterable):
+        return [_metadata_to_panel_data(item) for item in value]
+    return value

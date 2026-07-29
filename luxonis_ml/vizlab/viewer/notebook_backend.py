@@ -10,7 +10,9 @@ this module — and ``luxonis_ml.vizlab.viewer`` — never requires them.
 
 import importlib
 import io as _io
-from typing import Any
+from collections.abc import Callable, Sequence
+from types import ModuleType
+from typing import Protocol, TypedDict, cast
 
 import numpy as np
 
@@ -20,7 +22,97 @@ from .backend import KeyHandler, MouseHandler
 _EXTRA = "the 'notebook' extra (pip install 'luxonis-ml[notebook]')"
 
 
-def _require(module: str) -> Any:
+class _Layout(Protocol):
+    """Layout fields used from an ipywidgets widget."""
+
+    width: str
+    height: str
+
+
+class _Widget(Protocol):
+    """Common surface shared by the widget types used by this backend."""
+
+    layout: _Layout
+
+
+class _ImageWidget(_Widget, Protocol):
+    """Mutable image payload displayed by ipywidgets."""
+
+    value: bytes
+
+
+class _ContainerWidget(_Widget, Protocol):
+    """Widget whose children can be replaced as a tuple."""
+
+    children: tuple[_Widget, ...]
+
+
+class _ButtonWidget(_Widget, Protocol):
+    """Clickable ipywidgets button."""
+
+    def on_click(
+        self, callback: Callable[["_ButtonWidget"], None]
+    ) -> None: ...
+
+
+class _ImageFactory(Protocol):
+    def __call__(self, *, format: str) -> _ImageWidget: ...
+
+
+class _ButtonFactory(Protocol):
+    def __call__(self, *, description: str) -> _ButtonWidget: ...
+
+
+class _ContainerFactory(Protocol):
+    def __call__(self, children: Sequence[_Widget]) -> _ContainerWidget: ...
+
+
+class _WidgetsModule(Protocol):
+    """Subset of the ipywidgets module used by the backend."""
+
+    Image: _ImageFactory
+    Button: _ButtonFactory
+    VBox: _ContainerFactory
+    HBox: _ContainerFactory
+
+
+class _PILImage(Protocol):
+    def save(self, target: _io.BytesIO, *, format: str) -> None: ...
+
+
+class _PILImageModule(Protocol):
+    def fromarray(self, array: np.ndarray) -> _PILImage: ...
+
+
+class _DisplayModule(Protocol):
+    def display(self, widget: _Widget) -> None: ...
+
+
+class _MousePayload(TypedDict, total=False):
+    relativeX: float
+    relativeY: float
+    boundingRectWidth: float
+    boundingRectHeight: float
+    type: str
+
+
+class _EventWidget(Protocol):
+    def on_dom_event(
+        self, callback: Callable[[_MousePayload], None]
+    ) -> None: ...
+
+
+class _EventFactory(Protocol):
+    def __call__(
+        self, *, source: _ImageWidget, watched_events: Sequence[str]
+    ) -> _EventWidget: ...
+
+
+class _EventsModule(Protocol):
+    Event: _EventFactory
+
+
+def _require(module: str) -> ModuleType:
     """Import ``module`` lazily, or raise a friendly install hint."""
     try:
         return importlib.import_module(module)
@@ -32,7 +124,7 @@ def _require(module: str) -> Any:
 
 def _encode_png(frame_bgr: np.ndarray) -> bytes:
     """Encode a BGR frame as PNG bytes (for an ``ipywidgets.Image``)."""
-    pil = _require("PIL.Image")
+    pil = cast(_PILImageModule, _require("PIL.Image"))
     rgb = np.ascontiguousarray(frame_bgr[..., ::-1])
     buf = _io.BytesIO()
     pil.fromarray(rgb).save(buf, format="PNG")
@@ -85,24 +177,24 @@ class NotebookBackend:
             "Next ▶": "n",
             "Quit": "q",
         }
-        self._images: dict[str, Any] = {}
+        self._images: dict[str, _ImageWidget] = {}
         self._frame_size: dict[str, tuple[int, int]] = {}
         self._mouse: dict[str, MouseHandler] = {}
         self._key_handler: KeyHandler | None = None
-        self._root: Any = None
-        self._stack: Any = None
+        self._root: _ContainerWidget | None = None
+        self._stack: _ContainerWidget | None = None
 
     def screen_size(self) -> tuple[int, int] | None:
         return self._screen
 
     def create_window(self, name: str) -> None:
-        self._ensure_root()
+        stack = self._ensure_root()
         if name in self._images:
             return
-        widgets = _require("ipywidgets")
+        widgets = cast(_WidgetsModule, _require("ipywidgets"))
         image = widgets.Image(format="png")
         self._images[name] = image
-        self._stack.children = (*self._stack.children, image)
+        stack.children = (*stack.children, image)
         self._wire_mouse(name, image)
 
     def destroy_window(self, name: str) -> None:
@@ -149,27 +241,30 @@ class NotebookBackend:
 
     # -- internals ----------------------------------------------------------
 
-    def _ensure_root(self) -> None:
+    def _ensure_root(self) -> _ContainerWidget:
         """Build and display the buttons + image stack once."""
         if self._root is not None:
-            return
-        widgets = _require("ipywidgets")
-        display = _require("IPython.display").display
-        buttons = []
+            if self._stack is None:
+                raise RuntimeError("notebook widget stack is not initialized")
+            return self._stack
+        widgets = cast(_WidgetsModule, _require("ipywidgets"))
+        display = cast(_DisplayModule, _require("IPython.display")).display
+        buttons: list[_ButtonWidget] = []
         for label, char in self._controls.items():
             button = widgets.Button(description=label)
-            button.on_click(lambda _b, char=char: self._emit_key(char))
+            button.on_click(lambda _button, char=char: self._emit_key(char))
             buttons.append(button)
         self._stack = widgets.VBox([])
         self._root = widgets.VBox([widgets.HBox(buttons), self._stack])
         display(self._root)
+        return self._stack
 
     def _emit_key(self, char: str) -> None:
         """Deliver ``char`` to the registered key handler as a key code."""
         if self._key_handler is not None and char:
             self._key_handler(ord(char[0]))
 
-    def _wire_mouse(self, name: str, image: Any) -> None:
+    def _wire_mouse(self, name: str, image: _ImageWidget) -> None:
         """Route mouse move/click over ``image`` to the window's handler.
 
         Moves drive hover tooltips; clicks (left button) drive the panel's
@@ -177,14 +272,16 @@ class NotebookBackend:
         ``ipyevents`` the navigation buttons still work.
         """
         try:
-            ipyevents = importlib.import_module("ipyevents")
+            ipyevents = cast(
+                _EventsModule, importlib.import_module("ipyevents")
+            )
         except ImportError:
             return  # hover/clicks are optional; buttons still drive navigation
         event = ipyevents.Event(
             source=image, watched_events=["mousemove", "click"]
         )
 
-        def on_event(payload: dict) -> None:
+        def on_event(payload: _MousePayload) -> None:
             handler = self._mouse.get(name)
             if handler is None:
                 return

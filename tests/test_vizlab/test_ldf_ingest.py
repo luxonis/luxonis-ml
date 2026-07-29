@@ -161,6 +161,7 @@ def test_visualize_record_collects_nested_record_annotations(
     )
     record = _record("det", root)
     image = visualize_record(record, np.zeros((32, 32, 3), np.uint8))
+    assert isinstance(image, Image)
 
     semantic = next(
         annotation
@@ -427,4 +428,5 @@ def test_visualize_record_adds_metadata_card():
         files={}, annotation=[det], task_name="scene"
     )
     img = visualize_record(record, np.zeros((60, 60, 3), np.uint8))
+    assert isinstance(img, Image)
     assert any(isinstance(a, InfoCard) for a in img.annotations)
