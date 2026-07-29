@@ -31,7 +31,6 @@ class BatchTransform(ABC, A.DualTransform):
         super().__init__(**kwargs)
 
         self.batch_size = batch_size
-        self._was_applied = False
 
     @property
     @override

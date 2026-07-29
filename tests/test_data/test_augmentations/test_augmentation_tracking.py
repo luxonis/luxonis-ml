@@ -5,7 +5,6 @@ import numpy as np
 
 from luxonis_ml.data import AlbumentationsEngine
 from luxonis_ml.data.augmentations import BatchCompose, BatchTransform
-from luxonis_ml.data.augmentations.custom import TRANSFORMATIONS
 from luxonis_ml.data.utils.cli_utils import get_applied_augmentations
 from luxonis_ml.typing import LoaderMultiOutput, Params
 
@@ -13,8 +12,8 @@ from luxonis_ml.typing import LoaderMultiOutput, Params
 class PickSecond(BatchTransform):
     """Batch transform with no runtime parameters."""
 
-    def __init__(self, p: float = 1.0) -> None:
-        super().__init__(batch_size=2, p=p)
+    def __init__(self) -> None:
+        super().__init__(batch_size=2, p=1.0)
 
     def update_transform_params(
         self, params: dict[str, Any], data: dict[str, Any]
@@ -43,22 +42,6 @@ def test_batch_compose_keeps_applied_transform_without_parameters():
     )
 
     assert np.array_equal(transformed["image"], second)
-
-
-def test_tracks_applied_batch_transform_without_runtime_parameters():
-    TRANSFORMATIONS.register(module=PickSecond, force=True)
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
-        [{"name": "PickSecond", "params": {"p": 1.0}}],
-    )
-
-    engine.apply(_make_sample() * 2)
-
-    assert engine.applied_augmentations == {"PickSecond": {}}
 
 
 def test_inspect_reads_augmentation_metadata():

@@ -77,7 +77,6 @@ class BatchCompose(A.Compose):
         for transform in self.transforms:
             new_batch = []
             new_indices = []
-            transform._was_applied = False
             for i, batch in enumerate(
                 yield_batches(data_batch, transform.batch_size)
             ):
@@ -89,7 +88,6 @@ class BatchCompose(A.Compose):
                 returned_batched_input = isinstance(
                     next(iter(data.values())), list
                 )
-                transform._was_applied |= not returned_batched_input
                 if returned_batched_input:
                     data = {key: value[0] for key, value in batch.items()}
                     new_indices.append(batch_indices[0])

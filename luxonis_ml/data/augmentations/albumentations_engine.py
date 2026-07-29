@@ -737,10 +737,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 )
             ]
 
-        if transform_name == "Lambda" or (
-            not getattr(transform, "params", {})
-            and not getattr(transform, "_was_applied", False)
-        ):
+        if transform_name == "Lambda" or not getattr(transform, "params", {}):
             return []
 
         return [("/".join((*parent_path, transform_name)), transform)]
