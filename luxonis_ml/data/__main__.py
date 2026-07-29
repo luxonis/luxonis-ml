@@ -101,13 +101,30 @@ def _present_classes(records: "Iterable[DatasetRecord]") -> list[str]:
     return list(seen)
 
 
-def _array_shapes(labels: "Labels") -> dict[str, list[int]]:
-    """Return array shapes keyed by the complete task path."""
+def _filter_records_by_task(
+    records: "Mapping[str, DatasetRecord]",
+    task_names: frozenset[str] | None,
+) -> "dict[str, DatasetRecord]":
+    """Keep only records whose complete task name was requested."""
+    if task_names is None:
+        return dict(records)
+    return {
+        name: record for name, record in records.items() if name in task_names
+    }
+
+
+def _array_shapes(
+    labels: "Labels",
+    task_names: frozenset[str] | None = None,
+) -> dict[str, list[int]]:
+    """Return array shapes keyed by complete, optionally filtered task path."""
     suffix = "/array"
     return {
         key[: -len(suffix)]: list(value.shape)
         for key, value in labels.items()
-        if get_task_type(key) == "array" and key.endswith(suffix)
+        if get_task_type(key) == "array"
+        and key.endswith(suffix)
+        and (task_names is None or key[: -len(suffix)] in task_names)
     }
 
 
@@ -407,6 +424,7 @@ def inspect(
     name: str,
     *,
     view: Annotated[list[str] | None, Parameter(alias="-v")] = None,
+    task_name: Annotated[list[str] | None, Parameter()] = None,
     aug_config: Annotated[
         Path | None,
         Parameter(
@@ -489,7 +507,9 @@ def inspect(
     """Inspect images and annotations in a dataset.
 
     Hovering the mouse over a detection that carries annotation metadata shows
-    that metadata in a tooltip, so dense scenes stay uncluttered.
+    that metadata in a tooltip, so dense scenes stay uncluttered. With
+    ``--per-instance``, every spatial detection gets a tooltip even when it has
+    no custom metadata.
 
     Interactive controls (also listed, and clickable, in the side panel):
 
@@ -507,6 +527,9 @@ def inspect(
         name: Name of the dataset to inspect.
         view: Which splits of the dataset to inspect.
             If not provided, the "train" split will be inspected by default.
+        task_name: Render only records matching these complete task names.
+            May be provided more than once to select multiple tasks. By default,
+            all tasks are rendered.
         aug_config: Path to a JSON or YAML config defining
             augmentations to apply when inspecting the dataset.
             If not provided, no augmentations will be applied.
@@ -519,12 +542,16 @@ def inspect(
         force_update: Force synchronization with remote storage first.
         blend_all: Draw labels belonging to different tasks on the
             same image.
-        per_instance: Show each label instance in a separate window.
+        per_instance: Show all spatial instances together, assigning a distinct
+            color to each instance instead of each class. The class legend is
+            hidden and hovering an instance shows its ID, class, task,
+            annotation types, and metadata.
         list_augmentations: Show the augmentations applied to each
             displayed image. Requires '--aug-config' to be set.
         skeletons: Draw keypoint skeleton edges.
         keypoint_labels: Specify how to draw keypoint labels.
-        legend: Draw a class-color legend on each image.
+        legend: Draw a class-color legend on each image. Ignored in
+            per-instance mode because colors identify instances, not classes.
         show_background: Render the semantic-segmentation background class
             (hidden by default) and include it in the palette and legend.
         fast: Lighter, much faster rendering for large or dense datasets: draw
@@ -556,6 +583,21 @@ def inspect(
 
     if len(dataset) == 0:
         raise ValueError(f"Dataset '{name}' is empty.")
+
+    requested_tasks = tuple(dict.fromkeys(task_name or []))
+    task_filter = frozenset(requested_tasks) if requested_tasks else None
+    if task_filter is not None:
+        available_tasks = dataset.get_task_names()
+        unknown_tasks = [
+            task for task in requested_tasks if task not in available_tasks
+        ]
+        if unknown_tasks:
+            unknown = ", ".join(repr(task) for task in unknown_tasks)
+            available = ", ".join(repr(task) for task in available_tasks)
+            raise ValueError(
+                f"Unknown task name(s): {unknown}. "
+                f"Available task names: {available or '(none)'}."
+            )
 
     loader = LuxonisLoader(
         dataset,
@@ -623,9 +665,12 @@ def inspect(
             set_default_options,
             visualize_record,
         )
+        from luxonis_ml.vizlab.adapters.instances import (
+            instances_to_annotations,
+            spatial_instances,
+        )
         from luxonis_ml.vizlab.convert import (
             blend_records_to_annotations,
-            detection_to_annotations,
             metadata_annotations,
         )
         from luxonis_ml.vizlab.viewer import LayerState, Viewer
@@ -662,6 +707,10 @@ def inspect(
     # Make single images, panels, and grid backgrounds all follow the options
     # (so bare Images in this command pick up the theme/palette too).
     set_default_options(options)
+    # Per-instance mode deliberately has its own sequence: the first instance
+    # should receive the first generated color regardless of how many class
+    # names were registered in the dataset palette above.
+    instance_palette = Palette()
 
     # The legend reserves width for the dataset's longest class name (capped, so
     # one very long outlier does not blow the panel out), keeping the panel a
@@ -681,8 +730,8 @@ def inspect(
         reflect the current toggles and refresh on every re-render), and the class
         swatches are keyed to the classes present in the sample (``layers.classes``)
         with stable full-dataset palette colors. ``controls=False`` omits the
-        controls where they do not apply — the per-instance stepping view and the
-        non-interactive saved renders.
+        controls where they do not apply — currently the non-interactive saved
+        renders.
         """
         out: dict[str, PanelData] = {}
         if controls:
@@ -693,7 +742,7 @@ def inspect(
                 )
             )
         names = layers.classes
-        if legend and names:
+        if legend and not per_instance and names:
             out["classes"] = Swatches(
                 tuple((palette.color_for(name), name) for name in names),
                 disabled=frozenset(layers.hidden),
@@ -708,6 +757,8 @@ def inspect(
         image: np.ndarray,
         records: "Mapping[str, DatasetRecord]",
         layers: "LayerState",
+        *,
+        instances: "Sequence[tuple[str, Detection]] | None" = None,
     ) -> Image:
         """Draw every record's annotations onto one image, layer toggles applied.
 
@@ -718,14 +769,23 @@ def inspect(
         The image is returned unsized; the caller sets any display size.
         """
         viz = Image(image, options=options)
-        detections = blend_records_to_annotations(records.values(), options)
+        detections = (
+            instances_to_annotations(
+                instances,
+                options=options,
+                palette=instance_palette,
+            )
+            if instances is not None
+            else blend_records_to_annotations(records.values(), options)
+        )
         for annotation in layers.apply_layers(detections, palette):
             viz.add(annotation)
-        for overlay in metadata_annotations(
-            [d for r in records.values() for d in r._annotations()],
-            lone_object_card=True,
-        ):
-            viz.add(overlay)
+        if instances is None:
+            for overlay in metadata_annotations(
+                [d for r in records.values() for d in r._annotations()],
+                lone_object_card=True,
+            ):
+                viz.add(overlay)
         return viz
 
     def build_panel(
@@ -736,7 +796,7 @@ def inspect(
             if sample_metadata
             else {}
         )
-        arrays = _array_shapes(sample_labels)
+        arrays = _array_shapes(sample_labels, task_filter)
         if arrays:
             panel["arrays"] = arrays
         if list_augmentations:
@@ -744,6 +804,16 @@ def inspect(
             if applied:
                 panel["augmentations"] = list(applied)
         return panel
+
+    def records_from_labels(labels: "Labels") -> "dict[str, DatasetRecord]":
+        """Convert loader labels and apply the command's task-name filter."""
+        records = loader_output_to_records(
+            labels,
+            classes=classes,
+            categorical_encodings=categorical_encodings,
+            render_background=show_background,
+        )
+        return _filter_records_by_task(records, task_filter)
 
     def save_size(width: int, height: int) -> tuple[int, int] | None:
         """File render size: the ``--size-multiplier``, or native when ``auto``.
@@ -771,17 +841,24 @@ def inspect(
         layers = LayerState(declutter=not show_all)
         count = 0
         for data in loader:
-            records = loader_output_to_records(
-                data.labels,
-                classes=classes,
-                categorical_encodings=categorical_encodings,
-                render_background=show_background,
-            )
+            records = records_from_labels(data.labels)
             layers.update_classes(_present_classes(records.values()))
             panel = build_panel(data.labels, data.metadata)
+            instances = (
+                spatial_instances(records.values()) if per_instance else None
+            )
+            if per_instance and not instances:
+                print(
+                    "[yellow]Warning: Per-instance mode is not supported for "
+                    "this sample. Showing all labels.[/yellow]"
+                )
+                instances = None
             for source_name, image in data.images.items():
                 viz: Renderable = blend_annotations(
-                    image.astype(np.uint8), records, layers
+                    image.astype(np.uint8),
+                    records,
+                    layers,
+                    instances=instances,
                 ).render_at(save_size(image.shape[1], image.shape[0]))
                 if not plain:
                     viz = viz.with_panel(
@@ -883,14 +960,20 @@ def inspect(
         records: "Mapping[str, DatasetRecord]",
         panel: "Mapping[str, PanelData]",
         reserve: float,
+        instances: "Sequence[tuple[str, Detection]] | None",
     ) -> Frame:
-        """Build the display `Frame` for one non-per-instance source."""
+        """Build the display `Frame` for one source."""
         height, width = image.shape[:2]
         # The viewer's interactive layer toggles (masks/keypoints/labels, a class
         # focus) filter what is drawn without disturbing the metadata cards,
         # legend, or panel — `blend_annotations` applies them to the detections.
-        if blend_all or len(records) <= 1:
-            viz = blend_annotations(image, records, viewer.layers)
+        if instances is not None or blend_all or len(records) <= 1:
+            viz = blend_annotations(
+                image,
+                records,
+                viewer.layers,
+                instances=instances,
+            )
             viz.render_at(display_size(width, height, reserve))
             return framed(viz.frame(), panel)
         # A grid of per-record tiles; compose_tiles sizes them so the whole
@@ -911,95 +994,40 @@ def inspect(
             compose_tiles(tiles, cols, list(records), reserve), panel
         )
 
-    def show_instances(
-        source_name: str,
-        image: np.ndarray,
-        instances: "list[tuple[str, Detection]]",
-        panel: "Mapping[str, PanelData]",
-        reserve: float,
-    ) -> bool:
-        """Show each instance in its own window; return ``True`` on quit."""
-        height, width = image.shape[:2]
-        size = display_size(width, height, reserve)
-        for task_name, detection in instances:
-            viz = Image(image, options=options).render_at(size)
-            for annotation in detection_to_annotations(
-                detection, options, task_name=task_name
-            ):
-                viz.add(annotation)
-            # A single instance per window: card its metadata (no hover).
-            for overlay in metadata_annotations(
-                [detection],
-                lone_object_card=True,
-            ):
-                viz.add(overlay)
-            # Per-instance stepping is non-interactive, so the panel carries the
-            # class legend and metadata but no (inapplicable) controls.
-            side = sidebar(panel, viewer.layers, controls=False)
-            display = viz if plain or not side else viz.with_panel(side)
-            if viewer.show_blocking(source_name, display) == "q":
-                return True
-        return False
-
     for data in loader:
         images_dict = data.images
-        records = loader_output_to_records(
-            data.labels,
-            classes=classes,
-            categorical_encodings=categorical_encodings,
-            render_background=show_background,
-        )
+        records = records_from_labels(data.labels)
         # Cycle the class focus (`c`) over just the classes in this sample.
         viewer.layers.update_classes(_present_classes(records.values()))
         panel = build_panel(data.labels, data.metadata)
-        instances = [
-            (record.task_name, detection)
-            for record in records.values()
-            for detection in record._annotations()
-            if detection.boundingbox is not None
-            or detection.keypoints is not None
-            or detection.instance_segmentation is not None
-        ]
-        has_sidebar = not plain and (
-            not per_instance
-            or bool(panel)
-            or bool(legend and viewer.layers.classes)
+        instances = (
+            spatial_instances(records.values()) if per_instance else None
         )
+        if per_instance and not instances:
+            print(
+                "[yellow]Warning: Per-instance mode is not supported for "
+                "this sample. Showing all labels.[/yellow]"
+            )
+            instances = None
+        has_sidebar = not plain
         reserve = panel_reserve if has_sidebar else 0.0
 
-        quit_requested = False
         needs_wait = False
         for source_name, image in images_dict.items():
             image = image.astype(np.uint8)
-            if per_instance and instances:
-                if show_instances(
-                    source_name, image, instances, panel, reserve
-                ):
-                    quit_requested = True
-                    break
-                continue
-            if per_instance:
-                print(
-                    "[yellow]Warning: Per-instance mode is not supported for "
-                    f"this dataset. Showing all labels for '{source_name}'.[/yellow]"
-                )
             viewer.show(
                 source_name,
-                build_frame(image, records, panel, reserve),
+                build_frame(image, records, panel, reserve, instances),
                 # Re-render this window's frame whenever a layer toggle changes;
                 # bind the loop-varying data so each window rebuilds its own.
-                render=lambda _, image=image, records=records, panel=panel, reserve=reserve: (
-                    build_frame(image, records, panel, reserve)
+                render=lambda _, image=image, records=records, panel=panel, reserve=reserve, instances=instances: (
+                    build_frame(image, records, panel, reserve, instances)
                 ),
             )
             needs_wait = True
 
         # Windows for sources no longer present (a differing next sample) close.
         viewer.destroy_stale(set(images_dict.keys()))
-        if quit_requested:
-            break
-        # Per-instance mode already blocked on each instance; otherwise block for
-        # a keypress while hover tooltips redraw.
         if needs_wait and viewer.wait() == "q":
             break
 

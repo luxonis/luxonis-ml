@@ -1,6 +1,6 @@
 """End-to-end coverage for the ``data inspect`` command (thin viewer adapter)."""
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,7 +9,12 @@ import pytest
 
 import luxonis_ml.data.__main__ as data_main
 import luxonis_ml.vizlab.viewer as viewer_module
-from luxonis_ml.ldf import BBoxAnnotation, DatasetRecord, Detection
+from luxonis_ml.ldf import (
+    BBoxAnnotation,
+    DatasetRecord,
+    Detection,
+    KeypointAnnotation,
+)
 from luxonis_ml.typing import Params
 
 
@@ -86,6 +91,9 @@ def test_array_shapes_keep_complete_nested_task_paths() -> None:
         "parent/depth": [2, 3],
         "parent/flow": [4, 5, 2],
     }
+    assert data_main._array_shapes(labels, frozenset({"parent/depth"})) == {
+        "parent/depth": [2, 3]
+    }
 
 
 def test_present_sample_metadata_collapses_single_input() -> None:
@@ -155,7 +163,7 @@ def test_present_sample_metadata_labels_empty_inputs() -> None:
     }
 
 
-def test_per_instance_inspect_attaches_augmentation_panel(
+def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     image = np.zeros((32, 48, 3), dtype=np.uint8)
@@ -164,10 +172,32 @@ def test_per_instance_inspect_attaches_augmentation_panel(
         annotation=[
             Detection(
                 class_name="car",
-                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.4, h=0.4),
-            )
+                instance_id=7,
+                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.4),
+                keypoints=KeypointAnnotation(
+                    keypoints=[(0.2, 0.2, 2), (0.3, 0.3, 2)]
+                ),
+                metadata={"track_id": 41},
+            ),
+            Detection(
+                class_name="car",
+                instance_id=8,
+                boundingbox=BBoxAnnotation(x=0.55, y=0.1, w=0.3, h=0.4),
+                metadata={"track_id": 42},
+            ),
         ],
         task_name="objects",
+    )
+    ignored_record = DatasetRecord.model_construct(
+        files={},
+        annotation=[
+            Detection(
+                class_name="bus",
+                instance_id=9,
+                boundingbox=BBoxAnnotation(x=0.2, y=0.6, w=0.3, h=0.3),
+            )
+        ],
+        task_name="ignored",
     )
 
     class _Dataset:
@@ -178,10 +208,13 @@ def test_per_instance_inspect_attaches_augmentation_panel(
             return 1
 
         def get_classes(self) -> dict[str, dict[str, int]]:
-            return {"objects": {"car": 0}}
+            return {"objects": {"car": 0}, "ignored": {"bus": 0}}
 
         def get_class_names(self) -> dict[str, list[str]]:
-            return {"objects": ["car"]}
+            return {"objects": ["car"], "ignored": ["bus"]}
+
+        def get_task_names(self) -> list[str]:
+            return ["objects", "ignored"]
 
         def get_categorical_encodings(self) -> dict[str, object]:
             return {}
@@ -215,17 +248,57 @@ def test_per_instance_inspect_attaches_augmentation_panel(
         def get_applied_augmentations(self) -> list[str]:
             return ["HorizontalFlip"]
 
+    import luxonis_ml.vizlab.adapters.instances as instances_module
     from luxonis_ml.data.loaders import label_converter
-    from luxonis_ml.vizlab import Image
+    from luxonis_ml.vizlab import (
+        LIGHT_THEME,
+        Annotation,
+        Frame,
+        Palette,
+        RenderOptions,
+        Style,
+        get_default_theme,
+        set_default_options,
+    )
+    from luxonis_ml.vizlab.adapters import InstanceDetection
+    from luxonis_ml.vizlab.color import ColorLike
+    from luxonis_ml.vizlab.panel import PanelData
     from luxonis_ml.vizlab.viewer import Viewer as RealViewer
 
-    panels: list[object] = []
+    panels: list[PanelData] = []
+    converted: list[list[Annotation]] = []
+    real_convert = instances_module.instances_to_annotations
 
-    def capture_panel(self: Image, data: object, **_kwargs: object) -> Image:
+    def capture_panel(
+        self: Frame,
+        data: PanelData,
+        *,
+        side: str = "right",
+        width: float | None = None,
+        title: str | None = None,
+        style: Style | None = None,
+        bg: ColorLike | None = None,
+    ) -> Frame:
         panels.append(data)
         return self
 
-    backend = _FakeBackend(keys=[ord("q")])
+    def capture_annotations(
+        instances: Sequence[InstanceDetection],
+        *,
+        options: RenderOptions,
+        palette: Palette,
+    ) -> list[Annotation]:
+        annotations = real_convert(
+            instances,
+            options=options,
+            palette=palette,
+        )
+        converted.append(annotations)
+        return annotations
+
+    # One ordinary advance key is enough for the combined view. The former
+    # stepping behavior would have opened one window per detection.
+    backend = _FakeBackend(keys=[ord("x")])
     monkeypatch.setattr(data_main, "check_exists", lambda *_args: None)
     monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
     monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
@@ -238,16 +311,17 @@ def test_per_instance_inspect_attaches_augmentation_panel(
     monkeypatch.setattr(
         label_converter,
         "loader_output_to_records",
-        lambda *_args, **_kwargs: {"objects": record},
+        lambda *_args, **_kwargs: {
+            "objects": record,
+            "ignored": ignored_record,
+        },
     )
-    monkeypatch.setattr(Image, "with_panel", capture_panel)
-
-    from luxonis_ml.vizlab import (
-        LIGHT_THEME,
-        RenderOptions,
-        get_default_theme,
-        set_default_options,
+    monkeypatch.setattr(
+        instances_module,
+        "instances_to_annotations",
+        capture_annotations,
     )
+    monkeypatch.setattr(Frame, "with_panel", capture_panel)
 
     aug_config = tmp_path / "augmentations.json"
     aug_config.write_text("[]")
@@ -258,6 +332,8 @@ def test_per_instance_inspect_attaches_augmentation_panel(
             per_instance=True,
             list_augmentations=True,
             theme="light",
+            legend=True,
+            task_name=["objects"],
         )
         # The chosen theme becomes the scope default (with the dataset palette
         # pinned onto it, so it is a light-background theme, not LIGHT_THEME itself).
@@ -265,7 +341,37 @@ def test_per_instance_inspect_attaches_augmentation_panel(
     finally:
         set_default_options(RenderOptions())
 
-    assert panels == [{"augmentations": ["HorizontalFlip"]}]
+    assert backend.shown == ["image"]
+    assert len(panels) == 1
+    panel = panels[0]
+    assert isinstance(panel, dict)
+    assert panel["augmentations"] == ["HorizontalFlip"]
+    assert "controls" in panel
+    assert "classes" not in panel
+
+    assert len(converted) == 1
+    first, second = converted[0]
+    assert first.color is not None
+    assert second.color is not None
+    assert first.color != second.color
+
+    first_tip = first.tooltip
+    second_tip = second.tooltip
+    assert first_tip is not None
+    assert second_tip is not None
+    assert first_tip.tint == first.color
+    assert second_tip.tint == second.color
+    assert first_tip.title == "car #7"
+    assert first_tip.rows == (
+        ("instance_id", "7"),
+        ("class", "car"),
+        ("task", "objects"),
+        ("annotations", "bounding box, keypoints"),
+        ("track_id", "41"),
+    )
+    assert first.children[0].color == first.color
+    assert first.children[0].tooltip is first_tip
+    assert second_tip.rows[0] == ("instance_id", "8")
 
 
 def test_inspect_grid_renders_real_frames(
@@ -305,6 +411,9 @@ def test_inspect_grid_renders_real_frames(
         def get_class_names(self) -> dict[str, list[str]]:
             return {"a": ["car"], "b": ["car"]}
 
+        def get_task_names(self) -> list[str]:
+            return ["a", "b"]
+
         def get_categorical_encodings(self) -> dict[str, object]:
             return {}
 
@@ -320,10 +429,23 @@ def test_inspect_grid_renders_real_frames(
                 images={"image": image}, labels={}, metadata={}
             )
 
+    import luxonis_ml.vizlab.convert as convert_module
     from luxonis_ml.data.loaders import label_converter
+    from luxonis_ml.vizlab import Annotation, RenderOptions
     from luxonis_ml.vizlab.viewer import Viewer as RealViewer
 
     backend = _FakeBackend(keys=[ord("q")])
+    filtered_tasks: list[list[str]] = []
+    real_blend = convert_module.blend_records_to_annotations
+
+    def capture_blend(
+        selected_records: Iterable[DatasetRecord],
+        options: RenderOptions | None = None,
+    ) -> list[Annotation]:
+        records_list = list(selected_records)
+        filtered_tasks.append([record.task_name for record in records_list])
+        return real_blend(records_list, options)
+
     monkeypatch.setattr(data_main, "check_exists", lambda *_args: None)
     monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
     monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
@@ -335,16 +457,50 @@ def test_inspect_grid_renders_real_frames(
         "loader_output_to_records",
         lambda *_args, **_kwargs: records,
     )
+    monkeypatch.setattr(
+        convert_module,
+        "blend_records_to_annotations",
+        capture_blend,
+    )
 
-    from luxonis_ml.vizlab import RenderOptions, set_default_options
+    from luxonis_ml.vizlab import set_default_options
 
     try:
         data_main.inspect("dataset", legend=True)
+        data_main.inspect("dataset", legend=True, task_name=["a"])
     finally:
         set_default_options(RenderOptions())
 
-    # One composited window was presented for the sole source image.
-    assert backend.shown == ["image"]
+    # The first run uses the two-task grid. Filtering to one task takes the
+    # single-record blend path, and that path receives only the selected task.
+    assert backend.shown == ["image", "image"]
+    assert filtered_tasks == [["a"]]
+
+
+def test_inspect_rejects_unknown_task_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Dataset:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return 1
+
+        def get_task_names(self) -> list[str]:
+            return ["objects", "pose"]
+
+    monkeypatch.setattr(data_main, "check_exists", lambda *_args: None)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"Unknown task name\(s\): 'missing'. "
+            r"Available task names: 'objects', 'pose'."
+        ),
+    ):
+        data_main.inspect("dataset", task_name=["missing"])
 
 
 def test_inspect_layer_key_rerenders_and_toggles_state(
