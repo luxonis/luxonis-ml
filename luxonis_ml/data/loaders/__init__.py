@@ -162,7 +162,7 @@ Pass ``autopopulate_metadata=False`` to return only stored metadata:
     loader = LuxonisLoader(dataset, autopopulate_metadata=False)
     metadata = loader[0].metadata
 
-When batch augmentations combine several samples, metadata from the input
+When a batch augmentation combines several samples, metadata from the input
 samples is preserved in ``"batch_augmentation_metadata"``:
 
 .. python::

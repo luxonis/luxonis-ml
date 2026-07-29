@@ -189,6 +189,9 @@ unfixable = ["B905"]
 "__main__.py" = ["ANN201"]
 "tools/benchmark.py" = ["T201"]
 
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"__future__".msg = "Do not use imports from __future__."
+
 [tool.docformatter]
 black = true
 style = "google"

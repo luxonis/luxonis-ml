@@ -395,7 +395,7 @@ class LuxonisParser(Generic[T]):
             )
 
         if find_spec("roboflow") is None:  # pragma: no cover
-            _pip_install("roboflow", "roboflow~=1.1.0")
+            _pip_install("roboflow", "roboflow~=1.4")
             subprocess.run(
                 [
                     sys.executable,
