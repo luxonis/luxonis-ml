@@ -1,23 +1,114 @@
 import json
-from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from loguru import logger
 
+import luxonis_ml.data as data_module
 from luxonis_ml.data import (
-    BaseDataset,
+    PARSERS_REGISTRY,
+    LuxonisDataset,
     LuxonisLoader,
     LuxonisParser,
+    ParsedDataset,
+    ParseIssueCollector,
     ParserIssue,
+    ParserPlugin,
+    register_parser_plugin,
 )
-from luxonis_ml.data.parsers.base_parser import BaseParser, ParserOutput
 from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import environ
 
 from .utils import create_image
+
+
+def test_parser_entry_point_loading(monkeypatch: pytest.MonkeyPatch):
+    class EntryPointParser(ParserPlugin):
+        dataset_types = ("test-entry-point",)
+
+        @classmethod
+        def supports(cls, source: Path) -> bool:
+            return False
+
+        def parse(
+            self,
+            source: Path,
+            *,
+            dataset_type: str,
+            **kwargs: Any,
+        ) -> ParsedDataset:
+            raise AssertionError("Plugin should only be registered")
+
+    class EntryPoint:
+        @staticmethod
+        def load() -> type[ParserPlugin]:
+            return EntryPointParser
+
+    monkeypatch.setattr(
+        data_module,
+        "_get_entry_points_subset",
+        lambda group: [EntryPoint()] if group == "parser_plugins" else [],
+    )
+    data_module._load_parser_plugins()
+    assert PARSERS_REGISTRY.get("test-entry-point") is EntryPointParser
+
+
+def test_custom_parser_plugin_import(
+    dataset_name: str,
+    tempdir: Path,
+):
+    source = tempdir / "sample.plugin"
+    source.write_text("custom")
+    image = create_image(0, tempdir)
+
+    class CustomParser(ParserPlugin):
+        dataset_types = ("test-custom", "test-custom-alias")
+
+        @classmethod
+        def supports(cls, source: Path) -> bool:
+            return source.suffix == ".plugin"
+
+        def parse(
+            self,
+            source: Path,
+            *,
+            dataset_type: str,
+            **kwargs: Any,
+        ) -> ParsedDataset:
+            assert source.suffix == ".plugin"
+            assert dataset_type == "test-custom-alias"
+            assert kwargs == {"label": "budgie"}
+            return ParsedDataset(
+                iter(
+                    [
+                        {
+                            "file": image,
+                            "annotation": {"class": "budgie"},
+                        }
+                    ]
+                ),
+                {},
+                [image],
+            )
+
+    register_parser_plugin(CustomParser, force=True)
+    with pytest.raises(KeyError, match="already registered"):
+        register_parser_plugin(CustomParser)
+    dataset = LuxonisDataset.import_dataset(
+        source,
+        dataset_name=dataset_name,
+        dataset_type="test-custom-alias",
+        parser_kwargs={"label": "budgie"},
+        delete_local=True,
+        save_dir=tempdir,
+    )
+    try:
+        assert len(dataset) == 1
+        assert dataset.get_parser_issue_messages() == []
+    finally:
+        dataset.delete_dataset(delete_local=True)
 
 
 @pytest.mark.parametrize(
@@ -127,13 +218,12 @@ def test_dir_parser(
     ):
         pytest.skip("Ultralytics API key is not set")
 
-    parser = LuxonisParser(
+    dataset = LuxonisDataset.import_dataset(
         url,
         dataset_name=dataset_name,
         delete_local=True,
         save_dir=tempdir,
     )
-    dataset = parser.parse()
     assert len(dataset) > 0
     loader = LuxonisLoader(dataset)
     _, ann = next(iter(loader))
@@ -148,12 +238,12 @@ def test_split_parser_creates_default_splits(dataset_name: str, tempdir: Path):
     image_dir.mkdir(parents=True)
     create_image(0, image_dir)
 
-    dataset = LuxonisParser(
+    dataset = LuxonisDataset.import_dataset(
         str(class_dir),
         dataset_name=dataset_name,
         dataset_type=DatasetType.CLSDIR,
         delete_local=True,
-    ).parse()
+    )
     try:
         splits = dataset.get_splits()
         assert splits is not None
@@ -162,6 +252,131 @@ def test_split_parser_creates_default_splits(dataset_name: str, tempdir: Path):
 
         loader = LuxonisLoader(dataset)
         next(iter(loader))
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
+def test_count_split_filters_unselected_records(
+    dataset_name: str,
+    tempdir: Path,
+):
+    class_dir = tempdir / "counted_cls" / "class_a"
+    class_dir.mkdir(parents=True)
+    for index in range(5):
+        create_image(index, class_dir)
+
+    dataset = LuxonisDataset.import_dataset(
+        str(class_dir.parent),
+        dataset_name=dataset_name,
+        dataset_type=DatasetType.CLSDIR,
+        split_ratios={"train": 2, "val": 1, "test": 1},
+        delete_local=True,
+    )
+    try:
+        assert len(dataset) == 4
+        splits = dataset.get_splits()
+        assert splits is not None
+        assert {name: len(ids) for name, ids in splits.items()} == {
+            "train": 2,
+            "val": 1,
+            "test": 1,
+        }
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
+def test_count_split_matches_relative_fiftyone_paths(
+    dataset_name: str,
+    tempdir: Path,
+):
+    dataset_dir = tempdir / "fiftyone_counts"
+    data_dir = dataset_dir / "data"
+    data_dir.mkdir(parents=True)
+    images = [create_image(index, data_dir) for index in range(4)]
+    (dataset_dir / "labels.json").write_text(
+        json.dumps(
+            {
+                "classes": ["class_a"],
+                "labels": {image.stem: 0 for image in images},
+            }
+        )
+    )
+
+    dataset = LuxonisDataset.import_dataset(
+        dataset_dir,
+        dataset_name=dataset_name,
+        dataset_type=DatasetType.FIFTYONECLS,
+        split_ratios={"train": 2, "val": 1, "test": 1},
+        delete_local=True,
+    )
+    try:
+        assert len(dataset) == 4
+        splits = dataset.get_splits()
+        assert splits is not None
+        assert {name: len(ids) for name, ids in splits.items()} == {
+            "train": 2,
+            "val": 1,
+            "test": 1,
+        }
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
+def test_classification_directory_does_not_claim_data_directory(
+    tempdir: Path,
+):
+    data_dir = tempdir / "coco" / "test" / "data"
+    data_dir.mkdir(parents=True)
+    create_image(0, data_dir)
+
+    plugin = PARSERS_REGISTRY.get(DatasetType.CLSDIR.value)
+    assert not plugin.supports(data_dir.parent.parent)
+
+
+def test_coco_count_splits_do_not_create_synthetic_test_split(
+    dataset_name: str,
+    tempdir: Path,
+):
+    dataset_dir = tempdir / "coco_counts"
+    for split in ("train", "validation"):
+        data_dir = dataset_dir / split / "data"
+        data_dir.mkdir(parents=True)
+        image = create_image(0, data_dir)
+        (dataset_dir / split / "labels.json").write_text(
+            json.dumps(
+                {
+                    "images": [
+                        {
+                            "id": 1,
+                            "file_name": image.name,
+                            "width": 640,
+                            "height": 480,
+                        }
+                    ],
+                    "annotations": [],
+                    "categories": [],
+                }
+            )
+        )
+    raw_dir = dataset_dir / "raw"
+    raw_dir.mkdir()
+    (raw_dir / "person_keypoints.json").write_text("{}")
+
+    dataset = LuxonisDataset.import_dataset(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        split_ratios={"train": 1, "val": 1, "test": 1},
+        delete_local=True,
+    )
+    try:
+        assert len(dataset) == 2
+        splits = dataset.get_splits()
+        assert splits is not None
+        assert {name: len(ids) for name, ids in splits.items()} == {
+            "train": 1,
+            "val": 1,
+            "test": 0,
+        }
     finally:
         dataset.delete_dataset(delete_local=True)
 
@@ -180,12 +395,12 @@ def test_fiftyone_classification_parser_discovers_validation_split(
         }
         (dataset_dir / split / "labels.json").write_text(json.dumps(labels))
 
-    dataset = LuxonisParser(
+    dataset = LuxonisDataset.import_dataset(
         str(dataset_dir),
         dataset_name=dataset_name,
         dataset_type=DatasetType.FIFTYONECLS,
         delete_local=True,
-    ).parse()
+    )
     try:
         splits = dataset.get_splits()
         assert splits is not None
@@ -323,14 +538,13 @@ def test_dir_parser_explicit_type(
     ):
         pytest.skip("Ultralytics API key is not set")
 
-    parser = LuxonisParser(
+    dataset = LuxonisDataset.import_dataset(
         url,
         dataset_name=dataset_name,
-        dataset_type=dataset_type,  # type: ignore
+        dataset_type=dataset_type,
         delete_local=True,
         save_dir=tempdir,
     )
-    dataset = parser.parse()
     assert len(dataset) > 0
     loader = LuxonisLoader(dataset)
     _, ann = next(iter(loader))
@@ -409,17 +623,16 @@ def test_parser_issue_messages_collect_skipped_annotations(
         encoding="utf-8",
     )
 
-    parser = LuxonisParser(
+    dataset = LuxonisDataset.import_dataset(
         str(split_dir),
         dataset_name=dataset_name,
         delete_local=True,
         save_dir=tempdir,
     )
-    dataset = parser.parse()
     try:
         assert len(dataset) == 1
 
-        issues = parser._get_parser_issue_messages()
+        issues = dataset.get_parser_issue_messages()
         assert len(issues) == 3
         assert {issue.parser_issue for issue in issues} == {
             ParserIssue.COCO_ISCROWD,
@@ -466,7 +679,7 @@ def test_parser_issue_messages_collect_skipped_annotations(
         assert missing_image_issue.annotation_id is None
 
         issues.pop()
-        assert len(parser._get_parser_issue_messages()) == 3
+        assert len(dataset.get_parser_issue_messages()) == 3
     finally:
         dataset.delete_dataset(delete_local=True)
 
@@ -477,12 +690,12 @@ def test_ultralytics_ndjson_parser(
     tempdir: Path,
 ):
     url = f"{storage_url.rstrip('/')}/fruit_ndjson.zip"
-    dataset = LuxonisParser(
+    dataset = LuxonisDataset.import_dataset(
         url,
         dataset_name=dataset_name,
         delete_local=True,
         save_dir=tempdir,
-    ).parse()
+    )
 
     assert len(dataset) > 0
     splits = dataset.get_splits()
@@ -498,53 +711,10 @@ def test_ultralytics_ndjson_parser(
     dataset.delete_dataset(delete_local=True)
 
 
-class _DummyDataset:
-    def add(self, _generator: Iterator[object]) -> None:
-        return None
-
-    def make_splits(self, _splits: object) -> None:
-        return None
-
-
-class _WarningParser(BaseParser):
-    def __init__(
-        self,
-        warning_count: int,
-        *,
-        reason: str = "dummy skipped annotation",
-        full_warnings: bool = False,
-    ):
-        super().__init__(
-            cast(BaseDataset, _DummyDataset()),
-            DatasetType.COCO,
-            None,
-            full_warnings=full_warnings,
-        )
-        self.warning_count = warning_count
-        self.reason = reason
-
-    @staticmethod
-    def validate_split(_split_path: Path) -> dict[str, Any]:
-        return {}
-
-    def from_dir(
-        self, dataset_dir: Path, **kwargs: Any
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        return [], [], []
-
-    def from_split(self, **kwargs: Any) -> ParserOutput:
-        for annotation_id in range(self.warning_count):
-            self._warn_skipped_annotation(
-                ParserIssue.NON_NUMERIC_ANNOTATION,
-                self.reason,
-                annotation_id=annotation_id,
-            )
-        return iter(()), {}, []
-
-
 def test_skipped_annotation_warnings_are_capped():
-    warning_count = BaseParser._SKIPPED_WARNING_LIMIT + 5
-    parser = _WarningParser(warning_count)
+    warning_limit = 10
+    warning_count = warning_limit + 5
+    collector = ParseIssueCollector(warning_limit=warning_limit)
     messages: list[str] = []
     sink_id = logger.add(
         lambda message: messages.append(str(message).strip()),
@@ -553,14 +723,20 @@ def test_skipped_annotation_warnings_are_capped():
     )
 
     try:
-        parser.parse_split()
+        for annotation_id in range(warning_count):
+            collector.warn(
+                ParserIssue.NON_NUMERIC_ANNOTATION,
+                "dummy skipped annotation",
+                annotation_id=annotation_id,
+            )
+        collector.log_summary()
     finally:
         logger.remove(sink_id)
 
-    assert len(parser._get_parser_issue_messages()) == warning_count
+    assert len(collector.messages) == warning_count
     assert (
         sum(message.startswith("Skipping annotation:") for message in messages)
-        == BaseParser._SKIPPED_WARNING_LIMIT
+        == warning_limit
     )
     assert (
         "Skipped logging 5 additional warnings. Enable the "
@@ -573,8 +749,11 @@ def test_skipped_annotation_warnings_are_capped():
 
 
 def test_full_warnings_logs_all_skipped_annotation_warnings():
-    parser = _WarningParser(
-        BaseParser._SKIPPED_WARNING_LIMIT + 5, full_warnings=True
+    warning_limit = 10
+    warning_count = warning_limit + 5
+    collector = ParseIssueCollector(
+        full_warnings=True,
+        warning_limit=warning_limit,
     )
     messages: list[str] = []
     sink_id = logger.add(
@@ -584,16 +763,20 @@ def test_full_warnings_logs_all_skipped_annotation_warnings():
     )
 
     try:
-        parser.parse_split()
+        for annotation_id in range(warning_count):
+            collector.warn(
+                ParserIssue.NON_NUMERIC_ANNOTATION,
+                "dummy skipped annotation",
+                annotation_id=annotation_id,
+            )
+        collector.log_summary()
     finally:
         logger.remove(sink_id)
 
-    assert len(parser._get_parser_issue_messages()) == (
-        BaseParser._SKIPPED_WARNING_LIMIT + 5
-    )
+    assert len(collector.messages) == warning_count
     assert (
         sum(message.startswith("Skipping annotation:") for message in messages)
-        == BaseParser._SKIPPED_WARNING_LIMIT + 5
+        == warning_count
     )
     assert not any(
         message.startswith("Skipped logging ") for message in messages
@@ -606,13 +789,13 @@ def test_ultralytics_ndjson_parser_explicit_type(
     tempdir: Path,
 ):
     url = f"{storage_url.rstrip('/')}/fruit_ndjson.zip"
-    dataset = LuxonisParser(
+    dataset = LuxonisDataset.import_dataset(
         url,
         dataset_name=dataset_name,
-        dataset_type="ultralytics-ndjson",  # type: ignore[arg-type]
+        dataset_type="ultralytics-ndjson",
         delete_local=True,
         save_dir=tempdir,
-    ).parse()
+    )
 
     assert len(dataset) > 0
     splits = dataset.get_splits()
@@ -634,12 +817,12 @@ def test_ultralytics_ndjson_remote_urls_parser(
     tempdir: Path,
 ):
     url = f"{storage_url.rstrip('/')}/fruit_ndjson_remote/fruit.ndjson"
-    dataset = LuxonisParser(
+    dataset = LuxonisDataset.import_dataset(
         url,
         dataset_name=dataset_name,
         delete_local=True,
         save_dir=tempdir,
-    ).parse()
+    )
 
     assert len(dataset) > 0
     splits = dataset.get_splits()
@@ -687,12 +870,12 @@ def test_ultralytics_ndjson_remote_urls_parser_reuses_existing_remote_dir(
     )
     (tempdir / "budgie").mkdir()
 
-    dataset = LuxonisParser(
+    dataset = LuxonisDataset.import_dataset(
         str(ndjson_path),
         dataset_name=dataset_name,
         delete_local=True,
         save_dir=tempdir,
-    ).parse()
+    )
     try:
         assert len(dataset) == 1
     finally:
@@ -735,12 +918,13 @@ def test_ultralytics_ndjson_remote_urls_parser_rejects_existing_remote_dir_when_
         ValueError,
         match=r"Remote NDJSON image directory '.*budgie' already exists",
     ):
-        LuxonisParser(
+        LuxonisDataset.import_dataset(
             str(ndjson_path),
             dataset_name=dataset_name,
             delete_local=True,
             save_dir=tempdir,
-        ).parse(reuse_cached=False)
+            parser_kwargs={"reuse_cached": False},
+        )
 
 
 def test_partial_split_clsdir_is_preserved(
@@ -752,12 +936,12 @@ def test_partial_split_clsdir_is_preserved(
     split_dir.mkdir(parents=True)
     create_image(16, split_dir)
 
-    dataset = LuxonisParser(
+    dataset = LuxonisDataset.import_dataset(
         str(dataset_dir),
         dataset_name=dataset_name,
         delete_local=True,
         save_dir=tempdir,
-    ).parse()
+    )
 
     splits = dataset.get_splits()
     assert splits is not None
@@ -777,13 +961,15 @@ def test_partial_split_clsdir_explicit_type_uses_dir_mode(
     split_dir.mkdir(parents=True)
     create_image(16, split_dir)
 
-    dataset = LuxonisParser(
-        str(dataset_dir),
-        dataset_name=dataset_name,
-        dataset_type="clsdir",  # type: ignore[arg-type]
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
+    with pytest.warns(DeprecationWarning, match="LuxonisParser"):
+        parser = LuxonisParser(
+            str(dataset_dir),
+            dataset_name=dataset_name,
+            dataset_type="clsdir",
+            delete_local=True,
+            save_dir=tempdir,
+        )
+    dataset = parser.parse()
 
     splits = dataset.get_splits()
     assert splits is not None
@@ -791,6 +977,7 @@ def test_partial_split_clsdir_explicit_type_uses_dir_mode(
     assert len(splits["train"]) == 0
     assert len(splits["val"]) == 0
     assert len(splits["test"]) == 1
+    assert parser.get_parser_issue_messages() == []
     dataset.delete_dataset(delete_local=True)
 
 
@@ -817,12 +1004,12 @@ def test_partial_split_fixture_is_preserved(
     expected_split_sizes: dict[str, int],
     loader_view: str,
 ):
-    dataset = LuxonisParser(
+    dataset = LuxonisDataset.import_dataset(
         f"{storage_url.rstrip('/')}/{url}",
         dataset_name=dataset_name,
         delete_local=True,
         save_dir=tempdir,
-    ).parse()
+    )
 
     splits = dataset.get_splits()
     assert splits is not None
@@ -857,12 +1044,12 @@ def test_partial_ultralytics_layout_reports_yolov6_yolov8_ambiguity(
             r"ambiguous between YOLOv6 and YOLOv8\. Please specify dataset_type\."
         ),
     ):
-        LuxonisParser(
+        LuxonisDataset.import_dataset(
             str(dataset_dir),
             dataset_name=dataset_name,
             delete_local=True,
             save_dir=tempdir,
-        ).parse()
+        )
 
 
 def test_partial_split_train_only_roboflow_coco_keeps_format_detection(
@@ -899,13 +1086,14 @@ def test_partial_split_train_only_roboflow_coco_keeps_format_detection(
         )
     )
 
-    dataset = LuxonisParser(
+    dataset = LuxonisDataset.import_dataset(
         str(dataset_dir),
         dataset_name=dataset_name,
-        dataset_type="coco",  # type: ignore[arg-type]
+        dataset_type="coco",
         delete_local=True,
         save_dir=tempdir,
-    ).parse(use_keypoint_ann=True)
+        parser_kwargs={"use_keypoint_ann": True},
+    )
 
     splits = dataset.get_splits()
     assert splits is not None

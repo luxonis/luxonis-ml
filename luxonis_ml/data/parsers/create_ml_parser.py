@@ -8,10 +8,10 @@ from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
 from luxonis_ml.utils.path import resolve_manifest_path
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import ParsedDataset, SplitParserPlugin
 
 
-class CreateMLParser(BaseParser):
+class CreateMLParser(SplitParserPlugin):
     """Parse a directory with CreateML annotations into LDF.
 
     Expected format::
@@ -28,46 +28,24 @@ class CreateMLParser(BaseParser):
     This is one of the formats that Roboflow can generate.
     """
 
+    dataset_types = ("createml",)
+
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
         if not (split_path / "_annotations.createml.json").exists():
             return None
-        if not BaseParser._list_images(split_path):
+        if not CreateMLParser._list_images(split_path):
             return None
         return {
             "image_dir": split_path,
             "annotation_path": split_path / "_annotations.createml.json",
         }
 
-    def from_dir(
-        self, dataset_dir: Path
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        added_train_imgs = self._parse_split(
-            image_dir=dataset_dir / "train",
-            annotation_path=dataset_dir
-            / "train"
-            / "_annotations.createml.json",
-        )
-        added_val_imgs = self._parse_split(
-            image_dir=dataset_dir / "valid",
-            annotation_path=dataset_dir
-            / "valid"
-            / "_annotations.createml.json",
-        )
-        added_test_imgs = self._parse_split(
-            image_dir=dataset_dir / "test",
-            annotation_path=dataset_dir
-            / "test"
-            / "_annotations.createml.json",
-        )
-
-        return added_train_imgs, added_val_imgs, added_test_imgs
-
-    def from_split(
+    def _parse_split(
         self, image_dir: Path, annotation_path: Path
-    ) -> ParserOutput:
+    ) -> ParsedDataset:
         """Parse CreateML annotations into LDF records.
 
         Annotations include classification and object detection.
@@ -135,4 +113,4 @@ class CreateMLParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), {}, added_images
+        return ParsedDataset(generator(), {}, added_images)

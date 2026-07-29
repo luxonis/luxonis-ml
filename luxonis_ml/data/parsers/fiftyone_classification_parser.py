@@ -7,10 +7,10 @@ from loguru import logger
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import ParsedDataset, SplitParserPlugin
 
 
-class FiftyOneClassificationParser(BaseParser):
+class FiftyOneClassificationParser(SplitParserPlugin):
     """Parse FiftyOne image classification data into LDF.
 
     Supports two directory structures:
@@ -52,7 +52,8 @@ class FiftyOneClassificationParser(BaseParser):
 
     """
 
-    _SPLIT_NAMES: tuple[str, ...] = ("train", "validation", "test")
+    dataset_types = ("fiftyone-classification",)
+    split_names = ("train", "validation", "test")
 
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
@@ -78,35 +79,11 @@ class FiftyOneClassificationParser(BaseParser):
 
         return {"split_path": split_path}
 
-    def from_dir(
-        self, dataset_dir: Path, **kwargs
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        added_train_imgs: list[Path] = []
-        added_val_imgs: list[Path] = []
-        added_test_imgs: list[Path] = []
-
-        if (dataset_dir / "train").exists():
-            added_train_imgs = self._parse_split(
-                split_path=dataset_dir / "train"
-            )
-
-        if (dataset_dir / "validation").exists():
-            added_val_imgs = self._parse_split(
-                split_path=dataset_dir / "validation"
-            )
-
-        if (dataset_dir / "test").exists():
-            added_test_imgs = self._parse_split(
-                split_path=dataset_dir / "test"
-            )
-
-        return added_train_imgs, added_val_imgs, added_test_imgs
-
-    def from_split(self, split_path: Path) -> ParserOutput:
+    def _parse_split(self, split_path: Path) -> ParsedDataset:
         labels_path = split_path / "labels.json"
         data_path = split_path / "data"
 
-        is_flat_structure = split_path.name not in self._SPLIT_NAMES
+        is_flat_structure = split_path.name not in self.split_names
         if is_flat_structure:
             labels_path = clean_imagenet_annotations(labels_path)
 
@@ -140,7 +117,7 @@ class FiftyOneClassificationParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), {}, added_images
+        return ParsedDataset(generator(), {}, added_images)
 
 
 def clean_imagenet_annotations(labels_path: Path) -> Path:

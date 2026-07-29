@@ -4,11 +4,11 @@ This package owns the list of supported import formats. Additions or changes
 to parser support should be documented here, alongside the parser classes that
 implement them.
 
-The high-level `LuxonisParser` dispatcher accepts local directories, remote
-paths supported by ``LuxonisFileSystem``, ZIP archives, and Roboflow URLs in
-``roboflow://workspace/project/version/format`` form. It can auto-detect
-supported layouts or use an explicit ``DatasetType``, then delegates to the
-matching parser implementation.
+The dataset-owned `BaseDataset.import_dataset` API accepts local directories,
+remote paths supported by ``LuxonisFileSystem``, ZIP archives, and Roboflow
+URLs in ``roboflow://workspace/project/version/format`` form. It can
+auto-detect supported layouts or use an explicit ``DatasetType``, then
+delegates record generation to a registered `ParserPlugin`.
 
 .. contents:: Table of Contents
    :depth: 2
@@ -19,25 +19,23 @@ Basic Usage
 
 .. python::
 
-    from luxonis_ml.data import LuxonisParser
+    from luxonis_ml.data import LuxonisDataset
     from luxonis_ml.enums import DatasetType
 
-    parser = LuxonisParser(
+    dataset = LuxonisDataset.import_dataset(
         "path/to/dataset",
         dataset_name="parking_lot",
         dataset_type=DatasetType.COCO,
         task_name="detection",
     )
 
-    dataset = parser.parse()
-
-When ``dataset_type`` is omitted, `LuxonisParser` tries to infer the dataset
-format from the directory structure. ``task_name`` may be a single string used
-for all records or a mapping from class names to task names.
+When ``dataset_type`` is omitted, the registered plugins are used to infer the
+format from the source. ``task_name`` may be a single string used for all
+records or a mapping from class names to task names.
 
 .. python::
 
-    parser = LuxonisParser(
+    dataset = LuxonisDataset.import_dataset(
         "path/to/person_dataset",
         task_name={
             "head": "head_pose",
@@ -54,6 +52,44 @@ Note:
 Warning:
     Format-specific parsers do not follow symbolic links. Datasets that rely
     on symlinked images or labels may not parse as expected.
+
+
+Parser Plugins
+==============
+
+Parser plugins subclass `ParserPlugin`, declare one or more string
+``dataset_types``, recognize sources through ``supports``, and return a
+data-only `ParsedDataset`. Register plugins with `register_parser_plugin` or
+publish the plugin class through a ``parser_plugins`` package entry point.
+Dataset construction and splitting remain the responsibility of
+`BaseDataset.import_dataset`.
+
+.. python::
+
+    from luxonis_ml.data import (
+        ParsedDataset,
+        ParserPlugin,
+        register_parser_plugin,
+    )
+
+    @register_parser_plugin
+    class ExampleParser(ParserPlugin):
+        dataset_types = ("example",)
+
+        @classmethod
+        def supports(cls, source):
+            return (source / "annotations.example").is_file()
+
+        def parse(self, source, *, dataset_type, **kwargs):
+            files = list(source.glob("*.jpg"))
+            return ParsedDataset(
+                records=({"file": image} for image in files),
+                skeletons={},
+                files=files,
+            )
+
+`LuxonisParser` remains available as a deprecated compatibility wrapper and
+will be removed in a future release.
 
 
 Supported Formats
@@ -223,10 +259,11 @@ with the Python API:
 
 .. python::
 
-    parser = LuxonisParser("coco-2017", dataset_name="coco_keypoints")
-    dataset = parser.parse(
-        use_keypoint_ann=True,
+    dataset = LuxonisDataset.import_dataset(
+        "coco-2017",
+        dataset_name="coco_keypoints",
         split_ratios={"train": 0.5, "val": 0.4, "test": 0.1},
+        parser_kwargs={"use_keypoint_ann": True},
     )
 
 Parser issues that are skipped or recovered during parsing are reported as
@@ -282,7 +319,6 @@ class folders, and parse the result as ``DatasetType.CLSDIR``.
 
 from luxonis_ml.data.utils.enums import ParserIssue, ParserIssueMessage
 
-from .base_parser import BaseParser
 from .classification_directory_parser import ClassificationDirectoryParser
 from .coco_parser import COCOParser
 from .create_ml_parser import CreateMLParser
@@ -290,6 +326,13 @@ from .darknet_parser import DarknetParser
 from .fiftyone_classification_parser import FiftyOneClassificationParser
 from .luxonis_parser import LuxonisParser
 from .native_parser import NativeParser
+from .parser_plugin import (
+    PARSERS_REGISTRY,
+    ParsedDataset,
+    ParseIssueCollector,
+    ParserPlugin,
+    register_parser_plugin,
+)
 from .segmentation_mask_directory_parser import SegmentationMaskDirectoryParser
 from .solo_parser import SOLOParser
 from .tensorflow_csv_parser import TensorflowCSVParser
@@ -299,8 +342,26 @@ from .yolov4_parser import YoloV4Parser
 from .yolov6_parser import YoloV6Parser
 from .yolov8_parser import YOLOv8Parser
 
+for _plugin in (
+    UltralyticsNDJSONParser,
+    COCOParser,
+    FiftyOneClassificationParser,
+    VOCParser,
+    DarknetParser,
+    YoloV6Parser,
+    YoloV4Parser,
+    CreateMLParser,
+    TensorflowCSVParser,
+    ClassificationDirectoryParser,
+    SegmentationMaskDirectoryParser,
+    SOLOParser,
+    NativeParser,
+    YOLOv8Parser,
+):
+    register_parser_plugin(_plugin)
+
 __all__ = [
-    "BaseParser",
+    "PARSERS_REGISTRY",
     "COCOParser",
     "ClassificationDirectoryParser",
     "CreateMLParser",
@@ -308,8 +369,11 @@ __all__ = [
     "FiftyOneClassificationParser",
     "LuxonisParser",
     "NativeParser",
+    "ParseIssueCollector",
+    "ParsedDataset",
     "ParserIssue",
     "ParserIssueMessage",
+    "ParserPlugin",
     "SOLOParser",
     "SegmentationMaskDirectoryParser",
     "TensorflowCSVParser",
@@ -318,4 +382,5 @@ __all__ = [
     "YOLOv8Parser",
     "YoloV4Parser",
     "YoloV6Parser",
+    "register_parser_plugin",
 ]

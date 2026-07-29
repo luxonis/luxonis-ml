@@ -3,13 +3,14 @@
 
 # LuxonisML Parsers
 
-The `LuxonisParser` class provides functionality for converting various dataset formats to the Luxonis Dataset Format (LDF).
+`LuxonisDataset.import_dataset` converts supported dataset formats to the Luxonis Dataset Format (LDF).
 
 ## Table of Contents
 
 - [LuxonisML Parsers](#luxonisml-parsers)
   - [Parameters](#parameters)
-  - [Parse Method Parameters](#parse-method-parameters)
+    - [Core Import Parameters](#core-import-parameters)
+    - [Split Parameters](#split-parameters)
 - [Common datasets for evaluation](#common-datasets-for-evaluation)
   - [COCO-2017](#coco-2017-dataset-parsing)
     - [Supported Directory Formats](#supported-directory-formats)
@@ -27,18 +28,18 @@ The `LuxonisParser` class provides functionality for converting various dataset 
 
 ## Parameters
 
-### LuxonisParser Constructor Parameters
+### Core Import Parameters
 
-| Parameter        | Type                                   | Default  | Description                                                                                                                     |
-| ---------------- | -------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `dataset_dir`    | `str`                                  | Required | Path or URL to dataset directory (local path, `gcs://`, `s3://`, `roboflow://` or `ultralytics://`)                             |
-| `dataset_name`   | `Optional[str]`                        | `None`   | Name for the dataset (if None, derived from directory name)                                                                     |
-| `save_dir`       | `Optional[Union[Path, str]]`           | `None`   | Where to save downloaded datasets if remote URL is provided (if None, uses current directory)                                   |
-| `dataset_plugin` | `Optional[str]`                        | `None`   | Dataset plugin to use (if None, uses `LuxonisDataset`)                                                                          |
-| `dataset_type`   | `Optional[DatasetType]`                | `None`   | Force specific dataset format type instead of auto-detection                                                                    |
-| `task_name`      | `Optional[Union[str, Dict[str, str]]]` | `None`   | Task name(s) for the dataset. Used to link the classes to the desired tasks, with class names as keys and task names as values. |
+| Parameter       | Type                                   | Default  | Description                                                                                                                     |
+| --------------- | -------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `source`        | `Union[Path, str]`                     | Required | Path or URL to dataset directory (local path, `gcs://`, `s3://`, `roboflow://` or `ultralytics://`)                             |
+| `dataset_name`  | `Optional[str]`                        | `None`   | Name for the dataset (if None, derived from directory name)                                                                     |
+| `save_dir`      | `Optional[Union[Path, str]]`           | `None`   | Where to save downloaded datasets if remote URL is provided (if None, uses current directory)                                   |
+| `dataset_type`  | `Optional[DatasetType]`                | `None`   | Force specific dataset format type instead of auto-detection                                                                    |
+| `task_name`     | `Optional[Union[str, Dict[str, str]]]` | `None`   | Task name(s) for the dataset. Used to link the classes to the desired tasks, with class names as keys and task names as values. |
+| `parser_kwargs` | `Optional[Dict[str, Any]]`             | `None`   | Format-specific options passed to the selected parser plugin.                                                                   |
 
-### Parse Method Parameters
+### Split Parameters
 
 | Parameter      | Type                              | Default | Description                                                                                              |
 | -------------- | --------------------------------- | ------- | -------------------------------------------------------------------------------------------------------- |
@@ -160,12 +161,17 @@ When `use_keypoint_ann=True` (FiftyOne format only), the parser looks for keypoi
 You can override these paths with the `keypoint_ann_paths` parameter:
 
 ```python
-dataset = parser.parse(
-    use_keypoint_ann=True,
-    keypoint_ann_paths={
-        "train": "path/to/custom_train_keypoints.json",
-        "val": "path/to/custom_val_keypoints.json",
-        "test": "path/to/custom_test_keypoints.json",
+from luxonis_ml.data import LuxonisDataset
+
+dataset = LuxonisDataset.import_dataset(
+    "coco-2017",
+    parser_kwargs={
+        "use_keypoint_ann": True,
+        "keypoint_ann_paths": {
+            "train": "path/to/custom_train_keypoints.json",
+            "val": "path/to/custom_val_keypoints.json",
+            "test": "path/to/custom_test_keypoints.json",
+        },
     },
 )
 ```
@@ -180,24 +186,20 @@ dataset = parser.parse(
 | `keypoint_ann_paths` | `Optional[Dict[str, str]]` | `None`  | Custom paths (relative to dataset dir) for keypoint annotation files, keyed by split name (`train`, `val`, `test`). Only used when `use_keypoint_ann=True`.                        |
 | `split_val_to_test`  | `bool`                     | `True`  | When the test split has no annotations (common for COCO-2017), automatically split the validation set 50/50 into val and test. Set to `False` to keep the original val set intact. |
 
-These parameters are passed as keyword arguments to `parser.parse()`.
+These parameters are passed through the `parser_kwargs` mapping.
 
 ### Example: Parsing COCO-2017 with Keypoints
 
 > **Note:** The `use_keypoint_ann` flag is not exposed via the CLI. Use the Python API for keypoint-specific parsing.
 
 ```python
-from luxonis_ml.data import LuxonisParser
+from luxonis_ml.data import LuxonisDataset
 
-parser = LuxonisParser(
-    "coco-2017",               # path to dataset directory
+dataset = LuxonisDataset.import_dataset(
+    "coco-2017",
     dataset_name="coco-2017",
-)
-
-# Parse with keypoint annotations
-dataset = parser.parse(
-    use_keypoint_ann=True,
     split_ratios={"train": 0.5, "val": 0.4, "test": 0.1},
+    parser_kwargs={"use_keypoint_ann": True},
 )
 ```
 
@@ -300,15 +302,11 @@ A cleaned copy (`labels_fixed.json`) is saved alongside the original file.
 ### Example: Parsing ImageNet-sample
 
 ```python
-from luxonis_ml.data import LuxonisParser
+from luxonis_ml.data import LuxonisDataset
 
-parser = LuxonisParser(
-    "imagenet-sample",               # path to dataset directory
+dataset = LuxonisDataset.import_dataset(
+    "imagenet-sample",
     dataset_name="imagenet-sample",
-)
-
-# Parse with random splits
-dataset = parser.parse(
     split_ratios={"train": 0.8, "val": 0.1, "test": 0.1},
 )
 ```
@@ -325,7 +323,7 @@ luxonis_ml data parse ./imagenet-sample --split-ratio 0.8,0.1,0.1
 
 ## ImageNet-2012 Dataset Parsing
 
-ImageNet-2012 is the full ImageNet dataset ([dataset format reference](https://docs.voxel51.com/dataset_zoo/datasets/imagenet_2012.html#imagenet-2012)). In its original layout, it is not directly parsable by `LuxonisParser`.
+ImageNet-2012 is the full ImageNet dataset ([dataset format reference](https://docs.voxel51.com/dataset_zoo/datasets/imagenet_2012.html#imagenet-2012)). In its original layout, it is not directly parsable by the dataset import API.
 
 Original layout:
 
@@ -336,7 +334,7 @@ source_dir/
     ILSVRC2012_img_val.tar          # validation split
 ```
 
-To parse ImageNet-2012 with LuxonisML, first rearrange it into the Classification Directory format (`class_dir`) supported by `LuxonisParser` (class subdirectories, either split-based or flat).
+To parse ImageNet-2012 with LuxonisML, first rearrange it into the Classification Directory format (`clsdir`) supported by the dataset import API (class subdirectories, either split-based or flat).
 
 Brief conversion steps:
 
@@ -344,6 +342,6 @@ Brief conversion steps:
 1. Extract train class archives so images are grouped per class (`train/<class_name>/*.JPEG`).
 1. Use the devkit metadata to map validation images to class labels.
 1. Move validation images into class folders (`valid/<class_name>/*.JPEG`).
-1. Parse the rearranged directory with `LuxonisParser` as `class_dir`.
+1. Import the rearranged directory with `LuxonisDataset.import_dataset` as `clsdir`.
 
-For the expected `class_dir` directory structure, see the [Classification Directory format docs](../README.md#luxonisparser).
+For the expected `clsdir` directory structure, see the [Classification Directory format docs](../README.md#dataset-import).

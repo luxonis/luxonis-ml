@@ -9,10 +9,10 @@ from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
 from luxonis_ml.utils.path import resolve_manifest_path
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import ParsedDataset, SplitParserPlugin
 
 
-class VOCParser(BaseParser):
+class VOCParser(SplitParserPlugin):
     """Parse a directory with VOC annotations into LDF.
 
     Expected format::
@@ -28,36 +28,22 @@ class VOCParser(BaseParser):
     This is one of the formats that Roboflow can generate.
     """
 
+    dataset_types = ("voc",)
+
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
 
-        images = BaseParser._list_images(split_path)
+        images = VOCParser._list_images(split_path)
         labels = split_path.glob("*.xml")
-        if not BaseParser._compare_stem_files(images, labels):
+        if not VOCParser._compare_stem_files(images, labels):
             return None
         return {"image_dir": split_path, "annotation_dir": split_path}
 
-    def from_dir(
-        self, dataset_dir: Path
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        added_train_imgs = self._parse_split(
-            image_dir=dataset_dir / "train",
-            annotation_dir=dataset_dir / "train",
-        )
-        added_val_imgs = self._parse_split(
-            image_dir=dataset_dir / "valid",
-            annotation_dir=dataset_dir / "valid",
-        )
-        added_test_imgs = self._parse_split(
-            image_dir=dataset_dir / "test", annotation_dir=dataset_dir / "test"
-        )
-        return added_train_imgs, added_val_imgs, added_test_imgs
-
-    def from_split(
+    def _parse_split(
         self, image_dir: Path, annotation_dir: Path
-    ) -> ParserOutput:
+    ) -> ParsedDataset:
         """Parse VOC annotations into LDF records.
 
         Annotations include classification and object detection.
@@ -145,7 +131,7 @@ class VOCParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), {}, added_images
+        return ParsedDataset(generator(), {}, added_images)
 
     @staticmethod
     def _xml_find(root: ET.Element, tag: str) -> str:

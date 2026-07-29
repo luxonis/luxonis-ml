@@ -9,10 +9,10 @@ from loguru import logger
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.utils.path import resolve_manifest_path
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import ParsedDataset, SplitParserPlugin
 
 
-class SOLOParser(BaseParser):
+class SOLOParser(SplitParserPlugin):
     """Parse a directory with SOLO annotations into LDF.
 
     Expected format::
@@ -32,6 +32,8 @@ class SOLOParser(BaseParser):
 
     This is the default format returned by Unity simulation engine.
     """
+
+    dataset_types = ("solo",)
 
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
@@ -72,25 +74,7 @@ class SOLOParser(BaseParser):
             )
         return {"split_path": split_path}
 
-    def from_dir(
-        self, dataset_dir: Path
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        """Parse all SOLO data in a source dataset directory.
-
-        Args:
-            dataset_dir: Source dataset directory.
-
-        Returns:
-            Added images for the train, validation, and test splits.
-
-        """
-        added_train_imgs = self._parse_split(split_path=dataset_dir / "train")
-        added_valid_imgs = self._parse_split(split_path=dataset_dir / "valid")
-        added_test_imgs = self._parse_split(split_path=dataset_dir / "test")
-
-        return added_train_imgs, added_valid_imgs, added_test_imgs
-
-    def from_split(self, split_path: Path) -> ParserOutput:
+    def _parse_split(self, split_path: Path) -> ParsedDataset:
         """Parse one SOLO split into LDF records.
 
         Args:
@@ -391,7 +375,8 @@ class SOLOParser(BaseParser):
                                 "annotation": annotation_entry,
                             }
 
-        return generator(), skeletons, []
+        added_images = self._get_added_images(generator())
+        return ParsedDataset(generator(), skeletons, added_images)
 
     def _get_solo_annotation_types(
         self, annotation_definitions_dict: dict[str, Any]
