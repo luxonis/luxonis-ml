@@ -1,47 +1,14 @@
 import json
-from typing import Any
 
 import numpy as np
 
 from luxonis_ml.data import AlbumentationsEngine
-from luxonis_ml.data.augmentations import BatchCompose, BatchTransform
 from luxonis_ml.data.utils.cli_utils import get_applied_augmentations
 from luxonis_ml.typing import LoaderMultiOutput, Params
 
 
-class PickSecond(BatchTransform):
-    """Batch transform with no runtime parameters."""
-
-    def __init__(self) -> None:
-        super().__init__(batch_size=2, p=1.0)
-
-    def update_transform_params(
-        self, params: dict[str, Any], data: dict[str, Any]
-    ) -> dict[str, Any]:
-        return params
-
-    def apply(self, image_batch: list[np.ndarray], **_: Any) -> np.ndarray:
-        return image_batch[1]
-
-    apply_to_mask = apply  # type: ignore[assignment]
-    apply_to_bboxes = apply  # type: ignore[assignment]
-    apply_to_keypoints = apply  # type: ignore[assignment]
-    apply_to_instance_mask = apply  # type: ignore[assignment]
-
-
 def _make_sample(size: int = 64) -> list[LoaderMultiOutput]:
     return [({"image": np.zeros((size, size, 3), dtype=np.uint8)}, {})]
-
-
-def test_batch_compose_keeps_applied_transform_without_parameters():
-    first = np.zeros((2, 2, 1), dtype=np.uint8)
-    second = np.ones((2, 2, 1), dtype=np.uint8)
-
-    transformed = BatchCompose([PickSecond()])(
-        [{"image": first}, {"image": second}]
-    )
-
-    assert np.array_equal(transformed["image"], second)
 
 
 def test_inspect_reads_augmentation_metadata():

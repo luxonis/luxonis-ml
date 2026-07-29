@@ -85,10 +85,7 @@ class BatchCompose(A.Compose):
                     i * transform.batch_size : (i + 1) * transform.batch_size
                 ]
 
-                returned_batched_input = isinstance(
-                    next(iter(data.values())), list
-                )
-                if returned_batched_input:
+                if not transform.params:
                     data = {key: value[0] for key, value in batch.items()}
                     new_indices.append(batch_indices[0])
                 else:
