@@ -1,6 +1,6 @@
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import cv2
 import numpy as np
@@ -9,7 +9,7 @@ from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import ParsedDataset, SplitParserPlugin
 
 
 class Format(str, Enum):
@@ -25,7 +25,7 @@ class Format(str, Enum):
     ULTRALYTICS = "ultralytics"
 
 
-class YOLOv8Parser(BaseParser):
+class YOLOv8Parser(SplitParserPlugin):
     """Parse YOLOv8 and Ultralytics annotations into LDF.
 
     Expected format::
@@ -84,6 +84,12 @@ class YOLOv8Parser(BaseParser):
     This is one of the formats that Roboflow can generate.
     """
 
+    dataset_types = (
+        "yolov8",
+        "yolov8instancesegmentation",
+        "yolov8keypoints",
+    )
+
     def fit_boundingbox(self, points: np.ndarray) -> dict[str, float]:
         """Fit a bounding box around a polygon mask."""
         x_min = np.min(points[:, 0])
@@ -104,6 +110,9 @@ class YOLOv8Parser(BaseParser):
         """Detect whether a dataset uses Ultralytics or Roboflow
         layout.
         """
+        if not dataset_dir.is_dir():
+            return None, []
+
         roboflow_splits = ("train", "valid", "test")
         ultralytics_folders = ["images", "labels"]
 
@@ -145,7 +154,7 @@ class YOLOv8Parser(BaseParser):
         if images_path is None or labels_path is None or yaml_root is None:
             return None
 
-        images = BaseParser._list_images(images_path)
+        images = YOLOv8Parser._list_images(images_path)
         if not images:
             return None
 
@@ -163,52 +172,8 @@ class YOLOv8Parser(BaseParser):
         }
 
     @classmethod
-    def validate(cls, dataset_dir: Path) -> bool:
-        dir_format, splits = cls._detect_dataset_dir_format(dataset_dir)
-        if dir_format is None:
-            return False
-
-        yaml_file = next(
-            (f for ext in ("*.yaml", "*.yml") for f in dataset_dir.glob(ext)),
-            None,
-        )
-        if not yaml_file:
-            return False
-
-        if dir_format is Format.ROBOFLOW:
-            splits = [
-                d.name
-                for d in dataset_dir.iterdir()
-                if d.is_dir() and d.name in ("train", "valid", "test")
-            ]
-            if "train" not in splits or len(splits) < 2:
-                return False
-            return all(cls.validate_split(dataset_dir / s) for s in splits)
-
-        if dir_format is Format.ULTRALYTICS:
-            non_split_folders = ["images", "labels"]
-            folders = [d.name for d in dataset_dir.iterdir() if d.is_dir()]
-            if not all(f in folders for f in non_split_folders):
-                return False
-            subfolders = [
-                d.name
-                for d in (dataset_dir / "images").iterdir()
-                if d.is_dir()
-            ]
-            if "train" not in subfolders or len(subfolders) < 2:
-                return False
-            return all(
-                cls.validate_split(dataset_dir / "images" / split)
-                for split in subfolders
-            )
-
-        return False
-
-    @classmethod
     @override
-    def discover_dir_splits(
-        cls, dataset_dir: Path
-    ) -> dict[str, dict[str, Any]]:
+    def discover_splits(cls, dataset_dir: Path) -> dict[str, dict[str, Any]]:
         # Split roots may live under images/<split> instead of <split>/.
         dir_format, _splits = cls._detect_dataset_dir_format(dataset_dir)
         if dir_format is None:
@@ -235,76 +200,9 @@ class YOLOv8Parser(BaseParser):
             )
         return discovered
 
-    def from_dir(
-        self, dataset_dir: Path
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        """Parse all YOLOv8 splits in a source dataset directory.
-
-        Args:
-            dataset_dir: Source dataset directory containing split
-                folders and one class YAML file.
-
-        Returns:
-            Added images for the train, validation, and test splits.
-
-        Raises:
-            ValueError: If the dataset directory does not contain a class
-                YAML file.
-
-        """
-        yaml_file = next(
-            (f for ext in ("*.yaml", "*.yml") for f in dataset_dir.glob(ext)),
-            None,
-        )
-        if not yaml_file:
-            raise ValueError("Exactly one yaml file is expected")
-        classes_path = dataset_dir / yaml_file.name
-        dir_format, _splits = self._detect_dataset_dir_format(dataset_dir)
-        added_train_imgs = self._parse_split(
-            image_dir=(
-                dataset_dir / "images" / "train"
-                if dir_format is Format.ULTRALYTICS
-                else dataset_dir / "train" / "images"
-            ),
-            annotation_dir=(
-                dataset_dir / "labels" / "train"
-                if dir_format is Format.ULTRALYTICS
-                else dataset_dir / "train" / "labels"
-            ),
-            classes_path=classes_path,
-        )
-        added_val_imgs = self._parse_split(
-            image_dir=(
-                dataset_dir / "images" / "val"
-                if dir_format is Format.ULTRALYTICS
-                else dataset_dir / "valid" / "images"
-            ),
-            annotation_dir=(
-                dataset_dir / "labels" / "val"
-                if dir_format is Format.ULTRALYTICS
-                else dataset_dir / "valid" / "labels"
-            ),
-            classes_path=classes_path,
-        )
-        added_test_imgs = self._parse_split(
-            image_dir=(
-                dataset_dir / "images" / "test"
-                if dir_format is Format.ULTRALYTICS
-                else dataset_dir / "test" / "images"
-            ),
-            annotation_dir=(
-                dataset_dir / "labels" / "test"
-                if dir_format is Format.ULTRALYTICS
-                else dataset_dir / "test" / "labels"
-            ),
-            classes_path=classes_path,
-        )
-
-        return added_train_imgs, added_val_imgs, added_test_imgs
-
-    def from_split(
+    def _parse_split(
         self, image_dir: Path, annotation_dir: Path, classes_path: Path
-    ) -> ParserOutput:
+    ) -> ParsedDataset:
         """Parse YOLOv8 or Ultralytics annotations into LDF records.
 
         Annotations include object detection, instance segmentation and
@@ -321,7 +219,7 @@ class YOLOv8Parser(BaseParser):
 
         """
         with open(classes_path) as f:
-            classes_data = yaml.safe_load(f)
+            classes_data = cast(dict[str, Any], yaml.safe_load(f))
 
         if isinstance(classes_data["names"], list):
             """
@@ -422,6 +320,11 @@ class YOLOv8Parser(BaseParser):
 
                     elif task_type == "keypoints":
                         kpt_shape = classes_data.get("kpt_shape")
+                        if kpt_shape is None:
+                            raise ValueError(
+                                "`kpt_shape` is required for keypoint "
+                                "annotations."
+                            )
                         n_kpts, kpt_dim = kpt_shape
                         class_id, *points = annotation_elements
                         x_center, y_center, width, height, *keypoints = points
@@ -462,4 +365,4 @@ class YOLOv8Parser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), {}, added_images
+        return ParsedDataset(generator(), {}, added_images)

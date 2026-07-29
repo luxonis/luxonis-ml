@@ -1,11 +1,18 @@
+import inspect
 from abc import ABC, abstractmethod
-from collections.abc import Iterator, Sequence
-from typing import TypeAlias
+from collections import defaultdict
+from collections.abc import Iterator, Mapping, Sequence
+from pathlib import Path
+from typing import Any, TypeAlias, cast
 
+from loguru import logger
 from semver.version import Version
+from typing_extensions import Self
 
 from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.datasets.source import LuxonisSource
+from luxonis_ml.data.utils.enums import ParserIssueMessage
+from luxonis_ml.enums import DatasetType
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
@@ -15,10 +22,228 @@ DATASETS_REGISTRY: Registry[type["BaseDataset"]] = Registry(name="datasets")
 DatasetIterator: TypeAlias = Iterator[dict | DatasetRecord]
 
 
+def _prepare_import_records(
+    records: DatasetIterator,
+    *,
+    task_name: str | dict[str, str] | None,
+    selected_files: set[Path] | None,
+) -> DatasetIterator:
+    task_names = (
+        defaultdict(lambda: task_name)
+        if isinstance(task_name, str)
+        else task_name
+    )
+
+    for raw_record in records:
+        record = (
+            DatasetRecord(**raw_record)
+            if isinstance(raw_record, dict)
+            else raw_record
+        )
+        if selected_files is not None and not any(
+            Path(file).absolute() in selected_files
+            for file in record.files.values()
+        ):
+            continue
+
+        if task_names is None:
+            yield record
+            continue
+
+        if record.annotation is None:
+            for name in set(task_names.values()):
+                yield record.model_copy(
+                    update={"task_name": name},
+                    deep=True,
+                )
+            continue
+
+        class_name = record.annotation.class_name
+        if class_name is not None:
+            try:
+                name = task_names[class_name]
+            except KeyError:
+                raise ValueError(
+                    f"Class '{class_name}' not found in task names."
+                ) from None
+            record = record.model_copy(
+                update={"task_name": name},
+                deep=True,
+            )
+        yield record
+
+
 class BaseDataset(
     ABC, metaclass=AutoRegisterMeta, registry=DATASETS_REGISTRY, register=False
 ):
     """Base class for datasets in the Luxonis MLOps ecosystem."""
+
+    _parser_issue_messages: list[ParserIssueMessage] = []
+
+    @classmethod
+    def import_dataset(
+        cls,
+        source: PathType,
+        *,
+        dataset_name: str | None = None,
+        save_dir: Path | str | None = None,
+        dataset_type: DatasetType | str | None = None,
+        task_name: str | dict[str, str] | None = None,
+        full_warnings: bool = False,
+        split: str | None = None,
+        random_split: bool = True,
+        split_ratios: dict[str, float | int] | None = None,
+        parser_kwargs: Mapping[str, Any] | None = None,
+        **dataset_kwargs: Any,
+    ) -> Self:
+        """Import an external dataset using a registered parser plugin.
+
+        The method is inherited by concrete dataset implementations and
+        returns an instance of the class on which it is called.
+
+        Args:
+            source: Local path, supported remote URL, Roboflow reference, or
+                Ultralytics Platform reference.
+            dataset_name: Name of the dataset to create. By default, derive
+                it from ``source``.
+            save_dir: Directory used for downloaded or extracted sources.
+            dataset_type: Registered parser type. When omitted, detect it.
+            task_name: Optional task name, or class-to-task mapping.
+            full_warnings: Whether to log every skipped annotation warning.
+            split: Optional split to assign to every imported file.
+            random_split: Whether a source without original splits should be
+                split automatically.
+            split_ratios: Ratios or counts for train, validation, and test.
+            parser_kwargs: Format-specific parser keyword arguments.
+            dataset_kwargs: Arguments passed to the dataset constructor.
+
+        Returns:
+            Newly created and populated dataset.
+
+        """
+        from luxonis_ml.data.parsers.parser_plugin import (
+            ParseIssueCollector,
+            apply_counts_to_pool,
+            apply_counts_to_splits,
+            get_parser_plugin,
+        )
+        from luxonis_ml.data.parsers.source import prepare_source
+
+        source_path, derived_name = prepare_source(source, save_dir)
+        type_name = (
+            dataset_type.value
+            if isinstance(dataset_type, DatasetType)
+            else dataset_type
+        )
+        plugin_type, selected_type = get_parser_plugin(
+            source_path,
+            type_name,
+        )
+
+        resolved_name = (
+            dataset_name
+            or derived_name.replace(" ", "_").split(".", maxsplit=1)[0]
+        )
+        dataset = cast(Any, cls)(
+            dataset_name=resolved_name,
+            **dataset_kwargs,
+        )
+        issues = ParseIssueCollector(full_warnings=full_warnings)
+        plugin = plugin_type(issues)
+
+        try:
+            is_counts = split_ratios is not None and all(
+                isinstance(value, int) for value in split_ratios.values()
+            )
+            resolved_parser_kwargs = dict(parser_kwargs or {})
+            if (
+                split is None
+                and is_counts
+                and "split_val_to_test" not in resolved_parser_kwargs
+                and "split_val_to_test"
+                in inspect.signature(plugin.parse).parameters
+            ):
+                resolved_parser_kwargs["split_val_to_test"] = False
+
+            parsed = plugin.parse(
+                source_path,
+                dataset_type=selected_type,
+                **resolved_parser_kwargs,
+            )
+            if not parsed.files:
+                raise ValueError("No samples were parsed from the source.")
+
+            selected_splits: dict[str, Sequence[PathType]] | None = None
+            selected_files: set[Path] | None = None
+            if (
+                split is None
+                and is_counts
+                and (parsed.splits is not None or random_split)
+            ):
+                assert split_ratios is not None
+                count_ratios = {
+                    name: int(value) for name, value in split_ratios.items()
+                }
+                if parsed.splits is None:
+                    selected_splits = apply_counts_to_pool(
+                        parsed.files,
+                        count_ratios,
+                    )
+                else:
+                    selected_splits = apply_counts_to_splits(
+                        parsed.splits,
+                        count_ratios,
+                    )
+                selected_files = {
+                    Path(file).absolute()
+                    for files in selected_splits.values()
+                    for file in files
+                }
+
+            records = _prepare_import_records(
+                parsed.records,
+                task_name=task_name,
+                selected_files=selected_files,
+            )
+            dataset.add(records)
+
+            for skeleton in parsed.skeletons.values():
+                dataset.set_skeletons(
+                    skeleton.get("labels"),
+                    skeleton.get("edges"),
+                )
+
+            if split is not None:
+                dataset.make_splits({split: parsed.files})
+            elif selected_splits is not None:
+                dataset.make_splits(selected_splits)
+            elif split_ratios is not None:
+                if parsed.splits is not None or random_split:
+                    if parsed.splits is not None and not is_counts:
+                        logger.warning(
+                            "Using percentage-based split ratios will "
+                            "redistribute and shuffle all samples across "
+                            "splits. Original split boundaries will not be "
+                            "preserved."
+                        )
+                    dataset.make_splits(split_ratios)
+            elif parsed.splits is not None:
+                original_splits: dict[str, Sequence[PathType]] = dict(
+                    parsed.splits
+                )
+                dataset.make_splits(original_splits)
+            elif random_split:
+                dataset.make_splits(None)
+
+            logger.info("Dataset imported successfully.")
+            return dataset
+        finally:
+            issues.log_summary()
+            dataset._parser_issue_messages = issues.messages
+
+    def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
+        """Return issues collected during the most recent import."""
+        return list(self._parser_issue_messages)
 
     @property
     @abstractmethod

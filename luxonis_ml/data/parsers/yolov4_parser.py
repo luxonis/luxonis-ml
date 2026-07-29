@@ -7,10 +7,10 @@ from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
 from luxonis_ml.utils.path import resolve_manifest_path
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import ParsedDataset, SplitParserPlugin
 
 
-class YoloV4Parser(BaseParser):
+class YoloV4Parser(SplitParserPlugin):
     """Parse a directory with YOLOv4 annotations into LDF.
 
     Expected format::
@@ -28,6 +28,8 @@ class YoloV4Parser(BaseParser):
     This is one of the formats that Roboflow can generate.
     """
 
+    dataset_types = ("yolov4",)
+
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
@@ -42,29 +44,9 @@ class YoloV4Parser(BaseParser):
             "classes_path": classes,
         }
 
-    def from_dir(
-        self, dataset_dir: Path
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        added_train_imgs = self._parse_split(
-            image_dir=dataset_dir / "train",
-            annotation_path=dataset_dir / "train" / "_annotations.txt",
-            classes_path=dataset_dir / "train" / "_classes.txt",
-        )
-        added_val_imgs = self._parse_split(
-            image_dir=dataset_dir / "valid",
-            annotation_path=dataset_dir / "valid" / "_annotations.txt",
-            classes_path=dataset_dir / "valid" / "_classes.txt",
-        )
-        added_test_imgs = self._parse_split(
-            image_dir=dataset_dir / "test",
-            annotation_path=dataset_dir / "test" / "_annotations.txt",
-            classes_path=dataset_dir / "test" / "_classes.txt",
-        )
-        return added_train_imgs, added_val_imgs, added_test_imgs
-
-    def from_split(
+    def _parse_split(
         self, image_dir: Path, annotation_path: Path, classes_path: Path
-    ) -> ParserOutput:
+    ) -> ParsedDataset:
         """Parse YOLOv4 annotations into LDF records.
 
         Annotations include classification and object detection.
@@ -141,4 +123,4 @@ class YoloV4Parser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), {}, added_images
+        return ParsedDataset(generator(), {}, added_images)

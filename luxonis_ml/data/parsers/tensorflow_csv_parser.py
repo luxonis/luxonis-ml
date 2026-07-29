@@ -7,10 +7,10 @@ import polars as pl
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.utils.path import resolve_manifest_path
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import ParsedDataset, SplitParserPlugin
 
 
-class TensorflowCSVParser(BaseParser):
+class TensorflowCSVParser(SplitParserPlugin):
     """Parse a directory with TensorFlow CSV annotations into LDF.
 
     Expected format::
@@ -27,11 +27,13 @@ class TensorflowCSVParser(BaseParser):
     This is one of the formats that Roboflow can generate.
     """
 
+    dataset_types = ("tfcsv",)
+
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
-        if not BaseParser._list_images(split_path):
+        if not TensorflowCSVParser._list_images(split_path):
             return None
         if not (split_path / "_annotations.csv").exists():
             return None
@@ -40,26 +42,9 @@ class TensorflowCSVParser(BaseParser):
             "annotation_path": split_path / "_annotations.csv",
         }
 
-    def from_dir(
-        self, dataset_dir: Path
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        added_train_imgs = self._parse_split(
-            image_dir=dataset_dir / "train",
-            annotation_path=dataset_dir / "train" / "_annotations.csv",
-        )
-        added_val_imgs = self._parse_split(
-            image_dir=dataset_dir / "valid",
-            annotation_path=dataset_dir / "valid" / "_annotations.csv",
-        )
-        added_test_imgs = self._parse_split(
-            image_dir=dataset_dir / "test",
-            annotation_path=dataset_dir / "test" / "_annotations.csv",
-        )
-        return added_train_imgs, added_val_imgs, added_test_imgs
-
-    def from_split(
+    def _parse_split(
         self, image_dir: Path, annotation_path: Path
-    ) -> ParserOutput:
+    ) -> ParsedDataset:
         """Parse TensorFlow CSV annotations into LDF records.
 
         Annotations include classification and object detection.
@@ -126,4 +111,4 @@ class TensorflowCSVParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), {}, added_images
+        return ParsedDataset(generator(), {}, added_images)

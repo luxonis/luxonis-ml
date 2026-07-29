@@ -1,15 +1,15 @@
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import ParsedDataset, SplitParserPlugin
 
 
-class YoloV6Parser(BaseParser):
+class YoloV6Parser(SplitParserPlugin):
     """Parse YOLOv6 annotations into LDF.
 
     Expected format::
@@ -37,6 +37,8 @@ class YoloV6Parser(BaseParser):
     This is one of the formats that Roboflow can generate.
     """
 
+    dataset_types = ("yolov6",)
+
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         label_split = split_path.parent.parent / "labels" / split_path.name
@@ -45,7 +47,7 @@ class YoloV6Parser(BaseParser):
         if not label_split.exists():
             return None
 
-        images = BaseParser._list_images(split_path)
+        images = YoloV6Parser._list_images(split_path)
         if not images:
             return None
         data_yaml = split_path.parent.parent / "data.yaml"
@@ -58,24 +60,8 @@ class YoloV6Parser(BaseParser):
         }
 
     @classmethod
-    def validate(cls, dataset_dir: Path) -> bool:
-        img_root = dataset_dir / "images"
-        if not img_root.exists():
-            return False
-        splits = [
-            d.name
-            for d in img_root.iterdir()
-            if d.is_dir() and d.name in ("train", "valid", "test")
-        ]
-        if "train" not in splits or len(splits) < 2:
-            return False
-        return all(cls.validate_split(img_root / s) for s in splits)
-
-    @classmethod
     @override
-    def discover_dir_splits(
-        cls, dataset_dir: Path
-    ) -> dict[str, dict[str, Any]]:
+    def discover_splits(cls, dataset_dir: Path) -> dict[str, dict[str, Any]]:
         # Split roots live under images/<split> instead of <split>/.
         img_root = dataset_dir / "images"
         if not img_root.exists():
@@ -89,31 +75,9 @@ class YoloV6Parser(BaseParser):
             discovered[cls._canonicalize_split_name(split_name)] = split_kwargs
         return discovered
 
-    def from_dir(
-        self, dataset_dir: Path
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        classes_path = dataset_dir / "data.yaml"
-        added_train_imgs = self._parse_split(
-            image_dir=dataset_dir / "images" / "train",
-            annotation_dir=dataset_dir / "labels" / "train",
-            classes_path=classes_path,
-        )
-        added_val_imgs = self._parse_split(
-            image_dir=dataset_dir / "images" / "valid",
-            annotation_dir=dataset_dir / "labels" / "valid",
-            classes_path=classes_path,
-        )
-        added_test_imgs = self._parse_split(
-            image_dir=dataset_dir / "images" / "test",
-            annotation_dir=dataset_dir / "labels" / "test",
-            classes_path=classes_path,
-        )
-
-        return added_train_imgs, added_val_imgs, added_test_imgs
-
-    def from_split(
+    def _parse_split(
         self, image_dir: Path, annotation_dir: Path, classes_path: Path
-    ) -> ParserOutput:
+    ) -> ParsedDataset:
         """Parse YOLOv6 annotations into LDF records.
 
         Annotations include classification and object detection.
@@ -129,7 +93,7 @@ class YoloV6Parser(BaseParser):
 
         """
         with open(classes_path) as f:
-            classes_data = yaml.safe_load(f)
+            classes_data = cast(dict[str, Any], yaml.safe_load(f))
         class_names = dict(enumerate(classes_data["names"]))
 
         def generator() -> DatasetIterator:
@@ -166,4 +130,4 @@ class YoloV6Parser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), {}, added_images
+        return ParsedDataset(generator(), {}, added_images)
