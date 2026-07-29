@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import rich.box
 from cyclopts import App, Parameter, validators
+from loguru import logger
 from rich import print
 from rich.console import Console
 from rich.prompt import Confirm
@@ -263,6 +264,12 @@ def inspect(
     """
 
     check_exists(name, bucket_storage)
+    if list_augmentations and aug_config is None:
+        logger.warning(
+            "The '--list-augmentations' option requires "
+            "'--aug-config' to be set. No augmentations will be listed."
+        )
+        list_augmentations = False
 
     view = view or ["train"]
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
