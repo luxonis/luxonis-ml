@@ -92,15 +92,20 @@ class NativeParser(SplitParserPlugin):
                                 record["files"][key] = resolve_manifest_path(
                                     annotation_path.parent, value
                                 )
-                for mask_type in ["segmentation", "instance_segmentation"]:
-                    with suppress(KeyError):
-                        mask = record["annotation"][mask_type]["mask"]
-                        if isinstance(mask, PathType):
-                            record["annotation"][mask_type]["mask"] = (
-                                resolve_manifest_path(
-                                    annotation_path.parent, mask
+                annotation = record.get("annotation")
+                if isinstance(annotation, dict):
+                    for mask_type in [
+                        "segmentation",
+                        "instance_segmentation",
+                    ]:
+                        with suppress(KeyError):
+                            mask = annotation[mask_type]["mask"]
+                            if isinstance(mask, PathType):
+                                annotation[mask_type]["mask"] = (
+                                    resolve_manifest_path(
+                                        annotation_path.parent, mask
+                                    )
                                 )
-                            )
                 yield record
 
         added_images = self._get_added_images(generator())
