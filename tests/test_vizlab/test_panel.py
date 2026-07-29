@@ -281,6 +281,21 @@ def test_frame_with_panel_builds_a_clickmap_of_controls_and_swatches() -> None:
     assert "classes:toggle" in actions  # the legend's master on/off switch
 
 
+def test_informational_swatches_do_not_register_class_actions() -> None:
+    from luxonis_ml.vizlab import Swatches
+    from luxonis_ml.vizlab.frame import Frame
+
+    framed = Frame(_img(200, 140)).with_panel(
+        {
+            "tasks": Swatches(
+                ((Color(255, 0, 0), "objects"),),
+                interactive=False,
+            )
+        }
+    )
+    assert framed.clickmap.items == []
+
+
 def test_panel_scene_frame_captures_child_hover_and_clicks() -> None:
     from luxonis_ml.vizlab import Controls, Tooltip
 

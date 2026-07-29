@@ -55,12 +55,15 @@ class Swatches:
         reserve: A label width to hold columns to even when it is absent (e.g. the
             dataset's longest class name), so the legend — and the panel — keep a
             stable width as the per-sample class set changes.
+        interactive: Whether swatches register class-toggle click regions. Set
+            this to ``False`` for informational color keys such as task colors.
 
     """
 
     items: tuple[tuple[ColorLike, str], ...]
     disabled: frozenset[str] = frozenset()
     reserve: str = ""
+    interactive: bool = True
 
 
 @dataclass(frozen=True)
@@ -319,6 +322,8 @@ class Section(NamedTuple):
     swatches: tuple[tuple[Color, str, bool], ...] | None = None
     #: A label width the legend holds columns to even when absent (see `Swatches`).
     swatch_reserve: str = ""
+    #: Whether the legend exposes class-toggle click regions.
+    swatches_interactive: bool = True
     controls: tuple[tuple[str, str, str, bool | None], ...] | None = None
 
 
@@ -381,6 +386,7 @@ def _format_sections(data: "PanelData") -> list[Section]:
                     [],
                     swatches=items,
                     swatch_reserve=str(value.reserve),
+                    swatches_interactive=value.interactive,
                 )
             )
         elif isinstance(value, Controls):
@@ -550,7 +556,7 @@ class _BodyLayout:
                 _HEADER_WEIGHT,
                 _HEADER_TRACKING,
             )
-        if section.swatches is not None:
+        if section.swatches is not None and section.swatches_interactive:
             _layout_legend_toggle(
                 self.canvas,
                 section.swatches,
@@ -579,6 +585,7 @@ class _BodyLayout:
                 self.clicks,
             )
         if section.swatches is not None:
+            clicks = self.clicks if section.swatches_interactive else None
             return _layout_swatches(
                 self.canvas,
                 section.swatches,
@@ -588,7 +595,7 @@ class _BodyLayout:
                 self.content_w,
                 self.metrics,
                 self.row_h,
-                self.clicks,
+                clicks,
                 section.swatch_reserve,
             )
         if section.block:

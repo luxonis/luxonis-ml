@@ -1,13 +1,14 @@
 import math
 import shutil
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal, TypeAlias, cast
 
 import cv2
 import numpy as np
 import rich.box
-from cyclopts import App, Parameter, validators
+from cyclopts import App, Group, Parameter, validators
 from loguru import logger
 from rich import print
 from rich.console import Console
@@ -31,6 +32,11 @@ from luxonis_ml.data.utils.cli_utils import (
     print_info,
 )
 from luxonis_ml.data.utils.enums import BucketStorage
+from luxonis_ml.data.utils.inspection import (
+    InspectionAnnotationType,
+    NameFilterMode,
+    SampleFilterConfig,
+)
 from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
 
@@ -38,14 +44,22 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from luxonis_ml.data.utils.data_utils import ClassDistributionRow
-    from luxonis_ml.ldf import DatasetRecord, Detection
+    from luxonis_ml.ldf import DatasetRecord
     from luxonis_ml.typing import Labels, LoaderOutput, Params, ParamValue
     from luxonis_ml.vizlab import (
         ComparisonReport,
         ComparisonResult,
         Renderable,
     )
+    from luxonis_ml.vizlab.adapters.instances import ColorBy
     from luxonis_ml.vizlab.panel import PanelData
+    from luxonis_ml.vizlab.viewer import LayerState, PreparedFrame
+
+    _InspectionSample: TypeAlias = tuple[
+        LoaderOutput,
+        dict[str, DatasetRecord],
+        dict[str, PanelData],
+    ]
 
 app = App(help="Dataset utilities.")
 
@@ -53,6 +67,35 @@ app = App(help="Dataset utilities.")
 BucketStorageT: TypeAlias = Annotated[BucketStorage, Parameter(alias="-b")]
 _SampleIdentity: TypeAlias = tuple[tuple[str, str], ...]
 _ClassMappings: TypeAlias = dict[str, dict[str, int]]
+_NO_SAMPLE_FILTERS = SampleFilterConfig()
+_DATASET_OPTIONS = Group("Dataset options", sort_key=10)
+_SAMPLE_FILTERS = Group("Sample filters", sort_key=20)
+_AUGMENTATION_OPTIONS = Group("Augmentation options", sort_key=30)
+_MATCHING_OPTIONS = Group("Matching options", sort_key=30)
+_VISUALIZATION_OPTIONS = Group("Visualization options", sort_key=40)
+_VIEWER_OPTIONS = Group("Viewer options", sort_key=50)
+_REPORT_OPTIONS = Group("Reporting options", sort_key=50)
+_OUTPUT_OPTIONS = Group("Output options", sort_key=60)
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedInspectionWindow:
+    """One source image rendered ahead for immediate presentation."""
+
+    name: str
+    image: np.ndarray
+    frame: "PreparedFrame"
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedInspectionSample:
+    """A sample whose source windows have completed background rendering."""
+
+    records: "dict[str, DatasetRecord]"
+    panel: "dict[str, PanelData]"
+    layers: "LayerState"
+    color_by: "ColorBy"
+    windows: tuple[_PreparedInspectionWindow, ...]
 
 
 def _deduped_class_names(
@@ -104,18 +147,22 @@ def _present_classes(records: "Iterable[DatasetRecord]") -> list[str]:
 def _filter_records_by_task(
     records: "Mapping[str, DatasetRecord]",
     task_names: frozenset[str] | None,
+    mode: NameFilterMode = "include",
 ) -> "dict[str, DatasetRecord]":
-    """Keep only records whose complete task name was requested."""
+    """Apply an inclusive or exclusive complete-task-name filter."""
     if task_names is None:
         return dict(records)
     return {
-        name: record for name, record in records.items() if name in task_names
+        name: record
+        for name, record in records.items()
+        if (name in task_names) == (mode == "include")
     }
 
 
 def _array_shapes(
     labels: "Labels",
     task_names: frozenset[str] | None = None,
+    mode: NameFilterMode = "include",
 ) -> dict[str, list[int]]:
     """Return array shapes keyed by complete, optionally filtered task path."""
     suffix = "/array"
@@ -124,8 +171,24 @@ def _array_shapes(
         for key, value in labels.items()
         if get_task_type(key) == "array"
         and key.endswith(suffix)
-        and (task_names is None or key[: -len(suffix)] in task_names)
+        and (
+            task_names is None
+            or (key[: -len(suffix)] in task_names) == (mode == "include")
+        )
     }
+
+
+def _loader_annotation_types(
+    labels: "Labels",
+    task_names: frozenset[str] | None = None,
+    mode: NameFilterMode = "include",
+) -> frozenset[InspectionAnnotationType]:
+    """Annotation families present only in raw loader labels."""
+    return (
+        frozenset({"array"})
+        if _array_shapes(labels, task_names, mode)
+        else frozenset()
+    )
 
 
 def _panel_value(value: "ParamValue") -> "PanelData":
@@ -423,12 +486,19 @@ def ls(
 def inspect(
     name: str,
     *,
-    view: Annotated[list[str] | None, Parameter(alias="-v")] = None,
-    task_name: Annotated[list[str] | None, Parameter()] = None,
+    view: Annotated[
+        list[str] | None,
+        Parameter(alias="-v", group=_DATASET_OPTIONS),
+    ] = None,
+    filters: Annotated[
+        SampleFilterConfig,
+        Parameter(name="*", group=_SAMPLE_FILTERS),
+    ] = _NO_SAMPLE_FILTERS,
     aug_config: Annotated[
         Path | None,
         Parameter(
             alias="-a",
+            group=_AUGMENTATION_OPTIONS,
             validator=validators.Path(
                 exists=True, ext={".json", ".yaml", ".yml"}
             ),
@@ -436,80 +506,92 @@ def inspect(
     ] = None,
     size_multiplier: Annotated[
         float | Literal["auto"],
-        Parameter(alias="-s"),
+        Parameter(alias="-s", group=_VISUALIZATION_OPTIONS),
     ] = "auto",
     ignore_aspect_ratio: Annotated[
         bool,
-        Parameter(alias="-i", negative=""),
+        Parameter(
+            alias="-i",
+            negative="",
+            group=_AUGMENTATION_OPTIONS,
+        ),
     ] = False,
     deterministic: Annotated[
         bool,
-        Parameter(alias="-d", negative=""),
+        Parameter(alias="-d", negative="", group=_AUGMENTATION_OPTIONS),
     ] = False,
     force_update: Annotated[
         bool,
-        Parameter(alias="-f", negative=""),
+        Parameter(alias="-f", negative="", group=_DATASET_OPTIONS),
     ] = False,
     blend_all: Annotated[
         bool,
-        Parameter(alias="-bl", negative=""),
+        Parameter(alias="-bl", negative="", group=_VISUALIZATION_OPTIONS),
     ] = False,
     per_instance: Annotated[
         bool,
-        Parameter(alias="-pi", negative=""),
+        Parameter(alias="-pi", negative="", group=_VISUALIZATION_OPTIONS),
     ] = False,
+    color_by: Annotated[
+        Literal["class", "instance", "task"] | None,
+        Parameter(group=_VISUALIZATION_OPTIONS),
+    ] = None,
+    prefetch: Annotated[int, Parameter(group=_VIEWER_OPTIONS)] = 2,
     list_augmentations: Annotated[
         bool,
-        Parameter(negative=""),
+        Parameter(negative="", group=_AUGMENTATION_OPTIONS),
     ] = True,
     skeletons: Annotated[
         bool,
-        Parameter(negative=""),
+        Parameter(negative="", group=_VISUALIZATION_OPTIONS),
     ] = False,
     keypoint_labels: Annotated[
         Literal["none", "numbers", "names", "full"],
-        Parameter(),
+        Parameter(group=_VISUALIZATION_OPTIONS),
     ] = "none",
     legend: Annotated[
         bool,
-        Parameter(alias="-lg", negative=""),
+        Parameter(alias="-lg", negative="", group=_VISUALIZATION_OPTIONS),
     ] = False,
     show_background: Annotated[
         bool,
-        Parameter(alias="-bg", negative=""),
+        Parameter(alias="-bg", negative="", group=_VISUALIZATION_OPTIONS),
     ] = False,
     fast: Annotated[
         bool,
-        Parameter(alias="-fa", negative=""),
+        Parameter(alias="-fa", negative="", group=_VISUALIZATION_OPTIONS),
     ] = False,
     show_all: Annotated[
         bool,
-        Parameter(alias="-sa", negative=""),
+        Parameter(alias="-sa", negative="", group=_VISUALIZATION_OPTIONS),
     ] = False,
     theme: Annotated[
         Literal["dark", "light"],
-        Parameter(alias="-t"),
+        Parameter(alias="-t", group=_VISUALIZATION_OPTIONS),
     ] = "dark",
     plain: Annotated[
         bool,
-        Parameter(alias="-p", negative=""),
+        Parameter(alias="-p", negative="", group=_VISUALIZATION_OPTIONS),
     ] = False,
     save: Annotated[
         Path | None,
-        Parameter(alias="-o"),
+        Parameter(alias="-o", group=_OUTPUT_OPTIONS),
     ] = None,
     save_format: Annotated[
         Literal["png", "svg"],
-        Parameter(alias="-fmt"),
+        Parameter(alias="-fmt", group=_OUTPUT_OPTIONS),
     ] = "png",
-    bucket_storage: BucketStorageT = BucketStorage.LOCAL,
+    bucket_storage: Annotated[
+        BucketStorageT,
+        Parameter(group=_DATASET_OPTIONS),
+    ] = BucketStorage.LOCAL,
 ):
     """Inspect images and annotations in a dataset.
 
     Hovering the mouse over a detection that carries annotation metadata shows
     that metadata in a tooltip, so dense scenes stay uncluttered. With
-    ``--per-instance``, every spatial detection gets a tooltip even when it has
-    no custom metadata.
+    ``--color-by instance`` (or its ``--per-instance`` compatibility alias),
+    every spatial detection gets a tooltip even when it has no custom metadata.
 
     Interactive controls (also listed, and clickable, in the side panel):
 
@@ -527,9 +609,8 @@ def inspect(
         name: Name of the dataset to inspect.
         view: Which splits of the dataset to inspect.
             If not provided, the "train" split will be inspected by default.
-        task_name: Render only records matching these complete task names.
-            May be provided more than once to select multiple tasks. By default,
-            all tasks are rendered.
+        filters: Shared task, class, annotation, metadata, confidence,
+            instance-count, unlabeled, and text-search sample filters.
         aug_config: Path to a JSON or YAML config defining
             augmentations to apply when inspecting the dataset.
             If not provided, no augmentations will be applied.
@@ -543,15 +624,20 @@ def inspect(
         blend_all: Draw labels belonging to different tasks on the
             same image.
         per_instance: Show all spatial instances together, assigning a distinct
-            color to each instance instead of each class. The class legend is
-            hidden and hovering an instance shows its ID, class, task,
-            annotation types, and metadata.
+            color to each instance instead of each class. Compatibility alias
+            for ``--color-by instance``.
+        color_by: Assign colors by class (default), spatial instance, or task.
+            Instance coloring hides the legend and adds identity tooltips. Task
+            coloring blends tasks and shows an informational task legend.
+        prefetch: Number of fully rendered samples to keep in a bounded
+            background queue while the interactive viewer is open. Set to zero
+            to disable render-ahead.
         list_augmentations: Show the augmentations applied to each
             displayed image. Requires '--aug-config' to be set.
         skeletons: Draw keypoint skeleton edges.
         keypoint_labels: Specify how to draw keypoint labels.
-        legend: Draw a class-color legend on each image. Ignored in
-            per-instance mode because colors identify instances, not classes.
+        legend: Draw a class or task color key on each image. Ignored in
+            instance-color mode because colors identify individual instances.
         show_background: Render the semantic-segmentation background class
             (hidden by default) and include it in the palette and legend.
         fast: Lighter, much faster rendering for large or dense datasets: draw
@@ -584,20 +670,33 @@ def inspect(
     if len(dataset) == 0:
         raise ValueError(f"Dataset '{name}' is empty.")
 
-    requested_tasks = tuple(dict.fromkeys(task_name or []))
-    task_filter = frozenset(requested_tasks) if requested_tasks else None
-    if task_filter is not None:
-        available_tasks = dataset.get_task_names()
-        unknown_tasks = [
-            task for task in requested_tasks if task not in available_tasks
-        ]
-        if unknown_tasks:
-            unknown = ", ".join(repr(task) for task in unknown_tasks)
-            available = ", ".join(repr(task) for task in available_tasks)
-            raise ValueError(
-                f"Unknown task name(s): {unknown}. "
-                f"Available task names: {available or '(none)'}."
-            )
+    if per_instance and color_by not in (None, "instance"):
+        raise ValueError(
+            "--per-instance cannot be combined with a different --color-by "
+            f"value ({color_by!r})."
+        )
+    effective_color_by = "instance" if per_instance else color_by or "class"
+    if prefetch < 0:
+        raise ValueError("--prefetch must be non-negative.")
+
+    available_tasks = (
+        dataset.get_task_names() if filters.task_name is not None else ()
+    )
+    available_classes = (
+        (
+            candidate
+            for names in dataset.get_class_names().values()
+            for candidate in names
+        )
+        if filters.class_name is not None
+        else ()
+    )
+    filters.validate(
+        available_tasks=available_tasks,
+        available_classes=available_classes,
+    )
+    task_filter = filters.task_filter
+    query = filters.query()
 
     loader = LuxonisLoader(
         dataset,
@@ -666,14 +765,17 @@ def inspect(
             visualize_record,
         )
         from luxonis_ml.vizlab.adapters.instances import (
-            instances_to_annotations,
+            records_to_colored_annotations,
             spatial_instances,
         )
         from luxonis_ml.vizlab.convert import (
-            blend_records_to_annotations,
             metadata_annotations,
         )
-        from luxonis_ml.vizlab.viewer import LayerState, Viewer
+        from luxonis_ml.vizlab.viewer import (
+            LayerState,
+            PrefetchIterator,
+            Viewer,
+        )
     except ImportError as e:
         raise SystemExit(
             "Visualization requires the 'viz' extra. "
@@ -707,20 +809,27 @@ def inspect(
     # Make single images, panels, and grid backgrounds all follow the options
     # (so bare Images in this command pick up the theme/palette too).
     set_default_options(options)
-    # Per-instance mode deliberately has its own sequence: the first instance
-    # should receive the first generated color regardless of how many class
+    # Identity coloring deliberately has its own sequence: the first instance or
+    # task should receive the first generated color regardless of how many class
     # names were registered in the dataset palette above.
-    instance_palette = Palette()
+    identity_palette = Palette()
 
     # The legend reserves width for the dataset's longest class name (capped, so
     # one very long outlier does not blow the panel out), keeping the panel a
     # stable width sample to sample.
     longest_class = max(class_names, key=len, default="")[:24]
+    legend_tasks = (
+        dataset.get_task_names()
+        if legend and effective_color_by == "task"
+        else []
+    )
+    longest_task = max(legend_tasks, key=len, default="")[:24]
 
     def sidebar(
         panel: "Mapping[str, PanelData]",
         layers: "LayerState",
         *,
+        task_names: Sequence[str] = (),
         controls: bool = True,
     ) -> "dict[str, PanelData]":
         """Prepend the CONTROLS and CLASSES sections to a sample's metadata panel.
@@ -742,13 +851,22 @@ def inspect(
                 )
             )
         names = layers.classes
-        if legend and not per_instance and names:
+        if legend and effective_color_by == "class" and names:
             out["classes"] = Swatches(
                 tuple((palette.color_for(name), name) for name in names),
                 disabled=frozenset(layers.hidden),
                 # Hold the legend (and panel) width to the dataset's longest class
                 # name so it stays put as the per-sample class set changes.
                 reserve=longest_class,
+            )
+        elif legend and effective_color_by == "task" and task_names:
+            out["tasks"] = Swatches(
+                tuple(
+                    (identity_palette.color_for(name), name)
+                    for name in task_names
+                ),
+                reserve=longest_task,
+                interactive=False,
             )
         out.update(panel)
         return out
@@ -758,7 +876,7 @@ def inspect(
         records: "Mapping[str, DatasetRecord]",
         layers: "LayerState",
         *,
-        instances: "Sequence[tuple[str, Detection]] | None" = None,
+        color_by: "ColorBy",
     ) -> Image:
         """Draw every record's annotations onto one image, layer toggles applied.
 
@@ -769,18 +887,15 @@ def inspect(
         The image is returned unsized; the caller sets any display size.
         """
         viz = Image(image, options=options)
-        detections = (
-            instances_to_annotations(
-                instances,
-                options=options,
-                palette=instance_palette,
-            )
-            if instances is not None
-            else blend_records_to_annotations(records.values(), options)
+        detections = records_to_colored_annotations(
+            list(records.values()),
+            color_by=color_by,
+            options=options,
+            identity_palette=identity_palette,
         )
         for annotation in layers.apply_layers(detections, palette):
             viz.add(annotation)
-        if instances is None:
+        if color_by != "instance":
             for overlay in metadata_annotations(
                 [d for r in records.values() for d in r._annotations()],
                 lone_object_card=True,
@@ -796,7 +911,11 @@ def inspect(
             if sample_metadata
             else {}
         )
-        arrays = _array_shapes(sample_labels, task_filter)
+        arrays = _array_shapes(
+            sample_labels,
+            task_filter,
+            filters.task_name_mode,
+        )
         if arrays:
             panel["arrays"] = arrays
         if list_augmentations:
@@ -813,7 +932,45 @@ def inspect(
             categorical_encodings=categorical_encodings,
             render_background=show_background,
         )
-        return _filter_records_by_task(records, task_filter)
+        return _filter_records_by_task(
+            records,
+            task_filter,
+            filters.task_name_mode,
+        )
+
+    def prepared_samples() -> "Iterable[_InspectionSample]":
+        """Convert, filter, and snapshot panel data in loader order."""
+        for data in loader:
+            records = records_from_labels(data.labels)
+            if not query.matches(
+                records,
+                data.metadata,
+                extra_annotation_types=_loader_annotation_types(
+                    data.labels,
+                    task_filter,
+                    filters.task_name_mode,
+                ),
+            ):
+                continue
+            # Build this before advancing the loader again: augmentation
+            # provenance belongs to the current output and may be replaced by
+            # the next augmentation call on the prefetch thread.
+            panel = build_panel(data.labels, data.metadata)
+            yield data, records, panel
+
+    def sample_color_mode(
+        records: "Mapping[str, DatasetRecord]",
+    ) -> "ColorBy":
+        """Resolve per-sample fallback for unsupported instance coloring."""
+        if effective_color_by != "instance" or spatial_instances(
+            records.values()
+        ):
+            return effective_color_by
+        print(
+            "[yellow]Warning: Instance coloring is not supported for this "
+            "sample. Falling back to class colors.[/yellow]"
+        )
+        return "class"
 
     def save_size(width: int, height: int) -> tuple[int, int] | None:
         """File render size: the ``--size-multiplier``, or native when ``auto``.
@@ -840,29 +997,24 @@ def inspect(
         directory.mkdir(parents=True, exist_ok=True)
         layers = LayerState(declutter=not show_all)
         count = 0
-        for data in loader:
-            records = records_from_labels(data.labels)
+        for data, records, panel in prepared_samples():
             layers.update_classes(_present_classes(records.values()))
-            panel = build_panel(data.labels, data.metadata)
-            instances = (
-                spatial_instances(records.values()) if per_instance else None
-            )
-            if per_instance and not instances:
-                print(
-                    "[yellow]Warning: Per-instance mode is not supported for "
-                    "this sample. Showing all labels.[/yellow]"
-                )
-                instances = None
+            sample_color_by = sample_color_mode(records)
             for source_name, image in data.images.items():
                 viz: Renderable = blend_annotations(
                     image.astype(np.uint8),
                     records,
                     layers,
-                    instances=instances,
+                    color_by=sample_color_by,
                 ).render_at(save_size(image.shape[1], image.shape[0]))
                 if not plain:
                     viz = viz.with_panel(
-                        sidebar(panel, layers, controls=False)
+                        sidebar(
+                            panel,
+                            layers,
+                            task_names=tuple(records),
+                            controls=False,
+                        )
                     )
                 stem = f"{count:04d}_{Path(source_name).stem or 'image'}"
                 viz.save(directory / f"{stem}.{save_format}")
@@ -943,7 +1095,12 @@ def inspect(
             tiles, ncols=cols, titles=titles, bg=viz_theme.background
         )
 
-    def framed(frame: Frame, panel: "Mapping[str, PanelData]") -> Frame:
+    def framed(
+        frame: Frame,
+        panel: "Mapping[str, PanelData]",
+        task_names: Sequence[str],
+        layers: "LayerState",
+    ) -> Frame:
         """Attach the class legend (overlay) and metadata panel (right side).
 
         The panel (controls + classes + metadata) reframes the image as a rounded
@@ -953,29 +1110,30 @@ def inspect(
         """
         if plain:
             return frame
-        return frame.with_panel(sidebar(panel, viewer.layers))
+        return frame.with_panel(sidebar(panel, layers, task_names=task_names))
 
     def build_frame(
         image: np.ndarray,
         records: "Mapping[str, DatasetRecord]",
         panel: "Mapping[str, PanelData]",
         reserve: float,
-        instances: "Sequence[tuple[str, Detection]] | None",
+        layers: "LayerState",
+        color_by: "ColorBy",
     ) -> Frame:
         """Build the display `Frame` for one source."""
         height, width = image.shape[:2]
         # The viewer's interactive layer toggles (masks/keypoints/labels, a class
         # focus) filter what is drawn without disturbing the metadata cards,
         # legend, or panel — `blend_annotations` applies them to the detections.
-        if instances is not None or blend_all or len(records) <= 1:
+        if color_by != "class" or blend_all or len(records) <= 1:
             viz = blend_annotations(
                 image,
                 records,
-                viewer.layers,
-                instances=instances,
+                layers,
+                color_by=color_by,
             )
             viz.render_at(display_size(width, height, reserve))
-            return framed(viz.frame(), panel)
+            return framed(viz.frame(), panel, tuple(records), layers)
         # A grid of per-record tiles; compose_tiles sizes them so the whole
         # composite fits the screen and returns the composed hit map.
         cols = max(1, math.ceil(math.sqrt(len(records))))
@@ -987,51 +1145,119 @@ def inspect(
             # Grid tiles carry no per-record panel here, so they are plain images
             # whose annotations the layer toggles filter.
             if isinstance(tile, Image):
-                tile.annotations[:] = viewer.layers.apply_layers(
+                tile.annotations[:] = layers.apply_layers(
                     tile.annotations, palette
                 )
         return framed(
-            compose_tiles(tiles, cols, list(records), reserve), panel
+            compose_tiles(tiles, cols, list(records), reserve),
+            panel,
+            tuple(records),
+            layers,
         )
 
-    for data in loader:
-        images_dict = data.images
-        records = records_from_labels(data.labels)
-        # Cycle the class focus (`c`) over just the classes in this sample.
-        viewer.layers.update_classes(_present_classes(records.values()))
-        panel = build_panel(data.labels, data.metadata)
-        instances = (
-            spatial_instances(records.values()) if per_instance else None
-        )
-        if per_instance and not instances:
+    def render_samples(
+        samples: "Iterable[_InspectionSample]",
+    ) -> "Iterable[_PreparedInspectionSample]":
+        """Build display-ready frames in source order."""
+        for data, records, panel in samples:
+            layers = viewer.layers.copy()
+            layers.update_classes(_present_classes(records.values()))
+            color_by = sample_color_mode(records)
+            reserve = panel_reserve if not plain else 0.0
+            windows: list[_PreparedInspectionWindow] = []
+            for source_name, source_image in data.images.items():
+                image = source_image.astype(np.uint8)
+                frame = build_frame(
+                    image,
+                    records,
+                    panel,
+                    reserve,
+                    layers,
+                    color_by,
+                )
+                windows.append(
+                    _PreparedInspectionWindow(
+                        name=source_name,
+                        image=image,
+                        frame=viewer.prepare(frame),
+                    )
+                )
+            yield _PreparedInspectionSample(
+                records=records,
+                panel=panel,
+                layers=layers,
+                color_by=color_by,
+                windows=tuple(windows),
+            )
+
+    def inspect_samples(
+        samples: "Iterable[_PreparedInspectionSample]",
+    ) -> int:
+        """Present rendered-ahead samples until exhaustion or user exit."""
+        shown = 0
+        for sample in samples:
+            viewer.layers.update_classes(sample.layers.classes)
+            layers_match = viewer.layers == sample.layers
+            reserve = panel_reserve if not plain else 0.0
+
+            for window in sample.windows:
+
+                def rerender(
+                    _layers: "LayerState",
+                    *,
+                    source: np.ndarray = window.image,
+                    sample_records: "Mapping[str, DatasetRecord]" = (
+                        sample.records
+                    ),
+                    sample_panel: "Mapping[str, PanelData]" = sample.panel,
+                    panel_width: float = reserve,
+                    identity: "ColorBy" = sample.color_by,
+                ) -> Frame:
+                    return build_frame(
+                        source,
+                        sample_records,
+                        sample_panel,
+                        panel_width,
+                        _layers,
+                        identity,
+                    )
+
+                prepared = (
+                    window.frame
+                    if layers_match
+                    else viewer.prepare(rerender(viewer.layers))
+                )
+                viewer.show_prepared(
+                    window.name,
+                    prepared,
+                    # Default-bound values keep each source window attached to
+                    # its own sample when layer toggles trigger a re-render.
+                    render=rerender,
+                )
+
+            # Windows for sources absent from this sample close.
+            viewer.destroy_stale({window.name for window in sample.windows})
+            if sample.windows:
+                shown += 1
+                if viewer.wait() == "q":
+                    break
+        return shown
+
+    try:
+        if prefetch:
+            with PrefetchIterator(
+                render_samples(prepared_samples()),
+                capacity=prefetch,
+            ) as samples:
+                shown = inspect_samples(samples)
+        else:
+            shown = inspect_samples(render_samples(prepared_samples()))
+        if shown == 0 and query.active:
             print(
-                "[yellow]Warning: Per-instance mode is not supported for "
-                "this sample. Showing all labels.[/yellow]"
+                "[yellow]No samples matched the inspection filters.[/yellow]"
             )
-            instances = None
-        has_sidebar = not plain
-        reserve = panel_reserve if has_sidebar else 0.0
-
-        needs_wait = False
-        for source_name, image in images_dict.items():
-            image = image.astype(np.uint8)
-            viewer.show(
-                source_name,
-                build_frame(image, records, panel, reserve, instances),
-                # Re-render this window's frame whenever a layer toggle changes;
-                # bind the loop-varying data so each window rebuilds its own.
-                render=lambda _, image=image, records=records, panel=panel, reserve=reserve, instances=instances: (
-                    build_frame(image, records, panel, reserve, instances)
-                ),
-            )
-            needs_wait = True
-
-        # Windows for sources no longer present (a differing next sample) close.
-        viewer.destroy_stale(set(images_dict.keys()))
-        if needs_wait and viewer.wait() == "q":
-            break
-
-    viewer.close()
+    finally:
+        viewer.close()
 
 
 @app.command
@@ -1039,31 +1265,77 @@ def compare(
     name: str,
     predictions: str,
     *,
-    view: Annotated[list[str] | None, Parameter(alias="-v")] = None,
+    view: Annotated[
+        list[str] | None,
+        Parameter(alias="-v", group=_DATASET_OPTIONS),
+    ] = None,
+    filters: Annotated[
+        SampleFilterConfig,
+        Parameter(name="*", group=_SAMPLE_FILTERS),
+    ] = _NO_SAMPLE_FILTERS,
     layout: Annotated[
         Literal["overlay", "dual", "triple"],
-        Parameter(alias="-l"),
+        Parameter(alias="-l", group=_VISUALIZATION_OPTIONS),
     ] = "overlay",
-    iou_threshold: Annotated[float, Parameter(alias="--iou")] = 0.5,
-    score_threshold: Annotated[float, Parameter(alias="--score")] = 0.25,
-    class_agnostic: Annotated[bool, Parameter(negative="")] = False,
-    per_class: Annotated[bool, Parameter(alias="-pc", negative="")] = False,
-    errors_only: Annotated[bool, Parameter(alias="-e", negative="")] = False,
-    summary: Annotated[bool, Parameter(negative="")] = False,
-    size_multiplier: Annotated[
-        float | Literal["auto"], Parameter(alias="-s")
-    ] = "auto",
-    skeletons: Annotated[bool, Parameter(negative="--no-skeletons")] = True,
-    keypoint_labels: Annotated[
-        Literal["none", "numbers", "names", "full"], Parameter()
-    ] = "none",
-    legend: Annotated[bool, Parameter(alias="-lg", negative="")] = False,
-    show_background: Annotated[
-        bool, Parameter(alias="-bg", negative="")
+    iou_threshold: Annotated[
+        float,
+        Parameter(alias="--iou", group=_MATCHING_OPTIONS),
+    ] = 0.5,
+    score_threshold: Annotated[
+        float,
+        Parameter(alias="--score", group=_MATCHING_OPTIONS),
+    ] = 0.25,
+    class_agnostic: Annotated[
+        bool,
+        Parameter(negative="", group=_MATCHING_OPTIONS),
     ] = False,
-    theme: Annotated[Literal["dark", "light"], Parameter(alias="-t")] = "dark",
-    force_update: Annotated[bool, Parameter(alias="-f", negative="")] = False,
-    bucket_storage: BucketStorageT = BucketStorage.LOCAL,
+    per_class: Annotated[
+        bool,
+        Parameter(alias="-pc", negative="", group=_REPORT_OPTIONS),
+    ] = False,
+    errors_only: Annotated[
+        bool,
+        Parameter(alias="-e", negative="", group=_VISUALIZATION_OPTIONS),
+    ] = False,
+    summary: Annotated[
+        bool,
+        Parameter(negative="", group=_REPORT_OPTIONS),
+    ] = False,
+    size_multiplier: Annotated[
+        float | Literal["auto"],
+        Parameter(alias="-s", group=_VISUALIZATION_OPTIONS),
+    ] = "auto",
+    skeletons: Annotated[
+        bool,
+        Parameter(
+            negative="--no-skeletons",
+            group=_VISUALIZATION_OPTIONS,
+        ),
+    ] = True,
+    keypoint_labels: Annotated[
+        Literal["none", "numbers", "names", "full"],
+        Parameter(group=_VISUALIZATION_OPTIONS),
+    ] = "none",
+    legend: Annotated[
+        bool,
+        Parameter(alias="-lg", negative="", group=_VISUALIZATION_OPTIONS),
+    ] = False,
+    show_background: Annotated[
+        bool,
+        Parameter(alias="-bg", negative="", group=_VISUALIZATION_OPTIONS),
+    ] = False,
+    theme: Annotated[
+        Literal["dark", "light"],
+        Parameter(alias="-t", group=_VISUALIZATION_OPTIONS),
+    ] = "dark",
+    force_update: Annotated[
+        bool,
+        Parameter(alias="-f", negative="", group=_DATASET_OPTIONS),
+    ] = False,
+    bucket_storage: Annotated[
+        BucketStorageT,
+        Parameter(group=_DATASET_OPTIONS),
+    ] = BucketStorage.LOCAL,
 ):
     """Compare a prediction dataset against a ground-truth dataset.
 
@@ -1079,6 +1351,10 @@ def compare(
         name: Name of the ground-truth dataset.
         predictions: Name of the dataset to treat as predictions.
         view: Which splits to compare (default: the "train" split).
+        filters: Shared task, class, annotation, metadata, confidence,
+            instance-count, unlabeled, and text-search sample filters. A paired
+            sample is selected when either its ground-truth or prediction side
+            matches. Task names scope annotations on both sides.
         layout: ``overlay`` (verdict colors on one frame, hoverable), ``dual``
             (ground truth beside prediction, colored by identity), or ``triple``
             (ground truth | prediction | verdict diff).
@@ -1114,6 +1390,31 @@ def compare(
         raise ValueError(f"Dataset '{name}' is empty.")
     if len(pred_dataset) == 0:
         raise ValueError(f"Prediction dataset '{predictions}' is empty.")
+
+    available_tasks = (
+        (
+            *gt_dataset.get_task_names(),
+            *pred_dataset.get_task_names(),
+        )
+        if filters.task_name is not None
+        else ()
+    )
+    available_classes = (
+        (
+            candidate
+            for dataset in (gt_dataset, pred_dataset)
+            for names in dataset.get_class_names().values()
+            for candidate in names
+        )
+        if filters.class_name is not None
+        else ()
+    )
+    filters.validate(
+        available_tasks=available_tasks,
+        available_classes=available_classes,
+    )
+    task_filter = filters.task_filter
+    query = filters.query()
 
     def _loader(dataset: LuxonisDataset) -> LuxonisLoader:
         return LuxonisLoader(
@@ -1191,11 +1492,34 @@ def compare(
         classes: _ClassMappings,
         categorical: _ClassMappings,
     ) -> "dict[str, DatasetRecord]":
-        return loader_output_to_records(
+        records = loader_output_to_records(
             data.labels,
             classes=classes,
             categorical_encodings=categorical,
             render_background=show_background,
+        )
+        return _filter_records_by_task(
+            records,
+            task_filter,
+            filters.task_name_mode,
+        )
+
+    def sample_matches(
+        data: "LoaderOutput",
+        classes: _ClassMappings,
+        categorical: _ClassMappings,
+    ) -> bool:
+        """Whether one side of a comparison pair passes sample filters."""
+        if not query.active:
+            return True
+        return query.matches(
+            records_for(data, classes, categorical),
+            data.metadata,
+            extra_annotation_types=_loader_annotation_types(
+                data.labels,
+                task_filter,
+                filters.task_name_mode,
+            ),
         )
 
     def sample_identity(data: "LoaderOutput") -> _SampleIdentity:
@@ -1217,10 +1541,17 @@ def compare(
         )
 
     def identity_index(
-        loader: LuxonisLoader, dataset_name: str
-    ) -> dict[_SampleIdentity, int]:
-        """Map unique sample identities to loader indices."""
+        loader: LuxonisLoader,
+        dataset_name: str,
+        classes: _ClassMappings,
+        categorical: _ClassMappings,
+    ) -> tuple[
+        dict[_SampleIdentity, int],
+        dict[_SampleIdentity, bool],
+    ]:
+        """Map unique identities to loader indices and filter decisions."""
         indexed: dict[_SampleIdentity, int] = {}
+        selected: dict[_SampleIdentity, bool] = {}
         for index, data in enumerate(loader):
             identity = sample_identity(data)
             if identity in indexed:
@@ -1232,7 +1563,8 @@ def compare(
                     f"identity: {shown}."
                 )
             indexed[identity] = index
-        return indexed
+            selected[identity] = sample_matches(data, classes, categorical)
+        return indexed, selected
 
     def identity_label(identity: _SampleIdentity) -> str:
         return ", ".join(
@@ -1267,26 +1599,51 @@ def compare(
             class_aware=not class_agnostic,
         )
 
-    gt_indices = identity_index(gt_loader, name)
-    pred_indices = identity_index(pred_loader, predictions)
+    gt_indices, gt_selected = identity_index(
+        gt_loader,
+        name,
+        gt_classes,
+        gt_categorical,
+    )
+    pred_indices, pred_selected = identity_index(
+        pred_loader,
+        predictions,
+        pred_classes,
+        pred_categorical,
+    )
     gt_identities = set(gt_indices)
     pred_identities = set(pred_indices)
     report_unpaired(
-        gt_identities - pred_identities,
+        {
+            identity
+            for identity in gt_identities - pred_identities
+            if gt_selected[identity]
+        },
         description="Missing prediction samples",
     )
     report_unpaired(
-        pred_identities - gt_identities,
+        {
+            identity
+            for identity in pred_identities - gt_identities
+            if pred_selected[identity]
+        },
         description="Extra prediction samples",
     )
-    shared = sorted(
+    shared_identities = sorted(
         gt_identities & pred_identities, key=lambda item: gt_indices[item]
     )
-    if not shared:
+    if not shared_identities:
         raise ValueError(
             "The ground-truth and prediction datasets have no samples in "
             "common by source filename."
         )
+    shared = [
+        identity
+        for identity in shared_identities
+        if gt_selected[identity] or pred_selected[identity]
+    ]
+    if not shared:
+        raise ValueError("No paired samples matched the comparison filters.")
 
     # ``--summary``: iterate the whole view headlessly, accumulate a report,
     # print it, and write a confusion-matrix figure — no interactive window.

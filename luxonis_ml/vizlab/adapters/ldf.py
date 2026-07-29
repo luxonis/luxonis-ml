@@ -221,6 +221,13 @@ def blend_records_to_annotations(
             detection, options, task_name=record.task_name
         )
     ]
+    return _prune_blended_annotations(annotations)
+
+
+def _prune_blended_annotations(
+    annotations: list[Annotation],
+) -> list[Annotation]:
+    """Remove image-level labels made redundant by a blended spatial scene."""
     if any(not isinstance(a, Classification) for a in annotations):
         annotations = [
             a for a in annotations if not isinstance(a, Classification)

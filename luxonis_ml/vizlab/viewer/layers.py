@@ -104,6 +104,19 @@ class LayerState:
     #: visibility no longer matches the cycle), so the next ``c`` restarts it.
     _focus: int | None = None
 
+    def copy(self) -> "LayerState":
+        """Return an independent snapshot suitable for render-ahead work."""
+        return LayerState(
+            masks=self.masks,
+            keypoints=self.keypoints,
+            boxes=self.boxes,
+            labels=self.labels,
+            declutter=self.declutter,
+            hidden=set(self.hidden),
+            classes=self.classes,
+            _focus=self._focus,
+        )
+
     def is_default(self) -> bool:
         """Whether nothing is toggled (so `apply_layers` can skip its work)."""
         return (

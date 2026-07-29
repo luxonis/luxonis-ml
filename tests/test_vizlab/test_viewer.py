@@ -109,6 +109,32 @@ def test_show_fits_frame_to_screen() -> None:
     assert height <= 90
 
 
+def test_show_prepared_does_not_render_the_frame_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = FakeBackend()
+    viewer = Viewer(backend)
+    frame = Image(np.zeros((40, 60, 3), np.uint8)).frame()
+    original_render = Frame.render
+    render_sizes: list[tuple[int, int] | None] = []
+
+    def tracked_render(
+        self: Frame,
+        size: tuple[int, int] | None = None,
+    ) -> np.ndarray:
+        render_sizes.append(size)
+        return original_render(self, size)
+
+    monkeypatch.setattr(Frame, "render", tracked_render)
+    prepared = viewer.prepare(frame)
+    assert render_sizes == [None]
+
+    viewer.show_prepared("w", prepared)
+
+    assert render_sizes == [None]
+    assert backend.shown[-1][0] == "w"
+
+
 def test_show_blocking_returns_key() -> None:
     backend = FakeBackend(keys=[ord("n")])
     viewer = Viewer(backend)
@@ -269,6 +295,24 @@ def test_apply_action_dispatches_control_and_class_clicks() -> None:
     assert viewer.layers.hidden == set()
     viewer._apply_action("classes:toggle")  # ...and the next hides every class
     assert viewer.layers.hidden == {"car", "person"}
+
+
+def test_layer_state_copy_is_independent() -> None:
+    state = LayerState(
+        masks=False,
+        hidden={"car"},
+        classes=("car", "person"),
+        _focus=1,
+    )
+
+    copied = state.copy()
+    assert copied == state
+
+    copied.hidden.add("person")
+    copied.labels = False
+
+    assert state.hidden == {"car"}
+    assert state.labels is True
 
 
 def test_panel_click_toggles_a_class_through_wait() -> None:

@@ -30,6 +30,27 @@ from .tooltip_render import blit_rgba_on_bgr, draw_tooltip
 RenderFn = Callable[[LayerState], Frame]
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedFrame:
+    """A fully rendered frame ready for immediate backend presentation.
+
+    `Viewer.prepare` performs scene rendering, screen fitting, pixel conversion,
+    and interaction-map scaling. The resulting value is independent of the
+    window backend and can therefore be prepared on a background thread while
+    another frame is displayed.
+
+    Attributes:
+        bgr: Display-ready BGR pixels.
+        hitmap: Hover regions scaled to the BGR pixels.
+        clickmap: Click regions scaled to the BGR pixels.
+
+    """
+
+    bgr: np.ndarray
+    hitmap: HitMap
+    clickmap: ClickMap
+
+
 @dataclass
 class _HoverState:
     """Per-window state used to redraw the hover tooltip on mouse-move.
@@ -160,12 +181,48 @@ class Viewer:
                 callback and a small controls HUD is drawn on it.
 
         """
+        self.show_prepared(name, self.prepare(frame), render=render)
+
+    def prepare(self, frame: Frame) -> PreparedFrame:
+        """Render and screen-fit ``frame`` without touching the window backend.
+
+        This method is safe to run ahead of presentation. It performs the
+        expensive scene work that `show_prepared` intentionally avoids.
+
+        Args:
+            frame: Scene and interaction maps to prepare.
+
+        Returns:
+            Display-ready pixels and aligned interaction maps.
+
+        """
         bgr, hitmap, clickmap = self._prepare(frame)
+        return PreparedFrame(bgr, hitmap, clickmap)
+
+    def show_prepared(
+        self,
+        name: str,
+        prepared: PreparedFrame,
+        *,
+        render: RenderFn | None = None,
+    ) -> None:
+        """Present a value returned by `prepare` without rendering it again.
+
+        Args:
+            name: The window identifier.
+            prepared: Display-ready frame data.
+            render: Optional callback used for interactive layer re-renders.
+
+        """
+        bgr = prepared.bgr.copy()
         self._open(name, bgr)
         if render is not None:
             self._draw_hud(bgr)
         state = _HoverState(
-            base=bgr, hitmap=hitmap, clickmap=clickmap, render=render
+            base=bgr,
+            hitmap=prepared.hitmap,
+            clickmap=prepared.clickmap,
+            render=render,
         )
         self._windows[name] = state
         self._backend.set_mouse_handler(name, self._handler(name, state))

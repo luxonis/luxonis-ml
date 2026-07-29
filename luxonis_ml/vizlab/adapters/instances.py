@@ -1,13 +1,8 @@
-"""Render LDF spatial detections with colors keyed by instance identity.
-
-The standard LDF adapter colors annotations by class. This module provides the
-alternate presentation used by ``data inspect --per-instance``: all spatial
-detections remain in one scene, but every instance receives its own stable color
-and a hover tooltip describing the source detection.
-"""
+"""Render LDF records with colors keyed by class, instance, or task identity."""
 
 from collections.abc import Iterable, Sequence
-from typing import TypeAlias
+from dataclasses import replace
+from typing import Literal, TypeAlias
 
 from luxonis_ml.ldf import DatasetRecord, Detection
 from luxonis_ml.vizlab.annotations import Annotation
@@ -16,10 +11,17 @@ from luxonis_ml.vizlab.options import RenderOptions
 from luxonis_ml.vizlab.style import Palette
 from luxonis_ml.vizlab.tooltip import Tooltip
 
-from .ldf import detection_to_annotations
+from .ldf import (
+    _prune_blended_annotations,
+    blend_records_to_annotations,
+    detection_to_annotations,
+)
 
 InstanceDetection: TypeAlias = tuple[str, Detection]
 """A task name paired with one spatial LDF detection."""
+
+ColorBy: TypeAlias = Literal["class", "instance", "task"]
+"""Identity dimensions supported by dataset-inspection coloring."""
 
 
 def spatial_instances(
@@ -85,6 +87,57 @@ def instances_to_annotations(
     return annotations
 
 
+def records_to_colored_annotations(
+    records: Sequence[DatasetRecord],
+    *,
+    color_by: ColorBy,
+    options: RenderOptions,
+    identity_palette: Palette,
+) -> list[Annotation]:
+    """Convert records using the selected visual identity.
+
+    ``class`` delegates to the standard blended adapter. ``instance`` keeps only
+    spatial instances and gives every one an identity tooltip. ``task`` keeps
+    the standard annotation mix but assigns one color to every annotation tree
+    originating from the same task.
+    """
+    if color_by == "class":
+        return blend_records_to_annotations(records, options)
+    if color_by == "instance":
+        return instances_to_annotations(
+            spatial_instances(records),
+            options=options,
+            palette=identity_palette,
+        )
+    return _task_annotations(
+        records,
+        options=options,
+        palette=identity_palette,
+    )
+
+
+def _task_annotations(
+    records: Sequence[DatasetRecord],
+    *,
+    options: RenderOptions,
+    palette: Palette,
+) -> list[Annotation]:
+    """Convert records while assigning one explicit color per task."""
+    annotations: list[Annotation] = []
+    for record in records:
+        color = palette.color_for(record.task_name)
+        for detection in record._annotations():
+            converted = detection_to_annotations(
+                detection,
+                options,
+                task_name=record.task_name,
+            )
+            for annotation in converted:
+                _style_task_tree(annotation, color)
+            annotations.extend(converted)
+    return _prune_blended_annotations(annotations)
+
+
 def _instance_identity(
     task_name: str,
     detection: Detection,
@@ -140,3 +193,12 @@ def _style_instance_tree(
     annotation.tooltip = tooltip
     for child in annotation.children:
         _style_instance_tree(child, color, tooltip)
+
+
+def _style_task_tree(annotation: Annotation, color: Color) -> None:
+    """Apply a task color recursively while retaining existing hover content."""
+    annotation.color = color
+    if annotation.tooltip is not None:
+        annotation.tooltip = replace(annotation.tooltip, tint=color)
+    for child in annotation.children:
+        _style_task_tree(child, color)

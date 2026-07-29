@@ -10,13 +10,16 @@ from .backend import WindowBackend
 from .cv2_backend import Cv2Backend
 from .layers import LayerState
 from .notebook_backend import NotebookBackend
+from .prefetch import PrefetchIterator
 from .tooltip_render import draw_tooltip, render_tooltip_card
-from .viewer import Viewer
+from .viewer import PreparedFrame, Viewer
 
 __all__ = [
     "Cv2Backend",
     "LayerState",
     "NotebookBackend",
+    "PrefetchIterator",
+    "PreparedFrame",
     "Viewer",
     "WindowBackend",
     "draw_tooltip",
