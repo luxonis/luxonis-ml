@@ -289,11 +289,21 @@ def test_get_parser_plugin_resolution_branches(
     assert get_parser_plugin(tmp_path, None) == (FirstParser, "first")
 
 
-def test_get_parser_plugin_yolo_ambiguity_branches(
+def test_get_parser_plugin_resolves_by_split_coverage(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
+    """Multiple matches are broken by how many splits each one recognizes.
+
+    YOLOv6 and Ultralytics YOLOv8 layouts differ only in split naming
+    (``images/valid`` against ``images/val``), so both parsers report support
+    for either tree — but only the right one recognizes every split present.
+    Equal coverage stays genuinely ambiguous and must be reported, since
+    guessing would silently parse the source with the wrong parser.
+    """
+
     class SyntheticYoloV6(_SyntheticSplitParser):
         dataset_types = ("yolov6",)
+        splits: dict[str, dict[str, Any]] = {}
 
         @classmethod
         def supports(cls, source: Path) -> bool:
@@ -301,6 +311,7 @@ def test_get_parser_plugin_yolo_ambiguity_branches(
 
     class SyntheticYoloV8(SyntheticYoloV6):
         dataset_types = ("yolov8",)
+        splits: dict[str, dict[str, Any]] = {}
 
     monkeypatch.setattr(
         PARSERS_REGISTRY,
@@ -308,13 +319,23 @@ def test_get_parser_plugin_yolo_ambiguity_branches(
         lambda: [SyntheticYoloV6, SyntheticYoloV8],
     )
 
-    SyntheticYoloV6.splits = {"train": {}, "val": {}}
+    SyntheticYoloV6.splits = {"train": {}, "valid": {}, "test": {}}
+    SyntheticYoloV8.splits = {"train": {}}
     assert get_parser_plugin(tmp_path, None) == (SyntheticYoloV6, "yolov6")
 
+    SyntheticYoloV6.splits = {"train": {}}
+    SyntheticYoloV8.splits = {"train": {}, "val": {}}
+    assert get_parser_plugin(tmp_path, None) == (SyntheticYoloV8, "yolov8")
+
     SyntheticYoloV6.splits = {"test": {}}
-    with pytest.raises(
-        ValueError, match="ambiguous between YOLOv6 and YOLOv8"
-    ):
+    SyntheticYoloV8.splits = {"test": {}}
+    with pytest.raises(ValueError, match="multiple parsers: yolov6, yolov8"):
+        get_parser_plugin(tmp_path, None)
+
+    # No split at all is no evidence either way, so it stays ambiguous too.
+    SyntheticYoloV6.splits = {}
+    SyntheticYoloV8.splits = {}
+    with pytest.raises(ValueError, match="multiple parsers: yolov6, yolov8"):
         get_parser_plugin(tmp_path, None)
 
 
@@ -2393,10 +2414,18 @@ def test_download_ultralytics_success(
     assert name == "Project"
 
 
-def test_luxonis_parser_thin_wrapper(
+def test_luxonis_parser_forwards_arguments(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
+    """The deprecated wrapper forwards arguments to ``import_dataset``.
+
+    Source acquisition and format resolution happen in ``__init__`` — that is
+    what makes an unsupported source fail at construction, as it did before the
+    deprecation, and what stops each ``parse`` call from downloading the source
+    again — so the forwarded ``source`` is the resolved local path and the
+    forwarded ``dataset_type`` is the resolved type name.
+    """
     calls: list[dict[str, Any]] = []
 
     class Result:
@@ -2411,6 +2440,13 @@ def test_luxonis_parser_thin_wrapper(
     monkeypatch.setattr(
         "luxonis_ml.data.parsers.luxonis_parser.LuxonisDataset.import_dataset",
         classmethod(import_dataset),
+    )
+    monkeypatch.setattr(
+        "luxonis_ml.data.parsers.luxonis_parser.get_parser_plugin",
+        lambda source, dataset_type: (
+            _SyntheticSplitParser,
+            dataset_type or "synthetic-split",
+        ),
     )
     with pytest.warns(DeprecationWarning, match="LuxonisParser.*deprecated"):
         parser = LuxonisParser(
@@ -2434,7 +2470,7 @@ def test_luxonis_parser_thin_wrapper(
     assert calls == [
         {
             "cls": LuxonisDataset,
-            "source": str(tmp_path),
+            "source": tmp_path,
             "dataset_name": "dataset",
             "save_dir": tmp_path,
             "dataset_type": "coco",

@@ -32,7 +32,13 @@ def prepare_source(
             local_dir,
         )
     else:
-        name = source_string.rsplit("/", maxsplit=1)[-1]
+        # A trailing separator would otherwise yield an empty name, which in
+        # turn makes both the dataset name and the download target empty.
+        name = source_string.rstrip("/").rsplit("/", maxsplit=1)[-1]
+        if not name:
+            raise ValueError(
+                f"Could not derive a dataset name from source '{source}'."
+            )
         local_path = (local_dir or Path.cwd()) / name
         source_path = LuxonisFileSystem.download(source_string, local_path)
 

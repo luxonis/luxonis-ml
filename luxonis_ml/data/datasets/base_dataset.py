@@ -28,11 +28,17 @@ def _prepare_import_records(
     task_name: str | dict[str, str] | None,
     selected_files: set[Path] | None,
 ) -> DatasetIterator:
-    task_names = (
-        defaultdict(lambda: task_name)
-        if isinstance(task_name, str)
-        else task_name
-    )
+    if task_name is None:
+        task_names = None
+        unannotated_task_names: set[str] = set()
+    elif isinstance(task_name, str):
+        # A `defaultdict` is only populated on lookup, so the task names used
+        # for records without annotations have to be collected up front.
+        task_names = defaultdict(lambda: task_name)
+        unannotated_task_names = {task_name}
+    else:
+        task_names = task_name
+        unannotated_task_names = set(task_name.values())
 
     for raw_record in records:
         record = (
@@ -51,7 +57,7 @@ def _prepare_import_records(
             continue
 
         if record.annotation is None:
-            for name in set(task_names.values()):
+            for name in unannotated_task_names:
                 yield record.model_copy(
                     update={"task_name": name},
                     deep=True,
@@ -66,10 +72,9 @@ def _prepare_import_records(
                 raise ValueError(
                     f"Class '{class_name}' not found in task names."
                 ) from None
-            record = record.model_copy(
-                update={"task_name": name},
-                deep=True,
-            )
+            # Only `task_name` changes, so a shallow copy is enough and avoids
+            # duplicating masks and polygons for every record.
+            record = record.model_copy(update={"task_name": name})
         yield record
 
 
@@ -114,6 +119,8 @@ class BaseDataset(
             random_split: Whether a source without original splits should be
                 split automatically.
             split_ratios: Ratios or counts for train, validation, and test.
+                Splits omitted from a count-based mapping default to
+                :math:`0`.
             parser_kwargs: Format-specific parser keyword arguments.
             dataset_kwargs: Arguments passed to the dataset constructor.
 
@@ -140,10 +147,33 @@ class BaseDataset(
             type_name,
         )
 
+        # Resolved before the dataset is created so that invalid arguments do
+        # not leave an empty dataset behind.
+        is_counts = split_ratios is not None and all(
+            isinstance(value, int) for value in split_ratios.values()
+        )
+        count_ratios: dict[str, int] | None = None
+        if is_counts:
+            assert split_ratios is not None
+            count_ratios = {
+                name: int(split_ratios.get(name, 0))
+                for name in ("train", "val", "test")
+            }
+            if sum(count_ratios.values()) == 0:
+                raise ValueError(
+                    "Count-based `split_ratios` must request at least one "
+                    f"sample, got {split_ratios}."
+                )
+
         resolved_name = (
             dataset_name
             or derived_name.replace(" ", "_").split(".", maxsplit=1)[0]
         )
+        if not resolved_name:
+            raise ValueError(
+                f"Could not derive a dataset name from source '{source}'. "
+                "Pass `dataset_name` explicitly."
+            )
         dataset = cast(Any, cls)(
             dataset_name=resolved_name,
             **dataset_kwargs,
@@ -152,9 +182,6 @@ class BaseDataset(
         plugin = plugin_type(issues)
 
         try:
-            is_counts = split_ratios is not None and all(
-                isinstance(value, int) for value in split_ratios.values()
-            )
             resolved_parser_kwargs = dict(parser_kwargs or {})
             if (
                 split is None
@@ -177,13 +204,9 @@ class BaseDataset(
             selected_files: set[Path] | None = None
             if (
                 split is None
-                and is_counts
+                and count_ratios is not None
                 and (parsed.splits is not None or random_split)
             ):
-                assert split_ratios is not None
-                count_ratios = {
-                    name: int(value) for name, value in split_ratios.items()
-                }
                 if parsed.splits is None:
                     selected_splits = apply_counts_to_pool(
                         parsed.files,

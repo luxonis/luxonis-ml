@@ -405,6 +405,22 @@ class COCOParser(SplitParserPlugin):
     ) -> ParsedDataset:
         del dataset_type
         if not self.discover_splits(dataset_dir):
+            # `split_val_to_test` is meaningless for a single split, but the
+            # keypoint options would be silently ignored, so reject them.
+            unsupported = [
+                name
+                for name, value in (
+                    ("use_keypoint_ann", use_keypoint_ann),
+                    ("keypoint_ann_paths", keypoint_ann_paths),
+                )
+                if value
+            ]
+            if unsupported:
+                raise ValueError(
+                    f"COCO options {unsupported} are only supported for "
+                    "sources containing split directories, not for the "
+                    f"single split '{dataset_dir}'."
+                )
             return super().parse(
                 dataset_dir,
                 dataset_type="coco",

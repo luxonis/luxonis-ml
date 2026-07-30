@@ -8,6 +8,7 @@ import yaml
 from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
+from luxonis_ml.data.utils.enums import ParserIssue
 
 from .parser_plugin import ParsedDataset, SplitParserPlugin
 
@@ -268,6 +269,15 @@ class YOLOv8Parser(SplitParserPlugin):
                             task_type = "keypoints"
                         else:
                             task_type = "segmentation"
+                    else:
+                        self._warn_skipped_annotation(
+                            ParserIssue.MALFORMED_ANNOTATION,
+                            "annotation line has fewer than 5 values",
+                            source=ann_path,
+                            image=img_path,
+                            annotation_id=instance_id,
+                        )
+                        continue
 
                     if task_type == "detection":
                         class_id, x_center, y_center, width, height = (
