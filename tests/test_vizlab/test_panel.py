@@ -4,12 +4,12 @@ import numpy as np
 
 from luxonis_ml.vizlab import BBox, Image, with_panel
 from luxonis_ml.vizlab.color import Color
-from luxonis_ml.vizlab.layout.panel import _format_scalar
-from luxonis_ml.vizlab.panel import (
+from luxonis_ml.vizlab.layout.panel import (
     _MARGIN,
     _PAD,
     _PANEL_SIZE,
     _build_ops,
+    _format_scalar,
     _format_sections,
     _format_tree,
     _metrics,
@@ -242,7 +242,7 @@ def test_disabled_swatches_render_hollow_and_struck_through() -> None:
 
 
 def test_empty_swatches_take_no_rows() -> None:
-    from luxonis_ml.vizlab.panel import _layout_swatches
+    from luxonis_ml.vizlab.layout.panel import _layout_swatches
 
     m = _metrics(1.0, Color(24, 24, 28))
     assert _layout_swatches(None, (), 0.0, 0.0, 17.0, 200.0, m, 20.0) == 17.0
@@ -250,7 +250,7 @@ def test_empty_swatches_take_no_rows() -> None:
 
 def test_swatches_reserve_keeps_the_panel_width_stable() -> None:
     from luxonis_ml.vizlab import Swatches
-    from luxonis_ml.vizlab.panel import _auto_width
+    from luxonis_ml.vizlab.layout.panel import _auto_width
 
     m = _metrics(1.0, Color(24, 24, 28))
 
@@ -271,7 +271,7 @@ def test_swatches_reserve_keeps_the_panel_width_stable() -> None:
 
 
 def test_swatches_grid_packs_more_columns_into_a_wider_panel() -> None:
-    from luxonis_ml.vizlab.panel import _layout_swatches
+    from luxonis_ml.vizlab.layout.panel import _layout_swatches
 
     m = _metrics(1.0, Color(24, 24, 28))
     items = tuple((Color(200, 50, 50), "ab", True) for _ in range(6))
@@ -303,7 +303,7 @@ def test_swatches_legend_is_pinned_to_the_panel_bottom() -> None:
 
 def test_frame_with_panel_builds_a_clickmap_of_controls_and_swatches() -> None:
     from luxonis_ml.vizlab import Controls, Swatches
-    from luxonis_ml.vizlab.frame import Frame
+    from luxonis_ml.vizlab.interaction.frame import Frame
 
     framed = Frame(_img(200, 140)).with_panel(
         {
@@ -319,7 +319,7 @@ def test_frame_with_panel_builds_a_clickmap_of_controls_and_swatches() -> None:
 
 def test_informational_swatches_do_not_register_class_actions() -> None:
     from luxonis_ml.vizlab import Swatches
-    from luxonis_ml.vizlab.frame import Frame
+    from luxonis_ml.vizlab.interaction.frame import Frame
 
     framed = Frame(_img(200, 140)).with_panel(
         {
@@ -354,9 +354,9 @@ def test_panel_scene_frame_captures_child_hover_and_clicks() -> None:
 
 def test_frame_with_panel_preserves_existing_clickmap() -> None:
     from luxonis_ml.vizlab import Controls
-    from luxonis_ml.vizlab.frame import Frame
     from luxonis_ml.vizlab.geometry import Rect
-    from luxonis_ml.vizlab.hitmap import ClickMap
+    from luxonis_ml.vizlab.interaction.frame import Frame
+    from luxonis_ml.vizlab.interaction.maps import ClickMap
 
     frame = Frame(
         _img(200, 140),
@@ -388,7 +388,7 @@ def test_with_panel_renders_controls_and_swatches() -> None:
 
 
 def test_block_value_is_middle_ellipsized_when_too_long() -> None:
-    from luxonis_ml.vizlab.panel import _metrics, _middle_ellipsize
+    from luxonis_ml.vizlab.layout.panel import _metrics, _middle_ellipsize
 
     m = _metrics(1.0, Color(24, 24, 28))
     long = "/datasets/coco/images/train2017/000000123456_aug.jpg"
@@ -403,7 +403,7 @@ def test_block_panel_renders_and_extreme_ellipsize_falls_back_to_mark() -> (
     None
 ):
     from luxonis_ml.vizlab import Block
-    from luxonis_ml.vizlab.panel import _middle_ellipsize
+    from luxonis_ml.vizlab.layout.panel import _middle_ellipsize
 
     m = _metrics(1.0, Color(24, 24, 28))
     assert _middle_ellipsize("abcdef", 0.0, m) == "…"
@@ -426,9 +426,9 @@ def test_panel_frames_the_image_with_an_outer_margin() -> None:
 
 
 def test_frame_with_panel_offsets_the_hitmap_to_match() -> None:
-    from luxonis_ml.vizlab.frame import Frame
     from luxonis_ml.vizlab.geometry import Rect
-    from luxonis_ml.vizlab.hitmap import HitMap
+    from luxonis_ml.vizlab.interaction.frame import Frame
+    from luxonis_ml.vizlab.interaction.maps import HitMap
     from luxonis_ml.vizlab.tooltip import Tooltip
 
     img = _img(120, 80)

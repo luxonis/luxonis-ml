@@ -22,7 +22,7 @@ from luxonis_ml.vizlab.style import Palette, Style
 from .base import Annotation, RenderContext
 
 if TYPE_CHECKING:
-    from luxonis_ml.vizlab.canvas import Canvas
+    from luxonis_ml.vizlab.render.canvas import Canvas
 
 _WHITE = Color(255, 255, 255)
 #: Dark outline for occluded joints (vs the white outline of visible ones).
@@ -65,7 +65,7 @@ class Keypoints(KeypointAnnotation, Annotation):
             ``keypoints`` (a ``None`` entry, or a short list, falls back to the
             instance color). A limb between two differently colored joints is
             drawn as a gradient from one color to the other. Useful for grading
-            individual joints — see `luxonis_ml.vizlab.compare`.
+            individual joints — see `luxonis_ml.vizlab.comparison.core`.
 
     See `Annotation` for the shared
     ``label``, ``color``, ``style``, and ``palette`` fields.

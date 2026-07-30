@@ -18,9 +18,10 @@ from luxonis_ml.vizlab import (
 )
 from luxonis_ml.vizlab.annotations.base import RenderContext
 from luxonis_ml.vizlab.annotations.layout import LabelLayout, label_candidates
-from luxonis_ml.vizlab.canvas import Canvas
-from luxonis_ml.vizlab.compose import grid
 from luxonis_ml.vizlab.geometry import Rect, bounding_rect
+from luxonis_ml.vizlab.interaction.maps import InteractionCapture
+from luxonis_ml.vizlab.layout.compose import grid
+from luxonis_ml.vizlab.render.canvas import Canvas
 from luxonis_ml.vizlab.style import LabelPlacement
 
 
@@ -76,16 +77,16 @@ def test_base_reserve_is_noop_for_spatial() -> None:
     assert ctx.layout.placed == []
 
 
-def test_render_context_legacy_hit_collection() -> None:
-    hits: list[tuple[Rect, Tooltip]] = []
+def test_render_context_hit_capture() -> None:
+    capture = InteractionCapture()
     tooltip = Tooltip(title="car")
-    ctx = RenderContext(canvas=Canvas.blank(10, 10), hits=hits)
+    ctx = RenderContext(canvas=Canvas.blank(10, 10), capture=capture)
     region = Rect(1.0, 2.0, 3.0, 4.0)
 
     ctx.emit_hit(region, None)
     ctx.emit_hit(region, tooltip)
 
-    assert hits == [(region, tooltip)]
+    assert capture.hover == [(region, tooltip)]
 
 
 def test_classification_edge_cases() -> None:

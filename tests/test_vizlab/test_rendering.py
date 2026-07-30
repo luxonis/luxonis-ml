@@ -37,7 +37,7 @@ from luxonis_ml.vizlab.annotations.layout import (
     _overlap_area,
     label_candidates,
 )
-from luxonis_ml.vizlab.canvas import Canvas
+from luxonis_ml.vizlab.render.canvas import Canvas
 from luxonis_ml.vizlab.scene.image import _freeze_render_state
 from luxonis_ml.vizlab.style import (
     DEFAULT_STYLE,

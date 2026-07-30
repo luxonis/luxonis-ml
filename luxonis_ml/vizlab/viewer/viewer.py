@@ -3,10 +3,9 @@
 `Viewer` presents `Frame` objects (a scene plus its interaction maps), fits them
 to the screen, routes mouse moves through the hover map to show per-annotation
 tooltips, and runs the keyboard loop — all over a pluggable `WindowBackend`
-(OpenCV by default). Callers build frames with `Image.frame` or the ``*_hits``
-compose helpers (such as ``grid_hits``) and never touch windowing
-themselves. Ordinary composition retains interactions automatically, so calling
-`frame()` on a grid or panel works the same way as calling it on one `Image`.
+(OpenCV by default). Callers build frames with `Renderable.frame` and never
+touch windowing themselves. Composition retains interactions automatically, so
+calling `frame()` on a grid or panel works the same way as on one `Image`.
 """
 
 from collections.abc import Callable
@@ -15,9 +14,9 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from luxonis_ml.vizlab import io
-from luxonis_ml.vizlab.frame import Frame
-from luxonis_ml.vizlab.hitmap import ClickMap, HitMap
-from luxonis_ml.vizlab.image import Renderable
+from luxonis_ml.vizlab.interaction.frame import Frame
+from luxonis_ml.vizlab.interaction.maps import ClickMap, HitMap
+from luxonis_ml.vizlab.scene.image import Renderable
 from luxonis_ml.vizlab.tooltip import Tooltip
 
 from .backend import MouseHandler, WindowBackend
@@ -181,7 +180,7 @@ class Viewer:
         Args:
             name: The window identifier (created on first use).
             frame: The `Frame` to show — an image plus its hover `HitMap` (from
-                `Image.frame` or the ``*_hits`` compose helpers). The map is in
+                `Renderable.frame`). The map is in
                 the image's native pixels and is scaled internally to match the
                 shown frame.
             render: Optional callback that rebuilds this window's `Frame` for a

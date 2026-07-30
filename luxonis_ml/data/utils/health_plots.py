@@ -68,7 +68,7 @@ def _panel_title(task_type: str, descriptor: str) -> str:
     beneath it in monospace, giving the panels a proper title/subtitle look
     instead of two words joined by a dash. The task name belongs in the
     containing window title, so it is deliberately not repeated here.
-    Uses vizlab title markup (see `luxonis_ml.vizlab.compose.grid`).
+    Uses vizlab title markup (see `luxonis_ml.vizlab.layout.compose.grid`).
     """
     return (
         f"<b>{descriptor}</b>\n<code>{task_type}</code>"

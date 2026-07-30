@@ -7,7 +7,7 @@ the canonical Luxonis Data Format: this module rebuilds `Detection` objects
 one `DatasetRecord` per task name.
 
 The reconstructed records are meant for rendering (see
-`luxonis_ml.vizlab.convert.visualize_record`): the base image is supplied
+`luxonis_ml.vizlab.adapters.ldf.visualize_record`): the base image is supplied
 separately, so the records are built with a placeholder ``files`` entry via
 ``DatasetRecord.model_construct`` and never written back to disk.
 """

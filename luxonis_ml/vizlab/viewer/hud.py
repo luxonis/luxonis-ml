@@ -11,7 +11,7 @@ import functools
 
 import numpy as np
 
-from luxonis_ml.vizlab.canvas import Canvas
+from luxonis_ml.vizlab.render.canvas import Canvas
 
 from .layers import Control
 
@@ -37,9 +37,9 @@ def render_controls_card(controls: list[Control], size: int) -> np.ndarray:
 
     """
     from luxonis_ml.utils.color import brand
-    from luxonis_ml.vizlab.canvas import Shadow
     from luxonis_ml.vizlab.color import Color
     from luxonis_ml.vizlab.geometry import Rect
+    from luxonis_ml.vizlab.render.canvas import Shadow
 
     name_color = Color(206, 214, 230)
     value_on = brand.MINT

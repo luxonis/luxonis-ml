@@ -1,4 +1,4 @@
-"""Tests for hit-map threading through compose (`grid_hits`/`combine_hits`)."""
+"""Tests for hit-map threading through compose (`grid`/`combine` frames)."""
 
 import numpy as np
 import pytest
@@ -10,13 +10,11 @@ from luxonis_ml.vizlab import (
     Renderable,
     Tooltip,
     combine,
-    combine_hits,
     fit_grid,
     grid,
-    grid_hits,
 )
-from luxonis_ml.vizlab.compose import grid_placed
-from luxonis_ml.vizlab.hitmap import HitMap
+from luxonis_ml.vizlab.interaction.maps import HitMap
+from luxonis_ml.vizlab.layout.compose import grid_placed
 
 
 def _split(frame: Frame) -> tuple[Renderable, HitMap]:
@@ -46,12 +44,12 @@ def _within(hits: HitMap, image: Renderable) -> bool:
     )
 
 
-def test_grid_hits_maps_each_tile_to_composite_pixels() -> None:
+def test_grid_frame_maps_each_tile_to_composite_pixels() -> None:
     a, tip_a = _tile("A")
     b, tip_b = _tile("B")
     # Uniform cells (tile == cell), so tiles land at exact, un-centered offsets:
     # tile0 at (10, 10), tile1 at (120, 10) on a 230x80 composite.
-    composite, hits = _split(grid_hits([a, b], ncols=2, pad=10))
+    composite, hits = _split(grid([a, b], ncols=2, pad=10).frame())
     assert (composite.width, composite.height) == (230, 80)
     assert len(hits.items) == 2
     assert hits.hit(10 + 50, 10 + 30) is tip_a
@@ -68,11 +66,11 @@ def test_grid_scene_preserves_interactions_without_hits_variant() -> None:
     assert frame.hitmap.hit(120 + 50, 10 + 30) is tip_b
 
 
-def test_combine_hits_threads_through_nesting() -> None:
+def test_combine_frame_threads_through_nesting() -> None:
     a, _ = _tile("A")
     b, _ = _tile("B")
     c, _ = _tile("C")
-    composite, hits = _split(combine_hits(a, [b, c]))
+    composite, hits = _split(combine(a, [b, c]).frame())
     assert _titles(hits) == {"A", "B", "C"}
     assert len(hits.items) == 3
     assert _within(hits, composite)
@@ -105,28 +103,28 @@ def test_nested_composite_scales_interactions_on_both_axes() -> None:
     )
 
 
-def test_combine_hits_titled_mapping() -> None:
+def test_combine_frame_titled_mapping() -> None:
     a, _ = _tile("A")
     b, _ = _tile("B")
-    composite, hits = _split(combine_hits({"left": a, "right": b}))
+    composite, hits = _split(combine({"left": a, "right": b}).frame())
     assert _titles(hits) == {"A", "B"}
     assert _within(hits, composite)
 
 
-def test_combine_hits_single_group_returns_copy() -> None:
+def test_combine_frame_single_group_returns_copy() -> None:
     a, _ = _tile("A")
-    composite, hits = _split(combine_hits(a))
+    composite, hits = _split(combine(a).frame())
     assert composite is not a
     assert _titles(hits) == {"A"}
 
 
-def test_fit_grid_matches_grid_hits_when_unscaled() -> None:
+def test_fit_grid_matches_grid_frame_when_unscaled() -> None:
     a, _ = _tile("A")
     b, _ = _tile("B")
     fit_img, fit_hits = _split(
         fit_grid([a, b], target=(10_000, 10_000), ncols=2)
     )
-    grid_img, _ = _split(grid_hits([a, b], ncols=2))
+    grid_img, _ = _split(grid([a, b], ncols=2).frame())
     assert (fit_img.width, fit_img.height) == (grid_img.width, grid_img.height)
     assert hits_title(fit_hits, 10 + 50, 10 + 30) == "A"
 
@@ -163,7 +161,7 @@ def test_fit_grid_scales_within_target() -> None:
 def test_fit_grid_upscales_small_tiles_only_when_allowed() -> None:
     a, _ = _tile("A")
     b, _ = _tile("B")
-    native, _ = _split(grid_hits([a, b], ncols=2))
+    native, _ = _split(grid([a, b], ncols=2).frame())
     # Small tiles, a big budget: by default they stay native (never upscaled)...
     kept, _ = _split(fit_grid([a, b], target=(4000, 2000), ncols=2))
     assert (kept.width, kept.height) == (native.width, native.height)
@@ -182,10 +180,10 @@ def hits_title(hits: HitMap, x: float, y: float) -> str | None:
 
 
 @pytest.mark.parametrize("seed", range(30))
-def test_grid_hits_round_trips_random_layouts(seed: int) -> None:
+def test_grid_frame_round_trips_random_layouts(seed: int) -> None:
     """For any random grid, hovering a tile's box returns that tile's tooltip.
 
-    `grid_placed` and `grid_hits` share ``_grid`` with identical arguments, so
+    `grid_placed` and `grid` share ``_grid`` with identical arguments, so
     each tile's raster lands at the same placement in both; the invariant is that
     the composed hit map, queried at a placement's center, resolves to the box
     drawn in that tile — proving the per-tile offset is exact.
@@ -206,7 +204,7 @@ def test_grid_hits_round_trips_random_layouts(seed: int) -> None:
             )
         )
     ncols = int(rng.integers(1, count + 1))
-    _, hits = _split(grid_hits(tiles, ncols=ncols))
+    _, hits = _split(grid(tiles, ncols=ncols).frame())
     _, placements = grid_placed(tiles, ncols=ncols)
 
     assert len(hits.items) == count

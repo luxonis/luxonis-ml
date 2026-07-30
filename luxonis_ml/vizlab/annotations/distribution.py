@@ -19,9 +19,9 @@ from dataclasses import dataclass
 from typing import Literal
 
 from luxonis_ml.utils.color import brand
-from luxonis_ml.vizlab.canvas import Canvas, TextMetrics
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import XY, Rect
+from luxonis_ml.vizlab.render.canvas import Canvas, TextMetrics
 from luxonis_ml.vizlab.style import Palette, Style
 
 from .base import RenderContext

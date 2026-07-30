@@ -19,20 +19,24 @@ from typing_extensions import Self
 from luxonis_ml.vizlab import io
 from luxonis_ml.vizlab.annotations.base import Annotation, RenderContext
 from luxonis_ml.vizlab.annotations.layout import LabelLayout
-from luxonis_ml.vizlab.canvas import Canvas
-from luxonis_ml.vizlab.hitmap import ClickMap, HitMap, InteractionCapture
+from luxonis_ml.vizlab.interaction.maps import (
+    ClickMap,
+    HitMap,
+    InteractionCapture,
+)
 from luxonis_ml.vizlab.options import RenderOptions, current_options
 from luxonis_ml.vizlab.render import RenderEnvironment
+from luxonis_ml.vizlab.render.canvas import Canvas
 from luxonis_ml.vizlab.style import Theme
 
 if TYPE_CHECKING:
     from PIL import Image as PILImage
 
     from luxonis_ml.vizlab.adapters.ldf import RenderableLDF
-    from luxonis_ml.vizlab.frame import Frame
     from luxonis_ml.vizlab.gradient import Gradient
+    from luxonis_ml.vizlab.interaction.frame import Frame
     from luxonis_ml.vizlab.io import ImageSource
-    from luxonis_ml.vizlab.panel import PanelData
+    from luxonis_ml.vizlab.layout.panel import PanelData
 
 #: Canvas short-side (px) at which styles render at their nominal size; larger
 #: canvases scale labels/strokes up proportionally (clamped to the range below).
@@ -384,9 +388,10 @@ class Renderable:
     def with_hitmap(self, hitmap: HitMap) -> Self:
         """Attach a precomputed hover `HitMap` (in this scene's pixels).
 
-        For composites whose tiles were flattened so their tooltips no longer
-        live on annotations: the map is remembered and returned by `render_hits`
-        / `frame`, scaled to the render size like an annotation's would be.
+        For a scene baked to pixels — a composite flattened with
+        ``Image(other.render())`` — whose tooltips no longer live on
+        annotations. The map is remembered and returned by `render_hits` /
+        `frame`, scaled to the render size like an annotation's would be.
 
         Args:
             hitmap: The hover map, in this scene's current pixel coordinates.
@@ -400,7 +405,7 @@ class Renderable:
 
     def frame(self) -> "Frame":
         """Capture this scene's interactions as a `Frame` for a `Viewer`."""
-        from luxonis_ml.vizlab.frame import Frame
+        from luxonis_ml.vizlab.interaction.frame import Frame
 
         environment = RenderEnvironment.current()
         _, interactions, _ = self._draw(
@@ -423,7 +428,7 @@ class Renderable:
         y: float,
         size: tuple[int, int],
     ) -> None:
-        """Emit a legacy map attached with `with_hitmap` into ``capture``."""
+        """Emit a map attached with `with_hitmap` into ``capture``."""
         if capture is None or self._hits is None:
             return
         factor_x = size[0] / self.width if self.width else 1.0
@@ -442,7 +447,7 @@ class Renderable:
 
         Nested mappings and sequences are formatted as an indented tree. The
         panel is placed outside the rendered scene, so it cannot cover pixels or
-        labels. See `vizlab.panel.with_panel`.
+        labels. See `vizlab.layout.panel.with_panel`.
 
         Args:
             data: JSON-like metadata (mapping/sequence/scalar, nested arbitrarily).
@@ -455,7 +460,7 @@ class Renderable:
             A `Composite` of this scene plus the panel — renders to raster or SVG.
 
         """
-        from luxonis_ml.vizlab import panel
+        from luxonis_ml.vizlab.layout import panel
 
         return panel.with_panel(
             self, data, side=side, width=width, title=title
@@ -582,7 +587,7 @@ class Image(Renderable):
         `Detection`, a
         `DatasetRecord`, or a single annotation
         model — which is converted to render annotations natively (see
-        `luxonis_ml.vizlab.convert`).
+        `luxonis_ml.vizlab.adapters.ldf`).
 
         Args:
             annotation: The annotation or LDF object to add.
@@ -597,10 +602,10 @@ class Image(Renderable):
         if isinstance(annotation, Annotation):
             self._annotations.append(annotation)
         else:
-            from luxonis_ml.vizlab import convert
+            from luxonis_ml.vizlab.adapters import ldf
 
             self._annotations.extend(
-                convert.to_render_annotations(
+                ldf.to_render_annotations(
                     annotation, options or self._resolve_options()
                 )
             )
@@ -800,7 +805,7 @@ class Image(Renderable):
         Only the base rasters are mixed; both images' annotations are carried
         onto the result and drawn crisply when it renders. Differently sized
         inputs are padded at the bottom and right, and their spatial annotations
-        are transformed to remain aligned. See `vizlab.compose.blend`.
+        are transformed to remain aligned. See `vizlab.layout.compose.blend`.
 
         Args:
             other: The image whose base is blended on top, weighted by ``alpha``.
@@ -811,7 +816,7 @@ class Image(Renderable):
             is mutated.
 
         """
-        from luxonis_ml.vizlab import compose
+        from luxonis_ml.vizlab.layout import compose
 
         return compose.blend(self, other, alpha)
 

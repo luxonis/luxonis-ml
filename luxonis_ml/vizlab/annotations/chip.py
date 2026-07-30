@@ -7,9 +7,9 @@ here means every annotation that shows a label draws an identical-looking one.
 
 from typing import TYPE_CHECKING
 
-from luxonis_ml.vizlab.canvas import Canvas, Shadow, TextMetrics
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import XY, Rect
+from luxonis_ml.vizlab.render.canvas import Canvas, Shadow, TextMetrics
 from luxonis_ml.vizlab.style import Style
 
 from .layout import LabelLayout, label_candidates

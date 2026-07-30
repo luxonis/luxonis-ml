@@ -10,9 +10,9 @@ import functools
 
 import numpy as np
 
-from luxonis_ml.vizlab.canvas import Canvas, TextMetrics
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import Rect
+from luxonis_ml.vizlab.render.canvas import Canvas, TextMetrics
 from luxonis_ml.vizlab.tooltip import Tooltip
 
 
@@ -105,7 +105,7 @@ def render_tooltip_card(tooltip: Tooltip, size: int) -> np.ndarray:
 
     """
     from luxonis_ml.utils.color import brand
-    from luxonis_ml.vizlab.canvas import Shadow
+    from luxonis_ml.vizlab.render.canvas import Shadow
 
     measure = _measure_canvas()
     title = tooltip.title
@@ -242,7 +242,7 @@ def _blur_bgr(roi: np.ndarray, sigma: float) -> np.ndarray:
     full-resolution blur, but with a cost that stays low and roughly flat as the
     sigma grows.
     """
-    from luxonis_ml.vizlab.canvas import Canvas, gaussian_blur
+    from luxonis_ml.vizlab.render.canvas import Canvas, gaussian_blur
 
     height, width = roi.shape[:2]
     rgba = np.empty((height, width, 4), dtype=np.uint8)

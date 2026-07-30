@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from luxonis_ml.vizlab import Image, combine
-from luxonis_ml.vizlab.compose import _smart_cols
+from luxonis_ml.vizlab.layout.compose import _smart_cols
 
 
 def _cell(w: int = 10, h: int = 10) -> Image:

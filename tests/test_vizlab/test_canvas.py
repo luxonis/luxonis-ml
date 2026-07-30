@@ -3,10 +3,10 @@
 import numpy as np
 import pytest
 
-from luxonis_ml.vizlab.canvas import Canvas, gaussian_blur
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import Rect
 from luxonis_ml.vizlab.markup import Span
+from luxonis_ml.vizlab.render.canvas import Canvas, gaussian_blur
 
 _RED = Color(220, 60, 60)
 
@@ -168,7 +168,7 @@ def test_finish_svg_rejects_a_raster_canvas() -> None:
 
 
 def test_rounded_rect_dashed_and_shadow() -> None:
-    from luxonis_ml.vizlab.canvas import Shadow
+    from luxonis_ml.vizlab.render.canvas import Shadow
 
     canvas = _blank()
     canvas.rounded_rect(

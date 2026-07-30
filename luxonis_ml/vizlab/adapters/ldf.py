@@ -40,9 +40,9 @@ if TYPE_CHECKING:
         SegmentationAnnotation,
     )
     from luxonis_ml.typing import ParamValue
-    from luxonis_ml.vizlab.image import Image, Renderable
     from luxonis_ml.vizlab.io import ImageSource
-    from luxonis_ml.vizlab.panel import PanelData
+    from luxonis_ml.vizlab.layout.panel import PanelData
+    from luxonis_ml.vizlab.scene.image import Image, Renderable
 
     #: Any LDF object `Image.add`/`to_render_annotations` renders: a whole
     #: record, a detection tree, or a single spatial annotation model.
@@ -475,7 +475,7 @@ def visualize_record(
         (32, 48, 4)
 
     """
-    from luxonis_ml.vizlab.image import Image
+    from luxonis_ml.vizlab.scene.image import Image
 
     options = options or RenderOptions()
     img = Image(image, options=options, render_size=size)

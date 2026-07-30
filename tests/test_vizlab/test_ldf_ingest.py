@@ -31,7 +31,7 @@ from luxonis_ml.vizlab.adapters.ldf import (
     to_render_annotations,
 )
 from luxonis_ml.vizlab.annotations.base import RenderContext
-from luxonis_ml.vizlab.canvas import Canvas
+from luxonis_ml.vizlab.render.canvas import Canvas
 
 
 def _ctx() -> RenderContext:
@@ -292,7 +292,7 @@ def test_color_determinism_across_records():
 def test_metadata_annotations_from_boxless_detections():
     """Box-less metadata becomes an InfoCard; boxed metadata does not."""
     from luxonis_ml.vizlab import InfoCard
-    from luxonis_ml.vizlab.convert import metadata_annotations
+    from luxonis_ml.vizlab.adapters.ldf import metadata_annotations
 
     boxless = Detection(
         class_name="pose",
@@ -316,7 +316,7 @@ def test_metadata_annotations_from_boxless_detections():
 def test_metadata_annotations_cards_a_lone_boxed_object():
     """A single boxed object cards its metadata; two or more stay hover-only."""
     from luxonis_ml.vizlab import InfoCard
-    from luxonis_ml.vizlab.convert import metadata_annotations
+    from luxonis_ml.vizlab.adapters.ldf import metadata_annotations
 
     car = Detection(
         class_name="car",
@@ -344,7 +344,7 @@ def test_metadata_annotations_cards_a_lone_boxed_object():
 def test_metadata_annotations_treats_all_metadata_uniformly():
     """Every metadata key, "text" included, goes in the one metadata card."""
     from luxonis_ml.vizlab import InfoCard
-    from luxonis_ml.vizlab.convert import metadata_annotations
+    from luxonis_ml.vizlab.adapters.ldf import metadata_annotations
 
     det = Detection(
         class_name="ocr",
@@ -360,7 +360,7 @@ def test_metadata_annotations_treats_all_metadata_uniformly():
 
 def test_metadata_annotations_recurses_sub_detections():
     from luxonis_ml.vizlab import InfoCard
-    from luxonis_ml.vizlab.convert import metadata_annotations
+    from luxonis_ml.vizlab.adapters.ldf import metadata_annotations
 
     parent = Detection(
         class_name="car",
@@ -386,7 +386,7 @@ def _record(task_name: str, *detections: Detection) -> DatasetRecord:
 
 def test_blend_drops_classification_chip_next_to_spatial() -> None:
     """Blending a classification task with a detection drops the corner chip."""
-    from luxonis_ml.vizlab.convert import blend_records_to_annotations
+    from luxonis_ml.vizlab.adapters.ldf import blend_records_to_annotations
 
     classification = _record("classification", Detection(class_name="car"))
     detection = _record(
@@ -403,7 +403,7 @@ def test_blend_drops_classification_chip_next_to_spatial() -> None:
 
 def test_blend_drops_mask_chip_for_a_class_a_box_already_labels() -> None:
     """A semantic mask's chip is dropped when a box shares its class."""
-    from luxonis_ml.vizlab.convert import blend_records_to_annotations
+    from luxonis_ml.vizlab.adapters.ldf import blend_records_to_annotations
 
     car = np.zeros((20, 30), np.uint8)
     car[2:8, 2:12] = 1
@@ -466,7 +466,7 @@ def test_mask_label_chip_false_hides_chip_but_still_draws(
 
 def test_blend_keeps_mask_chip_when_no_box_labels_its_class() -> None:
     """Without a box of the same class, the mask keeps its own chip."""
-    from luxonis_ml.vizlab.convert import blend_records_to_annotations
+    from luxonis_ml.vizlab.adapters.ldf import blend_records_to_annotations
 
     road = np.zeros((20, 30), np.uint8)
     road[12:18, 2:28] = 1
@@ -484,7 +484,7 @@ def test_blend_keeps_mask_chip_when_no_box_labels_its_class() -> None:
 
 def test_blend_keeps_classification_when_it_is_the_only_content() -> None:
     """With nothing but class tags, the classification chips are kept."""
-    from luxonis_ml.vizlab.convert import blend_records_to_annotations
+    from luxonis_ml.vizlab.adapters.ldf import blend_records_to_annotations
 
     blended = blend_records_to_annotations(
         [

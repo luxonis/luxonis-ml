@@ -54,7 +54,7 @@ if TYPE_CHECKING:
         Renderable,
     )
     from luxonis_ml.vizlab.adapters.instances import ColorBy
-    from luxonis_ml.vizlab.panel import PanelData
+    from luxonis_ml.vizlab.layout.panel import PanelData
     from luxonis_ml.vizlab.viewer import LayerState, PreparedFrame
 
     _InspectionSample: TypeAlias = tuple[
@@ -762,7 +762,7 @@ def inspect(
             RenderOptions,
             Swatches,
             fit_grid,
-            grid_hits,
+            grid,
             set_default_options,
             visualize_record,
         )
@@ -770,7 +770,7 @@ def inspect(
             records_to_colored_annotations,
             spatial_instances,
         )
-        from luxonis_ml.vizlab.convert import (
+        from luxonis_ml.vizlab.adapters.ldf import (
             metadata_annotations,
         )
         from luxonis_ml.vizlab.viewer import (
@@ -1079,9 +1079,9 @@ def inspect(
                 )
                 for tile in tiles
             ]
-            return grid_hits(
+            return grid(
                 scaled, ncols=cols, titles=titles, bg=viz_theme.background
-            )
+            ).frame()
         if screen is not None:
             target = (round(0.9 * screen[0]), round(0.9 * screen[1]))
             return fit_grid(
@@ -1093,9 +1093,9 @@ def inspect(
                 bg=viz_theme.background,
                 allow_upscale=True,
             )
-        return grid_hits(
+        return grid(
             tiles, ncols=cols, titles=titles, bg=viz_theme.background
-        )
+        ).frame()
 
     def framed(
         frame: Frame,

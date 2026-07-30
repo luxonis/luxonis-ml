@@ -13,9 +13,9 @@ from enum import Enum
 from typing import ClassVar
 
 from luxonis_ml.utils.color import brand
-from luxonis_ml.vizlab.canvas import Canvas
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import Rect
+from luxonis_ml.vizlab.render.canvas import Canvas
 from luxonis_ml.vizlab.style import Style, Theme
 
 from .base import Annotation, RenderContext

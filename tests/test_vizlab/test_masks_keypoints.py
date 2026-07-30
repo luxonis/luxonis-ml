@@ -52,7 +52,7 @@ def test_mask_outline_none_skips_the_contour_like_no_contour(
     # NONE traces no contour (the mask's only polygon draw), exactly like
     # `contour=False`; SMOOTH still traces it. Asserted on the draw calls, which
     # is immune to the sub-pixel raster noise a pixel comparison would expose.
-    from luxonis_ml.vizlab.canvas import Canvas
+    from luxonis_ml.vizlab.render.canvas import Canvas
 
     real_polygon = Canvas.polygon
     disc = _disc(80, 60, 40, 30, 15)

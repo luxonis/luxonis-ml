@@ -17,14 +17,12 @@ from luxonis_ml.vizlab import (
 )
 from luxonis_ml.vizlab.annotations import Annotation
 from luxonis_ml.vizlab.color import ColorLike
-from luxonis_ml.vizlab.compare import (
+from luxonis_ml.vizlab.comparison.core import (
     CLASS_ERROR_COLOR,
     FN_COLOR,
     FP_COLOR,
     NONE_LABEL,
     TP_COLOR,
-)
-from luxonis_ml.vizlab.comparison.core import (
     Match,
     _ghost,
     _grade_keypoints,
@@ -231,7 +229,7 @@ def _blank() -> np.ndarray:
 
 
 def test_compare_returns_image_with_panel() -> None:
-    from luxonis_ml.vizlab.image import Renderable
+    from luxonis_ml.vizlab.scene.image import Renderable
 
     gt, pred = _mock_scene()
     img = compare(_blank(), gt=gt, pred=pred)

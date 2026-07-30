@@ -1,10 +1,10 @@
 """Append a metadata sidebar ("second window") to an image.
 
-`with_panel` renders an image and appends a panel that shows arbitrary
-JSON-like metadata (augmentations, tags, source, filenames, ...) as an indented
-key/value tree. Like the `compose` functions it renders the image at
-native resolution and returns a new `Image`, so the panel
-never occludes pixels or labels and the original is untouched.
+`with_panel` appends a panel that shows arbitrary JSON-like metadata
+(augmentations, tags, source, filenames, ...) as an indented key/value tree.
+Like the `compose` functions it returns a `Composite` that places the image
+beside the panel rather than flattening it, so the panel never occludes pixels
+or labels, the original is untouched, and an SVG render stays vector.
 """
 
 from collections.abc import Mapping, Sequence
@@ -12,12 +12,12 @@ from dataclasses import dataclass, field
 from typing import NamedTuple, TypeAlias, TypeGuard
 
 from luxonis_ml.utils.color import brand
-from luxonis_ml.vizlab.canvas import Canvas, TextMetrics
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
-from luxonis_ml.vizlab.hitmap import InteractionCapture
-from luxonis_ml.vizlab.image import Composite, Renderable, _style_scale
+from luxonis_ml.vizlab.interaction.maps import InteractionCapture
 from luxonis_ml.vizlab.render import RenderEnvironment
+from luxonis_ml.vizlab.render.canvas import Canvas, TextMetrics
+from luxonis_ml.vizlab.scene.image import Composite, Renderable, _style_scale
 from luxonis_ml.vizlab.style import DEFAULT_STYLE, Style
 
 
@@ -115,7 +115,7 @@ _MAX_WIDTH = 420.0
 #: The class legend folds into at most this many columns.
 _LEGEND_COLS = 2
 #: The panel heading renders a step larger and bold, matching the grid/cell
-#: titles (see `luxonis_ml.vizlab.compose`), so it reads as a heading. It is
+#: titles (see `luxonis_ml.vizlab.layout.compose`), so it reads as a heading. It is
 #: uppercased and lightly letter-spaced to match the section labels below it.
 _TITLE_SCALE = 1.3
 _TITLE_WEIGHT = 700
@@ -1348,7 +1348,7 @@ def _compose_panel(
     Also returns the ``(dx, dy)`` the source image was translated by (so a caller
     carrying a hover `HitMap` can shift it to stay aligned) and the ``(region,
     action)`` click targets of the panel's controls and legend swatches, in
-    composed-image pixels (see `luxonis_ml.vizlab.frame.Frame.with_panel`).
+    composed-image pixels (see `luxonis_ml.vizlab.interaction.frame.Frame.with_panel`).
     """
     _ = style or DEFAULT_STYLE
     # The image is placed at its display (render_at) size, not its source size.

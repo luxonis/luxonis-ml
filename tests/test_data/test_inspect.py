@@ -352,7 +352,7 @@ def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
     )
     from luxonis_ml.vizlab.adapters import InstanceDetection
     from luxonis_ml.vizlab.color import ColorLike
-    from luxonis_ml.vizlab.panel import PanelData
+    from luxonis_ml.vizlab.layout.panel import PanelData
     from luxonis_ml.vizlab.viewer import Viewer as RealViewer
 
     panels: list[PanelData] = []

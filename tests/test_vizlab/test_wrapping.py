@@ -11,7 +11,7 @@ from luxonis_ml.vizlab import (
     RenderContext,
     grid,
 )
-from luxonis_ml.vizlab.canvas import Canvas
+from luxonis_ml.vizlab.render.canvas import Canvas
 
 # --- Canvas.wrap_text -------------------------------------------------------
 

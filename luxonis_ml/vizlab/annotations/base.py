@@ -27,7 +27,7 @@ from typing_extensions import Self
 
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
-from luxonis_ml.vizlab.hitmap import InteractionCapture
+from luxonis_ml.vizlab.interaction.maps import InteractionCapture
 from luxonis_ml.vizlab.render import RenderEnvironment
 from luxonis_ml.vizlab.style import (
     DEFAULT_PALETTE,
@@ -44,8 +44,8 @@ from luxonis_ml.vizlab.tooltip import Tooltip
 from .layout import LabelLayout
 
 if TYPE_CHECKING:
-    from luxonis_ml.vizlab.canvas import Canvas
     from luxonis_ml.vizlab.gradient import Gradient
+    from luxonis_ml.vizlab.render.canvas import Canvas
 
 
 @dataclass
@@ -67,13 +67,10 @@ class RenderContext:
         style_scale: Multiplier applied to every resolved style so pixel metrics
             (stroke, typography, chip padding) track the canvas resolution. ``1.0``
             leaves styles at their nominal sizes.
-        hits: Collector for hover hit entries, or ``None`` to capture none. When
-            set, annotations that carry a `Tooltip` append their ``(region,
-            tooltip)`` to it during the label pass (see `emit_hit`); the regions
-            are in final display-pixel coordinates.
-        capture: Render-time interaction collector. New rendering paths use this
-            instead of ``hits`` so nested composites can transform hover and
-            click regions with their pixels.
+        capture: Render-time interaction collector. Annotations that carry a
+            `Tooltip` append their ``(region, tooltip)`` to it during the label
+            pass (see `emit_hit`), in final display-pixel coordinates; nested
+            composites wrap it so regions transform with their pixels.
         environment: Scoped style state resolved once at the render boundary.
         gradient: Default colormap for heatmaps that set none (from the render
             options); ``None`` falls back to the library default gradient.
@@ -87,7 +84,6 @@ class RenderContext:
     layout: LabelLayout | None = None
     theme: Theme | None = None
     style_scale: float = 1.0
-    hits: list[tuple[Rect, Tooltip]] | None = None
     capture: InteractionCapture | None = None
     environment: RenderEnvironment = dataclass_field(
         default_factory=RenderEnvironment.current
@@ -114,7 +110,6 @@ class RenderContext:
             layout=self.layout,
             theme=self.theme,
             style_scale=self.style_scale,
-            hits=self.hits,
             capture=self.capture,
             environment=self.environment,
             gradient=self.gradient,
@@ -123,7 +118,7 @@ class RenderContext:
     def emit_hit(self, region: Rect, tooltip: Tooltip | None) -> None:
         """Record a hover region for the current annotation, if collecting.
 
-        A no-op unless a collector is attached (`hits`) and the annotation
+        A no-op unless a collector is attached (`capture`) and the annotation
         carries a `Tooltip`. ``region`` must be in the canvas's final display
         pixels (the label pass runs on the already-scaled canvas).
 
@@ -136,8 +131,6 @@ class RenderContext:
             return
         if self.capture is not None:
             self.capture.add_hover(region, tooltip)
-        elif self.hits is not None:
-            self.hits.append((region, tooltip))
 
 
 class Annotation(BaseModel):

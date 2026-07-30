@@ -1,9 +1,11 @@
 """Combine several images: blend (mixup), stack, and grid.
 
-Every function here renders its inputs at native resolution (so text and edges
-stay crisp) and returns a brand-new `Image` wrapping the
-composited raster. The inputs are never mutated — combining multiple images makes
-purity unambiguous, unlike the in-place ``Image.add``.
+`blend` mixes two base rasters and returns a new `Image`. The stacking helpers
+return a `Composite` that places its inputs without flattening them: each tile
+draws itself through `Renderable._draw_onto` at composition time, so a grid
+rendered to SVG keeps every stroke and label chip as vector. The inputs are never
+mutated — combining multiple images makes purity unambiguous, unlike the in-place
+``Image.add``.
 """
 
 import math
@@ -22,17 +24,22 @@ from luxonis_ml.vizlab.annotations import (
     SemanticMask,
 )
 from luxonis_ml.vizlab.annotations.mask import _resize_mask
-from luxonis_ml.vizlab.canvas import Canvas
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
-from luxonis_ml.vizlab.hitmap import InteractionCapture
-from luxonis_ml.vizlab.image import Composite, Image, Renderable, _style_scale
+from luxonis_ml.vizlab.interaction.maps import InteractionCapture
 from luxonis_ml.vizlab.markup import Span, parse
 from luxonis_ml.vizlab.render import RenderEnvironment
+from luxonis_ml.vizlab.render.canvas import Canvas
+from luxonis_ml.vizlab.scene.image import (
+    Composite,
+    Image,
+    Renderable,
+    _style_scale,
+)
 from luxonis_ml.vizlab.style import DARK_THEME, DEFAULT_STYLE, Style
 
 if TYPE_CHECKING:
-    from luxonis_ml.vizlab.frame import Frame
+    from luxonis_ml.vizlab.interaction.frame import Frame
 
 _DEFAULT_BG = DARK_THEME.background
 """Brand dark background painted behind stacked/gridded cells and pad gaps
@@ -78,7 +85,7 @@ def blend(
         lists. Neither input is mutated.
 
     Examples:
-        >>> from luxonis_ml.vizlab.image import Image
+        >>> from luxonis_ml.vizlab.scene.image import Image
         >>> import numpy as np
         >>> a = Image(np.zeros((4, 4, 3), np.uint8))
         >>> b = Image(np.full((4, 4, 3), 100, np.uint8))
@@ -208,13 +215,13 @@ def hstack(
         style: Style whose font is used for titles.
 
     Returns:
-        A new `Image` of the row.
+        A `Composite` of the row.
 
     Raises:
         ValueError: If ``images`` is empty.
 
     Examples:
-        >>> from luxonis_ml.vizlab.image import Image
+        >>> from luxonis_ml.vizlab.scene.image import Image
         >>> import numpy as np
         >>> cells = [Image(np.zeros((10, 20, 3), np.uint8)) for _ in range(2)]
         >>> hstack(cells, pad=5).render().shape
@@ -252,7 +259,7 @@ def vstack(
         style: Style whose font is used for titles.
 
     Returns:
-        A new `Image` of the column.
+        A `Composite` of the column.
 
     Raises:
         ValueError: If ``images`` is empty.
@@ -294,13 +301,13 @@ def grid(
             whose labels should stay subordinate to the outer titles.
 
     Returns:
-        A new `Image` of the grid.
+        A `Composite` of the grid.
 
     Raises:
         ValueError: If ``images`` is empty.
 
     Examples:
-        >>> from luxonis_ml.vizlab.image import Image
+        >>> from luxonis_ml.vizlab.scene.image import Image
         >>> import numpy as np
         >>> grid(
         ...     [Image(np.zeros((10, 10, 3), np.uint8))] * 4, ncols=2, pad=4
@@ -346,8 +353,8 @@ def grid_placed(
             and bold; set ``False`` to keep a nested sub-grid's labels subordinate.
 
     Returns:
-        A ``(grid_image, placements)`` pair. Each placement is an integer
-        ``(x, y, width, height)`` tuple in composite-image pixels.
+        A ``(composite, placements)`` pair. Each placement is an integer
+        ``(x, y, width, height)`` tuple in composite pixels.
 
     Raises:
         ValueError: If ``images`` is empty.
@@ -364,50 +371,6 @@ def grid_placed(
         emphasize_titles=emphasize_titles,
     )
     return composite, placements
-
-
-def grid_hits(
-    images: Sequence[Renderable],
-    *,
-    ncols: int | None = None,
-    pad: int = 10,
-    bg: ColorLike = _DEFAULT_BG,
-    titles: Sequence[str] | None = None,
-    style: Style = DEFAULT_STYLE,
-    emphasize_titles: bool = True,
-) -> "Frame":
-    """Compatibility wrapper returning the grid's `Renderable.frame`.
-
-    Ordinary composition now retains hover and click regions through the scene
-    graph, so callers that only need a renderable can use `grid`; this helper
-    remains for code that expects a viewer-ready `Frame`.
-
-    Args:
-        images: The images to place, filled row-major.
-        ncols: Positive number of columns; defaults to ``ceil(sqrt(n))``.
-        pad: Gap between cells and outer margin, in pixels.
-        bg: Background color.
-        titles: Optional per-image titles drawn above each cell.
-        style: Style whose font is used for titles.
-        emphasize_titles: Whether titles render a step larger and bold.
-
-    Returns:
-        A `Frame` whose image matches `grid`'s output.
-
-    Raises:
-        ValueError: If ``images`` is empty.
-
-    """
-    composite = grid(
-        images,
-        ncols=ncols,
-        pad=pad,
-        bg=bg,
-        titles=titles,
-        style=style,
-        emphasize_titles=emphasize_titles,
-    )
-    return composite.frame()
 
 
 def fit_grid(
@@ -479,9 +442,9 @@ def fit_grid(
         )
         for img in images
     ]
-    return grid_hits(
+    return grid(
         scaled, ncols=cols, pad=pad, bg=bg, titles=titles, style=style
-    )
+    ).frame()
 
 
 def _fit_title_h(
@@ -556,7 +519,7 @@ def combine(
 
     The resolved groups are then arranged with an automatically chosen column
     count (see `_smart_cols`). Inputs are rendered at native resolution and
-    never mutated; a brand-new `Image` is returned.
+    never mutated; a brand-new scene is returned.
 
     Args:
         groups: The images / image-groups to compose.
@@ -565,7 +528,8 @@ def combine(
         style: Style whose font is used for titles.
 
     Returns:
-        A new `Image` wrapping the composed figure.
+        A `Composite` of the composed figure — or, when a single image is
+        given, a copy of it.
 
     Raises:
         ValueError: If no groups are given, or a group is empty.
@@ -597,34 +561,6 @@ def combine(
         bg=bg,
         style=style,
     )
-
-
-def combine_hits(
-    *groups: CombineGroup,
-    pad: int = 10,
-    bg: ColorLike = _DEFAULT_BG,
-    style: Style = DEFAULT_STYLE,
-) -> "Frame":
-    """Compatibility wrapper returning the combined scene's `Renderable.frame`.
-
-    `combine` now preserves interactions through nested composites directly;
-    this helper remains for callers that expect a viewer-ready `Frame`.
-
-    Args:
-        groups: The images / image-groups to compose.
-        pad: Gap between cells and the outer margin, in pixels.
-        bg: Background color painted behind cells and gaps.
-        style: Style whose font is used for titles.
-
-    Returns:
-        A `Frame` whose image matches `combine`'s output.
-
-    Raises:
-        ValueError: If no groups are given, or a group is empty.
-        TypeError: If a group is not a `Renderable`, a sequence, or a mapping.
-
-    """
-    return combine(*groups, pad=pad, bg=bg, style=style).frame()
 
 
 def _as_images(member: "Sequence[object]") -> list[Renderable]:

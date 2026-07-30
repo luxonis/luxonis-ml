@@ -1,8 +1,8 @@
 """Shared drawing primitives for annotation cards."""
 
 from luxonis_ml.utils.color import brand
-from luxonis_ml.vizlab.canvas import Canvas, Shadow
 from luxonis_ml.vizlab.geometry import Rect
+from luxonis_ml.vizlab.render.canvas import Canvas, Shadow
 from luxonis_ml.vizlab.style import Style
 
 

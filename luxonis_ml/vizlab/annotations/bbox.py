@@ -14,7 +14,6 @@ a rotated one is drawn as an anti-aliased quad (square corners, no shadow).
 import math
 
 from luxonis_ml.ldf import BBoxAnnotation
-from luxonis_ml.vizlab.canvas import Shadow
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import (
     XY,
@@ -22,6 +21,7 @@ from luxonis_ml.vizlab.geometry import (
     bounding_rect,
     oriented_corners,
 )
+from luxonis_ml.vizlab.render.canvas import Shadow
 from luxonis_ml.vizlab.style import Palette, Style
 
 from .base import Annotation, RenderContext

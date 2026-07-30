@@ -10,10 +10,10 @@ import math
 from collections.abc import Sequence
 
 from luxonis_ml.utils.color import brand
-from luxonis_ml.vizlab.canvas import Canvas, Shadow, TextMetrics
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
 from luxonis_ml.vizlab.markup import Span, parse
+from luxonis_ml.vizlab.render.canvas import Canvas, Shadow, TextMetrics
 from luxonis_ml.vizlab.style import Style
 
 from .base import RenderContext

@@ -1568,7 +1568,7 @@ def _load_annotated(
     from luxonis_ml.data.loaders.label_converter import (
         loader_output_to_records,
     )
-    from luxonis_ml.vizlab.convert import blend_records_to_annotations
+    from luxonis_ml.vizlab.adapters.ldf import blend_records_to_annotations
 
     loader = LuxonisLoader(
         dataset,

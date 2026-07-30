@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from luxonis_ml.vizlab import BBox, Image, Tooltip
-from luxonis_ml.vizlab.frame import Frame
+from luxonis_ml.vizlab.interaction.frame import Frame
 from luxonis_ml.vizlab.viewer import (
     Cv2Backend,
     LayerState,
@@ -365,7 +365,7 @@ def test_layer_state_copy_is_independent() -> None:
 
 def test_panel_click_toggles_a_class_through_wait() -> None:
     from luxonis_ml.vizlab.geometry import Rect
-    from luxonis_ml.vizlab.hitmap import ClickMap
+    from luxonis_ml.vizlab.interaction.maps import ClickMap
 
     backend = FakeBackend(keys=[-1, ord("q")])
     viewer = Viewer(backend, hud=False)
@@ -392,7 +392,7 @@ def test_click_outside_clickmap_is_ignored() -> None:
 
 def test_driven_click_applies_action_immediately() -> None:
     from luxonis_ml.vizlab.geometry import Rect
-    from luxonis_ml.vizlab.hitmap import ClickMap
+    from luxonis_ml.vizlab.interaction.maps import ClickMap
 
     backend = FakeBackend()
     viewer = Viewer(backend, hud=False)

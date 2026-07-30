@@ -191,7 +191,7 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
         label_chip: Whether to draw the class label chip. The fill and contour
             still draw and keep the class color — this only hides the chip, e.g.
             when a box already labels the same class (see
-            `luxonis_ml.vizlab.convert.blend_records_to_annotations`).
+            `luxonis_ml.vizlab.adapters.ldf.blend_records_to_annotations`).
 
     See `Annotation` for the shared
     ``label``, ``score``, ``payload``, ``color``, ``style``, and ``palette`` fields.

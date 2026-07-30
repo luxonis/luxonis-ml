@@ -7,7 +7,7 @@ from luxonis_ml.vizlab import (
     Palette,
     RenderOptions,
 )
-from luxonis_ml.vizlab.convert import detection_to_annotations
+from luxonis_ml.vizlab.adapters.ldf import detection_to_annotations
 
 
 def _pinned(

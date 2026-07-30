@@ -45,10 +45,10 @@ from luxonis_ml.vizlab.tooltip import Tooltip
 
 if TYPE_CHECKING:
     from luxonis_ml.ldf import Detection
-    from luxonis_ml.vizlab.canvas import Canvas
-    from luxonis_ml.vizlab.image import Image, Renderable
     from luxonis_ml.vizlab.io import ImageSource
-    from luxonis_ml.vizlab.panel import PanelData
+    from luxonis_ml.vizlab.layout.panel import PanelData
+    from luxonis_ml.vizlab.render.canvas import Canvas
+    from luxonis_ml.vizlab.scene.image import Image, Renderable
 
     #: A matchable detection: a vizlab box or a full LDF detection tree.
     Detectionish = BBox | Detection
@@ -514,7 +514,7 @@ def _source_annotations(
         box.children = []
         box.payload = None
         return [box]
-    from luxonis_ml.vizlab.convert import detection_to_annotations
+    from luxonis_ml.vizlab.adapters.ldf import detection_to_annotations
 
     return detection_to_annotations(obj, options.replace(hover_metadata=False))
 
@@ -696,7 +696,7 @@ def _render_match(match: Match, options: RenderOptions) -> list[Annotation]:
 
 def _base(image: "ImageSource", options: RenderOptions) -> "Image":
     """Build a fresh `Image` over ``image`` for one comparison panel."""
-    from luxonis_ml.vizlab.image import Image
+    from luxonis_ml.vizlab.scene.image import Image
 
     return Image(image, options=options)
 
@@ -754,7 +754,7 @@ def _side_by_side_image(
     object left to right; an unmatched detection has no twin — its partner shows
     as a faded ghost in the other panel.
     """
-    from luxonis_ml.vizlab import compose
+    from luxonis_ml.vizlab.layout import compose
 
     gt_img = _base(image, options)
     pred_img = _base(image, options)
@@ -770,7 +770,7 @@ def _triptych_image(
     image: "ImageSource", result: ComparisonResult, options: RenderOptions
 ) -> "Renderable":
     """Ground truth, prediction, and the verdict-colored diff, side by side."""
-    from luxonis_ml.vizlab import compose
+    from luxonis_ml.vizlab.layout import compose
 
     gt_img = _base(image, options)
     pred_img = _base(image, options)
@@ -1149,8 +1149,8 @@ def confusion_matrix_figure(
         A new `Image` of the matrix.
 
     """
-    from luxonis_ml.vizlab.canvas import Canvas
-    from luxonis_ml.vizlab.image import Image
+    from luxonis_ml.vizlab.render.canvas import Canvas
+    from luxonis_ml.vizlab.scene.image import Image
 
     options = options or RenderOptions()
     labels, matrix = report.confusion_matrix()

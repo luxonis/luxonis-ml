@@ -3,7 +3,8 @@
 Every `Renderable` captures hover and click regions through the same scene graph
 that places its pixels. `Renderable.frame` snapshots those regions alongside the
 scene, so a `Viewer` receives one typed value instead of loose maps that are easy
-to mismatch. The legacy ``*_hits`` composition helpers return the same value.
+to mismatch. Composition preserves the regions, so a grid or panel yields the
+same value as a single image does.
 """
 
 from dataclasses import dataclass, field
@@ -11,14 +12,14 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from luxonis_ml.vizlab.image import Renderable
 from luxonis_ml.vizlab.render import RenderEnvironment
+from luxonis_ml.vizlab.scene.image import Renderable
 
 from .maps import ClickMap, HitMap
 
 if TYPE_CHECKING:
     from luxonis_ml.vizlab.color import ColorLike
-    from luxonis_ml.vizlab.panel import PanelData
+    from luxonis_ml.vizlab.layout.panel import PanelData
     from luxonis_ml.vizlab.style import Style
 
 
@@ -92,7 +93,7 @@ class Frame:
             and legend swatches.
 
         """
-        from luxonis_ml.vizlab.panel import _compose_panel
+        from luxonis_ml.vizlab.layout.panel import _compose_panel
 
         image, (dx, dy), clicks = _compose_panel(
             self.image,

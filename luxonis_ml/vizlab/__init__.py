@@ -155,17 +155,18 @@ Notes:
       images and leave their inputs unchanged.
 
     Internally those responsibilities live in focused ``adapters``, ``scene``,
-    ``render``, ``layout``, ``interaction``, and ``comparison`` packages. The
-    established modules such as ``vizlab.image`` and ``vizlab.compose`` remain
-    compatibility facades, so existing imports do not change.
+    ``render``, ``layout``, ``interaction``, and ``comparison`` packages. Every
+    name above is re-exported here, so importing from ``luxonis_ml.vizlab`` is
+    enough; reach for a package path only when you want something the top level
+    does not export.
 
     Interactive display lives in the opt-in `luxonis_ml.vizlab.viewer`
     subpackage (import it explicitly: ``from luxonis_ml.vizlab.viewer import
     Viewer``). It is deliberately *not* re-exported here so the core rendering
     package never imports a windowing/OpenCV backend until a viewer is used. Pair
     it with `Frame` (a renderable scene plus the hover/click regions captured by
-    `Renderable.frame`). Composition preserves those regions automatically;
-    the older ``*_hits`` helpers remain convenient viewer-ready wrappers.
+    `Renderable.frame`). Composition preserves those regions automatically, so
+    ``grid(...).frame()`` is as viewer-ready as ``image.frame()``.
 
     See ``vizlab_examples/`` for a runnable feature overview.
 
@@ -174,6 +175,7 @@ Notes:
 from luxonis_ml.guard_extras import guard_missing_extra
 
 with guard_missing_extra("viz"):
+    from .adapters import visualize_record
     from .annotations import (
         Annotation,
         BBox,
@@ -190,7 +192,7 @@ with guard_missing_extra("viz"):
         SemanticMask,
     )
     from .color import Color
-    from .compare import (
+    from .comparison import (
         ComparisonReport,
         ComparisonResult,
         Match,
@@ -199,18 +201,6 @@ with guard_missing_extra("viz"):
         confusion_matrix_figure,
         match_detections,
     )
-    from .compose import (
-        blend,
-        combine,
-        combine_hits,
-        fit_grid,
-        grid,
-        grid_hits,
-        hstack,
-        vstack,
-    )
-    from .convert import visualize_record
-    from .frame import Frame
     from .geometry import Rect
     from .gradient import (
         DEFAULT_GRADIENT,
@@ -218,16 +208,28 @@ with guard_missing_extra("viz"):
         Gradient,
         resolve_gradient,
     )
-    from .hitmap import HitMap
-    from .image import Composite, Image, Renderable
+    from .interaction import HitMap
+    from .interaction.frame import Frame
+    from .layout import (
+        Block,
+        Controls,
+        Swatches,
+        blend,
+        combine,
+        fit_grid,
+        grid,
+        hstack,
+        vstack,
+        with_panel,
+    )
     from .options import (
         RenderOptions,
         current_options,
         default_options,
         set_default_options,
     )
-    from .panel import Block, Controls, Swatches, with_panel
     from .presets import COCO_CLASSES
+    from .scene import Composite, Image, Renderable
     from .style import (
         DARK_THEME,
         DEFAULT_PALETTE,
@@ -288,7 +290,6 @@ __all__ = [
     "Verdict",
     "blend",
     "combine",
-    "combine_hits",
     "compare",
     "confusion_matrix_figure",
     "current_options",
@@ -296,7 +297,6 @@ __all__ = [
     "fit_grid",
     "get_default_theme",
     "grid",
-    "grid_hits",
     "hstack",
     "match_detections",
     "resolve_gradient",

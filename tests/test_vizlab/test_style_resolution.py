@@ -2,8 +2,8 @@
 
 from luxonis_ml.vizlab import LIGHT_THEME, BBox, Keypoints, Style
 from luxonis_ml.vizlab.annotations.base import RenderContext
-from luxonis_ml.vizlab.canvas import Canvas
 from luxonis_ml.vizlab.render import RenderEnvironment
+from luxonis_ml.vizlab.render.canvas import Canvas
 from luxonis_ml.vizlab.style import Palette
 
 
