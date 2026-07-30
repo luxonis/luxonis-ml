@@ -194,7 +194,7 @@ doctest_optionflags = [
   "NUMBER",
 ]
 testpaths = ["tests", "luxonis_ml"]
-addopts = ["--warnings", "--doctest-modules"]
+addopts = ["--disable-warnings", "--doctest-modules"]
 
 
 [tool.coverage.run]
