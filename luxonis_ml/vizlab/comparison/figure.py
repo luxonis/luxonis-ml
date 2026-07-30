@@ -39,8 +39,11 @@ def _draw_text(
     anchor: str = "center",
     weight: int = 600,
 ) -> None:
-    """Draw ``text`` at ``(x, y)`` anchored center/left/right and vertically mid."""
-    metrics = canvas.measure_text(text, size, weight=weight)
+    """Draw ``text`` at ``(x, y)`` anchored center/left/right and vertically mid.
+
+    ``text`` may carry inline markup; it is measured and drawn as such.
+    """
+    metrics = canvas.measure_markup(text, size, weight=weight)
     if anchor == "center":
         tx = x - metrics.width / 2
     elif anchor == "right":
@@ -48,7 +51,7 @@ def _draw_text(
     else:
         tx = x
     ty = y + (metrics.ascent - metrics.descent) / 2
-    canvas.text((tx, ty), text, size=size, color=color, weight=weight)
+    canvas.markup((tx, ty), text, size=size, color=color, weight=weight)
 
 
 def _draw_confusion_cell(

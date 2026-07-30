@@ -99,7 +99,7 @@ def _draw_bars(
     for name, value, label, m in ll.measured:
         is_gt = name == dist.ground_truth
         color = ll.palette.color_for(name)
-        cv.text(
+        cv.markup(
             (rect.left + _PAD, y + (ll.row_h - m.height) / 2 + m.ascent),
             name,
             size=size,
@@ -122,8 +122,8 @@ def _draw_bars(
             cv.rounded_rect(
                 track, radius=ll.bar_h / 2, stroke=_WHITE, stroke_width=1.5
             )
-        lm = cv.measure_text(label, size, weight=weight, mono=True)
-        cv.text(
+        lm = cv.measure_markup(label, size, weight=weight, mono=True)
+        cv.markup(
             (val_x, y + (ll.row_h - lm.height) / 2 + lm.ascent),
             label,
             size=size,
@@ -216,7 +216,7 @@ def _draw_distribution_key(
     for name, label, metrics in rows:
         color = _OTHER if name == "other" else ll.palette.color_for(name)
         _draw_key_swatch(cv, rect.left + _PAD, y, color, ll)
-        cv.text(
+        cv.markup(
             (
                 rect.left + _PAD + ll.swatch + _COL_GAP,
                 y + metrics.ascent,
@@ -396,8 +396,8 @@ def _draw_pie(
         top_name, top_value = max(ll.segs, key=lambda kv: kv[1])
         label = _pct(top_value / ll.total)
         big = style.font_size * 1.2
-        m = cv.measure_text(label, big, weight=700, mono=True)
-        cv.text(
+        m = cv.measure_markup(label, big, weight=700, mono=True)
+        cv.markup(
             (cx - m.width / 2, cy - m.height / 2 + m.ascent),
             label,
             size=big,

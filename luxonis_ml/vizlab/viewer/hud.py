@@ -57,10 +57,11 @@ def render_controls_card(controls: list[Control], size: int) -> np.ndarray:
         for c in controls
     ]
     name_w = [
-        text_layout.measure(c.name, size, weight=600).width for c in controls
+        text_layout.measure_markup(c.name, size, weight=600).width
+        for c in controls
     ]
     val_w = [
-        text_layout.measure(c.value, size, weight=600, mono=True).width
+        text_layout.measure_markup(c.value, size, weight=600, mono=True).width
         for c in controls
     ]
     keycap_w = round(max(key_w) + 2 * kc_pad)
@@ -114,7 +115,7 @@ def render_controls_card(controls: list[Control], size: int) -> np.ndarray:
             weight=700,
             mono=True,
         )
-        canvas.text(
+        canvas.markup(
             (left + keycap_w + col_gap, baseline),
             control.name,
             size=size,
@@ -128,7 +129,7 @@ def render_controls_card(controls: list[Control], size: int) -> np.ndarray:
             if control.active is False
             else name_color
         )
-        canvas.text(
+        canvas.markup(
             (right - val_w[i], baseline),
             control.value,
             size=size,

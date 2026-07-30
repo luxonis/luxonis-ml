@@ -237,7 +237,7 @@ class ClassDistribution(CornerStack):
         """Measure the optional title, or ``None`` when there is none."""
         if self.title is None:
             return None
-        return canvas.measure_text(self.title, size * 1.05, weight=700)
+        return canvas.measure_markup(self.title, size * 1.05, weight=700)
 
     def _title_band(
         self, canvas: Canvas, size: float
@@ -255,8 +255,8 @@ class ClassDistribution(CornerStack):
         chrome: brand.Chrome,
     ) -> None:
         """Draw the title at baseline; assumes there is one."""
-        metrics = cv.measure_text(str(self.title), size * 1.05, weight=700)
-        cv.text(
+        metrics = cv.measure_markup(str(self.title), size * 1.05, weight=700)
+        cv.markup(
             (x, y + metrics.ascent),
             str(self.title),
             size=size * 1.05,
@@ -283,12 +283,12 @@ class ClassDistribution(CornerStack):
                 name,
                 value,
                 self._value_label(value, total),
-                canvas.measure_text(name, size, weight=weight),
+                canvas.measure_markup(name, size, weight=weight),
             )
             for name, value in rows
         ]
         val_w = max(
-            canvas.measure_text(label, size, weight=weight, mono=True).width
+            canvas.measure_markup(label, size, weight=weight, mono=True).width
             for _, _, label, _ in measured
         )
         name_w = max(m.width for _, _, _, m in measured)
@@ -371,9 +371,9 @@ class ClassDistribution(CornerStack):
         big = size * 1.5
         bar_h = size * 0.9
 
-        name_m = canvas.measure_text(name, size, weight=700)
+        name_m = canvas.measure_markup(name, size, weight=700)
         pct_text = self._value_label(value, self._total())
-        pct_m = canvas.measure_text(pct_text, big, weight=700, mono=True)
+        pct_m = canvas.measure_markup(pct_text, big, weight=700, mono=True)
         gt = self.ground_truth
         correct = gt is not None and gt == name
         marker = size * 1.1 if gt is not None else 0.0
@@ -388,7 +388,7 @@ class ClassDistribution(CornerStack):
         def _draw(cv: Canvas, rect: Rect) -> None:
             draw_card_background(cv, rect, style, chrome)
             y = rect.top + _PAD
-            cv.text(
+            cv.markup(
                 (
                     rect.left + _PAD,
                     y + (header_h - name_m.height) / 2 + name_m.ascent,
@@ -404,7 +404,7 @@ class ClassDistribution(CornerStack):
                 cx, cy = right - r, y + header_h / 2
                 _draw_verdict(cv, cx, cy, r, correct)
                 right = cx - r - 6.0
-            cv.text(
+            cv.markup(
                 (
                     right - pct_m.width,
                     y + (header_h - pct_m.height) / 2 + pct_m.ascent,
@@ -505,7 +505,7 @@ class ClassDistribution(CornerStack):
                 (
                     name,
                     label,
-                    data.canvas.measure_text(
+                    data.canvas.measure_markup(
                         f"{name}  {label}", data.size, weight=data.weight
                     ),
                 )

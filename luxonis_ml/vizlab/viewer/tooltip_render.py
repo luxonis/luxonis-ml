@@ -4,6 +4,10 @@ These helpers are pure vizlab `Canvas`/NumPy — no windowing or OpenCV — so t
 are shared by any backend. The card matches the rest of the UI: a rounded,
 translucent brand card with a soft shadow, a class-tinted title, periwinkle Inter
 keys, and near-white JetBrains Mono values.
+
+The title and rows are drawn as inline markup, like the rest of the library's
+text; the adapters escape dataset metadata on the way in, so an arbitrary value
+still renders verbatim (see `luxonis_ml.vizlab.render.markup.escape`).
 """
 
 import numpy as np
@@ -43,7 +47,7 @@ def _draw_tooltip_header(
         )
         text_x += swatch + swatch_gap
     if title_metrics is not None:
-        canvas.text(
+        canvas.markup(
             (text_x, y + title_metrics.ascent),
             str(title),
             size=title_size,
@@ -67,14 +71,14 @@ def _draw_tooltip_rows(
 
     for key, value, key_width, _value_width in rows:
         baseline = y + metrics.ascent
-        canvas.text(
+        canvas.markup(
             (x, baseline),
             key,
             size=size,
             color=brand.CARD_KEY,
             weight=600,
         )
-        canvas.text(
+        canvas.markup(
             (x + key_width, baseline),
             value,
             size=size,
@@ -112,13 +116,15 @@ def render_tooltip_card(tooltip: Tooltip, size: int) -> np.ndarray:
         (
             key,
             val,
-            text_layout.measure(key, size, weight=600).width,
-            text_layout.measure(val, size, weight=500, mono=True).width,
+            text_layout.measure_markup(key, size, weight=600).width,
+            text_layout.measure_markup(val, size, weight=500, mono=True).width,
         )
         for key, val in pairs
     ]
     title_m = (
-        text_layout.measure(title, title_size, weight=700) if title else None
+        text_layout.measure_markup(title, title_size, weight=700)
+        if title
+        else None
     )
     # A class-color swatch leads the header, so the tint reads even when there is
     # no title to tint (a rows-only tooltip). Its side tracks the header height.

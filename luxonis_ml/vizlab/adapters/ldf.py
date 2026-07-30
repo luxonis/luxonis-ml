@@ -29,6 +29,7 @@ from luxonis_ml.vizlab.annotations import (
 )
 from luxonis_ml.vizlab.layout.panel import with_panel
 from luxonis_ml.vizlab.options import RenderOptions
+from luxonis_ml.vizlab.render.markup import escape
 from luxonis_ml.vizlab.tooltip import Tooltip
 
 if TYPE_CHECKING:
@@ -270,13 +271,15 @@ def _detection_tooltip(
     tinted with the class color, and every metadata entry becomes a row. Returns
     ``None`` when there is no metadata worth hovering.
     """
+    # Dataset metadata is arbitrary text, so it is escaped rather than parsed:
+    # a value that happens to contain ``<b>`` must read as those characters.
     rows = tuple(
-        (str(key), str(value))
+        (escape(key), escape(value))
         for key, value in (detection.metadata or {}).items()
     )
     if not rows:
         return None
-    title = detection.class_name or "object"
+    title = escape(detection.class_name) if detection.class_name else "object"
     if detection.instance_id is not None:
         title = f"{title} #{detection.instance_id}"
     tint = (
@@ -310,14 +313,18 @@ def _meta_rows(
     detection: "Detection",
     metadata: "Mapping[str, int | float | str]",
 ) -> list[str]:
-    """Format a detection's metadata as card rows."""
+    """Format a detection's metadata as card rows.
+
+    Both the class name and every metadata entry are escaped, so dataset text
+    that happens to look like markup renders as the characters it is.
+    """
     rows: list[str] = []
     prefix = ""
     if detection.class_name:
-        rows.append(detection.class_name)
+        rows.append(escape(detection.class_name))
         prefix = "  "
     for key, value in metadata.items():
-        rows.append(f"{prefix}{key}: {value}")
+        rows.append(f"{prefix}{escape(key)}: {escape(value)}")
     return rows
 
 
@@ -578,9 +585,14 @@ def _panel_data(
     array_shapes: dict[str, list[int]],
     panel: "Mapping[str, PanelData] | None",
 ) -> "dict[str, PanelData]":
-    """Merge sample metadata, array shapes, and an extra panel into panel data."""
+    """Merge sample metadata, array shapes, and an extra panel into panel data.
+
+    Sample metadata is escaped on the way in (it is dataset text, not markup the
+    caller wrote); the explicit ``panel`` mapping is left alone, so a caller can
+    style their own rows.
+    """
     data: dict[str, PanelData] = {
-        key: _metadata_to_panel_data(value)
+        escape(key): _metadata_to_panel_data(value)
         for key, value in record.sample_metadata.items()
     }
     if array_shapes:
@@ -591,14 +603,18 @@ def _panel_data(
 
 
 def _metadata_to_panel_data(value: "ParamValue") -> "PanelData":
-    """Normalize JSON-like metadata to the panel's string-keyed data model."""
+    """Normalize JSON-like metadata to the panel's string-keyed data model.
+
+    Keys and string values are escaped: they come from the dataset, so they are
+    text to display verbatim rather than markup to interpret.
+    """
     if isinstance(value, Mapping):
         return {
-            str(key): _metadata_to_panel_data(item)
+            escape(key): _metadata_to_panel_data(item)
             for key, item in value.items()
         }
     if isinstance(value, str):
-        return value
+        return escape(value)
     if isinstance(value, Iterable):
         return [_metadata_to_panel_data(item) for item in value]
     return value

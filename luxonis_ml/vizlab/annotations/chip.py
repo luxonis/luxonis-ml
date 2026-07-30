@@ -60,14 +60,14 @@ def chip_size(
 
     Args:
         canvas: The canvas (for text measurement).
-        text: The chip text.
+        text: The chip text, which may carry inline markup.
         style: The resolved style.
 
     Returns:
         A ``(width, height, metrics)`` tuple, all in pixels.
 
     """
-    metrics = canvas.measure_text(
+    metrics = canvas.measure_markup(
         text, style.font_size, weight=style.font_weight
     )
     width = metrics.width + 2 * style.label_pad_x
@@ -108,7 +108,7 @@ def draw_chip(
         else None,
     )
     baseline_y = rect.top + style.label_pad_y + metrics.ascent
-    canvas.text(
+    canvas.markup(
         (rect.left + style.label_pad_x, baseline_y),
         text,
         size=style.font_size,

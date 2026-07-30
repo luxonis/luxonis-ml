@@ -22,7 +22,11 @@ def test_value_ops_are_monospace_keys_are_not() -> None:
     m = _metrics(1.0, Color(24, 24, 28))
     lines = _format_tree({"speed": 12.4})
     ops, _ = _build_ops(lines, content_w=200.0, m=m)
-    by_text = {op[2]: op[5] for op in ops}  # text -> mono flag
+    # An op carries styled spans, so the family lives on the runs themselves.
+    by_text = {
+        "".join(span.text for span in spans): all(span.mono for span in spans)
+        for _y, _x, spans, _color in ops
+    }
     assert by_text["speed: "] is False  # the key is sans
     assert by_text["12.4"] is True  # the value is mono
 

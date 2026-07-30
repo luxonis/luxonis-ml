@@ -45,7 +45,11 @@ relevant part of the API:
 - `Theme` — the dark and light themes.
 - `grid` (with `blend`, `hstack`, `vstack`) — composition.
 - `with_panel` — the metadata side panel.
-- `InfoCard` — typography and inline markup.
+- `InfoCard` — typography.
+- `luxonis_ml.vizlab.render.markup` — inline markup. Every string vizlab draws —
+  labels, captions, titles, tooltips, panel rows — accepts the same Pango-style
+  tags (``<b>``, ``<i>``, ``<u>``, ``<s>``, ``<code>``, ``<span color=… weight=…
+  size=…>``); use `escape` for text you did not author.
 
 Examples:
     Render a whole record — the data-in, picture-out path. A `DatasetRecord`
@@ -229,6 +233,7 @@ with guard_missing_extra("viz"):
     )
     from .presets import COCO_CLASSES
     from .render import HitMap
+    from .render.markup import escape
     from .scene import Composite, Image, Renderable
     from .style import (
         DARK_THEME,
@@ -292,6 +297,7 @@ __all__ = [
     "confusion_matrix_figure",
     "current_options",
     "default_options",
+    "escape",
     "fit_grid",
     "grid",
     "hstack",

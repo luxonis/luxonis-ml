@@ -234,7 +234,7 @@ class Keypoints(KeypointAnnotation, Annotation):
                 )
             text = self._point_label(i)
             if text is not None:
-                canvas.text(
+                canvas.markup(
                     (
                         center[0] + radius + 3.0,
                         center[1] + style.font_size * 0.35,

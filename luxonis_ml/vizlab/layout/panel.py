@@ -17,6 +17,7 @@ from luxonis_ml.vizlab.geometry import Rect
 from luxonis_ml.vizlab.render import RenderEnvironment, text_layout
 from luxonis_ml.vizlab.render.canvas import Canvas, TextMetrics
 from luxonis_ml.vizlab.render.capture import InteractionCapture
+from luxonis_ml.vizlab.render.markup import Span, parse
 from luxonis_ml.vizlab.scene.image import Composite, Renderable
 from luxonis_ml.vizlab.style import DEFAULT_STYLE, Style, style_scale
 
@@ -400,8 +401,18 @@ def _format_sections(data: "PanelData") -> list[Section]:
     return sections or [Section(None, [])]
 
 
-# One draw op: (y, x, text, weight, color, mono). Values render monospace.
-_Op = tuple[float, float, str, int, Color, bool]
+# One draw op: (y, x, styled runs, color). Weight and family are carried by the
+# runs themselves, which is also how a line's inline markup survives layout.
+_Op = tuple[float, float, list[Span], Color]
+
+
+def _heading_spans(text: str, weight: int) -> list[Span]:
+    """Parse a heading as markup and upper-case it, run by run.
+
+    Upper-casing the runs rather than the marked-up string keeps ``<span>``
+    attribute values (a color name, say) intact.
+    """
+    return text_layout.upper_spans(parse(text, weight=weight))
 
 
 def _line_ops(
@@ -417,7 +428,7 @@ def _line_ops(
     x = depth * m.indent
     weight = 600 if is_key else 400
     prefix_w = (
-        text_layout.measure(prefix, m.size, weight=weight).width
+        text_layout.measure_markup(prefix, m.size, weight=weight).width
         if prefix
         else 0.0
     )
@@ -425,20 +436,18 @@ def _line_ops(
     # A value with no spaces to wrap on (e.g. a folded filename or path) can still
     # overrun the width, so trim any over-long line's middle to fit.
     body_lines = [
-        text_layout.middle_ellipsize(part, avail, m.size)
-        for part in text_layout.wrap(body, avail, m.size, mono=True)
+        text_layout.middle_ellipsize_spans(part, avail, m.size)
+        for part in text_layout.wrap_markup(body, avail, m.size, mono=True)
     ]
     ops: list[_Op] = []
     if prefix:
         color = m.key if is_key else m.value
-        ops.append((y + ascent, x, prefix, weight, color, False))
+        ops.append((y + ascent, x, parse(prefix, weight=weight), color))
     if body_lines[0]:
-        ops.append(
-            (y + ascent, x + prefix_w, body_lines[0], 400, m.value, True)
-        )
+        ops.append((y + ascent, x + prefix_w, body_lines[0], m.value))
     y += row_h
     for cont in body_lines[1:]:
-        ops.append((y + ascent, x + prefix_w, cont, 400, m.value, True))
+        ops.append((y + ascent, x + prefix_w, cont, m.value))
         y += row_h
     return ops, y
 
@@ -514,14 +523,13 @@ class _BodyLayout:
         if section.heading is None:
             return y
         if self.canvas is not None:
-            text_layout.draw_tracked(
+            text_layout.draw_tracked_spans(
                 self.canvas,
-                section.heading.upper(),
+                _heading_spans(section.heading, _HEADER_WEIGHT),
                 self.x0,
                 self.y0 + y + self.header.ascent,
                 self.metrics.header_size,
                 self.metrics.muted,
-                weight=_HEADER_WEIGHT,
                 tracking=self.metrics.header_size * _HEADER_TRACKING,
             )
         if section.swatches is not None and section.swatches_interactive:
@@ -546,18 +554,16 @@ class _BodyLayout:
     def _block(self, section: Section, y: float) -> float:
         """Draw a full-width block value and return the next row offset."""
         if self.canvas is not None:
-            value = text_layout.middle_ellipsize(
-                section.lines[0][3],
+            value = text_layout.middle_ellipsize_spans(
+                parse(section.lines[0][3], mono=True),
                 self.content_w,
                 self.metrics.size,
             )
-            self.canvas.text(
+            self.canvas.draw_spans(
                 (self.x0, self.y0 + y + self.text.ascent),
                 value,
                 size=self.metrics.size,
                 color=self.metrics.value,
-                weight=400,
-                mono=True,
             )
         return y + self.row_h
 
@@ -574,14 +580,12 @@ class _BodyLayout:
             )
             if self.canvas is None:
                 continue
-            for op_y, op_x, text, weight, color, mono in ops:
-                self.canvas.text(
+            for op_y, op_x, spans, color in ops:
+                self.canvas.draw_spans(
                     (self.x0 + op_x, self.y0 + op_y),
-                    text,
+                    spans,
                     size=self.metrics.size,
                     color=color,
-                    weight=weight,
-                    mono=mono,
                 )
         return y
 
@@ -602,7 +606,7 @@ class _BodyLayout:
                     weight=600,
                     mono=True,
                 )
-                self.canvas.text(
+                self.canvas.markup(
                     (self.x0 + name_x, baseline),
                     name,
                     size=m.size,
@@ -615,10 +619,10 @@ class _BodyLayout:
                     if active is False
                     else m.value
                 )
-                value_w = text_layout.measure(
+                value_w = text_layout.measure_markup(
                     value, m.size, weight=600, mono=True
                 ).width
-                self.canvas.text(
+                self.canvas.markup(
                     (self.x0 + self.content_w - value_w, baseline),
                     value,
                     size=m.size,
@@ -726,7 +730,7 @@ class _BodyLayout:
                     self.canvas.rounded_rect(
                         swatch, radius=square * 0.28, fill=color
                     )
-                    self.canvas.text(
+                    self.canvas.markup(
                         (label_x, baseline), label, size=m.size, color=m.value
                     )
                 else:
@@ -737,10 +741,10 @@ class _BodyLayout:
                         stroke=m.muted,
                         stroke_width=max(1.0, m.border_width),
                     )
-                    self.canvas.text(
+                    self.canvas.markup(
                         (label_x, baseline), label, size=m.size, color=m.muted
                     )
-                    label_w = text_layout.measure(label, m.size).width
+                    label_w = text_layout.measure_markup(label, m.size).width
                     strike = cy + ascent * 0.55
                     self.canvas.line(
                         (label_x, strike),
@@ -817,7 +821,7 @@ def _swatch_col_width(labels: list[str], m: _Metrics) -> float:
     ascent = text_layout.line_metrics(m.size).ascent
     square = round(ascent * 0.85)
     widest = max(
-        (text_layout.measure(label, m.size).width for label in labels),
+        (text_layout.measure_markup(label, m.size).width for label in labels),
         default=0.0,
     )
     return square + m.line_gap + widest + m.indent
@@ -837,10 +841,9 @@ def _title_width(title: str | None, m: _Metrics) -> float:
     """Return the tracked title width, or zero when there is no title."""
     if title is None:
         return 0.0
-    return text_layout.tracked_width(
-        title.upper(),
+    return text_layout.tracked_spans_width(
+        _heading_spans(title, _TITLE_WEIGHT),
         m.size * _TITLE_SCALE,
-        weight=_TITLE_WEIGHT,
         tracking=m.size * _TITLE_SCALE * _TITLE_TRACKING,
     )
 
@@ -861,10 +864,9 @@ def _section_heading_width(section: Section, m: _Metrics) -> float:
     """Measure a section heading, including the legend master toggle."""
     if section.heading is None:
         return 0.0
-    width = text_layout.tracked_width(
-        section.heading.upper(),
+    width = text_layout.tracked_spans_width(
+        _heading_spans(section.heading, _HEADER_WEIGHT),
         m.header_size,
-        weight=_HEADER_WEIGHT,
         tracking=m.header_size * _HEADER_TRACKING,
     )
     if section.swatches is not None:
@@ -882,9 +884,9 @@ def _controls_width(
         (
             key_w
             + m.line_gap * 2
-            + text_layout.measure(name, m.size).width
+            + text_layout.measure_markup(name, m.size).width
             + m.indent
-            + text_layout.measure(
+            + text_layout.measure_markup(
                 value,
                 m.size,
                 weight=600,
@@ -910,12 +912,12 @@ def _lines_width(lines: list[Line], m: _Metrics) -> float:
     return max(
         (
             depth * m.indent
-            + text_layout.measure(
+            + text_layout.measure_markup(
                 prefix,
                 m.size,
                 weight=600 if is_key else 400,
             ).width
-            + text_layout.measure(
+            + text_layout.measure_markup(
                 body,
                 m.size,
                 weight=400,
@@ -954,7 +956,7 @@ def _measure_panel_content(
     )
     footer_h = m.section_gap * 2 + footer_inner if footer else 0.0
     title_metrics = (
-        text_layout.measure(
+        text_layout.measure_markup(
             title,
             m.size * _TITLE_SCALE,
             weight=_TITLE_WEIGHT,
@@ -1153,16 +1155,15 @@ class _PanelPainter:
         """Draw the optional title, flowing body, and pinned footer."""
         title_metrics = self.content.title_metrics
         if self.title is not None and title_metrics is not None:
-            text_layout.draw_tracked(
+            text_layout.draw_tracked_spans(
                 canvas,
-                self.title.upper(),
+                _heading_spans(self.title, _TITLE_WEIGHT),
                 self._x0,
                 self.placement.panel_y
                 + self.metrics.pad
                 + title_metrics.ascent,
                 self.metrics.size * _TITLE_SCALE,
                 self.metrics.title,
-                weight=_TITLE_WEIGHT,
                 tracking=self.metrics.size * _TITLE_SCALE * _TITLE_TRACKING,
             )
         _layout_body(
@@ -1209,12 +1210,19 @@ def with_panel(
     output height to fit its content. A bottom panel keeps the source image above
     the panel. The input image is not mutated.
 
+    Keys, values, section headings, and the title are drawn as inline markup
+    (see `luxonis_ml.vizlab.render.markup`), so a row can emphasize part of
+    itself. Pass dataset-derived text through
+    `luxonis_ml.vizlab.render.markup.escape` first; the LDF adapter already
+    escapes the sample metadata it turns into panel data.
+
     .. image:: TODO-HOST/panel.png
        :alt: A metadata side panel beside the annotated image.
 
     Args:
         image: The image to annotate. Rendered at native resolution.
-        data: JSON-like metadata (mapping/sequence/scalar, nested arbitrarily).
+        data: JSON-like metadata (mapping/sequence/scalar, nested arbitrarily),
+            whose strings are inline markup.
         side: Which edge to attach the panel to: ``"right"`` (default), ``"left"``,
             or ``"bottom"``.
         width: Panel width in pixels for every side; ``None`` auto-sizes from

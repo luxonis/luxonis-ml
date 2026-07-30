@@ -19,7 +19,7 @@ from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import XY, Rect
 
 from .fonts import DEFAULT_FONTS, FontManager
-from .markup import Span
+from .markup import Span, parse
 
 _RGBA = skia.ColorType.kRGBA_8888_ColorType
 _UNPREMUL = skia.AlphaType.kUnpremul_AlphaType
@@ -154,9 +154,7 @@ def _span_atoms(
             if part.isspace():
                 atoms.append((None, "\n" in part))
             else:
-                atoms.append(
-                    (Span(part, span.weight, span.italic, span.mono), False)
-                )
+                atoms.append((span.with_text(part), False))
     return atoms
 
 
@@ -854,13 +852,73 @@ class Canvas:
         paint = skia.Paint(Color=_color4f(color), AntiAlias=True)
         self._canvas.drawString(text, origin[0], origin[1], font, paint)
 
-    # -- rich text (styled spans) --------------------------------------------
+    # -- rich text (inline markup and styled spans) ---------------------------
+
+    def markup(
+        self,
+        origin: XY,
+        text: str,
+        *,
+        size: float,
+        color: Color,
+        weight: int = 400,
+        italic: bool = False,
+        mono: bool = False,
+    ) -> None:
+        """Draw inline-markup ``text`` with its baseline-left at ``origin``.
+
+        The marked-up counterpart of `text`: same arguments, but ``<b>``,
+        ``<i>``, ``<u>``, ``<s>``, ``<code>``, and ``<span>`` runs render with
+        their own styling (see `luxonis_ml.vizlab.render.markup`). The keyword
+        arguments set the baseline that tags layer on top of.
+
+        Args:
+            origin: The ``(x, y)`` baseline-left position.
+            text: The (possibly tagged) string to draw.
+            size: Text size in pixels.
+            color: Text color for runs without a ``<span color=…>`` of their own.
+            weight: Baseline OpenType weight (100-900).
+            italic: Whether untagged text is italic.
+            mono: Whether untagged text uses the monospace family.
+
+        """
+        spans = parse(text, weight=weight, italic=italic, mono=mono)
+        self.draw_spans(origin, spans, size=size, color=color)
+
+    def measure_markup(
+        self,
+        text: str,
+        size: float,
+        *,
+        weight: int = 400,
+        italic: bool = False,
+        mono: bool = False,
+    ) -> TextMetrics:
+        """Measure inline-markup ``text`` as a single line, without drawing it.
+
+        The marked-up counterpart of `measure_text`. Tags are not counted as
+        characters, and a run that changes size or family widens or heightens
+        the result accordingly.
+
+        Args:
+            text: The (possibly tagged) string to measure.
+            size: Text size in pixels.
+            weight: Baseline OpenType weight (100-900).
+            italic: Whether untagged text is italic.
+            mono: Whether untagged text uses the monospace family.
+
+        Returns:
+            The `TextMetrics` for the line.
+
+        """
+        spans = parse(text, weight=weight, italic=italic, mono=mono)
+        return self.measure_spans(spans, size)
 
     def _measure_span(self, span: "Span", size: float) -> TextMetrics:
-        """Measure a single styled `Span`."""
+        """Measure a single styled `Span` at its own scaled size."""
         return self.measure_text(
             span.text,
-            size,
+            size * span.scale,
             weight=span.weight,
             italic=span.italic,
             mono=span.mono,
@@ -902,24 +960,89 @@ class Canvas:
         Args:
             origin: The ``(x, y)`` baseline-left position of the line.
             spans: The styled runs to draw in order.
-            size: Text size in pixels.
-            color: Text color (shared by every run).
+            size: Text size in pixels; each run scales it by its own ``scale``.
+            color: Default text color, used for every run that does not carry
+                an explicit one of its own (from ``<span color=…>``).
 
         """
         x, y = origin
         for span in spans:
             if not span.text:
                 continue
+            run_color = span.color if span.color is not None else color
             self.text(
                 (x, y),
                 span.text,
-                size=size,
-                color=color,
+                size=size * span.scale,
+                color=run_color,
                 weight=span.weight,
                 italic=span.italic,
                 mono=span.mono,
             )
-            x += self._measure_span(span, size).width
+            advance = self._measure_span(span, size).width
+            if span.decorated:
+                self._decorate(span, (x, y), advance, size, run_color)
+            x += advance
+
+    def _decorate(
+        self,
+        span: "Span",
+        origin: XY,
+        width: float,
+        size: float,
+        color: Color,
+    ) -> None:
+        """Draw a run's underline and/or strikethrough rules.
+
+        Both rules come from the font's own metrics where it declares them, so
+        they sit where the type designer put them and scale with the run; the
+        fallbacks approximate the same for a face that declares neither.
+
+        Args:
+            span: The run being decorated (only ``underline``/``strike`` and the
+                face selection are read).
+            origin: The run's ``(x, y)`` baseline-left position.
+            width: The run's advance width in pixels.
+            size: The ambient text size; the run's own ``scale`` is applied here.
+            color: The color to draw the rules in (matching the glyphs).
+
+        """
+        x, baseline = origin
+        run_size = size * span.scale
+        font = self._fonts.font(
+            run_size, weight=span.weight, italic=span.italic, mono=span.mono
+        )
+        metrics = font.getMetrics()
+        flags = metrics.fFlags
+        paint = skia.Paint(Color=_color4f(color), AntiAlias=True)
+        rules: list[tuple[float, float]] = []  # (top, thickness)
+        thickness = (
+            metrics.fUnderlineThickness
+            if flags & skia.FontMetrics.kUnderlineThicknessIsValid_Flag
+            else run_size / 14.0
+        )
+        if span.underline:
+            # Skia measures the underline from the baseline down to the *top*
+            # of the stroke.
+            offset = (
+                metrics.fUnderlinePosition
+                if flags & skia.FontMetrics.kUnderlinePositionIsValid_Flag
+                else run_size * 0.17
+            )
+            rules.append((baseline + offset, thickness))
+        if span.strike:
+            # The strikeout position runs from the baseline up to the *bottom*
+            # of the stroke, so it is negative in Skia's y-down space.
+            offset = (
+                metrics.fStrikeoutPosition
+                if flags & skia.FontMetrics.kStrikeoutPositionIsValid_Flag
+                else -metrics.fXHeight / 2.0
+            )
+            rules.append((baseline + offset - thickness, thickness))
+        for top, height in rules:
+            self._canvas.drawRect(
+                skia.Rect.MakeLTRB(x, top, x + width, top + height), paint
+            )
 
     def wrap_spans(
         self, spans: "Sequence[Span]", size: float, *, max_width: float
@@ -939,7 +1062,6 @@ class Canvas:
 
         """
         limit = max(1.0, max_width)
-        space_w = self.measure_text(" ", size).width
         state = _WrapState()
         for word, newline in _span_atoms(spans):
             if word is None:
@@ -949,7 +1071,7 @@ class Canvas:
                     state.gap = True
                 continue
             for piece in self._break_span(word, size, limit):
-                self._wrap_word(state, piece, size, limit, space_w)
+                self._wrap_word(state, piece, size, limit)
         state.lines.append(state.current)
         return state.lines
 
@@ -963,14 +1085,14 @@ class Canvas:
         def width_of(run: str) -> float:
             return self.measure_text(
                 run,
-                size,
+                size * span.scale,
                 weight=span.weight,
                 italic=span.italic,
                 mono=span.mono,
             ).width
 
         return [
-            Span(piece, span.weight, span.italic, span.mono)
+            span.with_text(piece)
             for piece in _break_word(span.text, width_of, limit)
         ]
 
@@ -980,17 +1102,20 @@ class Canvas:
         word: Span,
         size: float,
         limit: float,
-        space_w: float,
     ) -> None:
-        """Place one word into ``state``, breaking to a new line if it overflows."""
+        """Place one word into ``state``, breaking to a new line if it overflows.
+
+        The separating space takes the incoming word's own style, so a wrapped
+        line's spacing tracks the run it belongs to rather than the ambient size.
+        """
+        space = word.with_text(" ")
+        space_w = self._measure_span(space, size).width
         w = self._measure_span(word, size).width
         lead = space_w if state.gap else 0.0
         if state.current and state.width + lead + w > limit:
             state.newline()
         if state.gap and state.current:
-            state.current.append(
-                Span(" ", word.weight, word.italic, word.mono)
-            )
+            state.current.append(space)
             state.width += space_w
         state.current.append(word)
         state.width += w

@@ -36,6 +36,7 @@ from luxonis_ml.vizlab import (
     RenderOptions,
     Theme,
     current_options,
+    escape,
     grid,
 )
 
@@ -71,9 +72,9 @@ def _panel_title(task_type: str, descriptor: str) -> str:
     Uses vizlab title markup (see `luxonis_ml.vizlab.layout.compose.grid`).
     """
     return (
-        f"<b>{descriptor}</b>\n<code>{task_type}</code>"
+        f"<b>{escape(descriptor)}</b>\n<code>{escape(task_type)}</code>"
         if task_type
-        else descriptor
+        else escape(descriptor)
     )
 
 

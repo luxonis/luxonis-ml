@@ -667,7 +667,8 @@ def _wrap_titles(
 ) -> list[list[list[Span]]]:
     """Parse each title as markup and wrap it to the cell width.
 
-    Titles support inline markup (``<b>``/``<i>``/``<code>``) and newline breaks,
+    Titles support inline markup (see `luxonis_ml.vizlab.render.markup`) and
+    newline breaks,
     so a caller can mix bold/mono runs and stack a heading over a subtitle. Each
     title becomes a list of lines, each a list of styled spans; long lines wrap so
     they never overflow the cell.

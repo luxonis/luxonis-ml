@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from luxonis_ml.utils.color import brand
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
+from luxonis_ml.vizlab.render import text_layout
 from luxonis_ml.vizlab.render.canvas import Canvas, Shadow, TextMetrics
 from luxonis_ml.vizlab.render.markup import Span, parse
 from luxonis_ml.vizlab.style import Style
@@ -31,8 +32,8 @@ _CAPTION_BG = brand.CAPTION_BG
 _PAD, _ROW_GAP, _SWATCH_GAP = 10.0, 6.0, 8.0
 
 # A wrapped, measured text line: ``(styled spans, metrics)``. Card/caption/legend
-# text is parsed as inline markup (``<b>``/``<i>``/``<code>``), so a line is a
-# list of styled `Span` rather than a bare string.
+# text is parsed as inline markup (see `luxonis_ml.vizlab.render.markup`), so a
+# line is a list of styled `Span` rather than a bare string.
 _Line = tuple[list[Span], TextMetrics]
 # A card row: ``(styled spans, metrics, swatch_color_or_None)``.
 _Row = tuple[list[Span], TextMetrics, "Color | None"]
@@ -47,8 +48,9 @@ def _wrap_measured(
 ) -> list[_Line]:
     """Wrap each text to ``avail`` px and measure every resulting line.
 
-    Text is parsed as inline markup, so ``<b>``/``<i>``/``<code>`` runs render
-    bold/italic/monospace; ``weight`` sets the untagged baseline.
+    Text is parsed as inline markup (see `luxonis_ml.vizlab.render.markup`), so
+    tagged runs carry their own weight, slant, family, decoration, color, and
+    size; ``weight`` sets the untagged baseline.
     """
     lines: list[_Line] = []
     for text in texts:
@@ -184,18 +186,10 @@ def _swatch_rows(
 
 
 def _ellipsize(
-    canvas: Canvas, text: str, size: float, weight: int, max_w: float
-) -> str:
-    """Truncate ``text`` with a trailing ``…`` so it fits within ``max_w`` px."""
-    if canvas.measure_text(text, size, weight=weight).width <= max_w:
-        return text
-    cut = text
-    while (
-        cut
-        and canvas.measure_text(cut + "…", size, weight=weight).width > max_w
-    ):
-        cut = cut[:-1]
-    return cut + "…" if cut else "…"
+    text: str, size: float, weight: int, max_w: float
+) -> list[Span]:
+    """Parse ``text`` as markup and trim it with ``…`` to fit ``max_w`` px."""
+    return text_layout.ellipsize_spans(parse(text, weight=weight), max_w, size)
 
 
 def _legend_columns_cell(
@@ -243,7 +237,10 @@ def _legend_columns_cell(
         overflow = len(items) - len(shown)
 
     max_name = max(
-        (canvas.measure_text(n, size, weight=weight).width for n, _ in shown),
+        (
+            canvas.measure_markup(n, size, weight=weight).width
+            for n, _ in shown
+        ),
         default=min_name,
     )
     name_w = max(
@@ -252,12 +249,12 @@ def _legend_columns_cell(
     )
     col_w = swatch_col + name_w
 
-    cells: list[tuple[str, Color | None]] = [
-        (_ellipsize(canvas, name, size, weight, name_w), color)
+    cells: list[tuple[list[Span], Color | None]] = [
+        (_ellipsize(name, size, weight, name_w), color)
         for name, color in shown
     ]
     if overflow:
-        cells.append((f"+{overflow} more", None))
+        cells.append((parse(f"+{overflow} more", weight=weight), None))
     per_col = max(1, math.ceil(len(cells) / n_cols))
 
     card_w = 2 * _PAD + n_cols * col_w + (n_cols - 1) * col_gap
@@ -288,12 +285,11 @@ def _legend_columns_cell(
                     stroke=swatch_outline(chrome.card_bg),
                     stroke_width=1.0,
                 )
-            cv.text(
+            cv.draw_spans(
                 (x + swatch_col, y + row_m.ascent),
                 name,
                 size=size,
                 color=chrome.card_text,
-                weight=weight,
             )
 
     return Cell(card_w, card_h, _draw)
