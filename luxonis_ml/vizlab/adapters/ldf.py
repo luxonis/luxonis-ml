@@ -452,7 +452,7 @@ def visualize_record(
             keeps the source resolution. See `Image.render`.
 
     Returns:
-        A new visualization `Image`. When panel content exists, the returned
+        A new visualization `Renderable`. When panel content exists, the returned
         image includes the rendered source and its side panel.
 
     Examples:
