@@ -14,14 +14,15 @@ from luxonis_ml.typing import Params, check_type
 
 
 def get_applied_augmentations(metadata: Params) -> list[str]:
-    """Safely extracts names of applied augmentations from the sample metadata.
+    """Read the augmentations applied to a sample from its metadata.
 
     Args:
-        metadata: A dictionary with sample metadata. Should contain
-            the ``"augmentations"`` key with tracked augmentations.
+        metadata: Sample metadata as returned by `LuxonisLoader`.
 
     Returns:
-        Names of the applied augmentations.
+        Configured paths of the applied augmentations, or nothing when the
+        dataset stores its own ``"augmentations"`` metadata, which the
+        loader keeps in place of the tracked provenance.
 
     """
     augmentations = metadata.get("augmentations")

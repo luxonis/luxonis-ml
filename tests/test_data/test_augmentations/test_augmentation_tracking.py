@@ -1,4 +1,6 @@
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import albumentations as A
@@ -6,6 +8,9 @@ import numpy as np
 
 from luxonis_ml.data import AlbumentationsEngine
 from luxonis_ml.data.augmentations import BatchCompose, BatchTransform
+from luxonis_ml.data.augmentations.albumentations_engine import (
+    _normalize_params,
+)
 from luxonis_ml.data.augmentations.custom import TRANSFORMATIONS
 from luxonis_ml.data.utils.cli_utils import get_applied_augmentations
 from luxonis_ml.typing import LoaderMultiOutput, Params
@@ -13,6 +18,18 @@ from luxonis_ml.typing import LoaderMultiOutput, Params
 
 def _make_sample(size: int = 64) -> list[LoaderMultiOutput]:
     return [({"image": np.zeros((size, size, 3), dtype=np.uint8)}, {})]
+
+
+@contextmanager
+def _registered(
+    transformation: type, name: str | None = None
+) -> Iterator[str]:
+    name = name or transformation.__name__
+    TRANSFORMATIONS.register(module=transformation, name=name, force=True)
+    try:
+        yield name
+    finally:
+        TRANSFORMATIONS._module_dict.pop(name, None)
 
 
 class PickSecond(BatchTransform):
@@ -67,8 +84,7 @@ def test_skipped_batch_transform_still_passes_through_first_input():
 
 
 def test_tracks_applied_batch_transform_without_runtime_parameters():
-    TRANSFORMATIONS.register(module=PickSecond, force=True)
-    try:
+    with _registered(PickSecond):
         engine = AlbumentationsEngine(
             64,
             64,
@@ -81,8 +97,6 @@ def test_tracks_applied_batch_transform_without_runtime_parameters():
         engine.apply(_make_sample() * 2)
 
         assert engine.applied_augmentations == {"PickSecond": {}}
-    finally:
-        TRANSFORMATIONS._module_dict.pop("PickSecond", None)
 
 
 def test_inspect_reads_augmentation_metadata():
@@ -127,14 +141,13 @@ def test_tracks_only_configured_augmentations_that_are_applied():
     assert "OneOf/GaussianBlur" not in applied
     assert json.loads(json.dumps(applied)) == applied
 
-    applied["OneOf/RandomBrightnessContrast"]["alpha"] = 0.0
-    assert (
-        engine.applied_augmentations["OneOf/RandomBrightnessContrast"]["alpha"]
-        != 0.0
-    )
-
 
 def test_clears_applied_augmentations_between_calls():
+    """The report of a call must not leak into the next one.
+
+    The mapping is handed to the loader alongside the sample it describes,
+    so the next call has to start from a fresh one rather than reuse it.
+    """
     engine = AlbumentationsEngine(
         64,
         64,
@@ -145,12 +158,14 @@ def test_clears_applied_augmentations_between_calls():
     )
 
     engine.apply(_make_sample())
-    assert engine.applied_augmentations == {"HorizontalFlip": {}}
+    flipped = engine.applied_augmentations
+    assert flipped == {"HorizontalFlip": {}}
 
     engine._spatial_compose.transforms[0].p = 0.0
     engine.apply(_make_sample())
 
     assert engine.applied_augmentations == {}
+    assert flipped == {"HorizontalFlip": {}}
 
 
 def test_omits_array_and_known_non_random_parameters():
@@ -170,7 +185,6 @@ def test_omits_array_and_known_non_random_parameters():
     # `matrix` and `bbox_matrix` are arrays, the rest is static.
     assert {"matrix", "bbox_matrix"}.isdisjoint(params)
     assert {"shape", "interpolation", "fill", "fill_mask"}.isdisjoint(params)
-    json.dumps(params)
 
 
 def test_reports_randomly_derived_crop_bounds():
@@ -203,7 +217,7 @@ def test_reports_randomly_derived_crop_bounds():
 
 
 def test_omits_nested_arrays_and_known_non_random_parameters():
-    params = AlbumentationsEngine._normalize_augmentation_params(
+    params = _normalize_params(
         {
             "large": np.zeros((32, 32)),
             "nested": {
@@ -556,8 +570,7 @@ def test_tracks_transforms_registered_under_an_alias():
         def get_params(self) -> Params:
             return {"strength": 7}
 
-    TRANSFORMATIONS.register(module=AliasedBlur, name="AliasedName")
-    try:
+    with _registered(AliasedBlur, "AliasedName"):
         engine = AlbumentationsEngine(
             64,
             64,
@@ -571,8 +584,6 @@ def test_tracks_transforms_registered_under_an_alias():
         engine.apply(_make_sample())
 
         assert engine.applied_augmentations == {"AliasedName": {"strength": 7}}
-    finally:
-        TRANSFORMATIONS._module_dict.pop("AliasedName", None)
 
 
 def test_tracks_batch_transforms_applied_in_any_sub_batch():

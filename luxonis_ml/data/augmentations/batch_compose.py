@@ -93,19 +93,15 @@ class BatchCompose(A.Compose):
                     i * transform.batch_size : (i + 1) * transform.batch_size
                 ]
 
-                # `yield_batches` maps every key to a list, and applying a
-                # batch transform collapses that list into a single value.
-                # A transform that did not apply returns the batched input
-                # untouched, which is what tells the two apart. An empty
-                # ``params`` does not: a batch transform may apply while
-                # sampling no runtime parameters, and treating that as
-                # "did not apply" discards its output.
+                # A transform that applied collapsed the batched lists
+                # `yield_batches` produced into single values; one that did
+                # not returns them untouched. Empty ``params`` does not tell
+                # the two apart, as a transform can apply while sampling no
+                # parameters at all.
                 if isinstance(next(iter(data.values())), list):
                     data = {key: value[0] for key, value in batch.items()}
                     new_indices.append(batch_indices[0])
                 else:
-                    # Invoked once per sub-batch, so parameters are recorded
-                    # per applied invocation rather than read once at the end.
                     self.applied_params[id(transform)] = dict(transform.params)
                     new_indices.append(
                         [

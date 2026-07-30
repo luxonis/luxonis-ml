@@ -262,7 +262,6 @@ def inspect(
         bucket_storage: Storage type of the dataset.
 
     """
-
     check_exists(name, bucket_storage)
     if list_augmentations and aug_config is None:
         logger.warning(
@@ -317,12 +316,10 @@ def inspect(
         if print_sample_metadata:
             metadata = data.metadata
             if not list_augmentations:
-                # The full runtime parameters of every transformation
-                # would bury the record metadata this flag exists to show.
+                # The runtime parameters of every transformation would
+                # bury the record metadata this flag exists to show.
                 metadata = {
-                    key: value
-                    for key, value in metadata.items()
-                    if key != "augmentations"
+                    k: v for k, v in metadata.items() if k != "augmentations"
                 }
             print("Sample metadata:", metadata)
 

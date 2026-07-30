@@ -98,9 +98,9 @@ A custom engine should subclass `AugmentationEngine` and implement:
     - ``batch_size`` to tell `LuxonisLoader` how many source samples are
       needed per augmented output.
 
-Engines may expose `AugmentationEngine.applied_augmentations` to report configured paths and
-runtime parameters used by their latest call. The base implementation returns
-an empty dictionary.
+Engines may override `AugmentationEngine.applied_augmentations` to report the
+configured paths and runtime parameters of their latest call. The base
+implementation returns an empty dictionary.
 """
 
 from .albumentations_engine import AlbumentationsEngine

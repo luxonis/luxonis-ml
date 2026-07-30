@@ -318,7 +318,6 @@ class LuxonisLoader(BaseLoader):
                             },
                         }
 
-        self._warned_about_augmentations_metadata = False
         self._augmentations = self._init_augmentations(
             augmentation_engine,
             augmentation_config or [],
@@ -607,15 +606,13 @@ class LuxonisLoader(BaseLoader):
             sample_metadata = sample_metadata_list[metadata_indices[0]]
 
         if "augmentations" in sample_metadata:
-            if not self._warned_about_augmentations_metadata:
-                self._warned_about_augmentations_metadata = True
-                warnings.warn(
-                    "Record metadata already defines the reserved "
-                    "'augmentations' key. Keeping the stored value; "
-                    "augmentation provenance will not be reported for "
-                    "this dataset.",
-                    stacklevel=2,
-                )
+            warnings.warn(
+                "Record metadata already defines the reserved "
+                "'augmentations' key. Keeping the stored value; "
+                "augmentation provenance will not be reported for "
+                "this dataset.",
+                stacklevel=2,
+            )
         else:
             sample_metadata["augmentations"] = (
                 self._augmentations.applied_augmentations
