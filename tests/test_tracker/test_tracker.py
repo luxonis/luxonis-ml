@@ -307,7 +307,8 @@ def test_mlflow_logging(
         "run_name": "run",
         "nested": False,
     }
-    assert mlflow.system_metrics is True
+    # whether system metrics are enabled depends on psutil being installed,
+    # so it is asserted in the two `find_spec` tests instead
     # the resolved IDs are stored, the project name is left alone
     assert mlflow_tracker.project_id == "exp-1"
     assert mlflow_tracker.run_id == "run-1"

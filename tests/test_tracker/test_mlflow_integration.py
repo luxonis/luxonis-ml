@@ -7,11 +7,14 @@ usable MLflow installation do not fail the suite.
 """
 
 import json
+import os
+import signal
 import socket
 import subprocess
 import sys
 import time
 from collections.abc import Generator
+from contextlib import suppress
 from pathlib import Path
 
 import mlflow
@@ -22,6 +25,7 @@ import requests
 from luxonis_ml.tracker import LuxonisTracker
 
 SERVER_STARTUP_TIMEOUT = 120.0
+SERVER_SHUTDOWN_TIMEOUT = 60.0
 SERVER_POLL_INTERVAL = 0.5
 
 
@@ -50,14 +54,33 @@ class MlflowServer:
         return False
 
     def stop(self) -> None:
-        if self.process.poll() is not None:
-            return
-        self.process.terminate()
-        try:
-            self.process.wait(timeout=30)
-        except subprocess.TimeoutExpired:  # pragma: no cover
-            self.process.kill()
-            self.process.wait(timeout=30)
+        """Stop the server and wait until the port stops answering.
+
+        ``mlflow server`` serves through a separate worker process, so
+        terminating only the process we launched leaves the port open.
+        """
+        if self.process.poll() is None:
+            self._terminate_tree()
+            try:
+                self.process.wait(timeout=SERVER_SHUTDOWN_TIMEOUT)
+            except subprocess.TimeoutExpired:  # pragma: no cover
+                self.process.kill()
+                self.process.wait(timeout=SERVER_SHUTDOWN_TIMEOUT)
+
+        deadline = time.monotonic() + SERVER_SHUTDOWN_TIMEOUT
+        while self.is_ready() and time.monotonic() < deadline:
+            time.sleep(SERVER_POLL_INTERVAL)  # pragma: no cover
+
+    def _terminate_tree(self) -> None:
+        if sys.platform == "win32":  # pragma: no cover
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],  # noqa: S607
+                check=False,
+                capture_output=True,
+            )
+        else:
+            with suppress(ProcessLookupError):
+                os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
 
 
 def _free_port() -> int:
@@ -91,6 +114,8 @@ def mlflow_server(tempdir: Path) -> Generator[MlflowServer, None, None]:
         ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        # own process group, so the worker can be killed along with it
+        start_new_session=True,
     )
     server = MlflowServer(f"http://127.0.0.1:{port}", process)
 
@@ -172,6 +197,7 @@ def test_logs_survive_a_server_outage(
     assert tracker.mlflow_initialized
 
     mlflow_server.stop()
+    assert not mlflow_server.is_ready()
 
     tracker.log_metric("loss", 0.5, 1)
     tracker.log_hyperparams({"lr": 0.001})
