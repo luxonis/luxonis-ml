@@ -1,4 +1,5 @@
 import builtins
+import os
 import platform
 import random
 import shutil
@@ -13,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from _pytest.fixtures import SubRequest
+from hypothesis import settings as hypothesis_settings
 from rich import print as rich_print
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset
@@ -21,6 +23,16 @@ from luxonis_ml.utils import LuxonisFileSystem
 from luxonis_ml.utils.environ import environ
 
 CREATED_DATASETS = []
+
+# Deadlines are disabled because the CI matrix includes runners slow
+# enough to make timing-based failures flaky. On CI the examples are
+# additionally derandomized so that a failure always reproduces from the
+# logged seed and never depends on the (uncached) example database.
+hypothesis_settings.register_profile("local", deadline=None)
+hypothesis_settings.register_profile(
+    "ci", deadline=None, derandomize=True, database=None
+)
+hypothesis_settings.load_profile("ci" if os.getenv("CI") else "local")
 
 
 @pytest.fixture(autouse=True, scope="session")

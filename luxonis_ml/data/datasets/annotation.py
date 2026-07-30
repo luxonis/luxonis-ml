@@ -836,7 +836,8 @@ class KeypointAnnotation(Annotation):
             return values
 
         warn = False
-        for i, keypoint in enumerate(values["keypoints"]):
+        keypoints = []
+        for keypoint in values["keypoints"]:
             if (keypoint[0] < -2 or keypoint[0] > 2) or (
                 keypoint[1] < -2 or keypoint[1] > 2
             ):
@@ -844,20 +845,20 @@ class KeypointAnnotation(Annotation):
                     "Keypoint annotation has value outside of automatic clipping range ([-2, 2]). "
                     "Values should be normalized based on image size to range [0, 1]."
                 )
-            new_keypoint = list(keypoint)
-            if not (0 <= keypoint[0] <= 1):
-                new_keypoint[0] = max(0, min(1, keypoint[0]))
+            x, y, *rest = keypoint
+            if not (0 <= x <= 1):
+                x = max(0, min(1, x))
                 warn = True
-            if not (0 <= keypoint[1] <= 1):
-                new_keypoint[1] = max(0, min(1, keypoint[1]))
+            if not (0 <= y <= 1):
+                y = max(0, min(1, y))
                 warn = True
-            values["keypoints"][i] = tuple(new_keypoint)
+            keypoints.append((x, y, *rest))
 
         if warn:
             logger.warning(
                 "Keypoint annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
             )
-        return values
+        return {**values, "keypoints": keypoints}
 
 
 class SegmentationAnnotation(Annotation):

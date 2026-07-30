@@ -46,7 +46,16 @@ def infer_layout(shape: list[int]) -> str:
 
     Raises:
         ValueError: If the shape has too many dimensions for automatic
-            layout inference.
+            layout inference. At most 24 dimensions are supported, one
+            per usable letter of the alphabet.
+
+    Note:
+        A leading dimension of size ``1`` is always taken to be the batch
+        dimension ``N``. A three-dimensional shape such as
+        ``[1, 256, 256]`` is therefore read as a batched 2D tensor rather
+        than as a single-channel ``CHW`` image, as the two are
+        indistinguishable from the shape alone. Pass an explicit layout
+        instead of relying on inference when the distinction matters.
 
     Example:
         >>> infer_layout([1, 3, 256, 256])
@@ -55,6 +64,8 @@ def infer_layout(shape: list[int]) -> str:
         'HWC'
         >>> infer_layout([1, 19, 7, 8])
         'NCDE'
+        >>> infer_layout([1, 256, 256])
+        'NCD'
 
     """
     layout = []
