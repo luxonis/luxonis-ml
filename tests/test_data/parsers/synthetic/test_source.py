@@ -1,5 +1,6 @@
 """Source acquisition: local paths, archives and remote providers."""
 
+import os
 import sys
 import types
 import zipfile
@@ -28,11 +29,18 @@ def test_trailing_separator_in_source_keeps_dataset_name(tempdir: Path):
     ``""``, writing its storage directories straight into the datasets root and
     merging into whatever a previous trailing-slash import had left there, and
     the remote download target collapsed to the working directory.
+
+    Splitting on ``"/"`` alone then made the whole thing worse on Windows,
+    where a local path has none: the derived name became the entire path.
     """
     dataset_dir = tempdir / "trailing_source"
     dataset_dir.mkdir()
 
     assert prepare_source(f"{dataset_dir}/", None) == (
+        dataset_dir,
+        "trailing_source",
+    )
+    assert prepare_source(f"{dataset_dir}{os.sep}", None) == (
         dataset_dir,
         "trailing_source",
     )
@@ -148,7 +156,10 @@ def _fake_roboflow_module(location: Path) -> types.ModuleType:
             export_format: str, destination: str
         ) -> types.SimpleNamespace:
             assert export_format == "coco"
-            assert destination.endswith("/project")
+            # Compared as a path, not as a string: the destination is
+            # built with the platform separator, which is a backslash on
+            # Windows.
+            assert Path(destination).name == "project"
             return types.SimpleNamespace(location=str(location))
 
     class Project:

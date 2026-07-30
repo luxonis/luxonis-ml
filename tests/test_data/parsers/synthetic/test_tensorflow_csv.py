@@ -117,8 +117,12 @@ def test_tensorflow_csv_file_list_does_not_replay_the_records(
     )
     monkeypatch.setattr(parser_module.pl, "read_csv", counting_read_csv)
 
-    assert parser.enumerate_files(tmp_path, layout) == {
-        "train": [annotated.resolve(), empty.resolve()]
+    enumerated = parser.enumerate_files(tmp_path, layout)
+    assert enumerated is not None
+    # Compared unordered: the listing comes straight from `glob`, whose
+    # order is the file system's and differs between machines.
+    assert {split: sorted(files) for split, files in enumerated.items()} == {
+        "train": sorted([annotated.resolve(), empty.resolve()])
     }
     assert listed == []
     assert read == []

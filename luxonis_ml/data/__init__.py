@@ -274,8 +274,10 @@ def _load_parser_plugins() -> None:
     """
     for entry_point in _get_entry_points_subset("parser_plugins"):
         try:
+            # `load()` imports the plugin's module, so a missing dependency
+            # or a renamed attribute fails here with anything at all.
             register_parser_plugin(entry_point.load())
-        except (KeyError, ValueError) as error:
+        except Exception as error:
             logger.warning(
                 f"Skipping parser plugin '{entry_point.name}': {error}"
             )

@@ -1,19 +1,29 @@
 """`BaseDataset.import_dataset` behaviour that is not parser-specific."""
 
+import inspect
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from luxonis_ml.data import (
     DatasetIterator,
+    Layout,
     LuxonisDataset,
     LuxonisLoader,
+    ParseResult,
+    ParserPlugin,
+    register_parser_plugin,
 )
 from luxonis_ml.data.datasets.annotation import (
     DatasetRecord,
     Detection,
 )
-from luxonis_ml.data.datasets.base_dataset import _prepare_import_records
+from luxonis_ml.data.datasets.base_dataset import (
+    BaseDataset,
+    _prepare_import_records,
+)
 from luxonis_ml.enums import DatasetType
 from tests.test_data.parsers.helpers import _write_yolov8_split
 from tests.test_data.utils import create_image
@@ -335,3 +345,349 @@ def test_failed_import_leaves_no_dataset_behind(
             failing_import()
 
     assert dataset_name not in LuxonisDataset.list_datasets()
+
+
+def test_failed_import_keeps_a_pre_existing_dataset(
+    dataset_name: str, tempdir: Path
+):
+    """A failed import must not delete a dataset it only opened.
+
+    Regression: the failure handler deleted the dataset unconditionally, but
+    the constructor opens an existing dataset of that name rather than
+    replacing it. Importing into a name that was already in use therefore
+    destroyed everything that had been imported before, and because the
+    handler caught ``BaseException``, so did pressing Ctrl-C.
+    """
+    existing = LuxonisDataset(dataset_name, delete_local=True)
+    existing.add(
+        iter(
+            [
+                DatasetRecord(
+                    files={"image": create_image(0, tempdir)},
+                    annotation=Detection.model_validate({"class": "budgie"}),
+                )
+            ]
+        )
+    )
+    existing.make_splits({"train": 1.0})
+    assert len(existing) == 1
+
+    dataset_dir = tempdir / "second_import"
+    class_dir = dataset_dir / "train" / "bird"
+    class_dir.mkdir(parents=True)
+    create_image(1, class_dir)
+
+    try:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(
+                LuxonisDataset,
+                "add",
+                lambda self, generator, **kwargs: (_ for _ in ()).throw(
+                    ValueError("boom")
+                ),
+            )
+            with pytest.raises(ValueError, match="boom"):
+                LuxonisDataset.import_dataset(
+                    str(dataset_dir),
+                    dataset_name=dataset_name,
+                    dataset_type="clsdir",
+                )
+
+        assert LuxonisDataset.exists(dataset_name)
+        assert len(LuxonisDataset(dataset_name)) == 1
+    finally:
+        if LuxonisDataset.exists(dataset_name):
+            LuxonisDataset(dataset_name).delete_dataset(delete_local=True)
+
+
+def test_failed_import_removes_a_replaced_dataset(
+    dataset_name: str, tempdir: Path
+):
+    """``delete_local`` makes the dataset this import's to clean up again."""
+    LuxonisDataset(dataset_name, delete_local=True)
+    assert LuxonisDataset.exists(dataset_name)
+
+    dataset_dir = tempdir / "replacing_import"
+    class_dir = dataset_dir / "train" / "bird"
+    class_dir.mkdir(parents=True)
+    create_image(0, class_dir)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            LuxonisDataset,
+            "add",
+            lambda self, generator, **kwargs: (_ for _ in ()).throw(
+                ValueError("boom")
+            ),
+        )
+        with pytest.raises(ValueError, match="boom"):
+            LuxonisDataset.import_dataset(
+                str(dataset_dir),
+                dataset_name=dataset_name,
+                dataset_type="clsdir",
+                delete_local=True,
+            )
+
+    assert dataset_name not in LuxonisDataset.list_datasets()
+
+
+@pytest.mark.parametrize(
+    ("split_ratios", "expected_sizes"),
+    [
+        (
+            {"train": 0, "val": 0.5, "test": 0.5},
+            {"train": 0, "val": 2, "test": 2},
+        ),
+        (
+            {"train": 0.5, "val": 0.5, "test": 0},
+            {"train": 2, "val": 2, "test": 0},
+        ),
+    ],
+)
+def test_split_ratios_mixing_ints_and_floats_are_percentages(
+    dataset_name: str,
+    tempdir: Path,
+    split_ratios: dict[str, float | int],
+    expected_sizes: dict[str, int],
+):
+    """A ratio of exactly ``0`` must not turn the mapping into counts.
+
+    Regression: ``make_splits`` tells ratios from counts by the type of the
+    first value alone, so ``{"train": 0, "val": 0.5, "test": 0.5}`` matched
+    neither branch and silently fell back to the default 0.8/0.1/0.1 split —
+    no error, and not even the "ratios must sum to 1.0" check.
+    """
+    class_dir = tempdir / "ratio_cls" / "class_a"
+    class_dir.mkdir(parents=True)
+    for index in range(4):
+        create_image(index, class_dir)
+
+    dataset = LuxonisDataset.import_dataset(
+        str(class_dir.parent),
+        dataset_name=dataset_name,
+        dataset_type="clsdir",
+        split_ratios=split_ratios,
+        delete_local=True,
+    )
+    try:
+        splits = dataset.get_splits()
+        assert splits is not None
+        assert {
+            name: len(group_ids) for name, group_ids in splits.items()
+        } == expected_sizes
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
+def test_explicit_split_ratios_survive_random_split_false(
+    dataset_name: str, tempdir: Path
+):
+    """``split_ratios`` is an explicit request, not automatic splitting.
+
+    Regression: with ``random_split=False`` and a source carrying no splits of
+    its own, the ratios were dropped without a word and no splits were made at
+    all, so the import "succeeded" into a dataset no loader could read.
+    """
+    class_dir = tempdir / "no_random_cls" / "class_a"
+    class_dir.mkdir(parents=True)
+    for index in range(4):
+        create_image(index, class_dir)
+
+    dataset = LuxonisDataset.import_dataset(
+        str(class_dir.parent),
+        dataset_name=dataset_name,
+        dataset_type="clsdir",
+        split_ratios={"train": 0.5, "val": 0.25, "test": 0.25},
+        random_split=False,
+        delete_local=True,
+    )
+    try:
+        splits = dataset.get_splits()
+        assert splits is not None
+        assert {
+            name: len(group_ids) for name, group_ids in splits.items()
+        } == {"train": 2, "val": 1, "test": 1}
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
+def test_count_split_ratios_reject_unknown_splits(
+    dataset_name: str, tempdir: Path
+):
+    """Counts are read for train/val/test only, so anything else must raise.
+
+    Regression: ``{"valid": 4}`` was accepted, read as all-zero counts for the
+    three canonical splits, and the request was silently discarded. Percentage
+    ratios do honour arbitrary split names, which made the silence worse.
+    """
+    class_dir = tempdir / "unknown_split_cls" / "class_a"
+    class_dir.mkdir(parents=True)
+    create_image(0, class_dir)
+
+    with pytest.raises(ValueError, match="only supports the splits"):
+        LuxonisDataset.import_dataset(
+            str(class_dir.parent),
+            dataset_name=dataset_name,
+            dataset_type="clsdir",
+            split_ratios={"valid": 1},
+            delete_local=True,
+        )
+
+    assert not LuxonisDataset.exists(dataset_name)
+
+
+def test_import_routes_each_skeleton_to_its_own_task(
+    dataset_name: str, tempdir: Path
+):
+    """A source with several keypoint tasks keeps a skeleton for each.
+
+    Regression: the skeletons were iterated by value, dropping the task each
+    was keyed by, so every one of them was written with ``task=None`` — which
+    `set_skeletons` fans out over *all* tasks. A source declaring both a
+    17-point ``person`` and a 21-point ``hand`` skeleton ended up reporting
+    whichever came last for both.
+    """
+    source = tempdir / "sample.twoskel"
+    source.write_text("two skeletons")
+    images = {
+        class_name: create_image(index, tempdir)
+        for index, class_name in enumerate(("person", "hand"))
+    }
+
+    class TwoSkeletonParser(ParserPlugin):
+        dataset_types = ("test-two-skeletons",)
+
+        @classmethod
+        def detect(cls, source: Path) -> Layout | None:
+            if source.suffix != ".twoskel":
+                return None
+            return Layout({None: {}})
+
+        def parse(
+            self, source: Path, layout: Layout, **kwargs: Any
+        ) -> ParseResult:
+            def records() -> Iterator[tuple[str | None, dict[str, Any]]]:
+                for class_name, image in images.items():
+                    yield (
+                        None,
+                        {
+                            "file": str(image),
+                            "annotation": {"class": class_name},
+                        },
+                    )
+
+            return ParseResult(
+                records(),
+                {
+                    "person": {"labels": ["head"], "edges": [(0, 0)]},
+                    "hand": {"labels": ["thumb", "index"], "edges": [(0, 1)]},
+                },
+            )
+
+    register_parser_plugin(TwoSkeletonParser, force=True)
+
+    dataset = LuxonisDataset.import_dataset(
+        str(source),
+        dataset_name=dataset_name,
+        dataset_type="test-two-skeletons",
+        # Puts each class in a task of its own, which is what the skeletons
+        # are keyed by.
+        task_name={"person": "person", "hand": "hand"},
+        delete_local=True,
+        save_dir=tempdir,
+    )
+    try:
+        skeletons = dataset.get_skeletons()
+        assert skeletons["person"][0] == ["head"]
+        assert skeletons["hand"][0] == ["thumb", "index"]
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
+def test_failed_import_cleans_up_remote_storage_too(
+    dataset_name: str, tempdir: Path
+):
+    """Cleanup must remove the bucket copy, not only the local one.
+
+    Regression: the failure handler passed only ``delete_local=True``. For a
+    remote dataset that skips the branch which deletes the bucket, so every
+    batch of media already uploaded before the failure was orphaned there and
+    the half-populated remote dataset re-synced on the next open. The keywords
+    are also part of the abstract ``delete_dataset`` contract now — it used to
+    declare none, so a conforming third-party dataset raised ``TypeError``
+    into a ``suppress(Exception)`` and cleaned up nothing at all.
+    """
+    assert set(inspect.signature(BaseDataset.delete_dataset).parameters) == {
+        "self",
+        "delete_remote",
+        "delete_local",
+    }
+
+    dataset_dir = tempdir / "remote_cleanup"
+    class_dir = dataset_dir / "train" / "bird"
+    class_dir.mkdir(parents=True)
+    create_image(0, class_dir)
+
+    calls: list[dict[str, Any]] = []
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            LuxonisDataset,
+            "add",
+            lambda self, generator, **kwargs: (_ for _ in ()).throw(
+                ValueError("boom")
+            ),
+        )
+        patch.setattr(
+            LuxonisDataset,
+            "delete_dataset",
+            lambda self, **kwargs: calls.append(kwargs),
+        )
+        with pytest.raises(ValueError, match="boom"):
+            # No `delete_local` here: that would make the constructor call
+            # `delete_dataset` too, and only the cleanup call is of interest.
+            LuxonisDataset.import_dataset(
+                str(dataset_dir),
+                dataset_name=dataset_name,
+                dataset_type="clsdir",
+            )
+
+    assert calls == [{"delete_local": True, "delete_remote": True}]
+
+    # The patched-out cleanup never ran, so do it here.
+    if LuxonisDataset.exists(dataset_name):
+        LuxonisDataset(dataset_name).delete_dataset(delete_local=True)
+
+
+def test_prepare_import_records_fans_out_in_a_stable_order(tempdir: Path):
+    """Two imports of one source must emit the same records in one order.
+
+    Regression: the copies of an annotation-less record were emitted by
+    iterating a ``set`` of task names, whose order depends on PYTHONHASHSEED,
+    so the same source imported twice produced the same rows in a different
+    sequence — which defeats comparing two imports byte for byte.
+    """
+    unannotated = DatasetRecord(
+        files={"image": create_image(0, tempdir)}, annotation=None
+    )
+    # Names whose set order differs from their sorted order for most seeds.
+    task_name = {
+        "a": "zebra",
+        "b": "ant",
+        "c": "moth",
+        "d": "bee",
+        "e": "crow",
+    }
+
+    prepared = _collect_dataset_records(
+        _prepare_import_records(
+            iter([(None, unannotated)]),
+            task_name=task_name,
+            selected_files=None,
+            split_files={},
+        )
+    )
+
+    assert [record.task_name for record in prepared] == sorted(
+        set(task_name.values())
+    )

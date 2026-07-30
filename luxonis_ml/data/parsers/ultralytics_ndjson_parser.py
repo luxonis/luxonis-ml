@@ -79,6 +79,44 @@ class UltralyticsNDJSONParser(ParserPlugin):
             self._skeletons,
         )
 
+    @override
+    def enumerate_files(
+        self,
+        source: Path,
+        layout: Layout,
+        **kwargs: Any,
+    ) -> dict[str | None, list[Path]] | None:
+        """List each split's images without downloading any of them.
+
+        The fallback the importer would use instead is a throwaway parse,
+        which for this format downloads every remote image and creates the
+        cache directory that the real parse then refuses to write into.
+        The destination of a remote image is derived from the record, so
+        it can be named without fetching anything.
+        """
+        del source, kwargs
+        manifest = next(iter(layout.splits.values()))
+        ndjson_path = manifest["ndjson_path"]
+        base_dir = ndjson_path.parent
+        remote_image_dir = base_dir / ndjson_path.stem
+
+        enumerated: dict[str | None, list[Path]] = {}
+        for record in self._iter_image_records(ndjson_path):
+            # Parsing warns about every record's split; enumerating the
+            # same records again should not repeat all of it.
+            split_name = self._normalize_split_name(
+                record.get("split"), warn=False
+            )
+            enumerated.setdefault(split_name, []).append(
+                self._resolve_image_path(
+                    base_dir,
+                    record,
+                    remote_image_dir=remote_image_dir,
+                    download=False,
+                )
+            )
+        return enumerated
+
     def _stream_records(
         self,
         ndjson_path: Path,
@@ -329,11 +367,17 @@ class UltralyticsNDJSONParser(ParserPlugin):
         record: dict[str, Any],
         *,
         remote_image_dir: Path,
+        download: bool = True,
     ) -> Path:
         if record.get("url"):
-            return cls._download_image(
+            destination = cls._remote_image_path(
                 record,
                 remote_image_dir=remote_image_dir,
+            )
+            if not download:
+                return destination
+            return cls._remote_file_downloader.download(
+                record["url"], destination, validate_image=True
             )
 
         file_path = parse_manifest_path(record["file"])
@@ -342,34 +386,37 @@ class UltralyticsNDJSONParser(ParserPlugin):
         return resolve_manifest_path(base_dir, record["file"])
 
     @classmethod
-    def _download_image(
+    def _remote_image_path(
         cls,
         record: dict[str, Any],
         *,
         remote_image_dir: Path,
     ) -> Path:
+        """Where a record's remote image is, or would be, downloaded."""
         file_name = parse_manifest_path(record["file"])
         url = record["url"]
-        split_name = cls._normalize_split_name(record.get("split"))
+        # The caller warns about the record's split itself.
+        split_name = cls._normalize_split_name(record.get("split"), warn=False)
         url_hash = hashlib.blake2s(
             url.encode("utf-8"), digest_size=6
         ).hexdigest()
         suffix = file_name.suffix or Path(urlsplit(url).path).suffix
-        destination = (
+        return (
             remote_image_dir
             / split_name
             / f"{file_name.stem}-{url_hash}{suffix}"
         )
-        return cls._remote_file_downloader.download(
-            url, destination, validate_image=True
-        )
 
     @staticmethod
-    def _normalize_split_name(split_name: str | None) -> str:
+    def _normalize_split_name(
+        split_name: str | None, *, warn: bool = True
+    ) -> str:
         if split_name in {"train", "val", "test"}:
             return split_name
         if split_name in {"valid", "validation"}:
             return "val"
+        if not warn:
+            return "train"
         if split_name is None:
             logger.warning(
                 "Missing split in Ultralytics NDJSON record. Defaulting to 'train'."

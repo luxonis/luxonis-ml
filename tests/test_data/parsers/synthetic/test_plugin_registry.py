@@ -348,3 +348,44 @@ def test_get_parser_plugin_resolves_by_split_coverage(
     SyntheticYoloV8.splits = {}
     with pytest.raises(ValueError, match="multiple parsers: yolov6, yolov8"):
         get_parser_plugin(tmp_path, None)
+
+
+def test_parser_entry_point_that_fails_to_import_is_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A plugin that cannot even be loaded must not break ``import``.
+
+    Regression: only ``KeyError`` and ``ValueError`` were caught, but
+    ``EntryPoint.load()`` imports the plugin's module — a missing optional
+    dependency raises ``ModuleNotFoundError`` and a renamed class raises
+    ``AttributeError``. Neither was caught, so ``_load_parser_plugins``
+    running at module scope made plain ``import luxonis_ml.data`` raise,
+    which is the exact case its docstring promises to survive.
+    """
+
+    class BrokenEntryPoint:
+        name = "broken-plugin"
+
+        @staticmethod
+        def load() -> type[ParserPlugin]:
+            raise ModuleNotFoundError("No module named 'not_installed'")
+
+    monkeypatch.setattr(
+        data_module,
+        "_get_entry_points_subset",
+        lambda group: (
+            [BrokenEntryPoint()] if group == "parser_plugins" else []
+        ),
+    )
+    messages: list[str] = []
+    sink_id = logger.add(
+        lambda message: messages.append(str(message).strip()),
+        format="{message}",
+        level="WARNING",
+    )
+    try:
+        data_module._load_parser_plugins()
+    finally:
+        logger.remove(sink_id)
+
+    assert any("broken-plugin" in message for message in messages)

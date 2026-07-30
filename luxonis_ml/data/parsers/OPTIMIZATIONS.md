@@ -114,12 +114,12 @@ Two of them need slightly more care, and both say so at the site:
 - **YOLOv8** yields no record at all for an image whose label lines are *all*
   malformed, so the file list is the image listing filtered by a scan of the
   label file that stops at the first usable line.
-- **SOLO** cannot cheaply predict which captures yield records, so it keeps a
-  second walk — but in `files_only` mode, which skips mask decoding, coordinate
-  normalization and record construction.
+- **SOLO** cannot cheaply predict which captures yield records, so it does not
+  answer: its `_split_files` returns `None` and the importer falls back to the
+  throwaway parse described above — for count-based splits only.
 
-Prefer this shape in a new parser. `_get_added_images` still exists for parsers
-that genuinely cannot derive their file list any other way.
+Prefer this shape in a new parser. A parser that genuinely cannot derive its
+file list any other way returns `None` and pays for that fallback.
 
 ### Work that depends only on the image was done per annotation
 

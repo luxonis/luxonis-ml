@@ -497,3 +497,34 @@ def test_yolov8_enumerated_files_exclude_images_that_yield_nothing(
     assert enumerated == named
     assert images / "malformed.jpg" not in enumerated
     assert {path.name for path in enumerated} == {"good.jpg", "background.jpg"}
+
+
+def test_yolov8_unsplit_source_reads_its_own_class_file(
+    dataset_name: str, tempdir: Path
+):
+    """A source that is one unsplit layout keeps its class file inside it.
+
+    Regression: the Roboflow candidate resolves the class YAML from
+    ``split_path.parent``, which is right for ``<root>/train`` but wrong when
+    the dataset root itself is validated as a single split — the fallback the
+    new ``detect`` uses for a source with no split directories. The glob then
+    ran one directory above the dataset and picked up whatever unrelated YAML
+    sat next to it, labelling every box with another dataset's class names.
+    """
+    dataset_dir = tempdir / "flat_yolo"
+    _write_yolov8_split(dataset_dir, range(2))
+    (dataset_dir / "data.yaml").write_text("names:\n  0: budgie\n")
+    # An unrelated dataset's class file, next to this one.
+    (tempdir / "other_project.yaml").write_text("names:\n  0: decoy\n")
+
+    dataset = LuxonisDataset.import_dataset(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        dataset_type="yolov8",
+        delete_local=True,
+        save_dir=tempdir,
+    )
+    try:
+        assert set(dataset.get_classes()[""]) == {"budgie"}
+    finally:
+        dataset.delete_dataset(delete_local=True)

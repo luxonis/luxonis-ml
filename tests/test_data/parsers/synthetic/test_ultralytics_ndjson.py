@@ -930,3 +930,63 @@ def test_ultralytics_ndjson_small_helpers():
     assert UltralyticsNDJSONParser._fit_boundingbox(
         np.array([[0.1, 0.2], [0.8, 0.9]])
     ) == {"x": 0.1, "y": 0.2, "w": 0.7000000000000001, "h": 0.7}
+
+
+def test_ultralytics_ndjson_counts_do_not_pre_download_the_images(
+    dataset_name: str,
+    tempdir: Path,
+):
+    """Count-based splits must not make the parse trip over its own cache.
+
+    Regression: the parser did not answer ``enumerate_files``, so counting
+    the files fell back to a throwaway parse — which downloaded every remote
+    image and created the cache directory. The real parse that followed then
+    found that directory and refused it, so a first-ever import failed with
+    "Remote NDJSON image directory already exists". Enumeration now names the
+    downloads without fetching them.
+    """
+    source_dir = tempdir / "sources"
+    source_dir.mkdir()
+    ndjson_path = tempdir / "budgie.ndjson"
+    lines = [json.dumps({"type": "dataset", "class_names": {"0": "budgie"}})]
+    for index, split_name in enumerate(
+        ["train", "train", "train", "train", "val", "test"]
+    ):
+        source = create_image(index, source_dir)
+        lines.append(
+            json.dumps(
+                {
+                    "type": "image",
+                    "file": f"{split_name}/img{index}.jpg",
+                    "url": source.resolve().as_uri(),
+                    "split": split_name,
+                    "width": 512,
+                    "height": 512,
+                    "annotations": {"boxes": [[0, 0.5, 0.5, 0.4, 0.4]]},
+                }
+            )
+        )
+    ndjson_path.write_text("\n".join(lines), encoding="utf-8")
+
+    remote_image_dir = tempdir / "budgie"
+    assert not remote_image_dir.exists()
+
+    dataset = LuxonisDataset.import_dataset(
+        str(ndjson_path),
+        dataset_name=dataset_name,
+        delete_local=True,
+        save_dir=tempdir,
+        split_ratios={"train": 2, "val": 1, "test": 1},
+        parser_kwargs={"reuse_cached": False},
+    )
+    try:
+        assert len(dataset) == 4
+        splits = dataset.get_splits()
+        assert splits is not None
+        assert {name: len(ids) for name, ids in splits.items()} == {
+            "train": 2,
+            "val": 1,
+            "test": 1,
+        }
+    finally:
+        dataset.delete_dataset(delete_local=True)

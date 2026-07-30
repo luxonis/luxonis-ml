@@ -2,7 +2,7 @@ import subprocess
 import sys
 import zipfile
 from importlib.util import find_spec
-from pathlib import Path
+from pathlib import Path, PurePath
 from urllib.parse import parse_qs, urlsplit
 
 import requests
@@ -34,7 +34,11 @@ def prepare_source(
     else:
         # A trailing separator would otherwise yield an empty name, which in
         # turn makes both the dataset name and the download target empty.
-        name = source_string.rstrip("/").rsplit("/", maxsplit=1)[-1]
+        # Split by `PurePath` rather than on "/" so that a local Windows
+        # path ends at its backslash, while a backslash on POSIX stays the
+        # ordinary file name character it is there. A URL is unaffected:
+        # both flavours separate on "/".
+        name = PurePath(source_string).name
         if not name:
             raise ValueError(
                 f"Could not derive a dataset name from source '{source}'."

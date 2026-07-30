@@ -195,22 +195,28 @@ class YOLOv8Parser(SplitParserPlugin):
             (
                 split_path / "images",
                 split_path / "labels",
-                split_path.parent,
+                # `split_path` is the dataset root itself when a source
+                # without splits is validated as one, and then the class
+                # file is inside it. Searching there first also keeps a
+                # genuine split from reaching for an unrelated YAML that
+                # happens to sit next to the dataset.
+                (split_path, split_path.parent),
             ),  # ROBOFLOW
             (
                 split_path.parent.parent / "images" / split_path.name,
                 split_path.parent.parent / "labels" / split_path.name,
-                split_path.parent.parent,
+                (split_path.parent.parent,),
             ),  # ULTRALYTICS
         ]
 
-        images_path = labels_path = yaml_root = None
-        for img_dir, lbl_dir, yroot in candidates:
+        images_path = labels_path = None
+        yaml_roots: tuple[Path, ...] = ()
+        for img_dir, lbl_dir, yroots in candidates:
             if img_dir.exists() and lbl_dir.exists():
-                images_path, labels_path, yaml_root = img_dir, lbl_dir, yroot
+                images_path, labels_path, yaml_roots = img_dir, lbl_dir, yroots
                 break
 
-        if images_path is None or labels_path is None or yaml_root is None:
+        if images_path is None or labels_path is None or not yaml_roots:
             return None
 
         images = YOLOv8Parser._list_images(images_path)
@@ -218,7 +224,12 @@ class YOLOv8Parser(SplitParserPlugin):
             return None
 
         yaml_file = next(
-            (f for ext in ("*.yaml", "*.yml") for f in yaml_root.glob(ext)),
+            (
+                f
+                for yaml_root in yaml_roots
+                for ext in ("*.yaml", "*.yml")
+                for f in sorted(yaml_root.glob(ext))
+            ),
             None,
         )
         if yaml_file is None:

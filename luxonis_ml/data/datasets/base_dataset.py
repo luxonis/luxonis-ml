@@ -85,7 +85,10 @@ def _prepare_import_records(
             continue
 
         if record.annotation is None:
-            for name in unannotated_task_names:
+            # Sorted so that two imports of the same source emit these
+            # copies in the same order; set iteration order is not stable
+            # across processes.
+            for name in sorted(unannotated_task_names):
                 yield record.model_copy(
                     update={"task_name": name},
                     deep=True,
@@ -227,6 +230,14 @@ class BaseDataset(
         count_ratios: dict[str, int] | None = None
         if is_counts:
             assert split_ratios is not None
+            # Only the canonical three are read below, so anything else the
+            # caller asked for would be dropped without a word.
+            unknown_splits = set(split_ratios) - {"train", "val", "test"}
+            if unknown_splits:
+                raise ValueError(
+                    "Count-based `split_ratios` only supports the splits "
+                    f"'train', 'val' and 'test', got {sorted(unknown_splits)}."
+                )
             count_ratios = {
                 name: int(split_ratios.get(name, 0))
                 for name in ("train", "val", "test")
@@ -246,6 +257,23 @@ class BaseDataset(
                 f"Could not derive a dataset name from source '{source}'. "
                 "Pass `dataset_name` explicitly."
             )
+        # The constructor opens an existing dataset of that name instead of
+        # replacing it, so whether this import created the dataset decides
+        # whether the failure handler below may delete it. Being asked to
+        # delete the old one first makes it this import's dataset again.
+        exists_parameters = inspect.signature(cls.exists).parameters
+        replaces_existing = bool(
+            dataset_kwargs.get("delete_local")
+            or dataset_kwargs.get("delete_remote")
+        )
+        created_now = replaces_existing or not cls.exists(
+            resolved_name,
+            **{
+                name: value
+                for name, value in dataset_kwargs.items()
+                if name in exists_parameters
+            },
+        )
         dataset = cast(Any, cls)(
             dataset_name=resolved_name,
             **dataset_kwargs,
@@ -268,11 +296,9 @@ class BaseDataset(
 
             selected_splits: dict[str, Sequence[PathType]] | None = None
             selected_files: set[Path] | None = None
-            if (
-                split is None
-                and count_ratios is not None
-                and (has_original_splits or random_split)
-            ):
+            # Counts are an explicit request to sample, so they are honoured
+            # even when `random_split` turned automatic splitting off.
+            if split is None and count_ratios is not None:
                 # The only feature that has to know the files before a
                 # record is added. A parser that cannot enumerate them
                 # cheaply pays a throwaway parse here, and only here.
@@ -321,41 +347,59 @@ class BaseDataset(
             )
             dataset.add(_peek(records))
 
-            parsed_splits = {
-                name: list(files)
-                for name, files in split_files.items()
-                if name is not None
-            }
-            all_files = [
-                file for files in split_files.values() for file in files
-            ]
-
-            for skeleton in parsed.skeletons.values():
+            # Skeletons are keyed by the task the parser saw, which
+            # `task_name` may have renamed. Routing a skeleton to its own
+            # task keeps a source with several keypoint tasks from having
+            # them all overwritten by whichever one came last; a key that
+            # matches no task can only fall back to updating every task.
+            known_tasks = set(dataset.get_task_names())
+            for skeleton_task, skeleton in parsed.skeletons.items():
                 dataset.set_skeletons(
                     skeleton.get("labels"),
                     skeleton.get("edges"),
+                    task=skeleton_task
+                    if skeleton_task in known_tasks
+                    else None,
                 )
 
+            # Both file views are built only where they are used: an
+            # import takes exactly one of these branches.
             if split is not None:
-                dataset.make_splits({split: all_files})
+                dataset.make_splits(
+                    {
+                        split: [
+                            file
+                            for files in split_files.values()
+                            for file in files
+                        ]
+                    }
+                )
             elif selected_splits is not None:
                 dataset.make_splits(selected_splits)
             elif split_ratios is not None:
-                if has_original_splits or random_split:
-                    if has_original_splits and not is_counts:
-                        logger.warning(
-                            "Using percentage-based split ratios will "
-                            "redistribute and shuffle all samples across "
-                            "splits. Original split boundaries will not be "
-                            "preserved."
-                        )
-                    dataset.make_splits(split_ratios)
+                # Counts are consumed above, so only percentages reach here.
+                if has_original_splits:
+                    logger.warning(
+                        "Using percentage-based split ratios will "
+                        "redistribute and shuffle all samples across "
+                        "splits. Original split boundaries will not be "
+                        "preserved."
+                    )
+                # `make_splits` tells ratios from counts by the type of the
+                # first value alone, so a mapping mixing the two would
+                # silently fall back to the default ratios.
+                dataset.make_splits(
+                    {
+                        name: float(value)
+                        for name, value in split_ratios.items()
+                    }
+                )
             elif has_original_splits:
                 # A source with original splits defines all three, even the
                 # ones it left empty: a train-only dataset still reports an
                 # empty `val` and `test` rather than omitting them.
                 original_splits: dict[str, Sequence[PathType]] = {
-                    name: parsed_splits.get(name, [])
+                    name: list(split_files.get(name, {}))
                     for name in ("train", "val", "test")
                 }
                 dataset.make_splits(original_splits)
@@ -370,8 +414,17 @@ class BaseDataset(
             # registered, half-populated dataset that looks importable.
             # Nothing here can be recovered by retrying, so the dataset
             # is removed and the original error propagates.
-            with suppress(Exception):
-                dataset.delete_dataset(delete_local=True)
+            #
+            # Only a dataset this import created may be removed. Importing
+            # into the name of an existing dataset appends to it, and the
+            # records that were already there are not this import's to
+            # delete. Remote storage is cleaned up as well, otherwise the
+            # media uploaded before the failure is orphaned in the bucket.
+            if created_now:
+                with suppress(Exception):
+                    dataset.delete_dataset(
+                        delete_local=True, delete_remote=True
+                    )
             raise
         else:
             return dataset
@@ -557,8 +610,16 @@ class BaseDataset(
         ...
 
     @abstractmethod
-    def delete_dataset(self) -> None:
-        """Delete local files belonging to the dataset."""
+    def delete_dataset(
+        self, *, delete_remote: bool = False, delete_local: bool = False
+    ) -> None:
+        """Delete files belonging to the dataset.
+
+        Args:
+            delete_remote: Whether to delete the remote dataset.
+            delete_local: Whether to delete the local dataset files.
+
+        """
         ...
 
     @staticmethod
