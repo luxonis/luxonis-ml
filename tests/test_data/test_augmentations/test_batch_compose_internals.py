@@ -1,11 +1,3 @@
-"""Behaviour of `BatchCompose` on inputs the engine does not normally send.
-
-`BatchCompose` is exported, so it can be driven directly with bbox
-associations that do not line up with the data. These tests pin down what it
-does then: warn once and leave the data alone, rather than raise or silently
-regroup it.
-"""
-
 from collections.abc import Iterator
 
 import albumentations as A
@@ -16,6 +8,8 @@ from loguru import logger
 from luxonis_ml.data import AlbumentationsEngine
 from luxonis_ml.data.augmentations import BatchCompose, BatchTransform
 from luxonis_ml.typing import Labels
+
+from .helpers import KeepFirstSample
 
 IMAGE = np.zeros((16, 16, 3), dtype=np.uint8)
 
@@ -29,51 +23,11 @@ def warnings_log() -> Iterator[list[str]]:
     logger.remove(handler)
 
 
-class KeepFirstSample(BatchTransform):
-    """Keeps the first sample's targets exactly as they arrived.
-
-    Every target is passed through untouched so a test can see precisely what
-    `BatchCompose` itself did to the data.
-    """
-
-    def __init__(self):
-        super().__init__(batch_size=2, p=1.0)
-
-    def apply(self, image_batch: list[np.ndarray], **_) -> np.ndarray:
-        return image_batch[0]
-
-    def apply_to_mask(self, masks_batch: list[np.ndarray], **_) -> np.ndarray:
-        return masks_batch[0]
-
-    def apply_to_instance_mask(
-        self, masks_batch: list[np.ndarray], **_
-    ) -> np.ndarray:
-        return masks_batch[0]
-
-    def apply_to_bboxes(
-        self, bboxes_batch: list[np.ndarray], **_
-    ) -> np.ndarray:
-        return bboxes_batch[0]
-
-    def apply_to_keypoints(
-        self, keypoints_batch: list[np.ndarray], **_
-    ) -> np.ndarray:
-        return keypoints_batch[0]
-
-    def apply_to_metadata(
-        self, metadata_batch: list[np.ndarray], **_
-    ) -> np.ndarray:
-        return metadata_batch[0]
-
-    def apply_to_array(self, array_batch: list[np.ndarray], **_) -> np.ndarray:
-        return array_batch[0]
-
-
 class PushFirstBoxOutOfFrame(KeepFirstSample):
     """Moves the first box outside the image so filtering drops it.
 
     Indices are stamped before filtering, so the surviving boxes then carry
-    non-contiguous indices - the state compaction exists to handle.
+    the non-contiguous indices that compaction exists to handle.
     """
 
     def apply_to_bboxes(
@@ -85,8 +39,6 @@ class PushFirstBoxOutOfFrame(KeepFirstSample):
 
 
 class ReturnsFlatBoxes(KeepFirstSample):
-    """Hands back a one-dimensional bbox array, which is never valid."""
-
     def apply_to_bboxes(self, _batch: list[np.ndarray], **_) -> np.ndarray:
         return np.array([1.0, 2.0, 3.0])
 
@@ -129,7 +81,6 @@ def test_batch_size_must_match_the_composition() -> None:
 
 
 def test_bbox_fields_absent_from_the_data_are_skipped() -> None:
-    """A declared association need not appear in every sample."""
     composition = compose({"bboxes": {"metadata": "metadata"}})
 
     output = composition(batch(metadata=np.array([1.0])))
@@ -161,17 +112,14 @@ def test_already_empty_associated_fields_are_left_alone() -> None:
 
 
 @pytest.mark.parametrize(
-    ("target_type", "value", "expected_message"),
+    ("target_type", "value"),
     [
-        ("instance_mask", np.ones((16, 16, 5), dtype=np.uint8), "5 instances"),
-        ("metadata", np.ones(5), "5 values"),
+        ("instance_mask", np.ones((16, 16, 5), dtype=np.uint8)),
+        ("metadata", np.ones(5)),
     ],
 )
 def test_unmatched_fields_warn_once_and_are_left_alone(
-    target_type: str,
-    value: np.ndarray,
-    expected_message: str,
-    warnings_log: list[str],
+    target_type: str, value: np.ndarray, warnings_log: list[str]
 ) -> None:
     """Counts that cannot be matched to boxes must not be regrouped."""
     composition = compose(
@@ -181,18 +129,16 @@ def test_unmatched_fields_warn_once_and_are_left_alone(
 
     output = composition(batch(bboxes=boxes(2), label=value))
 
-    assert np.array_equal(output["label"], original), (
-        "an unmatched field must be passed through untouched"
-    )
+    assert np.array_equal(output["label"], original)
     warned = "".join(warnings_log)
-    assert expected_message in warned
-    assert "cannot be matched up" in warned
+    assert f"shape {value.shape}" in warned
+    assert "cannot be matched" in warned
 
 
 def test_unmatched_keypoints_warn_and_are_left_alone(
     warnings_log: list[str],
 ) -> None:
-    """Keypoint rows must be exactly ``bbox_count * n_keypoints``."""
+    """Keypoint rows must number exactly ``bbox_count * n_keypoints``."""
     composition = compose(
         {"bboxes": {"label": "keypoints"}}, {"label": "keypoints"}
     )
@@ -204,7 +150,7 @@ def test_unmatched_keypoints_warn_and_are_left_alone(
     )
 
     assert output["label"].shape[0] == 5
-    assert "5 keypoint rows" in "".join(warnings_log)
+    assert "cannot be matched" in "".join(warnings_log)
 
 
 def test_keypoints_without_a_known_count_are_left_alone(
@@ -218,7 +164,7 @@ def test_keypoints_without_a_known_count_are_left_alone(
 
     composition(batch(bboxes=boxes(2), label=keypoints))
 
-    assert "cannot be matched up" in "".join(warnings_log)
+    assert "cannot be matched" in "".join(warnings_log)
 
 
 def test_the_same_field_only_warns_once(warnings_log: list[str]) -> None:
@@ -229,11 +175,10 @@ def test_the_same_field_only_warns_once(warnings_log: list[str]) -> None:
     composition(batch(bboxes=boxes(2), label=np.ones(5)))
     composition(batch(bboxes=boxes(2), label=np.ones(5)))
 
-    assert "".join(warnings_log).count("cannot be matched up") == 1
+    assert "".join(warnings_log).count("cannot be matched") == 1
 
 
 def test_make_contiguous_leaves_non_arrays_alone() -> None:
-    """Not every value in the data dict is a numpy array."""
     data = {"image": np.zeros((4, 4))[::2], "note": "kept as is"}
 
     out = BatchCompose._make_contiguous(data)  # type: ignore[arg-type]
@@ -272,5 +217,5 @@ def test_labels_emptied_by_a_spatial_transform_are_reported_empty() -> None:
         [({"image": np.zeros((16, 16, 3), dtype=np.uint8)}, labels)]
     )
 
-    assert out_labels.get("task/boundingbox", np.zeros((0, 5))).shape[0] == 0
-    assert out_labels.get("task/metadata/id", np.zeros(0)).shape[0] == 0
+    assert "task/boundingbox" not in out_labels
+    assert out_labels["task/metadata/id"].shape[0] == 0

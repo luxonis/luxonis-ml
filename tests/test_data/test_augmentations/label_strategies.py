@@ -1,22 +1,19 @@
 """Hypothesis strategies for the label types the engine advertises.
 
-`AlbumentationsEngine` documents support for seven label types, spread over
-any number of task groups and image sources. The strategies here build
-*self-consistent* samples for arbitrary combinations of them: within one task
-group every per-instance label describes the same instances, so a generated
-sample is something `LuxonisLoader` could plausibly hand over.
+Samples are built *self-consistent*: within one task group every per-instance
+label describes the same instances, so a generated sample is something
+`LuxonisLoader` could plausibly hand over.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 from hypothesis import strategies as st
 
 from luxonis_ml.typing import Labels
 
-# Every task type `AlbumentationsEngine` claims to handle. "metadata" is
-# spelled as a task-type suffix here and expanded to "metadata/<field>" when
-# the task string is built.
+# "metadata" is spelled as a bare task type here and expanded to
+# "metadata/<field>" when the task string is built.
 PER_INSTANCE_TASK_TYPES = [
     "boundingbox",
     "keypoints",
@@ -38,16 +35,17 @@ class TaskGroupSpec:
     n_classes: int
     n_keypoints: int
 
+    @staticmethod
+    def _suffix(task_type: str) -> str:
+        return "metadata/id" if task_type == "metadata" else task_type
+
     def task(self, task_type: str) -> str:
-        suffix = "metadata/id" if task_type == "metadata" else task_type
-        return f"{self.name}/{suffix}"
+        return f"{self.name}/{self._suffix(task_type)}"
 
     @property
     def tasks(self) -> dict[str, str]:
         return {
-            self.task(task_type): (
-                "metadata/id" if task_type == "metadata" else task_type
-            )
+            self.task(task_type): self._suffix(task_type)
             for task_type in self.task_types
         }
 
@@ -62,7 +60,7 @@ class SampleSpec:
     width: int
     image_height: int
     image_width: int
-    config: list[dict] = field(default_factory=list)
+    config: list[dict]
 
     @property
     def source_names(self) -> list[str]:
@@ -189,8 +187,10 @@ BATCH_CONFIGS = [
 
 
 @st.composite
-def sample_specs(draw: st.DrawFn, max_groups: int = 2) -> SampleSpec:
-    n_groups = draw(st.integers(min_value=1, max_value=max_groups))
+def sample_specs(
+    draw: st.DrawFn, min_groups: int = 1, max_groups: int = 2
+) -> SampleSpec:
+    n_groups = draw(st.integers(min_value=min_groups, max_value=max_groups))
     groups = [draw(task_groups(f"group{i}")) for i in range(n_groups)]
 
     n_sources = draw(st.integers(min_value=1, max_value=3))

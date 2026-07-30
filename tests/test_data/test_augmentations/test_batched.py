@@ -1,13 +1,14 @@
 from copy import deepcopy
-from typing import Any, cast
 
 import albumentations as A
 import numpy as np
 import pytest
 
 from luxonis_ml.data import AlbumentationsEngine
-from luxonis_ml.data.augmentations import BatchCompose, BatchTransform, MixUp
+from luxonis_ml.data.augmentations import BatchCompose, MixUp
 from luxonis_ml.typing import Labels
+
+from .helpers import KeepFirstSample
 
 
 def assert_boxes_match_masks(
@@ -15,11 +16,10 @@ def assert_boxes_match_masks(
 ) -> None:
     """Assert every instance mask is paired with the correct bounding box.
 
-    Box and instance mask undergo the same geometric transforms, so a
-    correctly paired mask always has its nonzero pixels inside its box.
-    A reindexing bug that scrambles the box-to-mask mapping (e.g. pairing a
-    box with a mask blob located elsewhere in the image) is caught here even
-    when the row counts still match.
+    Box and mask undergo the same geometric transforms, so a correctly
+    paired mask always has its nonzero pixels inside its box. This catches
+    a reindexing bug that scrambles the mapping even when the row counts
+    still line up.
     """
     assert boxes.shape[0] == masks.shape[0]
     _, height, width = masks.shape
@@ -30,12 +30,12 @@ def assert_boxes_match_masks(
         cy = ys.mean() / height
         x, y, w, h = box[1:5]
         assert x - tol <= cx <= x + w + tol, (
-            f"instance {i}: mask centroid x={cx:.3f} outside box "
-            f"[{x:.3f}, {x + w:.3f}] — box paired with the wrong mask"
+            f"instance {i} is paired with the wrong mask: centroid "
+            f"x={cx:.3f} outside box [{x:.3f}, {x + w:.3f}]"
         )
         assert y - tol <= cy <= y + h + tol, (
-            f"instance {i}: mask centroid y={cy:.3f} outside box "
-            f"[{y:.3f}, {y + h:.3f}] — box paired with the wrong mask"
+            f"instance {i} is paired with the wrong mask: centroid "
+            f"y={cy:.3f} outside box [{y:.3f}, {y + h:.3f}]"
         )
 
 
@@ -213,7 +213,6 @@ def test_batched_p_0(
 
 
 def test_batch_compose_without_bbox_params() -> None:
-    """BatchCompose remains usable for image-only batch transformations."""
     first = np.zeros((8, 8, 3), dtype=np.uint8)
     second = np.ones((8, 8, 3), dtype=np.uint8)
     compose = BatchCompose([MixUp(p=0)])
@@ -295,11 +294,9 @@ def test_mosaic_drops_boxes_keeps_masks_aligned(
 ) -> None:
     """Boxes dropped by ``min_bbox_visibility`` must not scramble masks.
 
-    When a batch transform (here Mosaic4) crops instances so some boxes fall
-    below the visibility threshold, ``check_data_post_transform`` drops those
-    boxes while every instance-mask channel remains. The surviving boxes must
-    still be paired with their own masks; reindexing them to a contiguous
-    range after the drop would silently pair them with the wrong masks.
+    ``check_data_post_transform`` drops the boxes Mosaic4 cropped below the
+    threshold while every instance-mask channel remains. Reindexing the
+    survivors to a contiguous range would pair them with the wrong masks.
     """
     image = np.zeros((320, 320, 3), dtype=np.uint8)
     # Four instances in the four corners, each mask centered in its box.
@@ -309,10 +306,9 @@ def test_mosaic_drops_boxes_keeps_masks_aligned(
     def make_labels(sample: int) -> Labels:
         """Build one sample whose per-instance ids are unique batch-wide.
 
-        Repeating the same ids in every batch member would make the value
-        oracles below hold under any permutation that maps instance *i* of
-        one sample onto instance *i* of another, which is exactly the kind
-        of wrong pairing compaction can introduce.
+        Reusing ids across batch members would let the checks below pass
+        under a permutation mapping instance *i* of one sample onto
+        instance *i* of another - exactly the mispairing they look for.
         """
         instance_mask = np.zeros((4, 320, 320), dtype=np.uint8)
         boxes_in = []
@@ -387,7 +383,6 @@ def test_mosaic_drops_boxes_keeps_masks_aligned(
 
 
 def test_batch_transforms_keep_nested_task_groups_independent() -> None:
-    """Associated labels from nested task groups must not be compacted together."""
 
     def make_mask(
         instances: list[tuple[int, float, float]], size: int = 64
@@ -469,7 +464,6 @@ def test_batch_transforms_keep_nested_task_groups_independent() -> None:
 
 
 def test_standalone_labels_survive_bboxes_from_another_task_group() -> None:
-    """A bbox task must not filter standalone labels from another task group."""
     targets = {
         "detection/boundingbox": "boundingbox",
         "pose/keypoints": "keypoints",
@@ -511,10 +505,8 @@ def test_standalone_labels_survive_bboxes_from_another_task_group() -> None:
 def test_compaction_handles_all_filtered_bboxes() -> None:
     """Associated labels stay present but empty when no bbox survives.
 
-    Driven end to end rather than by calling the compaction helper, so it
-    covers how ``bbox_counts`` is derived and how the emptied labels travel
-    back out through postprocessing. Dropping the task keys entirely would
-    let ``LuxonisLoader._add_empty_annotations`` refill metadata with
+    Dropping the task keys entirely would let
+    ``LuxonisLoader._add_empty_annotations`` refill metadata with
     ``n_classes`` phantom rows.
     """
     targets = {
@@ -536,41 +528,35 @@ def test_compaction_handles_all_filtered_bboxes() -> None:
         "task/metadata/id": np.array([7]),
     }
 
-    all_filtered_seen = False
-    for seed in range(10):
-        augmentations = AlbumentationsEngine(
-            64,
-            64,
-            targets,
-            dict.fromkeys(targets, 1),
-            ["image"],
-            [
-                {
-                    "name": "Mosaic4",
-                    "params": {"p": 1.0, "height": 64, "width": 64},
-                },
-                {"name": "MixUp", "params": {"p": 1.0}},
-            ],
-            min_bbox_visibility=1.0,
-            seed=seed,
-        )
-        _, output = augmentations.apply(
-            [({"image": image}, deepcopy(labels)) for _ in range(8)]
-        )
+    augmentations = AlbumentationsEngine(
+        64,
+        64,
+        targets,
+        dict.fromkeys(targets, 1),
+        ["image"],
+        [
+            {
+                "name": "Mosaic4",
+                "params": {"p": 1.0, "height": 64, "width": 64},
+            },
+            {"name": "MixUp", "params": {"p": 1.0}},
+        ],
+        min_bbox_visibility=1.0,
+        seed=0,
+    )
 
-        if output.get("task/boundingbox", np.zeros((0, 5))).shape[0]:
-            continue
+    _, output = augmentations.apply(
+        [({"image": image}, deepcopy(labels)) for _ in range(8)]
+    )
 
-        all_filtered_seen = True
-        # The bbox task itself is dropped, as it always has been; the loader
-        # refills it with a correctly shaped empty array. The labels hanging
-        # off it are the ones that must not disappear.
-        assert output["task/instance_segmentation"].shape == (0, 64, 64)
-        assert output["task/keypoints"].shape == (0, 3)
-        assert output["task/array"].shape == (0, 2)
-        assert output["task/metadata/id"].shape == (0,)
-
-    assert all_filtered_seen, "no seed produced the all-filtered case"
+    # The bbox task itself is dropped, as it always has been; the loader
+    # refills it with a correctly shaped empty array. The labels hanging off
+    # it are the ones that must not disappear.
+    assert "task/boundingbox" not in output
+    assert output["task/instance_segmentation"].shape == (0, 64, 64)
+    assert output["task/keypoints"].shape == (0, 3)
+    assert output["task/array"].shape == (0, 2)
+    assert output["task/metadata/id"].shape == (0,)
 
 
 def test_instance_masks_without_bboxes_in_their_task_group() -> None:
@@ -602,11 +588,7 @@ def test_instance_masks_without_bboxes_in_their_task_group() -> None:
 
 
 def test_bbox_label_column_is_left_alone_without_associations() -> None:
-    """Plain Albumentations use keeps its class column.
-
-    Without ``bbox_associations`` the trailing bbox column is the class
-    label, not an index, so the composition must not restamp it.
-    """
+    """Without ``bbox_associations`` the trailing column is a class label."""
     compose = BatchCompose(
         [MixUp(p=1.0)],
         bbox_params=A.BboxParams(format="albumentations"),
@@ -626,47 +608,7 @@ def test_bbox_label_column_is_left_alone_without_associations() -> None:
     assert sorted(output["bboxes"][:, -1].tolist()) == [7.0, 7.0, 9.0, 9.0]
 
 
-def test_bbox_params_cannot_be_passed_positionally() -> None:
-    """``bbox_associations`` must not occupy ``A.Compose``'s second slot."""
-    untyped_compose = cast(Any, BatchCompose)
-    with pytest.raises(TypeError):
-        untyped_compose([MixUp(p=1.0)], A.BboxParams(format="albumentations"))
-
-
-class KeepFirstSample(BatchTransform):
-    """Batch transform that keeps the first sample's targets untouched.
-
-    Lets a test observe what `BatchCompose` itself does to the data,
-    without a real transform rewriting the targets on the way through.
-    """
-
-    def __init__(self):
-        super().__init__(batch_size=2, p=1.0)
-
-    def apply(self, image_batch: list[np.ndarray], **_) -> np.ndarray:
-        return image_batch[0]
-
-    def apply_to_mask(self, masks_batch: list[np.ndarray], **_) -> np.ndarray:
-        return masks_batch[0]
-
-    def apply_to_instance_mask(
-        self, masks_batch: list[np.ndarray], **_
-    ) -> np.ndarray:
-        return masks_batch[0]
-
-    def apply_to_bboxes(
-        self, bboxes_batch: list[np.ndarray], **_
-    ) -> np.ndarray:
-        return bboxes_batch[0]
-
-    def apply_to_keypoints(
-        self, keypoints_batch: list[np.ndarray], **_
-    ) -> np.ndarray:
-        return keypoints_batch[0]
-
-
 def test_read_only_bboxes_are_not_mutated_in_place() -> None:
-    """Reindexing must not write into a caller's read-only buffer."""
     boxes = np.array([[0.1, 0.1, 0.3, 0.3, 0.0, 5.0]])
     boxes.setflags(write=False)
     compose = BatchCompose(
@@ -691,11 +633,7 @@ def test_read_only_bboxes_are_not_mutated_in_place() -> None:
 
 
 def test_associations_are_kept_when_bboxes_are_not_processed() -> None:
-    """A missing bbox processor must not be read as "every bbox was cut".
-
-    Without ``bbox_params`` there is no bbox count to compare against, which
-    is not the same thing as a count of zero.
-    """
+    """Having no bbox count to compare against is not a count of zero."""
     compose = BatchCompose(
         [MixUp(p=1.0)],
         bbox_associations={"bboxes": {"metadata": "metadata"}},

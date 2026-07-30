@@ -39,6 +39,12 @@ TargetType: TypeAlias = Literal[
     "metadata",
 ]
 
+# Target types describing individual instances, and so kept in step with the
+# bounding boxes of their task group as those are filtered.
+ASSOCIATED_TARGET_TYPES = frozenset(
+    {"instance_mask", "keypoints", "array", "metadata"}
+)
+
 
 class AlbumentationConfigItem(ConfigItem):
     """Configuration item for `AlbumentationsEngine`.
@@ -578,38 +584,38 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 "seed": seed,
             }
 
-        # Warning issued when "bbox_params" or "keypoint_params"
-        # are provided to a compose with transformations that
-        # do not use them. We don't care about these warnings.
         bbox_targets_by_group = {}
-        for bbox_target, bbox_type in self._targets.items():
-            if bbox_type != "bboxes":
+        for target_name, target_type in self._targets.items():
+            if target_type != "bboxes":
                 continue
-            task_group = self._target_names_to_task_groups[bbox_target]
+            task_group = self._target_names_to_task_groups[target_name]
             if task_group in bbox_targets_by_group:
                 raise ValueError(
                     "Multiple bounding-box targets belong to task group "
                     f"'{task_group}'."
                 )
-            bbox_targets_by_group[task_group] = bbox_target
+            bbox_targets_by_group[task_group] = target_name
 
         self._bbox_task_groups = set(bbox_targets_by_group)
-        bbox_associations = {}
-        for task_group, bbox_target in bbox_targets_by_group.items():
-            bbox_associations[bbox_target] = {
+        bbox_associations = {
+            bbox_target: {
                 target_name: target_type
                 for target_name, target_type in self._targets.items()
-                if target_type
-                in {"instance_mask", "keypoints", "array", "metadata"}
+                if target_type in ASSOCIATED_TARGET_TYPES
                 and self._target_names_to_task_groups[target_name]
                 == task_group
             }
+            for task_group, bbox_target in bbox_targets_by_group.items()
+        }
         self._bbox_associated_targets = {
             target_name
             for associations in bbox_associations.values()
             for target_name in associations
         }
 
+        # Warning issued when "bbox_params" or "keypoint_params"
+        # are provided to a compose with transformations that
+        # do not use them. We don't care about these warnings.
         with warnings.catch_warnings(record=True):
             self._batch_transform = BatchCompose(
                 batch_transforms,
@@ -653,9 +659,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         )
 
         # Albumentations chokes on zero-size targets, so they are dropped
-        # before the remaining stages. Labels that a batch transform emptied
-        # are remembered so postprocessing can still report them as empty
-        # instead of silently omitting the task.
+        # here. Ones a batch transform emptied are remembered so that
+        # postprocessing can still report them as empty rather than omit
+        # the task entirely.
         emptied_targets = set()
         for target_name in list(data.keys()):
             value = data[target_name]
@@ -878,8 +884,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 out_labels[task] = array
 
         for target_name in emptied_targets:
-            # These were dropped before the remaining stages ran, so none of
-            # the loops above can have produced a label for them.
             task = self._target_names_to_tasks[target_name]
             if self._targets[target_name] == "instance_mask":
                 # The recorded shape is the pre-augmentation one.
@@ -978,12 +982,12 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
     @staticmethod
     def _get_task_group(task: str) -> str:
-        """Return the complete task path without its task-type suffix."""
-        task_type = get_task_type(task)
-        suffix = f"/{task_type}"
-        if task.endswith(suffix):
-            return task[: -len(suffix)]
-        return ""
+        """Return the complete task path without its task-type suffix.
+
+        Unlike `get_task_name`, this keeps every level of a nested task
+        name, so ``"a/b/keypoints"`` groups under ``"a/b"``.
+        """
+        return task.removesuffix(get_task_type(task)).removesuffix("/")
 
     @staticmethod
     def _task_to_target_name(task: str) -> str:

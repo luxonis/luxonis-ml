@@ -14,8 +14,7 @@ def _column_count(batch: list[np.ndarray], default: int) -> int:
     """Column count to give empty entries so concatenation lines up.
 
     Albumentations sizes these rows differently depending on which optional
-    fields a pipeline uses, so the width is taken from a populated entry
-    rather than assumed.
+    fields a pipeline uses, so the width is read off a populated entry.
     """
     for array in batch:
         if array.size > 0 and array.ndim == 2:

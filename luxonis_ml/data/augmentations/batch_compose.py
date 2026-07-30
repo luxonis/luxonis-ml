@@ -34,12 +34,10 @@ class BatchCompose(A.Compose):
         Args:
             transforms: Transformations to compose.
             bbox_associations: Bbox fields mapped to their associated target
-                fields and target types. Keyword-only so it cannot be
-                mistaken for `A.Compose`_'s positional ``bbox_params``.
-                Bbox fields listed here are expected to carry a dedicated
+                fields and target types. Fields listed here must carry the
                 index column appended by
                 `luxonis_ml.data.augmentations.utils.preprocess_bboxes`;
-                fields not listed here are left untouched.
+                any other bbox field is left untouched.
             **kwargs: Additional arguments passed to `A.Compose`_.
 
         .. _A.Compose:
@@ -71,9 +69,9 @@ class BatchCompose(A.Compose):
             data_batch: Batch of Albumentations data dictionaries. Its
                 length must equal ``batch_size``.
             keypoints_per_instance: Number of keypoints each instance of a
-                keypoint field carries. Needed to regroup keypoint rows by
-                instance when compacting bbox-associated labels; keypoint
-                fields missing from this mapping are left untouched.
+                keypoint field carries, used to regroup keypoint rows by
+                instance. Fields missing from this mapping are left
+                untouched.
 
         Returns:
             Single transformed data dictionary.
@@ -147,13 +145,10 @@ class BatchCompose(A.Compose):
     def _reindex_bboxes(self, data: dict[str, np.ndarray]) -> dict[str, int]:
         """Give each bbox field contiguous indices and return its size.
 
-        Only fields declared in ``bbox_associations`` are touched. Those carry
-        an index column appended by the engine; for any other bbox field the
-        last column is the class label and must be left alone.
-
-        The indices are local positions into bbox-associated labels. They are
-        assigned before bbox filtering so the surviving indices can be used to
-        compact those labels in lockstep.
+        Only fields declared in ``bbox_associations`` are touched; for any
+        other bbox field the last column is the class label. The indices are
+        positions into the bbox-associated labels, stamped before filtering so
+        that the survivors can be used to compact those labels in lockstep.
         """
         bbox_counts = {}
         bbox_processor = self.processors.get("bboxes")
@@ -173,8 +168,7 @@ class BatchCompose(A.Compose):
                 raise ValueError(
                     f"Bbox field '{field_name}' must be a 2D array."
                 )
-            # A copy rather than an in-place write: the caller's array may
-            # be read-only, and it is not this composition's to modify.
+            # The caller's array may be read-only, and is not ours to modify.
             bboxes = bboxes.copy()
             bboxes[:, -1] = np.arange(len(bboxes), dtype=bboxes.dtype)
             data[field_name] = bboxes
@@ -188,23 +182,21 @@ class BatchCompose(A.Compose):
     ) -> None:
         """Drop labels associated with bboxes filtered from the current stage.
 
-        A field whose length disagrees with the bbox count cannot be matched
-        up instance by instance, so it is left untouched rather than dropped
-        or regrouped on a guess.
+        A field whose instance count disagrees with the bbox count cannot be
+        matched up instance by instance, so it is left untouched rather than
+        dropped or regrouped on a guess.
         """
         for bbox_field, associations in self._bbox_associations.items():
-            # A field is in `bbox_counts` only if `_reindex_bboxes` saw it in
-            # this same dict, and it validated the layout there too.
             if bbox_field not in bbox_counts:
                 continue
-            bboxes = data[bbox_field]
 
             bbox_count = bbox_counts[bbox_field]
-            if bboxes.size == 0:
-                indices = np.array([], dtype=int)
-            else:
-                indices = bboxes[:, -1].astype(int)
-
+            bboxes = data[bbox_field]
+            indices = (
+                bboxes[:, -1].astype(int)
+                if bboxes.size
+                else np.array([], dtype=int)
+            )
             if bbox_count and np.array_equal(indices, np.arange(bbox_count)):
                 continue
 
@@ -223,57 +215,64 @@ class BatchCompose(A.Compose):
                 if value.size == 0:
                     continue
 
-                if target_type == "instance_mask":
-                    if value.shape[-1] != bbox_count:
-                        self._warn_unmatched(
-                            field_name,
-                            f"{value.shape[-1]} instances",
-                            bbox_count,
-                            bbox_field,
-                        )
-                        continue
-                    data[field_name] = value[..., indices]
-                elif target_type == "keypoints":
-                    n_keypoints = keypoints_per_instance.get(field_name)
-                    if (
-                        n_keypoints is None
-                        or value.shape[0] != bbox_count * n_keypoints
-                    ):
-                        self._warn_unmatched(
-                            field_name,
-                            f"{value.shape[0]} keypoint rows",
-                            bbox_count,
-                            bbox_field,
-                        )
-                        continue
-                    grouped = value.reshape(
-                        bbox_count, n_keypoints, *value.shape[1:]
-                    )
-                    data[field_name] = grouped[indices].reshape(
-                        -1, *value.shape[1:]
+                compacted = self._select_instances(
+                    value,
+                    target_type,
+                    indices,
+                    bbox_count,
+                    keypoints_per_instance.get(field_name, 0),
+                )
+                if compacted is None:
+                    self._warn_unmatched(
+                        field_name, value, bbox_count, bbox_field
                     )
                 else:
-                    if len(value) != bbox_count:
-                        self._warn_unmatched(
-                            field_name,
-                            f"{len(value)} values",
-                            bbox_count,
-                            bbox_field,
-                        )
-                        continue
-                    data[field_name] = value[indices]
+                    data[field_name] = compacted
+
+    @staticmethod
+    def _select_instances(
+        value: np.ndarray,
+        target_type: str,
+        indices: np.ndarray,
+        bbox_count: int,
+        n_keypoints: int,
+    ) -> np.ndarray | None:
+        """Keep only the instances at ``indices``, in that order.
+
+        Returns ``None`` if the field does not hold exactly ``bbox_count``
+        instances, in which case it cannot be matched up with the boxes.
+        """
+        if target_type == "instance_mask":
+            # Instance masks are (H, W, N) at this point.
+            if value.shape[-1] != bbox_count:
+                return None
+            return value[..., indices]
+
+        if target_type == "keypoints":
+            if not n_keypoints or value.shape[0] != bbox_count * n_keypoints:
+                return None
+            grouped = value.reshape(bbox_count, n_keypoints, *value.shape[1:])
+            return grouped[indices].reshape(-1, *value.shape[1:])
+
+        if len(value) != bbox_count:
+            return None
+        return value[indices]
 
     def _warn_unmatched(
-        self, field_name: str, found: str, bbox_count: int, bbox_field: str
+        self,
+        field_name: str,
+        value: np.ndarray,
+        bbox_count: int,
+        bbox_field: str,
     ) -> None:
         if field_name in self._mismatched_fields:
             return
         self._mismatched_fields.add(field_name)
         logger.warning(
-            f"Field '{field_name}' has {found} for {bbox_count} bounding "
-            f"boxes in '{bbox_field}', so the two cannot be matched up. "
-            f"Leaving it as is; it may end up misaligned with the bounding "
-            f"boxes that survive augmentation."
+            f"Field '{field_name}' with shape {value.shape} cannot be matched "
+            f"to the {bbox_count} bounding boxes in '{bbox_field}'; leaving "
+            f"it as is. It may end up misaligned with the boxes that survive "
+            f"augmentation."
         )
 
     @staticmethod

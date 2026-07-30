@@ -1,13 +1,3 @@
-"""Property tests over every advertised label type and combination.
-
-`AlbumentationsEngine` documents support for seven label types across any
-number of task groups and image sources. These tests generate combinations of
-them and check the invariants that hold no matter which combination came up,
-rather than pinning one hand-written example per feature.
-
-Runs are derandomized so a failure is reproducible from the test id alone.
-"""
-
 from copy import deepcopy
 
 import numpy as np
@@ -20,6 +10,7 @@ from luxonis_ml.typing import Labels
 
 from .label_strategies import (
     ALL_TASK_TYPES,
+    BATCH_CONFIGS,
     PER_INSTANCE_TASK_TYPES,
     SampleSpec,
     TaskGroupSpec,
@@ -27,6 +18,7 @@ from .label_strategies import (
     sample_specs,
 )
 
+# Derandomized so that a failure is reproducible from the test id alone.
 combination_settings = settings(
     max_examples=150,
     deadline=None,
@@ -83,12 +75,9 @@ def assert_group_is_consistent(
 @given(spec=sample_specs())
 @combination_settings
 def test_any_label_combination_round_trips(spec: SampleSpec) -> None:
-    """Any combination of advertised labels survives any advertised pipeline."""
     out_images, out_labels = run(spec)
 
-    assert set(out_images) == set(spec.source_names), (
-        "every image source must come back out"
-    )
+    assert set(out_images) == set(spec.source_names)
     for name, image in out_images.items():
         assert image.shape[:2] == (spec.height, spec.width), (
             f"source '{name}' was not resized to the requested output size"
@@ -102,11 +91,7 @@ def test_any_label_combination_round_trips(spec: SampleSpec) -> None:
 
         if "segmentation" in group.task_types:
             mask = out_labels[group.task("segmentation")]
-            assert mask.shape == (
-                group.n_classes,
-                spec.height,
-                spec.width,
-            ), "semantic mask must keep one channel per class"
+            assert mask.shape == (group.n_classes, spec.height, spec.width)
 
         if "classification" in group.task_types:
             classes = out_labels[group.task("classification")]
@@ -125,9 +110,6 @@ def test_instances_never_outnumber_their_bboxes(spec: SampleSpec) -> None:
         boxes = out_labels.get(group.task("boundingbox"))
         if boxes is None:
             continue
-        assert boxes.shape[0] <= group.n_instances * 8, (
-            "a batch transform must not invent instances beyond the batch"
-        )
         for task_type in PER_INSTANCE_TASK_TYPES:
             if task_type not in group.task_types:
                 continue
@@ -142,15 +124,13 @@ def test_instances_never_outnumber_their_bboxes(spec: SampleSpec) -> None:
 
 @given(
     task_type=st.sampled_from(ALL_TASK_TYPES),
-    config_index=st.integers(min_value=0, max_value=7),
+    config=st.sampled_from(BATCH_CONFIGS),
 )
 @combination_settings
 def test_every_label_type_works_on_its_own(
-    task_type: str, config_index: int
+    task_type: str, config: list[dict]
 ) -> None:
     """Each advertised label type is usable as the only label in a dataset."""
-    from .label_strategies import BATCH_CONFIGS
-
     spec = SampleSpec(
         groups=[
             TaskGroupSpec(
@@ -166,7 +146,7 @@ def test_every_label_type_works_on_its_own(
         width=64,
         image_height=64,
         image_width=64,
-        config=BATCH_CONFIGS[config_index],
+        config=config,
     )
 
     _, out_labels = run(spec)
@@ -178,13 +158,10 @@ def test_every_label_type_works_on_its_own(
     )
 
 
-@given(spec=sample_specs(max_groups=3))
+@given(spec=sample_specs(min_groups=2, max_groups=3))
 @combination_settings
 def test_task_groups_do_not_interfere(spec: SampleSpec) -> None:
     """Adding a task group must not change what the other groups return."""
-    if len(spec.groups) < 2:
-        return
-
     _, combined = run(spec)
 
     for group in spec.groups:

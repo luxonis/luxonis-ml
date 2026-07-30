@@ -1,11 +1,4 @@
-"""Tests for how `AlbumentationsEngine` validates its configuration.
-
-Covers the rejections the constructor documents, the way transforms are
-sorted into pipeline stages, and the multi-source pixel-transform replay.
-"""
-
-from collections.abc import Iterator
-from typing import Any
+from collections.abc import Callable, Iterator
 
 import albumentations as A
 import numpy as np
@@ -16,9 +9,11 @@ from luxonis_ml.data.augmentations import AugmentationEngine
 from luxonis_ml.data.augmentations.custom import TRANSFORMATIONS
 from luxonis_ml.typing import Labels, LoaderMultiOutput
 
+Register = Callable[[type], type]
+
 
 @pytest.fixture
-def register_transform() -> Iterator[Any]:
+def register_transform() -> Iterator[Register]:
     """Register transforms for one test and drop them again afterwards."""
     registered: list[str] = []
 
@@ -31,6 +26,7 @@ def register_transform() -> Iterator[Any]:
     yield _register
 
     for name in registered:
+        # `Registry` has no public way to drop an entry again.
         TRANSFORMATIONS._module_dict.pop(name, None)
 
 
@@ -49,7 +45,7 @@ def build(
 
 
 def test_engines_default_to_using_every_input_position() -> None:
-    """An engine that does not track contributors is assumed to use all of them."""
+    """An engine that does not track contributors is assumed to use all."""
 
     class UntrackedEngine(
         AugmentationEngine, register_name="untracked_engine"
@@ -95,10 +91,9 @@ def test_only_one_resizing_augmentation_is_allowed() -> None:
 
 @pytest.mark.parametrize("probability", ["1.0", True])
 def test_resizing_probability_must_be_numeric(probability: object) -> None:
-    """Values Albumentations coerces but the resize logic cannot use.
+    """``p=None`` never reaches this check.
 
-    ``p=None`` never reaches this check: Albumentations rejects it while the
-    transform is being constructed.
+    Albumentations rejects it while the transform is being constructed.
     """
     config = [
         {
@@ -136,7 +131,7 @@ def test_certain_resize_is_used_directly() -> None:
 
 
 def test_plain_basic_transforms_run_as_custom_transforms(
-    register_transform: Any,
+    register_transform: Register,
 ) -> None:
     """A bare ``BasicTransform`` is neither pixel, spatial, nor batch."""
     seen: list[int] = []
@@ -151,10 +146,9 @@ def test_plain_basic_transforms_run_as_custom_transforms(
             seen.append(1)
             return img
 
-    assert CountingBasicTransform.__name__ in TRANSFORMATIONS
     engine = build(
         {"task/boundingbox": "boundingbox"},
-        [{"name": "CountingBasicTransform", "params": {"p": 1.0}}],
+        [{"name": CountingBasicTransform.__name__, "params": {"p": 1.0}}],
     )
     engine.apply(
         [
@@ -168,18 +162,19 @@ def test_plain_basic_transforms_run_as_custom_transforms(
     assert seen, "the custom transform stage never ran"
 
 
-def test_non_transform_classes_are_rejected(register_transform: Any) -> None:
+def test_non_transform_classes_are_rejected(
+    register_transform: Register,
+) -> None:
     @register_transform
     class NotATransform:
         def __init__(self, **_): ...
 
-    assert NotATransform.__name__ in TRANSFORMATIONS
     with pytest.raises(
         ValueError, match="Unsupported transformation type: 'NotATransform'"
     ):
         build(
             {"task/boundingbox": "boundingbox"},
-            [{"name": "NotATransform", "params": {}}],
+            [{"name": NotATransform.__name__, "params": {}}],
         )
 
 
@@ -221,7 +216,6 @@ def test_unnamed_tasks_are_usable_end_to_end() -> None:
 
 
 def test_pixel_transforms_replay_across_every_image_source() -> None:
-    """One sampled pixel transform must hit all sources identically."""
     sources = ["rgb", "depth", "ir"]
     engine = AlbumentationsEngine(
         32,
@@ -246,7 +240,6 @@ def test_pixel_transforms_replay_across_every_image_source() -> None:
 
 
 def test_pixel_replay_skips_sources_without_a_channel_axis() -> None:
-    """A 2D source cannot be replayed through an RGB pixel transform."""
     engine = AlbumentationsEngine(
         16,
         16,
@@ -276,7 +269,6 @@ def test_pixel_replay_skips_sources_without_a_channel_axis() -> None:
 
 
 def test_wrapped_transforms_tolerate_a_missing_image_key() -> None:
-    """The wrapper only restores the original key when there was one."""
     wrapped = AlbumentationsEngine._wrap_transform(
         A.Compose([A.HorizontalFlip(p=1.0)])
     )
@@ -296,7 +288,6 @@ def test_pixel_transform_wrapper_needs_source_names() -> None:
 
 
 def test_grayscale_sources_keep_a_channel_axis() -> None:
-    """A 2D image coming out of a transform is restored to (H, W, 1)."""
     engine = AlbumentationsEngine(
         16,
         16,

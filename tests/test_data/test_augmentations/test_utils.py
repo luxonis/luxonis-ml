@@ -1,10 +1,3 @@
-"""Tests for the LDF <-> Albumentations boundary conversions.
-
-These functions are where label layouts change shape, so they are covered
-both by explicit shape cases and by round-trip properties: converting a label
-out and straight back must return what went in.
-"""
-
 import numpy as np
 import pytest
 from hypothesis import given, settings
@@ -21,7 +14,7 @@ from luxonis_ml.data.augmentations.utils import (
     yield_batches,
 )
 
-round_trip = settings(max_examples=100, deadline=None, derandomize=True)
+property_settings = settings(max_examples=100, deadline=None, derandomize=True)
 
 # Coordinates kept clear of the image border so that no keypoint is clipped
 # or marked invisible on the way back.
@@ -49,7 +42,7 @@ def test_postprocess_mask_moves_channels_first() -> None:
     height=st.integers(min_value=1, max_value=8),
     width=st.integers(min_value=1, max_value=8),
 )
-@round_trip
+@property_settings
 def test_mask_round_trip(n_channels: int, height: int, width: int) -> None:
     mask = np.arange(n_channels * height * width, dtype=np.uint8).reshape(
         n_channels, height, width
@@ -59,7 +52,6 @@ def test_mask_round_trip(n_channels: int, height: int, width: int) -> None:
 
 
 def test_postprocess_bboxes_handles_no_boxes() -> None:
-    """An empty bbox array still has to yield usable output shapes."""
     boxes, ordering = postprocess_bboxes(np.zeros((0, 6)))
 
     assert boxes.shape == (0, 5)
@@ -94,7 +86,7 @@ def test_preprocess_bboxes_appends_an_index_column() -> None:
     h=st.floats(min_value=0.05, max_value=0.1),
     class_id=st.integers(min_value=0, max_value=5),
 )
-@round_trip
+@property_settings
 def test_bbox_round_trip(
     x: float, y: float, w: float, h: float, class_id: int
 ) -> None:
@@ -140,7 +132,7 @@ def test_postprocess_keypoints_reorders_by_surviving_bboxes() -> None:
     size=st.integers(min_value=16, max_value=64),
     coords=st.data(),
 )
-@round_trip
+@property_settings
 def test_keypoint_round_trip(
     n_instances: int, n_keypoints: int, size: int, coords: st.DataObject
 ) -> None:
@@ -174,11 +166,10 @@ def test_keypoint_round_trip(
         elements=st.floats(-5, 5, allow_nan=False, allow_infinity=False),
     )
 )
-@round_trip
+@property_settings
 def test_postprocess_keypoints_never_leaves_the_image(
     keypoints: np.ndarray,
 ) -> None:
-    """Coordinates are always clipped into the normalized unit square."""
     out = postprocess_keypoints(
         keypoints, np.arange(keypoints.shape[0]), 10, 10, 1
     )
@@ -199,7 +190,7 @@ def test_yield_batches_groups_by_key() -> None:
     n_samples=st.integers(min_value=1, max_value=10),
     batch_size=st.integers(min_value=1, max_value=5),
 )
-@round_trip
+@property_settings
 def test_yield_batches_covers_every_sample_once(
     n_samples: int, batch_size: int
 ) -> None:
@@ -217,7 +208,6 @@ def test_yield_batches_covers_every_sample_once(
 def test_postprocess_keypoints_keeps_annotation_grouping(
     n_keypoints: int,
 ) -> None:
-    """Rows are regrouped so each output row is one annotation."""
     n_instances = 3
     keypoints = np.zeros((n_instances * n_keypoints, 3))
 

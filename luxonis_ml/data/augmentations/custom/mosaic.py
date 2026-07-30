@@ -454,8 +454,6 @@ class Mosaic4(BatchTransform):
                 ]
                 out_masks.append(combined_mask)
 
-        # Any mask with a nonzero size has at least one instance, so the
-        # guard above is the only way to end up with nothing to stack.
         return np.stack(out_masks, axis=-1)
 
     @staticmethod
