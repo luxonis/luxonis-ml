@@ -832,13 +832,12 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             if target_type != "bboxes" or target_name not in data:
                 continue
 
-            array = data[target_name]
-            if array.size == 0:
-                continue
-
+            # An emptied bbox target is kept rather than skipped: its
+            # associated labels are still reported as empty, so dropping the
+            # task would leave them without the boxes they belong to.
             task = self._target_names_to_tasks[target_name]
             out_labels[task], index = postprocess_bboxes(
-                array, self._bbox_area_threshold
+                data[target_name], self._bbox_area_threshold
             )
             bboxes_indices[self._target_names_to_task_groups[target_name]] = (
                 index
@@ -1016,12 +1015,17 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         """Return the complete task path without its task-type suffix.
 
         Unlike `get_task_name`, this keeps every level of a nested task
-        name, so ``"a/b/keypoints"`` groups under ``"a/b"``. A task with no
-        name at all is its own group, so that unnamed tasks of different
-        types are not lumped together.
+        name, so ``"a/b/keypoints"`` groups under ``"a/b"``.
+
+        A leading ``"/"`` marks LDF's default task, whose name is empty on
+        purpose: ``"/boundingbox"`` and ``"/keypoints"`` describe the same
+        annotations and share the group ``""``. A task with no separator at
+        all has no name to group by, so it is only grouped with itself.
         """
         group = task.removesuffix(get_task_type(task)).removesuffix("/")
-        return group or task
+        if group:
+            return group
+        return "" if task.startswith("/") else task
 
     @staticmethod
     def _task_to_target_name(task: str) -> str:

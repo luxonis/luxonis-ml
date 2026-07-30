@@ -495,6 +495,120 @@ def test_batch_transforms_keep_nested_task_groups_independent() -> None:
         assert_masks_match_values(masks, values)
 
 
+def test_spatial_transform_emptying_the_boxes_keeps_the_task() -> None:
+    """A crop can remove every box after the batch stage has run.
+
+    The associated labels are still reported as empty, so dropping the bbox
+    task would leave a consumer with instance labels and no boxes to index
+    them against.
+    """
+    targets = {
+        "det/boundingbox": "boundingbox",
+        "det/keypoints": "keypoints",
+        "det/instance_segmentation": "instance_segmentation",
+    }
+    engine = AlbumentationsEngine(
+        64,
+        64,
+        targets,
+        dict.fromkeys(targets, 2),
+        ["image"],
+        [
+            {
+                "name": "Crop",
+                "params": {
+                    "x_min": 48,
+                    "y_min": 48,
+                    "x_max": 64,
+                    "y_max": 64,
+                    "p": 1.0,
+                },
+            }
+        ],
+        seed=0,
+    )
+
+    _, output = engine.apply(
+        [
+            (
+                {"image": np.zeros((64, 64, 3), dtype=np.uint8)},
+                {
+                    "det/boundingbox": np.array(
+                        [[0, 0.05, 0.05, 0.2, 0.2]], dtype=np.float32
+                    ),
+                    "det/keypoints": np.array(
+                        [[0.1, 0.1, 2]], dtype=np.float32
+                    ),
+                    "det/instance_segmentation": np.zeros(
+                        (1, 64, 64), dtype=np.uint8
+                    ),
+                },
+            )
+        ]
+    )
+
+    assert set(output) == set(targets)
+    assert output["det/boundingbox"].shape == (0, 5)
+    assert output["det/keypoints"].shape[0] == 0
+    assert output["det/instance_segmentation"].shape[0] == 0
+
+
+def test_default_task_labels_are_filtered_with_their_boxes() -> None:
+    """LDF's default task keys start with ``"/"`` and share one group.
+
+    Giving each task type its own group leaves the keypoints and mask of a
+    filtered-out box in the output, so every later instance is silently
+    paired with the wrong box.
+    """
+    engine = AlbumentationsEngine(
+        height=64,
+        width=64,
+        targets={
+            "/boundingbox": "boundingbox",
+            "/keypoints": "keypoints",
+            "/instance_segmentation": "instance_segmentation",
+        },
+        n_classes={"": 2},
+        source_names=["image"],
+        config=[],
+        seed=0,
+    )
+    # The middle box is too small to survive `bbox_area_threshold`.
+    boxes = np.array(
+        [
+            [0, 0.1, 0.1, 0.3, 0.3],
+            [1, 0.5, 0.5, 0.005, 0.005],
+            [0, 0.7, 0.1, 0.2, 0.2],
+        ],
+        dtype=np.float32,
+    )
+    keypoints = np.array(
+        [[0.15, 0.15, 2], [0.51, 0.51, 2], [0.75, 0.15, 2]], dtype=np.float32
+    )
+    masks = np.zeros((3, 64, 64), dtype=np.uint8)
+    for i, (x, y) in enumerate([(8, 8), (32, 32), (46, 8)]):
+        masks[i, y : y + 6, x : x + 6] = 1
+
+    _, output = engine.apply(
+        [
+            (
+                {"image": np.zeros((64, 64, 3), dtype=np.uint8)},
+                {
+                    "/boundingbox": boxes,
+                    "/keypoints": keypoints,
+                    "/instance_segmentation": masks,
+                },
+            )
+        ]
+    )
+
+    assert output["/boundingbox"].shape[0] == 2
+    assert_boxes_match_keypoints(output["/boundingbox"], output["/keypoints"])
+    assert_boxes_match_masks(
+        output["/boundingbox"], output["/instance_segmentation"]
+    )
+
+
 def test_standalone_labels_survive_bboxes_from_another_task_group() -> None:
     targets = {
         "detection/boundingbox": "boundingbox",
@@ -771,8 +885,13 @@ def test_partially_annotated_batches_stay_aligned() -> None:
         "task/boundingbox": "boundingbox",
         "task/instance_segmentation": "instance_segmentation",
     }
-    boxes = np.array(
+    annotated_boxes = np.array(
         [[0.0, 0.12, 0.12, 0.14, 0.14], [0.0, 0.62, 0.62, 0.14, 0.14]]
+    )
+    # The unannotated sample's boxes sit on the opposite diagonal, so a mask
+    # that drifts onto them lands outside the box it would have to match.
+    unannotated_boxes = np.array(
+        [[0.0, 0.62, 0.12, 0.14, 0.14], [0.0, 0.12, 0.62, 0.14, 0.14]]
     )
     masks = np.zeros((2, 64, 64), dtype=np.uint8)
     masks[0, 9:17, 9:17] = 1
@@ -794,11 +913,11 @@ def test_partially_annotated_batches_stay_aligned() -> None:
             (
                 {"image": image},
                 {
-                    "task/boundingbox": boxes.copy(),
+                    "task/boundingbox": annotated_boxes.copy(),
                     "task/instance_segmentation": masks.copy(),
                 },
             ),
-            ({"image": image}, {"task/boundingbox": boxes.copy()}),
+            ({"image": image}, {"task/boundingbox": unannotated_boxes.copy()}),
         ]
     )
 
@@ -809,7 +928,9 @@ def test_partially_annotated_batches_stay_aligned() -> None:
     # The two annotated instances keep their own masks; the two that were
     # never annotated get an empty one rather than someone else's.
     annotated = [i for i, mask in enumerate(out_masks) if mask.any()]
-    assert len(annotated) == 2
+    assert annotated == [0, 1], (
+        "the masks moved onto the boxes of the sample that had none"
+    )
     assert_boxes_match_masks(out_boxes[annotated], out_masks[annotated])
 
 

@@ -336,5 +336,7 @@ def test_labels_emptied_by_a_spatial_transform_are_reported_empty() -> None:
         [({"image": np.zeros((16, 16, 3), dtype=np.uint8)}, labels)]
     )
 
-    assert "task/boundingbox" not in out_labels
+    # The boxes are reported empty rather than dropped, so the metadata is
+    # not left referring to a task that is not in the output.
+    assert out_labels["task/boundingbox"].shape == (0, 5)
     assert out_labels["task/metadata/id"].shape[0] == 0

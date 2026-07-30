@@ -192,17 +192,29 @@ def test_nested_transform_entries_must_name_a_transform() -> None:
         build({"task/boundingbox": "boundingbox"}, config)
 
 
-def test_each_unnamed_task_is_its_own_group() -> None:
-    """A task with no name is not in a group with every other such task.
+def test_a_task_with_no_separator_is_its_own_group() -> None:
+    """A task with no name at all has nothing to group by.
 
-    Collapsing them all to ``""`` would tie an unnamed keypoints task to an
-    unnamed bbox task it has nothing to do with.
+    Collapsing these to ``""`` would tie a bare keypoints task to a bare
+    bbox task it has nothing to do with.
     """
     assert AlbumentationsEngine._get_task_group("boundingbox") == "boundingbox"
     assert AlbumentationsEngine._get_task_group("keypoints") == "keypoints"
     assert AlbumentationsEngine._get_task_group("metadata/id") == "metadata/id"
     assert AlbumentationsEngine._get_task_group("group/boundingbox") == "group"
     assert AlbumentationsEngine._get_task_group("a/b/keypoints") == "a/b"
+
+
+def test_default_task_types_share_one_group() -> None:
+    """The leading ``"/"`` marks LDF's default task, whose name is empty.
+
+    ``"/boundingbox"`` and ``"/keypoints"`` describe the same annotations,
+    so they have to land in the same group for the keypoints to be filtered
+    and reordered along with the boxes.
+    """
+    assert AlbumentationsEngine._get_task_group("/boundingbox") == ""
+    assert AlbumentationsEngine._get_task_group("/keypoints") == ""
+    assert AlbumentationsEngine._get_task_group("/metadata/id") == ""
 
 
 def test_unnamed_tasks_are_usable_end_to_end() -> None:

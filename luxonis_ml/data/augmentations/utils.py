@@ -312,7 +312,10 @@ def postprocess_bboxes(
 
     """
     if bboxes.size == 0:
-        return np.zeros((0, 5)), np.zeros((0,), dtype=np.uint8)
+        return (
+            np.zeros((0, 5), dtype=bboxes.dtype),
+            np.zeros((0,), dtype=np.uint8),
+        )
     ordering = bboxes[:, -1]
     raw_bboxes = bboxes[:, :-1]
     raw_bboxes[:, 2] -= raw_bboxes[:, 0]
