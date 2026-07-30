@@ -1,4 +1,3 @@
-import builtins
 import platform
 import random
 import shutil
@@ -13,7 +12,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 from _pytest.fixtures import SubRequest
-from rich import print as rich_print
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset
 from luxonis_ml.typing import Params
@@ -25,8 +23,6 @@ CREATED_DATASETS = []
 
 @pytest.fixture(autouse=True, scope="session")
 def setup():
-    builtins.print = rich_print
-
     randint = random.randint(0, 100000)
     base = Path.cwd() / f"tests/data/luxonisml_base_path/{randint}"
     environ.LUXONISML_BASE_PATH = base
