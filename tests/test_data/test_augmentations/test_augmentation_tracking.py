@@ -1,9 +1,11 @@
 import json
+from typing import Any
 
 import albumentations as A
 import numpy as np
 
 from luxonis_ml.data import AlbumentationsEngine
+from luxonis_ml.data.augmentations import BatchCompose, BatchTransform
 from luxonis_ml.data.augmentations.custom import TRANSFORMATIONS
 from luxonis_ml.data.utils.cli_utils import get_applied_augmentations
 from luxonis_ml.typing import LoaderMultiOutput, Params
@@ -11,6 +13,76 @@ from luxonis_ml.typing import LoaderMultiOutput, Params
 
 def _make_sample(size: int = 64) -> list[LoaderMultiOutput]:
     return [({"image": np.zeros((size, size, 3), dtype=np.uint8)}, {})]
+
+
+class PickSecond(BatchTransform):
+    """Batch transform that applies without any runtime parameters."""
+
+    def __init__(self, p: float = 1.0) -> None:
+        super().__init__(batch_size=2, p=p)
+
+    def update_transform_params(
+        self, params: dict[str, Any], data: dict[str, Any]
+    ) -> dict[str, Any]:
+        return params
+
+    def apply(self, image_batch: list[np.ndarray], **_: Any) -> np.ndarray:
+        return image_batch[1]
+
+    apply_to_mask = apply  # type: ignore[assignment]
+    apply_to_bboxes = apply  # type: ignore[assignment]
+    apply_to_keypoints = apply  # type: ignore[assignment]
+    apply_to_instance_mask = apply  # type: ignore[assignment]
+
+
+def test_batch_compose_keeps_applied_transform_without_parameters():
+    """An applied batch transform must not have its output discarded.
+
+    Whether a batch transform ran was inferred from ``params`` being
+    non-empty. A transform that applies deterministically samples no
+    parameters, so its real output was thrown away and the first input
+    passed through in its place.
+    """
+    first = np.zeros((2, 2, 1), dtype=np.uint8)
+    second = np.ones((2, 2, 1), dtype=np.uint8)
+
+    compose = BatchCompose([PickSecond()])
+    transformed = compose([{"image": first}, {"image": second}])
+
+    assert np.array_equal(transformed["image"], second)
+    # Both inputs contributed, so both must be reported as contributors.
+    assert compose.batch_augmentation_indices == [0, 1]
+
+
+def test_skipped_batch_transform_still_passes_through_first_input():
+    first = np.zeros((2, 2, 1), dtype=np.uint8)
+    second = np.ones((2, 2, 1), dtype=np.uint8)
+
+    compose = BatchCompose([PickSecond(p=0.0)])
+    transformed = compose([{"image": first}, {"image": second}])
+
+    assert np.array_equal(transformed["image"], first)
+    assert compose.batch_augmentation_indices == [0]
+    assert compose.applied_params == {}
+
+
+def test_tracks_applied_batch_transform_without_runtime_parameters():
+    TRANSFORMATIONS.register(module=PickSecond, force=True)
+    try:
+        engine = AlbumentationsEngine(
+            64,
+            64,
+            {},
+            {},
+            ["image"],
+            [{"name": "PickSecond", "params": {"p": 1.0}}],
+        )
+
+        engine.apply(_make_sample() * 2)
+
+        assert engine.applied_augmentations == {"PickSecond": {}}
+    finally:
+        TRANSFORMATIONS._module_dict.pop("PickSecond", None)
 
 
 def test_inspect_reads_augmentation_metadata():
