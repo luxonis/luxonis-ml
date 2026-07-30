@@ -299,3 +299,58 @@ jobs:
 
       - name: Check requirements
         run: python3 -c 'from luxonis_ml.${{ matrix.submodule }} import *'
+
+  benchmarks:
+    if: ${{ startsWith(github.head_ref, 'release/') || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install the package
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/constraints.txt
+        run: |
+          echo 'setuptools<81' > "$PIP_CONSTRAINT"
+          pip install -e '.[dev]'
+
+      # The benchmarks build their own datasets, so they need no
+      # credentials. They are timed, so they must not share the machine
+      # with other test processes - no `-n auto` here.
+      - name: Run parser benchmarks
+        run: |
+          pytest -m benchmark tests/test_data/parsers/benchmarks \
+            --benchmark-json benchmark-results.json \
+            -p no:sugar -v
+
+      - name: Publish the results to the job summary
+        if: ${{ always() }}
+        run: |
+          if [[ ! -f benchmark-results.json ]]; then
+            echo 'The benchmarks produced no results.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo '### Parser benchmarks'
+            echo
+            echo '| dataset type | images | records | seconds | records/s | peak MiB |'
+            echo '| --- | --: | --: | --: | --: | --: |'
+            jq -r '.benchmarks[] | "| \(.dataset_type) | \(.images) | \(.records) | \(.seconds | .*1000 | round / 1000) | \(.records_per_second | round) | \(.peak_mib | .*10 | round / 10) |"' benchmark-results.json
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the benchmark results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: parser-benchmarks
+          path: benchmark-results.json
+          if-no-files-found: ignore

@@ -44,7 +44,7 @@ class LuxonisParser(Generic[T]):
             stacklevel=2,
         )
         self._dataset_dir, derived_name = prepare_source(dataset_dir, save_dir)
-        _plugin_type, self._dataset_type = get_parser_plugin(
+        _plugin_type, self._dataset_type, _layout = get_parser_plugin(
             self._dataset_dir,
             dataset_type.value
             if isinstance(dataset_type, DatasetType)

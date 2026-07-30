@@ -1,5 +1,4 @@
 import json
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -7,7 +6,10 @@ from luxonis_ml.data import DatasetIterator
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils.path import resolve_manifest_path
 
-from .parser_plugin import ParsedDataset, SplitParserPlugin
+from .parser_plugin import SplitParserPlugin
+
+_MASK_KEYS = ("segmentation", "instance_segmentation")
+"""Annotation keys whose ``mask`` may hold a path to a mask file."""
 
 
 class NativeParser(SplitParserPlugin):
@@ -66,48 +68,62 @@ class NativeParser(SplitParserPlugin):
             return None
         return {"annotation_path": annotation_path}
 
-    def _parse_split(self, annotation_path: Path) -> ParsedDataset:
-        """Parse native LDF annotations.
+    def _split_records(self, annotation_path: Path) -> DatasetIterator:
+        """Stream native LDF annotations with their paths resolved.
+
+        The records are the JSON document itself, so all a record costs
+        is rewriting the media and mask references it names into resolved
+        paths. That happens as the record is yielded: nothing needs the
+        document walked before streaming starts.
+
+        `_split_files` is deliberately left unimplemented. A split's
+        files are the references of this same document, so listing them
+        means reading and resolving all of it — the parse — and the
+        importer's fallback already does exactly that, for count-based
+        `split_ratios` alone.
 
         Args:
             annotation_path: JSON file with annotations.
 
-        Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+        Yields:
+            Annotation records, with every path they name resolved.
 
         """
-        data = json.loads(annotation_path.read_text())
+        base_dir = annotation_path.parent
+        resolved: dict[str, Path] = {}
 
-        def generator() -> DatasetIterator:
-            for record in data:
-                with suppress(KeyError):
-                    if "file" in record:
-                        record["file"] = resolve_manifest_path(
-                            annotation_path.parent, record["file"]
-                        )
-                    elif "files" in record:
-                        for key, value in record["files"].items():
-                            if isinstance(value, PathType):
-                                record["files"][key] = resolve_manifest_path(
-                                    annotation_path.parent, value
-                                )
-                annotation = record.get("annotation")
-                if isinstance(annotation, dict):
-                    for mask_type in [
-                        "segmentation",
-                        "instance_segmentation",
-                    ]:
-                        with suppress(KeyError):
-                            mask = annotation[mask_type]["mask"]
-                            if isinstance(mask, PathType):
-                                annotation[mask_type]["mask"] = (
-                                    resolve_manifest_path(
-                                        annotation_path.parent, mask
-                                    )
-                                )
-                yield record
+        def resolve(value: PathType) -> Path:
+            # For a fixed base directory `resolve_manifest_path` depends
+            # only on `str(value)`, and a split names the same media once
+            # per annotation, so an uncached reference just repeats the
+            # `realpath` walk its siblings already did.
+            key = str(value)
+            path = resolved.get(key)
+            if path is None:
+                path = resolved[key] = resolve_manifest_path(base_dir, key)
+            return path
 
-        added_images = self._get_added_images(generator())
+        for record in json.loads(annotation_path.read_text()):
+            try:
+                if "file" in record:
+                    record["file"] = resolve(record["file"])
+                elif "files" in record:
+                    media = record["files"]
+                    for key, value in media.items():
+                        if isinstance(value, PathType):
+                            media[key] = resolve(value)
+            except KeyError:
+                pass
 
-        return ParsedDataset(generator(), {}, added_images)
+            annotation = record.get("annotation")
+            if isinstance(annotation, dict):
+                for mask_key in _MASK_KEYS:
+                    try:
+                        segmentation = annotation[mask_key]
+                        mask = segmentation["mask"]
+                    except KeyError:
+                        continue
+                    if isinstance(mask, PathType):
+                        segmentation["mask"] = resolve(mask)
+
+            yield record

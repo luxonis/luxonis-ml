@@ -99,6 +99,52 @@ CI splits the full suite across Ubuntu and Windows and runs with `-n auto`.
 When a change touches shared data loading, parsing, exporting, storage, or
 annotation behavior, add or update tests near the affected workflow.
 
+### Parser tests
+
+Parser tests live in `tests/test_data/parsers/`, one module per dataset type,
+split by what the test needs:
+
+| Directory     | Contents                                                           |
+| ------------- | ------------------------------------------------------------------ |
+| `synthetic/`  | Builds every input it parses. Runs anywhere, no credentials.       |
+| `real_world/` | Parses datasets downloaded from the test bucket. Needs GCS access. |
+| `benchmarks/` | Performance benchmarks over large generated datasets.              |
+
+While developing a parser, `pytest tests/test_data/parsers/synthetic -q` is the
+fast loop; it needs neither network nor credentials.
+
+### Parser benchmarks
+
+The benchmarks build a large synthetic dataset for every parser, covering all
+the features that parser supports, then time a full parse and record its peak
+memory. They are marked `benchmark` and excluded from the default run, so they
+must be selected explicitly:
+
+```bash
+pytest -m benchmark tests/test_data/parsers/benchmarks
+pytest -m benchmark tests/test_data/parsers/benchmarks --benchmark-scale 5
+```
+
+| Option                | Effect                                             |
+| --------------------- | -------------------------------------------------- |
+| `--benchmark-scale`   | Multiplies the number of images per split.         |
+| `--benchmark-repeat`  | Times each parse several times and keeps the best. |
+| `--benchmark-json`    | Writes the results to a JSON file.                 |
+| `--benchmark-compare` | Prints each result against an earlier JSON file.   |
+
+Do not run them with `-n auto`; sharing the machine makes the timings useless.
+CI runs them on release PRs and publishes the table to the job summary.
+
+`tools/profile_parsers.py` drives the same datasets outside pytest — it can
+profile a parser, time it, and prove that an optimization left every record
+byte-identical:
+
+```bash
+python tools/profile_parsers.py profile --dataset-type yolov8
+python tools/profile_parsers.py digests before.json   # before the change
+python tools/profile_parsers.py compare before.json   # after it
+```
+
 ## Documentation
 
 Public API docs are generated from docstrings with pydoctor using the

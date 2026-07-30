@@ -7,8 +7,8 @@ from urllib.parse import urlsplit
 
 import numpy as np
 from loguru import logger
+from typing_extensions import override
 
-from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
 from luxonis_ml.data.utils.remote_file_downloader import RemoteFileDownloader
 from luxonis_ml.utils.path import (
@@ -16,7 +16,7 @@ from luxonis_ml.utils.path import (
     resolve_manifest_path,
 )
 
-from .parser_plugin import ParsedDataset, ParserPlugin
+from .parser_plugin import Layout, ParseResult, ParserPlugin, SplitRecord
 
 
 class UltralyticsNDJSONParser(ParserPlugin):
@@ -35,55 +35,80 @@ class UltralyticsNDJSONParser(ParserPlugin):
     _remote_file_downloader = RemoteFileDownloader()
 
     @classmethod
-    def supports(cls, source: Path) -> bool:
-        return cls._load_header(source) is not None
+    @override
+    def detect(cls, source: Path) -> Layout | None:
+        ndjson_path = cls._resolve_ndjson_path(source)
+        if ndjson_path is None:
+            return None
 
+        header = cls._load_header(ndjson_path)
+        if header is None:
+            return None
+
+        # Which splits a manifest uses is written on its image records,
+        # so answering it exactly would cost a walk of the whole file —
+        # the walk parsing already makes, tagging each record with the
+        # split it names. The layout therefore claims the splits the
+        # format defines, and carries the manifest and its header so that
+        # neither is resolved a second time.
+        splits: dict[str | None, dict[str, Any]] = {
+            split_name: {"ndjson_path": ndjson_path, "header": header}
+            for split_name in ("train", "val", "test")
+        }
+        return Layout(splits)
+
+    @override
     def parse(
         self,
         source: Path,
+        layout: Layout,
         *,
-        dataset_type: str,
         reuse_cached: bool = True,
         **kwargs: Any,
-    ) -> ParsedDataset:
-        del dataset_type, kwargs
-        ndjson_path = self._resolve_ndjson_path(source)
-        if ndjson_path is None:
-            raise ValueError(
-                f"Ultralytics NDJSON dataset file not found in '{source}'."
-            )
-        records, splits, files = self._build_record_stream(
-            ndjson_path,
-            reuse_cached=reuse_cached,
+    ) -> ParseResult:
+        del source, kwargs
+        # Every split of an NDJSON source is read from the same manifest,
+        # so any entry of the layout names it.
+        manifest = next(iter(layout.splits.values()))
+        return ParseResult(
+            self._stream_records(
+                manifest["ndjson_path"],
+                manifest["header"],
+                reuse_cached=reuse_cached,
+            ),
+            self._skeletons,
         )
-        return ParsedDataset(records, {}, files, splits)
 
-    def _build_record_stream(
-        self, ndjson_path: Path, reuse_cached: bool = True
-    ) -> tuple[DatasetIterator, dict[str, list[Path]], list[Path]]:
-        header = self._load_header(ndjson_path)
-        if header is None:
-            raise ValueError(
-                f"Invalid Ultralytics NDJSON dataset file: '{ndjson_path}'."
-            )
+    def _stream_records(
+        self,
+        ndjson_path: Path,
+        header: dict[str, Any],
+        *,
+        reuse_cached: bool,
+    ) -> Iterator[SplitRecord]:
+        """Stream one manifest, tagging each record with its split.
 
+        Args:
+            ndjson_path: Manifest to read.
+            header: The manifest's leading ``dataset`` record.
+            reuse_cached: Whether an existing directory of downloaded
+                images may be reused instead of failing.
+
+        Yields:
+            The split an image record names, and one record per
+            annotation it carries. An image without annotations yields a
+            single record with no annotation.
+
+        """
         class_names = self._get_class_names(header["class_names"])
         kpt_shape = header.get("kpt_shape")
-        added_by_split = {"train": [], "val": [], "test": []}
-        seen_by_split = {"train": set(), "val": set(), "test": set()}
-        added_images: list[Path] = []
-        seen_images: set[Path] = set()
-        remote_image_dir = ndjson_path.parent / ndjson_path.stem
+        base_dir = ndjson_path.parent
+        remote_image_dir = base_dir / ndjson_path.stem
         remote_image_dir_checked = False
-        # `files` and `splits` must be complete before `records` is consumed,
-        # so image paths are resolved up front. Only the paths are retained —
-        # the annotation payloads are re-read lazily so that large manifests
-        # stream instead of being held in memory all at once. ``None`` marks a
-        # record that was skipped, keeping the two passes aligned.
-        resolved_paths: list[Path | None] = []
 
         for record in self._iter_image_records(ndjson_path):
-            if record.get("url") and not remote_image_dir_checked:
+            url = record.get("url")
+            if url and not remote_image_dir_checked:
                 if remote_image_dir.exists():
                     if not reuse_cached:
                         raise ValueError(
@@ -97,46 +122,35 @@ class UltralyticsNDJSONParser(ParserPlugin):
                 remote_image_dir_checked = True
 
             image_path = self._resolve_image_path(
-                ndjson_path,
+                base_dir,
                 record,
                 remote_image_dir=remote_image_dir,
             )
-            if not record.get("url") and not image_path.exists():
+            if not url and not image_path.exists():
                 self._warn_skipped_annotation(
                     ParserIssue.MISSING_IMAGE,
                     "referenced image file does not exist",
                     source=ndjson_path,
                     image=image_path,
                 )
-                resolved_paths.append(None)
                 continue
 
             split_name = self._normalize_split_name(record.get("split"))
-            resolved_paths.append(image_path)
-            if image_path not in seen_images:
-                seen_images.add(image_path)
-                added_images.append(image_path)
-            if image_path not in seen_by_split[split_name]:
-                seen_by_split[split_name].add(image_path)
-                added_by_split[split_name].append(image_path)
+            annotations = record.get("annotations") or {}
+            instance_id = 0
+            yielded_annotation = False
+            # The file name identifies the image, not the annotation:
+            # stringifying it once per record keeps an image carrying
+            # thirty instances from paying for thirty conversions.
+            image_file = str(image_path)
 
-        def generator() -> DatasetIterator:
-            for index, record in enumerate(
-                self._iter_image_records(ndjson_path)
-            ):
-                image_path = resolved_paths[index]
-                if image_path is None:
-                    continue
-
-                annotations = record.get("annotations") or {}
-                instance_id = 0
-                yielded_annotation = False
-
-                for box in annotations.get("boxes", []):
-                    class_id, x_center, y_center, width, height = box
-                    yielded_annotation = True
-                    yield {
-                        "file": str(image_path),
+            for box in annotations.get("boxes", []):
+                class_id, x_center, y_center, width, height = box
+                yielded_annotation = True
+                yield (
+                    split_name,
+                    {
+                        "file": image_file,
                         "annotation": {
                             "class": class_names[int(class_id)],
                             "instance_id": instance_id,
@@ -147,15 +161,18 @@ class UltralyticsNDJSONParser(ParserPlugin):
                                 "h": float(height),
                             },
                         },
-                    }
-                    instance_id += 1
+                    },
+                )
+                instance_id += 1
 
-                for segment in annotations.get("segments", []):
-                    class_id, *points = segment
-                    points_array = np.array(points, dtype=float).reshape(-1, 2)
-                    yielded_annotation = True
-                    yield {
-                        "file": str(image_path),
+            for segment in annotations.get("segments", []):
+                class_id, *points = segment
+                points_array = np.array(points, dtype=float).reshape(-1, 2)
+                yielded_annotation = True
+                yield (
+                    split_name,
+                    {
+                        "file": image_file,
                         "annotation": {
                             "class": class_names[int(class_id)],
                             "instance_id": instance_id,
@@ -163,51 +180,63 @@ class UltralyticsNDJSONParser(ParserPlugin):
                             "instance_segmentation": {
                                 "height": int(record["height"]),
                                 "width": int(record["width"]),
-                                "points": [
-                                    (float(x), float(y))
-                                    for x, y in points_array.tolist()
-                                ],
+                                # `tolist` on a `dtype=float` array hands
+                                # back Python floats, so converting each
+                                # coordinate again could not have changed
+                                # one.
+                                "points": list(
+                                    map(tuple, points_array.tolist())
+                                ),
                             },
                         },
-                    }
-                    instance_id += 1
+                    },
+                )
+                instance_id += 1
 
-                for pose in annotations.get("pose", []):
-                    (
-                        class_id,
-                        x_center,
-                        y_center,
-                        width,
-                        height,
-                        *keypoints,
-                    ) = pose
-                    if kpt_shape is None:
-                        if len(keypoints) % 3 != 0:
-                            raise ValueError(
-                                "Ultralytics NDJSON pose annotations require "
-                                "`kpt_shape` in the dataset header when the "
-                                "keypoint dimensionality is not inferable."
-                            )
-                        n_kpts = len(keypoints) // 3
-                        kpt_dim = 3
-                    else:
-                        n_kpts, kpt_dim = kpt_shape
-
-                    keypoints_array = np.array(keypoints, dtype=float).reshape(
-                        n_kpts, kpt_dim
-                    )
-                    if kpt_dim == 2:
-                        keypoints_array = np.concatenate(
-                            [
-                                keypoints_array,
-                                np.ones((n_kpts, 1), dtype=float) * 2,
-                            ],
-                            axis=1,
+            for pose in annotations.get("pose", []):
+                (
+                    class_id,
+                    x_center,
+                    y_center,
+                    width,
+                    height,
+                    *keypoints,
+                ) = pose
+                if kpt_shape is None:
+                    if len(keypoints) % 3 != 0:
+                        raise ValueError(
+                            "Ultralytics NDJSON pose annotations require "
+                            "`kpt_shape` in the dataset header when the "
+                            "keypoint dimensionality is not inferable."
                         )
+                    n_kpts = len(keypoints) // 3
+                    kpt_dim = 3
+                else:
+                    n_kpts, kpt_dim = kpt_shape
 
-                    yielded_annotation = True
-                    yield {
-                        "file": str(image_path),
+                keypoints_array = np.array(keypoints, dtype=float).reshape(
+                    n_kpts, kpt_dim
+                )
+                if kpt_dim == 2:
+                    # The appended visibility column was a constant
+                    # ``2.0`` that ``int`` turned back into ``2``, so
+                    # building and concatenating it only to cast it
+                    # away produced this literal and nothing else.
+                    keypoint_values = [
+                        (x, y, 2) for x, y in keypoints_array.tolist()
+                    ]
+                else:
+                    # As above, `tolist` already yields Python floats;
+                    # only the visibility flag needs converting.
+                    keypoint_values = [
+                        (x, y, int(v)) for x, y, v in keypoints_array.tolist()
+                    ]
+
+                yielded_annotation = True
+                yield (
+                    split_name,
+                    {
+                        "file": image_file,
                         "annotation": {
                             "class": class_names[int(class_id)],
                             "instance_id": instance_id,
@@ -217,20 +246,14 @@ class UltralyticsNDJSONParser(ParserPlugin):
                                 "w": float(width),
                                 "h": float(height),
                             },
-                            "keypoints": {
-                                "keypoints": [
-                                    (float(x), float(y), int(v))
-                                    for x, y, v in keypoints_array.tolist()
-                                ]
-                            },
+                            "keypoints": {"keypoints": keypoint_values},
                         },
-                    }
-                    instance_id += 1
+                    },
+                )
+                instance_id += 1
 
-                if not yielded_annotation:
-                    yield {"file": str(image_path), "annotation": None}
-
-        return generator(), added_by_split, added_images
+            if not yielded_annotation:
+                yield split_name, {"file": image_file, "annotation": None}
 
     @staticmethod
     def _iter_image_records(ndjson_path: Path) -> Iterator[dict[str, Any]]:
@@ -256,12 +279,19 @@ class UltralyticsNDJSONParser(ParserPlugin):
                 return matches[0].resolve()
         return None
 
-    @classmethod
-    def _load_header(cls, path: Path) -> dict[str, Any] | None:
-        ndjson_path = cls._resolve_ndjson_path(path)
-        if ndjson_path is None:
-            return None
+    @staticmethod
+    def _load_header(ndjson_path: Path) -> dict[str, Any] | None:
+        """Return the leading ``dataset`` record of a manifest.
 
+        Args:
+            ndjson_path: Manifest to read, as resolved by
+                `_resolve_ndjson_path`.
+
+        Returns:
+            The header, or ``None`` when the file cannot be read or does
+            not describe an Ultralytics NDJSON dataset.
+
+        """
         dataset_record = None
         has_image_record = False
         try:
@@ -295,7 +325,7 @@ class UltralyticsNDJSONParser(ParserPlugin):
     @classmethod
     def _resolve_image_path(
         cls,
-        ndjson_path: Path,
+        base_dir: Path,
         record: dict[str, Any],
         *,
         remote_image_dir: Path,
@@ -309,7 +339,7 @@ class UltralyticsNDJSONParser(ParserPlugin):
         file_path = parse_manifest_path(record["file"])
         if file_path.is_absolute():
             return file_path.resolve()
-        return resolve_manifest_path(ndjson_path.parent, record["file"])
+        return resolve_manifest_path(base_dir, record["file"])
 
     @classmethod
     def _download_image(
@@ -362,10 +392,13 @@ class UltralyticsNDJSONParser(ParserPlugin):
 
     @staticmethod
     def _fit_boundingbox(points: np.ndarray) -> dict[str, float]:
-        x_min = float(np.min(points[:, 0]))
-        y_min = float(np.min(points[:, 1]))
-        x_max = float(np.max(points[:, 0]))
-        y_max = float(np.max(points[:, 1]))
+        # One reduction per axis rather than one per corner. `min` and
+        # `max` select an element instead of computing one, so reducing
+        # both columns in a single pass returns the very same floats —
+        # NaN propagation and the empty-polygon `ValueError` included —
+        # while halving the NumPy calls and dropping the column slices.
+        x_min, y_min = points.min(axis=0).tolist()
+        x_max, y_max = points.max(axis=0).tolist()
         return {
             "x": x_min,
             "y": y_min,

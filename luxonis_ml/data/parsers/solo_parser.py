@@ -9,7 +9,7 @@ from loguru import logger
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.utils.path import resolve_manifest_path
 
-from .parser_plugin import ParsedDataset, SplitParserPlugin
+from .parser_plugin import SplitParserPlugin
 
 
 class SOLOParser(SplitParserPlugin):
@@ -74,22 +74,30 @@ class SOLOParser(SplitParserPlugin):
             )
         return {"split_path": split_path}
 
-    def _parse_split(self, split_path: Path) -> ParsedDataset:
-        """Parse one SOLO split into LDF records.
+    def _split_records(self, split_path: Path) -> DatasetIterator:
+        """Stream one SOLO split as LDF records.
+
+        The definitions are read and validated before the walk starts, so a
+        malformed split still fails without a record being pulled.
+
+        Which captures of a split yield records is only known once every
+        frame JSON has been read, so `_split_files` is left unimplemented
+        and count-based ``split_ratios`` pay a throwaway parse instead of a
+        second walk on every import.
 
         Args:
             split_path: Directory with SOLO sequences and annotations.
 
         Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+            Annotation records of the split, streamed in one walk.
 
         Raises:
-            FileNotFoundError: If the split directory, annotation
-                definitions file, referenced image, or referenced mask does
-                not exist.
+            FileNotFoundError: If the split directory or the annotation
+                definitions file does not exist. Streaming raises it for a
+                referenced image or mask that does not exist.
             ValueError: If no bounding-box class names can be identified
-                from ``annotation_definitions.json``.
+                from ``annotation_definitions.json``. Streaming raises it
+                for a mask that cannot be decoded.
 
         """
         if not split_path.exists():
@@ -117,12 +125,15 @@ class SOLOParser(SplitParserPlugin):
             annotation_definitions_dict
         )
 
-        skeletons = {
-            class_name: {"labels": keypoint_labels}
-            for class_name in bbox_class_names
-        }
+        self._skeletons.update(
+            {
+                class_name: {"labels": keypoint_labels}
+                for class_name in bbox_class_names
+            }
+        )
 
-        def generator(load_masks: bool = True) -> DatasetIterator:
+        def generator() -> DatasetIterator:
+            """Walk the split once, yielding records."""
             for sequence_path in split_path.glob("sequence*"):
                 processed_annotations_per_step: dict[
                     str, set
@@ -131,8 +142,11 @@ class SOLOParser(SplitParserPlugin):
                     frame = json.loads(frame_path.read_text())
 
                     current_step = frame["step"]
-                    if current_step not in processed_annotations_per_step:
-                        processed_annotations_per_step[current_step] = set()
+                    # The set is mutated in place, so binding it once is the
+                    # same object the dictionary keeps holding.
+                    processed = processed_annotations_per_step.setdefault(
+                        current_step, set()
+                    )
 
                     for capture in frame.get("captures", []):
                         img_fname = capture["filename"]
@@ -145,22 +159,19 @@ class SOLOParser(SplitParserPlugin):
                             raise FileNotFoundError(
                                 f"{img_path} not existent."
                             )
-                        instance_segmentations = {}
-                        instance_keypoints = {}
-                        bounding_boxes = {}
+                        instance_segmentations: dict[Any, Any] = {}
+                        instance_keypoints: dict[Any, Any] = {}
+                        bounding_boxes: dict[Any, Any] = {}
                         for anno in annotations:
+                            anno_type = anno["@type"]
                             if (
                                 "SemanticSegmentationAnnotation"
-                                not in processed_annotations_per_step[
-                                    current_step
-                                ]
-                                and anno["@type"].endswith(
+                                not in processed
+                                and anno_type.endswith(
                                     "SemanticSegmentationAnnotation"
                                 )
                             ):
-                                processed_annotations_per_step[
-                                    current_step
-                                ].add("SemanticSegmentationAnnotation")
+                                processed.add("SemanticSegmentationAnnotation")
 
                                 mask_fname = anno["filename"]
                                 mask_path = resolve_manifest_path(
@@ -170,11 +181,7 @@ class SOLOParser(SplitParserPlugin):
                                     raise FileNotFoundError(
                                         f"{mask_path} not existent."
                                     )
-                                mask_int = (
-                                    self._read_mask_int(mask_path)
-                                    if load_masks
-                                    else self._verify_mask_readable(mask_path)
-                                )
+                                mask_int = self._read_mask_int(mask_path)
 
                                 for instance in anno.get("instances", []):
                                     class_name = instance["labelName"]
@@ -194,53 +201,43 @@ class SOLOParser(SplitParserPlugin):
                                     }
 
                             elif (
-                                "BoundingBox2DAnnotation"
-                                not in processed_annotations_per_step[
-                                    current_step
-                                ]
-                                and anno["@type"].endswith(
+                                "BoundingBox2DAnnotation" not in processed
+                                and anno_type.endswith(
                                     "BoundingBox2DAnnotation"
                                 )
                             ):
-                                processed_annotations_per_step[
-                                    current_step
-                                ].add("BoundingBox2DAnnotation")
+                                processed.add("BoundingBox2DAnnotation")
                                 bbox_annotations = anno.get("values", [])
 
                                 for bbox_annotation in bbox_annotations:
+                                    instance_id = bbox_annotation["instanceId"]
                                     class_name = bbox_annotation["labelName"]
                                     origin = bbox_annotation["origin"]
                                     dimension = bbox_annotation["dimension"]
                                     xmin, ymin = origin
                                     bbox_w, bbox_h = dimension
 
-                                    instance_id = bbox_annotation["instanceId"]
-                                    bounding_boxes[instance_id] = {
-                                        "file": img_path,
-                                        "annotation": {
-                                            "class": class_name,
-                                            "instance_id": instance_id,
-                                            "boundingbox": {
-                                                "x": xmin / img_w,
-                                                "y": ymin / img_h,
-                                                "w": bbox_w / img_w,
-                                                "h": bbox_h / img_h,
-                                            },
+                                    # Only the class and the box survive into
+                                    # a record; the wrapper dictionaries the
+                                    # merge step used to unwrap did not.
+                                    bounding_boxes[instance_id] = (
+                                        class_name,
+                                        {
+                                            "x": xmin / img_w,
+                                            "y": ymin / img_h,
+                                            "w": bbox_w / img_w,
+                                            "h": bbox_h / img_h,
                                         },
-                                    }
+                                    )
 
                             elif (
                                 "InstanceSegmentationAnnotation"
-                                not in processed_annotations_per_step[
-                                    current_step
-                                ]
-                                and anno["@type"].endswith(
+                                not in processed
+                                and anno_type.endswith(
                                     "InstanceSegmentationAnnotation"
                                 )
                             ):
-                                processed_annotations_per_step[
-                                    current_step
-                                ].add("InstanceSegmentationAnnotation")
+                                processed.add("InstanceSegmentationAnnotation")
 
                                 mask_fname = anno["filename"]
                                 mask_path = resolve_manifest_path(
@@ -250,11 +247,7 @@ class SOLOParser(SplitParserPlugin):
                                     raise FileNotFoundError(
                                         f"{mask_path} not existent."
                                     )
-                                mask_int = (
-                                    self._read_mask_int(mask_path)
-                                    if load_masks
-                                    else self._verify_mask_readable(mask_path)
-                                )
+                                mask_int = self._read_mask_int(mask_path)
 
                                 for instance in anno.get("instances", []):
                                     r, g, b, _ = instance["color"]
@@ -265,27 +258,14 @@ class SOLOParser(SplitParserPlugin):
                                     instance_id = instance["instanceId"]
 
                                     instance_segmentations[instance_id] = {
-                                        "file": img_path,
-                                        "annotation": {
-                                            "instance_id": instance_id,
-                                            "instance_segmentation": {
-                                                "mask": curr_mask,
-                                            },
-                                        },
+                                        "mask": curr_mask,
                                     }
 
                             elif (
-                                "KeypointAnnotation"
-                                not in processed_annotations_per_step[
-                                    current_step
-                                ]
-                                and anno["@type"].endswith(
-                                    "KeypointAnnotation"
-                                )
+                                "KeypointAnnotation" not in processed
+                                and anno_type.endswith("KeypointAnnotation")
                             ):
-                                processed_annotations_per_step[
-                                    current_step
-                                ].add("KeypointAnnotation")
+                                processed.add("KeypointAnnotation")
                                 keypoint_annotations = anno.get("values", [])
 
                                 for (
@@ -306,13 +286,7 @@ class SOLOParser(SplitParserPlugin):
                                     ]
 
                                     instance_keypoints[instance_id] = {
-                                        "file": img_path,
-                                        "annotation": {
-                                            "instance_id": instance_id,
-                                            "keypoints": {
-                                                "keypoints": keypoints,
-                                            },
-                                        },
+                                        "keypoints": keypoints,
                                     }
                         # Hard dependencies between bbox, keypoints and instance_segmentations
                         non_empty_annotations = []
@@ -336,26 +310,21 @@ class SOLOParser(SplitParserPlugin):
                             common_instance_ids = set()
 
                         for instance_id in common_instance_ids:
+                            class_name, boundingbox = bounding_boxes[
+                                instance_id
+                            ]
                             annotation_entry = {
-                                "class": bounding_boxes[instance_id][
-                                    "annotation"
-                                ]["class"],
+                                "class": class_name,
                                 "instance_id": instance_id,
-                                "boundingbox": bounding_boxes[instance_id][
-                                    "annotation"
-                                ]["boundingbox"],
+                                "boundingbox": boundingbox,
                             }
                             if instance_keypoints:
                                 annotation_entry["keypoints"] = (
-                                    instance_keypoints[instance_id][
-                                        "annotation"
-                                    ]["keypoints"]
+                                    instance_keypoints[instance_id]
                                 )
                             if instance_segmentations:
                                 annotation_entry["instance_segmentation"] = (
-                                    instance_segmentations[instance_id][
-                                        "annotation"
-                                    ]["instance_segmentation"]
+                                    instance_segmentations[instance_id]
                                 )
 
                             yield {
@@ -363,10 +332,7 @@ class SOLOParser(SplitParserPlugin):
                                 "annotation": annotation_entry,
                             }
 
-        # Enumerating the files runs the generator a second time, so skip mask
-        # decoding there — it is by far the most expensive part of the walk.
-        added_images = self._get_added_images(generator(load_masks=False))
-        return ParsedDataset(generator(), skeletons, added_images)
+        return generator()
 
     @staticmethod
     def _read_mask_int(mask_path: Path) -> np.ndarray:
@@ -381,28 +347,8 @@ class SOLOParser(SplitParserPlugin):
         )
 
     @staticmethod
-    def _verify_mask_readable(mask_path: Path) -> None:
-        """Check a mask is decodable without paying for the decode.
-
-        The file-enumeration pass skips mask decoding, but an undecodable mask
-        must still fail the import up front instead of part-way through
-        ``dataset.add``.
-        """
-        if not cv2.haveImageReader(str(mask_path)):
-            raise ValueError(f"Failed to read mask image from {mask_path}.")
-
-    @staticmethod
-    def _instance_mask(
-        mask_int: np.ndarray | None, target_int: int
-    ) -> np.ndarray:
-        """Extract the binary mask of one instance colour.
-
-        ``mask_int`` is ``None`` when masks were deliberately not decoded, in
-        which case a placeholder is returned. Such records are only used to
-        enumerate image files and never reach a dataset.
-        """
-        if mask_int is None:
-            return np.zeros((1, 1), dtype=np.uint8)
+    def _instance_mask(mask_int: np.ndarray, target_int: int) -> np.ndarray:
+        """Extract the binary mask of one instance colour."""
         return (mask_int == target_int).astype(np.uint8)
 
     def _get_solo_annotation_types(

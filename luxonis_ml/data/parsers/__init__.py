@@ -58,8 +58,8 @@ Parser Plugins
 ==============
 
 Parser plugins subclass `ParserPlugin`, declare one or more string
-``dataset_types``, recognize sources through ``supports``, and return a
-data-only `ParsedDataset`. Register plugins with `register_parser_plugin` or
+``dataset_types``, recognize sources through ``detect``, and stream a
+data-only `ParseResult`. Register plugins with `register_parser_plugin` or
 publish the plugin class through a ``parser_plugins`` package entry point.
 Dataset construction and splitting remain the responsibility of
 `BaseDataset.import_dataset`.
@@ -67,7 +67,8 @@ Dataset construction and splitting remain the responsibility of
 .. python::
 
     from luxonis_ml.data import (
-        ParsedDataset,
+        Layout,
+        ParseResult,
         ParserPlugin,
         register_parser_plugin,
     )
@@ -77,16 +78,20 @@ Dataset construction and splitting remain the responsibility of
         dataset_types = ("example",)
 
         @classmethod
-        def supports(cls, source):
-            return (source / "annotations.example").is_file()
+        def detect(cls, source):
+            if not (source / "annotations.example").is_file():
+                return None
+            return Layout({None: {"image_dir": source}})
 
-        def parse(self, source, *, dataset_type, **kwargs):
-            files = list(source.glob("*.jpg"))
-            return ParsedDataset(
-                records=({"file": image} for image in files),
-                skeletons={},
-                files=files,
-            )
+        def parse(self, source, layout, **kwargs):
+            def records():
+                for image_dir in (
+                    split["image_dir"] for split in layout.splits.values()
+                ):
+                    for image in image_dir.glob("*.jpg"):
+                        yield None, {"file": image}
+
+            return ParseResult(records(), skeletons={})
 
 `LuxonisParser` remains available as a deprecated compatibility wrapper and
 will be removed in a future release.
@@ -328,8 +333,9 @@ from .luxonis_parser import LuxonisParser
 from .native_parser import NativeParser
 from .parser_plugin import (
     PARSERS_REGISTRY,
-    ParsedDataset,
+    Layout,
     ParseIssueCollector,
+    ParseResult,
     ParserPlugin,
     register_parser_plugin,
 )
@@ -367,10 +373,11 @@ __all__ = [
     "CreateMLParser",
     "DarknetParser",
     "FiftyOneClassificationParser",
+    "Layout",
     "LuxonisParser",
     "NativeParser",
     "ParseIssueCollector",
-    "ParsedDataset",
+    "ParseResult",
     "ParserIssue",
     "ParserIssueMessage",
     "ParserPlugin",

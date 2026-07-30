@@ -10,7 +10,7 @@ from typing_extensions import override
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
 
-from .parser_plugin import ParsedDataset, SplitParserPlugin
+from .parser_plugin import Layout, SplitParserPlugin
 
 
 class Format(str, Enum):
@@ -92,7 +92,13 @@ class YOLOv8Parser(SplitParserPlugin):
     )
 
     def fit_boundingbox(self, points: np.ndarray) -> dict[str, float]:
-        """Fit a bounding box around a polygon mask."""
+        """Fit a bounding box around a polygon mask.
+
+        Kept as part of the public API. `_split_records` computes the same
+        box straight from the parsed coordinates instead of calling this,
+        because building an array only to reduce it four times costs more
+        than the reduction saves at polygon sizes.
+        """
         x_min = np.min(points[:, 0])
         y_min = np.min(points[:, 1])
         x_max = np.max(points[:, 0])
@@ -103,6 +109,58 @@ class YOLOv8Parser(SplitParserPlugin):
             "w": x_max - x_min,
             "h": y_max - y_min,
         }
+
+    @staticmethod
+    def _reshape_keypoints(
+        coordinates: list[float], n_kpts: Any, kpt_dim: Any
+    ) -> list[tuple[float, float, int]]:
+        """Group flat keypoint values into ``(x, y, visibility)``.
+
+        Args:
+            coordinates: Flat keypoint values of one annotation line.
+            n_kpts: Number of keypoints declared by ``kpt_shape``.
+            kpt_dim: Values per keypoint declared by ``kpt_shape``.
+
+        Returns:
+            One triplet per keypoint, with full visibility added when the
+            annotations carry none.
+
+        """
+        keypoints = np.array(coordinates).reshape(n_kpts, kpt_dim)
+        if kpt_dim == 2:
+            # add full visibility as last dimension
+            keypoints = np.concatenate(
+                [keypoints, np.ones((n_kpts, 1)) * 2], axis=1
+            )
+        return [(p[0], p[1], int(p[2])) for p in keypoints.tolist()]
+
+    @staticmethod
+    def _has_polygon(annotation_path: Path) -> bool:
+        """Report whether a label file holds a line the parse decodes.
+
+        A line longer than five values is a polygon only where the split
+        declares no ``kpt_shape``, and a polygon is the only annotation
+        whose image the parse reads.
+
+        Args:
+            annotation_path: Label file belonging to one image. It does
+                not have to exist.
+
+        Returns:
+            Whether any line of the file is a polygon.
+
+        """
+        if not annotation_path.exists():
+            return False
+
+        with open(annotation_path) as f:
+            for line in f:
+                # Six fields already answer the question, and splitting
+                # off no more than six selects the same lines as splitting
+                # the whole line would.
+                if len(line.split(None, 5)) > 5:
+                    return True
+        return False
 
     @staticmethod
     def _detect_dataset_dir_format(
@@ -174,24 +232,27 @@ class YOLOv8Parser(SplitParserPlugin):
 
     @classmethod
     @override
-    def discover_splits(cls, dataset_dir: Path) -> dict[str, dict[str, Any]]:
-        # Split roots may live under images/<split> instead of <split>/.
-        dir_format, _splits = cls._detect_dataset_dir_format(dataset_dir)
-        if dir_format is None:
-            return {}
+    def detect(cls, source: Path) -> Layout | None:
+        if not source.is_dir():
+            return None
 
-        discovered: dict[str, dict[str, Any]] = {}
+        # Split roots may live under images/<split> instead of <split>/,
+        # which is the only reason this is not the inherited detection.
+        dir_format, _splits = cls._detect_dataset_dir_format(source)
         if dir_format is Format.ROBOFLOW:
             split_paths = [
-                dataset_dir / split_name
+                source / split_name
                 for split_name in ("train", "valid", "test")
             ]
-        else:
+        elif dir_format is Format.ULTRALYTICS:
             split_paths = [
-                dataset_dir / "images" / split_name
+                source / "images" / split_name
                 for split_name in ("train", "val", "test")
             ]
+        else:
+            split_paths = []
 
+        discovered: dict[str | None, dict[str, Any]] = {}
         for split_path in split_paths:
             split_kwargs = cls.validate_split(split_path)
             if split_kwargs is None:
@@ -199,11 +260,81 @@ class YOLOv8Parser(SplitParserPlugin):
             discovered[cls._canonicalize_split_name(split_path.name)] = (
                 split_kwargs
             )
-        return discovered
+        if discovered:
+            return Layout(discovered)
 
-    def _parse_split(
+        split_kwargs = cls.validate_split(source)
+        if split_kwargs is None:
+            return None
+        return Layout({None: split_kwargs})
+
+    def _split_files(
+        self,
+        image_dir: Path,
+        annotation_dir: Path,
+        classes_path: Path,
+    ) -> list[Path]:
+        """List the images of one split.
+
+        Almost the plain listing: every image yields at least one record,
+        background images included. The exception is an image whose every
+        annotation line is too short to parse, which yields nothing at
+        all - so its label file has to be looked at, or a count-based
+        `split_ratios` would sample an image that then contributes no
+        record and leave that split a sample short.
+
+        Args:
+            image_dir: Directory with images.
+            annotation_dir: Directory with annotations.
+            classes_path: YAML file with class names.
+
+        Returns:
+            The images of the split that yield at least one record.
+
+        """
+        del classes_path
+        return [
+            image
+            for image in self._list_images(image_dir)
+            if self._yields_records(annotation_dir / f"{image.stem}.txt")
+        ]
+
+    @staticmethod
+    def _yields_records(annotation_path: Path) -> bool:
+        """Return whether the image owning this label file is recorded.
+
+        Mirrors the generator's decisions without parsing any value: a
+        missing or empty label file still yields one background record, a
+        line with at least 5 fields yields an annotation record, and
+        shorter lines are skipped. Only an image whose every non-empty
+        line is too short produces nothing.
+
+        Args:
+            annotation_path: Label file of one image. It need not exist.
+
+        Returns:
+            Whether parsing the image yields at least one record.
+
+        """
+        if not annotation_path.exists():
+            return True
+
+        skipped_any = False
+        with open(annotation_path) as f:
+            for line in f:
+                elements = line.split()
+                if not elements:
+                    continue
+                # The first usable line settles it, so well-formed labels
+                # cost one split instead of one per annotation.
+                if len(elements) >= 5:
+                    return True
+                skipped_any = True
+        return not skipped_any
+
+    def _split_records(
         self, image_dir: Path, annotation_dir: Path, classes_path: Path
-    ) -> ParsedDataset:
+    ) -> DatasetIterator:
         """Parse YOLOv8 or Ultralytics annotations into LDF records.
 
         Annotations include object detection, instance segmentation and
@@ -215,8 +346,7 @@ class YOLOv8Parser(SplitParserPlugin):
             classes_path: YAML file with class names.
 
         Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+            One record per annotation, and one per unannotated image.
 
         """
         with open(classes_path) as f:
@@ -236,40 +366,79 @@ class YOLOv8Parser(SplitParserPlugin):
             """
             class_names = classes_data["names"]
 
-        def generator() -> DatasetIterator:
-            for img_path in self._list_images(image_dir):
-                ann_path = annotation_dir / img_path.with_suffix(".txt").name
+        # `classes_data` is never mutated, so the shape only has to be
+        # looked up once for the whole split.
+        kpt_shape = classes_data.get("kpt_shape", None)
+        images = self._list_images(image_dir)
 
-                annotation_data = []
+        if kpt_shape is None:
+            # A polygon is the only annotation whose image is read, so an
+            # unreadable image is only fatal here. Checking the format
+            # signature costs no decode and keeps the failure where it
+            # belongs: a parse that fails once it is streaming leaves a
+            # registered, half-populated dataset behind.
+            for img_path in images:
+                if self._has_polygon(
+                    annotation_dir / f"{img_path.stem}.txt"
+                ) and not cv2.haveImageReader(str(img_path)):
+                    raise ValueError(f"Failed to read image: {img_path}")
+
+        def generator() -> DatasetIterator:
+            for img_path in images:
+                ann_path = annotation_dir / f"{img_path.stem}.txt"
+                # One string per image instead of one per annotation; the
+                # records share it, which is safe because it is immutable.
+                file = str(img_path)
+
+                annotations: list[list[str]] = []
                 # First check if file exists (would crash otherwise)
                 if ann_path.exists():
                     with open(ann_path) as f:
-                        annotation_data = f.readlines()
-
-                # pre-filter empty lines
-                annotation_data = [
-                    line for line in annotation_data if line.strip()
-                ]
+                        # A line is empty exactly when it has no fields,
+                        # so splitting while reading both applies the old
+                        # pre-filter and produces the fields every kept
+                        # line is parsed into anyway.
+                        annotations = [
+                            elements
+                            for line in f
+                            if (elements := line.split())
+                        ]
 
                 # Handle missing annotations
-                if not annotation_data:
-                    yield {"file": str(img_path), "annotation": None}
+                if not annotations:
+                    yield {"file": file, "annotation": None}
                     continue
 
-                for instance_id, ann_line in enumerate(annotation_data):
-                    annotation_elements = ann_line.split()
+                image_size: tuple[int, ...] | None = None
+                for instance_id, annotation_elements in enumerate(annotations):
                     # object detection format: class_id x_center y_center width height
                     # segmentation format: class_id x1 y1 x2 y2 x3 y3 ... xn yn (min 3 points)
                     # keypoints format: class_id x_center y_center width height kp1_x kp1_y kp2_x kp2_y ... kpn_x kpn_y (it can also have 3rd dimension for visibility)
+                    n_elements = len(annotation_elements)
 
-                    if len(annotation_elements) == 5:
-                        task_type = "detection"
-                    elif len(annotation_elements) > 5:
-                        if classes_data.get("kpt_shape", None) is not None:
-                            task_type = "keypoints"
-                        else:
-                            task_type = "segmentation"
-                    else:
+                    if n_elements == 5:
+                        class_id, x_center, y_center, width, height = (
+                            annotation_elements
+                        )
+                        class_name = class_names[int(class_id)]
+                        box_width = float(width)
+                        box_height = float(height)
+
+                        yield {
+                            "file": file,
+                            "annotation": {
+                                "class": class_name,
+                                "instance_id": instance_id,
+                                "boundingbox": {
+                                    "x": float(x_center) - box_width / 2,
+                                    "y": float(y_center) - box_height / 2,
+                                    "w": box_width,
+                                    "h": box_height,
+                                },
+                            },
+                        }
+
+                    elif n_elements < 5:
                         self._warn_skipped_annotation(
                             ParserIssue.MALFORMED_ANNOTATION,
                             "annotation line has fewer than 5 values",
@@ -279,85 +448,63 @@ class YOLOv8Parser(SplitParserPlugin):
                         )
                         continue
 
-                    if task_type == "detection":
-                        class_id, x_center, y_center, width, height = (
-                            annotation_elements
-                        )
-                        class_name = class_names[int(class_id)]
+                    elif kpt_shape is not None:
+                        n_kpts, kpt_dim = kpt_shape
+                        (
+                            class_id,
+                            x_center,
+                            y_center,
+                            width,
+                            height,
+                            *keypoint_values,
+                        ) = annotation_elements
+                        # `map` runs the same conversion in C and rejects
+                        # exactly the same tokens as the comprehension.
+                        coordinates = list(map(float, keypoint_values))
 
-                        yield {
-                            "file": str(img_path),
-                            "annotation": {
-                                "class": class_name,
-                                "instance_id": instance_id,
-                                "boundingbox": {
-                                    "x": float(x_center) - float(width) / 2,
-                                    "y": float(y_center) - float(height) / 2,
-                                    "w": float(width),
-                                    "h": float(height),
-                                },
-                            },
-                        }
-
-                    elif task_type == "segmentation":
-                        img = cv2.imread(str(img_path))
-                        if img is None:
-                            raise ValueError(
-                                f"Failed to read image: {img_path}"
+                        # Reshaping to `(n_kpts, kpt_dim)` and reading the
+                        # rows is the same as striding the flat values by
+                        # `kpt_dim`, but only when the count fits exactly;
+                        # any other shape keeps the numpy path so its `-1`
+                        # inference and its errors are unchanged.
+                        if kpt_dim == 3 and len(coordinates) == n_kpts * 3:
+                            keypoints = list(
+                                zip(
+                                    coordinates[0::3],
+                                    coordinates[1::3],
+                                    map(int, coordinates[2::3]),
+                                    strict=True,
+                                )
                             )
-                        height, width = img.shape[:2]
-
-                        class_id, *points = annotation_elements
-                        points = [float(p) for p in points]
-                        points = np.array(points).reshape(-1, 2)
-                        boundingbox = self.fit_boundingbox(points)
-                        points = [(p[0], p[1]) for p in points.tolist()]
-                        class_name = class_names[int(class_id)]
-
-                        yield {
-                            "file": str(img_path),
-                            "annotation": {
-                                "class": class_name,
-                                "instance_id": instance_id,
-                                "boundingbox": boundingbox,
-                                "instance_segmentation": {
-                                    "height": height,
-                                    "width": width,
-                                    "points": points,
-                                },
-                            },
-                        }
-
-                    elif task_type == "keypoints":
-                        n_kpts, kpt_dim = classes_data["kpt_shape"]
-                        class_id, *points = annotation_elements
-                        x_center, y_center, width, height, *keypoints = points
-                        keypoints = [float(p) for p in keypoints]
-                        keypoints = np.array(keypoints).reshape(
-                            n_kpts, kpt_dim
-                        )
-                        class_name = class_names[int(class_id)]
-
-                        if kpt_dim == 2:
+                        elif kpt_dim == 2 and len(coordinates) == n_kpts * 2:
                             # add full visibility as last dimension
-                            keypoints = np.concatenate(
-                                [keypoints, np.ones((n_kpts, 1)) * 2], axis=1
+                            keypoints = [
+                                (x, y, 2)
+                                for x, y in zip(
+                                    coordinates[0::2],
+                                    coordinates[1::2],
+                                    strict=True,
+                                )
+                            ]
+                        else:
+                            keypoints = self._reshape_keypoints(
+                                coordinates, n_kpts, kpt_dim
                             )
 
-                        keypoints = [
-                            (p[0], p[1], int(p[2])) for p in keypoints.tolist()
-                        ]
+                        class_name = class_names[int(class_id)]
+                        box_width = float(width)
+                        box_height = float(height)
 
                         yield {
-                            "file": str(img_path),
+                            "file": file,
                             "annotation": {
                                 "class": class_name,
                                 "instance_id": instance_id,
                                 "boundingbox": {
-                                    "x": float(x_center) - float(width) / 2,
-                                    "y": float(y_center) - float(height) / 2,
-                                    "w": float(width),
-                                    "h": float(height),
+                                    "x": float(x_center) - box_width / 2,
+                                    "y": float(y_center) - box_height / 2,
+                                    "w": box_width,
+                                    "h": box_height,
                                 },
                                 "keypoints": {
                                     "keypoints": keypoints,
@@ -365,8 +512,53 @@ class YOLOv8Parser(SplitParserPlugin):
                             },
                         }
 
-                    instance_id += 1
+                    else:
+                        if image_size is None:
+                            # Polygons are normalized, so every polygon of
+                            # one image resolves against the same decoded
+                            # size and the decode is shared between them.
+                            img = cv2.imread(file)
+                            if img is None:
+                                raise ValueError(
+                                    f"Failed to read image: {img_path}"
+                                )
+                            image_size = img.shape[:2]
+                        img_height, img_width = image_size
 
-        added_images = self._get_added_images(generator())
+                        class_id, *point_values = annotation_elements
+                        # `map` runs the same conversion in C and rejects
+                        # exactly the same tokens as the comprehension.
+                        coordinates = list(map(float, point_values))
+                        if len(coordinates) % 2:
+                            # An odd count used to reach `reshape(-1, 2)`;
+                            # let numpy raise it verbatim rather than
+                            # silently dropping the trailing value.
+                            np.array(coordinates).reshape(-1, 2)
+                        # Every other value, which is what reshaping to
+                        # two columns and taking a column amounts to.
+                        xs = coordinates[0::2]
+                        ys = coordinates[1::2]
+                        x_min = min(xs)
+                        y_min = min(ys)
+                        class_name = class_names[int(class_id)]
 
-        return ParsedDataset(generator(), {}, added_images)
+                        yield {
+                            "file": file,
+                            "annotation": {
+                                "class": class_name,
+                                "instance_id": instance_id,
+                                "boundingbox": {
+                                    "x": x_min,
+                                    "y": y_min,
+                                    "w": max(xs) - x_min,
+                                    "h": max(ys) - y_min,
+                                },
+                                "instance_segmentation": {
+                                    "height": img_height,
+                                    "width": img_width,
+                                    "points": list(zip(xs, ys, strict=True)),
+                                },
+                            },
+                        }
+
+        return generator()

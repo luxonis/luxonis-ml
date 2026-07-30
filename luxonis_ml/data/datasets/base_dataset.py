@@ -2,6 +2,8 @@ import inspect
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Iterator, Mapping, Sequence
+from contextlib import suppress
+from itertools import chain
 from pathlib import Path
 from typing import Any, TypeAlias, cast
 
@@ -23,11 +25,30 @@ DatasetIterator: TypeAlias = Iterator[dict | DatasetRecord]
 
 
 def _prepare_import_records(
-    records: DatasetIterator,
+    records: Iterator[tuple[str | None, dict | DatasetRecord]],
     *,
     task_name: str | dict[str, str] | None,
     selected_files: set[Path] | None,
+    split_files: dict[str | None, dict[Path, None]],
 ) -> DatasetIterator:
+    """Turn parser output into records ready for `BaseDataset.add`.
+
+    Files are collected per split as the records stream past, which is why
+    a parser no longer has to publish a file list before it starts: the
+    only caller that needs one is `make_splits`, and that runs after every
+    record has been added.
+
+    Args:
+        records: Split name and record, as produced by a parser.
+        task_name: Optional task name, or class-to-task mapping.
+        selected_files: When given, only records naming one of these files
+            are kept.
+        split_files: Filled with the ordered, unique files of each split.
+
+    Yields:
+        Records to add to the dataset.
+
+    """
     if task_name is None:
         task_names = None
         unannotated_task_names: set[str] = set()
@@ -40,7 +61,7 @@ def _prepare_import_records(
         task_names = task_name
         unannotated_task_names = set(task_name.values())
 
-    for raw_record in records:
+    for split_name, raw_record in records:
         record = (
             DatasetRecord(**raw_record)
             if isinstance(raw_record, dict)
@@ -51,6 +72,13 @@ def _prepare_import_records(
             for file in record.files.values()
         ):
             continue
+
+        # A `dict` rather than a `set` so the files of a split keep the
+        # order the parser emitted them in, which is the order the old
+        # file-list pass produced.
+        files_of_split = split_files.setdefault(split_name, {})
+        for file in record.files.values():
+            files_of_split[file] = None
 
         if task_names is None:
             yield record
@@ -76,6 +104,50 @@ def _prepare_import_records(
             # duplicating masks and polygons for every record.
             record = record.model_copy(update={"task_name": name})
         yield record
+
+
+def _record_files(item: dict | DatasetRecord) -> Iterator[PathType]:
+    """Yield the files a record names."""
+    if isinstance(item, DatasetRecord):
+        yield from item.files.values()
+    elif "file" in item:
+        yield item["file"]
+    elif "files" in item:
+        yield from item["files"].values()
+
+
+def _peek(records: DatasetIterator) -> DatasetIterator:
+    """Return ``records``, raising if it yields nothing.
+
+    Pulling the first record before anything is written keeps an empty
+    source failing before a dataset is populated, which is what the old
+    up-front file list used to guarantee.
+    """
+    first = next(records, None)
+    if first is None:
+        raise ValueError("No samples were parsed from the source.")
+    return chain([first], records)
+
+
+def _enumerate_by_parsing(
+    plugin: Any,
+    source: Path,
+    layout: Any,
+    parser_kwargs: dict[str, Any],
+) -> dict[str | None, list[Path]]:
+    """Collect each split's files by parsing and discarding the records.
+
+    The fallback for a parser that cannot enumerate its files without
+    parsing them. It costs a full extra parse, which is why it runs only
+    for count-based `split_ratios`.
+    """
+    collected: dict[str | None, dict[Path, None]] = {}
+    result = plugin.parse(source, layout, **parser_kwargs)
+    for split_name, raw_record in result.records:
+        files_of_split = collected.setdefault(split_name, {})
+        for file in _record_files(raw_record):
+            files_of_split[Path(file)] = None
+    return {name: list(files) for name, files in collected.items()}
 
 
 class BaseDataset(
@@ -142,7 +214,7 @@ class BaseDataset(
             if isinstance(dataset_type, DatasetType)
             else dataset_type
         )
-        plugin_type, selected_type = get_parser_plugin(
+        plugin_type, _selected_type, layout = get_parser_plugin(
             source_path,
             type_name,
         )
@@ -192,29 +264,41 @@ class BaseDataset(
             ):
                 resolved_parser_kwargs["split_val_to_test"] = False
 
-            parsed = plugin.parse(
-                source_path,
-                dataset_type=selected_type,
-                **resolved_parser_kwargs,
-            )
-            if not parsed.files:
-                raise ValueError("No samples were parsed from the source.")
+            has_original_splits = bool(layout.split_names)
 
             selected_splits: dict[str, Sequence[PathType]] | None = None
             selected_files: set[Path] | None = None
             if (
                 split is None
                 and count_ratios is not None
-                and (parsed.splits is not None or random_split)
+                and (has_original_splits or random_split)
             ):
-                if parsed.splits is None:
-                    selected_splits = apply_counts_to_pool(
-                        parsed.files,
+                # The only feature that has to know the files before a
+                # record is added. A parser that cannot enumerate them
+                # cheaply pays a throwaway parse here, and only here.
+                enumerated = plugin.enumerate_files(
+                    source_path, layout, **resolved_parser_kwargs
+                )
+                if enumerated is None:
+                    enumerated = _enumerate_by_parsing(
+                        plugin, source_path, layout, resolved_parser_kwargs
+                    )
+                if has_original_splits:
+                    selected_splits = apply_counts_to_splits(
+                        {
+                            name: files
+                            for name, files in enumerated.items()
+                            if name is not None
+                        },
                         count_ratios,
                     )
                 else:
-                    selected_splits = apply_counts_to_splits(
-                        parsed.splits,
+                    selected_splits = apply_counts_to_pool(
+                        [
+                            file
+                            for files in enumerated.values()
+                            for file in files
+                        ],
                         count_ratios,
                     )
                 selected_files = {
@@ -223,12 +307,28 @@ class BaseDataset(
                     for file in files
                 }
 
+            parsed = plugin.parse(
+                source_path,
+                layout,
+                **resolved_parser_kwargs,
+            )
+            split_files: dict[str | None, dict[Path, None]] = {}
             records = _prepare_import_records(
                 parsed.records,
                 task_name=task_name,
                 selected_files=selected_files,
+                split_files=split_files,
             )
-            dataset.add(records)
+            dataset.add(_peek(records))
+
+            parsed_splits = {
+                name: list(files)
+                for name, files in split_files.items()
+                if name is not None
+            }
+            all_files = [
+                file for files in split_files.values() for file in files
+            ]
 
             for skeleton in parsed.skeletons.values():
                 dataset.set_skeletons(
@@ -237,12 +337,12 @@ class BaseDataset(
                 )
 
             if split is not None:
-                dataset.make_splits({split: parsed.files})
+                dataset.make_splits({split: all_files})
             elif selected_splits is not None:
                 dataset.make_splits(selected_splits)
             elif split_ratios is not None:
-                if parsed.splits is not None or random_split:
-                    if parsed.splits is not None and not is_counts:
+                if has_original_splits or random_split:
+                    if has_original_splits and not is_counts:
                         logger.warning(
                             "Using percentage-based split ratios will "
                             "redistribute and shuffle all samples across "
@@ -250,15 +350,30 @@ class BaseDataset(
                             "preserved."
                         )
                     dataset.make_splits(split_ratios)
-            elif parsed.splits is not None:
-                original_splits: dict[str, Sequence[PathType]] = dict(
-                    parsed.splits
-                )
+            elif has_original_splits:
+                # A source with original splits defines all three, even the
+                # ones it left empty: a train-only dataset still reports an
+                # empty `val` and `test` rather than omitting them.
+                original_splits: dict[str, Sequence[PathType]] = {
+                    name: parsed_splits.get(name, [])
+                    for name in ("train", "val", "test")
+                }
                 dataset.make_splits(original_splits)
             elif random_split:
                 dataset.make_splits(None)
 
             logger.info("Dataset imported successfully.")
+        except BaseException:
+            # A parser streams its records, so a source it cannot finish
+            # reading fails part-way through `add`, once some of it is
+            # already written. Without this the caller is left with a
+            # registered, half-populated dataset that looks importable.
+            # Nothing here can be recovered by retrying, so the dataset
+            # is removed and the original error propagates.
+            with suppress(Exception):
+                dataset.delete_dataset(delete_local=True)
+            raise
+        else:
             return dataset
         finally:
             issues.log_summary()

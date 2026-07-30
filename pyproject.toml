@@ -166,6 +166,7 @@ unfixable = ["B905"]
 "tests/*" = ["ANN201"]
 "__main__.py" = ["ANN201"]
 "tools/benchmark.py" = ["T201"]
+"tools/profile_parsers.py" = ["T201"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "__future__".msg = "Do not use imports from __future__."
@@ -190,14 +191,17 @@ reportUnnecessaryIsInstance = "none"
 paths = ["luxonis_train"]
 exclude = ["luxonis_ml/tracker", "examples", "__main__.py"]
 
-[tool.pytest]
+[tool.pytest.ini_options]
 doctest_optionflags = [
   "NORMALIZE_WHITESPACE",
   "IGNORE_EXCEPTION_DETAIL",
   "NUMBER",
 ]
 testpaths = ["tests", "luxonis_ml"]
-addopts = ["--disable-warnings", "--doctest-modules"]
+addopts = ["--disable-warnings", "--doctest-modules", "-m", "not benchmark"]
+markers = [
+  "benchmark: parser performance benchmark; excluded by default, select with `-m benchmark`",
+]
 
 
 [tool.coverage.run]

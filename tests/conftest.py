@@ -1,4 +1,4 @@
-import builtins
+import os
 import platform
 import random
 import shutil
@@ -13,7 +13,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 from _pytest.fixtures import SubRequest
-from rich import print as rich_print
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset
 from luxonis_ml.typing import Params
@@ -25,8 +24,6 @@ CREATED_DATASETS = []
 
 @pytest.fixture(autouse=True, scope="session")
 def setup():
-    builtins.print = rich_print
-
     randint = random.randint(0, 100000)
     base = Path.cwd() / f"tests/data/luxonisml_base_path/{randint}"
     environ.LUXONISML_BASE_PATH = base
@@ -134,10 +131,14 @@ def augmentation_config() -> list[Params]:
 
 @pytest.fixture(scope="session")
 def base_tempdir(worker_id: str):
-    path = Path("tests", "data", "tempdir", worker_id)
+    # Without xdist every session is `master`, so two pytest runs in one
+    # worktree would delete each other's fixtures mid-test. The process id
+    # keeps them apart; xdist workers already have distinct ids.
+    path = Path("tests", "data", "tempdir", f"{worker_id}_{os.getpid()}")
     shutil.rmtree(path, ignore_errors=True)
     path.mkdir(parents=True, exist_ok=True)
-    return path
+    yield path
+    shutil.rmtree(path, ignore_errors=True)
 
 
 @pytest.fixture
@@ -173,6 +174,29 @@ def pytest_addoption(parser: pytest.Parser):
         action="store_true",
         default=False,
         help="Run tests only for local storage",
+    )
+    group = parser.getgroup("benchmark")
+    group.addoption(
+        "--benchmark-scale",
+        type=float,
+        default=1.0,
+        help="Multiplier for the number of images in benchmark datasets",
+    )
+    group.addoption(
+        "--benchmark-repeat",
+        type=int,
+        default=1,
+        help="How many times each benchmark parse is timed (fastest wins)",
+    )
+    group.addoption(
+        "--benchmark-json",
+        default=None,
+        help="Write the benchmark results to this JSON file",
+    )
+    group.addoption(
+        "--benchmark-compare",
+        default=None,
+        help="Compare the benchmark results against this JSON file",
     )
 
 

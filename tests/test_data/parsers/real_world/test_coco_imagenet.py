@@ -1,3 +1,5 @@
+"""COCO 2017 and ImageNet samples fetched from cloud storage."""
+
 import os
 import shutil
 import subprocess
@@ -6,14 +8,15 @@ from pathlib import Path
 
 import pytest
 
-from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
+from luxonis_ml.data import (
+    LuxonisDataset,
+    LuxonisLoader,
+    LuxonisParser,
+)
 from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.utils.environ import environ
 from tests.conftest import CocoSplitConfig
 
-COCO_TRAIN_IMAGES = 100
-COCO_VAL_IMAGES = 100
-COCO_TEST_IMAGES = 100  # test split has images but 0 annotations
 IMAGENET_IMAGES = 1000
 
 

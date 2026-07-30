@@ -2,14 +2,13 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 from defusedxml.ElementTree import parse
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
 from luxonis_ml.utils.path import resolve_manifest_path
 
-from .parser_plugin import ParsedDataset, SplitParserPlugin
+from .parser_plugin import SplitParserPlugin
 
 
 class VOCParser(SplitParserPlugin):
@@ -26,6 +25,12 @@ class VOCParser(SplitParserPlugin):
         └── test/
 
     This is one of the formats that Roboflow can generate.
+
+    Which images a split actually contains is only known once its ``.xml``
+    documents have been read - ``<filename>`` may name an image that is
+    not there, and such an annotation is skipped - so `_split_files` is
+    deliberately left unimplemented. A directory listing would report
+    images that the parse never yields a record for.
     """
 
     dataset_types = ("voc",)
@@ -35,33 +40,43 @@ class VOCParser(SplitParserPlugin):
         if not split_path.exists():
             return None
 
-        images = VOCParser._list_images(split_path)
-        labels = split_path.glob("*.xml")
-        if not VOCParser._compare_stem_files(images, labels):
+        # `_compare_stem_files` re-wraps every entry in a fresh `Path` before
+        # taking its stem; both listings already yield `Path`s and
+        # `Path(p).stem` is `p.stem` for any `p`, so the same two sets are
+        # built here without that per-entry round trip.
+        image_stems = {
+            image.stem for image in VOCParser._list_images(split_path)
+        }
+        label_stems = {label.stem for label in split_path.glob("*.xml")}
+        if not image_stems or image_stems != label_stems:
             return None
         return {"image_dir": split_path, "annotation_dir": split_path}
 
-    def _parse_split(
+    def _split_records(
         self, image_dir: Path, annotation_dir: Path
-    ) -> ParsedDataset:
+    ) -> DatasetIterator:
         """Parse VOC annotations into LDF records.
 
-        Annotations include classification and object detection.
+        Annotations include classification and object detection. Each
+        ``.xml`` document is parsed once and its records are yielded
+        before the next one is opened.
 
         Args:
             image_dir: Directory with images.
             annotation_dir: Directory with ``.xml`` annotations.
 
-        Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+        Yields:
+            One record per bounding box, and one per box-less image.
 
         Raises:
             ValueError: If an annotation XML file cannot be parsed or a
                 required XML tag is missing.
 
         """
-        images_annotations = []
+        # `image_dir` is the same for every annotation, so the symlink
+        # resolution it goes through is done once instead of once per file.
+        base_dir = image_dir.absolute().resolve()
+
         for anno_xml in annotation_dir.glob("*.xml"):
             annotation_data = parse(anno_xml)
             root = annotation_data.getroot()
@@ -69,8 +84,7 @@ class VOCParser(SplitParserPlugin):
                 raise ValueError(f"Could not parse {anno_xml}")
 
             path = resolve_manifest_path(
-                image_dir.absolute().resolve(),
-                self._xml_find(root, "filename"),
+                base_dir, self._xml_find(root, "filename")
             )
             if not path.exists():
                 self._warn_skipped_annotation(
@@ -81,57 +95,47 @@ class VOCParser(SplitParserPlugin):
                 )
                 continue
 
-            curr_annotations = {"path": path, "classes": [], "bboxes": []}
             size_item = root.find("size")
             assert size_item is not None
             height = float(self._xml_find(size_item, "height"))
             width = float(self._xml_find(size_item, "width"))
 
+            file = str(path)
+            boxed = False
             for object_item in root.findall("object"):
+                # Read for its side effect on boxless objects too: a
+                # classification-style object without a `name` has always
+                # been an error.
                 class_name = self._xml_find(object_item, "name")
-                curr_annotations["classes"].append(class_name)
 
                 bbox_info = object_item.find("bndbox")
-                if bbox_info is not None:
-                    bbox_xywh = np.array(
-                        [
-                            float(self._xml_find(bbox_info, "xmin")),
-                            float(self._xml_find(bbox_info, "ymin")),
-                            float(self._xml_find(bbox_info, "xmax"))
-                            - float(self._xml_find(bbox_info, "xmin")),
-                            float(self._xml_find(bbox_info, "ymax"))
-                            - float(self._xml_find(bbox_info, "ymin")),
-                        ]
-                    )
-                    bbox_xywh[::2] /= width
-                    bbox_xywh[1::2] /= height
-                    bbox_xywh = bbox_xywh.tolist()
-                    curr_annotations["bboxes"].append((class_name, bbox_xywh))
-            images_annotations.append(curr_annotations)
-
-        def generator() -> DatasetIterator:
-            for curr_annotations in images_annotations:
-                path = str(curr_annotations["path"])
-                if not curr_annotations["bboxes"]:
-                    yield {"file": path, "annotation": None}
+                if bbox_info is None:
                     continue
-                for bbox_class, bbox in curr_annotations["bboxes"]:
-                    yield {
-                        "file": path,
-                        "annotation": {
-                            "class": bbox_class,
-                            "boundingbox": {
-                                "x": bbox[0],
-                                "y": bbox[1],
-                                "w": bbox[2],
-                                "h": bbox[3],
-                            },
+
+                xmin = float(self._xml_find(bbox_info, "xmin"))
+                ymin = float(self._xml_find(bbox_info, "ymin"))
+                xmax = float(self._xml_find(bbox_info, "xmax"))
+                ymax = float(self._xml_find(bbox_info, "ymax"))
+                boxed = True
+                # Dividing the corners as scalars is bit-for-bit what the
+                # float64 array this used to allocate did, and the tags are
+                # still read in their original order, so a missing one
+                # raises the same error as before.
+                yield {
+                    "file": file,
+                    "annotation": {
+                        "class": class_name,
+                        "boundingbox": {
+                            "x": xmin / width,
+                            "y": ymin / height,
+                            "w": (xmax - xmin) / width,
+                            "h": (ymax - ymin) / height,
                         },
-                    }
+                    },
+                }
 
-        added_images = self._get_added_images(generator())
-
-        return ParsedDataset(generator(), {}, added_images)
+            if not boxed:
+                yield {"file": file, "annotation": None}
 
     @staticmethod
     def _xml_find(root: ET.Element, tag: str) -> str:

@@ -1,13 +1,13 @@
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
 
-from .parser_plugin import ParsedDataset, SplitParserPlugin
+from .parser_plugin import SplitParserPlugin
 
 
 class FiftyOneClassificationParser(SplitParserPlugin):
@@ -77,47 +77,108 @@ class FiftyOneClassificationParser(SplitParserPlugin):
         except (json.JSONDecodeError, OSError):
             return None
 
-        return {"split_path": split_path}
+        # Recognizing a split already requires parsing `labels.json`, so the
+        # parsed content is handed over instead of being read a second time.
+        return {"split_path": split_path, "labels_data": labels_data}
 
-    def _parse_split(self, split_path: Path) -> ParsedDataset:
+    @staticmethod
+    def _read_labels(labels_path: Path) -> dict[str, Any]:
+        with open(labels_path) as f:
+            return cast(dict[str, Any], json.load(f))
+
+    def _stem_to_path(self, split_path: Path) -> dict[str, Path]:
+        """Map each image stem in a split's ``data`` directory to its path.
+
+        Labels name an image by its stem, so the extension a split happens
+        to use is resolved through a single listing of the directory.
+        """
+        return {
+            image.stem: image
+            for image in self._list_images(split_path / "data")
+        }
+
+    def _split_records(
+        self,
+        split_path: Path,
+        labels_data: dict[str, Any] | None = None,
+    ) -> DatasetIterator:
+        """Stream the records of one FiftyOne split directory.
+
+        Args:
+            split_path: Directory holding ``data`` and ``labels.json``.
+            labels_data: Content of ``labels.json`` as parsed by
+                `validate_split`. Read from disk when not given.
+
+        Yields:
+            One classification record per label naming an image that the
+            split actually contains, in label order.
+
+        """
         labels_path = split_path / "labels.json"
-        data_path = split_path / "data"
 
         is_flat_structure = split_path.name not in self.split_names
         if is_flat_structure:
-            labels_path = clean_imagenet_annotations(labels_path)
+            cleaned_path = clean_imagenet_annotations(labels_path)
+            if cleaned_path != labels_path:
+                # The cleanup rewrote the labels, so whatever validation read
+                # is not what this split is parsed from anymore.
+                labels_data = None
+            labels_path = cleaned_path
 
-        with open(labels_path) as f:
-            labels_data = json.load(f)
+        if labels_data is None:
+            labels_data = self._read_labels(labels_path)
 
         classes = labels_data["classes"]
         labels = labels_data["labels"]
+        stem_to_path = self._stem_to_path(split_path)
 
-        images = self._list_images(data_path)
-        stem_to_path = {img.stem: img for img in images}
+        for image_stem, class_idx in labels.items():
+            image_path = stem_to_path.get(image_stem)
+            if image_path is None:
+                self._warn_skipped_annotation(
+                    ParserIssue.MISSING_IMAGE_STEM,
+                    "label references an image stem that is not present in the split",
+                    source=labels_path,
+                    image=image_stem,
+                )
+                continue
 
-        def generator() -> DatasetIterator:
-            for image_stem, class_idx in labels.items():
-                if image_stem not in stem_to_path:
-                    self._warn_skipped_annotation(
-                        ParserIssue.MISSING_IMAGE_STEM,
-                        "label references an image stem that is not present in the split",
-                        source=labels_path,
-                        image=image_stem,
-                    )
-                    continue
+            yield {
+                "file": image_path,
+                "annotation": {"class": classes[class_idx]},
+            }
 
-                img_path = stem_to_path[image_stem]
-                class_name = classes[class_idx]
+    def _split_files(
+        self,
+        split_path: Path,
+        labels_data: dict[str, Any] | None = None,
+    ) -> list[Path]:
+        """List the images one FiftyOne split parses into records.
 
-                yield {
-                    "file": img_path,
-                    "annotation": {"class": class_name},
-                }
+        Args:
+            split_path: Directory holding ``data`` and ``labels.json``.
+            labels_data: Content of ``labels.json`` as parsed by
+                `validate_split`. Read from disk when not given.
 
-        added_images = self._get_added_images(generator())
+        Returns:
+            The split's images in label order, leaving out both the images
+            no label names and the labels naming a missing image.
 
-        return ParsedDataset(generator(), {}, added_images)
+        """
+        if labels_data is None:
+            labels_data = self._read_labels(split_path / "labels.json")
+
+        # The ImageNet cleanup that a flat layout runs before parsing only
+        # renames classes and re-points two label indices; it neither adds
+        # nor removes a label. The images are therefore the same whichever
+        # labels file is read, so listing them does not have to run the
+        # cleanup - or rewrite anything on disk.
+        stem_to_path = self._stem_to_path(split_path)
+        return [
+            stem_to_path[image_stem]
+            for image_stem in labels_data["labels"]
+            if image_stem in stem_to_path
+        ]
 
 
 def clean_imagenet_annotations(labels_path: Path) -> Path:

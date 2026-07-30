@@ -8,7 +8,7 @@ from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
 from luxonis_ml.utils.path import resolve_manifest_path
 
-from .parser_plugin import ParsedDataset, SplitParserPlugin
+from .parser_plugin import SplitParserPlugin
 
 
 class CreateMLParser(SplitParserPlugin):
@@ -43,10 +43,36 @@ class CreateMLParser(SplitParserPlugin):
             "annotation_path": split_path / "_annotations.createml.json",
         }
 
-    def _parse_split(
+    @staticmethod
+    def _resolve_image(base_dir: Path, reference: Any) -> Path:
+        """Resolve a manifest image reference against its split
+        directory.
+
+        Args:
+            base_dir: Already absolute and resolved directory the
+                manifest lives in.
+            reference: The ``image`` value of a manifest entry.
+
+        Returns:
+            Absolute, symlink-resolved path to the referenced image.
+
+        """
+        # A reference holding neither separator can be neither absolute nor
+        # Windows-flavoured on any platform, so `resolve_manifest_path`
+        # provably collapses to joining it onto `base_dir`. Taking that
+        # shortcut avoids three throwaway path objects per manifest entry.
+        if (
+            isinstance(reference, str)
+            and "/" not in reference
+            and "\\" not in reference
+        ):
+            return (base_dir / reference).resolve()
+        return resolve_manifest_path(base_dir, reference)
+
+    def _split_records(
         self, image_dir: Path, annotation_path: Path
-    ) -> ParsedDataset:
-        """Parse CreateML annotations into LDF records.
+    ) -> DatasetIterator:
+        """Stream CreateML annotations of one split as LDF records.
 
         Annotations include classification and object detection.
 
@@ -54,19 +80,21 @@ class CreateMLParser(SplitParserPlugin):
             image_dir: Directory with images.
             annotation_path: Annotation JSON file.
 
-        Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+        Yields:
+            One record per box, in manifest order. The manifest is walked
+            a single time and each record is emitted as it is read.
 
         """
         with open(annotation_path) as f:
             annotations_data = json.load(f)
 
-        images_annotations = []
+        # `Path.resolve` walks the filesystem, and every entry of a manifest
+        # is resolved against the one directory that manifest sits in, so
+        # doing it once drops a `realpath` call per annotated image.
+        base_dir = image_dir.absolute().resolve()
+
         for annotations in annotations_data:
-            path = resolve_manifest_path(
-                image_dir.absolute().resolve(), annotations["image"]
-            )
+            path = self._resolve_image(base_dir, annotations["image"])
             if not path.exists():
                 self._warn_skipped_annotation(
                     ParserIssue.MISSING_IMAGE,
@@ -76,41 +104,64 @@ class CreateMLParser(SplitParserPlugin):
                 )
                 continue
             file = str(path)
+            # Opened once per frame, ahead of its boxes: the width and
+            # height a box is normalized by depend only on the frame, and
+            # an unreadable image has to fail the parse even when the
+            # frame carries no boxes to normalize.
             img = Image.open(file)
             width, height = img.size
 
-            curr_annotations = {"path": str(path), "classes": [], "bboxes": []}
+            # A frame without boxes simply yields nothing, so it never
+            # reaches the dataset.
             for curr_ann in annotations["annotations"]:
-                class_name = curr_ann["label"]
-                curr_annotations["classes"].append(class_name)
-
                 bbox_ann = curr_ann["coordinates"]
-                bbox_xywh = [
-                    (bbox_ann["x"] - bbox_ann["width"] / 2) / width,
-                    (bbox_ann["y"] - bbox_ann["height"] / 2) / height,
-                    bbox_ann["width"] / width,
-                    bbox_ann["height"] / height,
-                ]
-                curr_annotations["bboxes"].append((class_name, bbox_xywh))
-            images_annotations.append(curr_annotations)
-
-        def generator() -> DatasetIterator:
-            for curr_annotations in images_annotations:
-                path = curr_annotations["path"]
-                for bbox_class, (x, y, w, h) in curr_annotations["bboxes"]:
-                    yield {
-                        "file": path,
-                        "annotation": {
-                            "class": bbox_class,
-                            "boundingbox": {
-                                "x": x,
-                                "y": y,
-                                "w": w,
-                                "h": h,
-                            },
+                yield {
+                    "file": file,
+                    "annotation": {
+                        "class": curr_ann["label"],
+                        "boundingbox": {
+                            "x": (bbox_ann["x"] - bbox_ann["width"] / 2)
+                            / width,
+                            "y": (bbox_ann["y"] - bbox_ann["height"] / 2)
+                            / height,
+                            "w": bbox_ann["width"] / width,
+                            "h": bbox_ann["height"] / height,
                         },
-                    }
+                    },
+                }
 
-        added_images = self._get_added_images(generator())
+    def _split_files(
+        self, image_dir: Path, annotation_path: Path
+    ) -> list[Path]:
+        """List the images of one split straight from its manifest.
 
-        return ParsedDataset(generator(), {}, added_images)
+        The manifest is the index a parse reads anyway and it names every
+        image that can produce a record, so a count-based import picks its
+        subset without decoding a single image.
+
+        Args:
+            image_dir: Directory with images.
+            annotation_path: Annotation JSON file.
+
+        Returns:
+            The images yielding at least one record, in manifest order and
+            deduplicated, mirroring a manifest that names one image twice.
+
+        """
+        with open(annotation_path) as f:
+            annotations_data = json.load(f)
+
+        base_dir = image_dir.absolute().resolve()
+
+        files: dict[Path, None] = {}
+        for annotations in annotations_data:
+            # A frame without boxes produces no record at all, so it is not
+            # a file an import can choose.
+            if not annotations["annotations"]:
+                continue
+            path = self._resolve_image(base_dir, annotations["image"])
+            # A missing image is reported by the parse itself; enumerating
+            # only decides what can be selected.
+            if path.exists():
+                files[path] = None
+        return list(files)

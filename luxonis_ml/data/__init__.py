@@ -233,9 +233,10 @@ with guard_missing_extra("data"):
     from .loaders import LOADERS_REGISTRY, BaseLoader, LuxonisLoader
     from .parsers import (
         PARSERS_REGISTRY,
+        Layout,
         LuxonisParser,
-        ParsedDataset,
         ParseIssueCollector,
+        ParseResult,
         ParserPlugin,
         register_parser_plugin,
     )
@@ -307,6 +308,7 @@ __all__ = [
     "DatasetIterator",
     "ImageType",
     "LDFEquivalence",
+    "Layout",
     "LuxonisComponent",
     "LuxonisDataset",
     "LuxonisLoader",
@@ -315,7 +317,7 @@ __all__ = [
     "MediaType",
     "Metadata",
     "ParseIssueCollector",
-    "ParsedDataset",
+    "ParseResult",
     "ParserIssue",
     "ParserIssueMessage",
     "ParserPlugin",

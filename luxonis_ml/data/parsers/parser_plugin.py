@@ -3,14 +3,15 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from itertools import chain
 from pathlib import Path
-from typing import Any, ClassVar, overload
+from typing import Any, ClassVar, TypeAlias, overload
 
 from loguru import logger
 
 from luxonis_ml.data.datasets.annotation import DatasetRecord
-from luxonis_ml.data.datasets.base_dataset import DatasetIterator
+from luxonis_ml.data.datasets.base_dataset import (
+    DatasetIterator,
+)
 from luxonis_ml.data.utils.enums import ParserIssue, ParserIssueMessage
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import Registry
@@ -18,19 +19,51 @@ from luxonis_ml.utils import Registry
 PARSERS_REGISTRY: Registry[type["ParserPlugin"]] = Registry(name="parsers")
 
 
-@dataclass
-class ParsedDataset:
-    """Data-only result produced by a parser plugin.
+#: A record together with the split it belongs to, or ``None`` when the
+#: source carries no split information.
+SplitRecord: TypeAlias = tuple[str | None, "dict | DatasetRecord"]
 
-    ``files`` and ``splits`` must be complete before ``records`` is consumed.
-    This lets dataset importers select count-based subsets without relying on
-    implementation-specific dataset internals.
+
+@dataclass(frozen=True)
+class Layout:
+    """What a parser recognized in a source.
+
+    Detection is what discovers a layout, and parsing is handed the result
+    instead of rediscovering it, so a source is inspected once per import.
+
+    Attributes:
+        splits: Parse arguments for each split, keyed by canonical split
+            name. A source that is not organized into splits is a single
+            entry keyed ``None``.
+
     """
 
-    records: DatasetIterator
+    splits: dict[str | None, dict[str, Any]]
+
+    @property
+    def split_names(self) -> list[str]:
+        """The named splits, excluding a source parsed as a whole."""
+        return [name for name in self.splits if name is not None]
+
+
+@dataclass
+class ParseResult:
+    """Data-only result produced by a parser plugin.
+
+    ``records`` is a single-pass iterator: a parser walks its source once
+    and tags each record with the split it belongs to, rather than
+    publishing a file list a caller has to be given up front.
+
+    Attributes:
+        records: Split name and record, streamed in one pass.
+        skeletons: Keypoint skeleton metadata keyed by task name. Complete
+            once ``records`` is exhausted; a parser that already knows its
+            skeletons may fill it before streaming starts.
+
+    """
+
+    records: Iterator[SplitRecord]
     skeletons: dict[str, dict[str, Any]]
-    files: list[Path]
-    splits: dict[str, list[Path]] | None = None
 
 
 @dataclass
@@ -120,23 +153,59 @@ class ParserPlugin(ABC):
 
     def __init__(self, issues: ParseIssueCollector) -> None:
         self._issues = issues
+        #: Skeleton metadata, filled whenever a parse learns it. Read by
+        #: the importer once the records are exhausted, so a parser that
+        #: only discovers its skeletons while streaming may fill it late.
+        self._skeletons: dict[str, dict[str, Any]] = {}
 
     @classmethod
     @abstractmethod
-    def supports(cls, source: Path) -> bool:
-        """Return whether this plugin recognizes ``source``."""
+    def detect(cls, source: Path) -> Layout | None:
+        """Return the layout of ``source``, or ``None`` if unrecognized.
+
+        Whatever recognizing the source revealed - which splits it has,
+        where their images and annotations live - belongs in the returned
+        layout, because it is handed back to `parse` instead of being
+        discovered a second time.
+        """
         ...
 
     @abstractmethod
     def parse(
         self,
         source: Path,
-        *,
-        dataset_type: str,
+        layout: Layout,
         **kwargs: Any,
-    ) -> ParsedDataset:
+    ) -> ParseResult:
         """Parse ``source`` without mutating a dataset."""
         ...
+
+    def enumerate_files(
+        self,
+        source: Path,
+        layout: Layout,
+        **kwargs: Any,
+    ) -> dict[str | None, list[Path]] | None:
+        """List the files of each split without parsing annotations.
+
+        Only count-based `split_ratios` need the files up front, to pick a
+        subset before anything is imported. Returning ``None`` says this
+        parser cannot answer more cheaply than parsing, and the importer
+        falls back to a throwaway parse - for that one case, not for
+        every import.
+
+        Args:
+            source: Root of the dataset.
+            layout: Layout returned by `detect`.
+            kwargs: Format-specific parse arguments.
+
+        Returns:
+            Files per split, or ``None`` if the parser cannot enumerate
+            them cheaply.
+
+        """
+        del source, layout, kwargs
+        return None
 
     def _warn_skipped_annotation(
         self,
@@ -153,16 +222,6 @@ class ParserPlugin(ABC):
             source=source,
             image=image,
             annotation_id=annotation_id,
-        )
-
-    @staticmethod
-    def _get_added_images(generator: DatasetIterator) -> list[Path]:
-        return list(
-            dict.fromkeys(
-                Path(value)
-                for item in generator
-                for value in _record_files(item)
-            )
         )
 
     @staticmethod
@@ -216,86 +275,73 @@ class SplitParserPlugin(ParserPlugin):
         ...
 
     @abstractmethod
-    def _parse_split(self, **kwargs: Any) -> ParsedDataset:
-        """Parse one recognized input split."""
+    def _split_records(self, **kwargs: Any) -> DatasetIterator:
+        """Stream the records of one recognized input split."""
         ...
+
+    def _split_files(self, **kwargs: Any) -> list[Path] | None:
+        """List the files of one split without parsing its annotations.
+
+        Override where a split's files are a directory listing or an
+        index the parser reads anyway. Returning ``None`` means only a
+        parse can answer.
+        """
+        del kwargs
+        return None
 
     @staticmethod
     def _canonicalize_split_name(split_name: str) -> str:
         return "val" if split_name in {"valid", "validation"} else split_name
 
     @classmethod
-    def discover_splits(cls, source: Path) -> dict[str, dict[str, Any]]:
+    def detect(cls, source: Path) -> Layout | None:
         if not source.is_dir():
-            return {}
+            return None
 
-        discovered: dict[str, dict[str, Any]] = {}
+        discovered: dict[str | None, dict[str, Any]] = {}
         for split_name in cls.split_names:
             split_kwargs = cls.validate_split(source / split_name)
             if split_kwargs is not None:
                 discovered[cls._canonicalize_split_name(split_name)] = (
                     split_kwargs
                 )
-        return discovered
+        if discovered:
+            return Layout(discovered)
 
-    @classmethod
-    def supports(cls, source: Path) -> bool:
-        return source.is_dir() and (
-            bool(cls.discover_splits(source))
-            or cls.validate_split(source) is not None
-        )
+        split_kwargs = cls.validate_split(source)
+        if split_kwargs is None:
+            return None
+        return Layout({None: split_kwargs})
 
     def parse(
         self,
         source: Path,
-        *,
-        dataset_type: str,
+        layout: Layout,
         **kwargs: Any,
-    ) -> ParsedDataset:
-        del dataset_type
-        split_inputs = self.discover_splits(source)
-        if not split_inputs:
-            split_kwargs = self.validate_split(source)
-            if split_kwargs is None:
-                raise ValueError(
-                    f"Dataset {source} is not in the expected format for "
-                    f"{type(self).__name__}."
-                )
-            return self._parse_split(**split_kwargs, **kwargs)
+    ) -> ParseResult:
+        del source
 
-        outputs = {
-            split_name: self._parse_split(**split_kwargs, **kwargs)
-            for split_name, split_kwargs in split_inputs.items()
-        }
-        return combine_split_outputs(outputs)
+        def records() -> Iterator[SplitRecord]:
+            for split_name, split_kwargs in layout.splits.items():
+                for record in self._split_records(**split_kwargs, **kwargs):
+                    yield split_name, record
 
+        return ParseResult(records(), self._skeletons)
 
-def combine_split_outputs(
-    outputs: dict[str, ParsedDataset],
-) -> ParsedDataset:
-    """Combine per-split parser outputs into one streaming result."""
-    files = list(
-        dict.fromkeys(
-            file for output in outputs.values() for file in output.files
-        )
-    )
-    skeletons: dict[str, dict[str, Any]] = {}
-    for output in outputs.values():
-        skeletons.update(output.skeletons)
-
-    return ParsedDataset(
-        records=chain.from_iterable(
-            output.records for output in outputs.values()
-        ),
-        skeletons=skeletons,
-        files=files,
-        splits={
-            split_name: outputs[split_name].files
-            if split_name in outputs
-            else []
-            for split_name in ("train", "val", "test")
-        },
-    )
+    def enumerate_files(
+        self,
+        source: Path,
+        layout: Layout,
+        **kwargs: Any,
+    ) -> dict[str | None, list[Path]] | None:
+        del source
+        enumerated: dict[str | None, list[Path]] = {}
+        for split_name, split_kwargs in layout.splits.items():
+            files = self._split_files(**split_kwargs, **kwargs)
+            if files is None:
+                return None
+            enumerated[split_name] = files
+        return enumerated
 
 
 @overload
@@ -354,21 +400,27 @@ def register_parser_plugin(
 def get_parser_plugin(
     source: Path,
     dataset_type: str | None,
-) -> tuple[type[ParserPlugin], str]:
-    """Resolve an explicit parser type or auto-detect one."""
+) -> tuple[type[ParserPlugin], str, Layout]:
+    """Resolve an explicit parser type or auto-detect one.
+
+    Returns the plugin, its dataset type, and the layout detection found,
+    so that parsing does not have to inspect the source again.
+    """
     if dataset_type is not None:
         plugin = PARSERS_REGISTRY.get(dataset_type)
-        if not plugin.supports(source):
+        layout = plugin.detect(source)
+        if layout is None:
             raise ValueError(
                 f"Dataset {source} is not in the expected format for the "
                 f"{dataset_type} parser."
             )
-        return plugin, dataset_type
+        return plugin, dataset_type, layout
 
-    matches: list[type[ParserPlugin]] = []
+    matches: list[tuple[type[ParserPlugin], Layout]] = []
     for plugin in dict.fromkeys(PARSERS_REGISTRY.values()):
-        if plugin.supports(source):
-            matches.append(plugin)
+        layout = plugin.detect(source)
+        if layout is not None:
+            matches.append((plugin, layout))
 
     if not matches:
         raise ValueError(
@@ -376,52 +428,47 @@ def get_parser_plugin(
             "parser."
         )
     if len(matches) > 1:
-        best_match = _resolve_by_split_coverage(source, matches)
+        best_match = _resolve_by_split_coverage(matches)
         if best_match is None:
             matched_types = ", ".join(
-                plugin.dataset_types[0] for plugin in matches
+                plugin.dataset_types[0] for plugin, _ in matches
             )
             raise ValueError(
                 "Dataset layout is compatible with multiple parsers: "
                 f"{matched_types}. Please specify `dataset_type`."
             )
-        return best_match, best_match.dataset_types[0]
+        return best_match[0], best_match[0].dataset_types[0], best_match[1]
 
-    plugin = matches[0]
-    return plugin, plugin.dataset_types[0]
+    plugin, layout = matches[0]
+    return plugin, plugin.dataset_types[0], layout
 
 
 def _resolve_by_split_coverage(
-    source: Path,
-    matches: Sequence[type[ParserPlugin]],
-) -> type[ParserPlugin] | None:
-    """Return the plugin that recognizes the most splits, if unique.
+    matches: Sequence[tuple[type[ParserPlugin], Layout]],
+) -> tuple[type[ParserPlugin], Layout] | None:
+    """Return the plugin that recognized the most splits, if unique.
 
     Layouts differing only in how splits are named — ``images/valid`` for
     YOLOv6 against ``images/val`` for Ultralytics YOLOv8 — are recognized by
     several plugins, but only the matching one recognizes every split that is
     actually present. Returns ``None`` when the layout stays ambiguous.
-    """
-    coverage: list[tuple[int, type[ParserPlugin]]] = []
-    for plugin in matches:
-        if not issubclass(plugin, SplitParserPlugin):
-            return None
-        coverage.append((len(plugin.discover_splits(source)), plugin))
 
-    best_count = max(count for count, _ in coverage)
-    best = [plugin for count, plugin in coverage if count == best_count]
+    The counts come from the layouts detection already produced, so
+    resolving an ambiguity costs no further look at the source.
+    """
+    counts = [
+        (len(layout.split_names), plugin, layout) for plugin, layout in matches
+    ]
+
+    best_count = max(count for count, _, _ in counts)
+    best = [
+        (plugin, layout)
+        for count, plugin, layout in counts
+        if count == best_count
+    ]
     if best_count == 0 or len(best) != 1:
         return None
     return best[0]
-
-
-def _record_files(item: dict | DatasetRecord) -> Iterator[PathType]:
-    if isinstance(item, DatasetRecord):
-        yield from item.files.values()
-    elif "file" in item:
-        yield item["file"]
-    elif "files" in item:
-        yield from item["files"].values()
 
 
 def apply_counts_to_pool(

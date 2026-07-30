@@ -95,7 +95,7 @@ def _resolve_extracted_zip_root(unzip_dir: Path) -> Path:
     if not has_markers:
         recognized = any(
             plugin is not ClassificationDirectoryParser
-            and plugin.supports(only_entry)
+            and plugin.detect(only_entry) is not None
             for plugin in dict.fromkeys(PARSERS_REGISTRY.values())
         )
         if not recognized:
