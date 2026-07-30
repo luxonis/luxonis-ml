@@ -405,6 +405,46 @@ def test_keypoint_occluded_renders_distinctly() -> None:
     assert not np.array_equal(mixed, both_visible)
 
 
+def test_every_joint_occluded_still_reads_as_occluded() -> None:
+    """A pose whose joints are *all* COCO flag 1 keeps its occluded markers.
+
+    Visibility decides the marker per joint, with no whole-pose interpretation
+    on top: an earlier heuristic read an all-``1`` column as confidence scores
+    and drew plain dots, erasing the distinction for the poses where it matters
+    most.
+    """
+    base = _canvas()
+    points = [(0.3, 0.5), (0.7, 0.5)]
+    occluded = (
+        base.copy()
+        .add(Keypoints(keypoints=[(x, y, 1) for x, y in points]))
+        .render()
+    )
+    visible = (
+        base.copy()
+        .add(Keypoints(keypoints=[(x, y, 2) for x, y in points]))
+        .render()
+    )
+    assert not np.array_equal(occluded, visible)
+
+
+def test_joint_size_is_independent_of_the_visibility_value() -> None:
+    # Visibility picks the marker shape and nothing else; it never scales the
+    # joint. (Per-joint confidence is meant for a tooltip, not the geometry.)
+    base = _canvas()
+
+    def drawn(visibility: int) -> int:
+        rendered = (
+            base.copy()
+            .add(Keypoints(keypoints=[(0.5, 0.5, visibility)]))  # type: ignore[list-item]
+            .render()
+        )
+        # Pixels differing from the flat canvas background.
+        return int((rendered[..., :3] != 30).any(axis=-1).sum())
+
+    assert drawn(1) == pytest.approx(drawn(2), rel=0.15)
+
+
 def test_keypoints_extent_is_none() -> None:
     # LDF keypoints are always normalized, so the pixel extent is unknown.
     assert Keypoints(keypoints=[(0.1, 0.2, 2), (0.3, 0.4, 2)]).extent() is None

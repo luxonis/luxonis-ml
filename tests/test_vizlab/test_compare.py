@@ -147,6 +147,39 @@ def test_greedy_takes_higher_score_first() -> None:
     assert result.n_fp == 1  # the weaker one is a false positive
 
 
+def test_scoreless_predictions_rank_behind_scored_ones() -> None:
+    # A prediction with no score carries no confidence, so it must not outrank
+    # (and steal the GT from) one that is known to be confident.
+    gt = [_box(0.1, 0.1, 0.2, 0.2, label="car")]
+    scoreless = _box(0.1, 0.1, 0.2, 0.2, label="car")
+    strong = _box(0.12, 0.12, 0.2, 0.2, label="car", score=0.99)
+    result = match_detections(gt, [scoreless, strong])
+    tp = [m for m in result.matches if m.verdict is Verdict.TP]
+    assert len(tp) == 1
+    assert tp[0].pred is strong
+    assert result.n_fp == 1
+
+
+def test_scoreless_predictions_survive_the_score_threshold() -> None:
+    # There is nothing to threshold on, so they are kept rather than dropped.
+    gt = [_box(0.1, 0.1, label="car")]
+    result = match_detections(
+        gt, [_box(0.1, 0.1, label="car")], score_threshold=0.9
+    )
+    assert _verdicts(result) == [Verdict.TP]
+
+
+def test_scoreless_predictions_keep_their_given_order() -> None:
+    # Among themselves they have no ranking signal, so the first one listed
+    # claims the ground truth.
+    gt = [_box(0.1, 0.1, 0.2, 0.2, label="car")]
+    first = _box(0.1, 0.1, 0.2, 0.2, label="car")
+    second = _box(0.11, 0.11, 0.2, 0.2, label="car")
+    result = match_detections(gt, [first, second])
+    tp = [m for m in result.matches if m.verdict is Verdict.TP]
+    assert [m.pred for m in tp] == [first]
+
+
 # --------------------------------------------------------------------------- #
 # Aggregate metrics — the mock scene, hand-checked
 # --------------------------------------------------------------------------- #
@@ -665,6 +698,31 @@ def test_grade_keypoints_marks_an_invented_joint_false_positive() -> None:
     )
     assert points == [(0.3, 0.4, 2)]
     assert colors == [FP_COLOR]
+
+
+def test_grade_keypoints_grades_joints_the_prediction_never_produced() -> None:
+    """A shorter prediction (13-joint model vs 17-joint GT) still shows misses."""
+    points, colors = _grade_keypoints(
+        [(0.3, 0.4, 2)],
+        [(0.3, 0.4, 2), (0.6, 0.7, 2), (0.8, 0.9, 1)],
+        Rect(0.0, 0.0, 1.0, 1.0),
+    )
+    # The matched joint, plus the two the prediction lacks entirely, drawn as
+    # missed at their ground-truth positions.
+    assert points == [(0.3, 0.4, 2), (0.6, 0.7, 2), (0.8, 0.9, 2)]
+    assert colors == [TP_COLOR, FN_COLOR, FN_COLOR]
+
+
+def test_grade_keypoints_skips_joints_absent_on_both_sides() -> None:
+    # Index kept (the skeleton's edges are index-based) but invisible, so
+    # nothing is drawn for a joint neither side labels.
+    points, colors = _grade_keypoints(
+        [(0.3, 0.4, 2)],
+        [(0.3, 0.4, 2), (0.0, 0.0, 0)],
+        Rect(0.0, 0.0, 1.0, 1.0),
+    )
+    assert len(points) == len(colors) == 2
+    assert points[1][2] == 0
 
 
 def test_render_match_ignores_incomplete_match() -> None:

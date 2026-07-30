@@ -83,6 +83,20 @@ def test_combine_unwraps_single_image_mapping_members() -> None:
     assert rendered.shape[2] == 4
 
 
+def test_combine_accepts_composites_as_groups() -> None:
+    # `CombineGroup` is typed as any Renderable, and nesting an already-composed
+    # scene is the point of `combine` — a grid, a panelled image, or either of
+    # them inside a sequence or a titled mapping.
+    from luxonis_ml.vizlab import grid
+
+    sub = grid([_cell(), _cell()])
+    assert combine(sub, _cell()).render().shape[2] == 4
+    assert combine({"group": sub}).render().shape[2] == 4
+    assert combine([sub, _cell()]).render().shape[2] == 4
+    panelled = _cell(40, 40).with_panel({"k": "v"})
+    assert combine([panelled, _cell()]).render().shape[2] == 4
+
+
 def test_smart_cols_single() -> None:
     assert _smart_cols([_cell()]) == 1
 

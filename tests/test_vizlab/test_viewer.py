@@ -13,6 +13,7 @@ from luxonis_ml.vizlab.viewer import (
     render_tooltip_card,
 )
 from luxonis_ml.vizlab.viewer.backend import KeyHandler, MouseHandler
+from luxonis_ml.vizlab.viewer.viewer import _key_char
 
 
 class FakeBackend:
@@ -503,4 +504,44 @@ def test_run_swallows_control_keys_and_forwards_the_rest() -> None:
 def test_unknown_panel_action_is_ignored() -> None:
     viewer = Viewer(FakeBackend())
     viewer._apply_action("unknown:value")
+    assert viewer.layers.is_default()
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        (ord("c"), "c"),  # plain ASCII
+        (0x100000 | ord("c"), "c"),  # GTK/Qt: modifier bits above the low byte
+        (-1, ""),  # no key
+        (65379, ""),  # Insert  (X11 keysym 0xFF63 -> would alias to 'c')
+        (65361, ""),  # Left    (0xFF51 -> 'Q')
+        (65362, ""),  # Up      (0xFF52 -> 'R')
+        (65363, ""),  # Right   (0xFF53 -> 'S')
+        (65364, ""),  # Down    (0xFF54 -> 'T')
+        (65360, ""),  # Home    (0xFF50 -> 'P')
+    ],
+)
+def test_key_char_ignores_special_keysyms(code: int, expected: str) -> None:
+    """Special keys must not alias onto a letter that drives a layer control.
+
+    OpenCV's GTK/Qt builds return characters with state bits set above the low
+    byte, so the low byte identifies the key — but special keys arrive as X11
+    keysyms in 0xFF00-0xFFFF, whose low byte is an unrelated letter.
+    """
+    assert _key_char(code) == expected
+
+
+def test_special_keys_do_not_toggle_layers() -> None:
+    backend = FakeBackend()
+    viewer = Viewer(backend)
+    viewer.show(
+        "w",
+        _layer_image().frame(),
+        render=lambda _state: _layer_image().frame(),
+    )
+    viewer.run(lambda _key: None)
+    assert backend.key_handler is not None
+
+    backend.key_handler(65379)  # Insert: used to read as 'c' and isolate
+    backend.key_handler(65362)  # Up: used to read as 'R'
     assert viewer.layers.is_default()

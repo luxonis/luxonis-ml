@@ -56,8 +56,7 @@ class Keypoints(KeypointAnnotation, Annotation):
         visibility_threshold: Points whose visibility is ``<=`` this are hidden.
             With COCO visibility, a joint marked visible (``2``) is a bright dot
             with a white outline; one marked occluded (``1``) is a dimmer diamond
-            with a dark outline, so it clearly recedes. A ``0..1`` confidence
-            column instead scales the dot.
+            with a dark outline, so it clearly recedes.
         point_labels: How to label each joint — ``"none"`` (default),
             ``"numbers"`` (its index), ``"names"`` (its keypoint name), or
             ``"full"`` (``index:name``). ``"names"``/``"full"`` fall back to the
@@ -212,33 +211,18 @@ class Keypoints(KeypointAnnotation, Annotation):
         xy, vis = self._resolve(canvas.width, canvas.height)
         visible = vis > self.visibility_threshold
 
-        # Treat a 0..1 visibility column as confidence and scale joints by it.
-        # A COCO pose whose joints are all flag 1 (labeled but occluded) also
-        # sits in 0..1, so a genuinely fractional value is required — a flag
-        # column never has one, and without this every such pose would lose its
-        # occluded markers.
-        seen = vis[visible]
-        confidence_like = len(seen) > 0 and bool(
-            np.all((seen > 0) & (seen <= 1.0))
-            and np.any(seen != np.floor(seen))
-        )
-
         colors = self._joint_colors(color, len(xy))
         self._draw_limbs(ctx, xy, visible, colors, style)
+        radius = style.keypoint_radius
         for i in range(len(xy)):
             if not visible[i]:
                 continue
-            v = float(vis[i])
-            radius = style.keypoint_radius
-            if confidence_like:
-                radius *= 0.55 + 0.45 * v
             center = (float(xy[i, 0]), float(xy[i, 1]))
             joint = colors[i]
-            # COCO visibility: 2 (visible) is a filled dot; 1 (labeled but
-            # occluded) is a filled diamond. Both keep the same fill and white
-            # outline, so a glance tells them apart by shape alone. Confidence-
-            # style visibility is always a dot.
-            if not confidence_like and v < 2:
+            # COCO visibility: 2 (visible) is a white-outlined dot; anything
+            # less (1, labeled but occluded) is a diamond, so a glance tells
+            # them apart by shape alone.
+            if float(vis[i]) < 2:
                 self._draw_diamond(canvas, center, radius, joint, style)
             else:
                 canvas.circle(

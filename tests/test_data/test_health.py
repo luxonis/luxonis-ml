@@ -300,6 +300,29 @@ def test_build_health_grid_renders() -> None:
     assert rendered[..., 3].max() > 0
 
 
+def test_build_health_grid_keeps_a_spatial_task_type_without_a_heatmap() -> (
+    None
+):
+    """A spatial task with no heatmap points keeps its class distribution.
+
+    Heatmaps only exist for annotations that yielded points, so a keypoints task
+    whose joints are all invisible produces none — but its class counts are
+    still worth plotting. Driving the panels off the heatmaps dropped them.
+    """
+    pytest.importorskip("luxonis_ml.vizlab")
+    from luxonis_ml.data.utils.health_plots import build_health_grid
+
+    class_dist: ClassDistributionsByType = {
+        "keypoints": [{"class_name": "person", "count": 12}]
+    }
+    rendered = build_health_grid(class_dist, {}).render()
+    assert rendered.shape[2] == 4
+    assert rendered[..., 3].max() > 0
+    # Same panels as when the heatmap key is present but empty.
+    explicit = build_health_grid(class_dist, {"keypoints": None}).render()
+    np.testing.assert_array_equal(rendered, explicit)
+
+
 def test_build_health_grid_omits_metadata_and_task_name_from_titles() -> None:
     """Only spatial types render, and subplot titles do not repeat the task."""
     pytest.importorskip("luxonis_ml.vizlab")

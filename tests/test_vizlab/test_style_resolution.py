@@ -1,9 +1,10 @@
 """Tests for layered style resolution (`Annotation.resolve_style`)."""
 
-from luxonis_ml.vizlab import LIGHT_THEME, BBox, Style
+from luxonis_ml.vizlab import LIGHT_THEME, BBox, Keypoints, Style
 from luxonis_ml.vizlab.annotations.base import RenderContext
 from luxonis_ml.vizlab.canvas import Canvas
 from luxonis_ml.vizlab.render import RenderEnvironment
+from luxonis_ml.vizlab.style import Palette
 
 
 def _ctx(style_scale: float = 1.0) -> RenderContext:
@@ -114,3 +115,22 @@ def test_theme_base_is_scaled_but_overrides_are_display_pixels() -> None:
         .resolve_style(_ctx(style_scale=2.0))
     )
     assert override.stroke_width == 3.0  # display pixels, not re-scaled
+
+
+def test_unlabeled_annotation_resolves_the_same_color_every_rebuild() -> None:
+    """The palette key must not depend on object identity.
+
+    An unlabeled annotation has no class to color by. Keying on ``id(self)``
+    made a rebuilt annotation take a fresh palette slot, so the same pose
+    changed color whenever ``data inspect`` re-created its scene.
+    """
+    palette = Palette()
+    ctx = RenderContext(
+        canvas=Canvas.blank(2, 2), theme=LIGHT_THEME.with_palette(palette)
+    )
+    colors = {
+        Keypoints(keypoints=[(0.5, 0.5, 2)]).resolve_color(ctx)
+        for _ in range(5)
+    }
+    assert len(colors) == 1
+    assert len(palette) == 1

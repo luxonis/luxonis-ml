@@ -68,6 +68,37 @@ def test_bgr_swaps_channels_for_3_and_4() -> None:
     assert tuple(out4[0, 0]) == (30, 20, 10, 40)
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        np.zeros((3, 4), dtype=np.uint8),
+        np.zeros((3, 4, 1), dtype=np.uint8),
+        np.zeros((3, 4, 3), dtype=np.uint8),
+        np.zeros((3, 4, 4), dtype=np.uint8),
+    ],
+    ids=["gray", "gray-1ch", "rgb", "rgba"],
+)
+def test_load_rgba_never_aliases_the_source(source: np.ndarray) -> None:
+    # An already-RGBA uint8 array used to be handed straight through, so an
+    # `Image` shared the caller's buffer. A render caches without looking at the
+    # raster, so a later in-place edit would silently show the old pixels.
+    rgba = io.load_rgba(source)
+    assert not np.shares_memory(rgba, source)
+
+
+def test_image_owns_a_snapshot_of_its_source() -> None:
+    # `Image.render` caches on annotations and size alone, so a raster that can
+    # change underneath it would render stale. The image takes a snapshot
+    # instead, and editing the caller's array afterwards is a no-op.
+    from luxonis_ml.vizlab import Image
+
+    source = np.zeros((4, 4, 4), dtype=np.uint8)
+    source[..., 3] = 255
+    image = Image(source)
+    source[..., :3] = 200
+    assert image.base_rgba()[..., :3].max() == 0
+
+
 def test_tensor_chw_and_hwc() -> None:
     chw = _FakeTensor(
         np.zeros((3, 4, 5), dtype=np.uint8)

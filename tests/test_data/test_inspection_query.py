@@ -9,6 +9,7 @@ from luxonis_ml.data.utils.inspection import (
     InspectionQuery,
     MetadataPredicate,
     SampleFilterConfig,
+    _metadata_equal,
 )
 from luxonis_ml.ldf import BBoxAnnotation, DatasetRecord, Detection
 from luxonis_ml.typing import Params
@@ -169,3 +170,50 @@ def test_query_rejects_invalid_filter_combinations() -> None:
         class_name_mode="exclude",
         unlabeled_only=True,
     ).matches({}, {})
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        (0.5, "0.50"),  # trailing zero: not in the float's repr
+        (0.5, "0.5"),
+        (1.0, "1"),  # stored as a float, typed as an int
+        (1, "1.0"),  # and the other way around
+        (12, "12"),
+    ],
+)
+def test_numeric_metadata_filters_compare_numerically(
+    stored: float, expected: str
+) -> None:
+    """Numbers match by value, not by their Python repr.
+
+    Detection metadata decodes to `float`, so a `str()` comparison made
+    ``--metadata-filter score 0.50`` silently match nothing.
+    """
+    assert _metadata_equal(stored, expected)
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        (0.5, "0.6"),
+        (0.5, "not-a-number"),
+        (1, "2"),
+    ],
+)
+def test_numeric_metadata_filters_still_reject_other_values(
+    stored: float, expected: str
+) -> None:
+    assert not _metadata_equal(stored, expected)
+
+
+def test_bool_metadata_still_matches_by_name_not_by_number() -> None:
+    # `bool` is an `int` subclass; it must keep comparing as "true"/"false".
+    assert _metadata_equal(True, "true")
+    assert _metadata_equal(False, "FALSE")
+    assert not _metadata_equal(True, "1")
+
+
+def test_string_metadata_still_compares_case_insensitively() -> None:
+    assert _metadata_equal("Approved", "approved")
+    assert not _metadata_equal("approved", "rejected")

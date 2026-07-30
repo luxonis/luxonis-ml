@@ -6,6 +6,7 @@ from luxonis_ml.vizlab import BBox, Classification, Color, Keypoints, Mask
 from luxonis_ml.vizlab.annotations import Annotation
 from luxonis_ml.vizlab.style import Palette, derive_child_color
 from luxonis_ml.vizlab.viewer import LayerState
+from luxonis_ml.vizlab.viewer.layers import _resolved_color
 
 PALETTE = Palette(["car", "person"])
 
@@ -311,4 +312,36 @@ def test_explicit_annotation_color_is_preserved_when_boxes_are_hidden() -> (
     assert all(
         child.color == derive_child_color(Color.parse("#123456"))
         for child in promoted
+    )
+
+
+def test_unlabeled_annotations_keep_one_stable_palette_slot() -> None:
+    """Rebuilding an unlabeled annotation must not change its color.
+
+    `luxonis_ml data inspect` rebuilds its annotations on every navigation, and
+    keypoints-only tasks have no class name to color by. Keying the palette on
+    object identity gave each rebuild a fresh color and grew the shared palette
+    without bound — which also shifts every later class's color, since a palette
+    assigns colors in order of first use.
+    """
+    palette = Palette()
+    colors = {
+        _resolved_color(Keypoints(keypoints=[(0.5, 0.5, 2)]), palette, None)
+        for _ in range(5)
+    }
+    assert len(colors) == 1
+    assert len(palette) == 1
+
+
+def test_unlabeled_palette_key_is_per_type_not_per_instance() -> None:
+    first, second = (
+        Keypoints(keypoints=[(0.5, 0.5, 2)]),
+        Keypoints(keypoints=[(0.1, 0.1, 2)]),
+    )
+    assert first.unlabeled_color_key() == second.unlabeled_color_key()
+    # Distinct from any class name, so it cannot collide with a real label.
+    assert first.unlabeled_color_key() != type(first).__name__
+    assert (
+        Mask(mask=np.ones((4, 4), np.uint8)).unlabeled_color_key()  # type: ignore[arg-type]
+        != first.unlabeled_color_key()
     )
