@@ -17,13 +17,15 @@ from luxonis_ml.vizlab import (
 )
 from luxonis_ml.vizlab.annotations import Annotation
 from luxonis_ml.vizlab.color import ColorLike
-from luxonis_ml.vizlab.comparison.core import (
+from luxonis_ml.vizlab.comparison.match import (
     CLASS_ERROR_COLOR,
     FN_COLOR,
     FP_COLOR,
     NONE_LABEL,
     TP_COLOR,
     Match,
+)
+from luxonis_ml.vizlab.comparison.render import (
     _ghost,
     _grade_keypoints,
     _keypoints_of,

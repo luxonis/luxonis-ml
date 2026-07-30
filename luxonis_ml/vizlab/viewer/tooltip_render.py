@@ -6,20 +6,13 @@ translucent brand card with a soft shadow, a class-tinted title, periwinkle Inte
 keys, and near-white JetBrains Mono values.
 """
 
-import functools
-
 import numpy as np
 
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import Rect
+from luxonis_ml.vizlab.render import text_layout
 from luxonis_ml.vizlab.render.canvas import Canvas, TextMetrics
 from luxonis_ml.vizlab.tooltip import Tooltip
-
-
-@functools.lru_cache(maxsize=1)
-def _measure_canvas() -> Canvas:
-    """Return a cached tiny canvas used only to measure tooltip text."""
-    return Canvas.blank(2, 2)
 
 
 def _draw_tooltip_header(
@@ -107,7 +100,6 @@ def render_tooltip_card(tooltip: Tooltip, size: int) -> np.ndarray:
     from luxonis_ml.utils.color import brand
     from luxonis_ml.vizlab.render.canvas import Shadow
 
-    measure = _measure_canvas()
     title = tooltip.title
     tint = tooltip.tint
     title_color = tint if tint is not None else brand.CARD_TITLE
@@ -115,18 +107,18 @@ def render_tooltip_card(tooltip: Tooltip, size: int) -> np.ndarray:
 
     pad, gap = round(size * 0.7), round(size * 0.4)
     title_size = size * 1.06
-    row = measure.measure_text("Ag", size, mono=True)
+    row = text_layout.line_metrics(size, mono=True)
     rows = [
         (
             key,
             val,
-            measure.measure_text(key, size, weight=600).width,
-            measure.measure_text(val, size, weight=500, mono=True).width,
+            text_layout.measure(key, size, weight=600).width,
+            text_layout.measure(val, size, weight=500, mono=True).width,
         )
         for key, val in pairs
     ]
     title_m = (
-        measure.measure_text(title, title_size, weight=700) if title else None
+        text_layout.measure(title, title_size, weight=700) if title else None
     )
     # A class-color swatch leads the header, so the tint reads even when there is
     # no title to tint (a rows-only tooltip). Its side tracks the header height.

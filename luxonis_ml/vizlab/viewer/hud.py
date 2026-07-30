@@ -7,19 +7,12 @@ value, with the value tinted by state (mint when on, muted when off). The type
 size is passed in by the viewer so the HUD scales with the displayed frame.
 """
 
-import functools
-
 import numpy as np
 
+from luxonis_ml.vizlab.render import text_layout
 from luxonis_ml.vizlab.render.canvas import Canvas
 
 from .layers import Control
-
-
-@functools.lru_cache(maxsize=1)
-def _measure() -> Canvas:
-    """Return a cached tiny canvas used only for text measurement."""
-    return Canvas.blank(2, 2)
 
 
 def render_controls_card(controls: list[Control], size: int) -> np.ndarray:
@@ -49,10 +42,9 @@ def render_controls_card(controls: list[Control], size: int) -> np.ndarray:
     keycap_text = brand.CARD_TITLE
     title_color = brand.CARD_TITLE.with_alpha(0.72)
 
-    measure = _measure()
     title = "CONTROLS"
     title_size = size * 0.82
-    row = measure.measure_text("Ag", size, weight=600)
+    row = text_layout.line_metrics(size, weight=600)
     row_h = round(row.height * 1.42)
     keycap_h = round(row.height * 1.12)
     kc_pad = round(size * 0.5)
@@ -61,20 +53,20 @@ def render_controls_card(controls: list[Control], size: int) -> np.ndarray:
     mg = round(size * 0.6)  # transparent margin for the shadow
 
     key_w = [
-        measure.measure_text(c.key, size * 0.92, weight=700, mono=True).width
+        text_layout.measure(c.key, size * 0.92, weight=700, mono=True).width
         for c in controls
     ]
     name_w = [
-        measure.measure_text(c.name, size, weight=600).width for c in controls
+        text_layout.measure(c.name, size, weight=600).width for c in controls
     ]
     val_w = [
-        measure.measure_text(c.value, size, weight=600, mono=True).width
+        text_layout.measure(c.value, size, weight=600, mono=True).width
         for c in controls
     ]
     keycap_w = round(max(key_w) + 2 * kc_pad)
     names_w = max(name_w)
     values_w = max(val_w)
-    title_m = measure.measure_text(title, title_size, weight=700)
+    title_m = text_layout.measure(title, title_size, weight=700)
 
     content_w = max(
         keycap_w + col_gap + names_w + col_gap + values_w, title_m.width

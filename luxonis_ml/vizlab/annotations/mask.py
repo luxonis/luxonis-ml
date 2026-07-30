@@ -19,6 +19,7 @@ from pydantic import PrivateAttr
 from luxonis_ml.ldf import InstanceSegmentationAnnotation
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
+from luxonis_ml.vizlab.render.canvas import Canvas
 from luxonis_ml.vizlab.style import MaskOutline, Palette, Style
 
 from .base import Annotation, RenderContext
@@ -130,7 +131,22 @@ def _contour_smoothing(sx: float, sy: float) -> int:
     return 3 if scale >= 2.0 else 2
 
 
-def _resize_mask(mask: np.ndarray, width: int, height: int) -> np.ndarray:
+def _contour_transform(
+    canvas: Canvas, source: np.ndarray, style: Style
+) -> tuple[float, float, int]:
+    """Scale factors and smoothing to trace ``source`` onto ``canvas``."""
+    mask_h, mask_w = source.shape[:2]
+    sx = canvas.width / mask_w
+    sy = canvas.height / mask_h
+    smoothing = (
+        _contour_smoothing(sx, sy)
+        if style.mask_outline is MaskOutline.SMOOTH
+        else 0
+    )
+    return sx, sy, smoothing
+
+
+def resize_mask(mask: np.ndarray, width: int, height: int) -> np.ndarray:
     """Nearest-neighbor resize a mask to ``(height, width)``.
 
     Masks are stored at the source image's resolution, but the canvas may be a
@@ -288,7 +304,7 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
             style.mask_alpha if self.fill_alpha is None else self.fill_alpha
         )
         canvas = ctx.canvas
-        binary = _resize_mask(self._dense(), canvas.width, canvas.height)
+        binary = resize_mask(self._dense(), canvas.width, canvas.height)
         canvas.overlay_mask(binary, color, alpha=alpha)
 
     def draw(self, ctx: RenderContext, style: Style, color: Color) -> None:
@@ -307,14 +323,7 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
             return
         canvas = ctx.canvas
         binary = self._dense()
-        mask_h, mask_w = binary.shape[:2]
-        sx = canvas.width / mask_w
-        sy = canvas.height / mask_h
-        smoothing = (
-            _contour_smoothing(sx, sy)
-            if style.mask_outline is MaskOutline.SMOOTH
-            else 0
-        )
+        sx, sy, smoothing = _contour_transform(canvas, binary, style)
         # A nested sub-label fills in its own class color but traces its contour in
         # the parent's, so it stays tied to the parent (see outline_color).
         stroke = self.outline_color(ctx, color)
@@ -539,7 +548,7 @@ class SemanticMask(Annotation):
             style.mask_alpha if self.fill_alpha is None else self.fill_alpha
         )
         ignore = self._ignored()
-        labels = _resize_mask(
+        labels = resize_mask(
             np.asarray(self.labels), canvas.width, canvas.height
         )
         for class_id in self._ids():
@@ -572,14 +581,7 @@ class SemanticMask(Annotation):
         palette = self.resolved_palette(ctx)
         ignore = self._ignored()
         labels = np.asarray(self.labels)
-        mask_h, mask_w = labels.shape[:2]
-        sx = canvas.width / mask_w
-        sy = canvas.height / mask_h
-        smoothing = (
-            _contour_smoothing(sx, sy)
-            if style.mask_outline is MaskOutline.SMOOTH
-            else 0
-        )
+        sx, sy, smoothing = _contour_transform(canvas, labels, style)
         for class_id in self._ids():
             cid = int(class_id)
             if cid in ignore:

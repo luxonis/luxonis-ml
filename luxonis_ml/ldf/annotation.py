@@ -417,6 +417,16 @@ class Category(str):
         return core_schema.is_instance_schema(cls)
 
 
+#: The `Detection` fields holding a single `Annotation`, in parquet row order.
+_LABEL_TASK_TYPES = (
+    "boundingbox",
+    "keypoints",
+    "segmentation",
+    "instance_segmentation",
+    "array",
+)
+
+
 class Detection(BaseModelExtraForbid):
     """Detection record containing annotations and metadata for one
     object.
@@ -575,13 +585,7 @@ class Detection(BaseModelExtraForbid):
         """
         task_types = {
             task_type
-            for task_type in [
-                "boundingbox",
-                "keypoints",
-                "segmentation",
-                "instance_segmentation",
-                "array",
-            ]
+            for task_type in _LABEL_TASK_TYPES
             if getattr(self, task_type) is not None
         }
         if self.class_name is not None:
@@ -1411,48 +1415,27 @@ class DatasetRecord(BaseModelExtraForbid):
         task_name: str,
     ) -> Iterable[ParquetRecord]:
         metadata = json.dumps(self.sample_metadata)
-        for task_type in [
-            "boundingbox",
-            "keypoints",
-            "segmentation",
-            "instance_segmentation",
-            "array",
-        ]:
-            label: Annotation | None = getattr(annotation, task_type)
 
+        def row(task_type: str, payload: str) -> ParquetRecord:
+            return {
+                "file": str(file_path),
+                "source_name": source,
+                "task_name": task_name,
+                "class_name": annotation.class_name,
+                "instance_id": annotation.instance_id,
+                "task_type": task_type,
+                "annotation": payload,
+                "sample_metadata": metadata,
+            }
+
+        for task_type in _LABEL_TASK_TYPES:
+            label: Annotation | None = getattr(annotation, task_type)
             if label is not None:
-                yield {
-                    "file": str(file_path),
-                    "source_name": source,
-                    "task_name": task_name,
-                    "class_name": annotation.class_name,
-                    "instance_id": annotation.instance_id,
-                    "task_type": task_type,
-                    "annotation": label.model_dump_json(),
-                    "sample_metadata": metadata,
-                }
+                yield row(task_type, label.model_dump_json())
         for key, data in annotation.metadata.items():
-            yield {
-                "file": str(file_path),
-                "source_name": source,
-                "task_name": task_name,
-                "class_name": annotation.class_name,
-                "instance_id": annotation.instance_id,
-                "task_type": f"metadata/{key}",
-                "annotation": json.dumps(data),
-                "sample_metadata": metadata,
-            }
+            yield row(f"metadata/{key}", json.dumps(data))
         if annotation.class_name is not None:
-            yield {
-                "file": str(file_path),
-                "source_name": source,
-                "task_name": task_name,
-                "class_name": annotation.class_name,
-                "instance_id": annotation.instance_id,
-                "task_type": "classification",
-                "annotation": "{}",
-                "sample_metadata": metadata,
-            }
+            yield row("classification", "{}")
         for name, detection in annotation.sub_detections.items():
             yield from self._detection_rows(
                 detection,

@@ -19,9 +19,9 @@ from luxonis_ml.vizlab import (
 from luxonis_ml.vizlab.annotations.base import RenderContext
 from luxonis_ml.vizlab.annotations.layout import LabelLayout, label_candidates
 from luxonis_ml.vizlab.geometry import Rect, bounding_rect
-from luxonis_ml.vizlab.interaction.maps import InteractionCapture
 from luxonis_ml.vizlab.layout.compose import grid
 from luxonis_ml.vizlab.render.canvas import Canvas
+from luxonis_ml.vizlab.render.capture import InteractionCapture
 from luxonis_ml.vizlab.style import LabelPlacement
 
 

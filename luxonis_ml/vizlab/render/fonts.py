@@ -9,11 +9,15 @@ is cloned to a requested weight on demand and cached. `FontManager` hands out si
 """
 
 import functools
+from importlib import resources
 from pathlib import Path
 
 import skia
 
-_FONTS_DIR = Path(__file__).parent / "fonts"
+#: The bundled ``*.ttf`` files, declared as package data of ``luxonis_ml.vizlab``
+#: in ``pyproject.toml``. Anchored to the package rather than to this module's
+#: own location, so moving this module never breaks font loading.
+_FONTS_DIR = Path(str(resources.files("luxonis_ml.vizlab"))) / "fonts"
 
 # (mono, italic) -> variable font file.
 _FONT_FILES = {

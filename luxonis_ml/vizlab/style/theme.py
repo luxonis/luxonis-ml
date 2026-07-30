@@ -91,38 +91,3 @@ LIGHT_THEME = Theme(
     background=_LIGHT_BG,
 )
 """A light-background counterpart to :data:`DARK_THEME`."""
-
-
-def get_default_theme() -> Theme:
-    """Return the theme in effect for the current scope.
-
-    Deprecated: prefer `luxonis_ml.vizlab.current_options`. Reads the theme from
-    the scope's `luxonis_ml.vizlab.RenderOptions` (no mutable module global).
-
-    Returns:
-        The current default `Theme`.
-
-    """
-    from luxonis_ml.vizlab.options import current_options
-
-    return current_options().theme
-
-
-def set_default_theme(theme: Theme) -> None:
-    """Install ``theme`` as the current scope's default.
-
-    Deprecated: prefer `luxonis_ml.vizlab.set_default_options` /
-    `luxonis_ml.vizlab.default_options`. Updates the scope's
-    `luxonis_ml.vizlab.RenderOptions` to use ``theme`` (backed by a `ContextVar`,
-    not a mutable module global).
-
-    Args:
-        theme: The theme to make the default.
-
-    """
-    from luxonis_ml.vizlab.options import (
-        current_options,
-        set_default_options,
-    )
-
-    set_default_options(current_options().replace(theme=theme))

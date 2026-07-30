@@ -253,3 +253,37 @@ def current_default_style() -> Style | None:
 def current_style_overrides() -> StyleOverrides:
     """Return the scope's accumulated `Style.override` fields (possibly empty)."""
     return _AMBIENT_OVERRIDES.get() or {}
+
+
+#: Canvas short-side (px) at which styles render at their nominal size; larger
+#: canvases scale labels/strokes up proportionally (clamped to the range below).
+#: Kept a touch below a typical frame so type reads a bit larger relative to the
+#: image on medium and large canvases.
+_STYLE_REFERENCE_PX = 700.0
+_STYLE_SCALE_RANGE = (1.0, 3.0)
+
+
+def style_scale(width: int, height: int) -> float:
+    """Resolution-aware style multiplier for a canvas of ``(width, height)``.
+
+    Every pixel metric in a `Style` — stroke widths, type sizes, chip padding —
+    is multiplied by this so a label reads the same relative size on a thumbnail
+    and on a 4K frame. Driven by the short side, and clamped so a very small or
+    very large canvas does not produce unusable type.
+
+    Args:
+        width: Canvas width in pixels.
+        height: Canvas height in pixels.
+
+    Returns:
+        The multiplier, in ``[1.0, 3.0]``.
+
+    Examples:
+        >>> style_scale(640, 480)
+        1.0
+        >>> round(style_scale(2800, 2100), 2)
+        3.0
+
+    """
+    lo, hi = _STYLE_SCALE_RANGE
+    return max(lo, min(hi, min(width, height) / _STYLE_REFERENCE_PX))

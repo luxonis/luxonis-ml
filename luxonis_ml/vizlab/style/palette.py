@@ -1,9 +1,8 @@
 """Distinct class colors from a pluggable, index-based generator.
 
-The `Palette` and its color generators are shared color logic and live in
-`luxonis_ml.utils.color.palette`; the vizlab style package re-exports them here so
-that ``from luxonis_ml.vizlab.style.palette import ...`` keeps working and vizlab
-never reimplements color handling.
+`Palette` and its color generators are shared color logic, defined in
+`luxonis_ml.utils.color.palette` and re-exported here under the name the vizlab
+style package uses internally.
 """
 
 from luxonis_ml.utils.color.palette import (

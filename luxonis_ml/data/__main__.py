@@ -1016,7 +1016,7 @@ def inspect(
                             layers,
                             task_names=tuple(records),
                             controls=False,
-                        )
+                        ),
                     )
                 stem = f"{count:04d}_{Path(source_name).stem or 'image'}"
                 viz.save(directory / f"{stem}.{save_format}")
@@ -1092,7 +1092,7 @@ def inspect(
                 titles=titles,
                 bg=viz_theme.background,
                 allow_upscale=True,
-            )
+            ).frame()
         return grid(
             tiles, ncols=cols, titles=titles, bg=viz_theme.background
         ).frame()

@@ -65,7 +65,7 @@ class Keypoints(KeypointAnnotation, Annotation):
             ``keypoints`` (a ``None`` entry, or a short list, falls back to the
             instance color). A limb between two differently colored joints is
             drawn as a gradient from one color to the other. Useful for grading
-            individual joints — see `luxonis_ml.vizlab.comparison.core`.
+            individual joints — see `luxonis_ml.vizlab.comparison.render`.
 
     See `Annotation` for the shared
     ``label``, ``color``, ``style``, and ``palette`` fields.

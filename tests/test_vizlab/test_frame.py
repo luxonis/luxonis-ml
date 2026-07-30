@@ -4,7 +4,7 @@ import numpy as np
 
 from luxonis_ml.vizlab import BBox, Frame, HitMap, Image, Style, Tooltip
 from luxonis_ml.vizlab.geometry import Rect
-from luxonis_ml.vizlab.interaction.maps import ClickMap
+from luxonis_ml.vizlab.render.capture import ClickMap
 
 
 def _tooltip_image() -> Image:

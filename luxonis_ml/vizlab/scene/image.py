@@ -19,15 +19,14 @@ from typing_extensions import Self
 from luxonis_ml.vizlab import io
 from luxonis_ml.vizlab.annotations.base import Annotation, RenderContext
 from luxonis_ml.vizlab.annotations.layout import LabelLayout
-from luxonis_ml.vizlab.interaction.maps import (
-    ClickMap,
-    HitMap,
-    InteractionCapture,
-)
 from luxonis_ml.vizlab.options import RenderOptions, current_options
 from luxonis_ml.vizlab.render import RenderEnvironment
 from luxonis_ml.vizlab.render.canvas import Canvas
-from luxonis_ml.vizlab.style import Theme
+from luxonis_ml.vizlab.render.capture import (
+    HitMap,
+    InteractionCapture,
+)
+from luxonis_ml.vizlab.style import Theme, style_scale
 
 if TYPE_CHECKING:
     from PIL import Image as PILImage
@@ -37,13 +36,6 @@ if TYPE_CHECKING:
     from luxonis_ml.vizlab.interaction.frame import Frame
     from luxonis_ml.vizlab.io import ImageSource
     from luxonis_ml.vizlab.layout.panel import PanelData
-
-#: Canvas short-side (px) at which styles render at their nominal size; larger
-#: canvases scale labels/strokes up proportionally (clamped to the range below).
-#: Kept a touch below a typical frame so type reads a bit larger relative to the
-#: image on medium and large canvases.
-_STYLE_REFERENCE_PX = 700.0
-_STYLE_SCALE_RANGE = (1.0, 3.0)
 
 
 def _qualname(value: object) -> str:
@@ -125,12 +117,6 @@ def _render_signature(
         )
     )
     return hashlib.sha256(repr(state).encode("utf-8")).digest()
-
-
-def _style_scale(width: int, height: int) -> float:
-    """Resolution-aware style multiplier for a canvas of ``(width, height)``."""
-    lo, hi = _STYLE_SCALE_RANGE
-    return max(lo, min(hi, min(width, height) / _STYLE_REFERENCE_PX))
 
 
 class Renderable:
@@ -403,23 +389,75 @@ class Renderable:
         self._hits = hitmap
         return self
 
-    def frame(self) -> "Frame":
-        """Capture this scene's interactions as a `Frame` for a `Viewer`."""
-        from luxonis_ml.vizlab.interaction.frame import Frame
+    def capture(
+        self, size: tuple[int, int] | None = None
+    ) -> "tuple[InteractionCapture, RenderEnvironment]":
+        """Draw the scene solely to collect its interaction regions.
 
+        The public seam a `luxonis_ml.vizlab.Frame` is built from: it returns
+        the raw collector plus the style snapshot the regions were captured
+        under, and discards the pixels.
+
+        Args:
+            size: ``(width, height)`` to capture at; ``None`` uses the
+                `render_at` size (the natural size if unset).
+
+        Returns:
+            The filled `InteractionCapture` and the `RenderEnvironment` it ran
+            under.
+
+        """
         environment = RenderEnvironment.current()
         _, interactions, _ = self._draw(
-            None,
+            size,
             capture=True,
             environment=environment,
         )
         assert interactions is not None
-        return Frame(
-            self,
-            HitMap(interactions.hover),
-            ClickMap(interactions.clicks),
-            environment,
-        )
+        return interactions, environment
+
+    def frame(self) -> "Frame":
+        """Capture this scene's interactions as a `Frame` for a `Viewer`.
+
+        Sugar for `luxonis_ml.vizlab.Frame.capture`, which is where the pairing
+        actually lives — this scene only knows how to hand over its `capture`.
+
+        Returns:
+            A `Frame` a `Viewer` can display.
+
+        """
+        from luxonis_ml.vizlab.interaction.frame import Frame
+
+        return Frame.capture(self)
+
+    def with_panel(
+        self,
+        data: "PanelData",
+        *,
+        side: str = "right",
+        width: float | None = None,
+        title: str | None = None,
+    ) -> "Renderable":
+        """Append a metadata panel showing ``data`` and return a composed scene.
+
+        Sugar for `luxonis_ml.vizlab.with_panel`, which owns the layout; the
+        panel is placed outside the rendered scene, so it cannot cover pixels or
+        labels, and this scene is not mutated.
+
+        Args:
+            data: JSON-like metadata (mapping/sequence/scalar, nested arbitrarily).
+            side: Which edge to attach the panel to: ``"right"``, ``"left"``, or
+                ``"bottom"``.
+            width: Panel width in pixels; ``None`` auto-sizes from the content.
+            title: Optional bold heading drawn above the tree.
+
+        Returns:
+            A `Composite` of this scene plus the panel.
+
+        """
+        from luxonis_ml.vizlab.layout.panel import with_panel
+
+        return with_panel(self, data, side=side, width=width, title=title)
 
     def _capture_carried(
         self,
@@ -434,37 +472,6 @@ class Renderable:
         factor_x = size[0] / self.width if self.width else 1.0
         factor_y = size[1] / self.height if self.height else 1.0
         capture.transformed(x, y, factor_x, factor_y).add_hitmap(self._hits)
-
-    def with_panel(
-        self,
-        data: "PanelData",
-        *,
-        side: str = "right",
-        width: float | None = None,
-        title: str | None = None,
-    ) -> "Renderable":
-        """Append a metadata panel showing ``data`` and return a composed scene.
-
-        Nested mappings and sequences are formatted as an indented tree. The
-        panel is placed outside the rendered scene, so it cannot cover pixels or
-        labels. See `vizlab.layout.panel.with_panel`.
-
-        Args:
-            data: JSON-like metadata (mapping/sequence/scalar, nested arbitrarily).
-            side: Which edge to attach the panel to: ``"right"``, ``"left"``, or
-                ``"bottom"``.
-            width: Panel width in pixels; ``None`` auto-sizes from the content.
-            title: Optional bold heading drawn above the tree.
-
-        Returns:
-            A `Composite` of this scene plus the panel — renders to raster or SVG.
-
-        """
-        from luxonis_ml.vizlab.layout import panel
-
-        return panel.with_panel(
-            self, data, side=side, width=width, title=title
-        )
 
 
 class Image(Renderable):
@@ -785,7 +792,7 @@ class Image(Renderable):
             depth=0,
             layout=LabelLayout(canvas.width, canvas.height),
             theme=theme,
-            style_scale=_style_scale(canvas.width, canvas.height),
+            style_scale=style_scale(canvas.width, canvas.height),
             capture=capture,
             environment=environment,
             gradient=gradient,
@@ -802,23 +809,21 @@ class Image(Renderable):
     def blend(self, other: "Image", alpha: float = 0.3) -> "Image":
         """Blend this image with another (mixup), returning a new image.
 
-        Only the base rasters are mixed; both images' annotations are carried
-        onto the result and drawn crisply when it renders. Differently sized
-        inputs are padded at the bottom and right, and their spatial annotations
-        are transformed to remain aligned. See `vizlab.layout.compose.blend`.
+        Sugar for `luxonis_ml.vizlab.blend`, which owns the compositing: only
+        the base rasters are mixed, both images' annotations are carried onto
+        the result, and neither input is mutated.
 
         Args:
             other: The image whose base is blended on top, weighted by ``alpha``.
             alpha: Weight of ``other`` in ``[0, 1]``.
 
         Returns:
-            A new `Image` (blended base plus both label sets); neither input
-            is mutated.
+            A new `Image` — the blended base plus both label sets.
 
         """
-        from luxonis_ml.vizlab.layout import compose
+        from luxonis_ml.vizlab.layout.compose import blend
 
-        return compose.blend(self, other, alpha)
+        return blend(self, other, alpha)
 
     def __repr__(self) -> str:
         """Return a compact source-size and annotation-count summary."""

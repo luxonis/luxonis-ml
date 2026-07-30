@@ -8,8 +8,8 @@ import pytest
 from luxonis_ml.vizlab import BBox, Caption, Corner, Image, Legend
 from luxonis_ml.vizlab.annotations.base import RenderContext
 from luxonis_ml.vizlab.annotations.overlay import Cell
-from luxonis_ml.vizlab.markup import Span
 from luxonis_ml.vizlab.render.canvas import Canvas
+from luxonis_ml.vizlab.render.markup import Span
 
 
 def _img() -> Image:

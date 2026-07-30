@@ -35,7 +35,7 @@ from luxonis_ml.vizlab import (
     Renderable,
     RenderOptions,
     Theme,
-    get_default_theme,
+    current_options,
     grid,
 )
 
@@ -271,7 +271,7 @@ def build_health_grid(
         A single renderable grid.
 
     """
-    theme = theme if theme is not None else get_default_theme()
+    theme = theme if theme is not None else current_options().theme
     theme = theme.with_style(theme.style.scaled(_BASE_SCALE * scale))
     # Only annotations with a spatial representation are plotted. Class
     # distributions may also include metadata, which must not create a

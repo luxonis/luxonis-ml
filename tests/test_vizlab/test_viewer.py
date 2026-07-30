@@ -365,7 +365,7 @@ def test_layer_state_copy_is_independent() -> None:
 
 def test_panel_click_toggles_a_class_through_wait() -> None:
     from luxonis_ml.vizlab.geometry import Rect
-    from luxonis_ml.vizlab.interaction.maps import ClickMap
+    from luxonis_ml.vizlab.render.capture import ClickMap
 
     backend = FakeBackend(keys=[-1, ord("q")])
     viewer = Viewer(backend, hud=False)
@@ -392,7 +392,7 @@ def test_click_outside_clickmap_is_ignored() -> None:
 
 def test_driven_click_applies_action_immediately() -> None:
     from luxonis_ml.vizlab.geometry import Rect
-    from luxonis_ml.vizlab.interaction.maps import ClickMap
+    from luxonis_ml.vizlab.render.capture import ClickMap
 
     backend = FakeBackend()
     viewer = Viewer(backend, hud=False)

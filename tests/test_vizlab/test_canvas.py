@@ -5,8 +5,8 @@ import pytest
 
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import Rect
-from luxonis_ml.vizlab.markup import Span
 from luxonis_ml.vizlab.render.canvas import Canvas, gaussian_blur
+from luxonis_ml.vizlab.render.markup import Span
 
 _RED = Color(220, 60, 60)
 

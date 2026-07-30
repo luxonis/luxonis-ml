@@ -13,8 +13,8 @@ from luxonis_ml.vizlab import (
     fit_grid,
     grid,
 )
-from luxonis_ml.vizlab.interaction.maps import HitMap
 from luxonis_ml.vizlab.layout.compose import grid_placed
+from luxonis_ml.vizlab.render.capture import HitMap
 
 
 def _split(frame: Frame) -> tuple[Renderable, HitMap]:
@@ -122,7 +122,7 @@ def test_fit_grid_matches_grid_frame_when_unscaled() -> None:
     a, _ = _tile("A")
     b, _ = _tile("B")
     fit_img, fit_hits = _split(
-        fit_grid([a, b], target=(10_000, 10_000), ncols=2)
+        fit_grid([a, b], target=(10_000, 10_000), ncols=2).frame()
     )
     grid_img, _ = _split(grid([a, b], ncols=2).frame())
     assert (fit_img.width, fit_img.height) == (grid_img.width, grid_img.height)
@@ -144,14 +144,16 @@ def test_fit_grid_reserves_title_height() -> None:
         ncols=2,
         titles=["left", "right"],
     )
-    assert titled.image.height <= 120
-    assert titled.image.height >= untitled.image.height
+    assert titled.height <= 120
+    assert titled.height >= untitled.height
 
 
 def test_fit_grid_scales_within_target() -> None:
     a, _ = _tile("A")
     b, _ = _tile("B")
-    composite, hits = _split(fit_grid([a, b], target=(150, 100), ncols=2))
+    composite, hits = _split(
+        fit_grid([a, b], target=(150, 100), ncols=2).frame()
+    )
     assert composite.width <= 150
     assert composite.height <= 100
     assert len(hits.items) == 2
@@ -163,11 +165,13 @@ def test_fit_grid_upscales_small_tiles_only_when_allowed() -> None:
     b, _ = _tile("B")
     native, _ = _split(grid([a, b], ncols=2).frame())
     # Small tiles, a big budget: by default they stay native (never upscaled)...
-    kept, _ = _split(fit_grid([a, b], target=(4000, 2000), ncols=2))
+    kept, _ = _split(fit_grid([a, b], target=(4000, 2000), ncols=2).frame())
     assert (kept.width, kept.height) == (native.width, native.height)
     # ...but allow_upscale grows them to fill the budget.
     grown, grown_hits = _split(
-        fit_grid([a, b], target=(4000, 2000), ncols=2, allow_upscale=True)
+        fit_grid(
+            [a, b], target=(4000, 2000), ncols=2, allow_upscale=True
+        ).frame()
     )
     assert grown.width > native.width
     assert grown.height > native.height

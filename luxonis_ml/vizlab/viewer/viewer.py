@@ -15,7 +15,7 @@ import numpy as np
 
 from luxonis_ml.vizlab import io
 from luxonis_ml.vizlab.interaction.frame import Frame
-from luxonis_ml.vizlab.interaction.maps import ClickMap, HitMap
+from luxonis_ml.vizlab.render.capture import ClickMap, HitMap
 from luxonis_ml.vizlab.scene.image import Renderable
 from luxonis_ml.vizlab.tooltip import Tooltip
 

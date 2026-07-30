@@ -13,7 +13,7 @@ strings pass through untouched. `parse` turns a marked-up string into a flat lis
 of `Span`; the canvas measures and draws spans with the bundled fonts.
 
 Examples:
-    >>> from luxonis_ml.vizlab.markup import parse
+    >>> from luxonis_ml.vizlab.render.markup import parse
     >>> [
     ...     (s.text, s.weight, s.italic, s.mono)
     ...     for s in parse("a <b>b</b> <i>c</i>")

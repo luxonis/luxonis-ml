@@ -14,11 +14,11 @@ from typing import NamedTuple, TypeAlias, TypeGuard
 from luxonis_ml.utils.color import brand
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
-from luxonis_ml.vizlab.interaction.maps import InteractionCapture
-from luxonis_ml.vizlab.render import RenderEnvironment
+from luxonis_ml.vizlab.render import RenderEnvironment, text_layout
 from luxonis_ml.vizlab.render.canvas import Canvas, TextMetrics
-from luxonis_ml.vizlab.scene.image import Composite, Renderable, _style_scale
-from luxonis_ml.vizlab.style import DEFAULT_STYLE, Style
+from luxonis_ml.vizlab.render.capture import InteractionCapture
+from luxonis_ml.vizlab.scene.image import Composite, Renderable
+from luxonis_ml.vizlab.style import DEFAULT_STYLE, Style, style_scale
 
 
 @dataclass(frozen=True)
@@ -139,7 +139,6 @@ _HEADER_TRACKING = 0.16  # letter-spacing as a fraction of the header size
 # `brand.chrome_for` (see `_metrics`) so keys/values/title/divider adapt to a
 # dark or light composite background.
 
-_MEASURE = Canvas.blank(1, 1)
 
 # One logical line: (depth, prefix, prefix_is_key, body).
 Line = tuple[int, str, bool, str]
@@ -401,35 +400,6 @@ def _format_sections(data: "PanelData") -> list[Section]:
     return sections or [Section(None, [])]
 
 
-def _wrap(
-    text: str,
-    size: float,
-    weight: int,
-    max_width: float,
-    mono: bool = False,
-) -> list[str]:
-    """Greedily wrap ``text`` to ``max_width`` using measured word widths."""
-    if not text:
-        return [""]
-    wrapped: list[str] = []
-    current = ""
-    for word in text.split(" "):
-        trial = f"{current} {word}".strip()
-        if (
-            not current
-            or _MEASURE.measure_text(
-                trial, size, weight=weight, mono=mono
-            ).width
-            <= max_width
-        ):
-            current = trial
-        else:
-            wrapped.append(current)
-            current = word
-    wrapped.append(current)
-    return wrapped
-
-
 # One draw op: (y, x, text, weight, color, mono). Values render monospace.
 _Op = tuple[float, float, str, int, Color, bool]
 
@@ -447,7 +417,7 @@ def _line_ops(
     x = depth * m.indent
     weight = 600 if is_key else 400
     prefix_w = (
-        _MEASURE.measure_text(prefix, m.size, weight=weight).width
+        text_layout.measure(prefix, m.size, weight=weight).width
         if prefix
         else 0.0
     )
@@ -455,8 +425,8 @@ def _line_ops(
     # A value with no spaces to wrap on (e.g. a folded filename or path) can still
     # overrun the width, so trim any over-long line's middle to fit.
     body_lines = [
-        _middle_ellipsize(part, avail, m)
-        for part in _wrap(body, m.size, 400, avail, mono=True)
+        text_layout.middle_ellipsize(part, avail, m.size)
+        for part in text_layout.wrap(body, avail, m.size, mono=True)
     ]
     ops: list[_Op] = []
     if prefix:
@@ -477,7 +447,7 @@ def _build_ops(
     lines: list[Line], content_w: float, m: _Metrics
 ) -> tuple[list[_Op], float]:
     """Lay out logical lines into positioned text operations."""
-    metrics = _MEASURE.measure_text("Ag", m.size)
+    metrics = text_layout.line_metrics(m.size)
     row_h = metrics.height + m.line_gap
     ops: list[_Op] = []
     y = 0.0
@@ -510,12 +480,10 @@ class _BodyLayout:
     header_h: float = field(init=False)
 
     def __post_init__(self) -> None:
-        self.text = _MEASURE.measure_text("Ag", self.metrics.size)
+        self.text = text_layout.line_metrics(self.metrics.size)
         self.row_h = self.text.height + self.metrics.line_gap
-        self.header = _MEASURE.measure_text(
-            "Ag",
-            self.metrics.header_size,
-            weight=_HEADER_WEIGHT,
+        self.header = text_layout.line_metrics(
+            self.metrics.header_size, weight=_HEADER_WEIGHT
         )
         self.header_h = self.header.height + self.metrics.line_gap
 
@@ -546,57 +514,30 @@ class _BodyLayout:
         if section.heading is None:
             return y
         if self.canvas is not None:
-            _draw_tracked(
+            text_layout.draw_tracked(
                 self.canvas,
+                section.heading.upper(),
                 self.x0,
                 self.y0 + y + self.header.ascent,
-                section.heading.upper(),
                 self.metrics.header_size,
                 self.metrics.muted,
-                _HEADER_WEIGHT,
-                _HEADER_TRACKING,
+                weight=_HEADER_WEIGHT,
+                tracking=self.metrics.header_size * _HEADER_TRACKING,
             )
         if section.swatches is not None and section.swatches_interactive:
-            _layout_legend_toggle(
-                self.canvas,
-                section.swatches,
-                self.x0,
-                self.y0 + y,
-                self.content_w,
-                self.header.ascent,
-                self.header_h,
-                self.metrics,
-                self.clicks,
-            )
+            self._legend_toggle(section.swatches, y)
         return y + self.header_h
 
     def _content(self, section: Section, y: float) -> float:
         """Lay out the populated body variant of ``section``."""
         if section.controls is not None:
-            return _layout_controls(
-                self.canvas,
-                section.controls,
-                self.x0,
-                self.y0,
-                y,
-                self.content_w,
-                self.metrics,
-                self.row_h,
-                self.clicks,
-            )
+            return self._controls(section.controls, y)
         if section.swatches is not None:
-            clicks = self.clicks if section.swatches_interactive else None
-            return _layout_swatches(
-                self.canvas,
+            return self._swatches(
                 section.swatches,
-                self.x0,
-                self.y0,
                 y,
-                self.content_w,
-                self.metrics,
-                self.row_h,
-                clicks,
-                section.swatch_reserve,
+                interactive=section.swatches_interactive,
+                reserve=section.swatch_reserve,
             )
         if section.block:
             return self._block(section, y)
@@ -605,10 +546,10 @@ class _BodyLayout:
     def _block(self, section: Section, y: float) -> float:
         """Draw a full-width block value and return the next row offset."""
         if self.canvas is not None:
-            value = _middle_ellipsize(
+            value = text_layout.middle_ellipsize(
                 section.lines[0][3],
                 self.content_w,
-                self.metrics,
+                self.metrics.size,
             )
             self.canvas.text(
                 (self.x0, self.y0 + y + self.text.ascent),
@@ -644,6 +585,179 @@ class _BodyLayout:
                 )
         return y
 
+    def _controls(
+        self, rows: tuple[tuple[str, str, str, bool | None], ...], y: float
+    ) -> float:
+        """Draw or measure interactive control rows and collect click targets."""
+        m = self.metrics
+        name_x = _control_key_width(rows, m) + m.line_gap * 2
+        for key, name, value, active in rows:
+            if self.canvas is not None:
+                baseline = self.y0 + y + self.text.ascent
+                self.canvas.text(
+                    (self.x0, baseline),
+                    _key_label(key),
+                    size=m.size,
+                    color=m.key,
+                    weight=600,
+                    mono=True,
+                )
+                self.canvas.text(
+                    (self.x0 + name_x, baseline),
+                    name,
+                    size=m.size,
+                    color=m.value,
+                )
+                tint = (
+                    m.active
+                    if active
+                    else m.muted
+                    if active is False
+                    else m.value
+                )
+                value_w = text_layout.measure(
+                    value, m.size, weight=600, mono=True
+                ).width
+                self.canvas.text(
+                    (self.x0 + self.content_w - value_w, baseline),
+                    value,
+                    size=m.size,
+                    color=tint,
+                    weight=600,
+                    mono=True,
+                )
+            if self.clicks is not None:
+                self.clicks.append(
+                    (
+                        Rect(
+                            self.x0,
+                            self.y0 + y,
+                            self.x0 + self.content_w,
+                            self.y0 + y + self.row_h,
+                        ),
+                        f"key:{key}",
+                    )
+                )
+            y += self.row_h
+        return y
+
+    def _legend_toggle(
+        self, items: tuple[tuple[Color, str, bool], ...], y: float
+    ) -> None:
+        """Draw the legend's master on/off switch, right-aligned on its heading row.
+
+        Reads the current state from the swatches (any disabled → "show all",
+        tinted to invite a click; all on → a muted "hide all") and registers a
+        ``classes:toggle`` click over the switch so a click flips every class at
+        once.
+        """
+        m = self.metrics
+        any_off = any(not enabled for _c, _l, enabled in items)
+        label = (_LEGEND_SHOW_ALL if any_off else _LEGEND_HIDE_ALL).upper()
+        tracking = m.header_size * _HEADER_TRACKING
+        width = text_layout.tracked_width(
+            label, m.header_size, weight=_HEADER_WEIGHT, tracking=tracking
+        )
+        top = self.y0 + y
+        x = self.x0 + self.content_w - width
+        if self.canvas is not None:
+            text_layout.draw_tracked(
+                self.canvas,
+                label,
+                x,
+                top + self.header.ascent,
+                m.header_size,
+                m.active if any_off else m.muted,
+                weight=_HEADER_WEIGHT,
+                tracking=tracking,
+            )
+        if self.clicks is not None:
+            self.clicks.append(
+                (
+                    Rect(
+                        x - m.line_gap,
+                        top,
+                        self.x0 + self.content_w,
+                        top + self.header_h,
+                    ),
+                    "classes:toggle",
+                )
+            )
+
+    def _swatches(
+        self,
+        items: tuple[tuple[Color, str, bool], ...],
+        y: float,
+        *,
+        interactive: bool = False,
+        reserve: str = "",
+    ) -> float:
+        """Draw/measure a color legend as an aligned grid of swatch+label cells.
+
+        Every cell gets the same width (the widest chip, or the reserved label,
+        plus a gutter), so the swatches line up in tidy columns; the legend folds
+        into at most `_LEGEND_COLS` columns. A disabled class keeps its cell but
+        is drawn dimmed and struck through. Each cell registers a
+        ``class:<label>`` click.
+        """
+        if not items:
+            return y
+        m = self.metrics
+        clicks = self.clicks if interactive else None
+        ascent = self.text.ascent
+        square = round(ascent * 0.85)
+        labels = [label for _, label, _ in items] + (
+            [reserve] if reserve else []
+        )
+        col_w = _swatch_col_width(labels, m)
+        cols = max(
+            1, min(_LEGEND_COLS, int((self.content_w + m.indent) // col_w))
+        )
+        for index, (color, label, enabled) in enumerate(items):
+            row, col = divmod(index, cols)
+            cx = self.x0 + col * col_w
+            cy = self.y0 + y + row * self.row_h
+            if self.canvas is not None:
+                top = cy + (ascent - square)
+                label_x = cx + square + m.line_gap
+                baseline = cy + ascent
+                swatch = Rect(cx, top, cx + square, top + square)
+                if enabled:
+                    self.canvas.rounded_rect(
+                        swatch, radius=square * 0.28, fill=color
+                    )
+                    self.canvas.text(
+                        (label_x, baseline), label, size=m.size, color=m.value
+                    )
+                else:
+                    # Disabled: a hollow swatch and a muted, struck-through label.
+                    self.canvas.rounded_rect(
+                        swatch,
+                        radius=square * 0.28,
+                        stroke=m.muted,
+                        stroke_width=max(1.0, m.border_width),
+                    )
+                    self.canvas.text(
+                        (label_x, baseline), label, size=m.size, color=m.muted
+                    )
+                    label_w = text_layout.measure(label, m.size).width
+                    strike = cy + ascent * 0.55
+                    self.canvas.line(
+                        (label_x, strike),
+                        (label_x + label_w, strike),
+                        m.muted,
+                        width=max(1.0, m.border_width),
+                    )
+            if clicks is not None:
+                clicks.append(
+                    (
+                        Rect(cx, cy, cx + col_w, cy + self.row_h),
+                        f"class:{label}",
+                    )
+                )
+        rows = (len(items) + cols - 1) // cols
+        return y + rows * self.row_h
+
 
 def _layout_body(
     canvas: Canvas | None,
@@ -669,67 +783,13 @@ def _control_key_width(
     """Width of the widest ``[key]`` cell, so the names align in a column."""
     return max(
         (
-            _MEASURE.measure_text(
+            text_layout.measure(
                 _key_label(key), m.size, weight=600, mono=True
             ).width
             for key, _, _, _ in rows
         ),
         default=0.0,
     )
-
-
-def _layout_controls(
-    canvas: Canvas | None,
-    rows: tuple[tuple[str, str, str, bool | None], ...],
-    x0: float,
-    y0: float,
-    y: float,
-    content_w: float,
-    m: _Metrics,
-    row_h: float,
-    clicks: "list[tuple[Rect, str]] | None" = None,
-) -> float:
-    """Draw or measure interactive control rows and collect click targets."""
-    ascent = _MEASURE.measure_text("Ag", m.size).ascent
-    key_w = _control_key_width(rows, m)
-    name_x = key_w + m.line_gap * 2
-    for key, name, value, active in rows:
-        if canvas is not None:
-            baseline = y0 + y + ascent
-            canvas.text(
-                (x0, baseline),
-                _key_label(key),
-                size=m.size,
-                color=m.key,
-                weight=600,
-                mono=True,
-            )
-            canvas.text(
-                (x0 + name_x, baseline), name, size=m.size, color=m.value
-            )
-            tint = (
-                m.active if active else m.muted if active is False else m.value
-            )
-            value_w = _MEASURE.measure_text(
-                value, m.size, weight=600, mono=True
-            ).width
-            canvas.text(
-                (x0 + content_w - value_w, baseline),
-                value,
-                size=m.size,
-                color=tint,
-                weight=600,
-                mono=True,
-            )
-        if clicks is not None:
-            clicks.append(
-                (
-                    Rect(x0, y0 + y, x0 + content_w, y0 + y + row_h),
-                    f"key:{key}",
-                )
-            )
-        y += row_h
-    return y
 
 
 #: The legend's master switch, beside the CLASSES heading: shows the action it
@@ -742,158 +802,25 @@ _LEGEND_SHOW_ALL = "show all"
 def _legend_toggle_width(m: _Metrics) -> float:
     """Reserved width of the legend's master toggle (the wider of its two states)."""
     return max(
-        _tracked_width(
-            label.upper(), m.header_size, _HEADER_WEIGHT, _HEADER_TRACKING
+        text_layout.tracked_width(
+            label.upper(),
+            m.header_size,
+            weight=_HEADER_WEIGHT,
+            tracking=m.header_size * _HEADER_TRACKING,
         )
         for label in (_LEGEND_HIDE_ALL, _LEGEND_SHOW_ALL)
     )
 
 
-def _layout_legend_toggle(
-    canvas: Canvas | None,
-    items: tuple[tuple[Color, str, bool], ...],
-    x0: float,
-    y: float,
-    content_w: float,
-    ascent: float,
-    header_h: float,
-    m: _Metrics,
-    clicks: "list[tuple[Rect, str]] | None",
-) -> None:
-    """Draw the legend's master on/off switch, right-aligned on its heading row.
-
-    Reads the current state from the swatches (any disabled → "show all", tinted
-    to invite a click; all on → a muted "hide all") and registers a
-    ``classes:toggle`` click over the switch so a click flips every class at once.
-    """
-    any_off = any(not enabled for _c, _l, enabled in items)
-    label = (_LEGEND_SHOW_ALL if any_off else _LEGEND_HIDE_ALL).upper()
-    width = _tracked_width(
-        label, m.header_size, _HEADER_WEIGHT, _HEADER_TRACKING
-    )
-    x = x0 + content_w - width
-    if canvas is not None:
-        _draw_tracked(
-            canvas,
-            x,
-            y + ascent,
-            label,
-            m.header_size,
-            m.active if any_off else m.muted,
-            _HEADER_WEIGHT,
-            _HEADER_TRACKING,
-        )
-    if clicks is not None:
-        clicks.append(
-            (
-                Rect(x - m.line_gap, y, x0 + content_w, y + header_h),
-                "classes:toggle",
-            )
-        )
-
-
 def _swatch_col_width(labels: list[str], m: _Metrics) -> float:
     """Width of one legend column: swatch + gap + widest label + gutter."""
-    ascent = _MEASURE.measure_text("Ag", m.size).ascent
+    ascent = text_layout.line_metrics(m.size).ascent
     square = round(ascent * 0.85)
     widest = max(
-        (_MEASURE.measure_text(label, m.size).width for label in labels),
+        (text_layout.measure(label, m.size).width for label in labels),
         default=0.0,
     )
     return square + m.line_gap + widest + m.indent
-
-
-def _layout_swatches(
-    canvas: Canvas | None,
-    items: tuple[tuple[Color, str, bool], ...],
-    x0: float,
-    y0: float,
-    y: float,
-    content_w: float,
-    m: _Metrics,
-    row_h: float,
-    clicks: "list[tuple[Rect, str]] | None" = None,
-    reserve: str = "",
-) -> float:
-    """Draw/measure a color legend as an aligned grid of swatch+label cells.
-
-    Every cell gets the same width (the widest chip, or the reserved label, plus a
-    gutter), so the swatches line up in tidy columns; the legend folds into at
-    most `_LEGEND_COLS` columns. A disabled class keeps its cell but is drawn
-    dimmed and struck through. Each cell registers a ``class:<label>`` click.
-    """
-    ascent = _MEASURE.measure_text("Ag", m.size).ascent
-    square = round(ascent * 0.85)
-    label_gap = m.line_gap
-    if not items:
-        return y
-    labels = [label for _, label, _ in items] + ([reserve] if reserve else [])
-    col_w = _swatch_col_width(labels, m)
-    gutter = m.indent
-    cols = max(1, min(_LEGEND_COLS, int((content_w + gutter) // col_w)))
-    for index, (color, label, enabled) in enumerate(items):
-        row, col = divmod(index, cols)
-        cx = x0 + col * col_w
-        cy = y0 + y + row * row_h
-        if canvas is not None:
-            top = cy + (ascent - square)
-            label_x = cx + square + label_gap
-            baseline = cy + ascent
-            if enabled:
-                canvas.rounded_rect(
-                    Rect(cx, top, cx + square, top + square),
-                    radius=square * 0.28,
-                    fill=color,
-                )
-                canvas.text(
-                    (label_x, baseline), label, size=m.size, color=m.value
-                )
-            else:
-                # Disabled: a hollow swatch and a muted, struck-through label.
-                canvas.rounded_rect(
-                    Rect(cx, top, cx + square, top + square),
-                    radius=square * 0.28,
-                    stroke=m.muted,
-                    stroke_width=max(1.0, m.border_width),
-                )
-                canvas.text(
-                    (label_x, baseline), label, size=m.size, color=m.muted
-                )
-                label_w = _MEASURE.measure_text(label, m.size).width
-                strike = cy + ascent * 0.55
-                canvas.line(
-                    (label_x, strike),
-                    (label_x + label_w, strike),
-                    m.muted,
-                    width=max(1.0, m.border_width),
-                )
-        if clicks is not None:
-            clicks.append(
-                (Rect(cx, cy, cx + col_w, cy + row_h), f"class:{label}")
-            )
-    rows = (len(items) + cols - 1) // cols
-    return y + rows * row_h
-
-
-def _middle_ellipsize(text: str, max_width: float, m: _Metrics) -> str:
-    """Trim ``text``'s middle with an ellipsis until it fits ``max_width`` (mono)."""
-
-    def fits(candidate: str) -> bool:
-        return (
-            _MEASURE.measure_text(
-                candidate, m.size, weight=400, mono=True
-            ).width
-            <= max_width
-        )
-
-    if fits(text):
-        return text
-    for keep in range(len(text) - 1, 0, -1):
-        head, tail = (keep + 1) // 2, keep // 2
-        candidate = text[:head] + "…" + (text[-tail:] if tail else "")
-        if fits(candidate):
-            return candidate
-    return "…"
 
 
 def _auto_width(
@@ -910,11 +837,11 @@ def _title_width(title: str | None, m: _Metrics) -> float:
     """Return the tracked title width, or zero when there is no title."""
     if title is None:
         return 0.0
-    return _tracked_width(
+    return text_layout.tracked_width(
         title.upper(),
         m.size * _TITLE_SCALE,
-        _TITLE_WEIGHT,
-        _TITLE_TRACKING,
+        weight=_TITLE_WEIGHT,
+        tracking=m.size * _TITLE_SCALE * _TITLE_TRACKING,
     )
 
 
@@ -934,11 +861,11 @@ def _section_heading_width(section: Section, m: _Metrics) -> float:
     """Measure a section heading, including the legend master toggle."""
     if section.heading is None:
         return 0.0
-    width = _tracked_width(
+    width = text_layout.tracked_width(
         section.heading.upper(),
         m.header_size,
-        _HEADER_WEIGHT,
-        _HEADER_TRACKING,
+        weight=_HEADER_WEIGHT,
+        tracking=m.header_size * _HEADER_TRACKING,
     )
     if section.swatches is not None:
         width += m.indent + _legend_toggle_width(m)
@@ -955,9 +882,9 @@ def _controls_width(
         (
             key_w
             + m.line_gap * 2
-            + _MEASURE.measure_text(name, m.size).width
+            + text_layout.measure(name, m.size).width
             + m.indent
-            + _MEASURE.measure_text(
+            + text_layout.measure(
                 value,
                 m.size,
                 weight=600,
@@ -983,12 +910,12 @@ def _lines_width(lines: list[Line], m: _Metrics) -> float:
     return max(
         (
             depth * m.indent
-            + _MEASURE.measure_text(
+            + text_layout.measure(
                 prefix,
                 m.size,
                 weight=600 if is_key else 400,
             ).width
-            + _MEASURE.measure_text(
+            + text_layout.measure(
                 body,
                 m.size,
                 weight=400,
@@ -998,19 +925,6 @@ def _lines_width(lines: list[Line], m: _Metrics) -> float:
         ),
         default=0.0,
     )
-
-
-def _tracked_width(
-    text: str, size: float, weight: int, tracking_frac: float
-) -> float:
-    """Width of an uppercased, letter-spaced label at ``size``."""
-    tracking = size * tracking_frac
-    total = 0.0
-    for char in text:
-        total += (
-            _MEASURE.measure_text(char, size, weight=weight).width + tracking
-        )
-    return total
 
 
 @dataclass(frozen=True)
@@ -1040,7 +954,7 @@ def _measure_panel_content(
     )
     footer_h = m.section_gap * 2 + footer_inner if footer else 0.0
     title_metrics = (
-        _MEASURE.measure_text(
+        text_layout.measure(
             title,
             m.size * _TITLE_SCALE,
             weight=_TITLE_WEIGHT,
@@ -1239,17 +1153,17 @@ class _PanelPainter:
         """Draw the optional title, flowing body, and pinned footer."""
         title_metrics = self.content.title_metrics
         if self.title is not None and title_metrics is not None:
-            _draw_tracked(
+            text_layout.draw_tracked(
                 canvas,
+                self.title.upper(),
                 self._x0,
                 self.placement.panel_y
                 + self.metrics.pad
                 + title_metrics.ascent,
-                self.title.upper(),
                 self.metrics.size * _TITLE_SCALE,
                 self.metrics.title,
-                _TITLE_WEIGHT,
-                _TITLE_TRACKING,
+                weight=_TITLE_WEIGHT,
+                tracking=self.metrics.size * _TITLE_SCALE * _TITLE_TRACKING,
             )
         _layout_body(
             canvas,
@@ -1322,12 +1236,12 @@ def with_panel(
         True
 
     """
-    return _compose_panel(
+    return compose_panel(
         image, data, side=side, width=width, title=title, style=style, bg=bg
     )[0]
 
 
-def _compose_panel(
+def compose_panel(
     image: Renderable,
     data: "PanelData",
     *,
@@ -1354,7 +1268,7 @@ def _compose_panel(
     # The image is placed at its display (render_at) size, not its source size.
     img_w, img_h = image._resolved_size(None)
     background = Color.parse(bg) if bg is not None else image.theme.background
-    m = _metrics(_style_scale(img_w, img_h), background)
+    m = _metrics(style_scale(img_w, img_h), background)
 
     sections = _format_sections(data)
     panel_w = width if width is not None else _auto_width(sections, title, m)
@@ -1404,20 +1318,3 @@ def _compose_panel(
         (float(placement.image_x), float(placement.image_y)),
         clicks,
     )
-
-
-def _draw_tracked(
-    canvas: Canvas,
-    x: float,
-    baseline: float,
-    text: str,
-    size: float,
-    color: Color,
-    weight: int,
-    tracking_frac: float,
-) -> None:
-    """Draw ``text`` letter-spaced (per-character advance) from ``x``, ``baseline``."""
-    tracking = size * tracking_frac
-    for char in text:
-        canvas.text((x, baseline), char, size=size, color=color, weight=weight)
-        x += _MEASURE.measure_text(char, size, weight=weight).width + tracking

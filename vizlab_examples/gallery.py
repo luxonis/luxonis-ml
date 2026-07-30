@@ -102,6 +102,7 @@ from luxonis_ml.vizlab import (
     hstack,
     match_detections,
     vstack,
+    with_panel,
 )
 
 OUTPUT_DIR = Path(__file__).parent / "output"
@@ -1519,7 +1520,7 @@ def _aug_viz_config(
         Palette,
         RenderOptions,
         Theme,
-        get_default_theme,
+        current_options,
     )
 
     class_names = [
@@ -1529,7 +1530,7 @@ def _aug_viz_config(
         )
         if name != _BACKGROUND
     ]
-    theme = get_default_theme()
+    theme = current_options().theme
     if font_scale != 1.0:
         theme = Theme(
             style=theme.style.merge(

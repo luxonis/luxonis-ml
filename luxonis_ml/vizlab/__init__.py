@@ -166,7 +166,7 @@ Notes:
     package never imports a windowing/OpenCV backend until a viewer is used. Pair
     it with `Frame` (a renderable scene plus the hover/click regions captured by
     `Renderable.frame`). Composition preserves those regions automatically, so
-    ``grid(...).frame()`` is as viewer-ready as ``image.frame()``.
+    ``Frame.capture(grid(...))`` is as viewer-ready as ``Frame.capture(image)``.
 
     See ``vizlab_examples/`` for a runnable feature overview.
 
@@ -208,8 +208,7 @@ with guard_missing_extra("viz"):
         Gradient,
         resolve_gradient,
     )
-    from .interaction import HitMap
-    from .interaction.frame import Frame
+    from .interaction import Frame
     from .layout import (
         Block,
         Controls,
@@ -229,6 +228,7 @@ with guard_missing_extra("viz"):
         set_default_options,
     )
     from .presets import COCO_CLASSES
+    from .render import HitMap
     from .scene import Composite, Image, Renderable
     from .style import (
         DARK_THEME,
@@ -240,8 +240,6 @@ with guard_missing_extra("viz"):
         Palette,
         Style,
         Theme,
-        get_default_theme,
-        set_default_theme,
     )
     from .tooltip import Tooltip
 
@@ -295,13 +293,11 @@ __all__ = [
     "current_options",
     "default_options",
     "fit_grid",
-    "get_default_theme",
     "grid",
     "hstack",
     "match_detections",
     "resolve_gradient",
     "set_default_options",
-    "set_default_theme",
     "visualize_record",
     "vstack",
     "with_panel",

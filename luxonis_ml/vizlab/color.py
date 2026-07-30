@@ -1,9 +1,6 @@
-"""Color parsing and manipulation for vizlab.
+"""The color primitives, re-exported under the name vizlab uses internally.
 
-The `Color` primitive is shared across ``luxonis-ml`` and lives in
-`luxonis_ml.utils.color`; vizlab re-exports it here so that every
-``from .color import Color`` inside the package keeps working and vizlab never
-reimplements color handling.
+`Color` is shared across ``luxonis-ml`` and defined in `luxonis_ml.utils.color`.
 """
 
 from luxonis_ml.utils.color import RGBA, Color, ColorLike

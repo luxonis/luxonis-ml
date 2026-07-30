@@ -13,9 +13,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from luxonis_ml.vizlab.render import RenderEnvironment
+from luxonis_ml.vizlab.render.capture import ClickMap, HitMap
 from luxonis_ml.vizlab.scene.image import Renderable
-
-from .maps import ClickMap, HitMap
 
 if TYPE_CHECKING:
     from luxonis_ml.vizlab.color import ColorLike
@@ -46,6 +45,29 @@ class Frame:
     hitmap: HitMap = field(default_factory=HitMap.empty)
     clickmap: ClickMap = field(default_factory=ClickMap.empty)
     environment: RenderEnvironment | None = None
+
+    @classmethod
+    def capture(
+        cls, scene: Renderable, size: tuple[int, int] | None = None
+    ) -> "Frame":
+        """Draw ``scene`` for its interaction regions and pair them with it.
+
+        Args:
+            scene: The scene to capture.
+            size: ``(width, height)`` to capture at; ``None`` uses the scene's
+                `Renderable.render_at` size.
+
+        Returns:
+            A `Frame` a `Viewer` can display.
+
+        """
+        interactions, environment = scene.capture(size)
+        return cls(
+            scene,
+            HitMap(interactions.hover),
+            ClickMap(interactions.clicks),
+            environment,
+        )
 
     def render(self, size: tuple[int, int] | None = None) -> np.ndarray:
         """Render with the same style snapshot as the interaction maps."""
@@ -93,9 +115,9 @@ class Frame:
             and legend swatches.
 
         """
-        from luxonis_ml.vizlab.layout.panel import _compose_panel
+        from luxonis_ml.vizlab.layout.panel import compose_panel
 
-        image, (dx, dy), clicks = _compose_panel(
+        image, (dx, dy), clicks = compose_panel(
             self.image,
             data,
             side=side,

@@ -16,9 +16,10 @@ import numpy as np
 import skia
 
 from luxonis_ml.vizlab.color import Color
-from luxonis_ml.vizlab.fonts import DEFAULT_FONTS, FontManager
 from luxonis_ml.vizlab.geometry import XY, Rect
-from luxonis_ml.vizlab.markup import Span
+
+from .fonts import DEFAULT_FONTS, FontManager
+from .markup import Span
 
 _RGBA = skia.ColorType.kRGBA_8888_ColorType
 _UNPREMUL = skia.AlphaType.kUnpremul_AlphaType

@@ -13,8 +13,8 @@ from luxonis_ml.vizlab.layout.panel import (
     _format_sections,
     _format_tree,
     _metrics,
-    _wrap,
 )
+from luxonis_ml.vizlab.render import text_layout
 
 
 def test_value_ops_are_monospace_keys_are_not() -> None:
@@ -74,8 +74,8 @@ def test_format_tree_truncates_long_string() -> None:
 
 
 def test_wrap_splits_and_handles_empty() -> None:
-    assert _wrap("", 12.0, 400, 100.0) == [""]
-    wrapped = _wrap("word " * 40, 13.5, 400, 80.0)
+    assert text_layout.wrap("", 100.0, 12.0) == [""]
+    wrapped = text_layout.wrap("word " * 40, 80.0, 13.5)
     assert len(wrapped) > 1
 
 
@@ -242,10 +242,11 @@ def test_disabled_swatches_render_hollow_and_struck_through() -> None:
 
 
 def test_empty_swatches_take_no_rows() -> None:
-    from luxonis_ml.vizlab.layout.panel import _layout_swatches
+    from luxonis_ml.vizlab.layout.panel import _BodyLayout
 
     m = _metrics(1.0, Color(24, 24, 28))
-    assert _layout_swatches(None, (), 0.0, 0.0, 17.0, 200.0, m, 20.0) == 17.0
+    body = _BodyLayout(None, 0.0, 0.0, 200.0, m)
+    assert body._swatches((), 17.0) == 17.0
 
 
 def test_swatches_reserve_keeps_the_panel_width_stable() -> None:
@@ -271,16 +272,17 @@ def test_swatches_reserve_keeps_the_panel_width_stable() -> None:
 
 
 def test_swatches_grid_packs_more_columns_into_a_wider_panel() -> None:
-    from luxonis_ml.vizlab.layout.panel import _layout_swatches
+    from luxonis_ml.vizlab.layout.panel import _BodyLayout
 
     m = _metrics(1.0, Color(24, 24, 28))
     items = tuple((Color(200, 50, 50), "ab", True) for _ in range(6))
-    wide = _layout_swatches(None, items, 0.0, 0.0, 0.0, 800.0, m, 20.0)
-    narrow = _layout_swatches(None, items, 0.0, 0.0, 0.0, 40.0, m, 20.0)
+    narrow_body = _BodyLayout(None, 0.0, 0.0, 40.0, m)
+    wide = _BodyLayout(None, 0.0, 0.0, 800.0, m)._swatches(items, 0.0)
+    narrow = narrow_body._swatches(items, 0.0)
     # A wide panel fits several aligned columns (fewer rows -> shorter); a narrow
     # one falls to a single column (six rows).
     assert wide < narrow
-    assert narrow == 6 * 20.0
+    assert narrow == 6 * narrow_body.row_h
 
 
 def test_swatches_legend_is_pinned_to_the_panel_bottom() -> None:
@@ -344,8 +346,8 @@ def test_panel_scene_frame_captures_child_hover_and_clicks() -> None:
             tooltip=Tooltip(title="object"),
         )
     )
-    frame = image.with_panel(
-        {"controls": Controls((("m", "masks", "on", True),))}
+    frame = with_panel(
+        image, {"controls": Controls((("m", "masks", "on", True),))}
     ).frame()
 
     assert frame.hitmap.items
@@ -356,7 +358,7 @@ def test_frame_with_panel_preserves_existing_clickmap() -> None:
     from luxonis_ml.vizlab import Controls
     from luxonis_ml.vizlab.geometry import Rect
     from luxonis_ml.vizlab.interaction.frame import Frame
-    from luxonis_ml.vizlab.interaction.maps import ClickMap
+    from luxonis_ml.vizlab.render.capture import ClickMap
 
     frame = Frame(
         _img(200, 140),
@@ -388,11 +390,11 @@ def test_with_panel_renders_controls_and_swatches() -> None:
 
 
 def test_block_value_is_middle_ellipsized_when_too_long() -> None:
-    from luxonis_ml.vizlab.layout.panel import _metrics, _middle_ellipsize
+    from luxonis_ml.vizlab.layout.panel import _metrics
 
     m = _metrics(1.0, Color(24, 24, 28))
     long = "/datasets/coco/images/train2017/000000123456_aug.jpg"
-    out = _middle_ellipsize(long, 120.0, m)
+    out = text_layout.middle_ellipsize(long, 120.0, m.size)
     assert out != long
     assert "…" in out
     assert out.startswith("/data")  # keeps the start ...
@@ -403,10 +405,9 @@ def test_block_panel_renders_and_extreme_ellipsize_falls_back_to_mark() -> (
     None
 ):
     from luxonis_ml.vizlab import Block
-    from luxonis_ml.vizlab.layout.panel import _middle_ellipsize
 
     m = _metrics(1.0, Color(24, 24, 28))
-    assert _middle_ellipsize("abcdef", 0.0, m) == "…"
+    assert text_layout.middle_ellipsize("abcdef", 0.0, m.size) == "…"
     rendered = with_panel(
         _img(120, 80),
         {"path": Block("/datasets/coco/images/frame.jpg")},
@@ -428,7 +429,7 @@ def test_panel_frames_the_image_with_an_outer_margin() -> None:
 def test_frame_with_panel_offsets_the_hitmap_to_match() -> None:
     from luxonis_ml.vizlab.geometry import Rect
     from luxonis_ml.vizlab.interaction.frame import Frame
-    from luxonis_ml.vizlab.interaction.maps import HitMap
+    from luxonis_ml.vizlab.render.capture import HitMap
     from luxonis_ml.vizlab.tooltip import Tooltip
 
     img = _img(120, 80)

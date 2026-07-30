@@ -2,7 +2,7 @@
 
 from luxonis_ml.vizlab import HitMap, Tooltip
 from luxonis_ml.vizlab.geometry import Rect
-from luxonis_ml.vizlab.interaction.maps import ClickMap, InteractionCapture
+from luxonis_ml.vizlab.render.capture import ClickMap, InteractionCapture
 
 
 def _entry(

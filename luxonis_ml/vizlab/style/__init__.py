@@ -25,13 +25,12 @@ from .style import (
     StyleValue,
     current_default_style,
     current_style_overrides,
+    style_scale,
 )
 from .theme import (
     DARK_THEME,
     LIGHT_THEME,
     Theme,
-    get_default_theme,
-    set_default_theme,
 )
 
 __all__ = [
@@ -54,6 +53,5 @@ __all__ = [
     "current_style_overrides",
     "derive_child_color",
     "derive_child_style",
-    "get_default_theme",
-    "set_default_theme",
+    "style_scale",
 ]

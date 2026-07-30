@@ -1,9 +1,7 @@
 """Color gradients (colormaps) for scalar fields such as heatmaps.
 
-The `Gradient` model is shared color logic and lives in
-`luxonis_ml.utils.color.gradient`; vizlab re-exports it here so that
-``from luxonis_ml.vizlab.gradient import ...`` keeps working and vizlab never
-reimplements color handling.
+`Gradient` is shared color logic, defined in `luxonis_ml.utils.color.gradient`
+and re-exported here under the name vizlab uses internally.
 """
 
 from luxonis_ml.utils.color.gradient import (

@@ -347,7 +347,7 @@ def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
         Palette,
         RenderOptions,
         Style,
-        get_default_theme,
+        current_options,
         set_default_options,
     )
     from luxonis_ml.vizlab.adapters import InstanceDetection
@@ -427,7 +427,7 @@ def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
         )
         # The chosen theme becomes the scope default (with the dataset palette
         # pinned onto it, so it is a light-background theme, not LIGHT_THEME itself).
-        assert get_default_theme().background == LIGHT_THEME.background
+        assert current_options().theme.background == LIGHT_THEME.background
     finally:
         set_default_options(RenderOptions())
 
@@ -1433,6 +1433,7 @@ def test_compare_matches_by_filename_and_reports_unpaired_samples(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+
     image = np.zeros((40, 60, 3), dtype=np.uint8)
 
     def sample(filename: str, label: str) -> SimpleNamespace:

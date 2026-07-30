@@ -5,9 +5,9 @@ import pytest
 
 from luxonis_ml.vizlab import Caption, Image, InfoCard
 from luxonis_ml.vizlab.color import Color
-from luxonis_ml.vizlab.fonts import DEFAULT_FONTS
-from luxonis_ml.vizlab.markup import Span, parse
 from luxonis_ml.vizlab.render.canvas import Canvas
+from luxonis_ml.vizlab.render.fonts import DEFAULT_FONTS
+from luxonis_ml.vizlab.render.markup import Span, parse
 from luxonis_ml.vizlab.style import Style
 
 

@@ -10,7 +10,7 @@ mutated — combining multiple images makes purity unambiguous, unlike the in-pl
 
 import math
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, overload
+from typing import overload
 
 import numpy as np
 
@@ -23,23 +23,24 @@ from luxonis_ml.vizlab.annotations import (
     Mask,
     SemanticMask,
 )
-from luxonis_ml.vizlab.annotations.mask import _resize_mask
+from luxonis_ml.vizlab.annotations.mask import resize_mask
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
-from luxonis_ml.vizlab.interaction.maps import InteractionCapture
-from luxonis_ml.vizlab.markup import Span, parse
 from luxonis_ml.vizlab.render import RenderEnvironment
 from luxonis_ml.vizlab.render.canvas import Canvas
+from luxonis_ml.vizlab.render.capture import InteractionCapture
+from luxonis_ml.vizlab.render.markup import Span, parse
 from luxonis_ml.vizlab.scene.image import (
     Composite,
     Image,
     Renderable,
-    _style_scale,
 )
-from luxonis_ml.vizlab.style import DARK_THEME, DEFAULT_STYLE, Style
-
-if TYPE_CHECKING:
-    from luxonis_ml.vizlab.interaction.frame import Frame
+from luxonis_ml.vizlab.style import (
+    DARK_THEME,
+    DEFAULT_STYLE,
+    Style,
+    style_scale,
+)
 
 _DEFAULT_BG = DARK_THEME.background
 """Brand dark background painted behind stacked/gridded cells and pad gaps
@@ -160,7 +161,7 @@ def _pad_annotation(
     elif isinstance(clone, Mask):
         from luxonis_ml.ldf import SegmentationAnnotation
 
-        source_mask = _resize_mask(
+        source_mask = resize_mask(
             clone.to_numpy(), source_width, source_height
         )
         padded = np.zeros((height, width), dtype=source_mask.dtype)
@@ -171,7 +172,7 @@ def _pad_annotation(
         clone.counts = rle["counts"].encode("utf-8")
         clone._dense_cache = None
     elif isinstance(clone, SemanticMask) and clone.labels is not None:
-        labels = _resize_mask(
+        labels = resize_mask(
             np.asarray(clone.labels), source_width, source_height
         )
         ignored = clone._ignored()
@@ -384,7 +385,7 @@ def fit_grid(
     titles: Sequence[str] | None = None,
     style: Style = DEFAULT_STYLE,
     allow_upscale: bool = False,
-) -> "Frame":
+) -> Renderable:
     """Grid ``images`` scaled so the whole composite fits within ``target``.
 
     Owns the column/chrome/scale arithmetic a caller would otherwise duplicate:
@@ -410,7 +411,7 @@ def fit_grid(
             only ever shrinks (the composite never exceeds its native size).
 
     Returns:
-        A `Frame` (grid image plus hover map), fitted to ``target``.
+        A `Composite` of the grid, scaled to fit ``target``.
 
     Raises:
         ValueError: If ``images`` is empty.
@@ -442,9 +443,7 @@ def fit_grid(
         )
         for img in images
     ]
-    return grid(
-        scaled, ncols=cols, pad=pad, bg=bg, titles=titles, style=style
-    ).frame()
+    return grid(scaled, ncols=cols, pad=pad, bg=bg, titles=titles, style=style)
 
 
 def _fit_title_h(
@@ -458,7 +457,7 @@ def _fit_title_h(
     """
     if not titles:
         return 0.0
-    scale = _style_scale(cell_w, cell_h)
+    scale = style_scale(cell_w, cell_h)
     scaled = style.scaled(scale)
     title_style = scaled.merge(
         font_size=scaled.font_size * _TITLE_SCALE, font_weight=_TITLE_WEIGHT
@@ -718,7 +717,7 @@ def _grid(
     # Scale titles to the tile size so they don't shrink against large images.
     # Emphasized titles (the default) render a step larger and bold so they read
     # as headings; nested sub-grids can opt out to keep their labels subordinate.
-    base_title = style.scaled(_style_scale(cell_w, cell_h))
+    base_title = style.scaled(style_scale(cell_w, cell_h))
     title_style = (
         base_title.merge(
             font_size=base_title.font_size * _TITLE_SCALE,
@@ -727,7 +726,7 @@ def _grid(
         if emphasize_titles
         else base_title
     )
-    title_pad = _TITLE_PAD * _style_scale(cell_w, cell_h)
+    title_pad = _TITLE_PAD * style_scale(cell_w, cell_h)
     wrapped = _wrap_titles(titles, len(images), cell_w, title_style, title_pad)
     # Row height from the tallest actual line (mono runs have a taller ink box),
     # falling back to a plain measurement when there are no titles.

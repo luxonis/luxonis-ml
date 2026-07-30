@@ -27,8 +27,8 @@ from typing_extensions import Self
 
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
-from luxonis_ml.vizlab.interaction.maps import InteractionCapture
 from luxonis_ml.vizlab.render import RenderEnvironment
+from luxonis_ml.vizlab.render.capture import InteractionCapture
 from luxonis_ml.vizlab.style import (
     DEFAULT_PALETTE,
     DEFAULT_STYLE,

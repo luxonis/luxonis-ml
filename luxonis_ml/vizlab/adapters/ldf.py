@@ -27,6 +27,7 @@ from luxonis_ml.vizlab.annotations import (
     Mask,
     SemanticMask,
 )
+from luxonis_ml.vizlab.layout.panel import with_panel
 from luxonis_ml.vizlab.options import RenderOptions
 from luxonis_ml.vizlab.tooltip import Tooltip
 
@@ -509,7 +510,7 @@ def visualize_record(
 
     panel_data = _panel_data(record, array_shapes, panel)
     if panel_data:
-        img = img.with_panel(panel_data, title="Sample Metadata")
+        img = with_panel(img, panel_data, title="Sample Metadata")
     return img
 
 
