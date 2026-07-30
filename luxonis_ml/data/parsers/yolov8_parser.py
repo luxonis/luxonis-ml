@@ -409,7 +409,7 @@ class YOLOv8Parser(SplitParserPlugin):
                     yield {"file": file, "annotation": None}
                     continue
 
-                image_size: tuple[int, ...] | None = None
+                image_size: tuple[int, int] | None = None
                 for instance_id, annotation_elements in enumerate(annotations):
                     # object detection format: class_id x_center y_center width height
                     # segmentation format: class_id x1 y1 x2 y2 x3 y3 ... xn yn (min 3 points)
@@ -522,7 +522,11 @@ class YOLOv8Parser(SplitParserPlugin):
                                 raise ValueError(
                                     f"Failed to read image: {img_path}"
                                 )
-                            image_size = img.shape[:2]
+                            # Unpacked into an explicit pair rather than
+                            # kept as the shape slice, whose element type
+                            # depends on which numpy stubs are installed.
+                            height, width = img.shape[:2]
+                            image_size = (int(height), int(width))
                         img_height, img_width = image_size
 
                         class_id, *point_values = annotation_elements
