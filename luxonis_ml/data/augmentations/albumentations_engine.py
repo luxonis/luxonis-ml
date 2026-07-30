@@ -636,6 +636,12 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     def batch_size(self) -> int:
         return self._batch_transform.batch_size
 
+    @property
+    @override
+    def batch_augmentation_indices(self) -> list[int]:
+        """Input positions contributing to the last augmented output."""
+        return self._batch_transform.batch_augmentation_indices
+
     @override
     def apply(self, input_batch: list[LoaderMultiOutput]) -> LoaderMultiOutput:
         data_batch, n_keypoints, label_shapes = self._preprocess_batch(
