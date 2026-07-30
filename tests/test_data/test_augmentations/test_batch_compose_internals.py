@@ -340,3 +340,8 @@ def test_labels_emptied_by_a_spatial_transform_are_reported_empty() -> None:
     # not left referring to a task that is not in the output.
     assert out_labels["task/boundingbox"].shape == (0, 5)
     assert out_labels["task/metadata/id"].shape[0] == 0
+
+    # Albumentations hands back its own empty arrays as float32; taking the
+    # dtype from those would make an emptied task disagree with the very
+    # same pipeline's populated output.
+    assert out_labels["task/boundingbox"].dtype == np.float64
