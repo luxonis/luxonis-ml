@@ -454,9 +454,8 @@ class Mosaic4(BatchTransform):
                 ]
                 out_masks.append(combined_mask)
 
-        if not out_masks:
-            return np.zeros((out_height, out_width, 0), dtype=np.uint8)
-
+        # Any mask with a nonzero size has at least one instance, so the
+        # guard above is the only way to end up with nothing to stack.
         return np.stack(out_masks, axis=-1)
 
     @staticmethod
@@ -542,7 +541,7 @@ class Mosaic4(BatchTransform):
         elif position_index == 2:
             shift_x = out_width - in_width
             shift_y = out_height
-        elif position_index == 3:
+        else:
             shift_x = out_width
             shift_y = out_height
 

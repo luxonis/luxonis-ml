@@ -21,9 +21,11 @@ centralized.
      - :math:`\left(N, 3K\right)` normalized rows
      - :math:`\left(NK, 3\right)` pixel-space rows
 
-The appended bbox index :math:`i` is used during postprocessing to keep
-bbox-associated labels, such as instance masks and keypoints, aligned with the
-bounding boxes that survive augmentation and filtering.
+The appended bbox index :math:`i` is a position into the bbox-associated
+labels, such as instance masks and keypoints, and is used to keep them aligned
+with the bounding boxes that survive augmentation and filtering. It is local to
+whichever stage last wrote it: `BatchCompose` restamps it after every batch
+transform, so it is not stable across the whole pipeline.
 """
 
 from collections.abc import Iterator
@@ -60,7 +62,7 @@ def preprocess_mask(seg: np.ndarray) -> np.ndarray:
     return seg.transpose(1, 2, 0)
 
 
-def preprocess_bboxes(bboxes: np.ndarray, bbox_counter: int) -> np.ndarray:
+def preprocess_bboxes(bboxes: np.ndarray) -> np.ndarray:
     r"""Convert LDF bounding boxes to Albumentations format.
 
     LDF stores bounding boxes as normalized
@@ -68,29 +70,26 @@ def preprocess_bboxes(bboxes: np.ndarray, bbox_counter: int) -> np.ndarray:
     class ID and :math:`x` and :math:`y` are the top-left corner.
     Albumentations expects normalized
     :math:`\left[x_{\min}, y_{\min}, x_{\max}, y_{\max}, c\right]`
-    rows. This function also appends a stable per-box index used after
+    rows. This function also appends a per-box index used after
     augmentation to keep bbox-associated labels aligned with boxes that
     survived filtering.
 
     Args:
         bboxes: Bounding boxes of shape :math:`\left(N, 5\right)` in
             :math:`\left[c, x, y, w, h\right]` format.
-        bbox_counter: Offset used to create the appended bbox indices.
-            The first output row receives this value, the next receives
-            ``bbox_counter + 1``, and so on.
 
     Returns:
         Bounding boxes of shape :math:`\left(N, 6\right)` in
         :math:`\left[x_{\min}, y_{\min}, x_{\max}, y_{\max}, c, i\right]`
-        format, where :math:`i` is the stable bbox index.
+        format, where :math:`i` is the bbox index.
 
     Examples:
         >>> bboxes = np.array([[2, 0.1, 0.2, 0.3, 0.4]])
-        >>> out = preprocess_bboxes(bboxes, bbox_counter=5)
+        >>> out = preprocess_bboxes(bboxes)
         >>> np.round(out[:, :4], 4).tolist()
         [[0.1, 0.2, 0.4, 0.6]]
         >>> out[:, 4:].astype(int).tolist()
-        [[2, 5]]
+        [[2, 0]]
 
     """
     bboxes = bboxes[:, [1, 2, 3, 4, 0]]
@@ -101,9 +100,7 @@ def preprocess_bboxes(bboxes: np.ndarray, bbox_counter: int) -> np.ndarray:
 
     # Used later to filter out instance tasks associated
     # with bboxes that were removed during augmentations.
-    indices = np.arange(
-        bbox_counter, bboxes.shape[0] + bbox_counter, dtype=bboxes.dtype
-    )[:, None]
+    indices = np.arange(bboxes.shape[0], dtype=bboxes.dtype)[:, None]
     return np.concatenate((bboxes, indices), axis=1)
 
 
@@ -190,7 +187,7 @@ def postprocess_bboxes(
             :math:`\left(N, 6\right)` in
             :math:`\left[x_{\min}, y_{\min}, x_{\max}, y_{\max}, c,
             i\right]` format, where :math:`c` is the class ID and
-            :math:`i` is the stable bbox index.
+            :math:`i` is the bbox index.
         area_threshold: Minimum normalized box area
             :math:`w \cdot h` required for a box to remain valid.
 

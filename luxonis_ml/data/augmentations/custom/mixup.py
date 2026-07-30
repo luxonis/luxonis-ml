@@ -10,6 +10,19 @@ from luxonis_ml.data.augmentations.batch_transform import BatchTransform
 from luxonis_ml.data.augmentations.custom import LetterboxResize
 
 
+def _column_count(batch: list[np.ndarray], default: int) -> int:
+    """Column count to give empty entries so concatenation lines up.
+
+    Albumentations sizes these rows differently depending on which optional
+    fields a pipeline uses, so the width is taken from a populated entry
+    rather than assumed.
+    """
+    for array in batch:
+        if array.size > 0 and array.ndim == 2:
+            return array.shape[1]
+    return default
+
+
 class MixUp(BatchTransform):
     r"""Batch-based augmentation that blends two images together.
 
@@ -187,10 +200,11 @@ class MixUp(BatchTransform):
             Transformed bounding boxes.
 
         """
+        n_columns = _column_count(bboxes_batch, default=6)
         for i in range(len(bboxes_batch)):
             bbox = bboxes_batch[i]
-            if bbox.size == 0:  # pragma: no cover
-                bboxes_batch[i] = np.zeros((0, 6), dtype=bbox.dtype)
+            if bbox.size == 0:
+                bboxes_batch[i] = np.zeros((0, n_columns), dtype=bbox.dtype)
 
         bboxes_batch[1] = self._resize(
             bboxes_batch[1],
@@ -219,10 +233,11 @@ class MixUp(BatchTransform):
             Transformed keypoints.
 
         """
+        n_columns = _column_count(keypoints_batch, default=6)
         for i in range(len(keypoints_batch)):
-            if keypoints_batch[i].size == 0:  # pragma: no cover
+            if keypoints_batch[i].size == 0:
                 keypoints_batch[i] = np.zeros(
-                    (0, 5), dtype=keypoints_batch[i].dtype
+                    (0, n_columns), dtype=keypoints_batch[i].dtype
                 )
 
         keypoints_batch[1] = self._resize(
@@ -282,7 +297,6 @@ class MixUp(BatchTransform):
             return self._resize_transform.apply_to_bboxes(
                 data, *padding, **kwargs
             )
-        if target_type == "keypoints":
-            return self._resize_transform.apply_to_keypoints(
-                data, *padding, **kwargs
-            )
+        return self._resize_transform.apply_to_keypoints(
+            data, *padding, **kwargs
+        )

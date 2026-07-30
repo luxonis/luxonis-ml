@@ -1,5 +1,4 @@
 import warnings
-from collections import defaultdict
 from collections.abc import Callable, Iterable
 from math import prod
 from typing import Any, Literal, TypeAlias, cast
@@ -605,6 +604,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 and self._target_names_to_task_groups[target_name]
                 == task_group
             }
+        self._bbox_associated_targets = {
+            target_name
+            for associations in bbox_associations.values()
+            for target_name in associations
+        }
 
         with warnings.catch_warnings(record=True):
             self._batch_transform = BatchCompose(
@@ -634,14 +638,28 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
     @override
     def apply(self, input_batch: list[LoaderMultiOutput]) -> LoaderMultiOutput:
-        data_batch, n_keypoints = self._preprocess_batch(input_batch)
+        data_batch, n_keypoints, label_shapes = self._preprocess_batch(
+            input_batch
+        )
 
-        data = self._batch_transform(data_batch)
+        data = self._batch_transform(
+            data_batch, keypoints_per_instance=n_keypoints
+        )
 
+        # Albumentations chokes on zero-size targets, so they are dropped
+        # before the remaining stages. Labels that a batch transform emptied
+        # are remembered so postprocessing can still report them as empty
+        # instead of silently omitting the task.
+        emptied_targets = set()
         for target_name in list(data.keys()):
             value = data[target_name]
             if isinstance(value, np.ndarray) and value.size == 0:
                 del data[target_name]
+                if (
+                    target_name in label_shapes
+                    and target_name in self._bbox_associated_targets
+                ):
+                    emptied_targets.add(target_name)
 
         data = self._spatial_transform(**data)
         data = self._custom_transform(**data)
@@ -661,23 +679,27 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         else:
             data = self._pixel_transform(**data)
 
-        return self._postprocess(data, n_keypoints)
+        return self._postprocess(
+            data, n_keypoints, emptied_targets, label_shapes
+        )
 
     def _preprocess_batch(
         self, labels_batch: list[LoaderMultiOutput]
-    ) -> tuple[list[Data], dict[str, int]]:
+    ) -> tuple[list[Data], dict[str, int], dict[str, tuple[int, ...]]]:
         """Preprocess a batch of labels.
 
         Args:
             labels_batch: Loader outputs to preprocess.
 
         Returns:
-            Preprocessed data and keypoint counts for each task.
+            Preprocessed data, keypoint counts for each task, and the
+            per-annotation LDF shape of every target the batch actually
+            provided labels for.
 
         """
         data_batch = []
-        bbox_counters = defaultdict(int)
         n_keypoints = {}
+        label_shapes: dict[str, tuple[int, ...]] = {}
 
         for image_dict, labels in labels_batch:
             data = {}
@@ -721,15 +743,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     continue
 
                 array = labels[task]
+                label_shapes.setdefault(target_name, array.shape[1:])
 
                 if target_type in {"mask", "instance_mask"}:
                     data[target_name] = preprocess_mask(array)
 
                 elif target_type == "bboxes":
-                    data[target_name] = preprocess_bboxes(
-                        array, bbox_counters[target_name]
-                    )
-                    bbox_counters[target_name] += data[target_name].shape[0]
+                    data[target_name] = preprocess_bboxes(array)
 
                 elif target_type == "keypoints":
                     n_keypoints[target_name] = array.shape[1] // 3
@@ -741,10 +761,14 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
             data_batch.append(data)
 
-        return data_batch, n_keypoints
+        return data_batch, n_keypoints, label_shapes
 
     def _postprocess(
-        self, data: Data, n_keypoints: dict[str, int]
+        self,
+        data: Data,
+        n_keypoints: dict[str, int],
+        emptied_targets: set[str],
+        label_shapes: dict[str, tuple[int, ...]],
     ) -> LoaderMultiOutput:
         """Postprocess the augmented data back to LDF format.
 
@@ -754,6 +778,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         Args:
             data: Augmented data keyed by target name.
             n_keypoints: Mapping from task names to keypoint counts.
+            emptied_targets: Targets a batch transform emptied because all
+                the bounding boxes they belong to were filtered out. They
+                are reported as empty labels rather than omitted.
+            label_shapes: Per-annotation LDF shape of every target the input
+                batch provided labels for.
 
         Returns:
             Augmented images and labels.
@@ -806,17 +835,20 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             task = self._target_names_to_tasks[target_name]
             task_group = self._target_names_to_task_groups[target_name]
 
-            if task_group not in bboxes_indices:
-                if task_group in self._bbox_task_groups:
-                    bbox_ordering = np.array([], dtype=int)
-                elif target_type == "keypoints":
-                    bbox_ordering = np.arange(
-                        array.shape[0] // n_keypoints[target_name]
-                    )
-                else:
-                    bbox_ordering = np.arange(array.shape[0])
-            else:
+            if task_group in bboxes_indices:
                 bbox_ordering = bboxes_indices[task_group]
+            elif task_group in self._bbox_task_groups:
+                bbox_ordering = np.array([], dtype=int)
+            elif target_type == "keypoints":
+                bbox_ordering = np.arange(
+                    array.shape[0] // n_keypoints[target_name]
+                )
+            elif target_type == "instance_mask":
+                # Instance masks are (H, W, N) here, so the instance count
+                # is the last axis, not the first.
+                bbox_ordering = np.arange(array.shape[-1])
+            else:
+                bbox_ordering = np.arange(array.shape[0])
 
             if target_type == "mask":
                 out_labels[task] = postprocess_mask(array)
@@ -838,6 +870,17 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
             elif target_type == "classification":
                 out_labels[task] = array
+
+        for target_name in emptied_targets:
+            # These were dropped before the remaining stages ran, so none of
+            # the loops above can have produced a label for them.
+            task = self._target_names_to_tasks[target_name]
+            if self._targets[target_name] == "instance_mask":
+                # The recorded shape is the pre-augmentation one.
+                trailing = (image_height, image_width)
+            else:
+                trailing = label_shapes[target_name]
+            out_labels[task] = np.zeros((0, *trailing))
 
         return out_image_dict, out_labels
 

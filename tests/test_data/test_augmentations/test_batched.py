@@ -1,10 +1,12 @@
 from copy import deepcopy
+from typing import Any, cast
 
+import albumentations as A
 import numpy as np
 import pytest
 
 from luxonis_ml.data import AlbumentationsEngine
-from luxonis_ml.data.augmentations import BatchCompose, MixUp
+from luxonis_ml.data.augmentations import BatchCompose, BatchTransform, MixUp
 from luxonis_ml.typing import Labels
 
 
@@ -303,22 +305,36 @@ def test_mosaic_drops_boxes_keeps_masks_aligned(
     # Four instances in the four corners, each mask centered in its box.
     corners = [(0.05, 0.05), (0.80, 0.05), (0.05, 0.80), (0.80, 0.80)]
     size = 0.15
-    instance_mask = np.zeros((4, 320, 320), dtype=np.uint8)
-    boxes_in = []
-    keypoints_in = []
-    for i, (x, y) in enumerate(corners):
-        r0, r1 = int(y * 320), int((y + size) * 320)
-        c0, c1 = int(x * 320), int((x + size) * 320)
-        instance_mask[i, r0:r1, c0:c1] = i + 1
-        boxes_in.append([0.0, x, y, size, size])
-        keypoints_in.append([x + size / 2, y + size / 2, 2.0])
-    labels: Labels = {
-        "task/boundingbox": np.array(boxes_in),
-        "task/instance_segmentation": instance_mask,
-        "task/keypoints": np.array(keypoints_in),
-        "task/array": np.arange(1, 5),
-        "task/metadata/id": np.arange(11, 15),
-    }
+
+    def make_labels(sample: int) -> Labels:
+        """Build one sample whose per-instance ids are unique batch-wide.
+
+        Repeating the same ids in every batch member would make the value
+        oracles below hold under any permutation that maps instance *i* of
+        one sample onto instance *i* of another, which is exactly the kind
+        of wrong pairing compaction can introduce.
+        """
+        instance_mask = np.zeros((4, 320, 320), dtype=np.uint8)
+        boxes_in = []
+        keypoints_in = []
+        values = []
+        for i, (x, y) in enumerate(corners):
+            r0, r1 = int(y * 320), int((y + size) * 320)
+            c0, c1 = int(x * 320), int((x + size) * 320)
+            value = sample * len(corners) + i + 1
+            instance_mask[i, r0:r1, c0:c1] = value
+            boxes_in.append([0.0, x, y, size, size])
+            keypoints_in.append([x + size / 2, y + size / 2, 2.0])
+            values.append(value)
+        ids = np.array(values)
+        return {
+            "task/boundingbox": np.array(boxes_in),
+            "task/instance_segmentation": instance_mask,
+            "task/keypoints": np.array(keypoints_in),
+            "task/array": ids,
+            "task/metadata/id": ids + 100,
+        }
+
     targets = {
         "task/boundingbox": "boundingbox",
         "task/instance_segmentation": "instance_segmentation",
@@ -349,7 +365,10 @@ def test_mosaic_drops_boxes_keeps_masks_aligned(
     )
 
     _, out_labels = augmentations.apply(
-        [({"image": image}, deepcopy(labels)) for _ in range(batch_size)]
+        [
+            ({"image": image}, make_labels(sample))
+            for sample in range(batch_size)
+        ]
     )
 
     boxes = out_labels["task/boundingbox"]
@@ -364,7 +383,7 @@ def test_mosaic_drops_boxes_keeps_masks_aligned(
     assert_boxes_match_keypoints(boxes, keypoints)
     assert arrays.shape == metadata.shape == (boxes.shape[0],)
     assert_masks_match_values(masks, arrays)
-    assert np.array_equal(metadata, arrays + 10)
+    assert np.array_equal(metadata, arrays + 100)
 
 
 def test_batch_transforms_keep_nested_task_groups_independent() -> None:
@@ -490,32 +509,262 @@ def test_standalone_labels_survive_bboxes_from_another_task_group() -> None:
 
 
 def test_compaction_handles_all_filtered_bboxes() -> None:
-    """All associated labels are emptied when no bbox survives filtering."""
-    compose = BatchCompose(
-        [],
-        bbox_associations={
-            "bboxes": {
-                "instances": "instance_mask",
-                "keypoints": "keypoints",
-                "array": "array",
-                "metadata": "metadata",
-            }
-        },
-    )
-    data = {
-        "bboxes": np.array([]),
-        "instances": np.ones((8, 8, 2), dtype=np.uint8),
-        "keypoints": np.ones((4, 3)),
-        "array": np.ones((2, 4)),
-        "metadata": np.ones(2),
+    """Associated labels stay present but empty when no bbox survives.
+
+    Driven end to end rather than by calling the compaction helper, so it
+    covers how ``bbox_counts`` is derived and how the emptied labels travel
+    back out through postprocessing. Dropping the task keys entirely would
+    let ``LuxonisLoader._add_empty_annotations`` refill metadata with
+    ``n_classes`` phantom rows.
+    """
+    targets = {
+        "task/boundingbox": "boundingbox",
+        "task/instance_segmentation": "instance_segmentation",
+        "task/keypoints": "keypoints",
+        "task/array": "array",
+        "task/metadata/id": "metadata",
+    }
+    image = np.zeros((64, 64, 3), dtype=np.uint8)
+    # One instance filling the whole image: any Mosaic crop that is not
+    # exactly quadrant-aligned clips it, and min_bbox_visibility=1.0 then
+    # drops it.
+    labels: Labels = {
+        "task/boundingbox": np.array([[0.0, 0.0, 0.0, 1.0, 1.0]]),
+        "task/instance_segmentation": np.ones((1, 64, 64), dtype=np.uint8),
+        "task/keypoints": np.array([[0.5, 0.5, 2.0]]),
+        "task/array": np.array([[1, 2]]),
+        "task/metadata/id": np.array([7]),
     }
 
-    compose._compact_bbox_associated_labels(data, {"bboxes": 2})
+    all_filtered_seen = False
+    for seed in range(10):
+        augmentations = AlbumentationsEngine(
+            64,
+            64,
+            targets,
+            dict.fromkeys(targets, 1),
+            ["image"],
+            [
+                {
+                    "name": "Mosaic4",
+                    "params": {"p": 1.0, "height": 64, "width": 64},
+                },
+                {"name": "MixUp", "params": {"p": 1.0}},
+            ],
+            min_bbox_visibility=1.0,
+            seed=seed,
+        )
+        _, output = augmentations.apply(
+            [({"image": image}, deepcopy(labels)) for _ in range(8)]
+        )
 
-    assert data["instances"].shape == (8, 8, 0)
-    assert data["keypoints"].shape == (0, 3)
-    assert data["array"].shape == (0, 4)
-    assert data["metadata"].shape == (0,)
+        if output.get("task/boundingbox", np.zeros((0, 5))).shape[0]:
+            continue
+
+        all_filtered_seen = True
+        # The bbox task itself is dropped, as it always has been; the loader
+        # refills it with a correctly shaped empty array. The labels hanging
+        # off it are the ones that must not disappear.
+        assert output["task/instance_segmentation"].shape == (0, 64, 64)
+        assert output["task/keypoints"].shape == (0, 3)
+        assert output["task/array"].shape == (0, 2)
+        assert output["task/metadata/id"].shape == (0,)
+
+    assert all_filtered_seen, "no seed produced the all-filtered case"
+
+
+def test_instance_masks_without_bboxes_in_their_task_group() -> None:
+    """An instance-mask task needs no bbox task in its own group.
+
+    Sizing the pass-through ordering by the mask's leading axis reads the
+    image height instead of the instance count and raises ``IndexError``.
+    """
+    targets = {
+        "det/boundingbox": "boundingbox",
+        "seg/instance_segmentation": "instance_segmentation",
+    }
+    instance_mask = np.zeros((2, 64, 64), dtype=np.uint8)
+    instance_mask[0, 8:24, 8:24] = 1
+    instance_mask[1, 40:56, 40:56] = 2
+    labels: Labels = {
+        "det/boundingbox": np.array([[0.0, 0.1, 0.1, 0.2, 0.2]]),
+        "seg/instance_segmentation": instance_mask,
+    }
+    augmentations = AlbumentationsEngine(
+        64, 64, targets, dict.fromkeys(targets, 1), ["image"], []
+    )
+
+    _, output = augmentations.apply(
+        [({"image": np.zeros((64, 64, 3), dtype=np.uint8)}, labels)]
+    )
+
+    assert output["seg/instance_segmentation"].shape == (2, 64, 64)
+
+
+def test_bbox_label_column_is_left_alone_without_associations() -> None:
+    """Plain Albumentations use keeps its class column.
+
+    Without ``bbox_associations`` the trailing bbox column is the class
+    label, not an index, so the composition must not restamp it.
+    """
+    compose = BatchCompose(
+        [MixUp(p=1.0)],
+        bbox_params=A.BboxParams(format="albumentations"),
+    )
+    boxes = np.array([[0.1, 0.1, 0.3, 0.3, 7.0], [0.5, 0.5, 0.9, 0.9, 9.0]])
+
+    output = compose(
+        [
+            {
+                "image": np.zeros((16, 16, 3), dtype=np.uint8),
+                "bboxes": boxes.copy(),
+            }
+            for _ in range(2)
+        ]
+    )
+
+    assert sorted(output["bboxes"][:, -1].tolist()) == [7.0, 7.0, 9.0, 9.0]
+
+
+def test_bbox_params_cannot_be_passed_positionally() -> None:
+    """``bbox_associations`` must not occupy ``A.Compose``'s second slot."""
+    untyped_compose = cast(Any, BatchCompose)
+    with pytest.raises(TypeError):
+        untyped_compose([MixUp(p=1.0)], A.BboxParams(format="albumentations"))
+
+
+class KeepFirstSample(BatchTransform):
+    """Batch transform that keeps the first sample's targets untouched.
+
+    Lets a test observe what `BatchCompose` itself does to the data,
+    without a real transform rewriting the targets on the way through.
+    """
+
+    def __init__(self):
+        super().__init__(batch_size=2, p=1.0)
+
+    def apply(self, image_batch: list[np.ndarray], **_) -> np.ndarray:
+        return image_batch[0]
+
+    def apply_to_mask(self, masks_batch: list[np.ndarray], **_) -> np.ndarray:
+        return masks_batch[0]
+
+    def apply_to_instance_mask(
+        self, masks_batch: list[np.ndarray], **_
+    ) -> np.ndarray:
+        return masks_batch[0]
+
+    def apply_to_bboxes(
+        self, bboxes_batch: list[np.ndarray], **_
+    ) -> np.ndarray:
+        return bboxes_batch[0]
+
+    def apply_to_keypoints(
+        self, keypoints_batch: list[np.ndarray], **_
+    ) -> np.ndarray:
+        return keypoints_batch[0]
+
+
+def test_read_only_bboxes_are_not_mutated_in_place() -> None:
+    """Reindexing must not write into a caller's read-only buffer."""
+    boxes = np.array([[0.1, 0.1, 0.3, 0.3, 0.0, 5.0]])
+    boxes.setflags(write=False)
+    compose = BatchCompose(
+        [KeepFirstSample()],
+        bbox_params=A.BboxParams(format="albumentations"),
+        bbox_associations={"bboxes": {"metadata": "metadata"}},
+    )
+
+    output = compose(
+        [
+            {
+                "image": np.zeros((16, 16, 3), dtype=np.uint8),
+                "bboxes": boxes,
+                "metadata": np.array([3]),
+            }
+            for _ in range(2)
+        ]
+    )
+
+    assert output["bboxes"].shape[0] == 1
+    assert boxes[0, -1] == 5.0
+
+
+def test_associations_are_kept_when_bboxes_are_not_processed() -> None:
+    """A missing bbox processor must not be read as "every bbox was cut".
+
+    Without ``bbox_params`` there is no bbox count to compare against, which
+    is not the same thing as a count of zero.
+    """
+    compose = BatchCompose(
+        [MixUp(p=1.0)],
+        bbox_associations={"bboxes": {"metadata": "metadata"}},
+    )
+
+    output = compose(
+        [
+            {
+                "image": np.zeros((16, 16, 3), dtype=np.uint8),
+                "bboxes": np.array([[0.1, 0.1, 0.3, 0.3, 0.0, 0.0]]),
+                "metadata": np.array([7]),
+            }
+            for _ in range(2)
+        ]
+    )
+
+    assert output["metadata"].tolist() == [7, 7]
+
+
+def test_unmatched_label_counts_are_left_as_is() -> None:
+    """Labels that cannot be matched to bboxes must not abort the batch.
+
+    Instance counts and bbox counts can legitimately disagree, for example
+    when some annotations carry metadata but no bounding box.
+    """
+    targets = {
+        "task/boundingbox": "boundingbox",
+        "task/metadata/id": "metadata",
+    }
+    augmentations = AlbumentationsEngine(
+        64,
+        64,
+        targets,
+        dict.fromkeys(targets, 1),
+        ["image"],
+        [{"name": "MixUp", "params": {"p": 1.0}}],
+    )
+    labels: Labels = {
+        "task/boundingbox": np.array([[0.0, 0.1, 0.1, 0.2, 0.2]]),
+        "task/metadata/id": np.array([11, 12, 13]),
+    }
+
+    _, output = augmentations.apply(
+        [
+            (
+                {"image": np.zeros((64, 64, 3), dtype=np.uint8)},
+                deepcopy(labels),
+            )
+            for _ in range(2)
+        ]
+    )
+
+    assert output["task/metadata/id"].size > 0
+
+
+@pytest.mark.parametrize("target", ["keypoints", "bboxes"])
+def test_mixup_pads_empty_targets_to_the_sibling_width(target: str) -> None:
+    """Emptied targets must keep the column count of their sibling.
+
+    Compaction can empty one half of a MixUp pair while the other half keeps
+    its rows, and a placeholder of the wrong width then fails to concatenate.
+    """
+    mixup = MixUp(p=1.0)
+    batch = [np.zeros((0, 6)), np.ones((2, 6))]
+    apply_to_target = getattr(mixup, f"apply_to_{target}")
+
+    output = apply_to_target(batch, image_shapes=[(16, 16), (16, 16)])
+
+    assert output.shape == (2, 6)
 
 
 def test_multiple_bbox_targets_in_one_task_group_are_rejected() -> None:
