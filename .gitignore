@@ -119,5 +119,5 @@ tests/data
 .idea/*
 apidocs/
 
-CLAUDE.md
 AGENTS.md
+CLAUDE.md
