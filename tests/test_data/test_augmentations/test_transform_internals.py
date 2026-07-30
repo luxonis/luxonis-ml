@@ -44,7 +44,7 @@ def test_mixup_semantic_mask_tolerates_a_missing_mask(
     empty_index: int,
 ) -> None:
     """A sample without a segmentation task contributes an empty mask."""
-    masks = [
+    masks: list[np.ndarray] = [
         np.ones((16, 16, 1), dtype=np.uint8),
         np.ones((16, 16, 1), dtype=np.uint8),
     ]
@@ -59,7 +59,7 @@ def test_mixup_semantic_mask_tolerates_a_missing_mask(
 def test_mixup_instance_mask_tolerates_a_missing_mask(
     empty_index: int,
 ) -> None:
-    masks = [
+    masks: list[np.ndarray] = [
         np.ones((16, 16, 2), dtype=np.uint8),
         np.ones((16, 16, 3), dtype=np.uint8),
     ]
