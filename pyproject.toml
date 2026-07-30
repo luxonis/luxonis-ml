@@ -40,9 +40,12 @@ version = { attr = "luxonis_ml.__version__" }
 
 [tool.setuptools.dynamic.optional-dependencies]
 ldf = { file = ["luxonis_ml/ldf/requirements.txt"] }
+# `data inspect` / `data health` render through vizlab, so the data extra keeps
+# shipping a renderer just as it shipped matplotlib before.
 data = { file = [
   "luxonis_ml/ldf/requirements.txt",
   "luxonis_ml/data/requirements.txt",
+  "luxonis_ml/vizlab/requirements.txt",
 ] }
 viz = { file = [
   "luxonis_ml/ldf/requirements.txt",

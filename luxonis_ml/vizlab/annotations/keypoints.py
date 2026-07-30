@@ -213,9 +213,14 @@ class Keypoints(KeypointAnnotation, Annotation):
         visible = vis > self.visibility_threshold
 
         # Treat a 0..1 visibility column as confidence and scale joints by it.
+        # A COCO pose whose joints are all flag 1 (labeled but occluded) also
+        # sits in 0..1, so a genuinely fractional value is required — a flag
+        # column never has one, and without this every such pose would lose its
+        # occluded markers.
         seen = vis[visible]
         confidence_like = len(seen) > 0 and bool(
             np.all((seen > 0) & (seen <= 1.0))
+            and np.any(seen != np.floor(seen))
         )
 
         colors = self._joint_colors(color, len(xy))

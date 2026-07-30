@@ -19,7 +19,10 @@ from typing import Literal
 
 import numpy as np
 
-from luxonis_ml.data.utils.data_utils import ClassDistributionRow
+from luxonis_ml.data.utils.data_utils import (
+    HEATMAP_TASK_TYPES,
+    ClassDistributionRow,
+)
 from luxonis_ml.vizlab import (
     Caption,
     ClassDistribution,
@@ -247,8 +250,9 @@ def build_health_grid(
 
     For each task type a distribution panel and a heatmap panel are placed side by
     side (two columns), titled with the task type and either ``"classes"`` or
-    ``"heatmap"``. Task types without a spatial heatmap (such as metadata) are
-    omitted.
+    ``"heatmap"``. Non-spatial task types (such as metadata) are omitted; a
+    spatial one is kept even when it has no heatmap, so its class distribution
+    is not lost.
     When ``class_heatmaps_by_type`` is given, the heatmap column instead shows one
     small, class-colored heatmap per class.
 
@@ -269,10 +273,15 @@ def build_health_grid(
     """
     theme = theme if theme is not None else get_default_theme()
     theme = theme.with_style(theme.style.scaled(_BASE_SCALE * scale))
-    # A heatmap exists only for annotations with a spatial representation.
-    # Class distributions may also include metadata, which must not create a
-    # placeholder plot in the health view.
-    task_types = sorted(heatmaps_by_type)
+    # Only annotations with a spatial representation are plotted. Class
+    # distributions may also include metadata, which must not create a
+    # placeholder plot in the health view. Keying off the task type rather than
+    # off the presence of a heatmap keeps the class distribution of a spatial
+    # task whose annotations happened to yield no heatmap points (e.g. keypoints
+    # that are all invisible).
+    task_types = sorted(
+        (set(class_dist_by_type) | set(heatmaps_by_type)) & HEATMAP_TASK_TYPES
+    )
     images: list[Renderable] = []
     titles: list[str] = []
     for task_type in task_types:

@@ -427,4 +427,12 @@ def _metadata_equal(value: ParamValue, expected: str) -> bool:
         isinstance(value, Sequence) and not isinstance(value, str)
     ):
         return False
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        # Numbers must compare numerically, not by repr: a stored 0.5 has to
+        # match ``--metadata-filter score 0.50``, and a stored 1.0 has to match
+        # ``... count 1``.
+        try:
+            return float(value) == float(expected)
+        except ValueError:
+            return False
     return str(value).casefold() == expected.casefold()

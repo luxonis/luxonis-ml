@@ -71,8 +71,17 @@ class _HoverState:
 
 
 def _key_char(key: int) -> str:
-    """Map a backend key code to a single character (``""`` when none)."""
-    return chr(key & 0xFF) if key != -1 else ""
+    """Map a backend key code to a single character (``""`` when none).
+
+    The low byte is what identifies a character key: the GTK/Qt OpenCV builds
+    return it with modifier and state bits set above it. Special keys, though,
+    arrive as X11 keysyms (``0xFF00``-``0xFFFF``: arrows, Insert, Home, the
+    function keys), whose low byte would otherwise alias onto an unrelated
+    letter and trigger that letter's binding — those report no character.
+    """
+    if key == -1 or 0xFF00 <= key & 0xFFFF <= 0xFFFF:
+        return ""
+    return chr(key & 0xFF)
 
 
 class Viewer:

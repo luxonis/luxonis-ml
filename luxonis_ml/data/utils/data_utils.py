@@ -475,7 +475,10 @@ def get_duplicates_info(df: pl.LazyFrame) -> DuplicateInfo:
 
 
 _HEATMAP_GRID_SIZE = 15
-_HEATMAP_TASK_TYPES = frozenset(
+#: The task types with a spatial representation, i.e. the ones a heatmap can be
+#: built for. Also what ``data health`` plots at all: a class distribution is
+#: available for metadata too, but has no meaningful health plot.
+HEATMAP_TASK_TYPES = frozenset(
     {"boundingbox", "keypoints", "segmentation", "instance_segmentation"}
 )
 
@@ -535,7 +538,7 @@ def _annotation_grid(
     task_type: str, annotation_str: str, edges: np.ndarray, downsample: int
 ) -> np.ndarray | None:
     """Bin one annotation's points into a ``15 x 15`` count grid, or ``None``."""
-    if task_type not in _HEATMAP_TASK_TYPES or not annotation_str:
+    if task_type not in HEATMAP_TASK_TYPES or not annotation_str:
         return None
     try:
         annotation = cast(_SpatialAnnotation, json.loads(annotation_str))

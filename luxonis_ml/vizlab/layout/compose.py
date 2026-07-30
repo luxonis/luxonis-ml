@@ -543,13 +543,14 @@ def combine(
     """Lay out a mixed set of images (and grouped images) into one figure.
 
     A smart, layout-free counterpart to `hstack`/`vstack`/`grid`: pass any mix
-    of finished `Image` objects and image groups, and ``combine`` arranges them
-    sensibly without the caller choosing rows or columns. Each positional
-    ``group`` is one of:
+    of finished scenes and scene groups, and ``combine`` arranges them
+    sensibly without the caller choosing rows or columns. Anything renderable
+    works, so an already-composed `grid`/`with_panel` result nests as one cell.
+    Each positional ``group`` is one of:
 
-    - a single `Image` — placed as-is;
-    - a sequence of `Image` objects — gathered into their own sub-grid;
-    - a mapping ``{title: image-or-sequence}`` — each entry becomes a titled
+    - a single `Renderable` (an `Image` or a composite) — placed as-is;
+    - a sequence of them — gathered into their own sub-grid;
+    - a mapping ``{title: scene-or-sequence}`` — each entry becomes a titled
       sub-block (its key drawn as a heading), the blocks gathered into a
       sub-grid.
 
@@ -568,7 +569,7 @@ def combine(
 
     Raises:
         ValueError: If no groups are given, or a group is empty.
-        TypeError: If a group is not an `Image`, a sequence, or a mapping.
+        TypeError: If a group is not a `Renderable`, a sequence, or a mapping.
 
     Examples:
         >>> import numpy as np
@@ -620,17 +621,17 @@ def combine_hits(
 
     Raises:
         ValueError: If no groups are given, or a group is empty.
-        TypeError: If a group is not an `Image`, a sequence, or a mapping.
+        TypeError: If a group is not a `Renderable`, a sequence, or a mapping.
 
     """
     return combine(*groups, pad=pad, bg=bg, style=style).frame()
 
 
-def _as_images(member: "Sequence[object]") -> list[Image]:
-    """Validate a group's sequence member into a non-empty list of images."""
-    images: list[Image] = []
+def _as_images(member: "Sequence[object]") -> list[Renderable]:
+    """Validate a group's sequence member into a non-empty list of scenes."""
+    images: list[Renderable] = []
     for item in member:
-        if not isinstance(item, Image):
+        if not isinstance(item, Renderable):
             raise TypeError(f"unsupported group member type: {type(item)!r}")
         images.append(item)
     if not images:
@@ -646,7 +647,7 @@ def _resolve_member(
     style: Style,
 ) -> Renderable:
     """Resolve a single mapping value / list to one image (nested sub-grid)."""
-    if isinstance(member, Image):
+    if isinstance(member, Renderable):
         return member
     if is_sequence(member):
         items = _as_images(member)
@@ -666,7 +667,7 @@ def _resolve_member(
 def _resolve_group(
     group: CombineGroup, *, pad: int, bg: ColorLike, style: Style
 ) -> Renderable:
-    if isinstance(group, Image):
+    if isinstance(group, Renderable):
         return group
     if isinstance(group, Mapping):
         if not group:

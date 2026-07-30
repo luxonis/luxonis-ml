@@ -383,7 +383,22 @@ class Annotation(BaseModel):
             return palette.color_for(self.label)
         if ctx.parent_color is not None:
             return derive_child_color(ctx.parent_color)
-        return palette.color_for(f"{type(self).__name__}@{id(self):x}")
+        return palette.color_for(self.unlabeled_color_key())
+
+    def unlabeled_color_key(self) -> str:
+        """Return the palette key used when there is no label to color by.
+
+        Keyed on the annotation *type*, never on the instance: a `Palette`
+        memoizes by key and hands out colors in order of first appearance, so an
+        identity-based key would give a rebuilt annotation a different color
+        every time (and grow the shared palette without bound, shifting every
+        later class's color along with it).
+
+        Returns:
+            The palette key, distinct from any class name.
+
+        """
+        return f"<{type(self).__name__}>"
 
     def outline_color(self, ctx: RenderContext, color: Color) -> Color:
         """Resolve the color for this annotation's outline (box stroke, mask contour).

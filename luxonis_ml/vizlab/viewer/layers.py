@@ -390,7 +390,7 @@ def _resolved_color(
         return palette.color_for(annotation.label)
     if parent_color is not None:
         return derive_child_color(parent_color)
-    return palette.color_for(f"{type(annotation).__name__}@{id(annotation):x}")
+    return palette.color_for(annotation.unlabeled_color_key())
 
 
 def _strip_label(annotation: Annotation, palette: Palette) -> None:

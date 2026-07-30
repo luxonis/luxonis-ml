@@ -2,6 +2,7 @@ import math
 import shutil
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from itertools import chain
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal, TypeAlias, cast
 
@@ -31,6 +32,7 @@ from luxonis_ml.data.utils.cli_utils import (
     parse_split_ratio,
     print_info,
 )
+from luxonis_ml.data.utils.data_utils import HEATMAP_TASK_TYPES
 from luxonis_ml.data.utils.enums import BucketStorage
 from luxonis_ml.data.utils.inspection import (
     InspectionAnnotationType,
@@ -2040,9 +2042,19 @@ def health(
             "to automatically remove duplicates and missing entries."
         )
 
-    # Only spatial annotations have heatmaps. Metadata can have class counts,
-    # but it has no meaningful health plot and should not create a window.
-    all_task_names = sorted(stats["heatmaps"])
+    # Only spatial annotations are plotted. Metadata can have class counts, but
+    # it has no meaningful health plot and should not create a window. A spatial
+    # task whose annotations yielded no heatmap points still has a class
+    # distribution worth showing, so the task types decide, not the heatmaps.
+    all_task_names = sorted(
+        {
+            task_name
+            for task_name, by_type in chain(
+                stats["class_distributions"].items(), stats["heatmaps"].items()
+            )
+            if not HEATMAP_TASK_TYPES.isdisjoint(by_type)
+        }
+    )
     if not all_task_names:
         console.print("[info]No plots to display.[/info]")
         return
@@ -2074,7 +2086,9 @@ def health(
         class_heatmaps_by_type = stats.get("class_heatmaps", {}).get(
             task_name, {}
         )
-        if not heatmaps_by_type:
+        if HEATMAP_TASK_TYPES.isdisjoint(
+            set(class_dist_by_type) | set(heatmaps_by_type)
+        ):
             console.print(f"[info]No plots for task name: {task_name}[/info]")
             continue
 

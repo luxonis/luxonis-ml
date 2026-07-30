@@ -340,14 +340,23 @@ def _matchable(
 def _ranked_predictions(
     predictions: "Sequence[Detectionish]", score_threshold: float
 ) -> "list[tuple[Detectionish, Rect, float]]":
-    """Return matchable predictions above the score cutoff, highest score first."""
-    ranked = []
+    """Return matchable predictions above the score cutoff, highest score first.
+
+    A prediction without a score carries no confidence to threshold or rank on,
+    so it is kept but queued behind every scored one (in its given order) rather
+    than treated as a perfect-confidence detection that claims ground truth
+    first.
+    """
+    ranked: list[tuple[Detectionish, Rect, float]] = []
+    unscored: list[tuple[Detectionish, Rect, float]] = []
     for prediction, rect in _matchable(predictions):
         score = _score(prediction)
-        if score is None or score >= score_threshold:
-            ranked.append((prediction, rect, 1.0 if score is None else score))
+        if score is None:
+            unscored.append((prediction, rect, 0.0))
+        elif score >= score_threshold:
+            ranked.append((prediction, rect, score))
     ranked.sort(key=lambda item: item[2], reverse=True)
-    return ranked
+    return ranked + unscored
 
 
 def match_detections(
@@ -361,8 +370,8 @@ def match_detections(
     """Match predictions to ground truth, COCO-style, and score the result.
 
     Predictions below ``score_threshold`` are dropped, then the rest are taken in
-    descending confidence order (detections without a score keep their given
-    order); each greedily claims the highest-IoU unclaimed ground-truth box (of
+    descending confidence order, with scoreless detections last in their given
+    order; each greedily claims the highest-IoU unclaimed ground-truth box (of
     the same class when ``class_aware``). A claim at or above ``iou_threshold`` is
     a true positive. When ``class_aware``, a second pass pairs each leftover
     prediction with an unclaimed ground-truth box of a *different* class that it
@@ -596,8 +605,16 @@ def _grade_keypoints(
     )
     points: list[ComparisonKeypoint] = []
     colors: list[Color] = []
-    for i, (px, py, pv) in enumerate(pred_kps):
-        gx, gy, gv = gt_kps[i] if i < len(gt_kps) else (px, py, 0)
+    for i in range(max(len(pred_kps), len(gt_kps))):
+        gx, gy, gv = gt_kps[i] if i < len(gt_kps) else (0.0, 0.0, 0)
+        if i < len(pred_kps):
+            px, py, pv = pred_kps[i]
+        else:
+            # The prediction is shorter than the ground truth, so it has no joint
+            # at this index at all. Stand in an unlabeled joint at the
+            # ground-truth spot: a joint the ground truth does have then grades
+            # as missed instead of going ungraded.
+            px, py, pv = gx, gy, 0
         if not gv:  # ground truth has no joint here
             points.append((px, py, pv))
             colors.append(FP_COLOR)

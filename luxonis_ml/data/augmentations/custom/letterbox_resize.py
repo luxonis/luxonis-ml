@@ -10,6 +10,33 @@ from luxonis_ml.typing import Color as ColorLike
 from luxonis_ml.utils.color import Color
 
 
+def _fill_color(value: ColorLike, name: str) -> RGB:
+    """Resolve a user-supplied padding value to an ``(r, g, b)`` triple.
+
+    `Color.parse` clamps channels into ``[0, 255]``. A fill value outside that
+    range is a config mistake rather than something to round off, so it is
+    rejected here instead of silently padding with a different color.
+
+    Args:
+        value: A color name, hex string, grayscale int, or ``(r, g, b)`` tuple.
+        name: The parameter name, used in the error message.
+
+    Returns:
+        The resolved RGB triple.
+
+    Raises:
+        ValueError: If any channel falls outside ``[0, 255]``.
+
+    """
+    channels = value if isinstance(value, tuple) else (value,)
+    for channel in channels:
+        if isinstance(channel, int) and not 0 <= channel <= 255:
+            raise ValueError(
+                f"{name} value {channel} is out of range [0, 255]"
+            )
+    return Color.parse(value).rgb
+
+
 class LetterboxResize(A.DualTransform):
     """Augmentation that resizes an image with padding to
     maintain the aspect ratio.
@@ -54,8 +81,10 @@ class LetterboxResize(A.DualTransform):
         self.width = width
 
         self._interpolation = interpolation
-        self._image_fill_value = Color.parse(image_fill_value).rgb
-        self._mask_fill_value = Color.parse(mask_fill_value).rgb
+        self._image_fill_value = _fill_color(
+            image_fill_value, "image_fill_value"
+        )
+        self._mask_fill_value = _fill_color(mask_fill_value, "mask_fill_value")
 
     @property
     @override

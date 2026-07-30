@@ -42,7 +42,9 @@ def _as_uint8(array: np.ndarray) -> np.ndarray:
         array: Image array of any numeric dtype.
 
     Returns:
-        A ``uint8`` copy. Float arrays whose max value is ``<= 1`` are scaled by 255.
+        A ``uint8`` array — ``array`` itself when it already is one, a converted
+        copy otherwise. Float arrays whose max value is ``<= 1`` are scaled by
+        255.
 
     """
     if array.dtype == np.uint8:
@@ -82,6 +84,13 @@ def _ndarray_to_rgba(array: np.ndarray, mode: str) -> np.ndarray:
     if arr.shape[2] == 3:
         alpha = np.full((*arr.shape[:2], 1), 255, dtype=np.uint8)
         arr = np.concatenate([arr, alpha], axis=2)
+    if arr is array:
+        # An already-RGBA ``uint8`` source is the one path that reaches here
+        # untouched. The result becomes an `Image`'s private raster (see
+        # `Image.base_rgba`), and a render caches without looking at it, so
+        # aliasing the caller's buffer would let a later in-place edit go
+        # unnoticed.
+        return array.copy()
     return np.ascontiguousarray(arr)
 
 
