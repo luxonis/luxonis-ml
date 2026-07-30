@@ -192,10 +192,15 @@ def test_nested_transform_entries_must_name_a_transform() -> None:
         build({"task/boundingbox": "boundingbox"}, config)
 
 
-def test_tasks_without_a_task_name_share_the_root_group() -> None:
-    """``"classification"`` names a type, not a group, so the group is empty."""
-    assert AlbumentationsEngine._get_task_group("classification") == ""
-    assert AlbumentationsEngine._get_task_group("metadata/id") == ""
+def test_each_unnamed_task_is_its_own_group() -> None:
+    """A task with no name is not in a group with every other such task.
+
+    Collapsing them all to ``""`` would tie an unnamed keypoints task to an
+    unnamed bbox task it has nothing to do with.
+    """
+    assert AlbumentationsEngine._get_task_group("boundingbox") == "boundingbox"
+    assert AlbumentationsEngine._get_task_group("keypoints") == "keypoints"
+    assert AlbumentationsEngine._get_task_group("metadata/id") == "metadata/id"
     assert AlbumentationsEngine._get_task_group("group/boundingbox") == "group"
     assert AlbumentationsEngine._get_task_group("a/b/keypoints") == "a/b"
 

@@ -152,8 +152,11 @@ def build_labels(group: TaskGroupSpec, height: int, width: int) -> Labels:
 
 
 task_types = st.lists(
-    st.sampled_from(ALL_TASK_TYPES), min_size=1, max_size=len(ALL_TASK_TYPES)
-).map(lambda drawn: sorted(set(drawn)))
+    st.sampled_from(ALL_TASK_TYPES),
+    min_size=1,
+    max_size=len(ALL_TASK_TYPES),
+    unique=True,
+).map(sorted)
 
 
 @st.composite

@@ -8,6 +8,11 @@ from albumentations.core.bbox_utils import denormalize_bboxes, normalize_bboxes
 from typing_extensions import override
 
 from luxonis_ml.data.augmentations.batch_transform import BatchTransform
+from luxonis_ml.data.augmentations.utils import (
+    BBOX_COLUMNS,
+    KEYPOINT_COLUMNS,
+    pad_empty_entries,
+)
 from luxonis_ml.utils.logging import deprecated
 
 
@@ -268,12 +273,10 @@ class Mosaic4(BatchTransform):
 
         """
         new_bboxes = []
+        bboxes_batch = pad_empty_entries(bboxes_batch, default=BBOX_COLUMNS)
         for i, (bboxes, (orig_height, orig_width)) in enumerate(
             zip(bboxes_batch, image_shapes, strict=True)
         ):
-            if bboxes.size == 0:  # pragma: no cover
-                bboxes = np.zeros((0, 6), dtype=bboxes.dtype)
-
             bbox = self._apply_mosaic4_to_bboxes(
                 bboxes,
                 orig_height,
@@ -310,12 +313,12 @@ class Mosaic4(BatchTransform):
 
         """
         new_keypoints = []
+        keypoints_batch = pad_empty_entries(
+            keypoints_batch, default=KEYPOINT_COLUMNS
+        )
         for i, (keypoints, (orig_height, orig_width)) in enumerate(
             zip(keypoints_batch, image_shapes, strict=True)
         ):
-            if keypoints.size == 0:
-                keypoints = np.zeros((0, 6), dtype=keypoints.dtype)
-
             new_keypoint = self._apply_mosaic4_to_keypoints(
                 keypoints,
                 orig_height,

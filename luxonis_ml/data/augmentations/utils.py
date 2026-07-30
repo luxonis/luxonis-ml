@@ -34,6 +34,103 @@ from typing import TypeVar
 import numpy as np
 
 
+def instance_count(
+    array: np.ndarray, target_type: str, n_keypoints: int = 0
+) -> int:
+    r"""Count the instances an Albumentations-layout target describes.
+
+    Each per-instance target type stores its instances on a different axis,
+    so the count cannot be read off ``len(array)`` alone.
+
+    Args:
+        array: Target in the Albumentations layout.
+        target_type: Target type the array holds, such as
+            ``"instance_mask"`` or ``"keypoints"``.
+        n_keypoints: Number of keypoints :math:`K` per instance. Only used
+            for keypoint targets, which store :math:`K` rows per instance.
+
+    Returns:
+        Number of instances in ``array``.
+
+    Raises:
+        ValueError: If ``target_type`` is ``"keypoints"`` and
+            ``n_keypoints`` is not positive.
+
+    Examples:
+        >>> instance_count(np.zeros((8, 8, 3)), "instance_mask")
+        3
+        >>> instance_count(np.zeros((6, 3)), "keypoints", n_keypoints=2)
+        3
+        >>> instance_count(np.zeros((4, 5)), "metadata")
+        4
+
+    """
+    if target_type == "instance_mask":
+        return array.shape[-1]
+
+    if target_type == "keypoints":
+        if n_keypoints < 1:
+            raise ValueError(
+                "Keypoint instances cannot be counted without knowing how "
+                "many keypoints each instance has."
+            )
+        return array.shape[0] // n_keypoints
+
+    return len(array)
+
+
+# Albumentations bbox rows are [x_min, y_min, x_max, y_max, class, index]
+# and keypoint rows are [x, y, z, angle, scale, visibility]. Both come to
+# six columns, for unrelated reasons.
+BBOX_COLUMNS = 6
+KEYPOINT_COLUMNS = 6
+
+
+def pad_empty_entries(
+    batch: list[np.ndarray], default: int
+) -> list[np.ndarray]:
+    r"""Shape every empty entry so the batch can be concatenated.
+
+    A sample carrying no boxes or keypoints comes back in whatever shape the
+    transform left it in, including a one-dimensional ``np.array([])`` that
+    will not concatenate with the populated samples. Those entries are
+    replaced by correctly shaped empty rows.
+
+    The width is read off a populated entry, since a pipeline's optional
+    fields decide how wide these rows are. An entry that is empty but still
+    two-dimensional carries the same width and is used when no entry is
+    populated; ``default`` is a last resort.
+
+    Args:
+        batch: Per-sample arrays, some of which may be empty.
+        default: Width to use when no entry carries one.
+
+    Returns:
+        The batch, with every empty entry shaped :math:`\left(0, n\right)`.
+
+    Examples:
+        >>> batch = [np.array([]), np.zeros((2, 7))]
+        >>> [array.shape for array in pad_empty_entries(batch, default=6)]
+        [(0, 7), (2, 7)]
+        >>> [a.shape for a in pad_empty_entries([np.array([])], default=6)]
+        [(0, 6)]
+
+    """
+    n_columns = default
+    for array in batch:
+        if array.ndim == 2:
+            n_columns = array.shape[1]
+            if array.size > 0:
+                break
+
+    return [
+        np.zeros((0, n_columns), dtype=array.dtype)
+        if array.size == 0
+        else array
+        for array in batch
+    ]
+
+
 def preprocess_mask(seg: np.ndarray) -> np.ndarray:
     r"""Convert an LDF mask to the Albumentations mask layout.
 

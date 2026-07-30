@@ -6,7 +6,7 @@ import pytest
 from loguru import logger
 
 from luxonis_ml.data import AlbumentationsEngine
-from luxonis_ml.data.augmentations import BatchCompose, BatchTransform
+from luxonis_ml.data.augmentations import BatchCompose, BatchTransform, MixUp
 from luxonis_ml.typing import Labels
 
 from .helpers import KeepFirstSample
@@ -41,6 +41,19 @@ class PushFirstBoxOutOfFrame(KeepFirstSample):
 class ReturnsFlatBoxes(KeepFirstSample):
     def apply_to_bboxes(self, _batch: list[np.ndarray], **_) -> np.ndarray:
         return np.array([1.0, 2.0, 3.0])
+
+
+class DropsFirstBox(KeepFirstSample):
+    """Filters a box inside the transform, leaving the labels untouched.
+
+    The surviving boxes look untouched from the outside, so nothing but the
+    instance count gives the mismatch away.
+    """
+
+    def apply_to_bboxes(
+        self, bboxes_batch: list[np.ndarray], **_
+    ) -> np.ndarray:
+        return bboxes_batch[0][1:]
 
 
 def compose(
@@ -167,7 +180,12 @@ def test_keypoints_without_a_known_count_are_left_alone(
     assert "cannot be matched" in "".join(warnings_log)
 
 
-def test_the_same_field_only_warns_once(warnings_log: list[str]) -> None:
+def test_every_affected_sample_warns(warnings_log: list[str]) -> None:
+    """A warning per sample, so the scale of the problem is visible.
+
+    Suppressing repeats for the lifetime of the composition would report a
+    dataset-wide misalignment exactly once per training run.
+    """
     composition = compose(
         {"bboxes": {"label": "metadata"}}, {"label": "metadata"}
     )
@@ -175,7 +193,108 @@ def test_the_same_field_only_warns_once(warnings_log: list[str]) -> None:
     composition(batch(bboxes=boxes(2), label=np.ones(5)))
     composition(batch(bboxes=boxes(2), label=np.ones(5)))
 
-    assert "".join(warnings_log).count("cannot be matched") == 1
+    assert "".join(warnings_log).count("cannot be matched") == 2
+
+
+def test_boxes_dropped_inside_a_transform_are_reported(
+    warnings_log: list[str],
+) -> None:
+    """A transform that filters boxes itself must not pass unnoticed.
+
+    Its output indices come back contiguous, so only the instance count
+    reveals that the labels no longer describe the surviving boxes.
+    """
+    composition = compose(
+        {"bboxes": {"label": "metadata"}},
+        {"label": "metadata"},
+        transform=DropsFirstBox(),
+    )
+
+    composition(batch(bboxes=boxes(3), label=np.arange(3.0)))
+
+    assert "cannot be matched" in "".join(warnings_log)
+
+
+def test_label_fields_are_not_overwritten_by_the_index_column() -> None:
+    """Albumentations appends label columns to the right of the index one.
+
+    Writing the instance index to the last column would replace every box's
+    class label with its row number.
+    """
+    composition = BatchCompose(
+        [KeepFirstSample()],
+        bbox_params=A.BboxParams(
+            format="albumentations", label_fields=["class_labels"]
+        ),
+        bbox_associations={"bboxes": {"metadata": "metadata"}},
+    )
+    indexed = np.array(
+        [
+            [0.1 * i, 0.1 * i, 0.1 * i + 0.2, 0.1 * i + 0.2, float(i)]
+            for i in range(3)
+        ]
+    )
+
+    output = composition(
+        [
+            {
+                "image": IMAGE,
+                "bboxes": indexed.copy(),
+                "class_labels": np.array([7, 8, 9]),
+                "metadata": np.arange(3.0),
+            }
+            for _ in range(2)
+        ]
+    )
+
+    assert output["class_labels"].tolist() == [7, 8, 9]
+
+
+def test_samples_without_a_label_get_one_empty_instance_per_box() -> None:
+    """A batch transform concatenates only the samples that carry a field.
+
+    Without a placeholder for the samples that do not, the merged labels
+    come back shorter than the merged boxes and nothing can say which boxes
+    they belong to.
+    """
+    composition = BatchCompose(
+        [MixUp(p=1.0)],
+        bbox_params=A.BboxParams(format="albumentations"),
+        additional_targets={"label": "metadata"},
+        bbox_associations={"bboxes": {"label": "metadata"}},
+    )
+
+    output = composition(
+        [
+            {"image": IMAGE, "bboxes": boxes(2), "label": np.arange(2.0)},
+            {"image": IMAGE, "bboxes": boxes(3), "label": np.array([])},
+        ]
+    )
+
+    assert len(output["label"]) == len(output["bboxes"]) == 5
+    assert output["label"][:2].tolist() == [0.0, 1.0]
+
+
+def test_indices_are_restamped_without_a_bbox_processor() -> None:
+    """Nothing filters the boxes, but they still need distinct indices.
+
+    Each sample is numbered from zero on the way in, so leaving the merged
+    boxes as they are points several of them at the same label.
+    """
+    composition = BatchCompose(
+        [MixUp(p=1.0)],
+        bbox_associations={"bboxes": {"metadata": "metadata"}},
+    )
+    box = np.array([[0.1, 0.1, 0.3, 0.3, 0.0, 0.0]])
+
+    output = composition(
+        [
+            {"image": IMAGE, "bboxes": box.copy(), "metadata": np.array([7])}
+            for _ in range(2)
+        ]
+    )
+
+    assert output["bboxes"][:, -1].tolist() == [0.0, 1.0]
 
 
 def test_make_contiguous_leaves_non_arrays_alone() -> None:

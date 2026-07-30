@@ -7,7 +7,7 @@ from loguru import logger
 from typing_extensions import override
 
 from .batch_transform import BatchTransform
-from .utils import yield_batches
+from .utils import instance_count, yield_batches
 
 
 class BatchCompose(A.Compose):
@@ -47,6 +47,7 @@ class BatchCompose(A.Compose):
         super().__init__(transforms, is_check_shapes=False, **kwargs)
         self._bbox_associations = bbox_associations or {}
         self._mismatched_fields: set[str] = set()
+        self._index_column = self._locate_index_column()
 
         random.seed(self.seed)
         np.random.seed(self.seed)
@@ -87,6 +88,9 @@ class BatchCompose(A.Compose):
                 f"but got {len(data_batch)}."
             )
 
+        keypoints_per_instance = keypoints_per_instance or {}
+        self._mismatched_fields = set()
+
         input_indices = [[i] for i in range(len(data_batch))]
         if not self.transforms:
             return data_batch[0]
@@ -101,13 +105,18 @@ class BatchCompose(A.Compose):
             for i, batch in enumerate(
                 yield_batches(data_batch, transform.batch_size)
             ):
+                # Captured before padding so that a transform which does not
+                # fire returns the first sample exactly as it came in.
+                first_sample = {key: value[0] for key, value in batch.items()}
+                self._pad_absent_instances(batch, keypoints_per_instance)
+
                 data = transform(**batch)  # type: ignore
                 batch_indices = input_indices[
                     i * transform.batch_size : (i + 1) * transform.batch_size
                 ]
 
                 if not transform.params:
-                    data = {key: value[0] for key, value in batch.items()}
+                    data = first_sample
                     new_indices.append(batch_indices[0])
                 else:
                     new_indices.append(
@@ -121,7 +130,7 @@ class BatchCompose(A.Compose):
                 bbox_counts = self._reindex_bboxes(data)
                 data = self.check_data_post_transform(data)
                 self._compact_bbox_associated_labels(
-                    data, bbox_counts, keypoints_per_instance or {}
+                    data, bbox_counts, keypoints_per_instance
                 )
                 # Filtering left gaps in the index column; close them so the
                 # next transform starts from contiguous indices again.
@@ -142,6 +151,83 @@ class BatchCompose(A.Compose):
 
         return data
 
+    def _locate_index_column(self) -> int:
+        """Position of the instance-index column, counted from the right.
+
+        `luxonis_ml.data.augmentations.utils.preprocess_bboxes` appends the
+        index as the last column, but the wrapped bbox processor appends one
+        more column for every configured label field, pushing the index left.
+        """
+        processor = self.processors.get("bboxes")
+        if processor is None:
+            return -1
+        return -1 - len(processor.params.label_fields or [])
+
+    def _pad_absent_instances(
+        self,
+        batch: dict[str, list[np.ndarray]],
+        keypoints_per_instance: dict[str, int],
+    ) -> None:
+        """Give samples missing an associated label one empty instance per box.
+
+        Batch transforms concatenate only the samples that carry a field, so
+        in a partially annotated batch the merged labels would come back
+        shorter than the merged boxes with no way to tell which boxes they
+        belong to. Filling the gaps keeps the two one-to-one.
+        """
+        image_shapes = [image.shape[:2] for image in batch.get("image", [])]
+
+        for bbox_field, associations in self._bbox_associations.items():
+            if bbox_field not in batch:
+                continue
+
+            bbox_counts = [len(bboxes) for bboxes in batch[bbox_field]]
+
+            for field_name, target_type in associations.items():
+                if field_name not in batch:
+                    continue
+                self._fill_empty_entries(
+                    batch[field_name],
+                    target_type,
+                    bbox_counts,
+                    image_shapes,
+                    keypoints_per_instance.get(field_name, 0),
+                )
+
+    @staticmethod
+    def _fill_empty_entries(
+        values: list[np.ndarray],
+        target_type: str,
+        bbox_counts: list[int],
+        image_shapes: list[tuple[int, ...]],
+        n_keypoints: int,
+    ) -> None:
+        """Replace each empty entry with zeroed instances, one per box.
+
+        The layout is copied from a populated entry, so a field no sample in
+        the batch carries is left empty rather than invented.
+        """
+        template = next((value for value in values if value.size), None)
+        if template is None:
+            return
+        if target_type == "keypoints" and n_keypoints < 1:
+            return
+
+        for i, value in enumerate(values):
+            if value.size or not bbox_counts[i]:
+                continue
+
+            if target_type == "instance_mask":
+                if i >= len(image_shapes):
+                    continue
+                shape = (*image_shapes[i], bbox_counts[i])
+            elif target_type == "keypoints":
+                shape = (bbox_counts[i] * n_keypoints, *template.shape[1:])
+            else:
+                shape = (bbox_counts[i], *template.shape[1:])
+
+            values[i] = np.zeros(shape, dtype=template.dtype)
+
     def _reindex_bboxes(self, data: dict[str, np.ndarray]) -> dict[str, int]:
         """Give each bbox field contiguous indices and return its size.
 
@@ -151,13 +237,8 @@ class BatchCompose(A.Compose):
         that the survivors can be used to compact those labels in lockstep.
         """
         bbox_counts = {}
-        bbox_processor = self.processors.get("bboxes")
-        if bbox_processor is None:
-            return bbox_counts
 
-        for field_name in bbox_processor.data_fields:
-            if field_name not in self._bbox_associations:
-                continue
+        for field_name in self._bbox_associations:
             bboxes = data.get(field_name)
             if bboxes is None:
                 continue
@@ -170,7 +251,9 @@ class BatchCompose(A.Compose):
                 )
             # The caller's array may be read-only, and is not ours to modify.
             bboxes = bboxes.copy()
-            bboxes[:, -1] = np.arange(len(bboxes), dtype=bboxes.dtype)
+            bboxes[:, self._index_column] = np.arange(
+                len(bboxes), dtype=bboxes.dtype
+            )
             data[field_name] = bboxes
         return bbox_counts
 
@@ -184,7 +267,9 @@ class BatchCompose(A.Compose):
 
         A field whose instance count disagrees with the bbox count cannot be
         matched up instance by instance, so it is left untouched rather than
-        dropped or regrouped on a guess.
+        dropped or regrouped on a guess. The counts are compared even when
+        nothing was filtered, because a transform that drops boxes itself
+        leaves the surviving indices looking untouched.
         """
         for bbox_field, associations in self._bbox_associations.items():
             if bbox_field not in bbox_counts:
@@ -193,12 +278,13 @@ class BatchCompose(A.Compose):
             bbox_count = bbox_counts[bbox_field]
             bboxes = data[bbox_field]
             indices = (
-                bboxes[:, -1].astype(int)
+                bboxes[:, self._index_column].astype(int)
                 if bboxes.size
                 else np.array([], dtype=int)
             )
-            if bbox_count and np.array_equal(indices, np.arange(bbox_count)):
-                continue
+            unfiltered = bool(
+                bbox_count and np.array_equal(indices, np.arange(bbox_count))
+            )
 
             for field_name, target_type in associations.items():
                 value = data.get(field_name)
@@ -215,19 +301,27 @@ class BatchCompose(A.Compose):
                 if value.size == 0:
                     continue
 
-                compacted = self._select_instances(
-                    value,
-                    target_type,
-                    indices,
-                    bbox_count,
-                    keypoints_per_instance.get(field_name, 0),
-                )
-                if compacted is None:
+                n_keypoints = keypoints_per_instance.get(field_name, 0)
+                if (
+                    self._count_instances(value, target_type, n_keypoints)
+                    != bbox_count
+                ):
                     self._warn_unmatched(
                         field_name, value, bbox_count, bbox_field
                     )
-                else:
-                    data[field_name] = compacted
+                elif not unfiltered:
+                    data[field_name] = self._select_instances(
+                        value, target_type, indices, bbox_count, n_keypoints
+                    )
+
+    @staticmethod
+    def _count_instances(
+        value: np.ndarray, target_type: str, n_keypoints: int
+    ) -> int | None:
+        """Instances in ``value``, or ``None`` if they cannot be counted."""
+        if target_type == "keypoints" and n_keypoints < 1:
+            return None
+        return instance_count(value, target_type, n_keypoints)
 
     @staticmethod
     def _select_instances(
@@ -236,26 +330,16 @@ class BatchCompose(A.Compose):
         indices: np.ndarray,
         bbox_count: int,
         n_keypoints: int,
-    ) -> np.ndarray | None:
-        """Keep only the instances at ``indices``, in that order.
-
-        Returns ``None`` if the field does not hold exactly ``bbox_count``
-        instances, in which case it cannot be matched up with the boxes.
-        """
+    ) -> np.ndarray:
+        """Keep only the instances at ``indices``, in that order."""
         if target_type == "instance_mask":
             # Instance masks are (H, W, N) at this point.
-            if value.shape[-1] != bbox_count:
-                return None
             return value[..., indices]
 
         if target_type == "keypoints":
-            if not n_keypoints or value.shape[0] != bbox_count * n_keypoints:
-                return None
             grouped = value.reshape(bbox_count, n_keypoints, *value.shape[1:])
             return grouped[indices].reshape(-1, *value.shape[1:])
 
-        if len(value) != bbox_count:
-            return None
         return value[indices]
 
     def _warn_unmatched(
@@ -265,6 +349,7 @@ class BatchCompose(A.Compose):
         bbox_count: int,
         bbox_field: str,
     ) -> None:
+        """Warn once per field per sample that a field could not be matched."""
         if field_name in self._mismatched_fields:
             return
         self._mismatched_fields.add(field_name)

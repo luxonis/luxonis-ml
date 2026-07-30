@@ -8,18 +8,11 @@ from typing_extensions import override
 
 from luxonis_ml.data.augmentations.batch_transform import BatchTransform
 from luxonis_ml.data.augmentations.custom import LetterboxResize
-
-
-def _column_count(batch: list[np.ndarray], default: int) -> int:
-    """Column count to give empty entries so concatenation lines up.
-
-    Albumentations sizes these rows differently depending on which optional
-    fields a pipeline uses, so the width is read off a populated entry.
-    """
-    for array in batch:
-        if array.size > 0 and array.ndim == 2:
-            return array.shape[1]
-    return default
+from luxonis_ml.data.augmentations.utils import (
+    BBOX_COLUMNS,
+    KEYPOINT_COLUMNS,
+    pad_empty_entries,
+)
 
 
 class MixUp(BatchTransform):
@@ -199,11 +192,7 @@ class MixUp(BatchTransform):
             Transformed bounding boxes.
 
         """
-        n_columns = _column_count(bboxes_batch, default=6)
-        for i in range(len(bboxes_batch)):
-            bbox = bboxes_batch[i]
-            if bbox.size == 0:
-                bboxes_batch[i] = np.zeros((0, n_columns), dtype=bbox.dtype)
+        bboxes_batch = pad_empty_entries(bboxes_batch, default=BBOX_COLUMNS)
 
         bboxes_batch[1] = self._resize(
             bboxes_batch[1],
@@ -232,12 +221,9 @@ class MixUp(BatchTransform):
             Transformed keypoints.
 
         """
-        n_columns = _column_count(keypoints_batch, default=6)
-        for i in range(len(keypoints_batch)):
-            if keypoints_batch[i].size == 0:
-                keypoints_batch[i] = np.zeros(
-                    (0, n_columns), dtype=keypoints_batch[i].dtype
-                )
+        keypoints_batch = pad_empty_entries(
+            keypoints_batch, default=KEYPOINT_COLUMNS
+        )
 
         keypoints_batch[1] = self._resize(
             keypoints_batch[1],
