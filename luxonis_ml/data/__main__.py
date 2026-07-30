@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from luxonis_ml.ldf import DatasetRecord
     from luxonis_ml.typing import Labels, LoaderOutput, Params, ParamValue
     from luxonis_ml.vizlab import (
+        Color,
         ComparisonReport,
         ComparisonResult,
         Renderable,
@@ -484,6 +485,91 @@ def ls(
     console.print(table)
 
 
+def _plain_by_default(plain: "bool | None", save: "Path | None") -> bool:
+    """Resolve ``--plain`` / ``--no-plain``, defaulting it on for a clip.
+
+    A clip is encoded onto one fixed canvas, but the side panel's width follows
+    each sample's metadata and the rounded surface adds a margin around the
+    photo — so leaving them on makes every frame that disagrees with the first
+    one letterbox. The bare image is almost always what a clip is for, and
+    ``--no-plain`` says otherwise.
+
+    Args:
+        plain: The flag as given, or ``None`` when it was not passed at all.
+        save: The ``--save`` destination, if any.
+
+    Returns:
+        Whether to render without the panel and its surround.
+
+    """
+    from luxonis_ml.vizlab import is_video_path
+
+    if plain is not None:
+        return plain
+    return save is not None and is_video_path(save)
+
+
+def _write_renders(
+    renders: "Iterable[tuple[str, Renderable]]",
+    destination: Path,
+    *,
+    image_format: str,
+    fps: float,
+    background: "Color",
+    empty_note: str,
+) -> None:
+    """Write headless renders to a directory of stills, or to a single clip.
+
+    ``destination`` chooses between the two: an extension `VideoWriter` knows
+    (see `luxonis_ml.vizlab.VIDEO_FORMATS`) encodes every render into one
+    playable file, and anything else is treated as a directory that gets one
+    ``image_format`` file per render. Shared by ``inspect`` and ``compare`` so
+    the two save the same way.
+
+    Args:
+        renders: ``(source_name, render)`` pairs, in the order to write them.
+        destination: The output clip or directory.
+        image_format: Extension for the per-render files, ``png`` or ``svg``.
+            Unused by the clip form, which takes its encoder from the extension.
+        fps: Frame rate for the clip form.
+        background: Color shown behind renders that do not fill the clip.
+        empty_note: What to print when ``renders`` turns out to be empty.
+
+    """
+    from luxonis_ml.vizlab import VideoWriter, is_video_path
+
+    if is_video_path(destination):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        clip = VideoWriter(destination, fps=fps, background=background)
+        try:
+            for _, render in renders:
+                clip.add(render)
+        finally:
+            # Reporting an empty run is the command's job, not the writer's: a
+            # filter that matched nothing deserves the same note the directory
+            # form prints rather than a traceback about the file it skipped.
+            clip.close(quiet=True)
+        written = len(clip)
+        size = clip.size
+        summary = (
+            f"a {written}-frame clip ({clip.codec}, {size[0]}x{size[1]})"
+            if size is not None
+            else ""
+        )
+    else:
+        destination.mkdir(parents=True, exist_ok=True)
+        written = 0
+        for source_name, render in renders:
+            stem = f"{written:04d}_{Path(source_name).stem or 'image'}"
+            render.save(destination / f"{stem}.{image_format}")
+            written += 1
+        summary = f"{written} render(s)"
+    if not written:
+        print(f"[yellow]{empty_note}[/yellow]")
+        return
+    print(f"[green]Saved {summary} to '{destination}'.[/green]")
+
+
 @app.command
 def inspect(
     name: str,
@@ -572,9 +658,9 @@ def inspect(
         Parameter(alias="-t", group=_VISUALIZATION_OPTIONS),
     ] = "dark",
     plain: Annotated[
-        bool,
-        Parameter(alias="-p", negative="", group=_VISUALIZATION_OPTIONS),
-    ] = False,
+        bool | None,
+        Parameter(alias="-p", group=_VISUALIZATION_OPTIONS),
+    ] = None,
     save: Annotated[
         Path | None,
         Parameter(alias="-o", group=_OUTPUT_OPTIONS),
@@ -583,6 +669,10 @@ def inspect(
         Literal["png", "svg"],
         Parameter(alias="-fmt", group=_OUTPUT_OPTIONS),
     ] = "png",
+    fps: Annotated[
+        float,
+        Parameter(group=_OUTPUT_OPTIONS),
+    ] = 5.0,
     bucket_storage: Annotated[
         BucketStorageT,
         Parameter(group=_DATASET_OPTIONS),
@@ -651,16 +741,25 @@ def inspect(
             scenes are drawn instead of hidden (equivalent to pressing ``d`` up
             front). Toggle it back on any time with the ``d`` key.
         theme: Visual theme of the visualization: ``dark`` or ``light``.
-        plain: Render just the framed image, without the side panel (controls,
-            class legend, and sample metadata).
-        save: Directory to write renders to instead of opening a window. One file
-            is written per source image (annotations blended onto it); the viewer
-            is never opened, so this works headless. The directory is created if
-            needed.
-        save_format: File format when ``--save`` is set: ``png`` (raster) or
-            ``svg`` (annotations and metadata panel as crisp vectors over the
-            embedded photo, scalable to any zoom). Both keep the panel unless
-            ``--plain``.
+        plain: Render just the image, without the side panel (controls, class
+            legend, and sample metadata) or the rounded surface it is mounted
+            on. Defaults to off, except when ``--save`` names a clip: a clip has
+            one fixed canvas but the panel's width follows each sample's
+            metadata, so keeping it would letterbox every frame that disagrees.
+            Pass ``--no-plain`` to keep the panel in a clip anyway.
+        save: Where to write renders instead of opening a window; headless
+            either way. A path ending in a clip extension (``.mp4``, ``.webm``,
+            ``.avi``, ``.mkv``, ``.mov``, ``.gif``, ``.webp``, ``.apng``,
+            ``.avif``) encodes every sample into that single file; any other
+            path is a directory, created if needed, that gets one file per
+            source image.
+        save_format: File format for the directory form of ``--save``: ``png``
+            (raster) or ``svg`` (annotations and metadata panel as crisp vectors
+            over the embedded photo, scalable to any zoom). Ignored when
+            ``--save`` names a clip, whose extension already picks the encoder.
+            Both forms follow ``--plain`` for the side panel.
+        fps: Frames per second when ``--save`` names a clip. Every sample
+            contributes one frame, so this sets how long each is on screen.
         bucket_storage: Storage type of the dataset.
 
     """
@@ -783,6 +882,8 @@ def inspect(
             "Visualization requires the 'viz' extra. "
             "Install it with `pip install luxonis-ml[viz]`."
         ) from e
+
+    plain = _plain_by_default(plain, save)
 
     class_names = _deduped_class_names(
         dataset, show_background=show_background
@@ -987,18 +1088,15 @@ def inspect(
             max(1, round(height * size_multiplier)),
         )
 
-    def save_renders(directory: Path) -> None:
-        """Write each source image to a file instead of opening a window.
+    def headless_renders() -> "Iterable[tuple[str, Renderable]]":
+        """Build every render in loader order, paired with its source name.
 
         Fully headless (no viewer, no screen): every source image is built with
-        `blend_annotations`, framed with the metadata panel (unless ``--plain``),
-        and written by `Renderable.save`, whose extension picks the format — a
-        ``png`` raster or a crisp vector ``svg`` (annotations and panel as vectors
-        over the embedded photo). Decluttering follows ``--show-all``.
+        `blend_annotations` and framed with the metadata panel unless
+        ``--plain``. Decluttering follows ``--show-all``. Shared by both save
+        forms so a clip and a directory show exactly the same pixels.
         """
-        directory.mkdir(parents=True, exist_ok=True)
         layers = LayerState(declutter=not show_all)
-        count = 0
         for data, records, panel in prepared_samples():
             layers.update_classes(_present_classes(records.values()))
             sample_color_by = sample_color_mode(records)
@@ -1018,13 +1116,17 @@ def inspect(
                             controls=False,
                         ),
                     )
-                stem = f"{count:04d}_{Path(source_name).stem or 'image'}"
-                viz.save(directory / f"{stem}.{save_format}")
-                count += 1
-        print(f"[green]Saved {count} render(s) to '{directory}'.[/green]")
+                yield source_name, viz
 
     if save is not None:
-        save_renders(save)
+        _write_renders(
+            headless_renders(),
+            save,
+            image_format=save_format,
+            fps=fps,
+            background=viz_theme.background,
+            empty_note="No samples matched the inspection filters.",
+        )
         return
 
     # vizlab now owns layout, screen-fit sizing, hover hit-testing, and the
@@ -1330,6 +1432,22 @@ def compare(
         Literal["dark", "light"],
         Parameter(alias="-t", group=_VISUALIZATION_OPTIONS),
     ] = "dark",
+    plain: Annotated[
+        bool | None,
+        Parameter(alias="-p", group=_VISUALIZATION_OPTIONS),
+    ] = None,
+    save: Annotated[
+        Path | None,
+        Parameter(alias="-o", group=_OUTPUT_OPTIONS),
+    ] = None,
+    save_format: Annotated[
+        Literal["png", "svg"],
+        Parameter(alias="-fmt", group=_OUTPUT_OPTIONS),
+    ] = "png",
+    fps: Annotated[
+        float,
+        Parameter(group=_OUTPUT_OPTIONS),
+    ] = 5.0,
     force_update: Annotated[
         bool,
         Parameter(alias="-f", negative="", group=_DATASET_OPTIONS),
@@ -1378,6 +1496,22 @@ def compare(
         legend: Draw a class-color legend on each frame.
         show_background: Render the semantic-segmentation background class.
         theme: Visual theme: ``dark`` or ``light``.
+        plain: Render just the verdict frame, without the metrics side panel or
+            the rounded surface it is mounted on. Defaults to off, except when
+            ``--save`` names a clip, whose single fixed canvas the panel would
+            otherwise letterbox every disagreeing frame against. The panel is
+            where precision, recall, and the TP/FP/FN counts live, so reach for
+            ``--no-plain`` when the clip is meant to carry them.
+        save: Where to write the comparison frames instead of opening a window;
+            headless either way. A path ending in a clip extension (``.mp4``,
+            ``.webm``, ``.avi``, ``.mkv``, ``.mov``, ``.gif``, ``.webp``,
+            ``.apng``, ``.avif``) encodes the whole comparison into that single
+            file — a scrubbable record of how a model did across the view. Any
+            other path is a directory, created if needed, that gets one file per
+            compared image.
+        save_format: File format for the directory form of ``--save``: ``png``
+            or ``svg``. Ignored when ``--save`` names a clip.
+        fps: Frames per second when ``--save`` names a clip.
         force_update: Force synchronization with remote storage first.
         bucket_storage: Storage type of the datasets.
 
@@ -1458,6 +1592,8 @@ def compare(
             "Visualization requires the 'viz' extra. "
             "Install it with `pip install luxonis-ml[viz]`."
         ) from e
+
+    plain = _plain_by_default(plain, save)
 
     class_names = _deduped_class_names(
         gt_dataset, show_background=show_background
@@ -1667,13 +1803,20 @@ def compare(
         print(f"[green]Wrote confusion matrix to {out_path}[/green]")
         return
 
-    viewer = Viewer()
-    screen = viewer.screen
+    # ``--save`` renders the same frames headlessly, so the viewer — and the
+    # screen probe that opens a window to find the display size — is only built
+    # for the interactive path.
+    viewer = None if save is not None else Viewer()
+    screen = viewer.screen if viewer is not None else None
     # The metrics panel is a fixed pixel width; reserve room for it when fitting.
-    panel_reserve = 400.0
+    panel_reserve = 0.0 if plain else 400.0
 
     def display_size(width: int, height: int) -> tuple[int, int] | None:
-        """Fit ``width`` x ``height`` to the screen (or apply the multiplier)."""
+        """Fit ``width`` x ``height`` to the screen (or apply the multiplier).
+
+        There is no screen to fit to when saving, so ``auto`` falls through to
+        ``None`` and keeps the source resolution.
+        """
         if size_multiplier != "auto":
             scale = size_multiplier
         elif screen is not None:
@@ -1712,16 +1855,57 @@ def compare(
             if not isinstance(display, Image):
                 display = Image(frame.render()).with_hitmap(frame.hitmap)
             display.add(class_legend)
+        if plain:
+            return display.frame()
         metrics: dict[str, PanelData] = dict(result.summary())
         if per_class and len(result.per_class) > 1:
             metrics["by class"] = result.per_class_panel()
         return display.with_panel(metrics, title="Comparison").frame()
 
-    for identity in shared:
+    def paired(
+        identity: "_SampleIdentity",
+    ) -> "tuple[LoaderOutput, Mapping[str, DatasetRecord], Mapping[str, DatasetRecord]]":
+        """Load one paired sample: its images, then both sides' records."""
         gt_data = gt_loader[gt_indices[identity]]
         pred_data = pred_loader[pred_indices[identity]]
-        gt_records = records_for(gt_data, gt_classes, gt_categorical)
-        pred_records = records_for(pred_data, pred_classes, pred_categorical)
+        return (
+            gt_data,
+            records_for(gt_data, gt_classes, gt_categorical),
+            records_for(pred_data, pred_classes, pred_categorical),
+        )
+
+    if save is not None:
+
+        def compared_frames() -> "Iterable[tuple[str, Renderable]]":
+            """Build every comparison scene in view order, headlessly.
+
+            `Frame.image` unwraps the composed scene from the hover/click maps
+            that only a `Viewer` consumes — and that a saved file has no way to
+            carry anyway.
+            """
+            for identity in shared:
+                gt_data, gt_records, pred_records = paired(identity)
+                for source_name, image in gt_data.images.items():
+                    yield (
+                        source_name,
+                        build_frame(
+                            image.astype(np.uint8), gt_records, pred_records
+                        ).image,
+                    )
+
+        _write_renders(
+            compared_frames(),
+            save,
+            image_format=save_format,
+            fps=fps,
+            background=viz_theme.background,
+            empty_note="No paired samples matched the comparison filters.",
+        )
+        return
+
+    assert viewer is not None
+    for identity in shared:
+        gt_data, gt_records, pred_records = paired(identity)
         for source_name, image in gt_data.images.items():
             viewer.show(
                 source_name,

@@ -158,6 +158,12 @@ Notes:
     - `blend`, `hstack`, `vstack`, `grid`, and `with_panel` return new composed
       images and leave their inputs unchanged.
 
+    `Renderable.save` writes one finished scene to a file, picking the encoder
+    from the extension. `VideoWriter` and `save_video` do the same for a whole
+    sequence of scenes, writing one video (``.mp4``, ``.webm``, ``.avi``,
+    ``.mkv``, ``.mov``) or one animated image (``.gif``, ``.webp``, ``.apng``,
+    ``.avif``); see `luxonis_ml.vizlab.video` for which to reach for.
+
     Internally those responsibilities live in focused ``adapters``, ``scene``,
     ``render``, ``layout``, ``interaction``, and ``comparison`` packages. Every
     name above is re-exported here, so importing from ``luxonis_ml.vizlab`` is
@@ -247,6 +253,12 @@ with guard_missing_extra("viz"):
         Theme,
     )
     from .tooltip import Tooltip
+    from .video import (
+        VIDEO_FORMATS,
+        VideoWriter,
+        is_video_path,
+        save_video,
+    )
 
 __all__ = [
     "COCO_CLASSES",
@@ -255,6 +267,7 @@ __all__ = [
     "DEFAULT_PALETTE",
     "GRADIENTS",
     "LIGHT_THEME",
+    "VIDEO_FORMATS",
     "Annotation",
     "BBox",
     "Block",
@@ -291,6 +304,7 @@ __all__ = [
     "Theme",
     "Tooltip",
     "Verdict",
+    "VideoWriter",
     "blend",
     "combine",
     "compare",
@@ -301,8 +315,10 @@ __all__ = [
     "fit_grid",
     "grid",
     "hstack",
+    "is_video_path",
     "match_detections",
     "resolve_gradient",
+    "save_video",
     "set_default_options",
     "visualize_record",
     "vstack",

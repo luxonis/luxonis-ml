@@ -73,6 +73,25 @@ def test_filter_config_has_flat_options_on_inspect_and_compare() -> None:
     assert compare_ignored == {}
 
 
+@pytest.mark.parametrize("command", ["inspect", "compare"])
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    [("--plain", True), ("--no-plain", False), (None, None)],
+)
+def test_plain_is_tri_state_on_both_commands(
+    command: str, flag: str | None, expected: bool | None
+) -> None:
+    # 'None' is what lets --save decide: a clip defaults to plain, everything
+    # else does not. Both spellings have to reach the command for that to work.
+    argv = [command, "dataset", *(["other"] if command == "compare" else [])]
+    _, arguments, _ = data_main.app.parse_args(
+        [*argv, *([flag] if flag else [])], exit_on_error=False
+    )
+    # An unpassed option is absent rather than present-and-None, which is the
+    # same thing as far as the command's default is concerned.
+    assert arguments.arguments.get("plain") is expected
+
+
 def _command_help(command: str) -> str:
     console = Console(record=True, width=120)
     data_main.app.help_print([command], console=console)
@@ -1375,6 +1394,72 @@ def test_compare_command_renders_verdict_frame(
     assert metrics["FP"] == 0
 
 
+def test_compare_save_writes_a_clip_without_opening_a_viewer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Saving a comparison must be fully headless: no window, no screen probe.
+    import cv2
+
+    backend, _ = _compare_mocks(
+        monkeypatch, np.zeros((40, 60, 3), dtype=np.uint8)
+    )
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    clip = tmp_path / "verdicts.mp4"
+    try:
+        data_main.compare("gt", "preds", save=clip, fps=4)
+    finally:
+        set_default_options(RenderOptions())
+
+    assert backend.shown == []  # nothing was ever presented
+    capture = cv2.VideoCapture(str(clip))
+    assert capture.read()[0]
+    capture.release()
+
+
+def test_compare_save_clip_drops_the_metrics_panel_by_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Same rule as inspect: a clip is bare unless --no-plain asks for the panel.
+    # The metrics panel is what carries precision/recall, so this is the one
+    # place the default costs something -- hence checking both directions.
+    _, panels = _compare_mocks(
+        monkeypatch, np.zeros((40, 60, 3), dtype=np.uint8)
+    )
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    try:
+        data_main.compare("gt", "preds", save=tmp_path / "bare.mp4")
+        assert panels == []  # no metrics panel was attached at all
+        data_main.compare(
+            "gt", "preds", save=tmp_path / "full.mp4", plain=False
+        )
+    finally:
+        set_default_options(RenderOptions())
+
+    assert [title for title, _ in panels] == ["Comparison"]
+    # No panel and no rounded surround leaves exactly the source width.
+    assert _first_clip_frame(tmp_path / "bare.mp4").shape[1] == 60
+
+
+def test_compare_save_writes_a_directory_of_stills(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A comparison frame is a `Frame`, which has no `save`; the directory form
+    # only works because the writer is handed the scene the frame wraps.
+    _compare_mocks(monkeypatch, np.zeros((40, 60, 3), dtype=np.uint8))
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    try:
+        data_main.compare("gt", "preds", save=tmp_path / "stills")
+    finally:
+        set_default_options(RenderOptions())
+
+    written = sorted((tmp_path / "stills").iterdir())
+    assert [path.name for path in written] == ["0000_image.png"]
+    assert written[0].read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
 def test_compare_command_supports_dual_and_triple_layouts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1628,6 +1713,84 @@ def test_inspect_save_writes_svg_and_png(
     assert svg.read_bytes().startswith(b"<?xml")  # a vector document
     assert b"<image" in svg.read_bytes()  # with the photo embedded
     assert png.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"  # a raster encode
+
+
+def test_inspect_save_writes_a_clip_when_given_a_clip_extension(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The same --save option takes a directory or a single clip; the extension
+    # is what tells them apart, so --save-format has nothing to say here.
+    import cv2
+
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch)
+    clip = tmp_path / "preview.mp4"
+    try:
+        data_main.inspect("ds", save=clip, fps=12)
+    finally:
+        set_default_options(RenderOptions())
+
+    assert clip.stat().st_size > 0
+    capture = cv2.VideoCapture(str(clip))
+    assert capture.get(cv2.CAP_PROP_FPS) == 12
+    capture.release()
+    assert not (tmp_path / "preview").exists()  # no stray directory
+
+
+def _first_clip_frame(path: Path) -> np.ndarray:
+    """Decode a clip's opening frame."""
+    import cv2
+
+    capture = cv2.VideoCapture(str(path))
+    read, frame = capture.read()
+    capture.release()
+    assert read
+    return frame
+
+
+def test_inspect_save_clip_drops_the_panel_unless_asked_to_keep_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A clip has one fixed canvas but the panel's width follows each sample's
+    # metadata, so --plain is the default there. --no-plain restores it, and
+    # the directory form keeps the panel either way.
+    import cv2
+
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch)
+    try:
+        data_main.inspect("ds", save=tmp_path / "bare.mp4")
+        data_main.inspect("ds", save=tmp_path / "full.mp4", plain=False)
+        data_main.inspect("ds", save=tmp_path / "stills")
+    finally:
+        set_default_options(RenderOptions())
+
+    bare = _first_clip_frame(tmp_path / "bare.mp4")
+    full = _first_clip_frame(tmp_path / "full.mp4")
+    directory = cv2.imread(str(tmp_path / "stills" / "0000_frame01.png"))
+    assert bare.shape[1] == 60  # the source image alone, no panel, no surround
+    assert full.shape[1] > bare.shape[1]  # --no-plain put the panel back
+    assert directory.shape[1] > bare.shape[1]  # a directory still gets one
+
+
+def test_inspect_save_writes_an_animation_too(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from PIL import Image as PILImage
+
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch)
+    clip = tmp_path / "preview.gif"
+    try:
+        data_main.inspect("ds", save=clip)
+    finally:
+        set_default_options(RenderOptions())
+
+    with PILImage.open(clip) as animation:
+        assert animation.format == "GIF"
 
 
 def test_inspect_save_plain_drops_the_panel(
