@@ -104,11 +104,16 @@ class FakeWandb:
 
     def __init__(self):
         self.run: FakeWandbRun | None = None
+        self.init_attempts = 0
+        self.fail_init = False
 
     def Image(self, img: Any, caption: str) -> dict[str, Any]:
         return {"img": img, "caption": caption}
 
     def init(self, **kwargs: Any) -> FakeWandbRun:
+        self.init_attempts += 1
+        if self.fail_init:
+            raise RuntimeError("wandb is unreachable")
         self.run = FakeWandbRun(**kwargs)
         return self.run
 
@@ -126,6 +131,8 @@ class FakeMlflow:
         self.fail_init = False
         self.fail_after: int | None = None
         self.fail_end_run = False
+        # calls the server rejects for good, whatever else it accepts
+        self.reject_kinds: set[str] = set()
 
     def enable_system_metrics_logging(self) -> None:
         self.system_metrics = True
@@ -163,6 +170,8 @@ class FakeMlflow:
         )
 
     def _record(self, name: str, *args: Any) -> None:
+        if name in self.reject_kinds:
+            raise RuntimeError(f"mlflow rejects {name}")
         if self.fail_after is not None and len(self.calls) >= self.fail_after:
             raise RuntimeError("mlflow is unreachable")
         self.calls.append((name, args))

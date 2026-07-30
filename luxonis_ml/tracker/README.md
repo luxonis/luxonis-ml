@@ -147,13 +147,21 @@ data.
 - MLflow is initialized lazily on first access to `tracker.experiment`.
 - When MLflow logging fails, the call is buffered and replayed — in order —
   once the server answers again. A failed connection is only retried once per
-  minute, so an unreachable server does not stall the training loop.
+  minute, so an unreachable server does not stall the training loop. `close()`
+  ignores that backoff to give the server one last chance.
+- A call MLflow keeps rejecting while it accepts the calls behind it is dropped,
+  so a single bad call cannot block every later log.
+- A buffered artifact is copied into the run directory straight away, because
+  callers routinely delete the file right after handing it over.
 - The buffer is bounded (500 calls, of which at most 50 images). The oldest
-  entries are dropped, with a warning, once it fills up.
+  entry is dropped once it fills up, and the first drop is warned about.
+  Hyperparameters and artifacts go last, as no later call repeats them.
 - On shutdown, any logs that could still not be sent are saved to:
-  - `<save_directory>/<run_name>/local_logs.json`
+  - `<save_directory>/<run_name>/local_logs.json` — appended to, so saving
+    more than once during a run keeps the earlier records
   - `<save_directory>/<run_name>/images/`
-  - `<save_directory>/<run_name>/artifacts/`
+  - `<save_directory>/<run_name>/artifacts/<n>/` — one directory per artifact,
+    which keeps artifacts that share a file name apart
 
 ### Cloudflare Access Headers
 

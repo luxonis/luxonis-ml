@@ -539,6 +539,7 @@ def test_buffered_logs_are_saved_locally(
     mlflow_tracker.upload_artifact(artifact_path)
     mlflow_tracker.upload_artifact_to_mlflow(deleted_path)
     deleted_path.unlink()
+    mlflow_tracker.upload_artifact_to_mlflow(tempdir / "never_existed.txt")
 
     mlflow_tracker.close("failed")
 
@@ -557,11 +558,14 @@ def test_buffered_logs_are_saved_locally(
     assert image_path.exists()
 
     assert saved["artifacts"][0]["path"] == str(
-        mlflow_tracker.run_directory / "artifacts" / "model.onnx"
+        mlflow_tracker.run_directory / "artifacts" / "0" / "model.onnx"
     )
     assert Path(saved["artifacts"][0]["path"]).read_text() == "weights"
-    # the artifact that disappeared is reported but does not break the save
-    assert saved["artifacts"][1]["path"] == str(deleted_path)
+    # the copy is made when the call is buffered, so deleting the original
+    # afterwards - as checkpoint callbacks do - cannot lose it
+    assert Path(saved["artifacts"][1]["path"]).read_text() == "gone"
+    # an artifact that was already gone is reported but does not break the save
+    assert saved["artifacts"][2]["path"] == str(tempdir / "never_existed.txt")
 
     # the buffer is cleared, so closing again cannot duplicate anything
     assert not mlflow_tracker.local_logs
@@ -681,3 +685,378 @@ def test_context_manager_reports_failure(
         failing_run()
 
     assert fake_backends.mlflow.end_run_calls == ["FAILED"]
+
+
+def test_a_rejected_call_does_not_block_the_ones_behind_it(
+    mlflow_tracker: LuxonisTracker,
+    fake_backends: SimpleNamespace,
+    tempdir: Path,
+) -> None:
+    """A call MLflow rejects for good used to stay at the head of the
+    buffer, where it was retried before - and instead of - every later
+    call, so nothing reached MLflow until the buffer overflowed.
+    """
+    mlflow = fake_backends.mlflow
+    mlflow.reject_kinds = {"log_artifact"}
+    artifact_path = tempdir / "model.onnx"
+    artifact_path.write_text("weights")
+
+    mlflow_tracker.upload_artifact_to_mlflow(artifact_path)
+    assert len(mlflow_tracker.local_logs) == 1
+
+    for step in range(3):
+        mlflow_tracker.log_metric("loss", 1.0, step)
+
+    # the rejected artifact is dropped instead of blocking the metrics
+    assert not mlflow_tracker.local_logs
+    assert [args[2] for _, args in mlflow.calls] == [0, 1, 2]
+
+
+def test_an_unreachable_server_keeps_the_whole_buffer(
+    mlflow_tracker: LuxonisTracker, fake_backends: SimpleNamespace
+) -> None:
+    """Telling a rejected call apart from an unreachable server must not
+    make an outage drop the buffer: nothing gets through, so nothing may
+    be dropped.
+    """
+    mlflow = fake_backends.mlflow
+    mlflow_tracker.log_metric("loss", 1.0, 0)
+
+    mlflow.fail_after = 1
+    for step in range(1, 5):
+        mlflow_tracker.log_metric("loss", 1.0, step)
+
+    assert [call.args[2] for call in mlflow_tracker.local_logs] == [1, 2, 3, 4]
+
+
+def test_other_ranks_wait_for_a_new_run(
+    tempdir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A run left over from an earlier training used to satisfy the wait
+    immediately, so a worker joined the previous run instead of the one
+    rank zero was about to create.
+    """
+    (tempdir / "0-old").mkdir()
+    (tempdir / "1-previous").mkdir()
+
+    def create_run_directory(_: float) -> None:
+        (tempdir / "2-new").mkdir()
+
+    monkeypatch.setattr(tracker_module.time, "sleep", create_run_directory)
+
+    worker = LuxonisTracker(
+        save_directory=tempdir, is_tensorboard=True, rank=1
+    )
+    assert worker.run_name == "2-new"
+
+
+def test_a_failed_wandb_init_is_retried(
+    tempdir: Path, fake_backends: SimpleNamespace
+) -> None:
+    """A failed `wandb.init` used to leave the module in the experiment
+    dictionary, which made every later log raise `KeyError: 'wandb_run'`
+    instead of initializing again.
+    """
+    wandb = fake_backends.wandb
+    wandb.fail_init = True
+    tracker = LuxonisTracker(
+        project_name="project",
+        run_name="run",
+        save_directory=tempdir,
+        is_wandb=True,
+        wandb_entity="entity",
+    )
+
+    with pytest.raises(RuntimeError, match="wandb is unreachable"):
+        tracker.log_metric("loss", 0.5, 1)
+
+    wandb.fail_init = False
+    tracker.log_metric("loss", 0.5, 2)
+
+    assert wandb.init_attempts == 2
+    assert wandb.run.logged == [{"loss": 0.5}]
+
+
+def test_other_ranks_do_not_buffer_artifacts(
+    tempdir: Path, fake_backends: SimpleNamespace
+) -> None:
+    """`upload_artifact_to_mlflow` was the one public logging method
+    without a rank gate, so a worker buffered artifacts that its
+    rank-gated `close` then never sent nor saved.
+    """
+    artifact_path = tempdir / "model.onnx"
+    artifact_path.write_text("weights")
+    worker = LuxonisTracker(
+        project_name="project",
+        run_name="run",
+        save_directory=tempdir,
+        is_mlflow=True,
+        mlflow_tracking_uri="http://mlflow",
+        rank=1,
+    )
+
+    worker.upload_artifact_to_mlflow(artifact_path)
+    worker.close()
+
+    assert not worker.local_logs
+    assert fake_backends.mlflow.calls == []
+    assert not (worker.run_directory / "local_logs.json").exists()
+
+
+def test_a_failing_local_save_still_shuts_the_backends_down(
+    tempdir: Path,
+    fake_backends: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`save_logs_locally` was the only teardown step that could raise,
+    which left the other backends unfinalized and unrecoverable, as
+    `close` refuses to run twice.
+    """
+    fake_backends.mlflow.fail_init = True
+    tracker = LuxonisTracker(
+        project_name="project",
+        run_name="run",
+        save_directory=tempdir,
+        is_tensorboard=True,
+        is_wandb=True,
+        is_mlflow=True,
+        wandb_entity="entity",
+        mlflow_tracking_uri="http://mlflow",
+    )
+    tracker.log_metric("loss", 0.5, 1)
+
+    def broken_save() -> None:
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr(tracker, "save_logs_locally", broken_save)
+    tracker.close()
+
+    assert tracker.experiment["tensorboard"].closed
+    assert tracker.experiment["wandb_run"].exit_code == 0
+
+
+def test_saving_locally_twice_keeps_both_batches(
+    mlflow_tracker: LuxonisTracker, fake_backends: SimpleNamespace
+) -> None:
+    """The second save used to truncate the file the first one wrote,
+    and the cleared buffer meant the first batch was gone for good.
+    """
+    fake_backends.mlflow.fail_init = True
+
+    mlflow_tracker.log_hyperparams({"lr": 0.1})
+    mlflow_tracker.log_metric("epoch1_loss", 1.0, 1)
+    mlflow_tracker.log_image("vis", rgb_image(), 1)
+    mlflow_tracker.save_logs_locally()
+
+    mlflow_tracker.log_hyperparams({"epochs": 10})
+    mlflow_tracker.log_metric("epoch2_loss", 0.5, 2)
+    mlflow_tracker.log_image("vis", rgb_image(), 2)
+    mlflow_tracker.close()
+
+    saved = json.loads(
+        (mlflow_tracker.run_directory / "local_logs.json").read_text()
+    )
+    assert [metric["name"] for metric in saved["metric"]] == [
+        "epoch1_loss",
+        "epoch2_loss",
+    ]
+    assert saved["params"] == {"lr": 0.1, "epochs": 10}
+    # the second batch of images does not overwrite the first one either
+    paths = [image["image_data"] for image in saved["images"]]
+    assert len(set(paths)) == 2
+    assert all(Path(path).exists() for path in paths)
+
+
+def test_an_unreadable_local_save_is_replaced(
+    mlflow_tracker: LuxonisTracker, fake_backends: SimpleNamespace
+) -> None:
+    """A `local_logs.json` that cannot be parsed must not stop the save
+    that is trying to rescue the buffer.
+    """
+    fake_backends.mlflow.fail_init = True
+    (mlflow_tracker.run_directory / "local_logs.json").write_text("{ not json")
+
+    mlflow_tracker.log_metric("loss", 1.0, 1)
+    mlflow_tracker.close()
+
+    saved = json.loads(
+        (mlflow_tracker.run_directory / "local_logs.json").read_text()
+    )
+    assert saved["metric"] == [{"name": "loss", "value": 1.0, "step": 1}]
+
+
+def test_hyperparameters_survive_a_full_buffer(
+    mlflow_tracker: LuxonisTracker,
+    fake_backends: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The buffer used to evict strictly the oldest call, and as
+    `log_hyperparams` is the first call of a run, the configuration was
+    the first thing lost during a long outage.
+    """
+    monkeypatch.setattr(tracker_module, "MAX_BUFFERED_LOGS", 5)
+    fake_backends.mlflow.fail_init = True
+
+    mlflow_tracker.log_hyperparams({"lr": 0.001})
+    for step in range(10):
+        mlflow_tracker.log_metric("loss", 1.0, step)
+    mlflow_tracker.close()
+
+    saved = json.loads(
+        (mlflow_tracker.run_directory / "local_logs.json").read_text()
+    )
+    assert saved["params"] == {"lr": 0.001}
+    assert len(saved["metric"]) == 4
+
+
+def test_a_buffered_artifact_outlives_the_original_file(
+    mlflow_tracker: LuxonisTracker,
+    fake_backends: SimpleNamespace,
+    tempdir: Path,
+) -> None:
+    """Checkpoint callbacks delete the file right after handing it over,
+    so a buffered artifact whose upload was postponed by the retry
+    backoff used to be lost by the time the buffer was replayed.
+    """
+    fake_backends.mlflow.fail_init = True
+    checkpoint = tempdir / "best.ckpt"
+    checkpoint.write_text("weights")
+
+    mlflow_tracker.upload_artifact_to_mlflow(checkpoint)
+    checkpoint.unlink()
+
+    fake_backends.mlflow.fail_init = False
+    mlflow_tracker._mlflow_retry_at = 0.0
+    mlflow_tracker.close()
+
+    assert not mlflow_tracker.local_logs
+    logged = Path(fake_backends.mlflow.calls[0][1][0])
+    assert logged.name == "best.ckpt"
+    assert logged.read_text() == "weights"
+
+
+def test_artifacts_sharing_a_file_name_are_kept_apart(
+    mlflow_tracker: LuxonisTracker,
+    fake_backends: SimpleNamespace,
+    tempdir: Path,
+) -> None:
+    """Both artifacts used to be copied to `artifacts/<file name>`, so
+    the second silently overwrote the first.
+    """
+    fake_backends.mlflow.fail_init = True
+    for fold in ("fold_a", "fold_b"):
+        (tempdir / fold).mkdir()
+        (tempdir / fold / "best.ckpt").write_text(fold)
+        mlflow_tracker.upload_artifact_to_mlflow(tempdir / fold / "best.ckpt")
+
+    mlflow_tracker.close()
+
+    saved = json.loads(
+        (mlflow_tracker.run_directory / "local_logs.json").read_text()
+    )
+    contents = [
+        Path(artifact["path"]).read_text() for artifact in saved["artifacts"]
+    ]
+    assert contents == ["fold_a", "fold_b"]
+
+
+def test_close_waives_the_retry_backoff(
+    mlflow_tracker: LuxonisTracker, fake_backends: SimpleNamespace
+) -> None:
+    """Every buffered call pushed the backoff another minute out, so the
+    last-chance reconnect in `close` never actually tried.
+    """
+    fake_backends.mlflow.fail_init = True
+    mlflow_tracker.log_metric("loss", 1.0, 0)
+
+    fake_backends.mlflow.fail_init = False
+    # the backoff from the failed attempt is still running
+    assert mlflow_tracker._mlflow_retry_at > 0
+    mlflow_tracker.close()
+
+    assert mlflow_tracker.mlflow_initialized
+    assert fake_backends.mlflow.kinds == ["log_metric"]
+    assert not (mlflow_tracker.run_directory / "local_logs.json").exists()
+
+
+def test_reading_the_experiment_after_close_starts_no_run(
+    mlflow_tracker: LuxonisTracker, fake_backends: SimpleNamespace
+) -> None:
+    """Reading `experiment` after `close` used to re-initialize MLflow,
+    leaving a fresh run that the idempotent `close` could never end.
+    """
+    fake_backends.mlflow.fail_init = True
+    mlflow_tracker.log_metric("loss", 1.0, 0)
+    mlflow_tracker.close()
+
+    # the server is reachable again and the backoff has passed
+    fake_backends.mlflow.fail_init = False
+    mlflow_tracker._mlflow_retry_at = 0.0
+    attempts = fake_backends.mlflow.init_attempts
+
+    assert mlflow_tracker.experiment == {}
+    assert fake_backends.mlflow.init_attempts == attempts
+    assert fake_backends.mlflow.run_kwargs is None
+
+
+@pytest.mark.parametrize("prefix", ["½", "²", "Ⅷ"])
+def test_unicode_numerals_are_not_run_numbers(
+    tempdir: Path, prefix: str
+) -> None:
+    """`isnumeric` accepts numerals `int` cannot parse, so a directory
+    such as `½-baseline` crashed the constructor.
+    """
+    (tempdir / f"{prefix}-baseline").mkdir()
+
+    tracker = LuxonisTracker(save_directory=tempdir, is_tensorboard=True)
+
+    assert tracker.run_name.startswith("0-")
+    tracker.run_name = f"{prefix}-baseline"
+    assert tracker.version == 0
+
+
+def test_mlflow_logging_leaves_the_other_backends_alone(
+    tempdir: Path, fake_backends: SimpleNamespace
+) -> None:
+    """Buffering an MLflow call used to read the whole `experiment`
+    property, which initialized TensorBoard and WandB as a side effect.
+    """
+    fake_backends.mlflow.fail_init = True
+    tracker = LuxonisTracker(
+        project_name="project",
+        run_name="run",
+        save_directory=tempdir,
+        is_tensorboard=True,
+        is_wandb=True,
+        is_mlflow=True,
+        wandb_entity="entity",
+        mlflow_tracking_uri="http://mlflow",
+    )
+
+    tracker.upload_artifact_to_mlflow(tempdir / "missing.txt")
+
+    assert tracker.local_logs
+    assert fake_backends.wandb.init_attempts == 0
+    assert "tensorboard" not in tracker._experiment
+
+
+def test_the_buffer_is_only_reported_full_once(
+    mlflow_tracker: LuxonisTracker,
+    fake_backends: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Once the cap is reached every further call evicts one, so warning
+    per eviction flooded the log for the rest of the outage.
+    """
+    monkeypatch.setattr(tracker_module, "MAX_BUFFERED_LOGS", 2)
+    fake_backends.mlflow.fail_init = True
+
+    warnings: list[str] = []
+    handle = tracker_module.logger.add(warnings.append, level="WARNING")
+    try:
+        for step in range(10):
+            mlflow_tracker.log_metric("loss", 1.0, step)
+    finally:
+        tracker_module.logger.remove(handle)
+
+    assert sum("log buffer is full" in warning for warning in warnings) == 1

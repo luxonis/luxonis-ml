@@ -62,6 +62,15 @@ _LOG_GROUPS: dict[MLflowCall, tuple[str, tuple[str, ...]]] = {
 """Maps an MLflow call to its group and field names in
 ``local_logs.json``."""
 
+_IRREPLACEABLE_CALLS: frozenset[MLflowCall] = frozenset(
+    {"log_params", "log_artifact"}
+)
+"""Calls whose data no later call repeats.
+
+Metrics and images are logged again on the next step, hyperparameters and
+artifacts are not, so they are the last to be dropped from a full buffer.
+"""
+
 
 class BufferedCall(NamedTuple):
     """An MLflow call that could not be sent and is kept for a later
@@ -203,6 +212,8 @@ class LuxonisTracker:
         self._experiment: dict[Backend, Any] = {}
         self._mlflow_retry_at = 0.0
         self._closed = False
+        self._buffered_artifacts = 0
+        self._warned_buffer_limits: set[str] = set()
 
         if run_name:
             self.run_name = run_name
@@ -262,7 +273,8 @@ class LuxonisTracker:
 
         """
         number = self.run_name.split("-")[0]
-        return int(number) if number.isnumeric() else 0
+        # `isdecimal`, unlike `isnumeric`, accepts exactly what `int` does
+        return int(number) if number.isdecimal() else 0
 
     @property
     def experiment(self) -> dict[Backend, Any]:
@@ -271,11 +283,18 @@ class LuxonisTracker:
 
         Returns:
             Mapping of the enabled backends to their handles. Empty for
-            processes with a non-zero rank, which never log.
+            processes with a non-zero rank, which never log. After
+            `close` the already-created handles are returned as they are,
+            without starting anything new.
 
         """
         if self.rank != 0:
             return {}
+
+        if self._closed:
+            # re-initializing here would start a run that nothing ends,
+            # as `close` refuses to run a second time
+            return self._experiment
 
         if self.is_tensorboard and "tensorboard" not in self._experiment:
             self._init_tensorboard()
@@ -320,8 +339,7 @@ class LuxonisTracker:
         log_dir = self.save_directory / "wandb_logs"
         log_dir.mkdir(parents=True, exist_ok=True)
 
-        self._experiment["wandb"] = wandb
-        self._experiment["wandb_run"] = wandb.init(
+        run = wandb.init(
             project=self.project_name
             if self.project_name is not None
             else self.project_id,
@@ -329,6 +347,12 @@ class LuxonisTracker:
             dir=log_dir,
             name=self.run_name,
         )
+
+        # both keys are stored only once `init` succeeded, otherwise a
+        # failed initialization would look like a finished one and would
+        # never be retried
+        self._experiment["wandb"] = wandb
+        self._experiment["wandb_run"] = run
 
     def _init_mlflow(self) -> None:
         """Initialize MLflow, backing off after a failed attempt.
@@ -356,8 +380,6 @@ class LuxonisTracker:
                     "install it using 'pip install psutil'"
                 )
 
-            self._experiment["mlflow"] = mlflow
-
             # guaranteed by the constructor whenever MLflow is enabled
             assert self.mlflow_tracking_uri is not None
             mlflow.set_tracking_uri(self.mlflow_tracking_uri)
@@ -378,6 +400,9 @@ class LuxonisTracker:
                 nested=self.is_sweep,
             )
             self.run_id = run.info.run_id
+            # stored only once the run exists, so that a failed attempt
+            # does not leave a handle behind
+            self._experiment["mlflow"] = mlflow
             self.mlflow_initialized = True
 
         except Exception as e:
@@ -397,7 +422,11 @@ class LuxonisTracker:
                 buffered, so they have to be JSON-serializable.
 
         """
-        experiment = self.experiment
+        # only MLflow is initialized here, the other backends have
+        # nothing to do with this call
+        if not self.mlflow_initialized and not self._closed:
+            self._init_mlflow()
+
         call = BufferedCall(kind, args)
 
         if not self.mlflow_initialized:
@@ -411,7 +440,7 @@ class LuxonisTracker:
             return
 
         try:
-            self._perform_mlflow_call(experiment["mlflow"], call)
+            self._perform_mlflow_call(self._experiment["mlflow"], call)
         except Exception as e:
             logger.warning(f"Attempt to log to MLflow failed: {e}")
             self._buffer(call)
@@ -427,14 +456,57 @@ class LuxonisTracker:
 
     def _buffer(self, call: BufferedCall) -> None:
         """Buffer a call that could not be sent to MLflow."""
+        if call.kind == "log_artifact":
+            call = self._snapshot_artifact(call)
         self.local_logs.append(call)
         self._enforce_buffer_limit("log_image", MAX_BUFFERED_IMAGES)
         self._enforce_buffer_limit(None, MAX_BUFFERED_LOGS)
 
+    def _snapshot_artifact(self, call: BufferedCall) -> BufferedCall:
+        """Copy a buffered artifact into the run directory.
+
+        Callers routinely delete an artifact right after handing it over,
+        so it is copied before it can disappear. Every artifact gets its
+        own sub-directory, which keeps its file name intact for MLflow and
+        keeps artifacts that share a file name apart.
+
+        Returns:
+            The call with its path pointing at the copy, or the call
+            unchanged if the copy could not be made.
+
+        """
+        source = Path(call.args[0])
+        target = (
+            self.run_directory
+            / "artifacts"
+            / str(self._buffered_artifacts)
+            / source.name
+        )
+        # claimed even if the copy fails, so that no two artifacts can
+        # ever end up in the same directory
+        self._buffered_artifacts += 1
+
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            copy = shutil.copy2(source, target)
+        except OSError as e:
+            logger.warning(
+                f"Could not copy the artifact '{source}' to '{target}', it "
+                f"will be lost if the file disappears: {e}"
+            )
+            return call
+
+        return BufferedCall(call.kind, (str(copy), *call.args[1:]))
+
     def _enforce_buffer_limit(
         self, kind: MLflowCall | None, limit: int
     ) -> None:
-        """Drop the oldest buffered call once `limit` is exceeded."""
+        """Drop the oldest expendable buffered call once `limit` is
+        exceeded.
+
+        Hyperparameters and artifacts are only dropped when the buffer
+        holds nothing else, because no later call repeats them.
+        """
         indices = [
             i
             for i, call in enumerate(self.local_logs)
@@ -443,79 +515,118 @@ class LuxonisTracker:
         if len(indices) <= limit:
             return
 
-        dropped = self.local_logs.pop(indices[0])
+        expendable = [
+            i
+            for i in indices
+            if self.local_logs[i].kind not in _IRREPLACEABLE_CALLS
+        ]
+        dropped = self.local_logs.pop((expendable or indices)[0])
+
+        # the buffer stays full for the rest of the outage, so warning
+        # per dropped call would bury every other message
+        if (kind or "all") in self._warned_buffer_limits:
+            return
+        self._warned_buffer_limits.add(kind or "all")
         logger.warning(
             f"The MLflow log buffer is full ({limit} entries), dropping the "
             f"oldest '{dropped.kind}' call. Logs are buffered locally "
-            "because MLflow is unreachable."
+            "because MLflow is unreachable. Further drops are not reported."
         )
 
     def log_stored_logs_to_mlflow(self) -> None:
         """Replay the locally buffered calls to MLflow, oldest first.
 
         Replaying stops at the first failure, leaving the remaining calls
-        buffered so that their original order is preserved.
+        buffered so that their original order is preserved. A call MLflow
+        rejects while it still accepts the call behind it is dropped
+        instead, because it would otherwise block every later log for the
+        rest of the run.
         """
         if not self.mlflow_initialized or not self.local_logs:
             return
 
         mlflow = self._experiment["mlflow"]
         while self.local_logs:
+            call = self.local_logs[0]
             try:
-                self._perform_mlflow_call(mlflow, self.local_logs[0])
+                self._perform_mlflow_call(mlflow, call)
             except Exception as e:
-                logger.warning(f"Failed to re-log stored logs to MLflow: {e}")
-                return
+                if not self._replay_next_call(mlflow):
+                    logger.warning(
+                        f"Failed to re-log stored logs to MLflow: {e}"
+                    )
+                    return
+                logger.warning(
+                    f"MLflow rejected the buffered '{call.kind}' call while "
+                    f"accepting later ones, dropping it: {e}"
+                )
+            # the probe already removed the call it sent, so the one that
+            # was just handled is still the head
             self.local_logs.pop(0)
 
         logger.info("Successfully re-logged stored logs to MLflow.")
+
+    def _replay_next_call(self, mlflow: ModuleType) -> bool:
+        """Send the call queued behind a failing one.
+
+        This tells a call MLflow rejects apart from an MLflow that is
+        unreachable, without reordering the calls that survive.
+
+        Returns:
+            Whether the next buffered call went through. It is removed
+            from the buffer when it did.
+
+        """
+        if len(self.local_logs) < 2:
+            return False
+
+        try:
+            self._perform_mlflow_call(mlflow, self.local_logs[1])
+        except Exception:
+            return False
+
+        self.local_logs.pop(1)
+        return True
 
     def save_logs_locally(self) -> None:
         """Save buffered metrics, parameters, images, artifacts, and
         matrices to the run directory.
 
-        The buffer is cleared afterwards so that repeated calls cannot
-        duplicate the saved data.
+        Anything an earlier call already saved is kept, and the buffer is
+        cleared afterwards so that repeated calls neither duplicate nor
+        discard the saved data.
         """
-        grouped = self._group_local_logs()
+        log_path = self.run_directory / "local_logs.json"
+        grouped = self._load_saved_logs(log_path)
+        # the earlier records are already on disk and keep their index
+        first_image = len(grouped["images"])
+        self._group_local_logs(grouped)
 
         image_dir = self.run_directory / "images"
-        artifact_dir = self.run_directory / "artifacts"
         image_dir.mkdir(parents=True, exist_ok=True)
-        artifact_dir.mkdir(parents=True, exist_ok=True)
 
-        for idx, image in enumerate(grouped["images"]):
+        for idx, image in enumerate(
+            grouped["images"][first_image:], start=first_image
+        ):
             # replace the image data with the path it was written to
             image["image_data"] = self._save_image_locally(
                 image_dir, idx, image["name"], image["image_data"]
             )
 
-        for artifact in grouped["artifacts"]:
-            source = Path(artifact["path"])
-            if not source.exists():
-                logger.warning(
-                    f"Buffered artifact '{source}' no longer exists, "
-                    "it will not be saved locally."
-                )
-                continue
-            artifact["path"] = str(
-                shutil.copy2(source, artifact_dir / source.name)
-            )
-
-        log_path = self.run_directory / "local_logs.json"
         with open(log_path, "w") as f:
             json.dump(grouped, f, default=_json_default)
 
         self.local_logs.clear()
 
         logger.info(
-            f"Logs saved locally at '{log_path}', "
-            f"images in {image_dir}, artifacts in {artifact_dir}"
+            f"Logs saved locally at '{log_path}', images in {image_dir}, "
+            f"artifacts in {self.run_directory / 'artifacts'}"
         )
 
-    def _group_local_logs(self) -> dict[str, Any]:
-        """Group the buffered calls by kind for local serialization."""
-        grouped: dict[str, Any] = {
+    @staticmethod
+    def _empty_log_groups() -> dict[str, Any]:
+        """Return the empty group structure of ``local_logs.json``."""
+        return {
             "metrics": [],
             "metric": [],
             "params": {},
@@ -523,6 +634,32 @@ class LuxonisTracker:
             "artifacts": [],
             "matrices": [],
         }
+
+    def _load_saved_logs(self, log_path: Path) -> dict[str, Any]:
+        """Load an earlier local save so a later one adds to it."""
+        grouped = self._empty_log_groups()
+        if not log_path.exists():
+            return grouped
+
+        try:
+            saved = json.loads(log_path.read_text())
+        except (OSError, ValueError) as e:
+            logger.warning(
+                f"Could not read the logs saved at '{log_path}', "
+                f"they will be overwritten: {e}"
+            )
+            return grouped
+
+        for group in grouped:
+            if group in saved:
+                grouped[group] = saved[group]
+        return grouped
+
+    def _group_local_logs(
+        self, grouped: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Group the buffered calls by kind for local serialization."""
+        grouped = grouped if grouped is not None else self._empty_log_groups()
         for call in self.local_logs:
             group, fields = _LOG_GROUPS[call.kind]
             record = dict(zip(fields, call.args, strict=True))
@@ -750,12 +887,17 @@ class LuxonisTracker:
         if self.is_mlflow:
             self.upload_artifact_to_mlflow(path, name)
 
+    @rank_zero_only
     def upload_artifact_to_mlflow(
         self,
         path: PathType,
         name: str | None = None,
     ) -> None:
         """Upload an artifact specifically to MLflow.
+
+        Only rank :math:`0` uploads, like every other logging method.
+        Non-zero ranks never finalize the run, so an artifact handed over
+        by one of them could neither be sent nor saved.
 
         Args:
             path: Path to the artifact.
@@ -785,11 +927,15 @@ class LuxonisTracker:
 
         if self.is_mlflow:
             if self.local_logs and not self.mlflow_initialized:
-                # give an MLflow server that came back up a last chance
+                # give an MLflow server that came back up a last chance,
+                # for which the backoff has to be waived
+                self._mlflow_retry_at = 0.0
                 self._init_mlflow()
             self.log_stored_logs_to_mlflow()
             if self.local_logs:
-                self.save_logs_locally()
+                self._finalize_backend(
+                    "the local log fallback", self.save_logs_locally
+                )
 
         if "tensorboard" in self._experiment:
             # `SummaryWriter.close` flushes the pending events first
@@ -835,32 +981,60 @@ class LuxonisTracker:
         return max(numbers) + 1
 
     def _get_latest_run_name(
-        self, timeout: float = 30.0, poll_interval: float = 0.5
+        self,
+        timeout: float = 30.0,
+        poll_interval: float = 0.5,
+        grace_period: float = 1.0,
     ) -> str:
-        """Return the name of the run with the highest number.
+        """Return the name of the run the rank-zero process created.
 
-        Waits for the rank-zero process to create the run directory.
+        Waits for a run directory that was not there yet, because a run
+        left over from an earlier training would otherwise be mistaken
+        for the current one. Rank zero cannot be identified with any
+        certainty from here, so once `grace_period` has passed without a
+        new run appearing this falls back to the newest existing one.
 
         Args:
-            timeout: How long to wait for a run directory to appear.
+            timeout: How long to wait for any run directory to appear.
             poll_interval: How often to check for it.
+            grace_period: How long to wait for a run that did not exist
+                yet before falling back to the newest existing one.
 
         Raises:
             RuntimeError: If no run directory appears within `timeout`.
 
         """
-        deadline = time.monotonic() + timeout
+        known = set(self._existing_runs())
+        start = time.monotonic()
         while True:
             runs = self._existing_runs()
-            if runs:
-                return max(runs, key=lambda name: int(name.split("-")[0]))
-            if time.monotonic() >= deadline:
+            new_runs = [name for name in runs if name not in known]
+            if new_runs:
+                return self._newest_run(new_runs)
+
+            elapsed = time.monotonic() - start
+            if runs and elapsed >= grace_period:
+                logger.warning(
+                    f"No new run directory appeared in "
+                    f"'{self.save_directory}' within {grace_period} seconds, "
+                    f"falling back to the newest existing run. Pass "
+                    f"'run_name' explicitly to make sure all ranks use the "
+                    f"same run."
+                )
+                return self._newest_run(runs)
+
+            if elapsed >= timeout:
                 raise RuntimeError(
                     f"No run directory found in '{self.save_directory}' "
                     f"after {timeout} seconds. Either the rank-zero process "
                     "did not start, or 'run_name' has to be passed explicitly."
                 )
             time.sleep(poll_interval)
+
+    @staticmethod
+    def _newest_run(runs: list[str]) -> str:
+        """Return the run with the highest number."""
+        return max(runs, key=lambda name: int(name.split("-")[0]))
 
     def _existing_runs(self) -> list[str]:
         """Return the names of all numbered runs in the save
@@ -869,5 +1043,5 @@ class LuxonisTracker:
         return [
             path.name
             for path in self.save_directory.iterdir()
-            if path.is_dir() and path.name.split("-")[0].isnumeric()
+            if path.is_dir() and path.name.split("-")[0].isdecimal()
         ]
