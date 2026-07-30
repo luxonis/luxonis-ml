@@ -424,6 +424,31 @@ def test_tracks_nested_transforms_carrying_unknown_keys():
     ]
 
 
+def test_tracks_leaf_transforms_exposing_a_transforms_attribute():
+    """`A.ColorJitter` is a leaf that owns a ``transforms`` list.
+
+    Treating every object with that attribute as a composition descended
+    into its internal adjustment functions and dropped the transformation
+    from the report entirely.
+    """
+    assert not isinstance(A.ColorJitter(), A.BaseCompose)
+    assert hasattr(A.ColorJitter(), "transforms")
+
+    engine = AlbumentationsEngine(
+        64,
+        64,
+        {},
+        {},
+        ["image"],
+        [{"name": "ColorJitter", "params": {"p": 1.0}}],
+        seed=1,
+    )
+
+    engine.apply(_make_sample())
+
+    assert list(engine.applied_augmentations) == ["ColorJitter"]
+
+
 def test_tracks_a_configured_lambda_transform():
     """Only the `A.Lambda` instances the engine injects are internal.
 

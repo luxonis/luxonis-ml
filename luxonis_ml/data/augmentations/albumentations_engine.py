@@ -729,8 +729,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     def _reset_transform_params(transform: Any) -> None:
         if hasattr(transform, "params"):
             transform.params = {}
-        for child in getattr(transform, "transforms", []):
-            AlbumentationsEngine._reset_transform_params(child)
+        if isinstance(transform, A.BaseCompose):
+            for child in transform.transforms:
+                AlbumentationsEngine._reset_transform_params(child)
 
     def _collect_applied_transforms(
         self, transform: Any
@@ -740,12 +741,16 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         Transforms are matched by identity rather than by class name, so
         registry aliases, repeated entries, and the ``A.Lambda`` instances
         the engine injects itself are all handled correctly.
+
+        Only `A.BaseCompose` instances are descended into. A ``transforms``
+        attribute is not enough: leaf transformations such as
+        `A.ColorJitter` expose one for their internal adjustment functions,
+        and treating those as children would drop the transformation.
         """
-        child_transforms = getattr(transform, "transforms", None)
-        if child_transforms is not None:
+        if isinstance(transform, A.BaseCompose):
             return [
                 applied_transform
-                for child in child_transforms
+                for child in transform.transforms
                 for applied_transform in self._collect_applied_transforms(
                     child
                 )
@@ -1054,7 +1059,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         config: AlbumentationConfigItem,
         tracked_paths: dict[int, str] | None = None,
         parent_path: tuple[str, ...] = (),
-    ) -> A.BasicTransform:
+    ) -> A.BasicTransform | A.BaseCompose:
         """Instantiate a configured transformation.
 
         Args:
@@ -1067,7 +1072,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             parent_path: Configured names of the enclosing compositions.
 
         Returns:
-            The instantiated transformation.
+            The instantiated transformation. Configurations naming a
+            composition (``OneOf``, ``SomeOf``, ``Sequential``) yield an
+            `A.BaseCompose`.
 
         Raises:
             ValueError: If a batch transform is nested inside another
@@ -1115,7 +1122,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             constructor = TRANSFORMATIONS.get(config.name)
             transform = constructor(**params)  # type: ignore
 
-        if tracked_paths is not None and not hasattr(transform, "transforms"):
+        if tracked_paths is not None and not isinstance(
+            transform, A.BaseCompose
+        ):
             tracked_paths[id(transform)] = "/".join(current_path)
         return transform
 
