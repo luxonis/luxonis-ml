@@ -183,7 +183,6 @@ class ParserPlugin(ABC):
             ".jpe",
             ".jp2",
             ".png",
-            ".WebP",
             ".webp",
             ".pbm",
             ".pgm",
@@ -201,7 +200,7 @@ class ParserPlugin(ABC):
         return [
             image
             for image in image_dir.glob("*")
-            if image.suffix in supported_formats
+            if image.suffix.lower() in supported_formats
         ]
 
 
@@ -325,6 +324,20 @@ def register_parser_plugin(
     def register(cls: type[ParserPlugin]) -> type[ParserPlugin]:
         if not cls.dataset_types:
             raise ValueError("Parser plugins must declare `dataset_types`.")
+        # Checked up front so a collision on a later type does not leave the
+        # earlier ones registered.
+        if not force:
+            taken = [
+                dataset_type
+                for dataset_type in cls.dataset_types
+                if dataset_type in PARSERS_REGISTRY
+            ]
+            if taken:
+                raise KeyError(
+                    f"Parser types {taken} are already registered in the "
+                    f"`{PARSERS_REGISTRY.name}` registry. Pass `force=True` "
+                    "to override them."
+                )
         for dataset_type in cls.dataset_types:
             PARSERS_REGISTRY.register(
                 module=cls,
@@ -363,33 +376,43 @@ def get_parser_plugin(
             "parser."
         )
     if len(matches) > 1:
-        matched_names = {plugin.dataset_types[0] for plugin in matches}
-        if matched_names == {"yolov6", "yolov8"}:
-            yolov6 = next(
-                plugin
-                for plugin in matches
-                if plugin.dataset_types[0] == "yolov6"
+        best_match = _resolve_by_split_coverage(source, matches)
+        if best_match is None:
+            matched_types = ", ".join(
+                plugin.dataset_types[0] for plugin in matches
             )
-            if issubclass(yolov6, SplitParserPlugin):
-                discovered = yolov6.discover_splits(source)
-                if "train" in discovered and len(discovered) >= 2:
-                    return yolov6, "yolov6"
             raise ValueError(
-                "Dataset layout is compatible with multiple parsers when "
-                "only a subset of splits is present. This layout is "
-                "ambiguous between YOLOv6 and YOLOv8. Please specify "
-                "dataset_type."
+                "Dataset layout is compatible with multiple parsers: "
+                f"{matched_types}. Please specify `dataset_type`."
             )
-        matched_types = ", ".join(
-            plugin.dataset_types[0] for plugin in matches
-        )
-        raise ValueError(
-            "Dataset layout is compatible with multiple parsers: "
-            f"{matched_types}. Please specify `dataset_type`."
-        )
+        return best_match, best_match.dataset_types[0]
 
     plugin = matches[0]
     return plugin, plugin.dataset_types[0]
+
+
+def _resolve_by_split_coverage(
+    source: Path,
+    matches: Sequence[type[ParserPlugin]],
+) -> type[ParserPlugin] | None:
+    """Return the plugin that recognizes the most splits, if unique.
+
+    Layouts differing only in how splits are named — ``images/valid`` for
+    YOLOv6 against ``images/val`` for Ultralytics YOLOv8 — are recognized by
+    several plugins, but only the matching one recognizes every split that is
+    actually present. Returns ``None`` when the layout stays ambiguous.
+    """
+    coverage: list[tuple[int, type[ParserPlugin]]] = []
+    for plugin in matches:
+        if not issubclass(plugin, SplitParserPlugin):
+            return None
+        coverage.append((len(plugin.discover_splits(source)), plugin))
+
+    best_count = max(count for count, _ in coverage)
+    best = [plugin for count, plugin in coverage if count == best_count]
+    if best_count == 0 or len(best) != 1:
+        return None
+    return best[0]
 
 
 def _record_files(item: dict | DatasetRecord) -> Iterator[PathType]:
@@ -405,7 +428,10 @@ def apply_counts_to_pool(
     images: Sequence[PathType],
     split_ratios: dict[str, int],
 ) -> dict[str, Sequence[PathType]]:
-    """Distribute count requests across a single image pool."""
+    """Distribute count requests across a single image pool.
+
+    Splits missing from ``split_ratios`` are treated as :math:`0`.
+    """
     total_requested = sum(split_ratios.values())
     shuffled = list(images)
     random.shuffle(shuffled)
@@ -418,14 +444,14 @@ def apply_counts_to_pool(
         )
         sorted_splits = sorted(
             ("train", "val", "test"),
-            key=lambda split: split_ratios[split],
+            key=lambda split: split_ratios.get(split, 0),
             reverse=True,
         )
         sampled: dict[str, Sequence[PathType]] = {}
         offset = 0
         for split_name in sorted_splits:
             count = min(
-                split_ratios[split_name],
+                split_ratios.get(split_name, 0),
                 len(shuffled) - offset,
             )
             sampled[split_name] = shuffled[offset : offset + count]
@@ -435,7 +461,7 @@ def apply_counts_to_pool(
     sampled = {}
     offset = 0
     for split_name in ("train", "val", "test"):
-        count = split_ratios[split_name]
+        count = split_ratios.get(split_name, 0)
         sampled[split_name] = shuffled[offset : offset + count]
         offset += count
     return sampled
@@ -445,10 +471,13 @@ def apply_counts_to_splits(
     original_splits: Mapping[str, Sequence[PathType]],
     split_ratios: dict[str, int],
 ) -> dict[str, Sequence[PathType]]:
-    """Sample requested counts independently from original splits."""
+    """Sample requested counts independently from original splits.
+
+    Splits missing from ``split_ratios`` are treated as :math:`0`.
+    """
     sampled: dict[str, Sequence[PathType]] = {}
     for split_name in ("train", "val", "test"):
-        requested = split_ratios[split_name]
+        requested = split_ratios.get(split_name, 0)
         available = list(original_splits.get(split_name, ()))
         if requested == 0:
             sampled[split_name] = []

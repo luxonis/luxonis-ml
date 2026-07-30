@@ -213,6 +213,8 @@ See:
 
 from importlib.metadata import entry_points
 
+from loguru import logger
+
 from luxonis_ml.guard_extras import guard_missing_extra
 
 with guard_missing_extra("data"):
@@ -262,10 +264,20 @@ def _load_loader_plugins() -> None:  # pragma: no cover
         LOADERS_REGISTRY.register(module=plugin_class)
 
 
-def _load_parser_plugins() -> None:  # pragma: no cover
-    """Register external parser plugins."""
+def _load_parser_plugins() -> None:
+    """Register external parser plugins.
+
+    A plugin that cannot be registered is skipped with a warning so that a
+    single broken or colliding third-party package cannot break importing
+    this module.
+    """
     for entry_point in _get_entry_points_subset("parser_plugins"):
-        register_parser_plugin(entry_point.load())
+        try:
+            register_parser_plugin(entry_point.load())
+        except (KeyError, ValueError) as error:
+            logger.warning(
+                f"Skipping parser plugin '{entry_point.name}': {error}"
+            )
 
 
 def _get_entry_points_subset(key: str) -> list:

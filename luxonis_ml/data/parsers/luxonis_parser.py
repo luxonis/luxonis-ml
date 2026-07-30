@@ -10,15 +10,19 @@ from luxonis_ml.data.datasets import (
 from luxonis_ml.data.utils.enums import ParserIssueMessage
 from luxonis_ml.enums import DatasetType
 
+from .parser_plugin import get_parser_plugin
+from .source import prepare_source
+
 T = TypeVar("T", str, None)
 
 
 class LuxonisParser(Generic[T]):
     """Deprecated compatibility wrapper for dataset-owned imports.
 
-    Use `LuxonisDataset.import_dataset` instead. Source acquisition, parser
-    detection, and dataset construction are intentionally deferred until
-    `parse` so this class remains a thin argument adapter.
+    Use `LuxonisDataset.import_dataset` instead. The source is acquired and
+    its format resolved during construction, so unsupported sources are
+    rejected there and repeated `parse` calls neither download nor extract the
+    source again.
     """
 
     def __init__(
@@ -39,11 +43,23 @@ class LuxonisParser(Generic[T]):
             DeprecationWarning,
             stacklevel=2,
         )
-        self._dataset_dir = dataset_dir
-        self._dataset_name = dataset_name
+        self._dataset_dir, derived_name = prepare_source(dataset_dir, save_dir)
+        _plugin_type, self._dataset_type = get_parser_plugin(
+            self._dataset_dir,
+            dataset_type.value
+            if isinstance(dataset_type, DatasetType)
+            else dataset_type,
+        )
+        self._dataset_name = (
+            dataset_name
+            or derived_name.replace(" ", "_").split(".", maxsplit=1)[0]
+        )
+        self._dataset_class: type[BaseDataset] = (
+            LuxonisDataset
+            if dataset_plugin is None
+            else DATASETS_REGISTRY.get(dataset_plugin)
+        )
         self._save_dir = save_dir
-        self._dataset_plugin = dataset_plugin
-        self._dataset_type = dataset_type
         self._task_name = task_name
         self._full_warnings = full_warnings
         self._dataset_kwargs = kwargs
@@ -59,16 +75,10 @@ class LuxonisParser(Generic[T]):
 
     def parse(self, **kwargs: Any) -> BaseDataset:
         """Import the configured source through the dataset-owned API."""
-        dataset_class: type[BaseDataset]
-        if self._dataset_plugin is None:
-            dataset_class = LuxonisDataset
-        else:
-            dataset_class = DATASETS_REGISTRY.get(self._dataset_plugin)
-
         split = kwargs.pop("split", None)
         random_split = kwargs.pop("random_split", True)
         split_ratios = kwargs.pop("split_ratios", None)
-        self._dataset = dataset_class.import_dataset(
+        self._dataset = self._dataset_class.import_dataset(
             self._dataset_dir,
             dataset_name=self._dataset_name,
             save_dir=self._save_dir,

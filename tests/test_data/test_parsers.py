@@ -1,13 +1,18 @@
 import json
+import zipfile
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
+import cv2
+import numpy as np
 import pytest
 from loguru import logger
 
 import luxonis_ml.data as data_module
 from luxonis_ml.data import (
     PARSERS_REGISTRY,
+    DatasetIterator,
     LuxonisDataset,
     LuxonisLoader,
     LuxonisParser,
@@ -17,6 +22,16 @@ from luxonis_ml.data import (
     ParserPlugin,
     register_parser_plugin,
 )
+from luxonis_ml.data.datasets.annotation import DatasetRecord, Detection
+from luxonis_ml.data.datasets.base_dataset import _prepare_import_records
+from luxonis_ml.data.parsers import (
+    COCOParser,
+    SOLOParser,
+    UltralyticsNDJSONParser,
+    YOLOv8Parser,
+)
+from luxonis_ml.data.parsers.parser_plugin import get_parser_plugin
+from luxonis_ml.data.parsers.source import prepare_source
 from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import environ
@@ -1041,7 +1056,8 @@ def test_partial_ultralytics_layout_reports_yolov6_yolov8_ambiguity(
     with pytest.raises(
         ValueError,
         match=(
-            r"ambiguous between YOLOv6 and YOLOv8\. Please specify dataset_type\."
+            r"compatible with multiple parsers: yolov6, yolov8\. "
+            r"Please specify `dataset_type`\."
         ),
     ):
         LuxonisDataset.import_dataset(
@@ -1050,6 +1066,38 @@ def test_partial_ultralytics_layout_reports_yolov6_yolov8_ambiguity(
             delete_local=True,
             save_dir=tempdir,
         )
+
+
+def test_ultralytics_layout_with_val_split_detects_yolov8(
+    dataset_name: str,
+    tempdir: Path,
+):
+    dataset_dir = tempdir / "yolo_ultralytics"
+    for index, split_name in enumerate(("train", "val")):
+        image_dir = dataset_dir / "images" / split_name
+        label_dir = dataset_dir / "labels" / split_name
+        image_dir.mkdir(parents=True)
+        label_dir.mkdir(parents=True)
+        create_image(index, image_dir)
+        (label_dir / f"img_{index}.txt").write_text("0 0.5 0.5 0.4 0.4\n")
+    (dataset_dir / "data.yaml").write_text("names:\n  0: budgie\n")
+
+    # `images/valid` is absent, so only the YOLOv8 parser recognizes both
+    # splits even though the YOLOv6 parser also recognizes `images/train`.
+    plugin, dataset_type = get_parser_plugin(dataset_dir, None)
+    assert dataset_type == "yolov8"
+    assert plugin is YOLOv8Parser
+
+    dataset = LuxonisDataset.import_dataset(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        delete_local=True,
+        save_dir=tempdir,
+    )
+    try:
+        assert len(dataset) == 2
+    finally:
+        dataset.delete_dataset(delete_local=True)
 
 
 def test_partial_split_train_only_roboflow_coco_keeps_format_detection(
@@ -1102,3 +1150,814 @@ def test_partial_split_train_only_roboflow_coco_keeps_format_detection(
     assert len(splits["val"]) == 0
     assert len(splits["test"]) == 0
     dataset.delete_dataset(delete_local=True)
+
+
+def _collect_dataset_records(records: DatasetIterator) -> list[DatasetRecord]:
+    """Collect records that `_prepare_import_records` has already parsed."""
+    collected = []
+    for record in records:
+        assert isinstance(record, DatasetRecord)
+        collected.append(record)
+    return collected
+
+
+def _collect_raw_records(records: DatasetIterator) -> list[dict[str, Any]]:
+    """Collect parser output, which plugins emit as plain dictionaries."""
+    collected = []
+    for record in records:
+        assert isinstance(record, dict)
+        collected.append(record)
+    return collected
+
+
+def _write_yolov8_split(
+    split_path: Path,
+    image_indices: Sequence[int],
+    *,
+    annotate: Callable[[int], str | None] = lambda _: "0 0.5 0.5 0.4 0.4\n",
+) -> None:
+    """Write a Roboflow-style YOLOv8 split.
+
+    Args:
+        split_path: Split directory to populate.
+        image_indices: Indices passed to `create_image`.
+        annotate: Label file content per index. ``None`` writes no label file
+            at all, which is how parsers see a background image.
+
+    """
+    image_dir = split_path / "images"
+    label_dir = split_path / "labels"
+    image_dir.mkdir(parents=True)
+    label_dir.mkdir(parents=True)
+    for index in image_indices:
+        create_image(index, image_dir)
+        content = annotate(index)
+        if content is not None:
+            (label_dir / f"img_{index}.txt").write_text(content)
+
+
+def test_prepare_import_records_keeps_unannotated_records_in_any_order(
+    tempdir: Path,
+):
+    """Records without annotations must survive a string ``task_name``.
+
+    Regression: a string ``task_name`` was wrapped in an empty
+    ``defaultdict``, which only materializes keys on lookup, so the fan-out
+    set for annotation-less records was empty until some annotated record had
+    already been seen. Background images were silently dropped, and which ones
+    depended on iteration order — hence both orderings are checked here.
+    """
+    unannotated = DatasetRecord(
+        files={"image": create_image(0, tempdir)}, annotation=None
+    )
+    annotated = DatasetRecord(
+        files={"image": create_image(1, tempdir)},
+        annotation=Detection.model_validate({"class": "budgie"}),
+    )
+
+    for records in ([unannotated, annotated], [annotated, unannotated]):
+        prepared = _collect_dataset_records(
+            _prepare_import_records(
+                iter(records),
+                task_name="birds",
+                selected_files=None,
+            )
+        )
+        assert len(prepared) == 2
+        assert {record.task_name for record in prepared} == {"birds"}
+
+    # A class-to-task mapping instead fans an annotation-less record out over
+    # every distinct task name, so it is not lost from any of them either.
+    prepared = _collect_dataset_records(
+        _prepare_import_records(
+            iter([unannotated]),
+            task_name={"budgie": "birds", "dog": "mammals"},
+            selected_files=None,
+        )
+    )
+    assert {record.task_name for record in prepared} == {"birds", "mammals"}
+
+
+def test_prepare_import_records_does_not_copy_annotations(tempdir: Path):
+    """Assigning a task name must not duplicate annotation payloads.
+
+    Regression: the task name was applied with
+    ``model_copy(update=..., deep=True)``, deep-copying every polygon list and
+    mask array once per record. Only ``task_name`` changes, so a shallow copy
+    is enough; the annotation object is shared and the input record is left
+    untouched.
+    """
+    record = DatasetRecord(
+        files={"image": create_image(0, tempdir)},
+        annotation=Detection.model_validate({"class": "budgie"}),
+    )
+
+    (prepared,) = _collect_dataset_records(
+        _prepare_import_records(
+            iter([record]),
+            task_name="birds",
+            selected_files=None,
+        )
+    )
+
+    assert prepared.task_name == "birds"
+    assert prepared.annotation is record.annotation
+    assert record.task_name != "birds"
+
+
+@pytest.mark.parametrize(
+    ("split_ratios", "expected_sizes"),
+    [
+        ({"train": 2}, {"train": 2, "val": 0, "test": 0}),
+        ({"val": 1, "test": 1}, {"train": 0, "val": 1, "test": 1}),
+    ],
+)
+def test_count_split_ratios_may_omit_splits(
+    dataset_name: str,
+    tempdir: Path,
+    split_ratios: dict[str, float | int],
+    expected_sizes: dict[str, int],
+):
+    """Count-based ``split_ratios`` may name only some of the splits.
+
+    Regression: the count helpers indexed ``split_ratios["train"]``,
+    ``["val"]`` and ``["test"]`` unconditionally, so a partial mapping raised a
+    bare ``KeyError`` — after the dataset had already been created on disk.
+    Percentage-based ratios always allowed partial mappings. Splits left out of
+    the mapping are treated as :math:`0`.
+    """
+    dataset_dir = tempdir / "yolo_counts"
+    _write_yolov8_split(dataset_dir / "train", range(4))
+    _write_yolov8_split(dataset_dir / "valid", range(4, 6))
+    _write_yolov8_split(dataset_dir / "test", range(6, 8))
+    (dataset_dir / "data.yaml").write_text("names:\n  0: budgie\n")
+
+    dataset = LuxonisDataset.import_dataset(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        dataset_type="yolov8",
+        split_ratios=split_ratios,
+        delete_local=True,
+        save_dir=tempdir,
+    )
+    try:
+        splits = dataset.get_splits()
+        assert splits is not None
+        assert {
+            name: len(group_ids) for name, group_ids in splits.items()
+        } == expected_sizes
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
+@pytest.mark.parametrize(
+    "split_ratios", [{"train": 0, "val": 0, "test": 0}, {}]
+)
+def test_zero_count_split_ratios_fail_before_creating_dataset(
+    dataset_name: str,
+    tempdir: Path,
+    split_ratios: dict[str, float | int],
+):
+    """Counts selecting nothing must fail loudly and leave nothing behind.
+
+    Regression: zero counts filtered out every record, so ``make_splits``
+    raised ``FileNotFoundError: Dataset is empty`` — but only after the dataset
+    had been created and registered, leaving an orphaned empty dataset on
+    disk. An empty mapping hit the same path, because ``all()`` over no values
+    classifies it as count-based.
+    """
+    dataset_dir = tempdir / "yolo_zero_counts"
+    _write_yolov8_split(dataset_dir / "train", range(2))
+    (dataset_dir / "data.yaml").write_text("names:\n  0: budgie\n")
+
+    with pytest.raises(ValueError, match="must request at least one sample"):
+        LuxonisDataset.import_dataset(
+            str(dataset_dir),
+            dataset_name=dataset_name,
+            dataset_type="yolov8",
+            split_ratios=split_ratios,
+            delete_local=True,
+            save_dir=tempdir,
+        )
+
+    assert not LuxonisDataset.exists(dataset_name)
+
+
+def test_uppercase_image_extensions_are_recognized(
+    dataset_name: str,
+    tempdir: Path,
+):
+    """Images with uppercase extensions must not be invisible to parsers.
+
+    Regression: ``_list_images`` matched ``image.suffix`` against a
+    case-sensitive set, so ``.JPG`` was unknown. Every ``validate_split`` bails
+    out on an empty image list, which rejected the whole dataset; a mixed-case
+    dataset was worse, importing while silently omitting the uppercase files.
+    """
+    dataset_dir = tempdir / "yolo_uppercase"
+    _write_yolov8_split(dataset_dir / "train", [0])
+    (dataset_dir / "data.yaml").write_text("names:\n  0: budgie\n")
+
+    image_dir = dataset_dir / "train" / "images"
+    (image_dir / "img_0.jpg").rename(image_dir / "IMG_1.JPG")
+    (dataset_dir / "train" / "labels" / "img_0.txt").rename(
+        dataset_dir / "train" / "labels" / "IMG_1.txt"
+    )
+
+    # Auto-detection is used deliberately: an empty image list previously made
+    # every parser reject the layout, not just the intended one.
+    dataset = LuxonisDataset.import_dataset(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        delete_local=True,
+        save_dir=tempdir,
+    )
+    try:
+        assert len(dataset) == 1
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
+def test_yolov8_truncated_annotation_line_is_skipped(
+    dataset_name: str,
+    tempdir: Path,
+):
+    """A too-short YOLOv8 label line must be reported, not fatal.
+
+    Regression: ``task_type`` was only assigned for lines with exactly 5 or
+    more than 5 values, then read unconditionally. A truncated line killed the
+    whole import with ``UnboundLocalError`` — or, if an earlier line had set
+    ``task_type``, with ``ValueError: not enough values to unpack``.
+    """
+    dataset_dir = tempdir / "yolo_truncated"
+    _write_yolov8_split(
+        dataset_dir / "train",
+        [0, 1],
+        annotate=lambda index: (
+            "0 0.5 0.5 0.2\n" if index == 0 else "0 0.5 0.5 0.4 0.4\n"
+        ),
+    )
+    (dataset_dir / "data.yaml").write_text("names:\n  0: budgie\n")
+
+    dataset = LuxonisDataset.import_dataset(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        dataset_type="yolov8",
+        delete_local=True,
+        save_dir=tempdir,
+    )
+    try:
+        issues = dataset.get_parser_issue_messages()
+        assert [issue.parser_issue for issue in issues] == [
+            ParserIssue.MALFORMED_ANNOTATION
+        ]
+        # The import completes and the well-formed image is kept. The image
+        # whose only label line was malformed yields no record at all, the
+        # same as any other fully-skipped annotation.
+        assert len(dataset) == 1
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
+def test_coco_single_split_rejects_keypoint_options(
+    dataset_name: str,
+    tempdir: Path,
+):
+    """Keypoint options must not be silently dropped for a single split.
+
+    Regression: for a source without split directories, ``COCOParser.parse``
+    delegated through ``**kwargs``, but ``use_keypoint_ann`` and
+    ``keypoint_ann_paths`` are bound to named parameters and never reach it.
+    They vanished without a warning, so a pose model could be trained on a
+    dataset holding no keypoints at all. Previously this raised ``TypeError``.
+    """
+    dataset_dir = tempdir / "coco_single_split"
+    image_dir = dataset_dir / "data"
+    image_dir.mkdir(parents=True)
+    create_image(0, image_dir)
+    (dataset_dir / "labels.json").write_text(
+        json.dumps(
+            {
+                "images": [
+                    {
+                        "id": 1,
+                        "file_name": "img_0.jpg",
+                        "width": 512,
+                        "height": 512,
+                    }
+                ],
+                "annotations": [
+                    {
+                        "id": 1,
+                        "image_id": 1,
+                        "category_id": 0,
+                        "bbox": [128, 128, 256, 256],
+                        "area": 65536,
+                        "iscrowd": 0,
+                    }
+                ],
+                "categories": [{"id": 0, "name": "budgie"}],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match="use_keypoint_ann"):
+        LuxonisDataset.import_dataset(
+            str(dataset_dir),
+            dataset_name=dataset_name,
+            dataset_type="coco",
+            parser_kwargs={"use_keypoint_ann": True},
+            delete_local=True,
+            save_dir=tempdir,
+        )
+
+    # Without the keypoint options the same single-split source still imports.
+    dataset = LuxonisDataset.import_dataset(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        dataset_type="coco",
+        delete_local=True,
+        save_dir=tempdir,
+    )
+    try:
+        assert len(dataset) == 1
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
+def test_clsdir_ignores_reserved_directory_names(
+    dataset_name: str,
+    tempdir: Path,
+):
+    """Reserved directory names must never be ingested as classes.
+
+    Regression: ``validate_split`` skips directories belonging to other
+    layouts (``data``, ``raw``, ``masks``, split names, ``images``,
+    ``labels``), but ``_parse_split`` listed every subdirectory, so a source
+    validated on its real class folders and then gained a bogus ``data``
+    class. Both now share one reserved-name set.
+    """
+    dataset_dir = tempdir / "clsdir_reserved"
+    for index, class_name in enumerate(("budgie", "parrot", "data")):
+        class_dir = dataset_dir / class_name
+        class_dir.mkdir(parents=True)
+        create_image(index, class_dir)
+
+    dataset = LuxonisDataset.import_dataset(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        dataset_type="clsdir",
+        delete_local=True,
+        save_dir=tempdir,
+    )
+    try:
+        class_names = {
+            name
+            for names in dataset.get_class_names().values()
+            for name in names
+        }
+        assert class_names == {"budgie", "parrot"}
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
+def test_parser_entry_point_name_collision_is_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A colliding entry-point plugin must not break ``import``.
+
+    Regression: ``_load_parser_plugins`` runs unguarded at module scope, so a
+    third-party plugin declaring a built-in ``dataset_types`` name made plain
+    ``import luxonis_ml.data`` raise ``KeyError``, taking down every downstream
+    consumer as soon as that package was installed. Registration is also
+    all-or-nothing now: the collision is checked before any name is claimed, so
+    the type declared ahead of ``"coco"`` must not be left behind.
+    """
+
+    class CollidingParser(ParserPlugin):
+        dataset_types = ("test-before-collision", "coco")
+
+        @classmethod
+        def supports(cls, source: Path) -> bool:
+            return False
+
+        def parse(
+            self,
+            source: Path,
+            *,
+            dataset_type: str,
+            **kwargs: Any,
+        ) -> ParsedDataset:
+            raise AssertionError("Plugin should never be selected")
+
+    class EntryPoint:
+        name = "colliding-plugin"
+
+        @staticmethod
+        def load() -> type[ParserPlugin]:
+            return CollidingParser
+
+    monkeypatch.setattr(
+        data_module,
+        "_get_entry_points_subset",
+        lambda group: [EntryPoint()] if group == "parser_plugins" else [],
+    )
+    messages: list[str] = []
+    sink_id = logger.add(
+        lambda message: messages.append(str(message).strip()),
+        format="{message}",
+        level="WARNING",
+    )
+    try:
+        data_module._load_parser_plugins()
+    finally:
+        logger.remove(sink_id)
+
+    assert any("colliding-plugin" in message for message in messages)
+    assert PARSERS_REGISTRY.get("coco") is COCOParser
+    assert "test-before-collision" not in PARSERS_REGISTRY
+
+
+def test_trailing_separator_in_source_keeps_dataset_name(tempdir: Path):
+    """A trailing separator must not erase the derived dataset name.
+
+    Regression: the name came from ``rsplit("/", 1)[-1]``, which is ``""`` for
+    a path written with a trailing slash. The dataset was then created as
+    ``""``, writing its storage directories straight into the datasets root and
+    merging into whatever a previous trailing-slash import had left there, and
+    the remote download target collapsed to the working directory.
+    """
+    dataset_dir = tempdir / "trailing_source"
+    dataset_dir.mkdir()
+
+    assert prepare_source(f"{dataset_dir}/", None) == (
+        dataset_dir,
+        "trailing_source",
+    )
+    assert prepare_source(str(dataset_dir), None) == (
+        dataset_dir,
+        "trailing_source",
+    )
+
+    # A path that is nothing but separators has no name to derive at all.
+    with pytest.raises(ValueError, match="Could not derive a dataset name"):
+        prepare_source("/", None)
+
+
+def test_luxonis_parser_rejects_unsupported_source_at_construction(
+    tempdir: Path,
+):
+    """`LuxonisParser` must fail at construction, as it did before deprecation.
+
+    Regression: the deprecated wrapper deferred source acquisition and format
+    detection into ``parse``, so ``try: LuxonisParser(d) except ValueError``
+    — the documented way to probe whether a directory is a recognized layout
+    — always succeeded and the error surfaced much later.
+    """
+    unrecognized = tempdir / "not_a_dataset"
+    unrecognized.mkdir()
+
+    with (
+        pytest.warns(DeprecationWarning, match="LuxonisParser.*deprecated"),
+        pytest.raises(
+            ValueError,
+            match="not in expected format for any registered parser",
+        ),
+    ):
+        LuxonisParser(str(unrecognized))
+
+
+def test_luxonis_parser_prepares_source_once(
+    dataset_name: str,
+    tempdir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Repeated ``parse`` calls must not re-acquire the source.
+
+    Regression: with acquisition deferred into ``parse``, every call
+    re-downloaded the Roboflow or S3 source and re-extracted the ZIP. A local
+    ZIP stands in for the remote case here, since extraction is the observable
+    half of the same work.
+    """
+    source_dir = tempdir / "clsdir_zip_source"
+    for index, class_name in enumerate(("budgie", "parrot")):
+        class_dir = source_dir / class_name
+        class_dir.mkdir(parents=True)
+        create_image(index, class_dir)
+
+    archive_path = tempdir / "clsdir_zip_source.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        for image_path in source_dir.rglob("*.jpg"):
+            archive.write(
+                image_path, image_path.relative_to(source_dir.parent)
+            )
+
+    extractions: list[Path] = []
+    original_extractall = zipfile.ZipFile.extractall
+
+    def counting_extractall(  # noqa: ANN202
+        self,  # noqa: ANN001
+        path=None,  # noqa: ANN001
+        *args: Any,
+        **kwargs: Any,
+    ):
+        extractions.append(Path(str(path)))
+        return original_extractall(self, path, *args, **kwargs)
+
+    monkeypatch.setattr(zipfile.ZipFile, "extractall", counting_extractall)
+
+    with pytest.warns(DeprecationWarning, match="LuxonisParser.*deprecated"):
+        parser = LuxonisParser(
+            str(archive_path),
+            dataset_name=dataset_name,
+            delete_local=True,
+        )
+    assert len(extractions) == 1
+
+    first = parser.parse()
+    second = parser.parse()
+    try:
+        assert len(extractions) == 1
+        assert first.identifier == second.identifier
+        assert len(first) == 2
+    finally:
+        first.delete_dataset(delete_local=True)
+
+
+def _write_ultralytics_ndjson(
+    ndjson_path: Path,
+    image_dir: Path,
+    *,
+    missing_image: str,
+) -> None:
+    """Write a manifest holding a missing image and a non-image line."""
+    image_dir.mkdir(parents=True)
+    for index in range(3):
+        create_image(index, image_dir)
+
+    relative = image_dir.name
+    lines: list[dict[str, Any]] = [
+        {"type": "dataset", "class_names": ["budgie", "parrot"]},
+        {
+            "type": "image",
+            "file": f"{relative}/img_0.jpg",
+            "split": "train",
+            "width": 512,
+            "height": 512,
+            "annotations": {"boxes": [[0, 0.5, 0.5, 0.2, 0.2]]},
+        },
+        {
+            "type": "image",
+            "file": f"{relative}/{missing_image}",
+            "split": "train",
+            "width": 512,
+            "height": 512,
+            "annotations": {"boxes": [[1, 0.5, 0.5, 0.2, 0.2]]},
+        },
+        {"type": "annotation-definitions", "note": "not an image record"},
+        {
+            "type": "image",
+            "file": f"{relative}/img_1.jpg",
+            "split": "val",
+            "width": 512,
+            "height": 512,
+            "annotations": {},
+        },
+        {
+            "type": "image",
+            "file": f"{relative}/img_2.jpg",
+            "split": "test",
+            "width": 512,
+            "height": 512,
+            "annotations": {"boxes": [[1, 0.5, 0.5, 0.2, 0.2]]},
+        },
+    ]
+    ndjson_path.write_text(
+        "\n".join(json.dumps(line) for line in lines) + "\n"
+    )
+
+
+def test_ultralytics_ndjson_skips_missing_images_without_shifting_records(
+    tempdir: Path,
+):
+    """Skipped and non-image lines must stay aligned across both passes.
+
+    ``ParsedDataset`` requires ``files`` and ``splits`` to be complete before
+    ``records`` is consumed, so image paths are resolved in an eager pass while
+    the annotations are re-read lazily in a second one. This guards that split:
+    a record whose image is missing, and a line that is not an image at all,
+    must be dropped by both passes, or every following record would be paired
+    with the wrong image. It is a safety net for the streaming design rather
+    than a past bug — the earlier implementation paired records with paths in
+    one pass and could not drift.
+    """
+    ndjson_path = tempdir / "ndjson_alignment" / "dataset.ndjson"
+    ndjson_path.parent.mkdir(parents=True)
+    _write_ultralytics_ndjson(
+        ndjson_path,
+        ndjson_path.parent / "images",
+        missing_image="img_missing.jpg",
+    )
+
+    issues = ParseIssueCollector()
+    parsed = UltralyticsNDJSONParser(issues).parse(
+        ndjson_path, dataset_type="ultralytics-ndjson"
+    )
+
+    assert [path.name for path in parsed.files] == [
+        "img_0.jpg",
+        "img_1.jpg",
+        "img_2.jpg",
+    ]
+    assert parsed.splits is not None
+    assert {
+        name: [path.name for path in paths]
+        for name, paths in parsed.splits.items()
+    } == {"train": ["img_0.jpg"], "val": ["img_1.jpg"], "test": ["img_2.jpg"]}
+
+    records = _collect_raw_records(parsed.records)
+    assert [
+        (Path(record["file"]).name, (record["annotation"] or {}).get("class"))
+        for record in records
+    ] == [
+        ("img_0.jpg", "budgie"),
+        ("img_1.jpg", None),
+        ("img_2.jpg", "parrot"),
+    ]
+    assert [issue.parser_issue for issue in issues.messages] == [
+        ParserIssue.MISSING_IMAGE
+    ]
+
+
+def test_ultralytics_ndjson_records_are_streamed(
+    tempdir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The manifest must not be materialized before the first record.
+
+    Regression: the whole file was decoded into an in-memory list of records
+    before anything was yielded, so a multi-gigabyte export — every ``segments``
+    polygon list and ``pose`` array held alive at once — died of ``MemoryError``
+    before a single record reached ``dataset.add``. Counting walks of the file
+    is what distinguishes streaming from materializing: a materialized parser
+    walks it once, up front, and never again.
+    """
+    ndjson_path = tempdir / "ndjson_streaming" / "dataset.ndjson"
+    ndjson_path.parent.mkdir(parents=True)
+    _write_ultralytics_ndjson(
+        ndjson_path,
+        ndjson_path.parent / "images",
+        missing_image="img_missing.jpg",
+    )
+
+    walks: list[Path] = []
+    original = UltralyticsNDJSONParser._iter_image_records
+
+    def counting_iter_image_records(path: Path) -> Iterator[dict[str, Any]]:
+        walks.append(path)
+        yield from original(path)
+
+    monkeypatch.setattr(
+        UltralyticsNDJSONParser,
+        "_iter_image_records",
+        staticmethod(counting_iter_image_records),
+    )
+
+    parsed = UltralyticsNDJSONParser(ParseIssueCollector()).parse(
+        ndjson_path, dataset_type="ultralytics-ndjson"
+    )
+    assert len(walks) == 1, "eager pass resolves image paths only"
+
+    assert len(list(parsed.records)) == 3
+    assert len(walks) == 2, "annotations are read on consumption, not up front"
+
+
+def _write_solo_split(split_path: Path) -> None:
+    """Write a one-sequence SOLO split with box, instance and semantic masks."""
+    sequence_path = split_path / "sequence.0"
+    sequence_path.mkdir(parents=True)
+
+    cv2.imwrite(
+        str(sequence_path / "step0.camera.jpg"),
+        np.zeros((8, 8, 3), dtype=np.uint8),
+    )
+    for mask_name, colour in (
+        ("step0.camera.instance.png", (0, 0, 255)),
+        ("step0.camera.semantic.png", (0, 255, 0)),
+    ):
+        mask = np.zeros((8, 8, 3), dtype=np.uint8)
+        mask[:4, :4] = colour
+        cv2.imwrite(str(sequence_path / mask_name), mask)
+
+    prefix = "type.unity.com/unity.solo."
+    box_type = f"{prefix}BoundingBox2DAnnotation"
+    instance_type = f"{prefix}InstanceSegmentationAnnotation"
+    semantic_type = f"{prefix}SemanticSegmentationAnnotation"
+
+    (split_path / "annotation_definitions.json").write_text(
+        json.dumps(
+            {
+                "annotationDefinitions": [
+                    {
+                        "@type": box_type,
+                        "spec": [{"label_name": "budgie", "label_id": 1}],
+                    }
+                ]
+            }
+        )
+    )
+    (split_path / "metadata.json").write_text(
+        json.dumps({"totalSequences": 1})
+    )
+    (split_path / "metric_definitions.json").write_text("{}")
+    (split_path / "sensor_definitions.json").write_text("{}")
+    (sequence_path / "step0.frame_data.json").write_text(
+        json.dumps(
+            {
+                "step": 0,
+                "captures": [
+                    {
+                        "filename": "step0.camera.jpg",
+                        "dimension": [8, 8],
+                        "annotations": [
+                            {
+                                "@type": box_type,
+                                "values": [
+                                    {
+                                        "labelName": "budgie",
+                                        "origin": [0, 0],
+                                        "dimension": [4, 4],
+                                        "instanceId": 1,
+                                    }
+                                ],
+                            },
+                            {
+                                "@type": instance_type,
+                                "filename": "step0.camera.instance.png",
+                                "instances": [
+                                    {
+                                        "color": [255, 0, 0, 255],
+                                        "instanceId": 1,
+                                    }
+                                ],
+                            },
+                            {
+                                "@type": semantic_type,
+                                "filename": "step0.camera.semantic.png",
+                                "instances": [
+                                    {
+                                        "labelName": "budgie",
+                                        "pixelValue": [0, 255, 0, 255],
+                                    }
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            }
+        )
+    )
+
+
+def test_solo_file_enumeration_does_not_decode_masks(
+    tempdir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Listing SOLO images must not decode every mask a second time.
+
+    Regression: ``files`` was built with ``_get_added_images(generator())`` and
+    the record stream then ran the same generator again, so every semantic and
+    instance mask PNG was read and every per-instance mask rebuilt twice —
+    roughly doubling import time for the heaviest supported format. The
+    enumeration pass now skips mask decoding, and the masks reaching the
+    records still have full image dimensions.
+    """
+    split_path = tempdir / "solo" / "train"
+    _write_solo_split(split_path)
+
+    decoded: list[str] = []
+    original_imread = cv2.imread
+
+    def counting_imread(
+        path,  # noqa: ANN001
+        *args: Any,
+        **kwargs: Any,
+    ) -> np.ndarray | None:
+        decoded.append(str(path))
+        return original_imread(path, *args, **kwargs)
+
+    monkeypatch.setattr(cv2, "imread", counting_imread)
+
+    parsed = SOLOParser(ParseIssueCollector())._parse_split(split_path)
+    assert [path.name for path in parsed.files] == ["step0.camera.jpg"]
+    assert decoded == [], "enumerating files must not decode any mask"
+
+    records = _collect_raw_records(parsed.records)
+    assert len(decoded) == 2, "each mask is decoded exactly once"
+    masks = [
+        value["mask"]
+        for record in records
+        for value in record["annotation"].values()
+        if isinstance(value, dict) and "mask" in value
+    ]
+    assert [mask.shape for mask in masks] == [(8, 8), (8, 8)]

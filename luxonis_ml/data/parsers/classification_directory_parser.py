@@ -40,28 +40,35 @@ class ClassificationDirectoryParser(SplitParserPlugin):
 
     dataset_types = ("clsdir",)
 
+    #: Directory names that belong to other layouts and are never classes.
+    _RESERVED_DIR_NAMES = frozenset(
+        {
+            "train",
+            "valid",
+            "test",
+            "val",
+            "validation",
+            "images",
+            "labels",
+            "data",
+            "raw",
+            "masks",
+        }
+    )
+
+    @classmethod
+    def _list_class_dirs(cls, split_path: Path) -> list[Path]:
+        return [
+            path
+            for path in split_path.iterdir()
+            if path.is_dir() and path.name not in cls._RESERVED_DIR_NAMES
+        ]
+
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
-        classes = [
-            d
-            for d in split_path.iterdir()
-            if d.is_dir()
-            and d.name
-            not in {
-                "train",
-                "valid",
-                "test",
-                "val",
-                "validation",
-                "images",
-                "labels",
-                "data",
-                "raw",
-                "masks",
-            }
-        ]
+        classes = ClassificationDirectoryParser._list_class_dirs(split_path)
         if not classes:
             return None
         # For now allow info.json, can be extended to other metadata files
@@ -87,11 +94,12 @@ class ClassificationDirectoryParser(SplitParserPlugin):
             and added images.
 
         """
-        class_names = [d.name for d in class_dir.iterdir() if d.is_dir()]
+        class_dirs = self._list_class_dirs(class_dir)
 
         def generator() -> DatasetIterator:
-            for class_name in class_names:
-                for img_path in self._list_images(class_dir / class_name):
+            for class_path in class_dirs:
+                class_name = class_path.name
+                for img_path in self._list_images(class_path):
                     yield {
                         "file": str(img_path.absolute().resolve()),
                         "annotation": {"class": class_name},

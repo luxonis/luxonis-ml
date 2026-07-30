@@ -1,5 +1,6 @@
 import hashlib
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -74,56 +75,59 @@ class UltralyticsNDJSONParser(ParserPlugin):
         seen_images: set[Path] = set()
         remote_image_dir = ndjson_path.parent / ndjson_path.stem
         remote_image_dir_checked = False
-        image_records: list[tuple[dict[str, Any], Path]] = []
+        # `files` and `splits` must be complete before `records` is consumed,
+        # so image paths are resolved up front. Only the paths are retained —
+        # the annotation payloads are re-read lazily so that large manifests
+        # stream instead of being held in memory all at once. ``None`` marks a
+        # record that was skipped, keeping the two passes aligned.
+        resolved_paths: list[Path | None] = []
 
-        with open(ndjson_path, encoding="utf-8-sig") as file:
-            for raw_line in file:
-                line = raw_line.strip()
-                if not line:
-                    continue
-
-                record = json.loads(line)
-                if record.get("type") != "image":
-                    continue
-
-                if record.get("url") and not remote_image_dir_checked:
-                    if remote_image_dir.exists():
-                        if not reuse_cached:
-                            raise ValueError(
-                                f"Remote NDJSON image directory "
-                                f"'{remote_image_dir}' already exists."
-                            )
-                        logger.warning(
-                            f"Reusing existing remote NDJSON image "
-                            f"directory '{remote_image_dir}'."
+        for record in self._iter_image_records(ndjson_path):
+            if record.get("url") and not remote_image_dir_checked:
+                if remote_image_dir.exists():
+                    if not reuse_cached:
+                        raise ValueError(
+                            f"Remote NDJSON image directory "
+                            f"'{remote_image_dir}' already exists."
                         )
-                    remote_image_dir_checked = True
-
-                image_path = self._resolve_image_path(
-                    ndjson_path,
-                    record,
-                    remote_image_dir=remote_image_dir,
-                )
-                if not record.get("url") and not image_path.exists():
-                    self._warn_skipped_annotation(
-                        ParserIssue.MISSING_IMAGE,
-                        "referenced image file does not exist",
-                        source=ndjson_path,
-                        image=image_path,
+                    logger.warning(
+                        f"Reusing existing remote NDJSON image "
+                        f"directory '{remote_image_dir}'."
                     )
-                    continue
+                remote_image_dir_checked = True
 
-                split_name = self._normalize_split_name(record.get("split"))
-                image_records.append((record, image_path))
-                if image_path not in seen_images:
-                    seen_images.add(image_path)
-                    added_images.append(image_path)
-                if image_path not in seen_by_split[split_name]:
-                    seen_by_split[split_name].add(image_path)
-                    added_by_split[split_name].append(image_path)
+            image_path = self._resolve_image_path(
+                ndjson_path,
+                record,
+                remote_image_dir=remote_image_dir,
+            )
+            if not record.get("url") and not image_path.exists():
+                self._warn_skipped_annotation(
+                    ParserIssue.MISSING_IMAGE,
+                    "referenced image file does not exist",
+                    source=ndjson_path,
+                    image=image_path,
+                )
+                resolved_paths.append(None)
+                continue
+
+            split_name = self._normalize_split_name(record.get("split"))
+            resolved_paths.append(image_path)
+            if image_path not in seen_images:
+                seen_images.add(image_path)
+                added_images.append(image_path)
+            if image_path not in seen_by_split[split_name]:
+                seen_by_split[split_name].add(image_path)
+                added_by_split[split_name].append(image_path)
 
         def generator() -> DatasetIterator:
-            for record, image_path in image_records:
+            for index, record in enumerate(
+                self._iter_image_records(ndjson_path)
+            ):
+                image_path = resolved_paths[index]
+                if image_path is None:
+                    continue
+
                 annotations = record.get("annotations") or {}
                 instance_id = 0
                 yielded_annotation = False
@@ -227,6 +231,19 @@ class UltralyticsNDJSONParser(ParserPlugin):
                     yield {"file": str(image_path), "annotation": None}
 
         return generator(), added_by_split, added_images
+
+    @staticmethod
+    def _iter_image_records(ndjson_path: Path) -> Iterator[dict[str, Any]]:
+        """Yield image records one line at a time."""
+        with open(ndjson_path, encoding="utf-8-sig") as file:
+            for raw_line in file:
+                line = raw_line.strip()
+                if not line:
+                    continue
+
+                record = json.loads(line)
+                if record.get("type") == "image":
+                    yield record
 
     @staticmethod
     def _resolve_ndjson_path(path: Path) -> Path | None:
