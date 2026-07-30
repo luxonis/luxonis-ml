@@ -71,7 +71,8 @@ class LuxonisLoader(BaseLoader):
     the loader also adds a ``"filenames"`` mapping from source name to file
     basename. Augmented outputs additionally include an ``"augmentations"``
     mapping from configured transformation paths to selected scalar runtime
-    parameters.
+    parameters. Both are reserved keys that never overwrite metadata stored
+    on the record.
 
     Label keys use ``"task_name/task_type"``. If a dataset was created
     without a task name, the default task name is empty and keys look like
@@ -164,7 +165,9 @@ class LuxonisLoader(BaseLoader):
                 includes a ``"filenames"`` dictionary keyed by source name.
                 Set to ``False`` to return only metadata stored in
                 `DatasetRecord.sample_metadata`, apart from runtime
-                augmentation provenance on augmented outputs.
+                augmentation provenance on augmented outputs, which is
+                reported regardless because it describes the returned
+                arrays rather than the dataset record.
 
         Raises:
             ValueError: If `color_space` is neither a string nor a
@@ -315,6 +318,7 @@ class LuxonisLoader(BaseLoader):
                             },
                         }
 
+        self._warned_about_augmentations_metadata = False
         self._augmentations = self._init_augmentations(
             augmentation_engine,
             augmentation_config or [],
@@ -594,15 +598,28 @@ class LuxonisLoader(BaseLoader):
 
         img_dict, labels = self._augmentations.apply(loaded_anns)
         metadata_indices = self._augmentations.batch_augmentation_indices
-        sample_metadata = deepcopy(sample_metadata_list[metadata_indices[0]])
         if len(metadata_indices) > 1:
             sample_metadata = self._merge_sample_metadata(
                 [sample_metadata_list[i] for i in metadata_indices],
                 metadata_indices,
             )
-        sample_metadata["augmentations"] = (
-            self._augmentations.applied_augmentations
-        )
+        else:
+            sample_metadata = sample_metadata_list[metadata_indices[0]]
+
+        if "augmentations" in sample_metadata:
+            if not self._warned_about_augmentations_metadata:
+                self._warned_about_augmentations_metadata = True
+                warnings.warn(
+                    "Record metadata already defines the reserved "
+                    "'augmentations' key. Keeping the stored value; "
+                    "augmentation provenance will not be reported for "
+                    "this dataset.",
+                    stacklevel=2,
+                )
+        else:
+            sample_metadata["augmentations"] = (
+                self._augmentations.applied_augmentations
+            )
         return img_dict, labels, sample_metadata
 
     @staticmethod

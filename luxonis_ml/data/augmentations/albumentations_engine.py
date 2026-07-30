@@ -1,5 +1,5 @@
 import warnings
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping
 from copy import deepcopy
 from math import prod
@@ -41,10 +41,6 @@ _NON_RANDOM_AUGMENTATION_PARAMS: Final = frozenset(
         "out_height",
         "out_width",
         "shape",
-        "x_max",
-        "x_min",
-        "y_max",
-        "y_min",
     }
 )
 TargetType: TypeAlias = Literal[
@@ -400,6 +396,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         self._source_names = source_names
         self._bbox_area_threshold = bbox_area_threshold
         self._applied_augmentations: dict[str, Params] = {}
+        self._tracked_augmentation_paths: dict[int, str] = {}
 
         for task, task_type in targets.items():
             target_name = self._task_to_target_name(task)
@@ -507,7 +504,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 cfg.params["height"] = image_h
                 cfg.params["width"] = image_w
 
-            transform = self._create_transformation(cfg)
+            transform = self._create_transformation(
+                cfg, self._tracked_augmentation_paths
+            )
 
             if cfg.use_for_resizing:
                 logger.info(f"Using '{cfg.name}' for resizing.")
@@ -525,17 +524,23 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     )
                 resize_probability = float(resize_probability)
                 if resize_probability < 1:
+                    fallback_resize = self._create_default_resize_transform(
+                        keep_aspect_ratio=keep_aspect_ratio,
+                        height=height,
+                        width=width,
+                        p=1 - resize_probability,
+                    )
+                    # Either branch of the `OneOf` can be picked, so both
+                    # are tracked. Reporting only the configured one would
+                    # leave a resized sample looking un-augmented.
+                    self._tracked_augmentation_paths[id(transform)] = (
+                        f"OneOf/{cfg.name}"
+                    )
+                    self._tracked_augmentation_paths[id(fallback_resize)] = (
+                        f"OneOf/{type(fallback_resize).__name__} (fallback)"
+                    )
                     resize_transform = A.OneOf(
-                        [
-                            transform,
-                            self._create_default_resize_transform(
-                                keep_aspect_ratio=keep_aspect_ratio,
-                                height=height,
-                                width=width,
-                                p=1 - resize_probability,
-                            ),
-                        ],
-                        p=1.0,
+                        [transform, fallback_resize], p=1.0
                     )
                 else:
                     resize_transform = transform
@@ -577,8 +582,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 width=width,
             )
 
-        self._configured_augmentation_paths = set(
-            self._flatten_config_augmentation_paths(validated_config)
+        self._tracked_augmentation_paths = (
+            self._disambiguate_augmentation_paths(
+                self._tracked_augmentation_paths
+            )
         )
 
         def _get_params(is_custom: bool = False) -> dict[str, Any]:
@@ -651,7 +658,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         data_batch, n_keypoints = self._preprocess_batch(input_batch)
 
         data = self._batch_transform(data_batch)
-        self._record_applied_augmentations(self._batch_transform)
+        self._record_applied_batch_augmentations()
 
         for target_name in list(data.keys()):
             value = data[target_name]
@@ -699,14 +706,23 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         for path, applied_transform in self._collect_applied_transforms(
             transform
         ):
-            if (
-                path in self._configured_augmentation_paths
-                and path not in self._applied_augmentations
-            ):
+            self._applied_augmentations[path] = (
+                self._normalize_augmentation_params(applied_transform.params)
+            )
+
+    def _record_applied_batch_augmentations(self) -> None:
+        """Record batch transforms from the parameters `BatchCompose` kept.
+
+        A batch transform is invoked once per sub-batch, so its ``params``
+        only describe the last invocation. `BatchCompose` accumulates the
+        parameters of every invocation that was actually applied, which is
+        what provenance has to report.
+        """
+        for key, params in self._batch_transform.applied_params.items():
+            path = self._tracked_augmentation_paths.get(key)
+            if path is not None:
                 self._applied_augmentations[path] = (
-                    self._normalize_augmentation_params(
-                        applied_transform.params
-                    )
+                    self._normalize_augmentation_params(params)
                 )
 
     @staticmethod
@@ -716,31 +732,30 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         for child in getattr(transform, "transforms", []):
             AlbumentationsEngine._reset_transform_params(child)
 
-    @staticmethod
     def _collect_applied_transforms(
-        transform: Any, parent_path: tuple[str, ...] = ()
+        self, transform: Any
     ) -> list[tuple[str, Any]]:
-        transform_name = type(transform).__name__
-        child_transforms = getattr(transform, "transforms", None)
+        """Walk a composition and yield the tracked transforms that applied.
 
+        Transforms are matched by identity rather than by class name, so
+        registry aliases, repeated entries, and the ``A.Lambda`` instances
+        the engine injects itself are all handled correctly.
+        """
+        child_transforms = getattr(transform, "transforms", None)
         if child_transforms is not None:
-            next_path = (
-                parent_path
-                if transform_name in {"Compose", "BatchCompose"}
-                else (*parent_path, transform_name)
-            )
             return [
                 applied_transform
                 for child in child_transforms
-                for applied_transform in AlbumentationsEngine._collect_applied_transforms(
-                    child, next_path
+                for applied_transform in self._collect_applied_transforms(
+                    child
                 )
             ]
 
-        if transform_name == "Lambda" or not getattr(transform, "params", {}):
+        path = self._tracked_augmentation_paths.get(id(transform))
+        if path is None or not getattr(transform, "params", {}):
             return []
 
-        return [("/".join((*parent_path, transform_name)), transform)]
+        return [(path, transform)]
 
     @staticmethod
     def _normalize_augmentation_params(value: Any) -> Params:
@@ -770,52 +785,46 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             normalized = []
             for item in value:
                 item = AlbumentationsEngine._normalize_augmentation_value(item)
-                if item is not _SKIP_AUGMENTATION_PARAM:
-                    normalized.append(item)
+                # Reporting the surviving items would silently reindex the
+                # sequence and misrepresent its length, so the whole
+                # parameter is dropped instead.
+                if item is _SKIP_AUGMENTATION_PARAM:
+                    return _SKIP_AUGMENTATION_PARAM
+                normalized.append(item)
             return normalized
         if isinstance(value, (str, int, float, bool)) or value is None:
             return value
         return str(value)
 
     @staticmethod
-    def _flatten_config_augmentation_paths(
-        config: Iterable[AlbumentationConfigItem],
-        parent_path: tuple[str, ...] = (),
-    ) -> list[str]:
-        paths: list[str] = []
-        for item in config:
-            current_path = (*parent_path, item.name)
-            paths.append("/".join(current_path))
-            if AlbumentationsEngine._is_probabilistic_resize_transform(item):
-                paths.append("/".join((*parent_path, "OneOf", item.name)))
+    def _disambiguate_augmentation_paths(
+        paths: dict[int, str],
+    ) -> dict[int, str]:
+        """Make repeated configured paths unique.
 
-            nested_transforms = item.params.get("transforms")
-            if not isinstance(nested_transforms, list):
-                continue
+        The same transformation can be configured more than once, possibly
+        with different parameters. Such paths are suffixed with ``"#<n>"``
+        in configuration order so every occurrence keeps its own runtime
+        parameters instead of collapsing into a single entry.
 
-            nested_config = [
-                AlbumentationConfigItem.model_validate(nested_item)
-                for nested_item in nested_transforms
-                if isinstance(nested_item, dict)
-            ]
-            paths.extend(
-                AlbumentationsEngine._flatten_config_augmentation_paths(
-                    nested_config, current_path
-                )
-            )
-        return paths
+        Args:
+            paths: Configured path for every tracked transformation,
+                keyed by transformation identity.
 
-    @staticmethod
-    def _is_probabilistic_resize_transform(
-        item: AlbumentationConfigItem,
-    ) -> bool:
-        probability = item.params.get("p", 1.0)
-        return (
-            item.use_for_resizing
-            and not isinstance(probability, bool)
-            and isinstance(probability, (int, float))
-            and float(probability) < 1.0
-        )
+        Returns:
+            The same mapping with duplicated paths made unique.
+
+        """
+        occurrences = Counter(paths.values())
+        seen: dict[str, int] = defaultdict(int)
+        disambiguated: dict[int, str] = {}
+        for key, path in paths.items():
+            if occurrences[path] == 1:
+                disambiguated[key] = path
+            else:
+                seen[path] += 1
+                disambiguated[key] = f"{path}#{seen[path]}"
+        return disambiguated
 
     def _preprocess_batch(
         self, labels_batch: list[LoaderMultiOutput]
@@ -1043,8 +1052,31 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     @staticmethod
     def _create_transformation(
         config: AlbumentationConfigItem,
+        tracked_paths: dict[int, str] | None = None,
+        parent_path: tuple[str, ...] = (),
     ) -> A.BasicTransform:
+        """Instantiate a configured transformation.
+
+        Args:
+            config: Validated configuration item to instantiate.
+            tracked_paths: Optional mapping that collects the configured
+                path of every created leaf transformation, keyed by its
+                identity. Provenance is matched by identity so that
+                registry aliases and repeated entries are handled
+                correctly.
+            parent_path: Configured names of the enclosing compositions.
+
+        Returns:
+            The instantiated transformation.
+
+        Raises:
+            ValueError: If a batch transform is nested inside another
+                transformation, or if a nested item is not a valid
+                transformation configuration.
+
+        """
         params = config.params.copy()
+        current_path = (*parent_path, config.name)
 
         # Recursively handle nested transform compositions
         # (for example: OneOf, SomeOf, Sequential)
@@ -1060,7 +1092,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                         ),
                     )
                     transform = AlbumentationsEngine._create_transformation(
-                        nested_cfg
+                        nested_cfg, tracked_paths, current_path
                     )
                     if isinstance(transform, BatchTransform):
                         raise ValueError(
@@ -1078,8 +1110,14 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             params["transforms"] = nested_transforms
 
         if hasattr(A, config.name):
-            return getattr(A, config.name)(**params)
-        return TRANSFORMATIONS.get(config.name)(**params)  # type: ignore
+            transform = getattr(A, config.name)(**params)
+        else:
+            constructor = TRANSFORMATIONS.get(config.name)
+            transform = constructor(**params)  # type: ignore
+
+        if tracked_paths is not None and not hasattr(transform, "transforms"):
+            tracked_paths[id(transform)] = "/".join(current_path)
+        return transform
 
     @staticmethod
     def _task_to_target_name(task: str) -> str:

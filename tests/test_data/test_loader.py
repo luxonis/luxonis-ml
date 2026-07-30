@@ -328,10 +328,7 @@ def test_loader_records_augmentations_in_sample_metadata(
         img = create_image(0, tempdir)
         yield {
             "file": img,
-            "sample_metadata": {
-                "augmentations": ["stored-value"],
-                "record_id": "sample-1",
-            },
+            "sample_metadata": {"record_id": "sample-1"},
             "annotation": {"class": "person"},
         }
 
@@ -348,6 +345,44 @@ def test_loader_records_augmentations_in_sample_metadata(
 
     assert metadata == {
         "augmentations": {"HorizontalFlip": {}},
+        "record_id": "sample-1",
+    }
+
+
+def test_loader_keeps_stored_metadata_over_the_reserved_augmentations_key(
+    dataset_name: str, tempdir: Path
+):
+    """``"augmentations"`` is reserved but must not destroy user data.
+
+    Overwriting it made metadata that was written to the dataset
+    unreadable through the loader, with no warning.
+    """
+
+    def generator() -> DatasetIterator:
+        img = create_image(0, tempdir)
+        yield {
+            "file": img,
+            "sample_metadata": {
+                "augmentations": ["stored-value"],
+                "record_id": "sample-1",
+            },
+            "annotation": {"class": "person"},
+        }
+
+    dataset = create_dataset(dataset_name, generator())
+    loader = LuxonisLoader(
+        dataset,
+        height=512,
+        width=512,
+        augmentation_config=[{"name": "HorizontalFlip", "params": {"p": 1.0}}],
+        autopopulate_metadata=False,
+    )
+
+    with pytest.warns(UserWarning, match="reserved 'augmentations' key"):
+        metadata = loader[0].metadata
+
+    assert metadata == {
+        "augmentations": ["stored-value"],
         "record_id": "sample-1",
     }
 
@@ -399,6 +434,12 @@ def test_loader_uses_metadata_from_custom_engine_single_contributor(
             }
 
     dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    primary_record_id = cast(
+        int,
+        LuxonisLoader(dataset, view="train", autopopulate_metadata=False)[
+            0
+        ].metadata["record_id"],
+    )
     loader = LuxonisLoader(
         dataset,
         view="train",
@@ -411,7 +452,10 @@ def test_loader_uses_metadata_from_custom_engine_single_contributor(
 
     metadata = loader[0].metadata
 
-    assert metadata["record_id"] in {0, 1}
+    # `SelectiveBatchEngine` reports input 1 as the only contributor. With
+    # two records that is always the one the primary sample did not load,
+    # whichever order the split happened to put them in.
+    assert metadata["record_id"] == 1 - primary_record_id
     assert metadata["augmentations"] == {}
 
 

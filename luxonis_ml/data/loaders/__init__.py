@@ -162,6 +162,26 @@ Pass ``autopopulate_metadata=False`` to return only stored metadata:
     loader = LuxonisLoader(dataset, autopopulate_metadata=False)
     metadata = loader[0].metadata
 
+Augmented outputs additionally carry an ``"augmentations"`` mapping from
+configured augmentation paths to the scalar runtime parameters the engine
+selected. Unlike ``"filenames"``, it is added regardless of
+``autopopulate_metadata`` because it describes the returned arrays rather
+than the dataset record:
+
+.. python::
+
+    {
+        "record_id": 123,
+        "augmentations": {
+            "HorizontalFlip": {},
+            "OneOf/RandomBrightnessContrast": {"alpha": 1.02, "beta": -0.03},
+        },
+    }
+
+Both ``"filenames"`` and ``"augmentations"`` are reserved keys. Metadata
+stored on the record always wins: if a record already defines one of them,
+the loader keeps the stored value and warns instead of overwriting it.
+
 When a batch augmentation combines several samples, metadata from the input
 samples is preserved in ``"batch_augmentation_metadata"``:
 

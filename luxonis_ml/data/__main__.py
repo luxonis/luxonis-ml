@@ -315,7 +315,16 @@ def inspect(
         labels = data.labels
 
         if print_sample_metadata:
-            print("Sample metadata:", data.metadata)
+            metadata = data.metadata
+            if not list_augmentations:
+                # The full runtime parameters of every transformation
+                # would bury the record metadata this flag exists to show.
+                metadata = {
+                    key: value
+                    for key, value in metadata.items()
+                    if key != "augmentations"
+                }
+            print("Sample metadata:", metadata)
 
         current_windows = set(images_dict.keys())
         for stale_window in prev_windows - current_windows:

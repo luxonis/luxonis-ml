@@ -114,3 +114,21 @@ __all__ = [
     "visualize",
     "warn_on_duplicates",
 ]
+
+_REMOVED = {
+    "AugmentationsCollector": (
+        "'AugmentationsCollector' was removed. Augmentation provenance is "
+        "now tracked by the engine itself: read it from "
+        "'LoaderOutput.metadata[\"augmentations\"]', or directly from "
+        "'AugmentationEngine.applied_augmentations'."
+    )
+}
+
+
+def __getattr__(name: str) -> object:
+    if name in _REMOVED:
+        # Raised instead of `AttributeError` so that the migration hint
+        # survives `from luxonis_ml.data.utils import ...`, which replaces
+        # an `AttributeError` with its own message.
+        raise ImportError(_REMOVED[name])
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

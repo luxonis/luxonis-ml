@@ -1,4 +1,5 @@
 import random
+from typing import Any
 
 import albumentations as A
 import numpy as np
@@ -16,6 +17,11 @@ class BatchCompose(A.Compose):
         transforms: Batch transformations in composition order.
         batch_size: Product of nested transform batch sizes,
             :math:`\prod_i b_i`.
+        applied_params: Runtime parameters of the transformations that were
+            applied during the latest call, keyed by transformation
+            identity. A transformation is invoked once per sub-batch, so
+            this accumulates across invocations instead of describing only
+            the last one.
 
     """
 
@@ -39,6 +45,7 @@ class BatchCompose(A.Compose):
 
         self.batch_size = 1
         self.batch_augmentation_indices = [0]
+        self.applied_params: dict[int, dict[str, Any]] = {}
         for transform in self.transforms:
             self.batch_size *= transform.batch_size
 
@@ -67,6 +74,7 @@ class BatchCompose(A.Compose):
             )
 
         input_indices = [[i] for i in range(len(data_batch))]
+        self.applied_params = {}
         if not self.transforms:
             return data_batch[0]
 
@@ -81,6 +89,11 @@ class BatchCompose(A.Compose):
                 yield_batches(data_batch, transform.batch_size)
             ):
                 data = transform(**batch)  # type: ignore
+                # A batch transform is invoked once per sub-batch and
+                # ``params`` only describes the latest invocation, so every
+                # applied invocation is recorded here for provenance.
+                if transform.params:
+                    self.applied_params[id(transform)] = dict(transform.params)
                 batch_indices = input_indices[
                     i * transform.batch_size : (i + 1) * transform.batch_size
                 ]
