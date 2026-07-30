@@ -6,31 +6,25 @@ from luxonis_ml.utils import is_acyclic, traverse_graph
 
 
 @st.composite
-def dags(
-    draw: st.DrawFn, min_nodes: int = 0, max_nodes: int = 8
-) -> dict[str, list[str]]:
+def dags(draw: st.DrawFn, min_nodes: int = 0) -> dict[str, list[str]]:
     """Build a random acyclic predecessor graph.
 
     Node ``i`` may only depend on nodes with a lower index, which makes
-    a cycle impossible by construction. The keys are returned in a random
-    order so that traversals cannot rely on insertion order.
+    a cycle impossible by construction. The keys are shuffled so that
+    traversals cannot rely on insertion order.
     """
-    names = [
-        f"node{i}" for i in range(draw(st.integers(min_nodes, max_nodes)))
-    ]
+    names = [f"node{i}" for i in range(draw(st.integers(min_nodes, 8)))]
 
-    graph = {
-        name: draw(st.lists(st.sampled_from(names[:i]), unique=True))
-        if i
-        else []
-        for i, name in enumerate(names)
-    }
+    graph: dict[str, list[str]] = {}
+    for i, name in enumerate(names):
+        candidates = st.sampled_from(names[:i]) if i else st.nothing()
+        graph[name] = draw(st.lists(candidates, unique=True))
+
     return dict(draw(st.permutations(list(graph.items()))))
 
 
 @st.composite
 def cyclic_graphs(draw: st.DrawFn) -> dict[str, list[str]]:
-    """Build a random graph containing at least one cycle."""
     graph = draw(dags(min_nodes=1))
     cycle = draw(
         st.lists(st.sampled_from(sorted(graph)), min_size=1, unique=True)
@@ -45,7 +39,7 @@ def index_nodes(graph: dict[str, list[str]]) -> dict[str, int]:
 
 
 @given(graph=dags())
-def test_generated_dags_are_acyclic(graph: dict[str, list[str]]):
+def test_dags_are_acyclic(graph: dict[str, list[str]]):
     assert is_acyclic(graph)
 
 
@@ -55,9 +49,7 @@ def test_cycles_are_detected(graph: dict[str, list[str]]):
 
 
 @given(graph=dags())
-def test_traversal_visits_each_node_once_after_its_predecessors(
-    graph: dict[str, list[str]],
-):
+def test_traversal_order(graph: dict[str, list[str]]):
     nodes = index_nodes(graph)
     visited: list[str] = []
 
@@ -74,9 +66,7 @@ def test_traversal_visits_each_node_once_after_its_predecessors(
 
 
 @given(graph=dags())
-def test_traversal_does_not_depend_on_dictionary_order(
-    graph: dict[str, list[str]],
-):
+def test_traversal_ignores_insertion_order(graph: dict[str, list[str]]):
     nodes = index_nodes(graph)
     reversed_graph = dict(reversed(list(graph.items())))
     reversed_nodes = dict(reversed(list(nodes.items())))
@@ -87,7 +77,7 @@ def test_traversal_does_not_depend_on_dictionary_order(
 
 
 @given(graph=dags())
-def test_traversal_leaves_the_graph_untouched(graph: dict[str, list[str]]):
+def test_traversal_does_not_mutate_graph(graph: dict[str, list[str]]):
     original = {
         name: list(predecessors) for name, predecessors in graph.items()
     }
@@ -98,7 +88,7 @@ def test_traversal_leaves_the_graph_untouched(graph: dict[str, list[str]]):
 
 
 @given(graph=cyclic_graphs())
-def test_traversal_rejects_cyclic_graphs(graph: dict[str, list[str]]):
+def test_traversal_rejects_cycles(graph: dict[str, list[str]]):
     with pytest.raises(RuntimeError, match="Malformed graph"):
         list(traverse_graph(graph, index_nodes(graph)))
 

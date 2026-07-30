@@ -5,21 +5,14 @@ from hypothesis import strategies as st
 
 from luxonis_ml.data.utils import merge_uuids
 
-uuid_strings = st.uuids().map(str)
-uuid_lists = st.lists(uuid_strings, min_size=1, max_size=8)
+uuid_lists = st.lists(st.uuids().map(str), min_size=1, max_size=8)
 
 
-@st.composite
-def uuids_and_permutation(draw: st.DrawFn) -> tuple[list[str], list[str]]:
-    uuids = draw(uuid_lists)
-    return uuids, draw(st.permutations(uuids))
-
-
-@given(uuids_and_permutation())
+@given(uuids=uuid_lists, data=st.data())
 def test_merging_does_not_depend_on_order(
-    uuids_and_shuffled: tuple[list[str], list[str]],
+    uuids: list[str], data: st.DataObject
 ):
-    uuids, shuffled = uuids_and_shuffled
+    shuffled = data.draw(st.permutations(uuids))
 
     assert merge_uuids(uuids) == merge_uuids(shuffled)
 

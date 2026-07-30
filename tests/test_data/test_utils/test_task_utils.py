@@ -13,8 +13,8 @@ from luxonis_ml.data.utils import (
 )
 from luxonis_ml.typing import TaskType
 
-# A single segment of a task string. ``"metadata"`` is excluded because
-# it is a reserved segment with its own parsing rules, tested separately.
+# "metadata" is a reserved segment with its own parsing rules, tested
+# separately below.
 segments = st.text(
     alphabet=st.characters(min_codepoint=ord("a"), max_codepoint=ord("z")),
     min_size=1,
@@ -25,7 +25,7 @@ task_types = st.sampled_from(get_args(TaskType))
 
 
 @given(name=segments, task_type=segments)
-def test_task_splits_into_name_and_type(name: str, task_type: str):
+def test_simple_task(name: str, task_type: str):
     task = f"{name}/{task_type}"
 
     assert split_task(task) == (name, task_type)
@@ -35,7 +35,7 @@ def test_task_splits_into_name_and_type(name: str, task_type: str):
 
 
 @given(task_type=segments)
-def test_task_without_a_name_is_its_own_type(task_type: str):
+def test_task_without_name(task_type: str):
     assert split_task(task_type) == ("", task_type)
     assert get_task_name(task_type) == task_type
     assert get_task_type(task_type) == task_type
@@ -47,9 +47,7 @@ def test_task_without_a_name_is_its_own_type(task_type: str):
     middle=st.lists(segments, min_size=1, max_size=3),
     task_type=segments,
 )
-def test_nested_task_keeps_only_first_and_last_segment(
-    name: str, middle: list[str], task_type: str
-):
+def test_nested_task(name: str, middle: list[str], task_type: str):
     task = "/".join([name, *middle, task_type])
 
     assert get_task_name(task) == name
@@ -59,9 +57,7 @@ def test_nested_task_keeps_only_first_and_last_segment(
 
 
 @given(name=segments, middle=st.lists(segments, max_size=2), field=segments)
-def test_metadata_type_keeps_its_prefix(
-    name: str, middle: list[str], field: str
-):
+def test_metadata_task(name: str, middle: list[str], field: str):
     task = "/".join([name, *middle, "metadata", field])
 
     assert get_task_type(task) == f"metadata/{field}"
@@ -70,11 +66,7 @@ def test_metadata_type_keeps_its_prefix(
 
 
 @given(task=st.text())
-def test_split_task_loses_no_characters(task: str):
-    """Splitting is lossless: both parts always rejoin into the original
-    task, and a task without a separator keeps its whole string as the
-    type.
-    """
+def test_split_task_is_lossless(task: str):
     name, task_type = split_task(task)
 
     if "/" in task:
@@ -88,7 +80,7 @@ def test_split_task_loses_no_characters(task: str):
     task_type=task_types,
     other_type=task_types,
 )
-def test_task_type_iterator_yields_every_matching_task(
+def test_task_type_iterator(
     names: list[str], task_type: TaskType, other_type: TaskType
 ):
     assume(other_type != task_type)
@@ -111,7 +103,7 @@ def test_task_type_iterator_yields_every_matching_task(
     tasks=st.lists(segments, max_size=4, unique=True),
     task_type=task_types,
 )
-def test_task_type_iterator_ignores_unrelated_types(
+def test_task_type_iterator_without_matches(
     tasks: list[str], task_type: TaskType
 ):
     assume(task_type not in tasks)
@@ -122,15 +114,12 @@ def test_task_type_iterator_ignores_unrelated_types(
 
 
 def test_bare_metadata_task():
-    """A task whose name is the reserved ``"metadata"`` segment is parsed
-    as a metadata type rather than as a name and a type.
-    """
     assert get_task_type("metadata/weather") == "metadata/weather"
     assert get_task_name("metadata/weather") == "metadata"
     assert task_is_metadata("metadata/weather")
 
 
-def test_metadata_is_only_recognized_as_second_to_last_segment():
+def test_metadata_must_be_second_to_last():
     assert get_task_type("camera/metadata/weather/extra") == "extra"
     assert not task_is_metadata("camera/metadata/weather/extra")
     assert get_task_type("camera/metadata") == "metadata"

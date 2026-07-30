@@ -10,8 +10,8 @@ from luxonis_ml.utils.path import (
     resolve_manifest_path,
 )
 
-# Plain path segments, deliberately without ``.``, ``..`` or characters
-# that pathlib treats differently across platforms.
+# Segments exclude "." and ".." and anything pathlib treats differently
+# across platforms, so the parts always survive a roundtrip unchanged.
 segments = st.text(
     alphabet=string.ascii_letters + string.digits + "_-",
     min_size=1,
@@ -21,7 +21,7 @@ relative_paths = st.lists(segments, min_size=1, max_size=4)
 
 
 @given(parts=relative_paths)
-def test_windows_and_posix_separators_parse_identically(parts: list[str]):
+def test_separators_parse_identically(parts: list[str]):
     posix = "/".join(parts)
     windows = "\\".join(parts)
 
@@ -31,7 +31,7 @@ def test_windows_and_posix_separators_parse_identically(parts: list[str]):
 
 
 @given(parts=relative_paths)
-def test_parsing_and_serializing_roundtrips(parts: list[str]):
+def test_parse_posix_roundtrip(parts: list[str]):
     posix = "/".join(parts)
 
     assert path_to_posix(parse_manifest_path(posix)) == posix
@@ -39,7 +39,7 @@ def test_parsing_and_serializing_roundtrips(parts: list[str]):
 
 
 @given(parts=relative_paths)
-def test_relative_paths_resolve_inside_the_base_directory(parts: list[str]):
+def test_relative_paths_stay_under_base_dir(parts: list[str]):
     base_dir = Path.cwd().resolve()
 
     resolved = resolve_manifest_path(base_dir, "\\".join(parts))
