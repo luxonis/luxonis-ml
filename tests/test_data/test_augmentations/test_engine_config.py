@@ -12,8 +12,9 @@ import numpy as np
 import pytest
 
 from luxonis_ml.data import AlbumentationsEngine
+from luxonis_ml.data.augmentations import AugmentationEngine
 from luxonis_ml.data.augmentations.custom import TRANSFORMATIONS
-from luxonis_ml.typing import Labels
+from luxonis_ml.typing import Labels, LoaderMultiOutput
 
 
 @pytest.fixture
@@ -45,6 +46,26 @@ def build(
         config,
         **kwargs,
     )
+
+
+def test_engines_default_to_using_every_input_position() -> None:
+    """An engine that does not track contributors is assumed to use all of them."""
+
+    class UntrackedEngine(
+        AugmentationEngine, register_name="untracked_engine"
+    ):
+        def __init__(self, *_, **__) -> None: ...
+
+        def apply(
+            self, input_batch: list[LoaderMultiOutput]
+        ) -> LoaderMultiOutput:
+            return input_batch[0]
+
+        @property
+        def batch_size(self) -> int:
+            return 4
+
+    assert UntrackedEngine().batch_augmentation_indices == [0, 1, 2, 3]
 
 
 def test_unsupported_task_type_is_rejected() -> None:
