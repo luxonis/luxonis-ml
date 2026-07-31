@@ -15,8 +15,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Required by codecov-action, it builds the path-fixing file network
+      # from the checked out repository.
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
 
       - name: Find the CI run of the merged pull request
         id: ci-run
@@ -37,16 +41,23 @@ jobs:
             exit 1
           fi
 
+          # The coverage was measured on the pull request's tree. If main moved
+          # on in the meantime, that tree is not what landed and uploading it
+          # would report coverage of source that is not in $GITHUB_SHA.
           pr_tree=$(gh api "repos/$GITHUB_REPOSITORY/commits/$head_sha" --jq '.commit.tree.sha')
           main_tree=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" --jq '.commit.tree.sha')
           if [[ "$pr_tree" != "$main_tree" ]]; then
-            echo "::warning::PR #$pr was not merged as-is, its coverage may not match $GITHUB_SHA"
+            echo "::warning::PR #$pr was not merged as-is, skipping the coverage upload for $GITHUB_SHA"
+            echo "upload=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
           echo "Using coverage from PR #$pr (run $run_id)"
           echo "run-id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "upload=true" >> "$GITHUB_OUTPUT"
 
       - name: Download artifacts
+        if: ${{ steps.ci-run.outputs.upload == 'true' }}
         uses: dawidd6/action-download-artifact@b6e2e70617bc3265edd6dab6c906732b2f1ae151
         with:
           run_id: ${{ steps.ci-run.outputs.run-id }}
@@ -58,6 +69,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Collect coverage files
+        if: ${{ steps.ci-run.outputs.upload == 'true' }}
         id: coverage-files
         shell: bash
         run: |
@@ -69,6 +81,7 @@ jobs:
           echo "files=$files" >> "$GITHUB_OUTPUT"
 
       - name: Upload coverage results to Codecov
+        if: ${{ steps.ci-run.outputs.upload == 'true' }}
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
