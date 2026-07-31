@@ -76,6 +76,43 @@ def test_mosaic4():
     assert m["image"].shape == (HEIGHT, WIDTH, 3)
 
 
+@pytest.mark.parametrize(
+    ("batch", "expected"),
+    [
+        # Bare `np.array([])` entries have no width of their own and take
+        # the populated sample's.
+        (
+            [
+                np.array([]),
+                np.zeros((2, 7), np.float32),
+                np.array([]),
+                np.array([]),
+            ],
+            (2, 7),
+        ),
+        # With nothing populated the width still has to come from the empty
+        # rows, not from the fallback.
+        ([np.zeros((0, 7), np.float32)] * 4, (0, 7)),
+    ],
+)
+def test_mosaic4_pads_empty_samples_to_the_batch_width(
+    batch: list[np.ndarray],
+    expected: tuple[int, int],
+    subtests: SubTests,
+) -> None:
+    """Samples with no boxes must not narrow the merged array."""
+    mosaic = Mosaic4(out_height=HEIGHT, out_width=WIDTH, p=1.0)
+    shapes = [(HEIGHT // 2, WIDTH // 2)] * 4
+
+    with subtests.test("bboxes"):
+        merged = mosaic.apply_to_bboxes(batch, shapes, x_crop=0, y_crop=0)
+        assert merged.shape == expected
+
+    with subtests.test("keypoints"):
+        merged = mosaic.apply_to_keypoints(batch, shapes, x_crop=0, y_crop=0)
+        assert merged.shape == expected
+
+
 def test_invalid():
     with pytest.raises(ValueError, match="`height` must be larger"):
         Mosaic4(out_height=0, out_width=WIDTH)
