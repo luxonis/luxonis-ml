@@ -70,9 +70,9 @@ class LuxonisLoader(BaseLoader):
     `DatasetRecord.sample_metadata`. When ``autopopulate_metadata`` is enabled,
     the loader also adds a ``"filenames"`` mapping from source name to file
     basename. Augmented outputs additionally include an ``"augmentations"``
-    mapping from configured transformation paths to selected scalar runtime
-    parameters. Both are reserved keys that never overwrite metadata stored
-    on the record.
+    mapping from configured transformation paths to the runtime parameters
+    that were selected. Both are reserved keys that never overwrite metadata
+    stored on the record.
 
     Label keys use ``"task_name/task_type"``. If a dataset was created
     without a task name, the default task name is empty and keys look like
@@ -452,13 +452,21 @@ class LuxonisLoader(BaseLoader):
         source_to_path = self._idx_to_img_paths[idx]
 
         if self._autopopulate_metadata:
-            sample_metadata = {
-                "filenames": {
-                    source_name: path.name
-                    for source_name, path in source_to_path.items()
-                },
-                **sample_metadata,
-            }
+            if "filenames" in sample_metadata:
+                warnings.warn(
+                    "Record metadata already defines the reserved "
+                    "'filenames' key. Keeping the stored value; source "
+                    "filenames will not be reported for this dataset.",
+                    stacklevel=2,
+                )
+            else:
+                sample_metadata = {
+                    "filenames": {
+                        source_name: path.name
+                        for source_name, path in source_to_path.items()
+                    },
+                    **sample_metadata,
+                }
 
         img_dict: dict[str, np.ndarray] = {}
 

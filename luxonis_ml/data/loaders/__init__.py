@@ -163,10 +163,10 @@ Pass ``autopopulate_metadata=False`` to return only stored metadata:
     metadata = loader[0].metadata
 
 Augmented outputs additionally carry an ``"augmentations"`` mapping from
-configured augmentation paths to the scalar runtime parameters the engine
-selected. Unlike ``"filenames"``, it is added regardless of
-``autopopulate_metadata`` because it describes the returned arrays rather
-than the dataset record:
+configured augmentation paths to the runtime parameters the engine selected.
+A parameter value is a primitive, or a list or mapping of them. Unlike
+``"filenames"``, it is added regardless of ``autopopulate_metadata``
+because it describes the returned arrays rather than the dataset record:
 
 .. python::
 

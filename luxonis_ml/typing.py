@@ -89,7 +89,7 @@ class LoaderOutput(
             `DatasetRecord.sample_metadata`, plus any automatic loader
             metadata such as ``"filenames"`` when enabled. Augmented outputs
             also include an ``"augmentations"`` mapping from configured paths
-            to selected scalar runtime parameters.
+            to the runtime parameters that were selected.
 
     Example:
         .. python::

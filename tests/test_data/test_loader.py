@@ -387,6 +387,32 @@ def test_loader_keeps_stored_metadata_over_the_reserved_augmentations_key(
     }
 
 
+def test_loader_warns_when_stored_metadata_hides_the_filenames_key(
+    dataset_name: str, tempdir: Path
+):
+    """``"filenames"`` is reserved just like ``"augmentations"``.
+
+    The stored value wins, which silently left consumers indexing a value
+    the loader never put there.
+    """
+
+    def generator() -> DatasetIterator:
+        img = create_image(0, tempdir)
+        yield {
+            "file": img,
+            "sample_metadata": {"filenames": "stored-value"},
+            "annotation": {"class": "person"},
+        }
+
+    dataset = create_dataset(dataset_name, generator())
+    loader = LuxonisLoader(dataset, height=512, width=512)
+
+    with pytest.warns(UserWarning, match="reserved 'filenames' key"):
+        metadata = loader[0].metadata
+
+    assert metadata == {"filenames": "stored-value", "augmentations": {}}
+
+
 def test_loader_preserves_metadata_for_custom_batch_engines(
     dataset_name: str, tempdir: Path
 ) -> None:

@@ -13,6 +13,29 @@ from luxonis_ml.data.utils.enums import BucketStorage
 from luxonis_ml.typing import Params, check_type
 
 
+def get_tracked_augmentations(metadata: Params) -> dict[str, Params] | None:
+    """Read the augmentation provenance the loader added to a sample.
+
+    A dataset is free to store its own ``"augmentations"`` metadata, which
+    the loader keeps in place of the tracked provenance. Only a mapping of
+    configured paths to their runtime parameters can have come from the
+    loader, so anything else is left to be read as the record metadata it
+    is.
+
+    Args:
+        metadata: Sample metadata as returned by `LuxonisLoader`.
+
+    Returns:
+        Runtime parameters keyed by configured augmentation path, or
+        ``None`` when the sample carries no tracked provenance.
+
+    """
+    augmentations = metadata.get("augmentations")
+    if not check_type(augmentations, dict[str, Params]):
+        return None
+    return augmentations
+
+
 def get_applied_augmentations(metadata: Params) -> list[str]:
     """Read the augmentations applied to a sample from its metadata.
 
@@ -25,10 +48,7 @@ def get_applied_augmentations(metadata: Params) -> list[str]:
         loader keeps in place of the tracked provenance.
 
     """
-    augmentations = metadata.get("augmentations")
-    if not isinstance(augmentations, dict):
-        return []
-    return list(augmentations)
+    return list(get_tracked_augmentations(metadata) or {})
 
 
 def parse_split_ratio(

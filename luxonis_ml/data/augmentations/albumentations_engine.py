@@ -36,8 +36,10 @@ LabelSpec: TypeAlias = tuple[tuple[int, ...], np.dtype]
 # Marks a parameter that cannot be reported as provenance.
 _OMIT: Final = object()
 
-# Parameters `Albumentations` reports back that were configured rather than
-# sampled. They say nothing about what happened to a particular sample.
+# Parameters `Albumentations` can report back unchanged from how the
+# transformation was configured. Such a value says nothing about what
+# happened to a particular sample, but the same key carries a sampled value
+# for other transformations, so the two are told apart per transformation.
 _STATIC_PARAMS: Final[frozenset[str]] = frozenset(
     {
         "fill",
@@ -68,17 +70,41 @@ ASSOCIATED_TARGET_TYPES = frozenset(
 )
 
 
-def _normalize_params(params: Mapping[Any, Any]) -> Params:
-    """Keep the sampled parameters that can be reported as provenance."""
+def _normalize_params(
+    params: Mapping[Any, Any], transform: Any = None
+) -> Params:
+    """Keep the sampled parameters that can be reported as provenance.
+
+    Args:
+        params: Parameters `Albumentations` reported back.
+        transform: Transformation the parameters belong to, needed to tell
+            a configured value from a sampled one. Parameters nested inside
+            another parameter have no transformation of their own.
+
+    """
     normalized: Params = {}
     for key, value in params.items():
         key = str(key)
-        if key in _STATIC_PARAMS:
-            continue
         value = _normalize_value(value)
-        if value is not _OMIT:
-            normalized[key] = value
+        if value is _OMIT or _is_configured(transform, key, value):
+            continue
+        normalized[key] = value
     return normalized
+
+
+def _is_configured(transform: Any, key: str, value: Any) -> bool:
+    """Whether a reported parameter only echoes back the configuration.
+
+    A transformation that samples one of these parameters reports a value
+    that differs from the one it was configured with - `A.CropAndPad` draws
+    its ``fill`` from the range it was given - and that value is part of
+    what happened to the sample. Keys the transformation knows nothing
+    about, such as the input ``shape``, are never sampled.
+    """
+    if key not in _STATIC_PARAMS:
+        return False
+    configured = getattr(transform, key, _OMIT)
+    return configured is _OMIT or _normalize_value(configured) == value
 
 
 def _normalize_value(value: Any) -> Any:
@@ -729,7 +755,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             self._spatial_transform = self._wrap_transform(
                 self._spatial_compose
             )
-            self._pixel_compose = A.Compose(pixel_transforms)
+            # Composed once, and seeded like the rest: `A.ReplayCompose`
+            # reseeds the transformations it is given, so building one per
+            # call would throw the seeded random state away every time.
+            self._pixel_compose = A.ReplayCompose(pixel_transforms)
+            self._pixel_compose.set_random_seed(seed)
             self._pixel_transform = self._wrap_transform(
                 self._pixel_compose,
                 is_pixel=True,
@@ -866,24 +896,36 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         if isinstance(transform, BatchTransform):
             return
 
+        # Unlike a batch transform, whose `update_transform_params` may
+        # sample nothing at all, a transformation applied here always
+        # reports at least the input ``shape`` that
+        # `A.BasicTransform.update_transform_params` adds, so empty
+        # parameters mean the transformation did not apply.
         path = self._tracked_augmentation_paths.get(id(transform))
         if path is not None and getattr(transform, "params", None):
             self._applied_augmentations[path] = _normalize_params(
-                transform.params
+                transform.params, transform
             )
 
     def _record_applied_batch_augmentations(self) -> None:
         """Record batch transforms from the parameters `BatchCompose` kept.
 
         A batch transform is invoked once per sub-batch, so its ``params``
-        only describe the last invocation. `BatchCompose` accumulates the
-        parameters of every invocation that was actually applied, which is
-        what provenance has to report.
+        only describe the last invocation, which may well be one whose
+        output was discarded. `BatchCompose` keeps the parameters of the
+        invocations that shaped the returned sample, which is what
+        provenance has to report.
         """
+        batch_transforms = {
+            id(transform): transform
+            for transform in self._batch_transform.transforms
+        }
         for key, params in self._batch_transform.applied_params.items():
             path = self._tracked_augmentation_paths.get(key)
             if path is not None:
-                self._applied_augmentations[path] = _normalize_params(params)
+                self._applied_augmentations[path] = _normalize_params(
+                    params, batch_transforms.get(key)
+                )
 
     def _preprocess_batch(
         self, labels_batch: list[LoaderMultiOutput]
@@ -1251,7 +1293,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         """Wrap an Albumentations composition for loader data dictionaries.
 
         Args:
-            transform: Albumentations composition to wrap.
+            transform: Albumentations composition to wrap. Must be an
+                `A.ReplayCompose` when ``is_pixel`` is set.
             is_pixel: Whether the composition contains pixel-only
                 transforms that should be replayed across image sources.
             source_names: Image source names replayed for pixel-only
@@ -1276,11 +1319,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                         "`source_names` must be provided "
                         "for pixel transformations."
                     )
-                # Replaying shares the composed transformations, so the
-                # parameters they sample land on `transform` all the same.
-                replay_transform = A.ReplayCompose(transform.transforms)
-
-                result = replay_transform(image=data["image"])
+                result = transform(image=data["image"])
                 data["image"] = result["image"]
 
                 replay = result["replay"]

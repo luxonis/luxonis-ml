@@ -118,14 +118,11 @@ __all__ = [
 
 def __getattr__(name: str) -> object:
     if name == "AugmentationsCollector":
+        # Importing the placeholder module raises `ImportError` with the
+        # migration hint, the same one an import by module path gets.
         # `ImportError` rather than `AttributeError`, because
         # `from luxonis_ml.data.utils import AugmentationsCollector`
         # replaces an `AttributeError` with its own message and the hint
         # would be lost.
-        raise ImportError(
-            "'AugmentationsCollector' was removed. Augmentation provenance "
-            "is now tracked by the engine itself: read it from "
-            "'LoaderOutput.metadata[\"augmentations\"]', or directly from "
-            "'AugmentationEngine.applied_augmentations'."
-        )
+        from . import augmentations_collector  # noqa: F401
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

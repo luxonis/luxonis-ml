@@ -12,7 +12,10 @@ from luxonis_ml.data.augmentations.albumentations_engine import (
     _normalize_params,
 )
 from luxonis_ml.data.augmentations.custom import TRANSFORMATIONS
-from luxonis_ml.data.utils.cli_utils import get_applied_augmentations
+from luxonis_ml.data.utils.cli_utils import (
+    get_applied_augmentations,
+    get_tracked_augmentations,
+)
 from luxonis_ml.typing import LoaderMultiOutput, Params
 
 
@@ -50,6 +53,89 @@ class PickSecond(BatchTransform):
     apply_to_bboxes = apply  # type: ignore[assignment]
     apply_to_keypoints = apply  # type: ignore[assignment]
     apply_to_instance_mask = apply  # type: ignore[assignment]
+
+
+class MergeEverySecondSubBatch(BatchTransform):
+    """Batch transform that applies to every second sub-batch."""
+
+    def __init__(self) -> None:
+        super().__init__(batch_size=2, p=1.0)
+        self.invocations = 0
+
+    def should_apply(self, force_apply: bool = False) -> bool:
+        self.invocations += 1
+        return self.invocations % 2 == 0
+
+    def apply(self, image_batch: list[np.ndarray], **_: Any) -> np.ndarray:
+        return image_batch[1]
+
+    apply_to_mask = apply  # type: ignore[assignment]
+    apply_to_bboxes = apply  # type: ignore[assignment]
+    apply_to_keypoints = apply  # type: ignore[assignment]
+    apply_to_instance_mask = apply  # type: ignore[assignment]
+
+
+class CountedMerge(BatchTransform):
+    """Batch transform reporting which invocation produced its output."""
+
+    def __init__(self) -> None:
+        super().__init__(batch_size=2, p=1.0)
+        self.invocations = 0
+
+    def get_params(self) -> Params:
+        self.invocations += 1
+        return {"invocation": self.invocations}
+
+    def apply(self, image_batch: list[np.ndarray], **_: Any) -> np.ndarray:
+        return image_batch[0]
+
+    apply_to_mask = apply  # type: ignore[assignment]
+    apply_to_bboxes = apply  # type: ignore[assignment]
+    apply_to_keypoints = apply  # type: ignore[assignment]
+    apply_to_instance_mask = apply  # type: ignore[assignment]
+
+
+def _image_batch(count: int) -> list[dict[str, np.ndarray]]:
+    return [
+        {"image": np.full((2, 2, 1), i, dtype=np.uint8)} for i in range(count)
+    ]
+
+
+def test_batch_compose_forgets_a_discarded_sub_batch():
+    """A sub-batch a transform applied to can still be thrown away.
+
+    Whether a transform applied was recorded per sub-batch, but a later
+    transform that does not apply keeps only its first input. Reporting
+    such an invocation claims an augmentation that never touched the
+    returned sample.
+    """
+    merge = MergeEverySecondSubBatch()
+    compose = BatchCompose([merge, PickSecond(p=0.0)])
+
+    batch = _image_batch(4)
+    transformed = compose(batch)
+
+    # Only the second sub-batch was merged, and the last transform kept the
+    # first one, so the first input passed through untouched.
+    assert np.array_equal(transformed["image"], batch[0]["image"])
+    assert compose.batch_augmentation_indices == [0]
+    assert compose.applied_params == {}
+
+
+def test_batch_compose_reports_the_sub_batch_that_survived():
+    """A transform is invoked once per sub-batch, with its own parameters.
+
+    Keeping the last invocation's parameters described a sub-batch that is
+    not the one the returned sample was made of.
+    """
+    merge = CountedMerge()
+    compose = BatchCompose([merge, PickSecond(p=0.0)])
+
+    compose(_image_batch(4))
+
+    assert merge.invocations == 2
+    assert compose.batch_augmentation_indices == [0, 1]
+    assert compose.applied_params[id(merge)]["invocation"] == 1
 
 
 def test_batch_compose_keeps_applied_transform_without_parameters():
@@ -104,6 +190,22 @@ def test_inspect_reads_augmentation_metadata():
         {"augmentations": {"HorizontalFlip": {}}}
     ) == ["HorizontalFlip"]
     assert get_applied_augmentations({"augmentations": ["invalid"]}) == []
+
+
+def test_inspect_does_not_read_stored_metadata_as_augmentations():
+    """A record may store its own ``"augmentations"`` metadata.
+
+    The loader keeps the stored value, so anything that does not look like
+    tracked provenance is the record's own metadata. Listing its keys
+    presented them as augmentations that had been applied.
+    """
+    stored: Params = {"augmentations": {"session": "studio-a", "lens": "wide"}}
+
+    assert get_tracked_augmentations(stored) is None
+    assert get_applied_augmentations(stored) == []
+    assert get_tracked_augmentations({"augmentations": {"Blur": {}}}) == {
+        "Blur": {}
+    }
 
 
 def test_tracks_only_configured_augmentations_that_are_applied():
@@ -187,6 +289,36 @@ def test_omits_array_and_known_non_random_parameters():
     assert {"shape", "interpolation", "fill", "fill_mask"}.isdisjoint(params)
 
 
+def test_reports_a_parameter_sampled_under_a_static_name():
+    """``fill`` is a constant for most transformations, but not for all.
+
+    `A.CropAndPad` draws it from the range it was configured with, so
+    suppressing the name outright hid the padding colour the sample was
+    actually given.
+    """
+    engine = AlbumentationsEngine(
+        64,
+        64,
+        {},
+        {},
+        ["image"],
+        [
+            {
+                "name": "CropAndPad",
+                "params": {"px": 20, "fill": (0, 255), "p": 1.0},
+            }
+        ],
+        seed=3,
+    )
+
+    engine.apply(_make_sample())
+
+    params = engine.applied_augmentations["CropAndPad"]
+    assert 0 <= params["fill"] <= 255  # type: ignore[operator]
+    # Configured as a constant, and so still nothing to report.
+    assert "fill_mask" not in params
+
+
 def test_reports_randomly_derived_crop_bounds():
     """The crop bounds of `Rotate` are sampled at runtime.
 
@@ -231,6 +363,39 @@ def test_omits_nested_arrays_and_known_non_random_parameters():
     # ``values`` is dropped whole: reporting only the surviving items
     # would reindex the sequence and misrepresent its length.
     assert params == {"nested": {"selected": 0.5}}
+
+
+def test_pixel_transforms_follow_the_engine_seed():
+    """Pixel transforms are composed and replayed apart from the rest.
+
+    Their composition was built without the seed, and rebuilt on every
+    call, so a seeded loader could not reproduce a run's pixel
+    augmentations.
+    """
+
+    def sample_parameters() -> list[Params]:
+        engine = AlbumentationsEngine(
+            64,
+            64,
+            {},
+            {},
+            ["image"],
+            [{"name": "RandomBrightnessContrast", "params": {"p": 1.0}}],
+            seed=42,
+        )
+        parameters = []
+        for _ in range(3):
+            engine.apply(_make_sample())
+            parameters.append(
+                engine.applied_augmentations["RandomBrightnessContrast"]
+            )
+        return parameters
+
+    parameters = sample_parameters()
+
+    assert parameters == sample_parameters()
+    # Reproducible across runs, but not the same sample after sample.
+    assert parameters[0] != parameters[1] != parameters[2]
 
 
 def test_omits_sequences_of_arrays_instead_of_emptying_them():
@@ -610,6 +775,7 @@ def test_tracks_batch_transforms_applied_in_any_sub_batch():
 
     engine.apply(_make_sample() * 8)
 
-    # All eight inputs contributed, so both batch transforms applied.
+    # Mosaic4 applied to the first sub-batch only, so inputs 0-3 merged
+    # into one image and input 4 passed through; MixUp then merged the two.
     assert engine.batch_augmentation_indices == [0, 1, 2, 3, 4]
     assert set(engine.applied_augmentations) == {"Mosaic4", "MixUp"}

@@ -24,6 +24,7 @@ from luxonis_ml.data.utils.cli_utils import (
     check_exists,
     get_applied_augmentations,
     get_dataset_info,
+    get_tracked_augmentations,
     parse_split_ratio,
     print_info,
 )
@@ -315,9 +316,14 @@ def inspect(
 
         if print_sample_metadata:
             metadata = data.metadata
-            if not list_augmentations:
+            if (
+                not list_augmentations
+                and get_tracked_augmentations(metadata) is not None
+            ):
                 # The runtime parameters of every transformation would
-                # bury the record metadata this flag exists to show.
+                # bury the record metadata this flag exists to show. Only
+                # the tracked provenance is dropped; a record storing its
+                # own "augmentations" field is metadata like any other.
                 metadata = {
                     k: v for k, v in metadata.items() if k != "augmentations"
                 }
