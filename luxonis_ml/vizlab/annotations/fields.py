@@ -126,6 +126,7 @@ class ArrayField(ArrayAnnotation, Annotation):
     #: Fields cover the whole image, beneath every other spatial annotation, so
     #: boxes and keypoints are never buried under one.
     BACKGROUND: ClassVar[bool] = True
+    LAYER: ClassVar[str] = "field"
 
     @field_validator("path")
     @classmethod

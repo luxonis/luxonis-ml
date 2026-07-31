@@ -1055,10 +1055,15 @@ def _grid(
         environment: RenderEnvironment,
         capture: InteractionCapture | None,
     ) -> None:
-        canvas.rounded_rect(Rect(0, 0, width, height), 0.0, fill=background)
+        # The backdrop and the cell titles are layout chrome: drawn once, with
+        # the picture, and never repeated into a layer fragment.
+        if environment.layers.chrome:
+            canvas.rounded_rect(
+                Rect(0, 0, width, height), 0.0, fill=background
+            )
         for i, img in enumerate(images):
             cell_x, cell_y = cells[i]
-            if wrapped[i]:
+            if wrapped[i] and environment.layers.chrome:
                 _draw_title(
                     canvas,
                     wrapped[i],

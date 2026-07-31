@@ -172,11 +172,32 @@ class LabelLayout:
         self.height = height
         self.placed: list[Rect] = []
         self.overlay_positions: dict[int, list[Rect]] = {}
+        self._occurrences: dict[int, int] = {}
         # Mirror of ``placed`` as a growing ``(N, 4)`` [left, top, right, bottom]
         # buffer, so a new chip's overlap against every placed one is a single
         # vectorized pass instead of a Python loop (placement is O(chips²)).
         self._bounds = np.empty((8, 4), dtype=float)
         self._count = 0
+
+    def occurrence(self, owner: int) -> tuple[int, int]:
+        """Return a key identifying this chip among all of ``owner``'s.
+
+        An annotation is not a unique chip: the same `Image` placed twice in a
+        grid draws each of its labels twice, in one layout. Counting occurrences
+        distinguishes them, so a placement recorded under this key in one pass
+        belongs to the same chip in the next (see
+        `luxonis_ml.vizlab.render.context.label_plan`).
+
+        Args:
+            owner: Identity of the annotation placing the chip.
+
+        Returns:
+            ``(owner, nth)``, unique within this layout.
+
+        """
+        nth = self._occurrences.get(owner, 0)
+        self._occurrences[owner] = nth + 1
+        return owner, nth
 
     def _record(self, rect: Rect) -> None:
         """Mark ``rect`` as occupied, in both the list and the numpy mirror."""

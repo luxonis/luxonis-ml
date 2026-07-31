@@ -29,6 +29,7 @@ from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
 from luxonis_ml.vizlab.render import RenderEnvironment
 from luxonis_ml.vizlab.render.capture import InteractionCapture
+from luxonis_ml.vizlab.render.context import record_layer
 from luxonis_ml.vizlab.style import (
     DEFAULT_PALETTE,
     DEFAULT_STYLE,
@@ -197,6 +198,13 @@ class Annotation(BaseModel):
     #: annotation (e.g. a semantic-segmentation map), so boxes, instance masks,
     #: and keypoints are never hidden under it.
     BACKGROUND: ClassVar[bool] = False
+
+    #: Which switchable layer this annotation belongs to (see
+    #: `luxonis_ml.vizlab.render.context.LAYERS`). A `LayerMask` can suppress a
+    #: whole layer's shapes, which is how an exported page hides every mask or
+    #: every box at once. Subclasses declare their own; anything that does not
+    #: is image-level chrome.
+    LAYER: ClassVar[str] = "overlay"
 
     def add(self, child: "Annotation") -> Self:
         """Attach a nested sub-label and return ``self`` for chaining.
@@ -498,7 +506,12 @@ class Annotation(BaseModel):
         """
         style = self.resolve_style(ctx)
         color = self.resolve_color(ctx)
-        self.draw(ctx, style, color)
+        # Only this annotation's own marks are suppressed; children
+        # still render, so hiding boxes keeps the keypoints inside
+        # them — the rule the interactive viewer follows.
+        record_layer(self.LAYER, self.label)
+        if ctx.environment.layers.draws(self.LAYER, self.label):
+            self.draw(ctx, style, color)
         child_ctx = ctx.descend(color, style)
         for child in self.children:
             child.render(child_ctx)
@@ -514,7 +527,11 @@ class Annotation(BaseModel):
         """
         style = self.resolve_style(ctx)
         color = self.resolve_color(ctx)
-        self.draw_fill(ctx, style, color)
+        # Only this annotation's own marks are suppressed; children
+        # still render, so hiding boxes keeps the keypoints inside
+        # them — the rule the interactive viewer follows.
+        if ctx.environment.layers.draws(self.LAYER, self.label):
+            self.draw_fill(ctx, style, color)
         child_ctx = ctx.descend(color, style)
         for child in self.children:
             child.render_fill(child_ctx)
@@ -531,6 +548,10 @@ class Annotation(BaseModel):
         """
         style = self.resolve_style(ctx)
         color = self.resolve_color(ctx)
+        # Unconditional, even when the chip will not be painted: placement is
+        # collision-aware, so a pass that skipped reserving a hidden chip's
+        # position would put the visible ones somewhere else. `place_label`
+        # decides what actually gets painted.
         self.draw_label(ctx, style, color)
         child_ctx = ctx.descend(color, style)
         for child in self.children:

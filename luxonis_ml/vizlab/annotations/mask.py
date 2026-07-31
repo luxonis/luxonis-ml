@@ -219,6 +219,8 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
 
     """
 
+    LAYER: ClassVar[str] = "mask"
+
     fill_alpha: float | None = None
     contour: bool = True
     label_chip: bool = True
@@ -227,6 +229,11 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
     #: contour, and label passes); caching it turns that into one decode. The
     #: mask data is treated as immutable once the annotation is built.
     _dense_cache: np.ndarray | None = PrivateAttr(default=None)
+    #: Memoized `extent`, boxed so that an empty mask's ``None`` is a computed
+    #: answer rather than a cache miss. A layered export draws the scene once
+    #: per layer and class, so without this the same reduction over the same
+    #: pixels runs a dozen times over.
+    _extent_cache: "tuple[Rect | None] | None" = PrivateAttr(default=None)
 
     def _dense(self) -> np.ndarray:
         """Return the decoded ``(H, W)`` mask, decoding once and caching it.
@@ -287,7 +294,9 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
 
     def extent(self) -> Rect | None:
         """Return the mask's pixel bounds, or ``None`` when empty."""
-        return _nonzero_bounds(self._dense())
+        if self._extent_cache is None:
+            self._extent_cache = (_nonzero_bounds(self._dense()),)
+        return self._extent_cache[0]
 
     def draw_fill(
         self, ctx: RenderContext, style: Style, color: Color
@@ -347,9 +356,8 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
 
         """
         canvas = ctx.canvas
-        binary = self._dense()
-        mask_h, mask_w = binary.shape[:2]
-        region = _nonzero_bounds(binary)
+        mask_h, mask_w = self._dense().shape[:2]
+        region = self.extent()
         if region is not None:
             sx = canvas.width / mask_w
             sy = canvas.height / mask_h
@@ -369,6 +377,7 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
                     self.payload,
                     color,
                     style,
+                    id(self),
                 )
 
 
@@ -408,6 +417,7 @@ class SemanticMask(Annotation):
     #: Semantic segmentation is a background layer: it always renders beneath
     #: boxes, instance masks, and keypoints, never on top of them.
     BACKGROUND: ClassVar[bool] = True
+    LAYER: ClassVar[str] = "mask"
 
     labels: np.ndarray | None = None
     names: dict[int, str] | list[str] | None = None

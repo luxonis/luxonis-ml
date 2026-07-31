@@ -7,7 +7,7 @@ in one pass.
 """
 
 import hashlib
-from collections.abc import Callable, Hashable, Mapping
+from collections.abc import Callable, Hashable, Iterable, Mapping
 from dataclasses import fields, is_dataclass
 from enum import Enum
 from pathlib import Path
@@ -26,6 +26,8 @@ from luxonis_ml.vizlab.render.capture import (
     HitMap,
     InteractionCapture,
 )
+from luxonis_ml.vizlab.render.context import LayerMask
+from luxonis_ml.vizlab.scene.html import Nav, html_document
 from luxonis_ml.vizlab.style import Theme, style_scale
 
 if TYPE_CHECKING:
@@ -52,6 +54,54 @@ def _freeze_ndarray(array: np.ndarray) -> Hashable:
         contiguous.shape,
         hashlib.sha256(contiguous.tobytes()).digest(),
     )
+
+
+def _paints_fill(
+    annotations: "Iterable[Annotation]", layers: "LayerMask"
+) -> bool:
+    """Whether any annotation ``layers`` admits has a raster fill to paint.
+
+    Mirrors the walk `Annotation.render_fill` performs — the mask gates an
+    annotation's own marks but never the recursion into its children — so this
+    answers exactly what that pass would do without running it.
+
+    Args:
+        annotations: The scene's spatial annotations, in draw order.
+        layers: The mask in effect.
+
+    Returns:
+        Whether the fill pass has anything to draw.
+
+    """
+    return any(
+        (
+            layers.draws(a.LAYER, a.label)
+            and type(a).draw_fill is not Annotation.draw_fill
+        )
+        or _paints_fill(a.children, layers)
+        for a in annotations
+    )
+
+
+def _tight_crop(rgba: np.ndarray) -> "tuple[np.ndarray, int, int] | None":
+    """Reduce a raster to the region that is not fully transparent.
+
+    Args:
+        rgba: An ``(H, W, 4)`` ``uint8`` array.
+
+    Returns:
+        The cropped view and its ``(left, top)`` in the original, or ``None``
+        when nothing at all is opaque.
+
+    """
+    alpha = rgba[..., 3]
+    rows = np.flatnonzero(alpha.any(axis=1))
+    if not rows.size:
+        return None
+    cols = np.flatnonzero(alpha.any(axis=0))
+    top, bottom = int(rows[0]), int(rows[-1]) + 1
+    left, right = int(cols[0]), int(cols[-1]) + 1
+    return rgba[top:bottom, left:right], left, top
 
 
 def _freeze_fields(value: object, names: "list[str]") -> Hashable:
@@ -124,8 +174,8 @@ class Renderable:
 
     Subclasses supply their pixel `width`/`height`, their render options
     (`_resolve_options`), and how they paint themselves onto a canvas
-    (`_draw_onto`). This base provides `render`, `render_svg`, and `save`; both
-    output formats use the same scene-drawing path.
+    (`_draw_onto`). This base provides `render`, `render_svg`, `render_html`,
+    and `save`; every output format uses the same scene-drawing path.
     """
 
     _render_size: tuple[int, int] | None = None
@@ -301,11 +351,184 @@ class Renderable:
         )
         return canvas.finish_svg()
 
+    def render_html(
+        self,
+        size: tuple[int, int] | None = None,
+        *,
+        title: str = "vizlab",
+        text_as_paths: bool = True,
+        controls: bool = True,
+        nav: "Nav | None" = None,
+    ) -> str:
+        """Render the scene as one self-contained, interactive HTML page.
+
+        The vector render of `render_svg` and the hover regions of `render_hits`
+        come out of a single draw pass and are welded into one document, so every
+        annotation carrying a `Tooltip` shows its card under the cursor in a
+        browser — the same content the desktop viewer draws. The page is
+        shareable as a single file: markup, styling, script, and the embedded
+        bases are all inline, and it makes no external request.
+
+        With ``controls`` the scene is additionally drawn once per layer and
+        class, each pass under a
+        `luxonis_ml.vizlab.render.context.layer_scope` that suppresses
+        everything else. Each result becomes a targetable ``<g>``, so
+        checkboxes in front of the figure can switch layers, classes and label
+        chips off through CSS alone. Because the mask travels in the render
+        environment rather than filtering a list of annotations, this works
+        through composites — grids and panelled scenes included — whose
+        children a caller cannot reach.
+
+        The drawing is re-rooted on a ``viewBox`` and the hover regions ride
+        inside it, so both scale with the page and stay aligned at any width.
+
+        Args:
+            size: ``(width, height)`` to render at; ``None`` uses the `render_at`
+                size (the natural size if unset).
+            title: The page's ``<title>``, as plain text.
+            text_as_paths: Emit glyphs as outlines so the page renders identically
+                anywhere without the fonts installed (default); turn off to keep
+                selectable ``<text>`` that depends on the viewer's fonts.
+            controls: Whether to emit the layer controls. ``False`` writes the
+                scene as a single flat layer, in one pass.
+            nav: Links to this page's neighbours, when it is one of a series
+                written to a directory.
+
+        Returns:
+            The HTML document.
+
+        """
+        from luxonis_ml.vizlab.render.context import (
+            label_plan,
+            layer_inventory,
+            layer_scope,
+        )
+        from luxonis_ml.vizlab.scene.html import (
+            LAYERS,
+            layered_document,
+            slug,
+        )
+        from luxonis_ml.vizlab.scene.html import (
+            draws_anything as _draws_anything,
+        )
+
+        def page(svg: bytes, hits: HitMap, size_px: tuple[int, int]) -> str:
+            return html_document(
+                svg, hits, size_px, self.theme, nav=nav, title=title
+            )
+
+        if not controls:
+            canvas, interactions, render_size = self._draw(
+                size, capture=True, svg=True, text_as_paths=text_as_paths
+            )
+            assert interactions is not None
+            return page(
+                canvas.finish_svg(), HitMap(interactions.hover), render_size
+            )
+
+        # Every pass below places every label chip, painted or not, so that
+        # splitting the scene into layers cannot move the chips that remain.
+        # Placing is the most expensive part of a pass and always lands on the
+        # same answer, so the first pass records it and the rest look it up. The
+        # single-pass render above stays outside, both because it has nothing to
+        # reuse and so that it remains an independent check on this one.
+        with label_plan():
+            # This pass's pixels are thrown away -- every layer is drawn again
+            # on its own below -- and it serves only to collect the hover
+            # regions and to see which layers the scene contains, which a
+            # composite cannot be asked. A raster canvas answers both, and
+            # spares a base64 PNG of the photo nobody would read.
+            with layer_inventory() as found:
+                _, interactions, render_size = self._draw(size, capture=True)
+            assert interactions is not None
+            hits = HitMap(interactions.hover)
+
+            if not found:
+                # Nothing to layer after all, and the pass above drew to raster.
+                canvas, _, _ = self._draw(
+                    render_size,
+                    capture=False,
+                    svg=True,
+                    text_as_paths=text_as_paths,
+                )
+                return page(canvas.finish_svg(), hits, render_size)
+
+            def draw(**scope: object) -> bytes:
+                with layer_scope(**scope):  # type: ignore[arg-type]
+                    return self.render_svg(
+                        render_size, text_as_paths=text_as_paths
+                    )
+
+            # The picture and its chrome, drawn once, with no annotation on it.
+            base = draw(kinds=(), labels=False)
+
+            fragments: list[tuple[str, bytes]] = []
+            classes: list[str] = []
+            present: set[str] = set()
+            for layer, label in found:
+                marks = draw(
+                    kinds={layer}, classes={label}, labels=False, chrome=False
+                )
+                # An annotation can register a layer and still paint nothing — a
+                # keypoint set with no visible joints, say. Its control would be
+                # dead, so neither it nor its class earns one.
+                if not _draws_anything(marks):
+                    continue
+                present.add(layer)
+                css = ["vl-layer", f"vl-{layer}"]
+                if label is not None:
+                    css.append(f"vl-cls-{slug(label)}")
+                    if label not in classes:
+                        classes.append(label)
+                fragments.append((" ".join(css), marks))
+            # Chips are their own layer so they can be switched off wholesale, and
+            # split per class so hiding a class takes its chip with it. Only the
+            # classes that have one contribute; an unlabeled annotation has none.
+            labelled = False
+            for label in classes:
+                chips = draw(
+                    kinds=(), classes={label}, labels=True, chrome=False
+                )
+                if not _draws_anything(chips):
+                    continue
+                labelled = True
+                fragments.append(
+                    (
+                        f"vl-layer vl-label vl-cls-{slug(label)}",
+                        chips,
+                    )
+                )
+
+            # LAYERS holds (slug, label) pairs and fixes the control order; only
+            # layers that put marks on the page get a toggle, so a control never
+            # switches nothing.
+            kinds = [
+                slug_name for slug_name, _ in LAYERS if slug_name in present
+            ]
+            palette = self.theme.palette
+            swatches = {}
+            for name in classes:
+                tint = palette.color_for(name)
+                swatches[name] = f"#{tint.r:02x}{tint.g:02x}{tint.b:02x}"
+            return layered_document(
+                base,
+                fragments,
+                hits,
+                render_size,
+                self.theme,
+                kinds=[*kinds, "label"] if labelled else kinds,
+                classes=classes,
+                swatches=swatches,
+                nav=nav,
+                title=title,
+            )
+
     def save(self, path: str | Path, *, quality: int = 95) -> Self:
         """Render and write the scene to a file (format from the extension).
 
-        A ``.svg`` destination writes a vector render (`render_svg`); every other
-        extension writes a raster encode of `render`.
+        A ``.svg`` destination writes a vector render (`render_svg`), a ``.html``
+        or ``.htm`` one an interactive page (`render_html`), and every other
+        extension a raster encode of `render`.
 
         Args:
             path: Destination path; the format is inferred from the extension.
@@ -315,12 +538,15 @@ class Renderable:
             This scene, to allow chaining.
 
         Raises:
-            ValueError: If the destination extension is not SVG, PNG, JPEG, or
-                WebP.
+            ValueError: If the destination extension is not SVG, HTML, PNG, JPEG,
+                or WebP.
 
         """
-        if Path(path).suffix.lower() == ".svg":
+        suffix = Path(path).suffix.lower()
+        if suffix == ".svg":
             Path(path).write_bytes(self.render_svg())
+        elif suffix in (".html", ".htm"):
+            Path(path).write_text(self.render_html(), encoding="utf-8")
         else:
             io.save(self.render(), path, quality=quality)
         return self
@@ -727,7 +953,19 @@ class Image(Renderable):
             environment,
             options.antialias,
         )
-        canvas.blit_scaled(base.to_rgba(), x, y, size[0], size[1])
+        if base is not None:
+            # The base may be a crop -- see `_render_fills` -- so it is placed
+            # at the sub-rect its source-pixel origin maps to, not the whole one.
+            rgba, left, top = base
+            scale_x = size[0] / self.width
+            scale_y = size[1] / self.height
+            canvas.blit_scaled(
+                rgba,
+                x + left * scale_x,
+                y + top * scale_y,
+                rgba.shape[1] * scale_x,
+                rgba.shape[0] * scale_y,
+            )
         local_capture = (
             capture.transformed(x, y) if capture is not None else None
         )
@@ -750,14 +988,41 @@ class Image(Renderable):
         gradient: "Gradient | str | None",
         environment: RenderEnvironment,
         antialias: bool = True,
-    ) -> Canvas:
+    ) -> "tuple[np.ndarray, int, int] | None":
         """First pass: paint every annotation's raster fill at source resolution.
 
         The ``antialias`` flag is set on the canvas here and carried through the
         display-scaled canvas (`Canvas.scaled`) into the vector pass, so it
         governs every shape fill and stroke in the render.
+
+        Returns:
+            The base raster and its ``(left, top)`` origin in source pixels, or
+            ``None`` when the pass paints nothing but transparency.
+
+            Both concessions serve the layered export, which draws the scene
+            once per layer with chrome suppressed. A box or keypoint layer has
+            no fill at all, so it returns ``None`` rather than blitting an empty
+            raster; a mask layer covers a car in a car park, so it returns that
+            car's pixels rather than a full frame that is transparent
+            everywhere else. Either way the cost of the blit — a resample on a
+            raster canvas, a PNG encode on an SVG one — follows what the layer
+            actually painted instead of the frame size.
+
+            With chrome on, the photo covers the frame and the crop is the whole
+            of it, so the ordinary render is unaffected.
+
         """
-        canvas = Canvas.from_rgba(self._rgba, antialias=antialias)
+        # With chrome suppressed the photo itself is not drawn, but the fills
+        # painted over it still are -- a mask or field layer *is* pixels, so
+        # dropping the whole raster would drop the layer with it.
+        chrome = environment.layers.chrome
+        if not chrome and not _paints_fill(spatial, environment.layers):
+            return None
+        canvas = (
+            Canvas.from_rgba(self._rgba, antialias=antialias)
+            if chrome
+            else Canvas.blank(self.width, self.height, antialias=antialias)
+        )
         ctx = RenderContext(
             canvas=canvas,
             depth=0,
@@ -767,7 +1032,10 @@ class Image(Renderable):
         )
         for annotation in spatial:
             annotation.render_fill(ctx)
-        return canvas
+        rgba = canvas.to_rgba()
+        if chrome:
+            return rgba, 0, 0
+        return _tight_crop(rgba)
 
     def _render_vectors(
         self,

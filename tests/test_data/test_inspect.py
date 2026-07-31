@@ -1,5 +1,6 @@
 """End-to-end coverage for the ``data inspect`` command (thin viewer adapter)."""
 
+import re
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from pathlib import Path
 from threading import Event, get_ident
@@ -1462,6 +1463,32 @@ def test_compare_save_writes_a_directory_of_stills(
     assert written[0].read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
 
 
+def test_compare_save_html_keeps_the_verdict_tooltips(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The baked-to-pixels path must not lose its hover regions.
+
+    ``compare`` bakes some layouts to an image and reattaches the map with
+    `Image.with_hitmap`, so the tooltips no longer live on annotations. The
+    page has to resolve them from the scene anyway.
+    """
+    _compare_mocks(monkeypatch, np.zeros((40, 60, 3), dtype=np.uint8))
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    try:
+        data_main.compare(
+            "gt", "preds", save=tmp_path / "pages", save_format="html"
+        )
+    finally:
+        set_default_options(RenderOptions())
+
+    written = sorted((tmp_path / "pages").iterdir())
+    assert [path.name for path in written] == ["0000_image.html", "index.html"]
+    page = (tmp_path / "pages" / "0000_image.html").read_text()
+    assert page.lstrip().lower().startswith("<!doctype html")
+    assert "data-tip" in page
+
+
 def test_compare_command_supports_dual_and_triple_layouts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1643,11 +1670,14 @@ def _save_mocks(
     *,
     sources: Sequence[str] = ("frame01.jpg",),
     labels: "Labels | None" = None,
+    detection_metadata: "dict[str, int | float | str] | None" = None,
 ) -> None:
     """Wire fakes so ``inspect`` runs headless over one 60x40 car sample.
 
     ``sources`` gives the sample several image sources (a stereo pair, say) and
     ``labels`` supplies raw loader labels such as ``{"stereo/array": ...}``.
+    ``detection_metadata`` is opt-in because it is what gives the box a hover
+    tooltip, which changes what every other caller renders.
     """
     image = np.zeros((40, 60, 3), dtype=np.uint8)
     record = DatasetRecord.model_construct(
@@ -1658,6 +1688,7 @@ def _save_mocks(
                 class_name="car",
                 instance_id=1,
                 boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+                metadata=detection_metadata or {},
             )
         ],
         task_name="a",
@@ -1723,6 +1754,224 @@ def test_inspect_save_writes_svg_and_png(
     assert svg.read_bytes().startswith(b"<?xml")  # a vector document
     assert b"<image" in svg.read_bytes()  # with the photo embedded
     assert png.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"  # a raster encode
+
+
+@pytest.mark.parametrize("command", ["inspect", "compare"])
+def test_save_format_accepts_html_on_the_command_line(command: str) -> None:
+    """``--save-format html`` has to survive parsing, not just ``save()``.
+
+    The writer and `Renderable.save` already dispatch on the extension, so a
+    direct Python call works whatever the annotation says. Only the parser
+    enforces the allowed set, so only a parse exercises the CLI surface.
+    """
+    args = ["ds"] if command == "inspect" else ["gt", "preds"]
+    _, bound, _ = data_main.app.parse_args(
+        [command, *args, "--save", "out", "--save-format", "html"],
+        exit_on_error=False,
+        print_error=False,
+    )
+    assert bound.arguments["save_format"] == "html"
+
+
+@pytest.mark.parametrize("command", ["inspect", "compare"])
+def test_save_format_still_rejects_an_unknown_format(command: str) -> None:
+    args = ["ds"] if command == "inspect" else ["gt", "preds"]
+    with pytest.raises(Exception, match=r"(?i)coercion|invalid|choice"):
+        data_main.app.parse_args(
+            [command, *args, "--save", "out", "--save-format", "webp"],
+            exit_on_error=False,
+            print_error=False,
+        )
+
+
+def test_inspect_save_writes_a_self_contained_html_page(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch, detection_metadata={"track": "7"})
+    try:
+        data_main.inspect("ds", save=tmp_path / "html", save_format="html")
+    finally:
+        set_default_options(RenderOptions())
+
+    page = (tmp_path / "html" / "0000_frame01.html").read_text()
+    assert page.lstrip().lower().startswith("<!doctype html")
+    assert "<svg" in page  # the vector render, inlined
+    # The point of the format: annotations stay hoverable in the saved file.
+    # Assert on the hover layer itself — "data-tip" appearing anywhere in the
+    # document is not evidence, as a stylesheet or script mentioning it also
+    # satisfies that.
+    layer = re.search(r'<g class="vl-hit"[^>]*>(.*?)</g>', page, re.DOTALL)
+    assert layer is not None
+    assert 'data-tip="0"' in layer.group(1)
+    assert "track" in page  # and the card it points at carries the metadata
+    # Self-contained: nothing is fetched from the network. Relative links to
+    # sibling pages are fine — the directory travels as a unit.
+    assert not re.search(r'(?:src|href)="(?:https?:)?//', page)
+
+
+def test_inspect_save_html_writes_an_index_linking_every_page(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A directory of numbered pages needs one file you can actually open."""
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch, sources=("left.jpg", "right.jpg"))
+    try:
+        data_main.inspect("ds", save=tmp_path / "html", save_format="html")
+    finally:
+        set_default_options(RenderOptions())
+
+    written = sorted(p.name for p in (tmp_path / "html").iterdir())
+    index = (tmp_path / "html" / "index.html").read_text()
+    pages = [name for name in written if name != "index.html"]
+    assert pages  # the renders themselves
+    for name in pages:
+        assert f'href="{name}"' in index
+    assert index.lstrip().lower().startswith("<!doctype html")
+    # Self-contained and relative, so the directory can be moved or zipped.
+    assert not re.search(r'(?:src|href)="(?:https?:)?//', index)
+
+
+def test_html_pages_link_to_each_other_and_back_to_the_index(
+    tmp_path: Path,
+) -> None:
+    """Each page carries prev/next/index; the ends stay in place but inert.
+
+    Driven through the writer rather than the CLI because the fixture dataset
+    holds one sample, and the linking only exists across several.
+    """
+    from luxonis_ml.vizlab import DARK_THEME, BBox, Image
+
+    def scene(label: str) -> Image:
+        return Image(np.zeros((30, 40, 3), dtype=np.uint8)).add(
+            BBox(x=0.1, y=0.1, w=0.3, h=0.3).tag(label)
+        )
+
+    names = ["a.jpg", "b.jpg", "c.jpg"]
+    data_main._write_renders(
+        ((name, scene(name)) for name in names),
+        tmp_path / "html",
+        image_format="html",
+        fps=5.0,
+        background=DARK_THEME.background,
+        theme=DARK_THEME,
+        empty_note="nothing",
+    )
+
+    pages = ["0000_a.html", "0001_b.html", "0002_c.html"]
+    assert sorted(p.name for p in (tmp_path / "html").iterdir()) == [
+        *pages,
+        "index.html",
+    ]
+    first, middle, last = (
+        (tmp_path / "html" / name).read_text() for name in pages
+    )
+    for page in (first, middle, last):
+        assert '<a href="index.html">home</a>' in page
+
+    assert '<span class="step">&larr; prev</span>' in first
+    assert 'href="0001_b.html" rel="next"' in first
+
+    assert 'href="0000_a.html" rel="prev"' in middle
+    assert 'href="0002_c.html" rel="next"' in middle
+
+    assert 'href="0001_b.html" rel="prev"' in last
+    assert '<span class="step">next &rarr;</span>' in last
+
+
+def test_the_writer_holds_only_one_render_ahead(tmp_path: Path) -> None:
+    """Linking forward must not mean materializing the whole stream.
+
+    Each render can hold a decoded sample, so the writer pairs each item with
+    the next rather than reading them all to learn how many there are.
+    """
+    alive: list[str] = []
+
+    class _Tracked:
+        def __init__(self, name: str) -> None:
+            self.name = name
+            alive.append(name)
+
+        def render_html(self, **_: object) -> str:
+            return f"<!DOCTYPE html><html><body>{self.name}</body></html>"
+
+    from luxonis_ml.vizlab import DARK_THEME
+
+    def stream() -> "Iterator[tuple[str, object]]":
+        for index in range(6):
+            # Never more than the held item plus the one just produced.
+            assert len(alive) <= 2, alive
+            yield f"{index}.jpg", _Tracked(f"{index}")
+            alive.pop(0)
+
+    data_main._write_renders(
+        stream(),  # type: ignore[arg-type]
+        tmp_path / "html",
+        image_format="html",
+        fps=5.0,
+        background=DARK_THEME.background,
+        theme=DARK_THEME,
+        empty_note="nothing",
+    )
+    assert len(list((tmp_path / "html").iterdir())) == 7  # 6 pages + index
+
+
+def test_a_single_page_still_gets_its_index_link(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Both ends inert is the correct rendering for a one-render directory."""
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch)
+    try:
+        data_main.inspect("ds", save=tmp_path / "html", save_format="html")
+    finally:
+        set_default_options(RenderOptions())
+
+    page = (tmp_path / "html" / "0000_frame01.html").read_text()
+    assert '<a href="index.html">home</a>' in page
+    assert '<span class="step">&larr; prev</span>' in page
+    assert '<span class="step">next &rarr;</span>' in page
+
+
+def test_other_formats_get_no_index(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The index is an HTML affordance; a folder of ONGs already opens fine."""
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch)
+    try:
+        data_main.inspect("ds", save=tmp_path / "png", save_format="png")
+    finally:
+        set_default_options(RenderOptions())
+
+    assert not (tmp_path / "png" / "index.html").exists()
+
+
+def test_inspect_save_html_is_the_same_render_as_svg(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The page must wrap the vector render, not re-rasterize it."""
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch)
+    try:
+        data_main.inspect("ds", save=tmp_path / "svg", save_format="svg")
+        data_main.inspect("ds", save=tmp_path / "html", save_format="html")
+    finally:
+        set_default_options(RenderOptions())
+
+    svg = (tmp_path / "svg" / "0000_frame01.svg").read_text()
+    page = (tmp_path / "html" / "0000_frame01.html").read_text()
+    # Same geometry: whatever viewport the SVG drew at, the page inlines.
+    viewbox = re.search(r'viewBox="([^"]+)"', page)
+    assert viewbox is not None
+    width = re.search(r'width="(\d+)', svg)
+    assert width is not None
+    assert viewbox.group(1).split()[2] == width.group(1)
 
 
 def test_inspect_save_writes_a_clip_when_given_a_clip_extension(

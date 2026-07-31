@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import XY, Rect
 from luxonis_ml.vizlab.render.canvas import Canvas, Shadow, TextMetrics
+from luxonis_ml.vizlab.render.context import current_label_plan
 from luxonis_ml.vizlab.style import Style
 
 from .layout import LabelLayout, label_candidates
@@ -126,6 +127,7 @@ def place_label(
     payload: str | float | None,
     color: Color,
     style: Style,
+    owner: int,
 ) -> None:
     """Place and draw an annotation's label chip near ``region``, avoiding overlap.
 
@@ -141,18 +143,33 @@ def place_label(
         payload: Arbitrary value, or ``None``.
         color: The chip fill color.
         style: The resolved style.
+        owner: Identity of the annotation the chip belongs to, so a multi-pass
+            render can recognize the same chip across passes (see
+            `luxonis_ml.vizlab.render.context.label_plan`).
 
     """
     text = compose_label(label, score, payload)
     if not text:
         return
     canvas = ctx.canvas
-    chip_w, chip_h, _ = chip_size(canvas, text, style)
     layout = ctx.layout or LabelLayout(canvas.width, canvas.height)
-    candidates = label_candidates(
-        region, chip_w, chip_h, style.label_placement
-    )
-    placement = layout.place(chip_w, chip_h, candidates, region=region)
+    key = layout.occurrence(owner)
+    plan = current_label_plan()
+    placement = None if plan is None else plan.get(key)
+    if placement is None:
+        chip_w, chip_h, _ = chip_size(canvas, text, style)
+        candidates = label_candidates(
+            region, chip_w, chip_h, style.label_placement
+        )
+        # Always placed, so the layout reserves the same positions in every
+        # pass; only the painting is switchable. Splitting a scene into layers
+        # must not move the chips that remain.
+        placement = layout.place(chip_w, chip_h, candidates, region=region)
+        if plan is not None:
+            plan[key] = placement
+    mask = ctx.environment.layers
+    if not (mask.labels and mask.allows(label)):
+        return
     rect = placement.rect
     if placement.leader is not None:
         _draw_leader(canvas, placement.leader, rect, color, style)

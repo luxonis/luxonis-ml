@@ -1109,7 +1109,10 @@ class _PanelPainter:
     ) -> None:
         """Paint the scene and register its panel click regions."""
         self._draw_surfaces(canvas, environment, capture)
-        self._draw_content(canvas)
+        # The panel's text is chrome; a layer fragment draws the annotations
+        # alone, over the page the full render already painted.
+        if environment.layers.chrome:
+            self._draw_content(canvas)
         if capture is not None:
             for rect, action in self.clicks:
                 capture.add_click(rect, action)
@@ -1124,18 +1127,20 @@ class _PanelPainter:
         p = self.placement
         m = self.metrics
         img_w, img_h = self.image_size
-        canvas.rounded_rect(Rect(0, 0, p.out_w, p.out_h), 0.0, fill=m.page)
+        chrome = environment.layers.chrome
         image_rect = Rect(
             p.image_x,
             p.image_y,
             p.image_x + img_w,
             p.image_y + img_h,
         )
-        # Filled first so the card casts a shadow: the image is painted over
-        # this, and a bare clip would have nothing to cast from.
-        canvas.rounded_rect(
-            image_rect, m.radius, fill=m.surface, shadow=m.shadow
-        )
+        if chrome:
+            canvas.rounded_rect(Rect(0, 0, p.out_w, p.out_h), 0.0, fill=m.page)
+            # Filled first so the card casts a shadow: the image is painted
+            # over this, and a bare clip would have nothing to cast from.
+            canvas.rounded_rect(
+                image_rect, m.radius, fill=m.surface, shadow=m.shadow
+            )
         with canvas.clip_rounded(image_rect, m.radius):
             self.image._draw_onto(
                 canvas,
@@ -1145,6 +1150,8 @@ class _PanelPainter:
                 environment=environment,
                 capture=capture,
             )
+        if not chrome:
+            return
         canvas.rounded_rect(
             image_rect,
             m.radius,

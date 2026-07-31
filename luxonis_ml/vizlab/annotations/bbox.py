@@ -12,6 +12,7 @@ a rotated one is drawn as an anti-aliased quad (square corners, no shadow).
 """
 
 import math
+from typing import ClassVar
 
 from luxonis_ml.ldf import BBoxAnnotation
 from luxonis_ml.vizlab.color import Color
@@ -51,6 +52,8 @@ class BBox(BBoxAnnotation, Annotation):
         False
 
     """
+
+    LAYER: ClassVar[str] = "box"
 
     angle: float = 0.0
     angle_unit: str = "deg"
@@ -203,5 +206,12 @@ class BBox(BBoxAnnotation, Annotation):
         region = self._region(ctx.canvas.width, ctx.canvas.height)
         ctx.emit_hit(region, self.tooltip)
         place_label(
-            ctx, region, self.label, self.score, self.payload, color, style
+            ctx,
+            region,
+            self.label,
+            self.score,
+            self.payload,
+            color,
+            style,
+            id(self),
         )

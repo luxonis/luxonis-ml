@@ -10,7 +10,7 @@ point labels, its ``labels`` as ``keypoint_names``.
 """
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 import numpy as np
 
@@ -79,6 +79,8 @@ class Keypoints(KeypointAnnotation, Annotation):
         [2.0, 0.0]
 
     """
+
+    LAYER: ClassVar[str] = "keypoint"
 
     edges: list[tuple[int, int]] = []
     keypoint_names: list[str] | None = None

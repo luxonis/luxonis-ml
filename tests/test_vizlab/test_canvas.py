@@ -202,3 +202,152 @@ def test_overlay_empty_mask_is_noop() -> None:
         alpha=0.5,
     )
     assert canvas.to_rgba()[..., 3].max() == 0
+
+
+def _embedded(svg: bytes) -> "list[np.ndarray]":
+    """Decode every raster an SVG document carries, in document order."""
+    pytest.importorskip("PIL")
+    import base64
+    import io
+    import re
+
+    from PIL import Image as PILImage
+
+    return [
+        np.array(
+            PILImage.open(io.BytesIO(base64.b64decode(payload))).convert("RGB")
+        )
+        for payload in re.findall(r'base64,([^"]+)"', svg.decode())
+    ]
+
+
+def _opaque(rgb: np.ndarray) -> np.ndarray:
+    """Add a fully opaque alpha channel."""
+    return np.dstack([rgb, np.full((*rgb.shape[:2], 1), 255, np.uint8)])
+
+
+def _embedded_modes(svg: bytes) -> "list[str]":
+    """Return the colour model of each embedded raster, in document order.
+
+    Doubles as a record of which encoder wrote it: an opaque raster encoded by
+    `Canvas._embed`'s fast path drops its alpha and arrives as ``RGB``, whereas
+    one Skia encoded for itself keeps the ``RGBA`` it was handed.
+    """
+    pytest.importorskip("PIL")
+    import base64
+    import io
+    import re
+
+    from PIL import Image as PILImage
+
+    return [
+        PILImage.open(io.BytesIO(base64.b64decode(payload))).mode
+        for payload in re.findall(r'base64,([^"]+)"', svg.decode())
+    ]
+
+
+def _noise(height: int, width: int, seed: int) -> np.ndarray:
+    """Random pixels, so a blank stand-in cannot pass for them by accident."""
+    return np.random.default_rng(seed).integers(
+        0, 255, (height, width, 3), dtype=np.uint8
+    )
+
+
+def test_an_svg_embeds_the_pixels_it_was_given() -> None:
+    """A raster in an SVG must be the raster, not the stand-in drawn for it.
+
+    Skia encodes embedded images at a setting that costs hundreds of
+    milliseconds for a photo, so it is handed a cheap single-channel stand-in
+    and the real pixels are swapped in afterwards. Nothing about the document's
+    shape reveals whether that worked — only decoding it does, and a stand-in
+    left in place is a blank rectangle where the picture should be.
+    """
+    photo = _noise(120, 200, seed=7)
+    canvas = Canvas.svg(200, 120)
+    canvas.blit_scaled(_opaque(photo), 0, 0, 200, 120)
+    (embedded,) = _embedded(canvas.finish_svg())
+    assert np.array_equal(embedded, photo)
+
+
+def test_several_rasters_each_get_their_own_pixels_back() -> None:
+    """Substitution is positional, so two rasters must not be swapped."""
+    first, second = _noise(120, 200, seed=1), _noise(120, 200, seed=2)
+    canvas = Canvas.svg(200, 240)
+    for index, photo in enumerate((first, second)):
+        canvas.blit_scaled(_opaque(photo), 0, index * 120, 200, 120)
+    embedded = _embedded(canvas.finish_svg())
+    assert [a.tolist() for a in embedded] == [
+        first.tolist(),
+        second.tolist(),
+    ]
+
+
+def test_a_small_raster_is_embedded_without_the_detour() -> None:
+    """Below the size threshold Skia encodes directly; the pixels still land.
+
+    The two paths have to agree, or which one a raster takes would be visible
+    in the output.
+    """
+    small = _noise(32, 32, seed=3)
+    canvas = Canvas.svg(32, 32)
+    canvas.blit_scaled(_opaque(small), 0, 0, 32, 32)
+    (embedded,) = _embedded(canvas.finish_svg())
+    assert np.array_equal(embedded, small)
+
+
+def test_an_svg_embeds_its_pixels_without_opencv(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OpenCV is optional, so its absence falls back to Skia's own encoder."""
+    from luxonis_ml.vizlab.render import canvas as canvas_module
+
+    monkeypatch.setattr(canvas_module, "_encode_png", lambda _rgba: None)
+    photo = _noise(120, 200, seed=5)
+    canvas = Canvas.svg(200, 120)
+    canvas.blit_scaled(_opaque(photo), 0, 0, 200, 120)
+    (embedded,) = _embedded(canvas.finish_svg())
+    assert np.array_equal(embedded, photo)
+
+
+def test_one_document_can_mix_deferred_and_directly_encoded_rasters() -> None:
+    """Only the stand-ins may be substituted, and only with their own pixels.
+
+    A raster too small to be worth the detour is encoded by Skia in place, so a
+    document holds both kinds. Anything that mistakes one for the other hands a
+    photo's pixels to the wrong element.
+    """
+    big, small = _noise(120, 200, seed=11), _noise(32, 32, seed=12)
+    canvas = Canvas.svg(200, 160)
+    canvas.blit_scaled(_opaque(big), 0, 0, 200, 120)
+    canvas.blit_scaled(_opaque(small), 0, 120, 32, 32)
+    svg = canvas.finish_svg()
+
+    embedded = _embedded(svg)
+    assert [a.tolist() for a in embedded] == [big.tolist(), small.tolist()]
+    # The big one took the fast path, the small one went straight to Skia.
+    assert _embedded_modes(svg) == ["RGB", "RGBA"]
+
+
+def test_a_sub_canvas_defers_to_the_same_document() -> None:
+    """A viewport has to inherit the document's raster registry.
+
+    Every composite draws its children through `Canvas.viewport`, so a viewport
+    that started its own registry would send each child's photo back through
+    Skia's slow encoder. The pixels would still be right — only the cost would
+    change, several times over, with nothing in the output to show for it.
+    """
+    photo = _noise(120, 200, seed=13)
+    canvas = Canvas.svg(200, 120)
+
+    def draw() -> None:
+        # In its own frame: a viewport canvas is only valid inside the block,
+        # and one still referenced when `finish_svg` detaches the stream takes
+        # the interpreter down with it.
+        with canvas.viewport(0, 0, 200, 120) as region:
+            region.blit_scaled(_opaque(photo), 0, 0, 200, 120)
+
+    draw()
+    svg = canvas.finish_svg()
+
+    assert _embedded_modes(svg) == ["RGB"]
+    assert np.array_equal(_embedded(svg)[0], photo)

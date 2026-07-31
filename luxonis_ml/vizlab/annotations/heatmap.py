@@ -10,6 +10,8 @@ entirely from its gradient, so a set of gradient *themes* (plus a custom-gradien
 escape hatch) controls its look independently of the other labels.
 """
 
+from typing import ClassVar
+
 import numpy as np
 
 from luxonis_ml.vizlab.color import Color
@@ -257,6 +259,8 @@ class Heatmap(Annotation):
         (6, 8, 4)
 
     """
+
+    LAYER: ClassVar[str] = "field"
 
     values: np.ndarray | None = None
     gradient: Gradient | str | None = None

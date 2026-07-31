@@ -55,6 +55,10 @@ relevant part of the API:
   it when the shape alone is ambiguous.
 - `VideoWriter`, `save_video` — a whole sequence of scenes as one video or
   animated image (see `luxonis_ml.vizlab.video`).
+- `Renderable.render_html` — a whole scene as one self-contained interactive
+  HTML page: the vector render inlined with working hover tooltips, no
+  external request and no companion files. ``scene.save("out.html")`` writes
+  it (see `luxonis_ml.vizlab.scene.html`).
 - `ClassDistribution` — predictions in every distribution mode.
 - `Theme` — the dark and light themes.
 - `grid` (with `blend`, `hstack`, `vstack`) — composition.

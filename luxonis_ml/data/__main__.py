@@ -1,9 +1,16 @@
 import shutil
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Literal, TypeAlias, cast
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Literal,
+    TypeAlias,
+    TypeVar,
+    cast,
+)
 
 import cv2
 import numpy as np
@@ -52,6 +59,7 @@ if TYPE_CHECKING:
         ComparisonReport,
         ComparisonResult,
         Renderable,
+        Theme,
     )
     from luxonis_ml.vizlab.adapters.instances import ColorBy
     from luxonis_ml.vizlab.layout.panel import PanelData
@@ -62,6 +70,8 @@ if TYPE_CHECKING:
         dict[str, DatasetRecord],
         dict[str, PanelData],
     ]
+
+_T = TypeVar("_T")
 
 app = App(help="Dataset utilities.")
 
@@ -534,6 +544,30 @@ def _plain_by_default(plain: "bool | None", save: "Path | None") -> bool:
     return save is not None and is_video_path(save)
 
 
+def _with_lookahead(
+    items: "Iterable[_T]",
+) -> "Iterator[tuple[_T, _T | None]]":
+    """Yield each item paired with the one after it (``None`` at the end).
+
+    Keeps two items alive at once rather than the whole stream, which matters
+    when each one holds a sample's decoded pixels.
+
+    Args:
+        items: The stream to walk.
+
+    Yields:
+        ``(item, next_item)`` pairs, in order.
+
+    """
+    held: _T | None = None
+    for item in items:
+        if held is not None:
+            yield held, item
+        held = item
+    if held is not None:
+        yield held, None
+
+
 def _write_renders(
     renders: "Iterable[tuple[str, Renderable]]",
     destination: Path,
@@ -541,6 +575,7 @@ def _write_renders(
     image_format: str,
     fps: float,
     background: "Color",
+    theme: "Theme",
     empty_note: str,
 ) -> None:
     """Write headless renders to a directory of stills, or to a single clip.
@@ -554,14 +589,17 @@ def _write_renders(
     Args:
         renders: ``(source_name, render)`` pairs, in the order to write them.
         destination: The output clip or directory.
-        image_format: Extension for the per-render files, ``png`` or ``svg``.
-            Unused by the clip form, which takes its encoder from the extension.
+        image_format: Extension for the per-render files, ``png``, ``svg``, or
+            ``html``. Unused by the clip form, which takes its encoder from the
+            extension.
         fps: Frame rate for the clip form.
         background: Color shown behind renders that do not fill the clip.
+        theme: Theme the renders used, so an HTML index matches them.
         empty_note: What to print when ``renders`` turns out to be empty.
 
     """
     from luxonis_ml.vizlab import VideoWriter, is_video_path
+    from luxonis_ml.vizlab.scene.html import Nav
 
     if is_video_path(destination):
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -584,11 +622,48 @@ def _write_renders(
     else:
         destination.mkdir(parents=True, exist_ok=True)
         written = 0
-        for source_name, render in renders:
-            stem = f"{written:04d}_{Path(source_name).stem or 'image'}"
-            render.save(destination / f"{stem}.{image_format}")
+        pages: list[tuple[str, str]] = []
+        as_pages = image_format in {"html", "htm"}
+
+        def page_name(index: int, source_name: str) -> str:
+            stem = f"{index:04d}_{Path(source_name).stem or 'image'}"
+            return f"{stem}.{image_format}"
+
+        # A page has to link the one after it, whose name is only known once
+        # the next render arrives — so hold one behind rather than materialize
+        # every sample just to count them.
+        for (source_name, render), following in _with_lookahead(renders):
+            name = page_name(written, source_name)
+            if as_pages:
+                nav = Nav(
+                    index="index.html",
+                    previous=pages[-1][0] if pages else None,
+                    following=(
+                        page_name(written + 1, following[0])
+                        if following is not None
+                        else None
+                    ),
+                    position=written + 1,
+                )
+                (destination / name).write_text(
+                    render.render_html(nav=nav, title=source_name),
+                    encoding="utf-8",
+                )
+            else:
+                render.save(destination / name)
+            pages.append((name, source_name))
             written += 1
         summary = f"{written} render(s)"
+        if pages and as_pages:
+            # A directory of numbered pages is not something anyone opens one
+            # at a time; this is the file you actually hand someone.
+            from luxonis_ml.vizlab.scene.html import index_document
+
+            (destination / "index.html").write_text(
+                index_document(pages, theme, title=destination.name),
+                encoding="utf-8",
+            )
+            summary += " and an index"
     if not written:
         print(f"[yellow]{empty_note}[/yellow]")
         return
@@ -664,8 +739,8 @@ def inspect(
     ] = "none",
     legend: Annotated[
         bool,
-        Parameter(alias="-lg", negative="", group=_VISUALIZATION_OPTIONS),
-    ] = False,
+        Parameter(group=_VISUALIZATION_OPTIONS),
+    ] = True,
     show_background: Annotated[
         bool,
         Parameter(alias="-bg", negative="", group=_VISUALIZATION_OPTIONS),
@@ -729,7 +804,7 @@ def inspect(
         Parameter(alias="-o", group=_OUTPUT_OPTIONS),
     ] = None,
     save_format: Annotated[
-        Literal["png", "svg"],
+        Literal["png", "svg", "html"],
         Parameter(alias="-fmt", group=_OUTPUT_OPTIONS),
     ] = "png",
     fps: Annotated[
@@ -851,10 +926,13 @@ def inspect(
             path is a directory, created if needed, that gets one file per
             source image.
         save_format: File format for the directory form of ``--save``: ``png``
-            (raster) or ``svg`` (annotations and metadata panel as crisp vectors
-            over the embedded photo, scalable to any zoom). Ignored when
-            ``--save`` names a clip, whose extension already picks the encoder.
-            Both forms follow ``--plain`` for the side panel.
+            (raster), ``svg`` (annotations and metadata panel as crisp vectors
+            over the embedded photo, scalable to any zoom), or ``html`` (that
+            same vector render in a self-contained page whose annotations stay
+            **hoverable**, so a saved sample keeps the tooltips the interactive
+            viewer shows). Ignored when ``--save`` names a clip, whose extension
+            already picks the encoder. Every form follows ``--plain`` for the
+            side panel.
         fps: Frames per second when ``--save`` names a clip. Every sample
             contributes one frame, so this sets how long each is on screen.
         bucket_storage: Storage type of the dataset.
@@ -1397,6 +1475,7 @@ def inspect(
             image_format=save_format,
             fps=fps,
             background=viz_theme.background,
+            theme=viz_theme,
             empty_note="No samples matched the inspection filters.",
         )
         return
@@ -1687,7 +1766,7 @@ def compare(
         Parameter(alias="-o", group=_OUTPUT_OPTIONS),
     ] = None,
     save_format: Annotated[
-        Literal["png", "svg"],
+        Literal["png", "svg", "html"],
         Parameter(alias="-fmt", group=_OUTPUT_OPTIONS),
     ] = "png",
     fps: Annotated[
@@ -1755,8 +1834,10 @@ def compare(
             file — a scrubbable record of how a model did across the view. Any
             other path is a directory, created if needed, that gets one file per
             compared image.
-        save_format: File format for the directory form of ``--save``: ``png``
-            or ``svg``. Ignored when ``--save`` names a clip.
+        save_format: File format for the directory form of ``--save``: ``png``,
+            ``svg``, or ``html`` — the vector render in a self-contained page
+            that keeps each match's verdict tooltip hoverable. Ignored when
+            ``--save`` names a clip.
         fps: Frames per second when ``--save`` names a clip.
         force_update: Force synchronization with remote storage first.
         bucket_storage: Storage type of the datasets.
@@ -2150,8 +2231,10 @@ def compare(
             """Build every comparison scene in view order, headlessly.
 
             `Frame.image` unwraps the composed scene from the hover/click maps
-            that only a `Viewer` consumes — and that a saved file has no way to
-            carry anyway.
+            a `Viewer` consumes. The scene keeps its own tooltips either way —
+            live on its annotations, or reattached by `Image.with_hitmap` where
+            a layout was baked to pixels — so ``--save-format html`` still
+            resolves every hover region from the scene itself.
             """
             for identity in shared:
                 gt_data, gt_records, pred_records = paired(identity)
@@ -2168,6 +2251,7 @@ def compare(
             image_format=save_format,
             fps=fps,
             background=viz_theme.background,
+            theme=viz_theme,
             empty_note="No paired samples matched the comparison filters.",
         )
         return

@@ -47,6 +47,81 @@ def _skia_color(color: Color) -> int:
 
 _DEFAULT_SHADOW_COLOR = Color(0, 0, 0, 90)
 
+#: Rasters smaller than this (in pixels) are embedded in an SVG by Skia
+#: directly: encoding them is cheap, so the stand-in detour in `Canvas._embed`
+#: would only add work.
+_DEFER = 64 * 64
+
+#: Every base64 payload in a Skia SVG document is an embedded raster.
+_EMBEDDED = re.compile(r'base64,([^"]+)"')
+
+
+def _is_stand_in(payload: str) -> bool:
+    """Whether an embedded PNG is one of `Canvas._embed`'s stand-ins.
+
+    Told apart by colour type: a stand-in is the single grayscale channel
+    `Canvas._embed` hands Skia, while every raster Skia encodes for itself comes
+    from an RGBA image. Only the header is decoded, so the payload's size does
+    not matter.
+
+    Args:
+        payload: The base64 body of a ``data:image/png`` URI.
+
+    Returns:
+        Whether it is a stand-in awaiting its real pixels.
+
+    """
+    import base64
+
+    # 44 base64 characters cover the 8-byte signature and the IHDR chunk, whose
+    # last-but-one byte is the colour type; 0 is grayscale.
+    header = base64.b64decode(payload[:44])
+    return len(header) > 25 and header[25] == 0
+
+
+def _base64_png(image: np.ndarray) -> str:
+    """Base64 a PNG of ``image``, via OpenCV at its cheapest useful setting.
+
+    Level 1 is roughly a fifth the cost of the level Skia's SVG backend encodes
+    at, for a file within a few percent of the same size. Lossless either way,
+    so the pixels an SVG carries are unchanged.
+
+    Args:
+        image: An ``(H, W)`` gray, or ``(H, W, 4)`` RGBA, ``uint8`` array.
+
+    Returns:
+        The base64 payload, without the ``data:`` prefix.
+
+    """
+    import base64
+
+    import cv2
+
+    if image.ndim == 3:
+        # OpenCV writes channels in BGR(A) order; an opaque raster drops its
+        # alpha, which is a quarter of the bytes for pixels that all say 255.
+        image = (
+            image[..., 2::-1]
+            if image[..., 3].min() == 255
+            else image[..., [2, 1, 0, 3]]
+        )
+    ok, buffer = cv2.imencode(".png", image, [cv2.IMWRITE_PNG_COMPRESSION, 1])
+    if not ok:  # pragma: no cover - OpenCV only fails here on a bad dtype
+        raise ValueError("failed to encode a raster as PNG")
+    return base64.b64encode(buffer.tobytes()).decode("ascii")
+
+
+def _encode_png(rgba: np.ndarray) -> "str | None":
+    """Base64 a PNG of ``rgba``, or ``None`` if OpenCV is not installed.
+
+    vizlab treats OpenCV as optional (see ``test_import_cv2_free``), so without
+    it the caller falls back to letting Skia encode.
+    """
+    try:
+        return _base64_png(rgba)
+    except ImportError:
+        return None
+
 
 @dataclass(frozen=True)
 class Shadow:
@@ -177,6 +252,7 @@ class Canvas:
         antialias: bool = True,
         surface: "skia.Surface | None" = None,
         svg_stream: "skia.DynamicMemoryWStream | None" = None,
+        deferred: "list[str] | None" = None,
     ) -> None:
         """Wrap a Skia drawing canvas together with its backing output.
 
@@ -194,6 +270,9 @@ class Canvas:
                 scenes; text stays anti-aliased regardless, so labels stay legible.
             surface: The backing raster surface, for a raster canvas.
             svg_stream: The backing SVG stream, for an SVG canvas.
+            deferred: The document's raster registry, shared by every canvas
+                drawing into it (see `_embed`). Only `viewport` passes one; a
+                canvas built on ``svg_stream`` starts its own.
 
         """
         self._canvas: skia.Canvas = canvas
@@ -202,6 +281,10 @@ class Canvas:
         self._antialias = antialias
         self._surface = surface
         self._svg_stream = svg_stream
+        # Doubles as "this canvas records SVG": a raster canvas has no registry.
+        self._deferred = (
+            deferred if deferred is not None else ([] if svg_stream else None)
+        )
 
     @classmethod
     def blank(
@@ -364,6 +447,36 @@ class Canvas:
         )
         return out
 
+    def _embed(self, rgba: np.ndarray) -> skia.Image:
+        """Return the Skia image to draw for ``rgba``.
+
+        On a raster canvas that is simply the pixels. An SVG canvas has to
+        encode and base64 them into the document instead, and Skia does that at
+        a compression setting that costs around 280ms for a 720p photo — paid on
+        every SVG save, and once per page by the layered HTML export.
+
+        So an SVG canvas is handed a same-sized single-channel stand-in, which
+        costs a twentieth of that to encode, while the real pixels are encoded
+        here and swapped back in by `finish_svg`. The stand-in carries the true
+        dimensions, so the placement Skia writes for it needs no correction.
+        Small rasters are not worth the detour and go to Skia directly, which
+        also keeps every stand-in large enough to carry its own serial number.
+        """
+        if self._deferred is None or rgba.shape[0] * rgba.shape[1] < _DEFER:
+            return skia.Image.fromarray(
+                np.ascontiguousarray(rgba), colorType=_RGBA
+            )
+        payload = _encode_png(rgba)
+        if payload is None:
+            return skia.Image.fromarray(
+                np.ascontiguousarray(rgba), colorType=_RGBA
+            )
+        self._deferred.append(payload)
+        return skia.Image.fromarray(
+            np.zeros(rgba.shape[:2], dtype=np.uint8),
+            colorType=skia.kGray_8_ColorType,
+        )
+
     def blit(
         self, rgba: np.ndarray, x: float, y: float, *, radius: float = 0.0
     ) -> None:
@@ -377,9 +490,7 @@ class Canvas:
                 rectangle (anti-aliased) so it reads as a rounded surface.
 
         """
-        image = skia.Image.fromarray(
-            np.ascontiguousarray(rgba), colorType=_RGBA
-        )
+        image = self._embed(rgba)
         if radius > 0.0:
             height, width = rgba.shape[:2]
             rrect = skia.RRect.MakeRectXY(
@@ -420,9 +531,7 @@ class Canvas:
             radius: Corner radius in pixels; ``> 0`` clips to a rounded rectangle.
 
         """
-        image = skia.Image.fromarray(
-            np.ascontiguousarray(rgba), colorType=_RGBA
-        )
+        image = self._embed(rgba)
         dst = skia.Rect.MakeXYWH(
             float(x), float(y), float(width), float(height)
         )
@@ -521,6 +630,7 @@ class Canvas:
                 (int(lw), int(lh)),
                 self._fonts,
                 antialias=self._antialias,
+                deferred=self._deferred,
             )
         finally:
             self._canvas.restore()
@@ -545,7 +655,26 @@ class Canvas:
         # The SVG backend buffers; releasing the canvas flushes it to the stream.
         self._canvas = None  # type: ignore[assignment]
         self._svg_stream.flush()
-        return bytes(self._svg_stream.detachAsData())
+        document = bytes(self._svg_stream.detachAsData())
+        if not self._deferred:
+            return document
+        text = document.decode("utf-8")
+        supply = iter(self._deferred)
+        found = sum(
+            _is_stand_in(payload) for payload in _EMBEDDED.findall(text)
+        )
+        if found != len(self._deferred):
+            raise RuntimeError(
+                f"SVG kept {found} of {len(self._deferred)} deferred rasters; "
+                "their real pixels can no longer be matched to them"
+            )
+
+        def restore(match: "re.Match[str]") -> str:
+            if not _is_stand_in(match.group(1)):
+                return match.group(0)
+            return f'base64,{next(supply)}"'
+
+        return _EMBEDDED.sub(restore, text).encode("utf-8")
 
     # -- primitives ---------------------------------------------------------
 
