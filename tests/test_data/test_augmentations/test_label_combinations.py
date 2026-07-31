@@ -28,7 +28,6 @@ combination_settings = settings(
 
 
 def run(spec: SampleSpec) -> tuple[dict[str, np.ndarray], Labels]:
-    """Build an engine from ``spec`` and push a full batch through it."""
     engine = AlbumentationsEngine(
         spec.height,
         spec.width,
@@ -101,7 +100,6 @@ def test_any_label_combination_round_trips(spec: SampleSpec) -> None:
 @given(spec=sample_specs())
 @combination_settings
 def test_instances_never_outnumber_their_bboxes(spec: SampleSpec) -> None:
-    """Per-instance labels are capped by the boxes that survived."""
     _, out_labels = run(spec)
 
     for group in spec.groups:
@@ -130,7 +128,6 @@ def test_instances_never_outnumber_their_bboxes(spec: SampleSpec) -> None:
 def test_every_label_type_works_on_its_own(
     task_type: str, config: list[dict]
 ) -> None:
-    """Each advertised label type is usable as the only label in a dataset."""
     spec = SampleSpec(
         groups=[
             TaskGroupSpec(
@@ -161,7 +158,6 @@ def test_every_label_type_works_on_its_own(
 @given(spec=sample_specs(min_groups=2, max_groups=3))
 @combination_settings
 def test_task_groups_do_not_interfere(spec: SampleSpec) -> None:
-    """Adding a task group must not change what the other groups return."""
     _, combined = run(spec)
 
     for group in spec.groups:

@@ -79,15 +79,8 @@ def instance_count(
     return len(array)
 
 
-# Albumentations bbox rows are [x_min, y_min, x_max, y_max, class, index]
-# and keypoint rows are [x, y, z, angle, scale, visibility]. Both come to
-# six columns, for unrelated reasons.
-BBOX_COLUMNS = 6
-KEYPOINT_COLUMNS = 6
-
-
 def pad_empty_entries(
-    batch: list[np.ndarray], default: int
+    batch: list[np.ndarray], n_columns: int = 6
 ) -> list[np.ndarray]:
     r"""Shape every empty entry so the batch can be concatenated.
 
@@ -99,24 +92,25 @@ def pad_empty_entries(
     The width is read off a populated entry, since a pipeline's optional
     fields decide how wide these rows are. An entry that is empty but still
     two-dimensional carries the same width and is used when no entry is
-    populated; ``default`` is a last resort.
+    populated.
 
     Args:
         batch: Per-sample arrays, some of which may be empty.
-        default: Width to use when no entry carries one.
+        n_columns: Width to fall back on when no entry carries one. Both
+            bbox rows :math:`\left[x_{\min}, y_{\min}, x_{\max}, y_{\max},
+            c, i\right]` and keypoint rows are six columns wide.
 
     Returns:
         The batch, with every empty entry shaped :math:`\left(0, n\right)`.
 
     Examples:
         >>> batch = [np.array([]), np.zeros((2, 7))]
-        >>> [array.shape for array in pad_empty_entries(batch, default=6)]
+        >>> [array.shape for array in pad_empty_entries(batch)]
         [(0, 7), (2, 7)]
-        >>> [a.shape for a in pad_empty_entries([np.array([])], default=6)]
+        >>> [array.shape for array in pad_empty_entries([np.array([])])]
         [(0, 6)]
 
     """
-    n_columns = default
     for array in batch:
         if array.ndim == 2:
             n_columns = array.shape[1]

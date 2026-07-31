@@ -38,7 +38,6 @@ def test_mixup_can_resize_without_keeping_aspect_ratio() -> None:
 def test_mixup_semantic_mask_tolerates_a_missing_mask(
     empty_index: int,
 ) -> None:
-    """A sample without a segmentation task contributes an empty mask."""
     masks: list[np.ndarray] = [
         np.ones((16, 16, 1), dtype=np.uint8),
         np.ones((16, 16, 1), dtype=np.uint8),
@@ -95,7 +94,6 @@ def test_mixup_instance_masks_regain_a_channel_axis_after_resize() -> None:
 
 @pytest.mark.parametrize("ndim", [2, 3])
 def test_mosaic_semantic_mask_fills_in_missing_masks(ndim: int) -> None:
-    """Samples with no segmentation still occupy their mosaic quadrant."""
     shape = (16, 16) if ndim == 2 else (16, 16, 2)
     # A sample missing the task arrives with the spatial dims collapsed,
     # which is how `_preprocess_batch` represents "no mask here".

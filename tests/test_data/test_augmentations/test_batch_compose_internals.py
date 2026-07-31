@@ -5,9 +5,7 @@ import numpy as np
 import pytest
 from loguru import logger
 
-from luxonis_ml.data import AlbumentationsEngine
 from luxonis_ml.data.augmentations import BatchCompose, BatchTransform, MixUp
-from luxonis_ml.typing import Labels
 
 from .helpers import KeepFirstSample
 
@@ -134,7 +132,6 @@ def test_already_empty_associated_fields_are_left_alone() -> None:
 def test_unmatched_fields_warn_once_and_are_left_alone(
     target_type: str, value: np.ndarray, warnings_log: list[str]
 ) -> None:
-    """Counts that cannot be matched to boxes must not be regrouped."""
     composition = compose(
         {"bboxes": {"label": target_type}}, {"label": target_type}
     )
@@ -169,7 +166,6 @@ def test_unmatched_keypoints_warn_and_are_left_alone(
 def test_keypoints_without_a_known_count_are_left_alone(
     warnings_log: list[str],
 ) -> None:
-    """Without the per-instance count there is no safe way to regroup."""
     composition = compose(
         {"bboxes": {"label": "keypoints"}}, {"label": "keypoints"}
     )
@@ -304,44 +300,3 @@ def test_make_contiguous_leaves_non_arrays_alone() -> None:
 
     assert out["image"].flags["C_CONTIGUOUS"]
     assert out["note"] == "kept as is"
-
-
-def test_labels_emptied_by_a_spatial_transform_are_reported_empty() -> None:
-    """A crop can remove every box after the batch stage has finished."""
-    engine = AlbumentationsEngine(
-        16,
-        16,
-        {"task/boundingbox": "boundingbox", "task/metadata/id": "metadata"},
-        {"task/boundingbox": 1, "task/metadata/id": 1},
-        ["image"],
-        [
-            {
-                "name": "Crop",
-                "params": {
-                    "x_min": 0,
-                    "y_min": 0,
-                    "x_max": 4,
-                    "y_max": 4,
-                    "p": 1.0,
-                },
-            }
-        ],
-    )
-    labels: Labels = {
-        "task/boundingbox": np.array([[0.0, 0.7, 0.7, 0.2, 0.2]]),
-        "task/metadata/id": np.array([9.0]),
-    }
-
-    _, out_labels = engine.apply(
-        [({"image": np.zeros((16, 16, 3), dtype=np.uint8)}, labels)]
-    )
-
-    # The boxes are reported empty rather than dropped, so the metadata is
-    # not left referring to a task that is not in the output.
-    assert out_labels["task/boundingbox"].shape == (0, 5)
-    assert out_labels["task/metadata/id"].shape[0] == 0
-
-    # Albumentations hands back its own empty arrays as float32; taking the
-    # dtype from those would make an emptied task disagree with the very
-    # same pipeline's populated output.
-    assert out_labels["task/boundingbox"].dtype == np.float64

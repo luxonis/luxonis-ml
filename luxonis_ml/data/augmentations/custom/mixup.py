@@ -8,11 +8,7 @@ from typing_extensions import override
 
 from luxonis_ml.data.augmentations.batch_transform import BatchTransform
 from luxonis_ml.data.augmentations.custom import LetterboxResize
-from luxonis_ml.data.augmentations.utils import (
-    BBOX_COLUMNS,
-    KEYPOINT_COLUMNS,
-    pad_empty_entries,
-)
+from luxonis_ml.data.augmentations.utils import pad_empty_entries
 
 
 class MixUp(BatchTransform):
@@ -192,7 +188,7 @@ class MixUp(BatchTransform):
             Transformed bounding boxes.
 
         """
-        bboxes_batch = pad_empty_entries(bboxes_batch, default=BBOX_COLUMNS)
+        bboxes_batch = pad_empty_entries(bboxes_batch)
 
         bboxes_batch[1] = self._resize(
             bboxes_batch[1],
@@ -221,9 +217,7 @@ class MixUp(BatchTransform):
             Transformed keypoints.
 
         """
-        keypoints_batch = pad_empty_entries(
-            keypoints_batch, default=KEYPOINT_COLUMNS
-        )
+        keypoints_batch = pad_empty_entries(keypoints_batch)
 
         keypoints_batch[1] = self._resize(
             keypoints_batch[1],

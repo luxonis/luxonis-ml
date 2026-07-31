@@ -45,7 +45,6 @@ def build(
 
 
 def test_engines_default_to_using_every_input_position() -> None:
-    """An engine that does not track contributors is assumed to use all."""
 
     class UntrackedEngine(
         AugmentationEngine, register_name="untracked_engine"

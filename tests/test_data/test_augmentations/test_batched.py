@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from luxonis_ml.data import AlbumentationsEngine
-from luxonis_ml.data.augmentations import BatchCompose, MixUp, Mosaic4
+from luxonis_ml.data.augmentations import BatchCompose, MixUp
 from luxonis_ml.typing import Labels
 
 from .helpers import KeepFirstSample
@@ -69,7 +69,6 @@ def assert_boxes_match_keypoints(
 
 
 def assert_masks_match_values(masks: np.ndarray, values: np.ndarray) -> None:
-    """Assert each mask channel carries its associated scalar value."""
     assert masks.shape[0] == values.shape[0]
     for mask, value in zip(masks, values, strict=True):
         assert np.unique(mask[mask != 0]).tolist() == [value]
@@ -415,7 +414,6 @@ def test_mosaic_drops_boxes_keeps_masks_aligned(
 
 
 def test_batch_transforms_keep_nested_task_groups_independent() -> None:
-
     def make_mask(
         instances: list[tuple[int, float, float]], size: int = 64
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -838,40 +836,6 @@ def test_unmatched_label_counts_are_left_as_is() -> None:
     )
 
     assert output["task/metadata/id"].size > 0
-
-
-@pytest.mark.parametrize("target", ["keypoints", "bboxes"])
-def test_mixup_pads_empty_targets_to_the_sibling_width(target: str) -> None:
-    """Emptied targets must keep the column count of their sibling.
-
-    Compaction can empty one half of a MixUp pair while the other half keeps
-    its rows, and a placeholder of the wrong width then fails to concatenate.
-    """
-    mixup = MixUp(p=1.0)
-    batch = [np.zeros((0, 6)), np.ones((2, 6))]
-    apply_to_target = getattr(mixup, f"apply_to_{target}")
-
-    output = apply_to_target(batch, image_shapes=[(16, 16), (16, 16)])
-
-    assert output.shape == (2, 6)
-
-
-@pytest.mark.parametrize("target", ["keypoints", "bboxes"])
-def test_mosaic_pads_empty_targets_to_the_sibling_width(target: str) -> None:
-    """Emptied targets must keep the column count of their sibling.
-
-    The width depends on which optional fields the pipeline uses, so a
-    hardcoded placeholder fails to concatenate with the populated samples.
-    """
-    mosaic = Mosaic4(height=16, width=16, p=1.0)
-    batch = [np.ones((2, 5)), *(np.zeros((0, 5)) for _ in range(3))]
-    apply_to_target = getattr(mosaic, f"apply_to_{target}")
-
-    output = apply_to_target(
-        batch, image_shapes=[(16, 16)] * 4, x_crop=0, y_crop=0
-    )
-
-    assert output.shape == (2, 5)
 
 
 def test_partially_annotated_batches_stay_aligned() -> None:

@@ -610,7 +610,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             }
             for task_group, bbox_target in bbox_targets_by_group.items()
         }
-        self._bbox_associated_targets = {
+        # Targets tied to a bbox target, the boxes themselves included. Only
+        # these are reported as empty when a transform clears them out.
+        self._grouped_targets = set(bbox_targets_by_group.values()) | {
             target_name
             for associations in bbox_associations.values()
             for target_name in associations
@@ -668,10 +670,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             for target_name, spec in label_specs[index].items():
                 contributed.setdefault(target_name, spec)
 
-        reportable = self._bbox_associated_targets | set(
-            self._bbox_targets_by_group.values()
-        )
-
         # Albumentations chokes on zero-size targets, so they are dropped
         # here. Ones a batch transform emptied are remembered so that
         # postprocessing can still report them as empty rather than omit
@@ -681,7 +679,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             value = data[target_name]
             if isinstance(value, np.ndarray) and value.size == 0:
                 del data[target_name]
-                if target_name in contributed and target_name in reportable:
+                if (
+                    target_name in contributed
+                    and target_name in self._grouped_targets
+                ):
                     emptied_targets[target_name] = contributed[target_name]
 
         data = self._spatial_transform(**data)
@@ -1015,12 +1016,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         """Return the complete task path without its task-type suffix.
 
         Unlike `get_task_name`, this keeps every level of a nested task
-        name, so ``"a/b/keypoints"`` groups under ``"a/b"``.
-
-        A leading ``"/"`` marks LDF's default task, whose name is empty on
-        purpose: ``"/boundingbox"`` and ``"/keypoints"`` describe the same
-        annotations and share the group ``""``. A task with no separator at
-        all has no name to group by, so it is only grouped with itself.
+        name, so ``"a/b/keypoints"`` groups under ``"a/b"``. The leading
+        ``"/"`` of LDF's default task marks a name that is empty on purpose,
+        while a task with no separator at all has no name to group by and is
+        only ever grouped with itself.
         """
         group = task.removesuffix(get_task_type(task)).removesuffix("/")
         if group:

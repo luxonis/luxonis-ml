@@ -30,7 +30,6 @@ def test_preprocess_mask_moves_channels_last() -> None:
 
 
 def test_postprocess_mask_promotes_a_flat_mask() -> None:
-    """A transform may hand back a 2D mask; it becomes a single channel."""
     assert postprocess_mask(np.ones((5, 6))).shape == (1, 5, 6)
 
 
@@ -53,7 +52,7 @@ def test_mask_round_trip(n_channels: int, height: int, width: int) -> None:
 
 
 def test_pad_empty_entries_takes_the_width_of_a_populated_entry() -> None:
-    padded = pad_empty_entries([np.array([]), np.zeros((2, 7))], default=6)
+    padded = pad_empty_entries([np.array([]), np.zeros((2, 7))])
 
     assert [array.shape for array in padded] == [(0, 7), (2, 7)]
 
@@ -61,17 +60,17 @@ def test_pad_empty_entries_takes_the_width_of_a_populated_entry() -> None:
 def test_pad_empty_entries_reads_the_width_of_an_empty_2d_entry() -> None:
     """An empty entry is still shaped by the pipeline's optional fields.
 
-    Falling back to ``default`` here would pad the other entries to a
-    different width, and concatenating the batch would then fail.
+    Falling back to the default width here would pad the other entries
+    differently, and concatenating the batch would then fail.
     """
-    padded = pad_empty_entries([np.zeros((0, 7)), np.array([])], default=6)
+    padded = pad_empty_entries([np.zeros((0, 7)), np.array([])])
 
     assert [array.shape for array in padded] == [(0, 7), (0, 7)]
     assert np.concatenate(padded, axis=0).shape == (0, 7)
 
 
 def test_pad_empty_entries_falls_back_when_no_entry_carries_a_width() -> None:
-    padded = pad_empty_entries([np.array([]), np.array([])], default=6)
+    padded = pad_empty_entries([np.array([]), np.array([])])
 
     assert [array.shape for array in padded] == [(0, 6), (0, 6)]
 
@@ -79,7 +78,7 @@ def test_pad_empty_entries_falls_back_when_no_entry_carries_a_width() -> None:
 def test_pad_empty_entries_leaves_populated_entries_alone() -> None:
     populated = np.arange(6, dtype=np.float32).reshape(2, 3)
 
-    padded = pad_empty_entries([populated], default=6)
+    padded = pad_empty_entries([populated])
 
     assert padded[0] is populated
 

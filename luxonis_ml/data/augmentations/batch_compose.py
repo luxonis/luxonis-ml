@@ -301,9 +301,13 @@ class BatchCompose(A.Compose):
                 if value.size == 0:
                     continue
 
+                # Keypoint rows can only be counted by instance once it is
+                # known how many keypoints each instance carries.
                 n_keypoints = keypoints_per_instance.get(field_name, 0)
-                if (
-                    self._count_instances(value, target_type, n_keypoints)
+                countable = target_type != "keypoints" or n_keypoints > 0
+
+                if not countable or (
+                    instance_count(value, target_type, n_keypoints)
                     != bbox_count
                 ):
                     self._warn_unmatched(
@@ -313,15 +317,6 @@ class BatchCompose(A.Compose):
                     data[field_name] = self._select_instances(
                         value, target_type, indices, bbox_count, n_keypoints
                     )
-
-    @staticmethod
-    def _count_instances(
-        value: np.ndarray, target_type: str, n_keypoints: int
-    ) -> int | None:
-        """Instances in ``value``, or ``None`` if they cannot be counted."""
-        if target_type == "keypoints" and n_keypoints < 1:
-            return None
-        return instance_count(value, target_type, n_keypoints)
 
     @staticmethod
     def _select_instances(
