@@ -3,10 +3,12 @@ name: Update Coverage Report
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   actions: read
   contents: read
+  pull-requests: read
 
 jobs:
   update-base-report:
@@ -15,12 +17,39 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        with:
-          ref: ${{ github.head_ref }}
+
+      - name: Find the CI run of the merged pull request
+        id: ci-run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '.[0].number // empty')
+          if [[ -z "$pr" ]]; then
+            echo "::error::No pull request is associated with $GITHUB_SHA" >&2
+            exit 1
+          fi
+
+          head_sha=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" --jq '.head.sha')
+          run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yaml/runs?head_sha=$head_sha&status=success" --jq '.workflow_runs[0].id // empty')
+          if [[ -z "$run_id" ]]; then
+            echo "::error::No successful CI run found for PR #$pr ($head_sha)" >&2
+            exit 1
+          fi
+
+          pr_tree=$(gh api "repos/$GITHUB_REPOSITORY/commits/$head_sha" --jq '.commit.tree.sha')
+          main_tree=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" --jq '.commit.tree.sha')
+          if [[ "$pr_tree" != "$main_tree" ]]; then
+            echo "::warning::PR #$pr was not merged as-is, its coverage may not match $GITHUB_SHA"
+          fi
+
+          echo "Using coverage from PR #$pr (run $run_id)"
+          echo "run-id=$run_id" >> "$GITHUB_OUTPUT"
 
       - name: Download artifacts
         uses: dawidd6/action-download-artifact@b6e2e70617bc3265edd6dab6c906732b2f1ae151
         with:
+          run_id: ${{ steps.ci-run.outputs.run-id }}
           name: coverage-ubuntu-latest-.*
           name_is_regexp: true
           path: coverage
