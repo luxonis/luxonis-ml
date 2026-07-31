@@ -551,6 +551,7 @@ jobs:
             parser-benchmarks-current/benchmark-results.json \
             --threshold "$THRESHOLD" \
             --output report.md \
+            --plain-output summary.md \
             --baseline-label "$BASELINE" \
             --current-label "$CURRENT"
 
@@ -562,21 +563,12 @@ jobs:
           CURRENT: ${{ needs.benchmark-refs.outputs.current_ref }}
           BASELINE: ${{ needs.benchmark-refs.outputs.baseline_ref }}
         run: |
-          {
-            echo '### Parser benchmarks'
-            echo
-            if [[ -n "$BASELINE" ]]; then
-              echo "\`$CURRENT\`. No results for \`$BASELINE\` - it has no"
-              echo 'benchmark suite to run, so there is nothing to compare against.'
-            else
-              echo "\`$CURRENT\`, with nothing to compare against."
-            fi
-            echo
-            echo '| dataset type | images | records | seconds | records/s | peak MiB |'
-            echo '| --- | --: | --: | --: | --: | --: |'
-            jq -r '.benchmarks[] | "| \(.dataset_type) | \(.images) | \(.records) | \(.seconds | .*1000 | round / 1000) | \(.records_per_second | round) | \(.peak_mib | .*10 | round / 10) |"' \
-              parser-benchmarks-current/benchmark-results.json
-          } > report.md
+          python tools/compare_benchmarks.py render \
+            parser-benchmarks-current/benchmark-results.json \
+            --output report.md \
+            --plain-output summary.md \
+            --label "$CURRENT" \
+            --baseline-label "$BASELINE"
 
       # A ref that measured nothing still gets a report, so the summary
       # and the comment say so rather than going blank.
@@ -590,11 +582,13 @@ jobs:
             echo
             echo "No results for \`$CURRENT\` - the benchmark job did not"
             echo 'finish. See the run log.'
-          } > report.md
+          } | tee report.md > summary.md
 
+      # The summary gets the plain report: a job summary renders neither
+      # math nor colour, and would print the markup itself.
       - name: Publish the results to the job summary
         if: ${{ always() }}
-        run: cat report.md >> "$GITHUB_STEP_SUMMARY"
+        run: cat summary.md >> "$GITHUB_STEP_SUMMARY"
 
       # Kept as a single edited comment rather than one per run, so a
       # pull request that benchmarks on every push stays readable. Never

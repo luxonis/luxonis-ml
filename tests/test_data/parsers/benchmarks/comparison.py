@@ -186,12 +186,72 @@ def _percent(change: float) -> str:
     return f"{change * 100.0:+.1f}%"
 
 
+#: Marks a row carries in either format. A change past the threshold is
+#: `❗`, one past half of it `⚠️`, anything else `✅`.
+STATUS_GOOD = "✅"
+STATUS_NEAR = "⚠️"
+STATUS_OVER = "❗"
+
+#: Colour each mark carries in a rich table, so the number and the mark
+#: say the same thing. Named colours rather than hex: GitHub's MathJax
+#: renders `\textcolor{green}` and leaves `\textcolor{#1a7f37}` as markup.
+_STATUS_COLOUR = {
+    STATUS_GOOD: "green",
+    STATUS_NEAR: "orange",
+    STATUS_OVER: "red",
+}
+
+
+def _status(
+    change_percent: float, *, threshold_percent: float, regressed: bool
+) -> str:
+    """Return the mark a change of this size earns.
+
+    Args:
+        change_percent: How much slower the parser got, in percent.
+        threshold_percent: Threshold a regression has to clear.
+        regressed: Whether the change counted as a regression, which
+            takes the measured noise into account as well.
+
+    Returns:
+        One of `STATUS_OVER`, `STATUS_NEAR` or `STATUS_GOOD`.
+
+    """
+    if regressed:
+        return STATUS_OVER
+    if change_percent > threshold_percent / 2.0:
+        return STATUS_NEAR
+    return STATUS_GOOD
+
+
+def _math(body: str, colour: str | None = None) -> str:
+    r"""Wrap a rendered value as GitHub inline math.
+
+    A closing `$` may be followed by punctuation but never by a letter:
+    `$0.4$s` is left as literal text, dollar signs and all. So no unit
+    ever trails the delimiter here and the column header carries it
+    instead. A `%` has the mirrored problem and has to stay *outside* the
+    math - Markdown strips the backslash from `\\%` before MathJax sees
+    it, and the bare `%` left behind opens a comment that swallows the
+    rest of the expression.
+    """
+    if colour is not None:
+        body = f"\\textcolor{{{colour}}}{{{body}}}"
+    return f"${body}$"
+
+
+def _grouped(value: int) -> str:
+    """Digit-group an integer for math, where a bare comma spaces wrong."""
+    return f"{value:,}".replace(",", "{,}")
+
+
 def render_markdown(
     report: ComparisonReport,
     *,
     threshold_percent: float,
     baseline_label: str,
     current_label: str,
+    rich: bool = True,
 ) -> str:
     """Render a comparison as a Markdown report.
 
@@ -200,42 +260,87 @@ def render_markdown(
         threshold_percent: Threshold the verdict line quotes.
         baseline_label: Name of the baseline ref, for the table header.
         current_label: Name of the ref under test.
+        rich: Whether to set the numbers as math and colour them. A pull
+            request comment renders both; a job summary renders neither
+            and would show the markup itself, so it asks for the plain
+            form. The marks and the monospaced names render either way.
 
     Returns:
         Markdown, ready for a job summary or a pull request comment.
 
     """
     regressions = report.regressions(threshold_percent)
+    regressed = {item.dataset_type for item in regressions}
     lines = [
         "### Parser benchmarks",
         "",
         f"`{current_label}` against `{baseline_label}`, "
         f"regression threshold {threshold_percent:g}%.",
         "",
-        f"| dataset type | records | {baseline_label} | {current_label} "
-        "| change | noise | peak MiB |",
-        "| --- | --: | --: | --: | --: | --: | --: |",
+        f"|  | dataset type | records | {baseline_label} (s) "
+        f"| {current_label} (s) | change | noise | peak MiB |",
+        "| :-: | --- | --: | --: | --: | --: | --: | --: |",
     ]
     slowest_first = sorted(
         report.compared, key=lambda item: item.seconds_change, reverse=True
     )
     for item in slowest_first:
-        flag = " ⚠️" if item in regressions else ""
-        lines.append(
-            f"| `{item.dataset_type}` | {item.records:,} "
-            f"| {item.baseline_seconds:.3f}s | {item.current_seconds:.3f}s "
-            f"| {_percent(item.seconds_change)}{flag} "
-            f"| ±{item.noise * 100.0:.1f}% "
-            f"| {item.baseline_peak_mib:.1f} → {item.current_peak_mib:.1f} |"
+        change = item.seconds_change * 100.0
+        mark = _status(
+            change,
+            threshold_percent=threshold_percent,
+            regressed=item.dataset_type in regressed,
+        )
+        noise = item.noise * 100.0
+        if rich:
+            peak = (
+                f"{item.baseline_peak_mib:.1f} \\to "
+                f"{item.current_peak_mib:.1f}"
+            )
+            cells = (
+                mark,
+                f"`{item.dataset_type}`",
+                _math(_grouped(item.records)),
+                _math(f"{item.baseline_seconds:.3f}"),
+                _math(f"{item.current_seconds:.3f}"),
+                _math(f"{change:+.1f}", _STATUS_COLOUR[mark]) + "%",
+                _math(f"\\pm{noise:.1f}") + "%",
+                _math(peak),
+            )
+        else:
+            cells = (
+                mark,
+                f"`{item.dataset_type}`",
+                f"{item.records:,}",
+                f"{item.baseline_seconds:.3f}",
+                f"{item.current_seconds:.3f}",
+                f"{change:+.1f}%",
+                f"±{noise:.1f}%",
+                f"{item.baseline_peak_mib:.1f} → {item.current_peak_mib:.1f}",
+            )
+        lines.append(f"| {' | '.join(cells)} |")
+
+    total_change = report.seconds_change * 100.0
+    total_mark = _status(
+        total_change,
+        threshold_percent=threshold_percent,
+        regressed=bool(regressions),
+    )
+    if rich:
+        total_seconds = _math(
+            f"{report.baseline_seconds:.2f} \\to {report.current_seconds:.2f}"
+        )
+        total_percent = _math(
+            f"{total_change:+.1f}", _STATUS_COLOUR[total_mark]
+        )
+        total = f"**Total: {total_seconds} seconds ({total_percent}%)**"
+    else:
+        total = (
+            f"**Total: {report.baseline_seconds:.2f}s → "
+            f"{report.current_seconds:.2f}s ({total_change:+.1f}%)**"
         )
 
-    lines += [
-        "",
-        f"**Total: {report.baseline_seconds:.2f}s → "
-        f"{report.current_seconds:.2f}s "
-        f"({_percent(report.seconds_change)})**",
-        "",
-    ]
+    lines += ["", total, ""]
 
     if regressions:
         listed = ", ".join(
@@ -243,13 +348,13 @@ def render_markdown(
             for item in regressions
         )
         lines.append(
-            f"⚠️ {len(regressions)} parser(s) more than "
+            f"{STATUS_OVER} {len(regressions)} parser(s) more than "
             f"{threshold_percent:g}% slower: {listed}."
         )
     else:
         lines.append(
-            f"✅ No parser is more than {threshold_percent:g}% slower than "
-            f"`{baseline_label}`."
+            f"{STATUS_GOOD} No parser is more than {threshold_percent:g}% "
+            f"slower than `{baseline_label}`."
         )
 
     if report.only_current:
@@ -263,12 +368,80 @@ def render_markdown(
 
     lines += [
         "",
-        "<sub>A parser counts as regressed only when it is past the "
-        "threshold *and* more than twice the two runs' combined scatter "
-        "(`noise`), so the quickest parsers cannot fail a release on "
-        "timing jitter alone. Only parse time decides the verdict: "
-        "`peak MiB` is shown because a large move is worth seeing, but "
-        "it is stable only within one run of the suite, so it is not "
-        "compared.</sub>",
+        f"<sub>{STATUS_GOOD} under half the threshold · {STATUS_NEAR} past "
+        f"half of it · {STATUS_OVER} regressed. A parser counts as "
+        "regressed only when it is past the threshold *and* more than "
+        "twice the two runs' combined scatter (`noise`), so the quickest "
+        "parsers cannot fail a release on timing jitter alone. Only parse "
+        "time decides the verdict: `peak MiB` is shown because a large "
+        "move is worth seeing, but it is stable only within one run of "
+        "the suite, so it is neither compared nor marked.</sub>",
     ]
+    return "\n".join(lines) + "\n"
+
+
+def render_single_markdown(
+    measurements: dict[str, dict[str, Any]],
+    *,
+    label: str,
+    baseline_label: str = "",
+    rich: bool = True,
+) -> str:
+    """Render one report, with nothing to compare it against.
+
+    The shape a run takes before the baseline ref carries the benchmark
+    suite. No row can be marked, because there is no threshold to mark it
+    against; the numbers are all the report has to say.
+
+    Args:
+        measurements: Report keyed by dataset type, from `load_report`.
+        label: Name of the ref that was measured.
+        baseline_label: Name of the ref that measured nothing, when there
+            was one. Named in the report so the reader knows a comparison
+            was meant to happen.
+        rich: Whether to set the numbers as math, as in `render_markdown`.
+
+    Returns:
+        Markdown, ready for a job summary or a pull request comment.
+
+    """
+    if baseline_label:
+        preamble = (
+            f"`{label}`. No results for `{baseline_label}` - it has no "
+            "benchmark suite to run, so there is nothing to compare "
+            "against."
+        )
+    else:
+        preamble = f"`{label}`, with nothing to compare against."
+
+    lines = [
+        "### Parser benchmarks",
+        "",
+        preamble,
+        "",
+        "| dataset type | images | records | seconds | records/s | peak MiB |",
+        "| --- | --: | --: | --: | --: | --: |",
+    ]
+    for name in sorted(measurements):
+        entry = measurements[name]
+        if rich:
+            cells = (
+                f"`{name}`",
+                _math(_grouped(entry["images"])),
+                _math(_grouped(entry["records"])),
+                _math(f"{entry['seconds']:.3f}"),
+                _math(_grouped(round(entry["records_per_second"]))),
+                _math(f"{entry['peak_mib']:.1f}"),
+            )
+        else:
+            cells = (
+                f"`{name}`",
+                f"{entry['images']:,}",
+                f"{entry['records']:,}",
+                f"{entry['seconds']:.3f}",
+                f"{round(entry['records_per_second']):,}",
+                f"{entry['peak_mib']:.1f}",
+            )
+        lines.append(f"| {' | '.join(cells)} |")
+
     return "\n".join(lines) + "\n"

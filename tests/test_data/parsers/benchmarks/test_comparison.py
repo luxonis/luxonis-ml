@@ -112,6 +112,7 @@ def test_markdown_states_the_verdict_and_flags_the_offender():
         threshold_percent=10.0,
         baseline_label="main",
         current_label="release/1.2.3",
+        rich=False,
     )
 
     assert "`coco`" in markdown
@@ -127,8 +128,92 @@ def test_markdown_states_the_verdict_and_flags_the_offender():
         threshold_percent=100.0,
         baseline_label="main",
         current_label="release/1.2.3",
+        rich=False,
     )
     assert "No parser is more than 100% slower" in passing
+
+
+def _rendered(
+    baseline: dict, current: dict, *, threshold: float, rich: bool
+) -> str:
+    return render_markdown(
+        compare_reports(baseline, current),
+        threshold_percent=threshold,
+        baseline_label="main",
+        current_label="pr",
+        rich=rich,
+    )
+
+
+def test_markdown_marks_each_row_by_how_close_it_is_to_the_threshold():
+    """The mark and the colour of a row have to tell the same story.
+
+    A reader scanning the comment should not have to compare each change
+    against the threshold in their head, so a change past the threshold
+    is `❗`, one past half of it `⚠️`, and anything else `✅`.
+    """
+    baseline = _report_keyed(over=(1.0, 5.0), near=(1.0, 5.0), fine=(1.0, 5.0))
+    current = _report_keyed(
+        over=(1.35, 5.0), near=(1.18, 5.0), fine=(0.92, 5.0)
+    )
+
+    markdown = _rendered(baseline, current, threshold=25.0, rich=True)
+    rows = {
+        line.split("|")[2].strip(): line.split("|")[1].strip()
+        for line in markdown.splitlines()
+        if line.startswith("| ") and "`" in line
+    }
+    assert rows == {"`over`": "❗", "`near`": "⚠️", "`fine`": "✅"}
+
+    # The colour carries the same verdict as the mark beside it.
+    assert "\\textcolor{red}{+35.0}$%" in markdown
+    assert "\\textcolor{orange}{+18.0}$%" in markdown
+    assert "\\textcolor{green}{-8.0}$%" in markdown
+
+
+def test_plain_markdown_carries_no_math_for_the_job_summary():
+    r"""A job summary renders neither math nor colour.
+
+    It receives the same report as the pull request comment, and would
+    print `$\textcolor{red}{+35.0}$%` verbatim, so the plain form drops
+    both and keeps the marks and the monospaced names, which render
+    everywhere.
+    """
+    baseline = _report_keyed(coco=(1.0, 5.0))
+    current = _report_keyed(coco=(1.35, 9.0))
+
+    plain = _rendered(baseline, current, threshold=25.0, rich=False)
+
+    assert "$" not in plain
+    assert "textcolor" not in plain
+    assert "❗" in plain
+    assert "`coco`" in plain
+    assert "+35.0%" in plain
+    assert "5.0 → 9.0" in plain
+
+
+def test_rich_markdown_keeps_units_and_percent_signs_out_of_the_math():
+    """GitHub stops parsing math the moment either rule is broken.
+
+    A closing `$` followed by a letter is left as literal text, dollar
+    signs and all - which is why the second is a header - and a `%`
+    inside the math survives Markdown escaping as a bare `%`, which
+    MathJax reads as a comment that eats the rest of the expression.
+    """
+    baseline = _report_keyed(coco=(1.0, 5.0))
+    current = _report_keyed(coco=(1.35, 9.0))
+
+    markdown = _rendered(baseline, current, threshold=25.0, rich=True)
+
+    assert "(s) |" in markdown
+    for line in markdown.splitlines():
+        for cell in line.split("|"):
+            math = cell.strip()
+            if not math.startswith("$"):
+                continue
+            body, _, trailing = math[1:].partition("$")
+            assert "%" not in body, f"percent inside math: {math}"
+            assert not trailing[:1].isalnum(), f"unit after math: {math}"
 
 
 def _noisy(seconds: float, relative_stdev: float) -> dict:

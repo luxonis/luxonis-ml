@@ -24,9 +24,18 @@ from tests.test_data.parsers.benchmarks.comparison import (
     compare_reports,
     load_report,
     render_markdown,
+    render_single_markdown,
 )
 
 app = App(name="compare_benchmarks")
+
+
+def _write(path: Path | None, markdown: str) -> None:
+    """Write ``markdown`` to ``path``, if there is one."""
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(markdown)
 
 
 @app.default
@@ -36,6 +45,7 @@ def compare(
     *,
     threshold: Annotated[float, Parameter(alias="-t")] = 25.0,
     output: Annotated[Path | None, Parameter(alias="-o")] = None,
+    plain_output: Path | None = None,
     baseline_label: str = "baseline",
     current_label: str = "current",
 ) -> None:
@@ -48,7 +58,11 @@ def compare(
             the comparison fails. Two runs of identical code differ by up
             to ~12% on the parsers quick enough for scheduling noise to
             show, so the default leaves room for that.
-        output: Where to write the Markdown report. Printed either way.
+        output: Where to write the Markdown report, with the numbers set
+            as math and coloured. Printed either way.
+        plain_output: Where to write the same report without math or
+            colour, for a job summary, which renders neither and would
+            show the markup itself.
         baseline_label: Name of the baseline ref, for the table header.
         current_label: Name of the ref under test.
 
@@ -58,15 +72,19 @@ def compare(
 
     """
     report = compare_reports(load_report(baseline), load_report(current))
-    markdown = render_markdown(
-        report,
-        threshold_percent=threshold,
-        baseline_label=baseline_label,
-        current_label=current_label,
-    )
-    if output is not None:
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(markdown)
+
+    def render(*, rich: bool) -> str:
+        return render_markdown(
+            report,
+            threshold_percent=threshold,
+            baseline_label=baseline_label,
+            current_label=current_label,
+            rich=rich,
+        )
+
+    markdown = render(rich=True)
+    _write(output, markdown)
+    _write(plain_output, render(rich=False))
     print(markdown)
 
     if not report.compared:
@@ -81,6 +99,46 @@ def compare(
             f"{len(regressions)} parser(s) more than {threshold:g}% slower "
             f"than {baseline_label}."
         )
+
+
+@app.command
+def render(
+    report: Path,
+    *,
+    output: Annotated[Path | None, Parameter(alias="-o")] = None,
+    plain_output: Path | None = None,
+    label: str = "current",
+    baseline_label: str = "",
+) -> None:
+    """Render a single benchmark report, with nothing to compare it to.
+
+    What CI publishes when only one ref measured anything - a baseline
+    older than the benchmark suite, or a run asked for one ref alone.
+
+    Args:
+        report: Report to render.
+        output: Where to write the Markdown, with the numbers set as
+            math. Printed either way.
+        plain_output: Where to write the same report without math, for a
+            job summary.
+        label: Name of the ref that was measured.
+        baseline_label: Name of the ref that measured nothing, when a
+            comparison was meant to happen.
+
+    """
+
+    def rendered(*, rich: bool) -> str:
+        return render_single_markdown(
+            load_report(report),
+            label=label,
+            baseline_label=baseline_label,
+            rich=rich,
+        )
+
+    markdown = rendered(rich=True)
+    _write(output, markdown)
+    _write(plain_output, rendered(rich=False))
+    print(markdown)
 
 
 if __name__ == "__main__":
