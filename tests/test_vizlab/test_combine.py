@@ -101,16 +101,33 @@ def test_smart_cols_single() -> None:
     assert _smart_cols([_cell()]) == 1
 
 
-def test_smart_cols_small_wide_single_row() -> None:
-    # Three wide tiles -> one row.
-    assert _smart_cols([_cell(20, 10) for _ in range(3)]) == 3
+def test_smart_cols_stacks_wide_tiles() -> None:
+    # Three 2:1 tiles fill a widescreen surface better as a 2x2 than as one
+    # long row, where each would have to shrink to fit the width.
+    assert _smart_cols([_cell(20, 10) for _ in range(3)]) == 2
 
 
-def test_smart_cols_small_tall_single_column() -> None:
-    # Tall tiles (ratio < 0.6) -> one column.
-    assert _smart_cols([_cell(10, 40) for _ in range(3)]) == 1
+def test_smart_cols_spreads_tall_tiles() -> None:
+    # The mirror image: three portrait tiles go side by side, since stacking
+    # them would run off the bottom long before the width was used.
+    assert _smart_cols([_cell(10, 40) for _ in range(3)]) == 3
 
 
-def test_smart_cols_square_near_sqrt() -> None:
-    # Nine square tiles -> ~3 columns (near-square composite).
-    assert _smart_cols([_cell(10, 10) for _ in range(9)]) == 3
+def test_smart_cols_favours_the_wider_arrangement() -> None:
+    # Nine squares: 5x2 shows them larger on a 16:9 surface than 3x3, which is
+    # only the right answer when the target is itself square.
+    assert _smart_cols([_cell(10, 10) for _ in range(9)]) == 5
+
+
+def test_smart_cols_agrees_with_an_explicit_target() -> None:
+    """An un-targeted layout must not disagree with a targeted one.
+
+    The two used to reason differently, so the same sample could be arranged
+    one way on screen and another when written to a file.
+    """
+    from luxonis_ml.vizlab.layout.compose import fitting_cols
+
+    tiles = [_cell(960, 540) for _ in range(3)]
+    assert _smart_cols(tiles) == fitting_cols(
+        3, (960, 540), target=(1728, 972), pad=0
+    )

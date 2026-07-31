@@ -9,8 +9,9 @@ mutated — combining multiple images makes purity unambiguous, unlike the in-pl
 """
 
 import math
+import re
 from collections.abc import Mapping, Sequence
-from typing import overload
+from typing import NamedTuple, TypeVar, overload
 
 import numpy as np
 
@@ -52,6 +53,8 @@ _TITLE_PAD = 6.0
 _TITLE_SCALE = 1.3
 _TITLE_WEIGHT = 700
 _MEASURE = Canvas.blank(1, 1)
+
+_T = TypeVar("_T")
 
 
 def blend(
@@ -421,16 +424,31 @@ def fit_grid(
     if not images:
         raise ValueError("cannot compose an empty sequence of images")
     count = len(images)
-    cols = ncols if ncols is not None else _smart_cols(images)
-    cols = max(1, min(cols, count))
-    rows = math.ceil(count / cols)
     cell_w = max(img.width for img in images)
     cell_h = max(img.height for img in images)
-
     title_h = _fit_title_h(cell_w, cell_h, titles, style)
-    avail_w = max(1.0, target[0] - pad * (cols + 1) - reserve)
-    avail_h = max(1.0, target[1] - pad * (rows + 1) - rows * title_h)
-    scale = min(avail_w / (cols * cell_w), avail_h / (rows * cell_h))
+    if ncols is None:
+        cols = fitting_cols(
+            count,
+            (cell_w, cell_h),
+            target=target,
+            reserve=reserve,
+            pad=pad,
+            title_h=title_h,
+        )
+    else:
+        cols = ncols
+    cols = max(1, min(cols, count))
+
+    scale = _fit_scale(
+        count,
+        (cell_w, cell_h),
+        cols=cols,
+        target=target,
+        reserve=reserve,
+        pad=pad,
+        title_h=title_h,
+    )
     if not allow_upscale:
         scale = min(scale, 1.0)
 
@@ -444,6 +462,92 @@ def fit_grid(
         for img in images
     ]
     return grid(scaled, ncols=cols, pad=pad, bg=bg, titles=titles, style=style)
+
+
+def _fit_scale(
+    count: int,
+    cell: tuple[int, int],
+    *,
+    cols: int,
+    target: tuple[int, int],
+    reserve: float,
+    pad: int,
+    title_h: float,
+) -> float:
+    """How much ``count`` cells shrink to fit ``target`` at ``cols`` columns."""
+    cell_w, cell_h = cell
+    rows = math.ceil(count / cols)
+    avail_w = max(1.0, target[0] - pad * (cols + 1) - reserve)
+    avail_h = max(1.0, target[1] - pad * (rows + 1) - rows * title_h)
+    return min(avail_w / (cols * cell_w), avail_h / (rows * cell_h))
+
+
+def fitting_cols(
+    count: int,
+    cell: tuple[int, int],
+    *,
+    target: tuple[int, int],
+    reserve: float = 0.0,
+    pad: int = 10,
+    title_h: float = 0.0,
+) -> int:
+    """Choose the column count that shows the tiles largest inside ``target``.
+
+    The layout question only has a right answer once you know the shape of the
+    hole it has to fill. `_smart_cols` aims for a square *figure*, which is the
+    wrong target for a 16:9 screen: three 16:9 tiles laid in one row there come
+    out 1.5x smaller than the same three in a 2x2. So rather than guess from the
+    tiles' aspect alone, this tries every arrangement and keeps the one that
+    renders them biggest.
+
+    Ties go to the arrangement with fewer rows, which puts a stereo pair side by
+    side rather than stacked — the reading a viewer expects when two tiles are
+    the same size and either would fit.
+
+    Args:
+        count: How many tiles are being placed.
+        cell: The ``(width, height)`` of one cell, at native size.
+        target: The ``(width, height)`` pixel budget to fit inside.
+        reserve: Horizontal pixels kept free, e.g. for a side panel.
+        pad: Gap between cells and the outer margin.
+        title_h: Height of the per-row title band, if any.
+
+    Returns:
+        The best column count, between ``1`` and ``count``.
+
+    Examples:
+        >>> from luxonis_ml.vizlab.layout.compose import fitting_cols
+        >>> # Three 16:9 tiles on a 16:9 screen want a 2x2, not one row.
+        >>> fitting_cols(3, (960, 540), target=(1728, 972), pad=0)
+        2
+        >>> # A stereo pair goes side by side.
+        >>> fitting_cols(2, (960, 540), target=(1728, 972), pad=0)
+        2
+        >>> # Tall tiles spread out instead of stacking.
+        >>> fitting_cols(2, (540, 960), target=(1728, 972), pad=0)
+        2
+
+    """
+    if count <= 1:
+        return 1
+    best_cols, best_key = 1, (-1.0, 0)
+    for cols in range(1, count + 1):
+        scale = _fit_scale(
+            count,
+            cell,
+            cols=cols,
+            target=target,
+            reserve=reserve,
+            pad=pad,
+            title_h=title_h,
+        )
+        # Rounded so float noise cannot decide a tie that the row count should:
+        # two arrangements showing the tiles the same size are settled by
+        # preferring the shorter one.
+        key = (round(scale, 9), -math.ceil(count / cols))
+        if key > best_key:
+            best_cols, best_key = cols, key
+    return best_cols
 
 
 def _fit_title_h(
@@ -484,6 +588,9 @@ def combine(
     pad: int = 10,
     bg: ColorLike = _DEFAULT_BG,
     style: Style = DEFAULT_STYLE,
+    target: tuple[int, int] | None = None,
+    reserve: float = 0.0,
+    allow_upscale: bool = False,
 ) -> Image: ...
 
 
@@ -493,6 +600,9 @@ def combine(
     pad: int = 10,
     bg: ColorLike = _DEFAULT_BG,
     style: Style = DEFAULT_STYLE,
+    target: tuple[int, int] | None = None,
+    reserve: float = 0.0,
+    allow_upscale: bool = False,
 ) -> Renderable: ...
 
 
@@ -501,6 +611,9 @@ def combine(
     pad: int = 10,
     bg: ColorLike = _DEFAULT_BG,
     style: Style = DEFAULT_STYLE,
+    target: tuple[int, int] | None = None,
+    reserve: float = 0.0,
+    allow_upscale: bool = False,
 ) -> Renderable:
     """Lay out a mixed set of images (and grouped images) into one figure.
 
@@ -525,10 +638,19 @@ def combine(
         pad: Gap between cells and the outer margin, in pixels.
         bg: Background color painted behind cells and gaps.
         style: Style whose font is used for titles.
+        target: A ``(width, height)`` budget the whole figure must fit inside.
+            Given one, the column count is chosen to show the tiles *largest*
+            within it (see `fitting_cols`) rather than to square up the figure,
+            and the tiles are re-rendered crisply at that size. ``None`` lays
+            everything out at native size.
+        reserve: Horizontal pixels of ``target`` to keep free, e.g. for a side
+            panel drawn beside the figure.
+        allow_upscale: Whether tiles smaller than ``target`` may be scaled *up*
+            to fill it. Ignored without a ``target``.
 
     Returns:
         A `Composite` of the composed figure — or, when a single image is
-        given, a copy of it.
+        given, a copy of it (scaled, if a ``target`` was set).
 
     Raises:
         ValueError: If no groups are given, or a group is empty.
@@ -547,18 +669,93 @@ def combine(
     """
     if not groups:
         raise ValueError("cannot combine an empty set of groups")
+    fit = _Fit(target, reserve, allow_upscale)
+
+    # A lone mapping is the common case — one titled block per source — and is
+    # laid out directly rather than nested inside a one-cell grid.
+    if len(groups) == 1 and isinstance(groups[0], Mapping):
+        group = order_by_position(groups[0])
+        if not group:
+            raise ValueError("cannot combine an empty group")
+        tiles = [
+            _resolve_member(value, pad=pad, bg=bg, style=style)
+            for value in group.values()
+        ]
+        return _arrange(
+            tiles,
+            titles=list(group.keys()),
+            fit=fit,
+            pad=pad,
+            bg=bg,
+            style=style,
+        )
+
+    # A single group still returns a *copy* (see `_arrange`): never hand back the
+    # caller's own object, so a later ``.add`` cannot mutate the input's scene.
     resolved = [_resolve_group(g, pad=pad, bg=bg, style=style) for g in groups]
-    if len(resolved) == 1:
-        # Honor the "brand-new Image" contract even for a single group: never
-        # hand back the caller's own object, so a later ``.add`` on the result
-        # can't mutate the input's scene graph.
-        return resolved[0].copy()
-    return grid(
-        resolved,
-        ncols=_smart_cols(resolved),
+    return _arrange(
+        resolved, titles=None, fit=fit, pad=pad, bg=bg, style=style
+    )
+
+
+class _Fit(NamedTuple):
+    """The pixel budget a composition has to live within, if any."""
+
+    target: "tuple[int, int] | None"
+    reserve: float
+    allow_upscale: bool
+
+
+def _arrange(
+    tiles: list[Renderable],
+    *,
+    titles: "list[str] | None",
+    fit: _Fit,
+    pad: int,
+    bg: ColorLike,
+    style: Style,
+) -> Renderable:
+    """Place resolved tiles, sizing them to the budget when there is one."""
+    if len(tiles) == 1:
+        # One tile needs neither a title band nor grid chrome around it.
+        only = tiles[0]
+        if fit.target is None:
+            return only.copy()
+        scale = _fit_scale(
+            1,
+            (only.width, only.height),
+            cols=1,
+            target=fit.target,
+            reserve=fit.reserve,
+            pad=0,
+            title_h=0.0,
+        )
+        if not fit.allow_upscale:
+            scale = min(scale, 1.0)
+        return only.copy().render_at(
+            (
+                max(1, round(only.width * scale)),
+                max(1, round(only.height * scale)),
+            )
+        )
+    if fit.target is None:
+        return grid(
+            tiles,
+            ncols=_smart_cols(tiles),
+            pad=pad,
+            bg=bg,
+            titles=titles,
+            style=style,
+        )
+    return fit_grid(
+        tiles,
+        target=fit.target,
+        reserve=fit.reserve,
         pad=pad,
         bg=bg,
+        titles=titles,
         style=style,
+        allow_upscale=fit.allow_upscale,
     )
 
 
@@ -607,6 +804,8 @@ def _resolve_group(
     if isinstance(group, Mapping):
         if not group:
             raise ValueError("cannot combine an empty group")
+        # Keys name the blocks, so a positional one also says where it goes.
+        group = order_by_position(group)
         values = [
             _resolve_member(v, pad=pad, bg=bg, style=style)
             for v in group.values()
@@ -625,24 +824,108 @@ def _resolve_group(
     raise TypeError(f"unsupported group type: {type(group)!r}")
 
 
-def _smart_cols(images: Sequence[Renderable]) -> int:
-    """Choose a column count that keeps the composite roughly square.
+#: Position words a multi-camera rig puts in its source names, ranked left to
+#: right. Synonyms share a rank, so ``centre`` and ``middle`` sort alike.
+_POSITION_RANK = {
+    "left": 0,
+    "l": 0,
+    "center": 1,
+    "centre": 1,
+    "middle": 1,
+    "mid": 1,
+    "right": 2,
+    "r": 2,
+}
 
-    Uses the tiles' mean aspect ratio: with ``c`` columns the composite is about
-    ``ceil(n/c)`` rows tall, so a near-square figure wants ``c ~= sqrt(n / r)``
-    where ``r`` is the mean width/height. Wide tiles therefore get fewer columns
-    (taller stack) and tall tiles get more, both pulling toward a square. Small
-    counts collapse to a single row unless the tiles are markedly tall.
+
+def _position_rank(name: str) -> int | None:
+    """Rank a name by the position word it contains, if exactly one does.
+
+    Matched on whole words rather than substrings, so ``rectified_left`` ranks
+    but ``cleft_palate`` does not, and a name mentioning two positions (``left``
+    *and* ``right``) is left unranked rather than guessed at.
+    """
+    tokens = {
+        token for token in re.split(r"[^a-z0-9]+", name.lower()) if token
+    }
+    ranks = {_POSITION_RANK[t] for t in tokens if t in _POSITION_RANK}
+    return next(iter(ranks)) if len(ranks) == 1 else None
+
+
+def order_by_position(sources: "Mapping[str, _T]") -> "dict[str, _T]":
+    """Reorder named scenes so positional names land where they describe.
+
+    A stereo pair stored ``{"right": …, "left": …}`` would otherwise be drawn
+    right-then-left, because nothing but insertion order says where a source
+    belongs. Names carrying a position word (``left``, ``center``, ``right``,
+    and their usual synonyms) are sorted into reading order.
+
+    The reordering is deliberately minimal: only the *ranked* entries move, and
+    only among the slots they already occupied. An unrecognised name keeps its
+    place, so adding a ``thermal`` source cannot shuffle it to the end, and a
+    mapping with nothing positional in it comes back untouched.
+
+    Args:
+        sources: Named scenes, or anything else keyed by source name.
+
+    Returns:
+        A new dict in position order.
+
+    Examples:
+        >>> from luxonis_ml.vizlab.layout.compose import order_by_position
+        >>> list(order_by_position({"cam_right": 1, "cam_left": 2}))
+        ['cam_left', 'cam_right']
+        >>> list(order_by_position({"rgb": 1, "depth": 2}))  # nothing to order
+        ['rgb', 'depth']
+        >>> list(order_by_position({"right": 1, "thermal": 2, "left": 3}))
+        ['left', 'thermal', 'right']
+
+    """
+    names = list(sources)
+    slots = [
+        i for i, name in enumerate(names) if _position_rank(name) is not None
+    ]
+    if len(slots) < 2:
+        return dict(sources)
+    ordered = sorted(
+        (names[i] for i in slots),
+        key=lambda name: _position_rank(name) or 0,
+    )
+    for slot, name in zip(slots, ordered, strict=True):
+        names[slot] = name
+    return {name: sources[name] for name in names}
+
+
+#: The surface a layout is aimed at when the caller names no target. Screens,
+#: slides, and figure panes are all roughly this, and picking *some* shape is
+#: what lets an un-targeted composition agree with a targeted one.
+_NOTIONAL_ASPECT = (16, 9)
+
+
+def _smart_cols(images: Sequence[Renderable]) -> int:
+    """Choose a column count for a composition with no stated size budget.
+
+    Deliberately the same rule as `fitting_cols`, aimed at a notional 16:9
+    surface. Sharing the rule is the point: a sample laid out for the screen and
+    the same sample written to a file should not disagree about where its tiles
+    go, which is exactly what happens when the two paths reason differently.
+
+    Only the target's *aspect* matters here — with no padding or title band the
+    scale is a common factor across every candidate, so the arrangement it picks
+    is independent of how large the notional surface is.
     """
     count = len(images)
     if count <= 1:
         return 1
-    ratios = [img.width / max(1, img.height) for img in images]
-    mean_ratio = sum(ratios) / len(ratios)
-    if count <= 3:
-        return 1 if mean_ratio < 0.6 else count
-    cols = round(math.sqrt(count / max(mean_ratio, 0.1)))
-    return max(1, min(count, cols))
+    cell_w = max(img.width for img in images)
+    cell_h = max(img.height for img in images)
+    span = max(cell_w, cell_h) * count
+    return fitting_cols(
+        count,
+        (cell_w, cell_h),
+        target=(_NOTIONAL_ASPECT[0] * span, _NOTIONAL_ASPECT[1] * span),
+        pad=0,
+    )
 
 
 def _default_cols(count: int) -> int:

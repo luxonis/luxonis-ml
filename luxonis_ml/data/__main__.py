@@ -1,4 +1,3 @@
-import math
 import shutil
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -170,6 +169,17 @@ def _filter_records_by_task(
         for name, record in records.items()
         if (name in task_names) == (mode == "include")
     }
+
+
+def _unique_titles(titles: Sequence[str]) -> list[str]:
+    """Disambiguate repeated tile titles so none is lost as a mapping key."""
+    seen: dict[str, int] = {}
+    unique: list[str] = []
+    for title in titles:
+        count = seen.get(title, 0)
+        seen[title] = count + 1
+        unique.append(title if not count else f"{title} ({count + 1})")
+    return unique
 
 
 def _array_labels(
@@ -968,8 +978,8 @@ def inspect(
             Renderable,
             RenderOptions,
             Swatches,
-            fit_grid,
-            grid,
+            combine,
+            order_by_position,
             resolve_gradient,
             set_default_options,
             visualize_record,
@@ -1267,12 +1277,12 @@ def inspect(
             tile.render_at(save_size(tile.width, tile.height))
             for tile in tiles
         ]
-        return grid(
-            sized,
-            ncols=max(1, math.ceil(math.sqrt(len(sized)))),
-            titles=titles,
-            bg=viz_theme.background,
+        named: Mapping[str, Renderable] | Renderable = (
+            dict(zip(_unique_titles(titles), sized, strict=True))
+            if titles
+            else sized[0]
         )
+        return combine(named, bg=viz_theme.background)
 
     def source_tiles(
         source_name: str,
@@ -1319,6 +1329,9 @@ def inspect(
         """Build every tile of one sample: its sources, then any array fields."""
         tiles: list[Renderable] = []
         titles: list[str] = []
+        # Source names carry their own placement: a rig storing `right` before
+        # `left` should still be drawn left-to-right.
+        images = order_by_position(images)
         # A field describes the reference view, so an overlay lands on exactly
         # one source; the others are built without it.
         overlay_source = options.array_overlay_source or next(iter(images), "")
@@ -1427,11 +1440,16 @@ def inspect(
         return (max(1, round(width * scale)), max(1, round(height * scale)))
 
     def compose_tiles(
-        tiles: list[Renderable], cols: int, titles: list[str], reserve: float
+        tiles: list[Renderable], titles: list[str], reserve: float
     ) -> Frame:
-        """Grid record tiles, sizing them for the screen (or the multiplier)."""
+        """Hand a sample's tiles to vizlab, which picks the layout and sizing.
+
+        The arrangement is not decided here: `combine` chooses the column count
+        that shows the tiles largest inside the screen budget, orders positional
+        source names, and drops the grid chrome when there is only one tile.
+        """
         if size_multiplier != "auto":
-            scaled = [
+            tiles = [
                 tile.copy().render_at(
                     (
                         max(1, round(tile.width * size_multiplier)),
@@ -1440,23 +1458,20 @@ def inspect(
                 )
                 for tile in tiles
             ]
-            return grid(
-                scaled, ncols=cols, titles=titles, bg=viz_theme.background
-            ).frame()
-        if screen is not None:
-            target = (round(0.9 * screen[0]), round(0.9 * screen[1]))
-            return fit_grid(
-                tiles,
-                target=target,
-                ncols=cols,
+        named: Mapping[str, Renderable] | Renderable = (
+            dict(zip(_unique_titles(titles), tiles, strict=True))
+            if titles
+            else tiles[0]
+        )
+        if size_multiplier == "auto" and screen is not None:
+            return combine(
+                named,
+                target=(round(0.9 * screen[0]), round(0.9 * screen[1])),
                 reserve=reserve,
-                titles=titles,
                 bg=viz_theme.background,
                 allow_upscale=True,
             ).frame()
-        return grid(
-            tiles, ncols=cols, titles=titles, bg=viz_theme.background
-        ).frame()
+        return combine(named, bg=viz_theme.background).frame()
 
     def framed(
         frame: Frame,
@@ -1486,15 +1501,8 @@ def inspect(
     ) -> Frame:
         """Compose one sample's tiles into a single `Frame`."""
         tiles, titles = sample_tiles(images, arrays, records, layers, color_by)
-        if len(tiles) == 1:
-            viz = tiles[0]
-            viz.render_at(display_size(viz.width, viz.height, reserve))
-            return framed(viz.frame(), panel, tuple(records), layers)
-        # A grid of tiles; compose_tiles sizes them so the whole composite fits
-        # the screen and returns the composed hit map.
-        cols = max(1, math.ceil(math.sqrt(len(tiles))))
         return framed(
-            compose_tiles(tiles, cols, titles, reserve),
+            compose_tiles(tiles, titles, reserve),
             panel,
             tuple(records),
             layers,
@@ -1817,8 +1825,8 @@ def compare(
             Palette,
             RenderOptions,
             Verdict,
+            combine,
             confusion_matrix_figure,
-            grid,
             match_detections,
             set_default_options,
         )
@@ -2109,15 +2117,14 @@ def compare(
             source_scene(image.astype(np.uint8), result)
             for image in images.values()
         ]
-        if len(scenes) == 1:
-            composed: Renderable = scenes[0]
-        else:
-            composed = grid(
-                scenes,
-                ncols=max(1, math.ceil(math.sqrt(len(scenes)))),
-                titles=list(images),
-                bg=viz_theme.background,
-            )
+        # One source or several, vizlab decides the arrangement -- and orders
+        # positional source names, so a stereo pair stays left-then-right.
+        composed: Renderable = combine(
+            dict(zip(images, scenes, strict=True))
+            if len(scenes) > 1
+            else scenes[0],
+            bg=viz_theme.background,
+        )
         if plain:
             return composed.frame()
         metrics: dict[str, PanelData] = dict(result.summary())

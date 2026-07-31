@@ -1,5 +1,7 @@
 """Tests for hit-map threading through compose (`grid`/`combine` frames)."""
 
+import math
+
 import numpy as np
 import pytest
 
@@ -12,6 +14,7 @@ from luxonis_ml.vizlab import (
     combine,
     fit_grid,
     grid,
+    order_by_position,
 )
 from luxonis_ml.vizlab.layout.compose import grid_placed
 from luxonis_ml.vizlab.render.capture import HitMap
@@ -236,3 +239,95 @@ def test_a_full_final_row_is_untouched() -> None:
     _, placements = grid_placed(tiles, ncols=2, pad=4)
     assert placements[0][0] == placements[2][0]
     assert placements[1][0] == placements[3][0]
+
+
+def test_positional_names_are_ordered_left_to_right() -> None:
+    assert list(order_by_position({"cam_right": 1, "cam_left": 2})) == [
+        "cam_left",
+        "cam_right",
+    ]
+    assert list(order_by_position({"right": 1, "left": 2, "center": 3})) == [
+        "left",
+        "center",
+        "right",
+    ]
+
+
+def test_unpositioned_names_keep_their_slot() -> None:
+    # Only the ranked entries swap, and only among the slots they already held,
+    # so an extra source cannot be shuffled to the end.
+    ordered = order_by_position({"right": 1, "thermal": 2, "left": 3})
+    assert list(ordered) == ["left", "thermal", "right"]
+    assert ordered["thermal"] == 2
+
+
+def test_names_without_a_position_are_untouched() -> None:
+    sources = {"rgb": 1, "depth": 2, "mask": 3}
+    assert list(order_by_position(sources)) == list(sources)
+
+
+def test_an_ambiguous_name_is_not_guessed_at() -> None:
+    # "left_right_diff" mentions both, and "cleft" merely contains one: neither
+    # is a position, so nothing moves.
+    sources = {"left_right_diff": 1, "cleft": 2}
+    assert list(order_by_position(sources)) == list(sources)
+
+
+def test_a_single_positional_name_changes_nothing() -> None:
+    sources = {"depth": 1, "left": 2}
+    assert list(order_by_position(sources)) == list(sources)
+
+
+def test_fitting_cols_maximises_tile_size() -> None:
+    from luxonis_ml.vizlab.layout.compose import fitting_cols
+
+    # Three 16:9 tiles on a 16:9 screen: a 2x2 shows them half again as large
+    # as one long row, which has to shrink each to fit the width.
+    screen = (1728, 972)
+    assert fitting_cols(3, (960, 540), target=screen, pad=0) == 2
+    scales = {
+        cols: min(
+            (screen[0] / (cols * 960)),
+            (screen[1] / (math.ceil(3 / cols) * 540)),
+        )
+        for cols in (1, 2, 3)
+    }
+    assert max(scales, key=lambda c: scales[c]) == 2
+
+
+def test_combine_fits_a_mapping_to_its_target() -> None:
+    from luxonis_ml.vizlab import combine
+
+    sources = {
+        "left": Image(np.zeros((540, 960, 3), np.uint8)),
+        "right": Image(np.zeros((540, 960, 3), np.uint8)),
+    }
+    fitted = combine(sources, target=(400, 400))
+    assert fitted.width <= 400
+    assert fitted.height <= 400
+    # Without a budget it stays native-sized, so the target is what shrinks it.
+    assert combine(sources).width > 400
+
+
+def test_combine_reserves_room_beside_the_figure() -> None:
+    from luxonis_ml.vizlab import combine
+
+    sources = {
+        "left": Image(np.zeros((540, 960, 3), np.uint8)),
+        "right": Image(np.zeros((540, 960, 3), np.uint8)),
+    }
+    wide = combine(sources, target=(1000, 1000))
+    narrowed = combine(sources, target=(1000, 1000), reserve=400)
+    assert narrowed.width < wide.width
+
+
+def test_combine_gives_a_lone_tile_no_grid_chrome() -> None:
+    from luxonis_ml.vizlab import combine
+
+    only = Image(np.zeros((100, 200, 3), np.uint8))
+    # Scaled to the budget, but with no padding band or title strip added, so
+    # the output is exactly the tile -- a grid would have added a margin.
+    height, width = (
+        combine({"solo": only}, target=(100, 100)).render().shape[:2]
+    )
+    assert (width, height) == (100, 50)

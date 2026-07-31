@@ -250,6 +250,7 @@ with guard_missing_extra("viz"):
         fit_grid,
         grid,
         hstack,
+        order_by_position,
         vstack,
         with_panel,
     )
@@ -347,6 +348,7 @@ __all__ = [
     "hstack",
     "is_video_path",
     "match_detections",
+    "order_by_position",
     "resolve_gradient",
     "save_video",
     "set_default_options",

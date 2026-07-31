@@ -7,6 +7,7 @@ from .compose import (
     grid,
     grid_placed,
     hstack,
+    order_by_position,
     vstack,
 )
 from .panel import Block, Controls, Swatches, with_panel
@@ -21,6 +22,7 @@ __all__ = [
     "grid",
     "grid_placed",
     "hstack",
+    "order_by_position",
     "vstack",
     "with_panel",
 ]
