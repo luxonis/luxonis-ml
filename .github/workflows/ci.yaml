@@ -56,6 +56,10 @@ concurrency:
 
 jobs:
   auto-assigner:
+    # There is no author to assign when the run was started by hand, and
+    # the action fails rather than skipping - which used to turn every
+    # `workflow_dispatch` run red on its own.
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
 
     steps:

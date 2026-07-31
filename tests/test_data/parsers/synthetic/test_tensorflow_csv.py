@@ -138,13 +138,20 @@ def test_tensorflow_csv_file_list_does_not_replay_the_records(
     # not listed again.
     assert read == [split / "_annotations.csv"]
     assert listed == []
-    assert [
+    # Compared unordered for the same reason as the listing above: the
+    # records come out in the order the split was globbed, so which of
+    # the two images comes first is the file system's decision. What the
+    # parse owes is one record per annotation row plus one for the
+    # unannotated image, which the counts still pin down.
+    assert sorted(
         (split_name, record["file"]) for split_name, record in records
-    ] == [
-        ("train", str(annotated.resolve())),
-        ("train", str(annotated.resolve())),
-        ("train", str(empty.resolve())),
-    ]
+    ) == sorted(
+        [
+            ("train", str(annotated.resolve())),
+            ("train", str(annotated.resolve())),
+            ("train", str(empty.resolve())),
+        ]
+    )
 
 
 def test_tensorflow_csv_resolves_each_filename_at_most_once(
