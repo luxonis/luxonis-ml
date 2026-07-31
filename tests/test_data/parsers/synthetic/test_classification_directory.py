@@ -7,6 +7,7 @@ from pathlib import Path
 from types import GeneratorType
 
 import pytest
+from loguru import logger
 
 from luxonis_ml.data import (
     PARSERS_REGISTRY,
@@ -157,6 +158,45 @@ def test_clsdir_ignores_reserved_directory_names(
         assert class_names == {"budgie", "parrot"}
     finally:
         dataset.delete_dataset(delete_local=True)
+
+
+def test_clsdir_says_which_directories_it_did_not_import(tempdir: Path):
+    """Skipping a reserved-named directory of images must be reported.
+
+    Reserved names keep another layout's directories from becoming
+    classes, but the same name is also a plausible class - `train` is a
+    kind of vehicle, `masks` a kind of object. Those images used to be
+    dropped from the import in silence, so the dataset came out short
+    with nothing to explain it. Only a directory that actually holds
+    images is worth a line.
+    """
+    dataset_dir = tempdir / "clsdir_reserved_warning"
+    for index, class_name in enumerate(("budgie", "train")):
+        class_dir = dataset_dir / class_name
+        class_dir.mkdir(parents=True)
+        create_image(index, class_dir)
+    # Holds no images, so it is skipped either way and stays quiet.
+    (dataset_dir / "masks").mkdir()
+
+    messages: list[str] = []
+    sink_id = logger.add(
+        lambda message: messages.append(str(message).strip()),
+        format="{message}",
+        level="WARNING",
+    )
+    try:
+        records = _records(
+            _plugin(ClassificationDirectoryParser)._split_records(dataset_dir)
+        )
+    finally:
+        logger.remove(sink_id)
+
+    assert {record["annotation"]["class"] for record in records} == {"budgie"}
+    assert [message for message in messages if "Not importing" in message] == [
+        f"Not importing '{dataset_dir / 'train'}' as a class: its name "
+        "belongs to another dataset layout. Rename the directory if it "
+        "really is a class."
+    ]
 
 
 def test_classification_directory_validation(tmp_path: Path):

@@ -803,16 +803,24 @@ class COCOParser(SplitParserPlugin):
         )
 
         def records() -> Iterator[SplitRecord]:
+            # `kwargs` is forwarded here for the same reason the inherited
+            # parse forwards it: an argument this parser does not take is
+            # a caller's typo, and it has to be as loud for a source with
+            # split directories as it is for one without.
             for split_name, split_kwargs in split_inputs.items():
                 if split_name == "val" and moved_to_test:
-                    for record in self._split_records(**split_kwargs):
+                    for record in self._split_records(
+                        **split_kwargs, **kwargs
+                    ):
                         file = cast(dict[str, Any], record)["file"]
                         yield (
                             "test" if file in moved_to_test else "val",
                             record,
                         )
                 else:
-                    for record in self._split_records(**split_kwargs):
+                    for record in self._split_records(
+                        **split_kwargs, **kwargs
+                    ):
                         yield split_name, record
 
         return ParseResult(records(), self._skeletons)

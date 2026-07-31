@@ -499,6 +499,36 @@ def test_yolov8_enumerated_files_exclude_images_that_yield_nothing(
     assert {path.name for path in enumerated} == {"good.jpg", "background.jpg"}
 
 
+def test_yolov8_prefers_data_yaml_over_an_alphabetically_earlier_one(
+    dataset_name: str, tempdir: Path
+):
+    """`data.yaml` wins over another YAML sitting beside it.
+
+    Regression: the class file was whichever YAML the directory listed
+    first - by name once the glob was sorted, arbitrarily before that.
+    Roboflow and Ultralytics exports both name theirs ``data.yaml``, and
+    both routinely ship a second YAML next to it; one sorting earlier
+    meant either ``KeyError: 'names'`` or, worse, a silent import with
+    another file's class names on every box.
+    """
+    dataset_dir = tempdir / "yolo_two_yamls"
+    _write_yolov8_split(dataset_dir / "train", range(2))
+    (dataset_dir / "data.yaml").write_text("names:\n  0: budgie\n")
+    (dataset_dir / "Argoverse.yaml").write_text("names:\n  0: decoy\n")
+
+    dataset = LuxonisDataset.import_dataset(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        dataset_type="yolov8",
+        delete_local=True,
+        save_dir=tempdir,
+    )
+    try:
+        assert set(dataset.get_classes()[""]) == {"budgie"}
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
 def test_yolov8_unsplit_source_reads_its_own_class_file(
     dataset_name: str, tempdir: Path
 ):

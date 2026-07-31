@@ -102,19 +102,24 @@ class UltralyticsNDJSONParser(ParserPlugin):
 
         enumerated: dict[str | None, list[Path]] = {}
         for record in self._iter_image_records(ndjson_path):
+            image_path = self._resolve_image_path(
+                base_dir,
+                record,
+                remote_image_dir=remote_image_dir,
+                download=False,
+            )
+            # The records the parse drops have to be dropped here too:
+            # counting an image that is never added would leave a
+            # count-based split short of what was asked for. The parse
+            # warns about each one, so this stays silent.
+            if not record.get("url") and not image_path.exists():
+                continue
             # Parsing warns about every record's split; enumerating the
             # same records again should not repeat all of it.
             split_name = self._normalize_split_name(
                 record.get("split"), warn=False
             )
-            enumerated.setdefault(split_name, []).append(
-                self._resolve_image_path(
-                    base_dir,
-                    record,
-                    remote_image_dir=remote_image_dir,
-                    download=False,
-                )
-            )
+            enumerated.setdefault(split_name, []).append(image_path)
         return enumerated
 
     def _stream_records(

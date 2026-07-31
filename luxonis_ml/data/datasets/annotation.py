@@ -731,25 +731,35 @@ class BBoxAnnotation(Annotation):
     @model_validator(mode="before")
     @classmethod
     def _validate_values(cls, values: dict[str, Any]) -> dict[str, Any]:
+        # Clipped into a new dictionary rather than in place: a record
+        # handed to `add` may hold a dict its producer still owns and
+        # reuses for the next file.
+        clipped = dict(values)
         warn = False
         for key in ["x", "y", "w", "h"]:
-            if values[key] < -2 or values[key] > 2:
+            if clipped[key] < -2 or clipped[key] > 2:
                 raise ValueError(
                     "BBox annotation has value outside of automatic clipping range ([-2, 2]). "
                     "Values should be normalized based on image size to range [0, 1]."
                 )
-            if not (0 <= values[key] <= 1):
+            if not (0 <= clipped[key] <= 1):
                 warn = True
-                values[key] = max(0, min(1, values[key]))
+                clipped[key] = max(0, min(1, clipped[key]))
         if warn:
             logger.warning(
                 "BBox annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
             )
 
-        return cls._clip_sum(values)
+        return cls._clip_sum(clipped)
 
     @staticmethod
     def _clip_sum(values: dict[str, Any]) -> dict[str, Any]:
+        """Clip width and height so neither runs past the right or bottom
+        edge.
+
+        Edits ``values`` in place, so it is only ever given the copy
+        `_validate_values` made.
+        """
         if values["x"] + values["w"] > 1:
             values["w"] = 1 - values["x"]
             logger.warning(
@@ -834,8 +844,12 @@ class KeypointAnnotation(Annotation):
         if "keypoints" not in values:
             return values
 
+        # A new list rather than an in-place edit, for the same reason
+        # `_clip_points` builds one: the keypoints may belong to an
+        # annotation dict its producer still owns and reuses.
+        clipped = list(values["keypoints"])
         warn = False
-        for i, keypoint in enumerate(values["keypoints"]):
+        for i, keypoint in enumerate(clipped):
             if (keypoint[0] < -2 or keypoint[0] > 2) or (
                 keypoint[1] < -2 or keypoint[1] > 2
             ):
@@ -850,13 +864,13 @@ class KeypointAnnotation(Annotation):
             if not (0 <= keypoint[1] <= 1):
                 new_keypoint[1] = max(0, min(1, keypoint[1]))
                 warn = True
-            values["keypoints"][i] = tuple(new_keypoint)
+            clipped[i] = tuple(new_keypoint)
 
         if warn:
             logger.warning(
                 "Keypoint annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
             )
-        return values
+        return {**values, "keypoints": clipped}
 
 
 class SegmentationAnnotation(Annotation):
@@ -975,11 +989,14 @@ class SegmentationAnnotation(Annotation):
         if not check_type(height, int) or not check_type(width, int):
             raise ValueError("Height and width must be integers")
 
+        # Encoded into a new dictionary rather than in place, so that a
+        # producer reusing one annotation dict across records still sees
+        # the counts it wrote.
         counts = values["counts"]
         if isinstance(counts, str):
-            values["counts"] = counts.encode("utf-8")
+            return {**values, "counts": counts.encode("utf-8")}
 
-        elif isinstance(counts, list):
+        if isinstance(counts, list):
             for c in counts:
                 if not isinstance(c, int) or c < 0:
                     raise ValueError(
@@ -992,9 +1009,12 @@ class SegmentationAnnotation(Annotation):
                     height,
                     width,
                 )
-            values["counts"] = rle["counts"]
-            values["height"] = rle["size"][0]
-            values["width"] = rle["size"][1]
+            return {
+                **values,
+                "counts": rle["counts"],
+                "height": rle["size"][0],
+                "width": rle["size"][1],
+            }
 
         return values
 

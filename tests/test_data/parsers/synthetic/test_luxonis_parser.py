@@ -97,6 +97,52 @@ def test_luxonis_parser_prepares_source_once(
         first.delete_dataset(delete_local=True)
 
 
+def test_luxonis_parser_keeps_the_issues_of_a_failed_parse(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A failed parse must still report what it collected before failing.
+
+    Regression: the wrapper read the issues off the dataset that ``parse``
+    returned, and a failed import never returns one, so
+    ``get_parser_issue_messages`` answered ``[]`` for exactly the case it
+    exists to explain - which annotation broke the import.
+    """
+
+    def import_dataset(
+        cls: type[Any],
+        source: str,
+        _issue_sink: list[Any] | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        del cls, source, kwargs
+        assert _issue_sink is not None
+        _issue_sink.append("skipped a malformed annotation")
+        raise ValueError("boom")
+
+    monkeypatch.setattr(
+        "luxonis_ml.data.parsers.luxonis_parser.LuxonisDataset.import_dataset",
+        classmethod(import_dataset),
+    )
+    monkeypatch.setattr(
+        "luxonis_ml.data.parsers.luxonis_parser.get_parser_plugin",
+        lambda source, dataset_type: (
+            _SyntheticSplitParser,
+            dataset_type or "synthetic-split",
+            Layout({None: {}}),
+        ),
+    )
+
+    with pytest.warns(DeprecationWarning, match="LuxonisParser.*deprecated"):
+        parser = LuxonisParser(str(tmp_path), dataset_name="dataset")
+    with pytest.raises(ValueError, match="boom"):
+        parser.parse()
+
+    assert parser.get_parser_issue_messages() == [
+        "skipped a malformed annotation"
+    ]
+
+
 def test_luxonis_parser_forwards_arguments(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -164,6 +210,7 @@ def test_luxonis_parser_forwards_arguments(
             "random_split": False,
             "split_ratios": {"train": 1, "val": 0, "test": 0},
             "parser_kwargs": {"use_keypoint_ann": True},
+            "_issue_sink": [],
             "delete_local": True,
         }
     ]

@@ -212,6 +212,50 @@ def test_bbox_annotation(subtests: SubTests):
         )
 
 
+def test_validation_leaves_the_producers_annotation_alone(
+    subtests: SubTests, tempdir: Path
+):
+    """Building a record must not edit the dictionary it was given.
+
+    Regression: `DatasetRecord.validate_files` used to deep-copy the whole
+    record, and dropping that copy in favour of a shallow rebuild left the
+    clipping validators editing the caller's own nested dictionaries and
+    lists. A generator that builds one annotation and yields it for many
+    files - the documented way to add a dataset - therefore saw its
+    annotation clipped by the first record and wrote the clipped values
+    for every record after it, warning about it only once.
+    """
+    file = (tempdir / "producer.jpg").resolve()
+    cv2.imwrite(str(file), np.zeros((100, 100, 3)))
+
+    with subtests.test("bbox"):
+        annotation = {
+            "class": "budgie",
+            "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.8, "h": 0.8},
+        }
+        DatasetRecord(file=file, annotation=annotation)  # type: ignore
+        assert annotation["boundingbox"] == {
+            "x": 0.5,
+            "y": 0.5,
+            "w": 0.8,
+            "h": 0.8,
+        }
+
+    with subtests.test("keypoints"):
+        keypoints = [(1.5, 0.5, 2)]
+        annotation = {"class": "budgie", "keypoints": {"keypoints": keypoints}}
+        DatasetRecord(file=file, annotation=annotation)  # type: ignore
+        assert keypoints == [(1.5, 0.5, 2)]
+
+    with subtests.test("rle"):
+        segmentation = {"height": 4, "width": 4, "counts": [0, 4, 12]}
+        annotation = {"class": "budgie", "segmentation": dict(segmentation)}
+        DatasetRecord(file=file, annotation=annotation)  # type: ignore
+        # The counts a record is built from stay the list the producer
+        # wrote, not the byte string `pycocotools` encoded them into.
+        assert annotation["segmentation"] == segmentation
+
+
 def test_keypoints_annotation(subtests: SubTests):
     with subtests.test("no_auto_clip"):
         with pytest.raises(pydantic.ValidationError):

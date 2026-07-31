@@ -3,6 +3,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from luxonis_ml.data import DatasetIterator
 
 from .parser_plugin import SplitParserPlugin
@@ -130,12 +132,26 @@ class ClassificationDirectoryParser(SplitParserPlugin):
             the tail to join onto that directory for every image in it.
 
         """
-        for class_path in self._list_class_dirs(class_dir):
+        for class_path in class_dir.iterdir():
+            if not class_path.is_dir():
+                continue
             # An empty class directory contributes neither a record nor a
             # file. Skipping it also leaves an unreadable one as silent as
             # `_list_images` is about it, rather than raising below.
             images = self._list_images(class_path)
             if not images:
+                continue
+            if class_path.name in self._RESERVED_DIR_NAMES:
+                # The name belongs to another layout, so the directory is
+                # not a class - but it does hold images, and the other
+                # reading of the same name is a class legitimately called
+                # `train`, whose images would otherwise vanish from the
+                # import without a word.
+                logger.warning(
+                    f"Not importing '{class_path}' as a class: its name "
+                    "belongs to another dataset layout. Rename the "
+                    "directory if it really is a class."
+                )
                 continue
             resolved_dir, tails = self._resolve_listed(class_path, images)
             yield class_path.name, resolved_dir, tails

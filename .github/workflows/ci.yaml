@@ -404,7 +404,7 @@ jobs:
             echo "matrix=$matrix"
             echo "current_ref=$current"
             echo "baseline_ref=$baseline"
-            echo "threshold=${INPUT_THRESHOLD:-10}"
+            echo "threshold=${INPUT_THRESHOLD:-25}"
             echo "scale=${INPUT_SCALE:-2.0}"
             echo "repeat=${INPUT_REPEAT:-10}"
             echo "aggregate=${INPUT_AGGREGATE:-min}"

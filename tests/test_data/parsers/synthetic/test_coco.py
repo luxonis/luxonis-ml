@@ -247,6 +247,43 @@ def _write_coco_split(
     return image_dir, annotation_path
 
 
+def test_coco_split_source_rejects_unknown_parser_kwargs(
+    dataset_name: str,
+    tempdir: Path,
+):
+    """An unknown parser argument must be as loud for split sources.
+
+    Regression: ``COCOParser.parse`` forwarded ``**kwargs`` to the
+    inherited parse for a single-split source but dropped them entirely
+    for one with split directories - the common layout. A typo such as
+    ``use_keypoints_ann`` therefore raised ``TypeError`` against one COCO
+    source and imported a keypoint-free dataset without a word against
+    the other.
+    """
+    dataset_dir = tempdir / "coco_split_kwargs"
+    _write_coco_split(
+        dataset_dir / "train",
+        roboflow=True,
+        data=_coco_data(
+            [{"id": 1, "file_name": "img_0.jpg", "width": 512, "height": 512}],
+            categories=[{"id": 0, "name": "budgie"}],
+        ),
+    )
+    create_image(0, dataset_dir / "train")
+
+    with pytest.raises(TypeError, match="use_keypoints_ann"):
+        LuxonisDataset.import_dataset(
+            str(dataset_dir),
+            dataset_name=dataset_name,
+            dataset_type="coco",
+            parser_kwargs={"use_keypoints_ann": True},
+            delete_local=True,
+            save_dir=tempdir,
+        )
+
+    assert not LuxonisDataset.exists(dataset_name)
+
+
 def test_coco_format_detection_and_validation(tmp_path: Path):
     parser = _plugin(COCOParser)
     missing = tmp_path / "missing"

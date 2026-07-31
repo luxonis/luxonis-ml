@@ -1,4 +1,5 @@
 import inspect
+import math
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Iterator, Mapping, Sequence
@@ -13,7 +14,7 @@ from typing_extensions import Self
 
 from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.datasets.source import LuxonisSource
-from luxonis_ml.data.utils.enums import ParserIssueMessage
+from luxonis_ml.data.utils.enums import BucketStorage, ParserIssueMessage
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
@@ -132,6 +133,27 @@ def _peek(records: DatasetIterator) -> DatasetIterator:
     return chain([first], records)
 
 
+def _delete_replaces_dataset(dataset_kwargs: Mapping[str, Any]) -> bool:
+    """Whether the constructor's delete flags replace the dataset itself.
+
+    `delete_local` clears only the local cache of a remote dataset: what
+    the bucket holds is still the dataset that was already there, so an
+    import given nothing but that flag has not made the dataset its own
+    and may not delete it when it fails.
+    """
+    # `or` rather than a default, so that an explicit `bucket_storage=None`
+    # reads as local instead of failing the enum lookup.
+    bucket_storage = (
+        dataset_kwargs.get("bucket_storage") or BucketStorage.LOCAL
+    )
+    is_remote = BucketStorage(bucket_storage) is not BucketStorage.LOCAL
+    return bool(
+        dataset_kwargs.get("delete_remote")
+        if is_remote
+        else dataset_kwargs.get("delete_local")
+    )
+
+
 def _enumerate_by_parsing(
     plugin: Any,
     source: Path,
@@ -174,6 +196,7 @@ class BaseDataset(
         random_split: bool = True,
         split_ratios: dict[str, float | int] | None = None,
         parser_kwargs: Mapping[str, Any] | None = None,
+        _issue_sink: list[ParserIssueMessage] | None = None,
         **dataset_kwargs: Any,
     ) -> Self:
         """Import an external dataset using a registered parser plugin.
@@ -197,6 +220,9 @@ class BaseDataset(
                 Splits omitted from a count-based mapping default to
                 :math:`0`.
             parser_kwargs: Format-specific parser keyword arguments.
+            _issue_sink: Private. A list the collected parser issues are
+                copied into, so that they survive a failed import, which
+                never returns the dataset they are otherwise read from.
             dataset_kwargs: Arguments passed to the dataset constructor.
 
         Returns:
@@ -247,6 +273,16 @@ class BaseDataset(
                     "Count-based `split_ratios` must request at least one "
                     f"sample, got {split_ratios}."
                 )
+        elif split_ratios is not None:
+            # `make_splits` runs once every record has been written, so
+            # the ratios it would reject are checked here as well: a typo
+            # must not cost a full import, which the failure handler
+            # below would then delete.
+            ratio_sum = sum(float(value) for value in split_ratios.values())
+            if not math.isclose(ratio_sum, 1.0):
+                raise ValueError(
+                    f"Ratios must sum to 1.0, got {ratio_sum:0.4f}"
+                )
 
         resolved_name = (
             dataset_name
@@ -262,10 +298,7 @@ class BaseDataset(
         # whether the failure handler below may delete it. Being asked to
         # delete the old one first makes it this import's dataset again.
         exists_parameters = inspect.signature(cls.exists).parameters
-        replaces_existing = bool(
-            dataset_kwargs.get("delete_local")
-            or dataset_kwargs.get("delete_remote")
-        )
+        replaces_existing = _delete_replaces_dataset(dataset_kwargs)
         created_now = replaces_existing or not cls.exists(
             resolved_name,
             **{
@@ -407,13 +440,19 @@ class BaseDataset(
                 dataset.make_splits(None)
 
             logger.info("Dataset imported successfully.")
-        except BaseException:
+        except Exception:
             # A parser streams its records, so a source it cannot finish
             # reading fails part-way through `add`, once some of it is
             # already written. Without this the caller is left with a
             # registered, half-populated dataset that looks importable.
             # Nothing here can be recovered by retrying, so the dataset
             # is removed and the original error propagates.
+            #
+            # `Exception` rather than `BaseException`: a `KeyboardInterrupt`
+            # is the one failure a caller can act on, and answering a
+            # Ctrl-C halfway through a long import by deleting everything
+            # it had already uploaded is not what interrupting it asks
+            # for. An interrupted import keeps what it wrote.
             #
             # Only a dataset this import created may be removed. Importing
             # into the name of an existing dataset appends to it, and the
@@ -431,6 +470,8 @@ class BaseDataset(
         finally:
             issues.log_summary()
             dataset._parser_issue_messages = issues.messages
+            if _issue_sink is not None:
+                _issue_sink[:] = issues.messages
 
     def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
         """Return issues collected during the most recent import."""

@@ -22,8 +22,10 @@ from luxonis_ml.data.datasets.annotation import (
 )
 from luxonis_ml.data.datasets.base_dataset import (
     BaseDataset,
+    _delete_replaces_dataset,
     _prepare_import_records,
 )
+from luxonis_ml.data.utils.enums import BucketStorage
 from luxonis_ml.enums import DatasetType
 from tests.test_data.parsers.helpers import _write_yolov8_split
 from tests.test_data.utils import create_image
@@ -398,6 +400,111 @@ def test_failed_import_keeps_a_pre_existing_dataset(
     finally:
         if LuxonisDataset.exists(dataset_name):
             LuxonisDataset(dataset_name).delete_dataset(delete_local=True)
+
+
+def test_interrupted_import_keeps_what_it_wrote(
+    dataset_name: str, tempdir: Path
+):
+    """Ctrl-C must not delete the part of the import that succeeded.
+
+    Regression: the failure handler caught ``BaseException``, so a
+    ``KeyboardInterrupt`` was answered by deleting the dataset locally and
+    remotely. Interrupting a long import is a request to stop, not a
+    request to throw away everything already parsed and uploaded, and
+    unlike a parse error it is not a state the caller has to be protected
+    from. Only ``Exception`` triggers the cleanup.
+    """
+    dataset_dir = tempdir / "interrupted_import"
+    class_dir = dataset_dir / "train" / "bird"
+    class_dir.mkdir(parents=True)
+    create_image(0, class_dir)
+
+    try:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(
+                LuxonisDataset,
+                "add",
+                lambda self, generator, **kwargs: (_ for _ in ()).throw(
+                    KeyboardInterrupt()
+                ),
+            )
+            with pytest.raises(KeyboardInterrupt):
+                LuxonisDataset.import_dataset(
+                    str(dataset_dir),
+                    dataset_name=dataset_name,
+                    dataset_type="clsdir",
+                    delete_local=True,
+                )
+
+        assert LuxonisDataset.exists(dataset_name)
+    finally:
+        if LuxonisDataset.exists(dataset_name):
+            LuxonisDataset(dataset_name).delete_dataset(delete_local=True)
+
+
+def test_percentage_split_ratios_fail_before_creating_dataset(
+    dataset_name: str, tempdir: Path
+):
+    """Ratios that do not sum to 1 must be rejected before anything runs.
+
+    Regression: only count-based ratios were validated up front. A typo in
+    percentage ratios was caught by ``make_splits``, which runs after every
+    record has been written and every image uploaded - and the failure
+    handler then deleted the whole freshly created dataset. The check is
+    the one ``make_splits`` makes, moved to where nothing has been written
+    yet.
+    """
+    dataset_dir = tempdir / "yolo_bad_ratios"
+    _write_yolov8_split(dataset_dir / "train", range(2))
+    (dataset_dir / "data.yaml").write_text("names:\n  0: budgie\n")
+
+    with pytest.MonkeyPatch.context() as patch:
+        # Reaching `add` at all means the source was parsed and written
+        # before the ratios were looked at, which is the regression.
+        patch.setattr(
+            LuxonisDataset,
+            "add",
+            lambda self, generator, **kwargs: pytest.fail(
+                "the import ran before the ratios were validated"
+            ),
+        )
+        with pytest.raises(ValueError, match=r"Ratios must sum to 1\.0"):
+            LuxonisDataset.import_dataset(
+                str(dataset_dir),
+                dataset_name=dataset_name,
+                dataset_type="yolov8",
+                split_ratios={"train": 0.8, "val": 0.1, "test": 0.2},
+                delete_local=True,
+                save_dir=tempdir,
+            )
+
+    assert not LuxonisDataset.exists(dataset_name)
+
+
+@pytest.mark.parametrize(
+    ("dataset_kwargs", "replaces"),
+    [
+        ({}, False),
+        ({"delete_local": True}, True),
+        ({"delete_remote": True}, False),
+        ({"bucket_storage": "gcs", "delete_local": True}, False),
+        ({"bucket_storage": "gcs", "delete_remote": True}, True),
+        ({"bucket_storage": BucketStorage.GCS, "delete_local": True}, False),
+    ],
+)
+def test_only_a_delete_that_reaches_the_dataset_claims_it(
+    dataset_kwargs: dict[str, Any], replaces: bool
+):
+    """``delete_local`` on a remote dataset does not make it this import's.
+
+    Regression: the failure handler may only delete a dataset the import
+    itself created, and either delete flag was taken as proof of that. For
+    a remote dataset ``delete_local`` clears the local cache only - what
+    the bucket holds is the dataset that was already there - so a
+    part-way failure deleted a production dataset the import had merely
+    appended to.
+    """
+    assert _delete_replaces_dataset(dataset_kwargs) is replaces
 
 
 def test_failed_import_removes_a_replaced_dataset(

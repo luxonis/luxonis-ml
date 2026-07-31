@@ -187,6 +187,35 @@ class YOLOv8Parser(SplitParserPlugin):
         return None, []
 
     @staticmethod
+    def _find_classes_yaml(yaml_roots: tuple[Path, ...]) -> Path | None:
+        """Return the YAML holding the class names, if there is one.
+
+        Args:
+            yaml_roots: Directories to search, most specific first.
+
+        Returns:
+            ``data.yaml`` where the export named it that - which both
+            Roboflow and Ultralytics do - so that an unrelated YAML
+            sitting next to it cannot win on name alone. Any other single
+            YAML of the first directory that has one, sorted so that a
+            directory holding several always resolves the same way.
+
+        """
+        for yaml_root in yaml_roots:
+            candidates = [
+                file
+                for ext in ("*.yaml", "*.yml")
+                for file in sorted(yaml_root.glob(ext))
+            ]
+            if not candidates:
+                continue
+            return next(
+                (file for file in candidates if file.stem == "data"),
+                candidates[0],
+            )
+        return None
+
+    @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -223,15 +252,7 @@ class YOLOv8Parser(SplitParserPlugin):
         if not images:
             return None
 
-        yaml_file = next(
-            (
-                f
-                for yaml_root in yaml_roots
-                for ext in ("*.yaml", "*.yml")
-                for f in sorted(yaml_root.glob(ext))
-            ),
-            None,
-        )
+        yaml_file = YOLOv8Parser._find_classes_yaml(yaml_roots)
         if yaml_file is None:
             return None
 

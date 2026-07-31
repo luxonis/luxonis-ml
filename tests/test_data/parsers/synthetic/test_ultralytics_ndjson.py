@@ -260,6 +260,43 @@ def test_ultralytics_ndjson_skips_missing_images_without_shifting_records(
     ]
 
 
+def test_ultralytics_ndjson_enumeration_matches_what_the_parse_yields(
+    tempdir: Path,
+):
+    """Enumerating must drop the images the parse drops.
+
+    Regression: ``enumerate_files`` named every image record without
+    checking that the file was there, while the parse skipped the ones
+    that were not. Count-based ``split_ratios`` sample from the
+    enumeration, so requesting 100 training images from a manifest
+    referencing 20 missing ones quietly produced a split of 80 - no
+    error, and the only sign was a per-image warning that is capped at
+    ten lines.
+    """
+    ndjson_path = tempdir / "ndjson_enumeration" / "dataset.ndjson"
+    ndjson_path.parent.mkdir(parents=True)
+    _write_ultralytics_ndjson(
+        ndjson_path,
+        ndjson_path.parent / "images",
+        missing_image="img_missing.jpg",
+    )
+
+    parser = _plugin(UltralyticsNDJSONParser)
+    enumerated = parser.enumerate_files(ndjson_path, _detect(ndjson_path))
+    assert enumerated is not None
+
+    parsed = _split_records(
+        _parse(_plugin(UltralyticsNDJSONParser), ndjson_path)
+    )
+    assert {
+        name: [file.name for file in files]
+        for name, files in enumerated.items()
+    } == {
+        name: [Path(file).name for file in files]
+        for name, files in _split_files(parsed).items()
+    }
+
+
 def test_ultralytics_ndjson_detects_the_splits_the_format_carries(
     tempdir: Path,
 ):

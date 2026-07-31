@@ -64,6 +64,7 @@ class LuxonisParser(Generic[T]):
         self._full_warnings = full_warnings
         self._dataset_kwargs = kwargs
         self._dataset: BaseDataset | None = None
+        self._issues: list[ParserIssueMessage] = []
 
     @overload
     def parse(self: "LuxonisParser[str]", **kwargs: Any) -> BaseDataset: ...
@@ -78,6 +79,12 @@ class LuxonisParser(Generic[T]):
         split = kwargs.pop("split", None)
         random_split = kwargs.pop("random_split", True)
         split_ratios = kwargs.pop("split_ratios", None)
+
+        # Cleared rather than left holding the previous parse: a failed
+        # call must not answer `get_parser_issue_messages` with what an
+        # earlier one collected.
+        self._dataset = None
+        self._issues.clear()
         self._dataset = self._dataset_class.import_dataset(
             self._dataset_dir,
             dataset_name=self._dataset_name,
@@ -89,6 +96,7 @@ class LuxonisParser(Generic[T]):
             random_split=random_split,
             split_ratios=split_ratios,
             parser_kwargs=kwargs,
+            _issue_sink=self._issues,
             **self._dataset_kwargs,
         )
         return self._dataset
@@ -98,6 +106,9 @@ class LuxonisParser(Generic[T]):
         return self._get_parser_issue_messages()
 
     def _get_parser_issue_messages(self) -> list[ParserIssueMessage]:
-        if self._dataset is None:
-            return []
-        return self._dataset.get_parser_issue_messages()
+        if self._dataset is not None:
+            return self._dataset.get_parser_issue_messages()
+        # A parse that failed never returned a dataset to read these
+        # from, and the issues collected before it gave up are exactly
+        # what a caller handling that failure is asking about.
+        return list(self._issues)

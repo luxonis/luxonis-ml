@@ -234,6 +234,12 @@ class ParserPlugin(ABC):
 
     @staticmethod
     def _list_images(image_dir: Path) -> list[Path]:
+        """List the images of a directory that OpenCV can read.
+
+        The suffix is matched case-insensitively, so a source naming its
+        images `.JPG` - which the exact-case match this replaced skipped
+        without a word - is imported like any other.
+        """
         supported_formats = {
             ".bmp",
             ".dib",
