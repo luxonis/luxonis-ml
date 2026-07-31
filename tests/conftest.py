@@ -186,7 +186,17 @@ def pytest_addoption(parser: pytest.Parser):
         "--benchmark-repeat",
         type=int,
         default=1,
-        help="How many times each benchmark parse is timed (fastest wins)",
+        help="How many times each benchmark parse is timed",
+    )
+    group.addoption(
+        "--benchmark-aggregate",
+        choices=("mean", "median", "min"),
+        default="min",
+        help=(
+            "How repeated timings are reduced to the reported number. "
+            "`min` is the most reproducible: the noise is one-sided, so a "
+            "busy machine can only ever make a parse slower"
+        ),
     )
     group.addoption(
         "--benchmark-json",

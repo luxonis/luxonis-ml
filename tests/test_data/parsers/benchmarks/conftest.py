@@ -3,10 +3,12 @@
 import json
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from _pytest.terminal import TerminalReporter
 
+from tests.test_data.parsers.benchmarks.comparison import load_report
 from tests.test_data.parsers.benchmarks.harness import (
     BENCHMARK_DATASETS,
     BenchmarkCase,
@@ -40,6 +42,13 @@ def benchmark_repeat(request: pytest.FixtureRequest) -> int:
 
 
 @pytest.fixture(scope="session")
+def benchmark_aggregate(request: pytest.FixtureRequest) -> str:
+    """Return how repeated timings are reduced."""
+    aggregate: str | None = request.config.getoption("--benchmark-aggregate")
+    return aggregate or "min"
+
+
+@pytest.fixture(scope="session")
 def benchmark_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Return the directory holding all generated benchmark datasets."""
     return tmp_path_factory.mktemp("parser_benchmarks")
@@ -68,11 +77,10 @@ def record_measurement(measurement: Measurement) -> None:
     MEASUREMENTS.append(measurement)
 
 
-def _load_baseline(path: Path) -> dict[str, dict[str, float]]:
+def _load_baseline(path: Path) -> dict[str, dict[str, Any]]:
     if not path.exists():
         return {}
-    payload = json.loads(path.read_text())
-    return {entry["dataset_type"]: entry for entry in payload["benchmarks"]}
+    return load_report(path)
 
 
 def pytest_terminal_summary(
@@ -88,7 +96,7 @@ def pytest_terminal_summary(
     terminalreporter.write_sep("=", "parser benchmarks")
     header = (
         f"{'dataset type':<38}{'images':>8}{'records':>9}"
-        f"{'sec':>9}{'rec/s':>11}{'peak MiB':>10}"
+        f"{'sec':>9}{'± %':>7}{'rec/s':>11}{'peak MiB':>10}"
     )
     if baseline:
         header += f"{'vs base':>10}"
@@ -102,6 +110,7 @@ def pytest_terminal_summary(
             f"{measurement.images:>8}"
             f"{measurement.records:>9}"
             f"{measurement.seconds:>9.3f}"
+            f"{measurement.relative_stdev * 100:>7.1f}"
             f"{measurement.records_per_second:>11,.0f}"
             f"{measurement.peak_mib:>10.1f}"
         )
@@ -127,6 +136,10 @@ def pytest_terminal_summary(
                     "seconds": measurement.seconds,
                     "records_per_second": measurement.records_per_second,
                     "peak_mib": measurement.peak_mib,
+                    "aggregate": measurement.aggregate,
+                    "stdev_seconds": measurement.stdev_seconds,
+                    "relative_stdev": measurement.relative_stdev,
+                    "samples": measurement.samples,
                 }
                 for measurement in sorted(
                     MEASUREMENTS, key=lambda item: item.dataset_type

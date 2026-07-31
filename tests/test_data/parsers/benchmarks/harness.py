@@ -6,6 +6,8 @@ return a `BenchmarkCase` telling the harness what to parse and what the
 parser is expected to produce.
 """
 
+import gc
+import statistics
 import time
 import tracemalloc
 from collections.abc import Callable, Iterable, Sequence
@@ -212,6 +214,14 @@ def keypoints(index: int, count: int) -> list[tuple[float, float, int]]:
     ]
 
 
+#: How a run of repeated timings is reduced to the reported number.
+AGGREGATES: dict[str, Callable[[Sequence[float]], float]] = {
+    "mean": statistics.fmean,
+    "median": statistics.median,
+    "min": min,
+}
+
+
 @dataclass
 class Measurement:
     """Result of parsing one benchmark case.
@@ -221,8 +231,10 @@ class Measurement:
         features: Features the case exercises.
         images: Number of images in the generated dataset.
         records: Number of records the parser yielded.
-        seconds: Fastest wall-clock parse over all repeats.
+        seconds: The timings reduced by the chosen aggregate.
         peak_mib: Peak memory allocated during a separate traced parse.
+        samples: Every timed parse, in the order they ran.
+        aggregate: Name of the reduction `seconds` was produced by.
 
     """
 
@@ -232,6 +244,8 @@ class Measurement:
     records: int
     seconds: float
     peak_mib: float
+    samples: list[float] = field(default_factory=list)
+    aggregate: str = "min"
 
     @property
     def records_per_second(self) -> float:
@@ -242,6 +256,23 @@ class Measurement:
     def images_per_second(self) -> float:
         """Images processed per second."""
         return self.images / self.seconds if self.seconds else 0.0
+
+    @property
+    def stdev_seconds(self) -> float:
+        """Spread of the timed parses; :math:`0` for a single sample."""
+        if len(self.samples) < 2:
+            return 0.0
+        return statistics.stdev(self.samples)
+
+    @property
+    def relative_stdev(self) -> float:
+        """Spread as a fraction of `seconds`.
+
+        How much of a difference between two runs is this run's own
+        scatter rather than the code. A comparison that reports a change
+        smaller than this is reporting noise.
+        """
+        return self.stdev_seconds / self.seconds if self.seconds else 0.0
 
 
 def drain(case: BenchmarkCase) -> int:
@@ -282,20 +313,51 @@ def parse_once(case: BenchmarkCase) -> tuple[int, int, int]:
     return records, len(files), len(issues.messages)
 
 
-def measure(case: BenchmarkCase, *, repeat: int = 1) -> Measurement:
+def measure(
+    case: BenchmarkCase, *, repeat: int = 1, aggregate: str = "min"
+) -> Measurement:
     """Time ``case`` and measure its peak memory.
 
     Timing and memory are measured in separate passes because
     `tracemalloc` roughly doubles the time a parse takes; mixing them
     would make the reported throughput useless.
+
+    Args:
+        case: The generated dataset and the parser to run over it.
+        repeat: How many times the parse is timed.
+        aggregate: How the timings are reduced - one of `AGGREGATES`.
+            ``min`` answers "how fast can this parser go", which is the
+            right question for a profile; ``mean`` answers "how long does
+            this parser take", which is the one a release comparison has
+            to ask, because it is the one whose scatter shrinks as
+            ``repeat`` grows.
+
+    Returns:
+        The timings, their reduction, and the peak allocation.
+
+    Raises:
+        KeyError: If ``aggregate`` is not a known reduction.
+
     """
-    best = float("inf")
+    reduce = AGGREGATES[aggregate]
+    samples = []
     records = 0
     for _ in range(max(1, repeat)):
         start = time.perf_counter()
         records = drain(case)
-        best = min(best, time.perf_counter() - start)
+        samples.append(time.perf_counter() - start)
 
+    # Collected so the traced pass starts from a known state: the peak is
+    # a high-water mark that counts cyclic garbage until a collection
+    # runs, and `gc` schedules that from allocation counters carried over
+    # from whatever ran before.
+    #
+    # The peak is comparable only against other runs of this suite. It is
+    # measured after the datasets have been generated in this process,
+    # which leaves CPython's interned-string table already grown; the same
+    # parse measured in a fresh process pays for that growth inside the
+    # traced window and reports several MiB more.
+    gc.collect()
     tracemalloc.start()
     try:
         drain(case)
@@ -308,6 +370,8 @@ def measure(case: BenchmarkCase, *, repeat: int = 1) -> Measurement:
         features=case.features,
         images=case.images,
         records=records,
-        seconds=best,
+        seconds=reduce(samples),
         peak_mib=peak / 1024**2,
+        samples=samples,
+        aggregate=aggregate,
     )

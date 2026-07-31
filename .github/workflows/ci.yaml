@@ -3,6 +3,52 @@ name: CI
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      benchmark_ref:
+        description: Ref to benchmark. Defaults to the branch this runs on.
+        required: false
+        type: string
+      benchmark_baseline_ref:
+        description: >-
+          Ref to compare against. Leave empty to benchmark a single ref
+          without comparing it to anything.
+        required: false
+        type: string
+      benchmark_threshold:
+        description: >-
+          Percent slower a parser may get before CI fails. Two runs of
+          identical code differ by up to ~12% on the fastest parsers, and
+          the two refs are measured on different runners, so anything
+          under ~20% is noise.
+        required: false
+        default: "25"
+        type: string
+      benchmark_scale:
+        description: >-
+          Multiplier for the number of images per split. Bigger datasets
+          make each parse long enough that scheduling noise stops
+          mattering; the default is held down by the runner rather than
+          by patience, since scale 3 writes 1.7 GB across 290k files.
+        required: false
+        default: "2.0"
+        type: string
+      benchmark_repeat:
+        description: Times each parse is timed.
+        required: false
+        default: "10"
+        type: string
+      benchmark_aggregate:
+        description: >-
+          How the repeated timings become one number. `min` is the most
+          reproducible run to run, because the noise is one-sided - a
+          busy runner only ever makes a parse slower.
+        required: false
+        default: min
+        type: choice
+        options:
+          - min
+          - mean
+          - median
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -300,15 +346,85 @@ jobs:
       - name: Check requirements
         run: python3 -c 'from luxonis_ml.${{ matrix.submodule }} import *'
 
-  benchmarks:
+  # Benchmarks run only on release pull requests, so they can afford a
+  # long, quiet run. Telling a real regression from runner noise means
+  # measuring both refs the same way, which is what the matrix is for.
+  benchmark-refs:
     if: ${{ startsWith(github.head_ref, 'release/') || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
+
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      current_ref: ${{ steps.resolve.outputs.current_ref }}
+      baseline_ref: ${{ steps.resolve.outputs.baseline_ref }}
+      threshold: ${{ steps.resolve.outputs.threshold }}
+      scale: ${{ steps.resolve.outputs.scale }}
+      repeat: ${{ steps.resolve.outputs.repeat }}
+      aggregate: ${{ steps.resolve.outputs.aggregate }}
+
+    steps:
+      - name: Resolve the refs to benchmark
+        id: resolve
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_REF: ${{ inputs.benchmark_ref }}
+          INPUT_BASELINE: ${{ inputs.benchmark_baseline_ref }}
+          INPUT_THRESHOLD: ${{ inputs.benchmark_threshold }}
+          INPUT_SCALE: ${{ inputs.benchmark_scale }}
+          INPUT_REPEAT: ${{ inputs.benchmark_repeat }}
+          INPUT_AGGREGATE: ${{ inputs.benchmark_aggregate }}
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          current="${INPUT_REF:-${HEAD_REF:-$REF_NAME}}"
+
+          # A dispatch compares only what it was asked to compare, and
+          # comparing nothing is a valid answer. A release pull request
+          # compares against the branch it merges into.
+          if [[ "$EVENT" == 'workflow_dispatch' ]]; then
+            baseline="$INPUT_BASELINE"
+          else
+            baseline="$BASE_REF"
+          fi
+
+          matrix=$(jq -nc \
+            --arg current "$current" \
+            --arg baseline "$baseline" \
+            '{include: ([{role: "current", ref: $current}] + (
+              if $baseline == "" then [] else
+                [{role: "baseline", ref: $baseline}]
+              end))}')
+
+          {
+            echo "matrix=$matrix"
+            echo "current_ref=$current"
+            echo "baseline_ref=$baseline"
+            echo "threshold=${INPUT_THRESHOLD:-10}"
+            echo "scale=${INPUT_SCALE:-2.0}"
+            echo "repeat=${INPUT_REPEAT:-10}"
+            echo "aggregate=${INPUT_AGGREGATE:-min}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Benchmarking '$current' against '${baseline:-nothing}'."
+
+  benchmarks:
+    needs: benchmark-refs
+    runs-on: ubuntu-latest
+    # Both refs run in parallel, so this is the whole workflow's budget.
+    timeout-minutes: 50
+
+    strategy:
+      # Both refs are wanted even if one of them fails, so the report can
+      # say which one did.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.benchmark-refs.outputs.matrix) }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
-          ref: ${{ github.head_ref }}
+          ref: ${{ matrix.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
@@ -330,27 +446,107 @@ jobs:
         run: |
           pytest -m benchmark tests/test_data/parsers/benchmarks \
             --benchmark-json benchmark-results.json \
+            --benchmark-scale '${{ needs.benchmark-refs.outputs.scale }}' \
+            --benchmark-repeat '${{ needs.benchmark-refs.outputs.repeat }}' \
+            --benchmark-aggregate '${{ needs.benchmark-refs.outputs.aggregate }}' \
             -p no:sugar -v
 
-      - name: Publish the results to the job summary
-        if: ${{ always() }}
+      - name: Upload the benchmark results
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: parser-benchmarks-${{ matrix.role }}
+          path: benchmark-results.json
+          if-no-files-found: error
+
+  benchmark-report:
+    needs: [benchmark-refs, benchmarks]
+    if: ${{ always() && needs.benchmarks.result != 'skipped' }}
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      # The comparison tool comes from the ref under test; the baseline
+      # ref may predate it.
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.benchmark-refs.outputs.current_ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install the reporting dependencies
+        run: pip install cyclopts rich
+
+      - name: Download the results
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          pattern: parser-benchmarks-*
+
+      - name: Compare the two refs
+        id: compare
+        if: ${{ needs.benchmark-refs.outputs.baseline_ref != '' }}
+        continue-on-error: true
         run: |
-          if [[ ! -f benchmark-results.json ]]; then
-            echo 'The benchmarks produced no results.' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
+          python tools/compare_benchmarks.py \
+            parser-benchmarks-baseline/benchmark-results.json \
+            parser-benchmarks-current/benchmark-results.json \
+            --threshold '${{ needs.benchmark-refs.outputs.threshold }}' \
+            --output report.md \
+            --baseline-label '${{ needs.benchmark-refs.outputs.baseline_ref }}' \
+            --current-label '${{ needs.benchmark-refs.outputs.current_ref }}'
+
+      # With no baseline there is nothing to compare, so the run just
+      # publishes what it measured.
+      - name: Render the single-ref results
+        if: ${{ needs.benchmark-refs.outputs.baseline_ref == '' }}
+        run: |
           {
             echo '### Parser benchmarks'
             echo
+            echo "\`${{ needs.benchmark-refs.outputs.current_ref }}\`, with nothing to compare against."
+            echo
             echo '| dataset type | images | records | seconds | records/s | peak MiB |'
             echo '| --- | --: | --: | --: | --: | --: |'
-            jq -r '.benchmarks[] | "| \(.dataset_type) | \(.images) | \(.records) | \(.seconds | .*1000 | round / 1000) | \(.records_per_second | round) | \(.peak_mib | .*10 | round / 10) |"' benchmark-results.json
-          } >> "$GITHUB_STEP_SUMMARY"
+            jq -r '.benchmarks[] | "| \(.dataset_type) | \(.images) | \(.records) | \(.seconds | .*1000 | round / 1000) | \(.records_per_second | round) | \(.peak_mib | .*10 | round / 10) |"' \
+              parser-benchmarks-current/benchmark-results.json
+          } > report.md
 
-      - name: Upload the benchmark results
+      - name: Publish the results to the job summary
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: parser-benchmarks
-          path: benchmark-results.json
-          if-no-files-found: ignore
+        run: cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+      # Kept as a single edited comment rather than one per run, so a
+      # release pull request that benchmarks repeatedly stays readable.
+      - name: Comment the results on the pull request
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          {
+            echo '<!-- parser-benchmarks -->'
+            cat report.md
+          } > comment.md
+          existing=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq '.[] | select(.body | startswith("<!-- parser-benchmarks -->")) | .id' \
+            | head -n 1)
+          if [[ -n "$existing" ]]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$existing" \
+              -F body=@comment.md
+          else
+            gh pr comment "$PR" --repo "$REPO" --body-file comment.md
+          fi
+
+      - name: Fail on a regression
+        if: ${{ steps.compare.outcome == 'failure' }}
+        run: |
+          echo 'A parser regressed by more than the configured threshold.'
+          exit 1

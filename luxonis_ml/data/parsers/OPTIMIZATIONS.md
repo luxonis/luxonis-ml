@@ -15,6 +15,9 @@ pytest -m benchmark tests/test_data/parsers/benchmarks --benchmark-json after.js
 pytest -m benchmark tests/test_data/parsers/benchmarks --benchmark-compare after.json
 ```
 
+Add `--benchmark-repeat` and a bigger `--benchmark-scale` before believing a
+difference of a few percent; the `± %` column says how much of one is scatter.
+
 Each parser is fed a generated dataset covering every feature it supports. See
 [CONTRIBUTING.md](../../../CONTRIBUTING.md#parser-benchmarks) for the options.
 

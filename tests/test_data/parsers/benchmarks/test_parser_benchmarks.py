@@ -26,6 +26,7 @@ def test_parser_throughput(
     dataset_type: str,
     build_benchmark_case: Callable[[str], BenchmarkCase],
     benchmark_repeat: int,
+    benchmark_aggregate: str,
 ):
     case = build_benchmark_case(dataset_type)
     records, files, issues = parse_once(case)
@@ -34,4 +35,6 @@ def test_parser_throughput(
     assert files == case.expected_files
     assert issues == case.expected_issues
 
-    record_measurement(measure(case, repeat=benchmark_repeat))
+    record_measurement(
+        measure(case, repeat=benchmark_repeat, aggregate=benchmark_aggregate)
+    )
