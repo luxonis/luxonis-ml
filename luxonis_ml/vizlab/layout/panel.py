@@ -15,7 +15,7 @@ from luxonis_ml.utils.color import brand
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
 from luxonis_ml.vizlab.render import RenderEnvironment, text_layout
-from luxonis_ml.vizlab.render.canvas import Canvas, TextMetrics
+from luxonis_ml.vizlab.render.canvas import Canvas, Shadow, TextMetrics
 from luxonis_ml.vizlab.render.capture import InteractionCapture
 from luxonis_ml.vizlab.render.markup import Span, parse
 from luxonis_ml.vizlab.scene.image import Composite, Renderable
@@ -128,6 +128,12 @@ _TITLE_TRACKING = 0.08  # letter-spacing as a fraction of the title size
 _MARGIN = 14.0
 _GAP = 12.0
 _RADIUS = 10.0
+
+#: Drop-shadow blur and vertical offset for the two cards, in nominal pixels.
+#: Soft and barely offset: enough to lift them off the page, not enough to read
+#: as a separate element.
+_SHADOW_BLUR = 9.0
+_SHADOW_DY = 3.0
 _SECTION_GAP = 9.0
 _BORDER_WIDTH = 1.0
 #: Section headers render smaller than the body, uppercased, and letter-spaced,
@@ -159,6 +165,7 @@ class _Metrics:
     margin: float
     gap: float
     radius: float
+    shadow: Shadow
     section_gap: float
     border_width: float
     key: Color
@@ -209,6 +216,7 @@ def _metrics(scale: float, background: Color) -> _Metrics:
         margin=_MARGIN * scale,
         gap=_GAP * scale,
         radius=_RADIUS * scale,
+        shadow=Shadow(blur=_SHADOW_BLUR * scale, dy=_SHADOW_DY * scale),
         section_gap=_SECTION_GAP * scale,
         border_width=max(1.0, _BORDER_WIDTH * scale),
         key=chrome.card_key,
@@ -1123,6 +1131,11 @@ class _PanelPainter:
             p.image_x + img_w,
             p.image_y + img_h,
         )
+        # Filled first so the card casts a shadow: the image is painted over
+        # this, and a bare clip would have nothing to cast from.
+        canvas.rounded_rect(
+            image_rect, m.radius, fill=m.surface, shadow=m.shadow
+        )
         with canvas.clip_rounded(image_rect, m.radius):
             self.image._draw_onto(
                 canvas,
@@ -1149,6 +1162,7 @@ class _PanelPainter:
             fill=m.surface,
             stroke=m.border,
             stroke_width=m.border_width,
+            shadow=m.shadow,
         )
 
     def _draw_content(self, canvas: Canvas) -> None:

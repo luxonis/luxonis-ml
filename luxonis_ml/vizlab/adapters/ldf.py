@@ -34,6 +34,7 @@ from luxonis_ml.vizlab.tooltip import Tooltip
 
 if TYPE_CHECKING:
     from luxonis_ml.ldf import (
+        ArrayAnnotation,
         BBoxAnnotation,
         DatasetRecord,
         Detection,
@@ -491,7 +492,7 @@ def visualize_record(
 
     segmentations: list[tuple[str | None, SegmentationAnnotation]] = []
     class_tags: list[str] = []
-    array_shapes: dict[str, list[int]] = {}
+    arrays: dict[str, ArrayAnnotation] = {}
 
     for detection in record._annotations():
         _scan_detection(
@@ -501,8 +502,10 @@ def visualize_record(
             img,
             segmentations,
             class_tags,
-            array_shapes,
+            arrays,
         )
+
+    _add_array_fields(img, arrays, options)
 
     if segmentations:
         img.add(
@@ -515,7 +518,7 @@ def visualize_record(
     for overlay in metadata_annotations(record._annotations()):
         img.add(overlay)
 
-    panel_data = _panel_data(record, array_shapes, panel)
+    panel_data = _panel_data(record, panel)
     if panel_data:
         img = with_panel(img, panel_data, title="Sample Metadata")
     return img
@@ -540,7 +543,7 @@ def _scan_detection(
     img: "Image",
     segmentations: "list[tuple[str | None, SegmentationAnnotation]]",
     class_tags: list[str],
-    array_shapes: dict[str, list[int]],
+    arrays: "dict[str, ArrayAnnotation]",
 ) -> None:
     """Add a detection's spatial annotations and collect its record-level parts."""
     for annotation in _spatial_annotations(detection, options, task_name):
@@ -550,8 +553,37 @@ def _scan_detection(
         task_name,
         segmentations,
         class_tags,
-        array_shapes,
+        arrays,
     )
+
+
+def _add_array_fields(
+    img: "Image",
+    arrays: "dict[str, ArrayAnnotation]",
+    options: RenderOptions,
+) -> None:
+    """Draw each renderable array field over the image, when enabled.
+
+    Off unless `RenderOptions.array_view` asks for it, since most array labels
+    (an embedding, say) are not pictures. A single scene has nowhere to put a
+    separate tile, so both settings blend the field over the image here; laying
+    fields out as their own tiles is the ``data inspect`` command's job.
+    """
+    from .arrays import array_annotation
+
+    if options.array_view == "off" or not arrays:
+        return
+    for task_name, annotation in arrays.items():
+        drawing = array_annotation(
+            annotation.to_numpy(),
+            task_name=task_name,
+            options=options,
+            image_shape=(img.height, img.width),
+        )
+        if drawing is None:
+            continue
+        for built in drawing.annotations():
+            img.add(built)
 
 
 def _collect_record_annotations(
@@ -559,7 +591,7 @@ def _collect_record_annotations(
     task_name: str,
     segmentations: "list[tuple[str | None, SegmentationAnnotation]]",
     class_tags: list[str],
-    array_shapes: dict[str, list[int]],
+    arrays: "dict[str, ArrayAnnotation]",
 ) -> None:
     """Collect record-level annotations from one complete detection tree."""
     if detection.segmentation is not None:
@@ -567,25 +599,22 @@ def _collect_record_annotations(
     if _is_pure_classification(detection) and detection.class_name is not None:
         class_tags.append(detection.class_name)
     if detection.array is not None:
-        array_shapes[task_name or "array"] = list(
-            detection.array.to_numpy().shape
-        )
+        arrays[task_name or "array"] = detection.array
     for name, sub_detection in detection.sub_detections.items():
         _collect_record_annotations(
             sub_detection,
             f"{task_name}/{name}",
             segmentations,
             class_tags,
-            array_shapes,
+            arrays,
         )
 
 
 def _panel_data(
     record: "DatasetRecord",
-    array_shapes: dict[str, list[int]],
     panel: "Mapping[str, PanelData] | None",
 ) -> "dict[str, PanelData]":
-    """Merge sample metadata, array shapes, and an extra panel into panel data.
+    """Merge sample metadata and an extra panel into panel data.
 
     Sample metadata is escaped on the way in (it is dataset text, not markup the
     caller wrote); the explicit ``panel`` mapping is left alone, so a caller can
@@ -595,8 +624,6 @@ def _panel_data(
         escape(key): _metadata_to_panel_data(value)
         for key, value in record.sample_metadata.items()
     }
-    if array_shapes:
-        data["arrays"] = array_shapes
     if panel:
         data.update(panel)
     return data

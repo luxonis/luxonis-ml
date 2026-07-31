@@ -449,3 +449,27 @@ def test_with_panel_wraps_long_value() -> None:
     out = with_panel(img, {"note": "lorem ipsum dolor sit amet " * 6})
     # Renders without error and stays a valid RGBA image.
     assert out.render().shape[2] == 4
+
+
+def test_both_cards_cast_a_shadow() -> None:
+    """The image and the panel float above the page rather than sitting flat."""
+    image = Image(np.zeros((60, 80, 3), np.uint8))
+    rendered = with_panel(image, {"frame": 3}).render()
+
+    metrics = _metrics(1.0, Color(0, 0, 0))
+    page = metrics.page
+    # Sample the page a little below each card, where a drop shadow lands. The
+    # margin is where the page shows through, so anything darker than the bare
+    # page there is the shadow.
+    height = rendered.shape[0]
+    strip = rendered[height - 3, :, :3].astype(int)
+    page_rgb = np.array([page.r, page.g, page.b], int)
+    assert (strip.sum(axis=1) < page_rgb.sum()).any()
+
+
+def test_the_shadow_scales_with_the_render() -> None:
+    # Metrics are resolved per render size, so a large composite must not get a
+    # hairline shadow sized for a thumbnail.
+    small, large = _metrics(1.0, Color(0, 0, 0)), _metrics(3.0, Color(0, 0, 0))
+    assert large.shadow.blur > small.shadow.blur
+    assert large.shadow.dy > small.shadow.dy

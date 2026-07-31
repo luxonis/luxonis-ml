@@ -40,7 +40,21 @@ relevant part of the API:
 - `BBox` — detection labels (plain, oriented, OCR payload, nested).
 - `Keypoints`, `Mask`, `SemanticMask` — point- and pixel-level labels.
 - `Classification`, `Legend`, `Caption` — image-level overlays.
-- `Heatmap` — dense fields under gradient themes.
+- `Heatmap`, `ColorBar` — dense scalar fields under gradient themes, and the
+  key that says which value a color stands for.
+- `ScalarField`, `FlowField`, `NormalMap`, `ArrayImage`, `SegmentationScores` —
+  the readings of an LDF array label, one class per kind of array: a depth or
+  disparity map, a signed error map centered on zero, a two-channel optical flow
+  field under the direction wheel (`FlowWheel`), surface normals, an array that
+  already is a picture, and a per-class score stack resolved either to a
+  `SemanticMask`, to the field of how sure the winning class was
+  (`SegmentationScores.confidence`), or to both at once via
+  ``weight_by_confidence``, which keeps the class colors but fades the
+  pixels the model hesitated on. `luxonis_ml.vizlab.adapters.arrays` works out which one a
+  label wants; ``data inspect --array-viz`` draws it, and ``--array-kind`` pins
+  it when the shape alone is ambiguous.
+- `VideoWriter`, `save_video` — a whole sequence of scenes as one video or
+  animated image (see `luxonis_ml.vizlab.video`).
 - `ClassDistribution` — predictions in every distribution mode.
 - `Theme` — the dark and light themes.
 - `grid` (with `blend`, `hstack`, `vstack`) — composition.
@@ -188,17 +202,25 @@ with guard_missing_extra("viz"):
     from .adapters import visualize_record
     from .annotations import (
         Annotation,
+        ArrayField,
+        ArrayImage,
         BBox,
         Caption,
         ClassDistribution,
         Classification,
+        ColorBar,
         Corner,
+        FlowField,
+        FlowWheel,
         Heatmap,
         InfoCard,
         Keypoints,
         Legend,
         Mask,
+        NormalMap,
         RenderContext,
+        ScalarField,
+        SegmentationScores,
         SemanticMask,
     )
     from .color import Color
@@ -269,17 +291,22 @@ __all__ = [
     "LIGHT_THEME",
     "VIDEO_FORMATS",
     "Annotation",
+    "ArrayField",
+    "ArrayImage",
     "BBox",
     "Block",
     "Caption",
     "ClassDistribution",
     "Classification",
     "Color",
+    "ColorBar",
     "ComparisonReport",
     "ComparisonResult",
     "Composite",
     "Controls",
     "Corner",
+    "FlowField",
+    "FlowWheel",
     "Frame",
     "GoldenRatioColors",
     "Gradient",
@@ -293,11 +320,14 @@ __all__ = [
     "Mask",
     "MaskOutline",
     "Match",
+    "NormalMap",
     "Palette",
     "Rect",
     "RenderContext",
     "RenderOptions",
     "Renderable",
+    "ScalarField",
+    "SegmentationScores",
     "SemanticMask",
     "Style",
     "Swatches",

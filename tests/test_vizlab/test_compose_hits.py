@@ -214,3 +214,25 @@ def test_grid_frame_round_trips_random_layouts(seed: int) -> None:
     assert len(hits.items) == count
     for (x, y, w, h), tip in zip(placements, tips, strict=True):
         assert hits.hit(x + w / 2, y + h / 2) is tip
+
+
+def test_a_short_final_row_is_centred() -> None:
+    """Three tiles over two columns centre the lone one, not corner it."""
+    tiles = [Image(np.zeros((10, 10, 3), np.uint8)) for _ in range(3)]
+    composite, placements = grid_placed(tiles, ncols=2, pad=4)
+    width = composite.width
+
+    # The full first row still spans the grid, unshifted.
+    assert placements[0][0] < placements[1][0]
+    assert placements[0][0] == 4
+
+    lone_x, _, lone_w, _ = placements[2]
+    assert lone_x == (width - lone_w) // 2
+
+
+def test_a_full_final_row_is_untouched() -> None:
+    # Centring must only move a *short* row, or every complete grid would drift.
+    tiles = [Image(np.zeros((10, 10, 3), np.uint8)) for _ in range(4)]
+    _, placements = grid_placed(tiles, ncols=2, pad=4)
+    assert placements[0][0] == placements[2][0]
+    assert placements[1][0] == placements[3][0]

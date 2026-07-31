@@ -17,8 +17,12 @@ from dataclasses import dataclass, field
 
 from luxonis_ml.vizlab.annotations import (
     Annotation,
+    ArrayField,
     BBox,
     Classification,
+    ColorBar,
+    FlowWheel,
+    Heatmap,
     Keypoints,
     Mask,
     SemanticMask,
@@ -63,6 +67,11 @@ def _is_mask(annotation: Annotation) -> bool:
     return isinstance(annotation, (Mask, SemanticMask))
 
 
+def _is_field(annotation: Annotation) -> bool:
+    """Whether ``annotation`` is a dense array field, or the key that reads it."""
+    return isinstance(annotation, (Heatmap, ArrayField, ColorBar, FlowWheel))
+
+
 @dataclass
 class LayerState:
     """Which annotation kinds are shown, plus per-class visibility.
@@ -89,6 +98,12 @@ class LayerState:
             sequence over them (see `handle`).
         classes: The class names present in the current view, in order (kept in
             sync via `update_classes`); drives the legend and the ``c`` cycle.
+        arrays: Whether dense scalar fields (a `Heatmap` and its `ColorBar`) are
+            drawn. Toggled with ``a``.
+        has_arrays: Whether the current sample has any array field at all. This
+            is *content*, not a toggle: it only decides whether the ``a`` control
+            is worth listing, so the panel stays clean for the vast majority of
+            datasets that have no arrays.
 
     """
 
@@ -99,6 +114,8 @@ class LayerState:
     declutter: bool = True
     hidden: set[str] = field(default_factory=set)
     classes: tuple[str, ...] = field(default_factory=tuple)
+    arrays: bool = True
+    has_arrays: bool = False
     #: Cursor for the ``c`` isolate cycle: ``None`` = all shown, else the index
     #: in ``classes`` of the one class kept. A legend click clears it (the manual
     #: visibility no longer matches the cycle), so the next ``c`` restarts it.
@@ -114,6 +131,8 @@ class LayerState:
             declutter=self.declutter,
             hidden=set(self.hidden),
             classes=self.classes,
+            arrays=self.arrays,
+            has_arrays=self.has_arrays,
             _focus=self._focus,
         )
 
@@ -124,6 +143,7 @@ class LayerState:
             and self.keypoints
             and self.boxes
             and self.labels
+            and self.arrays
             and not self.hidden
         )
 
@@ -190,6 +210,11 @@ class LayerState:
             self.boxes = not self.boxes
         elif lowered == "l":
             self.labels = not self.labels
+        elif lowered == "a":
+            # Consumed even when the sample has no fields, so the key never
+            # silently changes meaning between samples (``c`` behaves the same
+            # way when there are no classes).
+            self.arrays = not self.arrays
         elif lowered == "d":
             self.declutter = not self.declutter
         elif lowered == "c":
@@ -239,14 +264,18 @@ class LayerState:
             class_value, class_active = "all", None
         else:
             class_value, class_active = f"{len(self.hidden)} off", True
-        return [
+        controls = [
             toggle("m", "masks", self.masks),
             toggle("k", "keypoints", self.keypoints),
             toggle("b", "boxes", self.boxes),
             toggle("l", "labels", self.labels),
             toggle("d", "declutter", self.declutter),
-            Control("c", "class", class_value, class_active),
         ]
+        # Listed only when there is something to toggle, like the class row.
+        if self.has_arrays:
+            controls.append(toggle("a", "arrays", self.arrays))
+        controls.append(Control("c", "class", class_value, class_active))
+        return controls
 
     def apply_layers(
         self, annotations: Sequence[Annotation], palette: Palette
@@ -296,6 +325,8 @@ class LayerState:
         one, or several outputs.
         """
         if _is_mask(annotation) and not self.masks:
+            return []
+        if _is_field(annotation) and not self.arrays:
             return []
         if isinstance(annotation, Keypoints) and not self.keypoints:
             return []

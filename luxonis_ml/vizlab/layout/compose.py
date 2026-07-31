@@ -755,7 +755,12 @@ def _grid(
     placements: list[tuple[int, int, int, int]] = []
     for i, (w, h) in enumerate(sizes):
         row, col = divmod(i, cols)
-        cell_x = pad + col * (cell_w + pad)
+        # A short final row is centered rather than left-aligned: three tiles
+        # over two columns reads as a deliberate arrangement that way, where a
+        # lone bottom-left tile reads as something missing from the corner.
+        in_row = min(cols, len(sizes) - row * cols)
+        row_offset = ((cols - in_row) * (cell_w + pad)) // 2
+        cell_x = pad + row_offset + col * (cell_w + pad)
         cell_y = round(pad + row * (title_h + cell_h + pad))
         cells.append((cell_x, cell_y))
         x = cell_x + (cell_w - w) // 2

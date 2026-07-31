@@ -44,6 +44,9 @@ fixes the canvas, and later frames are scaled to fit and centered on the theme
 background rather than stretched, so nothing is ever distorted. Feeding frames
 that already share a size skips the resampling entirely.
 
+.. image:: TODO-HOST/motion.webp
+   :alt: A tracked detection moving across a street frame, as an animation.
+
 Examples:
     >>> import numpy as np
     >>> from luxonis_ml.vizlab import BBox, Image, save_video

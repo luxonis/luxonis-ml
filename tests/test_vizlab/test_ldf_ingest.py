@@ -16,6 +16,7 @@ from luxonis_ml.ldf import (
 )
 from luxonis_ml.vizlab import (
     DARK_THEME,
+    ArrayField,
     BBox,
     Classification,
     Image,
@@ -224,9 +225,10 @@ def test_metadata_panel_normalization_recurses_json_values() -> None:
 def test_visualize_record_collects_nested_record_annotations(
     tmp_path: Path,
 ) -> None:
-    """Nested masks, class tags, and array shapes reach record-level output."""
+    """Nested masks, class tags, and arrays reach record-level output."""
     array_path = tmp_path / "embedding.npy"
-    np.save(array_path, np.zeros((2, 3), np.float32))
+    # Proportional to the 32x48 image below, so it may be drawn over it.
+    np.save(array_path, np.zeros((4, 6), np.float32))
     root = Detection(
         class_name="vehicle",
         boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.6, h=0.6),
@@ -273,10 +275,26 @@ def test_visualize_record_collects_nested_record_annotations(
             class_name=None,
         ),
     )
-    with_array_panel = visualize_record(
-        array_record, np.zeros((32, 32, 3), np.uint8)
+    # An array on its own adds no side panel: reporting its shape as text was
+    # a stand-in for not being able to draw it, and the field annotations
+    # replaced that.
+    plain = visualize_record(array_record, np.zeros((32, 32, 3), np.uint8))
+    assert isinstance(plain, Image)
+    assert plain.width == 32
+    assert not any(
+        isinstance(annotation, ArrayField)
+        for annotation in plain.annotations  # off unless asked for
     )
-    assert with_array_panel.width > 32
+
+    drawn = visualize_record(
+        array_record,
+        np.zeros((32, 48, 3), np.uint8),
+        options=RenderOptions(array_view="overlay"),
+    )
+    assert isinstance(drawn, Image)
+    assert any(
+        isinstance(annotation, ArrayField) for annotation in drawn.annotations
+    )
 
 
 def test_color_determinism_across_records():

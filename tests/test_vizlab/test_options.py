@@ -156,3 +156,24 @@ def test_explicit_heatmap_gradient_beats_options() -> None:
     with default_options(RenderOptions(gradient="magma")):
         under_magma = image.render()
     assert np.array_equal(pinned, under_magma)
+
+
+def test_array_options_are_off_by_default() -> None:
+    # Most array labels are not pictures, so nothing is drawn unless asked.
+    options = RenderOptions()
+    assert options.array_view == "off"
+    assert options.array_vmin is None
+    assert options.array_vmax is None
+    assert options.array_ignore_value is None
+    assert options.array_overlay_source is None
+    assert options.array_colorbar is True
+
+
+def test_array_options_round_trip_through_replace() -> None:
+    # Exercises the widened RenderOptionValue with a float and an explicit None.
+    options = RenderOptions().replace(
+        array_view="overlay", array_vmax=291.0, array_ignore_value=0.0
+    )
+    assert options.array_view == "overlay"
+    assert options.array_vmax == 291.0
+    assert options.replace(array_vmax=None).array_vmax is None

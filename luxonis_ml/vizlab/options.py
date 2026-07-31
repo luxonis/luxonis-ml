@@ -28,8 +28,41 @@ KeypointLabelMode = Literal["none", "numbers", "names", "full"]
 SkeletonDef = tuple[list[str], list[tuple[int, int]]]
 """A keypoint skeleton as ``(labels, edges)`` — ``get_skeletons()``'s shape."""
 
+ArrayView = Literal["off", "tile", "overlay"]
+"""How an array label is shown: not at all, in its own tile, or over the photo."""
+
+ArrayKind = Literal[
+    "scalar",
+    "signed",
+    "flow",
+    "normals",
+    "image",
+    "scores",
+    "confidence",
+    "class_confidence",
+]
+"""What an array label *is*, which decides how its values become colors.
+
+Shape alone cannot settle this — a ``(3, H, W)`` array is equally plausibly
+surface normals, an RGB picture, or three-class scores — and one stack has
+more than one honest reading (``scores`` and ``confidence`` share it), so the
+kind is resolved
+from an explicit setting, then a reserved task name, then the shape. See
+`luxonis_ml.vizlab.adapters.arrays.resolve_array_kind`.
+"""
+
+ArrayKinds: TypeAlias = tuple[tuple[str, ArrayKind], ...]
+"""Explicit ``(task_name, kind)`` overrides, scoped per task."""
+
 RenderOptionValue: TypeAlias = (
-    Theme | Gradient | str | Mapping[str, SkeletonDef] | bool
+    Theme
+    | Gradient
+    | str
+    | Mapping[str, SkeletonDef]
+    | ArrayKinds
+    | bool
+    | float
+    | None
 )
 """A value accepted by one of `RenderOptions`' configurable fields."""
 
@@ -51,6 +84,27 @@ class RenderOptions:
         antialias: Whether shape fills and strokes are anti-aliased. ``False`` is a
             render-wide speed trade for dense scenes — jagged shape edges, but
             faster; text stays anti-aliased so labels stay legible.
+        array_view: Whether, and how, to draw an array label whose shape is
+            understandable as a dense field. Off by default — most arrays are
+            not pictures. ``"tile"`` gives the field its own panel beside the
+            image; ``"overlay"`` blends it onto the image itself.
+        array_vmin: Pin the low end of every array field's value range. ``None``
+            scales each field to its own minimum, which makes two datasets look
+            alike even when their values differ — pin both ends to compare them.
+        array_vmax: Pin the high end of every array field's value range.
+        array_ignore_value: A "no data" sentinel in array fields, drawn
+            transparent and left out of the automatic range. See
+            `Heatmap.ignore_value`.
+        array_overlay_source: Which image source ``"overlay"`` draws onto.
+            ``None`` uses the first, since a field describes the reference view.
+        array_colorbar: Whether to draw a `ColorBar` keying each array field.
+        array_kinds: Explicit ``(task_name, kind)`` pairs pinning how a given
+            array is read, overriding both its reserved name and its shape. Kept
+            per task because one sample may carry several arrays of different
+            kinds — a disparity map beside an optical flow field, say.
+        array_center: The value a signed field's neutral color sits on. ``None``
+            centers on ``0.0`` when the kind is ``"signed"``. See
+            `Heatmap.center`.
 
     Examples:
         >>> from luxonis_ml.vizlab import RenderOptions, DARK_THEME
@@ -69,6 +123,14 @@ class RenderOptions:
     draw_skeletons: bool = False
     hover_metadata: bool = False
     antialias: bool = True
+    array_view: ArrayView = "off"
+    array_vmin: float | None = None
+    array_vmax: float | None = None
+    array_ignore_value: float | None = None
+    array_overlay_source: str | None = None
+    array_colorbar: bool = True
+    array_kinds: ArrayKinds = ()
+    array_center: float | None = None
 
     def replace(self, **changes: RenderOptionValue) -> "RenderOptions":
         """Return a copy with the given fields replaced."""

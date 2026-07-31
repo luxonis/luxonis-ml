@@ -345,3 +345,46 @@ def test_unlabeled_palette_key_is_per_type_not_per_instance() -> None:
         Mask(mask=np.ones((4, 4), np.uint8)).unlabeled_color_key()  # type: ignore[arg-type]
         != first.unlabeled_color_key()
     )
+
+
+# --- array fields -----------------------------------------------------------
+
+
+def test_hiding_arrays_drops_the_field_and_its_key() -> None:
+    from luxonis_ml.vizlab import ColorBar, Heatmap
+
+    annotations = [Heatmap(values=np.ones((4, 4))), ColorBar()]
+    state = LayerState()
+    assert len(state.apply_layers(annotations, PALETTE)) == 2
+    state.arrays = False
+    assert state.apply_layers(annotations, PALETTE) == []
+
+
+def test_a_key_toggles_arrays_even_without_any() -> None:
+    # Consumed unconditionally, so the key never changes meaning per sample.
+    state = LayerState()
+    assert state.handle("a") is True
+    assert state.arrays is False
+    assert state.handle("A") is True
+    assert state.arrays is True
+
+
+def test_array_control_row_appears_only_when_the_sample_has_fields() -> None:
+    assert "a" not in {c.key for c in LayerState().controls()}
+    keyed = {c.key: c for c in LayerState(has_arrays=True).controls()}
+    assert keyed["a"].name == "arrays"
+    assert keyed["a"].value == "on"
+
+
+def test_copy_carries_array_state() -> None:
+    # copy() enumerates fields by hand; a missed one only shows up under
+    # --prefetch, as a snapshot that silently disagrees with the live state.
+    state = LayerState(arrays=False, has_arrays=True)
+    clone = state.copy()
+    assert (clone.arrays, clone.has_arrays) == (False, True)
+    assert clone == state
+
+
+def test_is_default_is_false_when_arrays_are_hidden() -> None:
+    assert LayerState().is_default()
+    assert not LayerState(arrays=False).is_default()

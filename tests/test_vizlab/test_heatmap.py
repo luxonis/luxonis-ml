@@ -1,4 +1,4 @@
-"""Coverage for gradients and the Heatmap overlay."""
+"""Coverage for gradients, the Heatmap overlay, and its color key."""
 
 import numpy as np
 import pytest
@@ -6,6 +6,7 @@ import pytest
 from luxonis_ml.vizlab import (
     GRADIENTS,
     Color,
+    ColorBar,
     Gradient,
     Heatmap,
     Image,
@@ -159,3 +160,140 @@ def test_heatmap_without_normalization_uses_unit_range() -> None:
 
 def test_heatmap_extent_is_none() -> None:
     assert Heatmap(values=np.ones((2, 2))).extent() is None
+
+
+# --- nodata and non-finite values -------------------------------------------
+
+
+def test_heatmap_nan_does_not_poison_normalization() -> None:
+    # A bare min()/max() propagates NaN through the whole field, which the
+    # gradient then casts to arbitrary bytes -- silent, total corruption.
+    clean = np.array([[1.0, 2.0, 3.0]])
+    dirty = np.array([[1.0, 2.0, 3.0, np.nan]])
+    heat = Heatmap(values=dirty)
+    normalized = heat._normalized(dirty)
+    assert np.isfinite(normalized).all()
+    assert np.allclose(
+        normalized[0, :3], Heatmap(values=clean)._normalized(clean)[0]
+    )
+    assert normalized[0, 3] == 0.0  # the NaN lands at zero, not at NaN
+
+
+def test_heatmap_infinities_do_not_stretch_the_range() -> None:
+    field = np.array([[0.0, 5.0, 10.0, np.inf, -np.inf]])
+    assert Heatmap(values=field).value_range() == (0.0, 10.0)
+
+
+def test_heatmap_ignore_value_is_excluded_from_the_auto_range() -> None:
+    field = np.array([[0.0, 5.0, 10.0]])
+    assert Heatmap(values=field).value_range() == (0.0, 10.0)
+    assert Heatmap(values=field, ignore_value=0.0).value_range() == (5.0, 10.0)
+
+
+def test_heatmap_ignore_value_pixels_stay_transparent() -> None:
+    # The left half is the nodata sentinel, so those pixels must come through
+    # untouched while the right half -- which carries a real range -- is
+    # painted. weight_by_value is off so opacity isolates nodata from magnitude.
+    field = np.zeros((30, 40))
+    field[:, 20:] = np.linspace(1.0, 10.0, 20)[None, :]
+    base = _canvas().render()
+    out = (
+        _canvas()
+        .add(Heatmap(values=field, ignore_value=0.0, weight_by_value=False))
+        .render()
+    )
+    assert np.array_equal(out[:, :18], base[:, :18])  # sentinel region intact
+    assert not np.array_equal(out[:, 22:], base[:, 22:])  # data region painted
+
+
+def test_heatmap_all_nodata_field_draws_nothing() -> None:
+    field = np.full((30, 40), np.nan)
+    assert np.array_equal(
+        _canvas().add(Heatmap(values=field)).render(), _canvas().render()
+    )
+
+
+def test_heatmap_empty_field_draws_nothing() -> None:
+    assert np.array_equal(
+        _canvas().add(Heatmap(values=np.zeros(0))).render(), _canvas().render()
+    )
+
+
+def test_heatmap_without_ignore_value_is_unchanged() -> None:
+    # Backwards-compatibility guard: the default path must not shift a pixel.
+    field = np.linspace(0.0, 1.0, 30 * 40).reshape(30, 40)
+    assert np.array_equal(
+        _canvas().add(Heatmap(values=field)).render(),
+        _canvas().add(Heatmap(values=field, ignore_value=None)).render(),
+    )
+
+
+def test_heatmap_value_range_reports_explicit_bounds() -> None:
+    field = np.array([[0.0, 5.0, 10.0]])
+    assert Heatmap(values=field, vmin=-1.0, vmax=4.0).value_range() == (
+        -1.0,
+        4.0,
+    )
+    assert Heatmap(values=field, vmax=4.0).value_range() == (0.0, 4.0)
+    assert Heatmap(values=field, normalize=False).value_range() == (0.0, 1.0)
+
+
+# --- ColorBar ---------------------------------------------------------------
+
+
+def test_colorbar_for_heatmap_inherits_gradient_and_range() -> None:
+    # The key must never be an approximation of the field it describes.
+    heat = Heatmap(values=np.array([[0.0, 5.0, 10.0]]), gradient="magma")
+    key = ColorBar.for_heatmap(heat, title="depth")
+    assert key.gradient == heat.gradient
+    assert (key.vmin, key.vmax) == heat.value_range()
+    assert key.title == "depth"
+
+
+def test_colorbar_for_heatmap_carries_an_unset_gradient_through() -> None:
+    # Both None means both inherit the context gradient, so they cannot drift.
+    key = ColorBar.for_heatmap(Heatmap(values=np.ones((2, 2))))
+    assert key.gradient is None
+
+
+def test_colorbar_for_heatmap_excludes_nodata_from_its_range() -> None:
+    heat = Heatmap(values=np.array([[0.0, 5.0, 10.0]]), ignore_value=0.0)
+    assert ColorBar.for_heatmap(heat).vmin == 5.0
+
+
+def test_colorbar_renders_onto_the_image() -> None:
+    base = _canvas(120, 90).render()
+    out = _canvas(120, 90).add(ColorBar(vmin=0.0, vmax=291.0)).render()
+    assert out.shape == base.shape
+    assert not np.array_equal(out, base)
+
+
+def test_colorbar_extent_is_none() -> None:
+    assert ColorBar().extent() is None
+
+
+def test_colorbar_tick_values_span_the_range() -> None:
+    assert ColorBar(vmin=0.0, vmax=10.0)._tick_values() == [0.0, 10.0]
+    assert ColorBar(vmin=0.0, vmax=10.0, ticks=3)._tick_values() == [
+        0.0,
+        5.0,
+        10.0,
+    ]
+
+
+def test_colorbar_follows_the_gradient_it_is_given() -> None:
+    a = _canvas(120, 90).add(ColorBar(gradient="viridis")).render()
+    b = _canvas(120, 90).add(ColorBar(gradient="magma")).render()
+    assert not np.array_equal(a, b)
+
+
+def test_colorbar_stacks_with_a_legend_in_the_same_corner() -> None:
+    # CornerStack reserves its rectangle, so two overlays anchored to one
+    # corner offset rather than overlap.
+    from luxonis_ml.vizlab import Corner, Legend
+
+    legend = Legend(entries=["car"], corner=Corner.BOTTOM_RIGHT)
+    key = ColorBar(vmin=0.0, vmax=1.0, corner=Corner.BOTTOM_RIGHT)
+    both = _canvas(200, 150).add(legend).add(key).render()
+    only = _canvas(200, 150).add(legend).render()
+    assert not np.array_equal(both, only)

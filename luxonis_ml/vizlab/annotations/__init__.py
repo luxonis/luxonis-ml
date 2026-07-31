@@ -13,7 +13,16 @@ explicitly overridden.
 from .base import Annotation, RenderContext
 from .bbox import BBox
 from .classification import Classification
+from .colorbar import ColorBar, FlowWheel
 from .distribution import ClassDistribution
+from .fields import (
+    ArrayField,
+    ArrayImage,
+    FlowField,
+    NormalMap,
+    ScalarField,
+    SegmentationScores,
+)
 from .heatmap import Heatmap
 from .keypoints import Keypoints
 from .mask import Mask, SemanticMask
@@ -34,24 +43,40 @@ for _model in (
     Classification,
     ClassDistribution,
     Caption,
+    ColorBar,
+    FlowWheel,
     InfoCard,
     Legend,
+    ArrayField,
+    ScalarField,
+    FlowField,
+    NormalMap,
+    ArrayImage,
+    SegmentationScores,
 ):
     _model.model_rebuild()
 
 __all__ = [
     "Annotation",
+    "ArrayField",
+    "ArrayImage",
     "BBox",
     "Caption",
     "ClassDistribution",
     "Classification",
+    "ColorBar",
     "Corner",
     "CornerStack",
+    "FlowField",
+    "FlowWheel",
     "Heatmap",
     "InfoCard",
     "Keypoints",
     "Legend",
     "Mask",
+    "NormalMap",
     "RenderContext",
+    "ScalarField",
+    "SegmentationScores",
     "SemanticMask",
 ]

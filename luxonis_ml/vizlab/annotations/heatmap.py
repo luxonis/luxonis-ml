@@ -60,6 +60,144 @@ def _resize_field(field: np.ndarray, width: int, height: int) -> np.ndarray:
     return top * (1.0 - wy) + bot * wy
 
 
+def field_valid(
+    values: np.ndarray, ignore_value: float | None = None
+) -> np.ndarray:
+    """Mask the pixels of a field that carry data.
+
+    Args:
+        values: The raw field.
+        ignore_value: A "no data" sentinel, compared exactly.
+
+    Returns:
+        A boolean array, ``True`` where the value is finite and not the sentinel.
+
+    """
+    v = np.asarray(values, dtype=np.float64)
+    valid = np.isfinite(v)
+    if ignore_value is not None:
+        valid &= v != ignore_value
+    return valid
+
+
+def field_range(
+    values: np.ndarray,
+    *,
+    vmin: float | None = None,
+    vmax: float | None = None,
+    normalize: bool = True,
+    center: float | None = None,
+    ignore_value: float | None = None,
+) -> "tuple[float, float]":
+    """Resolve the value range a field's gradient spans.
+
+    ``center`` applies only when *neither* bound is pinned: it makes the
+    automatic range symmetric around that value, so the gradient's midpoint lands
+    exactly on it. Pinning both bounds is a more specific instruction and wins.
+
+    Args:
+        values: The raw field.
+        vmin: Pin the low end.
+        vmax: Pin the high end.
+        normalize: When ``False`` and neither bound is pinned, the field is
+            treated as already normalized and the range is ``(0, 1)``.
+        center: Value to center an automatic range on.
+        ignore_value: A "no data" sentinel, left out of an automatic range.
+
+    Returns:
+        The low and high ends, or ``(0.0, 0.0)`` when nothing is valid.
+
+    """
+    if vmin is not None and vmax is not None:
+        return float(vmin), float(vmax)
+    if vmin is None and vmax is None and not normalize:
+        return 0.0, 1.0
+    v = np.asarray(values, dtype=np.float64)
+    valid = field_valid(v, ignore_value)
+    if not valid.any():
+        return 0.0, 0.0
+    data = v[valid]
+    low = float(vmin) if vmin is not None else float(data.min())
+    high = float(vmax) if vmax is not None else float(data.max())
+    if center is not None and vmin is None and vmax is None:
+        radius = max(high - center, center - low, 0.0)
+        return center - radius, center + radius
+    return low, high
+
+
+def normalize_field(
+    values: np.ndarray,
+    *,
+    vmin: float | None = None,
+    vmax: float | None = None,
+    normalize: bool = True,
+    center: float | None = None,
+    ignore_value: float | None = None,
+) -> np.ndarray:
+    """Scale a field into ``[0, 1]`` over its valid pixels.
+
+    Invalid pixels land at ``0`` rather than propagating: without this a single
+    ``NaN`` makes the whole normalized field ``NaN``, which the gradient then
+    casts to arbitrary bytes. Callers make them transparent, so they are never
+    read as a real low value.
+    """
+    v = np.asarray(values, dtype=np.float64)
+    low, high = field_range(
+        v,
+        vmin=vmin,
+        vmax=vmax,
+        normalize=normalize,
+        center=center,
+        ignore_value=ignore_value,
+    )
+    if high <= low:
+        return np.zeros_like(v)
+    out = np.zeros_like(v)
+    np.divide(v - low, high - low, out=out, where=field_valid(v, ignore_value))
+    return np.clip(out, 0.0, 1.0)
+
+
+def field_rgba(
+    field: np.ndarray,
+    valid: np.ndarray,
+    *,
+    gradient: Gradient | str,
+    alpha: float,
+    weight_by_value: bool,
+    width: int,
+    height: int,
+) -> np.ndarray:
+    """Resample a normalized field to the canvas and color it.
+
+    Args:
+        field: The source-resolution field, already scaled to ``[0, 1]``.
+        valid: The source-resolution mask of pixels carrying data.
+        gradient: Colormap to run the values through.
+        alpha: Peak opacity in ``[0, 1]``.
+        weight_by_value: Whether opacity scales with the value.
+        width: Target canvas width.
+        height: Target canvas height.
+
+    Returns:
+        An ``(height, width, 4)`` ``uint8`` RGBA overlay.
+
+    """
+    scaled = np.clip(_resize_field(field, width, height), 0.0, 1.0)
+    rgb = resolve_gradient(gradient).colorize(scaled)
+    peak = round(max(0.0, min(1.0, alpha)) * 255)
+    weights = scaled if weight_by_value else np.ones_like(scaled)
+    if not valid.all():
+        # Resampling the mask as a float and multiplying — rather than
+        # thresholding it — anti-aliases the nodata boundary for free.
+        # Resampling the *values* still bleeds across that boundary, but invalid
+        # pixels normalize to 0, so the bleed is bounded to the low end of the
+        # range and is already faded out by this alpha.
+        weights = weights * np.clip(
+            _resize_field(valid.astype(np.float64), width, height), 0.0, 1.0
+        )
+    return np.dstack([rgb, (weights * peak).astype(np.uint8)])
+
+
 class Heatmap(Annotation):
     """A translucent gradient-colored overlay of a dense scalar field.
 
@@ -92,6 +230,20 @@ class Heatmap(Annotation):
             ``None`` uses the field minimum (or ``0`` when ``normalize`` is off).
         vmax: Upper bound of the value range; values at or above it map to ``1``.
             ``None`` uses the field maximum (or ``1`` when ``normalize`` is off).
+        center: Value the gradient's midpoint sits on, making the automatic range
+            symmetric around it. Set it to ``0`` with a diverging gradient (see
+            `luxonis_ml.vizlab.gradient.GRADIENTS`) to read a signed field — an
+            error or residual map — where the sign matters as much as the
+            magnitude; otherwise min-max stretching puts zero at an arbitrary
+            color. Ignored when both ``vmin`` and ``vmax`` are pinned, since that
+            is the more specific instruction.
+        ignore_value: A "no data" sentinel — pixels exactly equal to it are left
+            out of an automatic range and drawn fully transparent. Use it for
+            fields that mark gaps with a value rather than with ``NaN``, such as
+            a stereo disparity map whose unmatched pixels are ``0``. Compared
+            exactly, since a sentinel is a stored constant rather than a
+            measurement. Non-finite values are always treated this way, with or
+            without a sentinel.
 
     See `Annotation` for the shared fields
     (``label``/``color``/``palette`` do not apply — color comes from the gradient).
@@ -113,20 +265,73 @@ class Heatmap(Annotation):
     normalize: bool = True
     vmin: float | None = None
     vmax: float | None = None
+    center: float | None = None
+    ignore_value: float | None = None
+
+    def _valid(self, values: np.ndarray) -> np.ndarray:
+        """Mask the pixels that carry data.
+
+        Args:
+            values: The raw field.
+
+        Returns:
+            A boolean array, ``True`` where the value is finite and not the
+            ``ignore_value`` sentinel.
+
+        """
+        return field_valid(values, self.ignore_value)
+
+    def _range(self, values: np.ndarray) -> "tuple[float, float]":
+        """Resolve the mapped range of ``values`` over its valid pixels."""
+        return field_range(
+            values,
+            vmin=self.vmin,
+            vmax=self.vmax,
+            normalize=self.normalize,
+            center=self.center,
+            ignore_value=self.ignore_value,
+        )
+
+    def value_range(self) -> "tuple[float, float]":
+        """Report the values that map to the gradient's two ends.
+
+        Resolves ``vmin``/``vmax``/``normalize`` against the *valid* pixels, so
+        a nodata sentinel or a stray ``NaN`` never widens the range. `ColorBar`
+        labels its ends with this.
+
+        Returns:
+            The low and high ends of the mapped range, or ``(0.0, 0.0)`` when
+            the field is empty or entirely invalid.
+
+        Examples:
+            >>> import numpy as np
+            >>> from luxonis_ml.vizlab import Heatmap
+            >>> field = np.array([[0.0, 5.0, 10.0]])
+            >>> Heatmap(values=field).value_range()
+            (0.0, 10.0)
+            >>> Heatmap(values=field, ignore_value=0.0).value_range()
+            (5.0, 10.0)
+
+        """
+        values = np.zeros(0) if self.values is None else self.values
+        return self._range(np.asarray(values))
 
     def _normalized(self, values: np.ndarray) -> np.ndarray:
-        """Scale the field into ``[0, 1]`` per ``vmin``/``vmax``/``normalize``."""
-        v = np.asarray(values, dtype=np.float64)
-        if self.vmin is not None or self.vmax is not None:
-            lo = self.vmin if self.vmin is not None else float(v.min())
-            hi = self.vmax if self.vmax is not None else float(v.max())
-        elif self.normalize:
-            lo, hi = float(v.min()), float(v.max())
-        else:
-            lo, hi = 0.0, 1.0
-        if hi <= lo:
-            return np.zeros_like(v)
-        return np.clip((v - lo) / (hi - lo), 0.0, 1.0)
+        """Scale the field into ``[0, 1]`` per ``vmin``/``vmax``/``normalize``.
+
+        Invalid pixels land at ``0`` rather than propagating: without this a
+        single ``NaN`` makes the whole normalized field ``NaN``, which the
+        gradient then casts to arbitrary bytes. `draw_fill` makes them
+        transparent, so they are never read as a real low value.
+        """
+        return normalize_field(
+            values,
+            vmin=self.vmin,
+            vmax=self.vmax,
+            normalize=self.normalize,
+            center=self.center,
+            ignore_value=self.ignore_value,
+        )
 
     def resolve_color(self, ctx: RenderContext) -> Color:
         """Heatmaps color per value through the gradient, so no single color applies.
@@ -162,20 +367,21 @@ class Heatmap(Annotation):
         """
         if self.values is None:
             return
+        raw = np.asarray(self.values)
+        if raw.size == 0:
+            return
         canvas = ctx.canvas
-        field = self._normalized(np.asarray(self.values))
-        field = _resize_field(field, canvas.width, canvas.height)
-        field = np.clip(field, 0.0, 1.0)
-        # Own gradient wins; else inherit the render options' default; else the
-        # library default. (Preset names and Gradient objects are all truthy.)
-        gradient = self.gradient or ctx.gradient or DEFAULT_GRADIENT
-        rgb = resolve_gradient(gradient).colorize(field)
-        peak = round(max(0.0, min(1.0, self.alpha)) * 255)
-        if self.weight_by_value:
-            alpha = (field * peak).astype(np.uint8)
-        else:
-            alpha = np.full(field.shape, peak, dtype=np.uint8)
-        rgba = np.dstack([rgb, alpha])
+        rgba = field_rgba(
+            self._normalized(raw),
+            self._valid(raw),
+            # Own gradient wins; else inherit the render options' default; else
+            # the library default. (Names and Gradient objects are all truthy.)
+            gradient=self.gradient or ctx.gradient or DEFAULT_GRADIENT,
+            alpha=self.alpha,
+            weight_by_value=self.weight_by_value,
+            width=canvas.width,
+            height=canvas.height,
+        )
         canvas.blit(rgba, 0, 0)
 
     def draw(self, ctx: RenderContext, style: Style, color: Color) -> None:

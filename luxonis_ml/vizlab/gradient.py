@@ -5,14 +5,18 @@ and re-exported here under the name vizlab uses internally.
 """
 
 from luxonis_ml.utils.color.gradient import (
+    DEFAULT_DIVERGING_GRADIENT,
     DEFAULT_GRADIENT,
+    DIVERGING_GRADIENTS,
     GRADIENTS,
     Gradient,
     resolve_gradient,
 )
 
 __all__ = [
+    "DEFAULT_DIVERGING_GRADIENT",
     "DEFAULT_GRADIENT",
+    "DIVERGING_GRADIENTS",
     "GRADIENTS",
     "Gradient",
     "resolve_gradient",

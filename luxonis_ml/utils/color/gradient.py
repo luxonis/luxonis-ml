@@ -194,6 +194,8 @@ _PRESETS: dict[str, tuple[str, ...]] = {
     "jet": ("#000080", "#0000ff", "#00ffff", "#ffff00", "#ff0000", "#800000"),
     "hot": ("#000000", "#ff0000", "#ffff00", "#ffffff"),
     "coolwarm": ("#3b4cc0", "#6f91f2", "#dddcdc", "#f6a385", "#b40426"),
+    "rdbu": ("#67001f", "#d6604d", "#f7f7f7", "#4393c3", "#053061"),
+    "seismic": ("#00004c", "#0000ff", "#ffffff", "#ff0000", "#800000"),
     "grayscale": ("#000000", "#ffffff"),
 }
 
@@ -205,6 +207,18 @@ GRADIENTS: dict[str, Gradient] = {
 
 DEFAULT_GRADIENT = "turbo"
 """Name of the gradient used by `Heatmap` when none is given."""
+
+DIVERGING_GRADIENTS = frozenset({"coolwarm", "rdbu", "seismic"})
+"""Presets built around a neutral midpoint.
+
+Each has an odd number of evenly spaced stops with a near-white one in the
+middle, so pairing them with `Heatmap.center` puts that neutral color exactly on
+the center value. The sequential presets have no such anchor: centering them
+still balances the range, but no particular color marks the middle.
+"""
+
+DEFAULT_DIVERGING_GRADIENT = "coolwarm"
+"""Name of the gradient used for a signed field when none is given."""
 
 
 def resolve_gradient(gradient: "Gradient | str") -> Gradient:

@@ -185,24 +185,24 @@ def test_present_sample_metadata_splits_batch_into_labelled_samples() -> None:
     }
 
 
-def test_array_shapes_keep_complete_nested_task_paths() -> None:
+def test_array_labels_keep_complete_nested_task_paths() -> None:
+    # The one place deciding which labels are arrays and how --task-name scopes
+    # them, so the renderer and the annotation-type filter cannot disagree.
     labels = {
         "parent/depth/array": np.zeros((2, 3)),
         "parent/flow/array": np.zeros((4, 5, 2)),
     }
 
-    assert data_main._array_shapes(labels) == {
-        "parent/depth": [2, 3],
-        "parent/flow": [4, 5, 2],
-    }
-    assert data_main._array_shapes(labels, frozenset({"parent/depth"})) == {
-        "parent/depth": [2, 3]
-    }
-    assert data_main._array_shapes(
-        labels,
-        frozenset({"parent/depth"}),
-        "exclude",
-    ) == {"parent/flow": [4, 5, 2]}
+    assert sorted(data_main._array_labels(labels)) == [
+        "parent/depth",
+        "parent/flow",
+    ]
+    assert sorted(
+        data_main._array_labels(labels, frozenset({"parent/depth"}))
+    ) == ["parent/depth"]
+    assert sorted(
+        data_main._array_labels(labels, frozenset({"parent/depth"}), "exclude")
+    ) == ["parent/flow"]
 
 
 def test_present_sample_metadata_collapses_single_input() -> None:
@@ -450,7 +450,8 @@ def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
     finally:
         set_default_options(RenderOptions())
 
-    assert backend.shown == ["image"]
+    # One window per sample now, titled with the dataset, not one per source.
+    assert backend.shown == ["dataset"]
     assert len(panels) == 1
     panel = panels[0]
     assert isinstance(panel, dict)
@@ -618,7 +619,7 @@ def test_inspect_grid_renders_real_frames(
 
     # The first run uses the two-task grid. Filtering to one task takes the
     # single-record blend path. Include and exclude modes keep opposite tasks.
-    assert backend.shown == ["image", "image", "image", "image"]
+    assert backend.shown == ["dataset", "dataset", "dataset", "dataset"]
     assert filtered_tasks == [["a"], ["b"]]
     assert color_modes == ["class", "task", "class"]
 
@@ -897,7 +898,7 @@ def test_inspect_sample_filters_select_whole_matching_sample(
     finally:
         set_default_options(RenderOptions())
 
-    assert backend.shown == ["image"]
+    assert backend.shown == ["dataset"]
     assert rendered_labels == [["car", "person"]]
 
 
@@ -1030,7 +1031,7 @@ def test_inspect_prefetch_renders_the_next_frame_while_waiting_for_input(
     finally:
         set_default_options(RenderOptions())
 
-    assert backend.shown == ["image", "image"]
+    assert backend.shown == ["dataset", "dataset"]
     assert len(prepare_threads) == 2
     assert all(thread != consumer_thread for thread in prepare_threads)
 
@@ -1112,7 +1113,7 @@ def test_inspect_layer_key_rerenders_and_toggles_state(
     viewer = created[0]
     assert viewer.layers.masks is False  # 'm' toggled masks off
     # The window was painted twice: the initial show plus the 'm' re-render.
-    assert backend.shown == ["image", "image"]
+    assert backend.shown == ["dataset", "dataset"]
 
 
 def test_inspect_show_all_starts_with_decluttering_off(
@@ -1386,7 +1387,8 @@ def test_compare_command_renders_verdict_frame(
     finally:
         set_default_options(RenderOptions())
 
-    assert backend.shown == ["image"]  # the comparison frame was presented
+    # One window per sample, titled with the ground-truth dataset.
+    assert backend.shown == ["ground_truth"]
     # Identical GT and predictions -> a single true positive, no false positives.
     metrics = next(data for title, data in panels if title == "Comparison")
     assert isinstance(metrics, dict)
@@ -1474,9 +1476,8 @@ def test_compare_command_supports_dual_and_triple_layouts(
             data_main.compare("gt", "preds", layout=layout)  # type: ignore[arg-type]
         finally:
             set_default_options(RenderOptions())
-        assert backend.shown == [
-            "image"
-        ]  # the multi-panel frame was presented
+        # The multi-panel frame was presented, in one window.
+        assert backend.shown == ["gt"]
 
 
 def test_compare_command_errors_only_still_shows_frame(
@@ -1493,7 +1494,7 @@ def test_compare_command_errors_only_still_shows_frame(
         data_main.compare("gt", "preds", errors_only=True)
     finally:
         set_default_options(RenderOptions())
-    assert backend.shown == ["image"]
+    assert backend.shown == ["gt"]
 
 
 def test_compare_command_summary_writes_confusion_figure(
@@ -1639,8 +1640,15 @@ def test_compare_matches_by_filename_and_reports_unpaired_samples(
 
 def _save_mocks(
     monkeypatch: pytest.MonkeyPatch,
+    *,
+    sources: Sequence[str] = ("frame01.jpg",),
+    labels: "Labels | None" = None,
 ) -> None:
-    """Wire fakes so ``inspect`` runs headless over one 60x40 car sample."""
+    """Wire fakes so ``inspect`` runs headless over one 60x40 car sample.
+
+    ``sources`` gives the sample several image sources (a stereo pair, say) and
+    ``labels`` supplies raw loader labels such as ``{"stereo/array": ...}``.
+    """
     image = np.zeros((40, 60, 3), dtype=np.uint8)
     record = DatasetRecord.model_construct(
         files={},
@@ -1681,7 +1689,9 @@ def _save_mocks(
 
         def __iter__(self) -> Iterator[SimpleNamespace]:
             yield SimpleNamespace(
-                images={"frame01.jpg": image}, labels={}, metadata={}
+                images=dict.fromkeys(sources, image),
+                labels=labels or {},
+                metadata={},
             )
 
     from luxonis_ml.data.loaders import label_converter
@@ -1872,3 +1882,230 @@ def test_inspect_auto_size_reserves_space_for_controls_panel(
         set_default_options(RenderOptions())
 
     assert image_widths == [500]
+
+
+# --- multi-source tiling and array fields -----------------------------------
+
+
+def _rendered_width(directory: Path) -> int:
+    """Width of the single render a headless save wrote."""
+    import cv2
+
+    written = sorted(directory.iterdir())
+    assert len(written) == 1, [p.name for p in written]
+    return cv2.imread(str(written[0])).shape[1]
+
+
+def _stereo_array() -> "Labels":
+    """Build a loader-shaped array label matching the fake 60x40 sample."""
+    return {
+        "stereo/array": np.linspace(0.0, 10.0, 40 * 60).reshape(1, 1, 40, 60)
+    }
+
+
+def test_inspect_tiles_multiple_sources_into_one_render(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Two sources used to mean two windows -- which the viewer centres on the
+    # same screen point -- and two saved files. Now they tile into one.
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch, sources=("left.jpg", "right.jpg"))
+    try:
+        data_main.inspect("ds", save=tmp_path / "stereo", plain=True)
+    finally:
+        set_default_options(RenderOptions())
+
+    assert _rendered_width(tmp_path / "stereo") > 2 * 60  # both, side by side
+
+
+def test_inspect_ignores_arrays_unless_asked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Most arrays are not pictures, so nothing changes without --array-viz.
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch, labels=_stereo_array())
+    try:
+        data_main.inspect("ds", save=tmp_path / "off", plain=True)
+    finally:
+        set_default_options(RenderOptions())
+
+    assert _rendered_width(tmp_path / "off") == 60  # the lone source, untiled
+
+
+def test_inspect_array_viz_adds_a_tile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch, labels=_stereo_array())
+    try:
+        data_main.inspect(
+            "ds", save=tmp_path / "tiled", plain=True, array_viz=True
+        )
+    finally:
+        set_default_options(RenderOptions())
+
+    assert (
+        _rendered_width(tmp_path / "tiled") > 60
+    )  # the field got its own tile
+
+
+def test_inspect_array_overlay_keeps_one_tile_and_targets_one_source(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # An overlay paints onto a source rather than adding a tile, and only onto
+    # the reference view -- a disparity map does not describe the other one.
+    import cv2
+
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(
+        monkeypatch, sources=("left.jpg", "right.jpg"), labels=_stereo_array()
+    )
+    try:
+        data_main.inspect(
+            "ds",
+            save=tmp_path / "over",
+            plain=True,
+            array_viz=True,
+            array_mode="overlay",
+        )
+    finally:
+        set_default_options(RenderOptions())
+
+    written = sorted((tmp_path / "over").iterdir())
+    rendered = cv2.imread(str(written[0]))
+    # Two source tiles, no third: an overlay does not add one.
+    assert rendered.shape[1] < 3 * 60
+    left, right = rendered[:, :60], rendered[:, -60:]
+    assert not np.array_equal(left, right)  # only the first source was painted
+
+
+def test_inspect_array_options_require_array_viz(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Silently ignoring a refinement would render a frame that is not what was
+    # asked for, so each one is rejected up front.
+    _save_mocks(monkeypatch, labels=_stereo_array())
+    for kwargs in (
+        {"array_vmax": 291.0},
+        {"array_ignore": 0.0},
+        {"array_mode": "overlay"},
+        {"array_colorbar": False},
+        {"array_kind": [("stereo", "flow")]},
+    ):
+        with pytest.raises(ValueError, match="requires --array-viz"):
+            data_main.inspect("ds", **kwargs)  # type: ignore[arg-type]
+
+
+def test_inspect_array_kind_pins_how_a_task_is_read(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The stereo fixture is a plain 2-D field, which would infer as `scalar`.
+    # Pinning it to `signed` has to win, and has to reach the built annotation.
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+    from luxonis_ml.vizlab.adapters import arrays as arrays_adapter
+
+    built: list[object] = []
+    real = arrays_adapter.array_annotations
+
+    def capture(*args: object, **kwargs: object) -> object:
+        result = real(*args, **kwargs)  # type: ignore[arg-type]
+        built.extend(drawing.kind for drawing in result)
+        return result
+
+    monkeypatch.setattr(arrays_adapter, "array_annotations", capture)
+    _save_mocks(monkeypatch, labels=_stereo_array())
+    try:
+        data_main.inspect(
+            "ds",
+            save=tmp_path / "pinned",
+            plain=True,
+            array_viz=True,
+            array_kind=[("stereo", "signed")],
+        )
+    finally:
+        set_default_options(RenderOptions())
+
+    assert built == ["signed"]
+
+
+def test_inspect_array_flags_reach_the_heatmap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The range and sentinel are what make two datasets comparable, so check
+    # they arrive rather than only that something was drawn.
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+    from luxonis_ml.vizlab.adapters import arrays as arrays_adapter
+
+    built: list[object] = []
+    real = arrays_adapter.array_annotations
+
+    def capture(*args: object, **kwargs: object) -> object:
+        result = real(*args, **kwargs)  # type: ignore[arg-type]
+        built.extend(drawing.field for drawing in result)
+        return result
+
+    # The command imports the bridge inside its body, so the patch has to land
+    # on the source module rather than on a name in __main__.
+    monkeypatch.setattr(arrays_adapter, "array_annotations", capture)
+    _save_mocks(monkeypatch, labels=_stereo_array())
+    try:
+        data_main.inspect(
+            "ds",
+            save=tmp_path / "pinned",
+            plain=True,
+            array_viz=True,
+            array_vmin=0.0,
+            array_vmax=291.0,
+            array_ignore=0.0,
+            array_gradient="magma",
+        )
+    finally:
+        set_default_options(RenderOptions())
+
+    assert built, "no array field was built"
+    field = built[0]
+    assert (field.vmin, field.vmax, field.ignore_value) == (0.0, 291.0, 0.0)  # type: ignore[attr-defined]
+
+
+def test_inspect_rejects_an_unknown_array_gradient(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _save_mocks(monkeypatch, labels=_stereo_array())
+    with pytest.raises(KeyError, match="unknown gradient"):
+        data_main.inspect("ds", array_viz=True, array_gradient="nope")
+
+
+def test_inspect_syncs_has_arrays_onto_the_live_layer_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `has_arrays` participates in LayerState equality, so without syncing it
+    # from the sample snapshot the live state never compares equal and every
+    # frame is re-rendered instead of using the prefetched one. That shows up
+    # as "prefetch silently stopped helping", not as an error -- hence the test.
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    created: list[RealViewer] = []
+    backend = _FakeBackend(keys=[ord("q")])
+
+    def make_viewer(**_k: object) -> RealViewer:
+        viewer = RealViewer(backend)
+        created.append(viewer)
+        return viewer
+
+    monkeypatch.setattr(viewer_module, "Viewer", make_viewer)
+    _save_mocks(monkeypatch, labels=_stereo_array())
+
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    try:
+        data_main.inspect("ds", array_viz=True)
+    finally:
+        set_default_options(RenderOptions())
+
+    layers = created[0].layers
+    assert layers.has_arrays is True
+    assert "a" in {control.key for control in layers.controls()}

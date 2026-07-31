@@ -69,6 +69,18 @@ app = App(help="Dataset utilities.")
 
 BucketStorageT: TypeAlias = Annotated[BucketStorage, Parameter(alias="-b")]
 _SampleIdentity: TypeAlias = tuple[tuple[str, str], ...]
+#: Mirrors `luxonis_ml.vizlab.options.ArrayKind`, spelled out here because this
+#: module must import without the ``viz`` extra installed.
+_ArrayKindName: TypeAlias = Literal[
+    "scalar",
+    "signed",
+    "flow",
+    "normals",
+    "image",
+    "scores",
+    "confidence",
+    "class_confidence",
+]
 _ClassMappings: TypeAlias = dict[str, dict[str, int]]
 _NO_SAMPLE_FILTERS = SampleFilterConfig()
 _DATASET_OPTIONS = Group("Dataset options", sort_key=10)
@@ -82,23 +94,21 @@ _OUTPUT_OPTIONS = Group("Output options", sort_key=60)
 
 
 @dataclass(frozen=True, slots=True)
-class _PreparedInspectionWindow:
-    """One source image rendered ahead for immediate presentation."""
-
-    name: str
-    image: np.ndarray
-    frame: "PreparedFrame"
-
-
-@dataclass(frozen=True, slots=True)
 class _PreparedInspectionSample:
-    """A sample whose source windows have completed background rendering."""
+    """A sample whose single composed frame finished background rendering.
 
+    Every image source of a sample is tiled into that one frame rather than
+    getting a window of its own, so a stereo pair reads as a pair instead of as
+    two windows the viewer would stack on the same screen point.
+    """
+
+    images: "dict[str, np.ndarray]"
+    arrays: "dict[str, np.ndarray]"
     records: "dict[str, DatasetRecord]"
     panel: "dict[str, PanelData]"
     layers: "LayerState"
     color_by: "ColorBy"
-    windows: tuple[_PreparedInspectionWindow, ...]
+    frame: "PreparedFrame"
 
 
 def _deduped_class_names(
@@ -162,15 +172,20 @@ def _filter_records_by_task(
     }
 
 
-def _array_shapes(
+def _array_labels(
     labels: "Labels",
     task_names: frozenset[str] | None = None,
     mode: NameFilterMode = "include",
-) -> dict[str, list[int]]:
-    """Return array shapes keyed by complete, optionally filtered task path."""
+) -> dict[str, np.ndarray]:
+    """Return array labels keyed by complete, optionally filtered task path.
+
+    The one place that decides which labels are arrays, so the annotation-type
+    filter and the renderer can never disagree about what ``--task-name``
+    scopes.
+    """
     suffix = "/array"
     return {
-        key[: -len(suffix)]: list(value.shape)
+        key[: -len(suffix)]: value
         for key, value in labels.items()
         if get_task_type(key) == "array"
         and key.endswith(suffix)
@@ -189,7 +204,7 @@ def _loader_annotation_types(
     """Annotation families present only in raw loader labels."""
     return (
         frozenset({"array"})
-        if _array_shapes(labels, task_names, mode)
+        if _array_labels(labels, task_names, mode)
         else frozenset()
     )
 
@@ -645,6 +660,44 @@ def inspect(
         bool,
         Parameter(alias="-bg", negative="", group=_VISUALIZATION_OPTIONS),
     ] = False,
+    array_viz: Annotated[
+        bool,
+        Parameter(alias="-av", negative="", group=_VISUALIZATION_OPTIONS),
+    ] = False,
+    array_mode: Annotated[
+        Literal["tile", "overlay"],
+        Parameter(group=_VISUALIZATION_OPTIONS),
+    ] = "tile",
+    array_kind: Annotated[
+        "list[tuple[str, _ArrayKindName]] | None",
+        Parameter(group=_VISUALIZATION_OPTIONS),
+    ] = None,
+    array_gradient: Annotated[
+        str | None,
+        Parameter(group=_VISUALIZATION_OPTIONS),
+    ] = None,
+    array_vmin: Annotated[
+        float | None,
+        Parameter(group=_VISUALIZATION_OPTIONS),
+    ] = None,
+    array_vmax: Annotated[
+        float | None,
+        Parameter(group=_VISUALIZATION_OPTIONS),
+    ] = None,
+    array_ignore: Annotated[
+        float | None,
+        Parameter(group=_VISUALIZATION_OPTIONS),
+    ] = None,
+    array_source: Annotated[
+        str | None,
+        Parameter(group=_VISUALIZATION_OPTIONS),
+    ] = None,
+    array_colorbar: Annotated[
+        bool,
+        Parameter(
+            negative="--no-array-colorbar", group=_VISUALIZATION_OPTIONS
+        ),
+    ] = True,
     fast: Annotated[
         bool,
         Parameter(alias="-fa", negative="", group=_VISUALIZATION_OPTIONS),
@@ -690,6 +743,8 @@ def inspect(
     - ``m`` / ``k`` / ``b`` / ``l`` — toggle masks / keypoints / boxes / labels.
     - ``d`` — toggle decluttering (on by default): in busy scenes, tiny
       detections ringed by many others are hidden as noise; press to show all.
+    - ``a`` — toggle array fields, offered only for datasets that
+      have them (see ``--array-viz``).
     - ``c`` — cycle a class focus through the classes present in the sample
       (isolating one class at a time; again to show all). After toggling classes
       by clicking the legend, ``c`` first resets them and restarts the cycle.
@@ -732,6 +787,38 @@ def inspect(
             instance-color mode because colors identify individual instances.
         show_background: Render the semantic-segmentation background class
             (hidden by default) and include it in the palette and legend.
+        array_viz: Draw array labels whose shape is understandable as a dense
+            field — a disparity or depth map, an uncertainty field. Off by
+            default because most arrays (embeddings, say) are not pictures;
+            those are left undrawn however this is set.
+        array_kind: How to read a given array, as ``<task> <kind>`` pairs;
+            repeat the flag once per array. Overrides both the reserved task
+            names (``disparity``, ``flow``, ``segmentation``, …) and the shape
+            guess, and is scoped per task because one sample may hold several
+            arrays of different kinds. Kinds are ``scalar``, ``signed`` (a
+            diverging map centered on zero, for error fields), ``flow``,
+            ``normals``, ``image``, ``scores`` (argmax of a per-class stack
+            to a segmentation mask), and ``confidence`` (the same stack read
+            as how sure the winning class was, rather than which it was), and
+            ``class_confidence`` (both at once — class colors, faded where
+            the model hesitated).
+        array_mode: How ``--array-viz`` draws a field: ``tile`` gives it its own
+            panel beside the images, ``overlay`` blends it onto the image. An
+            overlay is only drawn when the field's proportions match the photo's,
+            and only onto one source (see ``--array-source``).
+        array_gradient: Colormap for array fields, e.g. ``viridis`` or
+            ``turbo``. Also applies to any other heatmap in the scene.
+        array_vmin: Pin the low end of the value range. Without it each field is
+            scaled to its own minimum, which makes two datasets look alike even
+            when their values differ — pin both ends to compare them.
+        array_vmax: Pin the high end of the value range.
+        array_ignore: A "no data" value in the field, drawn transparent and left
+            out of the automatic range. Use ``--array-ignore 0`` for a stereo
+            disparity map that marks unmatched pixels with zero.
+        array_source: Which image source ``--array-mode overlay`` draws onto.
+            Defaults to the first, since a field describes the reference view.
+        array_colorbar: Draw a colour key beside each field, so its values can
+            be read off the colours.
         fast: Lighter, much faster rendering for large or dense datasets: draw
             masks as fills only (no contour outlines), drop the soft drop shadows,
             and turn off shape anti-aliasing. Shape edges look slightly harder and
@@ -779,6 +866,24 @@ def inspect(
     effective_color_by = "instance" if per_instance else color_by or "class"
     if prefetch < 0:
         raise ValueError("--prefetch must be non-negative.")
+    # Refining something that is switched off would silently do nothing, so say
+    # so rather than rendering a frame that ignores what was asked for.
+    refinements = {
+        "--array-mode": array_mode != "tile",
+        "--array-kind": bool(array_kind),
+        "--array-gradient": array_gradient is not None,
+        "--array-vmin": array_vmin is not None,
+        "--array-vmax": array_vmax is not None,
+        "--array-ignore": array_ignore is not None,
+        "--array-source": array_source is not None,
+        "--no-array-colorbar": not array_colorbar,
+    }
+    if not array_viz and (
+        given := [f for f, used in refinements.items() if used]
+    ):
+        raise ValueError(
+            f"{', '.join(given)} requires --array-viz, which is off by default."
+        )
 
     available_tasks = (
         dataset.get_task_names() if filters.task_name is not None else ()
@@ -842,6 +947,9 @@ def inspect(
         get_applied_augmentations = list
 
     classes = dataset.get_classes()
+    # Class names per task, so an array whose channels ride the LDF class
+    # axis comes back with those channels named rather than numbered.
+    array_class_names = dataset.get_class_names()
     categorical_encodings = dataset.get_categorical_encodings()
     keypoint_skeletons = dataset.get_skeletons()
 
@@ -862,9 +970,11 @@ def inspect(
             Swatches,
             fit_grid,
             grid,
+            resolve_gradient,
             set_default_options,
             visualize_record,
         )
+        from luxonis_ml.vizlab.adapters.arrays import array_annotations
         from luxonis_ml.vizlab.adapters.instances import (
             records_to_colored_annotations,
             spatial_instances,
@@ -908,7 +1018,18 @@ def inspect(
         hover_metadata=True,
         # --fast also drops shape anti-aliasing (a render-wide setting).
         antialias=not fast,
+        array_view=array_mode if array_viz else "off",
+        array_vmin=array_vmin,
+        array_vmax=array_vmax,
+        array_ignore_value=array_ignore,
+        array_overlay_source=array_source,
+        array_colorbar=array_colorbar,
+        array_kinds=tuple(array_kind or ()),
     )
+    if array_gradient:
+        # Resolved eagerly so a typo fails now, with the list of valid names,
+        # rather than at the first render.
+        options = options.replace(gradient=resolve_gradient(array_gradient))
     # Make single images, panels, and grid backgrounds all follow the options
     # (so bare Images in this command pick up the theme/palette too).
     set_default_options(options)
@@ -974,12 +1095,64 @@ def inspect(
         out.update(panel)
         return out
 
+    def overlay_arrays(
+        viz: Image,
+        arrays: "Mapping[str, np.ndarray]",
+        layers: "LayerState",
+    ) -> None:
+        """Blend any array field onto ``viz``, when ``--array-mode overlay``.
+
+        The caller decides *which* source gets them; see `sample_tiles`.
+        """
+        if options.array_view != "overlay" or not arrays or not layers.arrays:
+            return
+        for drawing in array_annotations(
+            arrays,
+            options=options,
+            image_shape=(viz.height, viz.width),
+            class_names=array_class_names,
+        ):
+            # Added before the detections so the field paints beneath them.
+            for annotation in drawing.annotations():
+                viz.add(annotation)
+
+    def array_tiles(
+        arrays: "Mapping[str, np.ndarray]", layers: "LayerState"
+    ) -> "tuple[list[Renderable], list[str]]":
+        """Render each array field as its own tile, when ``--array-mode tile``."""
+        if options.array_view != "tile" or not arrays or not layers.arrays:
+            return [], []
+        tiles: list[Renderable] = []
+        titles: list[str] = []
+        background = viz_theme.background
+        for drawing in array_annotations(
+            arrays, options=options, class_names=array_class_names
+        ):
+            field = drawing.field.field()
+            if field is None:
+                continue
+            height, width = field.shape[-2:]
+            # On the theme background rather than black, so a nodata pixel reads
+            # as absent instead of as a low value.
+            canvas = np.full(
+                (height, width, 3),
+                (background.r, background.g, background.b),
+                np.uint8,
+            )
+            tile = Image(canvas, options=options)
+            for annotation in drawing.annotations():
+                tile.add(annotation)
+            tiles.append(tile)
+            titles.append(f"{drawing.task_name} {drawing.kind}")
+        return tiles, titles
+
     def blend_annotations(
         image: np.ndarray,
         records: "Mapping[str, DatasetRecord]",
         layers: "LayerState",
         *,
         color_by: "ColorBy",
+        arrays: "Mapping[str, np.ndarray] | None" = None,
     ) -> Image:
         """Draw every record's annotations onto one image, layer toggles applied.
 
@@ -990,6 +1163,7 @@ def inspect(
         The image is returned unsized; the caller sets any display size.
         """
         viz = Image(image, options=options)
+        overlay_arrays(viz, arrays or {}, layers)
         detections = records_to_colored_annotations(
             list(records.values()),
             color_by=color_by,
@@ -1014,13 +1188,6 @@ def inspect(
             if sample_metadata
             else {}
         )
-        arrays = _array_shapes(
-            sample_labels,
-            task_filter,
-            filters.task_name_mode,
-        )
-        if arrays:
-            panel["arrays"] = arrays
         if list_augmentations:
             applied = get_applied_augmentations()
             if applied:
@@ -1088,35 +1255,127 @@ def inspect(
             max(1, round(height * size_multiplier)),
         )
 
-    def headless_renders() -> "Iterable[tuple[str, Renderable]]":
-        """Build every render in loader order, paired with its source name.
+    def save_grid(
+        tiles: "list[Renderable]", titles: "list[str]"
+    ) -> "Renderable":
+        """Grid a sample's tiles for a file, at whatever size ``--size`` implies.
 
-        Fully headless (no viewer, no screen): every source image is built with
-        `blend_annotations` and framed with the metadata panel unless
-        ``--plain``. Decluttering follows ``--show-all``. Shared by both save
-        forms so a clip and a directory show exactly the same pixels.
+        The headless twin of `compose_tiles`: with no screen to fit to there is
+        nothing to shrink toward, so tiles keep their (optionally scaled) size.
+        """
+        sized = [
+            tile.render_at(save_size(tile.width, tile.height))
+            for tile in tiles
+        ]
+        return grid(
+            sized,
+            ncols=max(1, math.ceil(math.sqrt(len(sized)))),
+            titles=titles,
+            bg=viz_theme.background,
+        )
+
+    def source_tiles(
+        source_name: str,
+        image: np.ndarray,
+        arrays: "Mapping[str, np.ndarray]",
+        records: "Mapping[str, DatasetRecord]",
+        layers: "LayerState",
+        color_by: "ColorBy",
+    ) -> "tuple[list[Renderable], list[str]]":
+        """Build the tiles one image source contributes, with their titles.
+
+        Usually one — the source with every task's detections blended onto it.
+        A multi-task dataset in the default class-color mode instead gets one
+        tile per record, so the tasks stay legible side by side.
+        """
+        # The viewer's interactive layer toggles (masks/keypoints/labels, a class
+        # focus) filter what is drawn without disturbing the metadata cards,
+        # legend, or panel — `blend_annotations` applies them to the detections.
+        if color_by != "class" or blend_all or len(records) <= 1:
+            return [
+                blend_annotations(
+                    image, records, layers, color_by=color_by, arrays=arrays
+                )
+            ], [source_name]
+        tiles: list[Renderable] = []
+        for record in records.values():
+            tile = visualize_record(record, image, options=options)
+            # Grid tiles carry no per-record panel here, so they are plain images
+            # whose annotations the layer toggles filter.
+            if isinstance(tile, Image):
+                tile.annotations[:] = layers.apply_layers(
+                    tile.annotations, palette
+                )
+            tiles.append(tile)
+        return tiles, [f"{source_name} · {task}" for task in records]
+
+    def sample_tiles(
+        images: "Mapping[str, np.ndarray]",
+        arrays: "Mapping[str, np.ndarray]",
+        records: "Mapping[str, DatasetRecord]",
+        layers: "LayerState",
+        color_by: "ColorBy",
+    ) -> "tuple[list[Renderable], list[str]]":
+        """Build every tile of one sample: its sources, then any array fields."""
+        tiles: list[Renderable] = []
+        titles: list[str] = []
+        # A field describes the reference view, so an overlay lands on exactly
+        # one source; the others are built without it.
+        overlay_source = options.array_overlay_source or next(iter(images), "")
+        for source_name, source_image in images.items():
+            source, names = source_tiles(
+                source_name,
+                source_image.astype(np.uint8),
+                arrays if source_name == overlay_source else {},
+                records,
+                layers,
+                color_by,
+            )
+            tiles.extend(source)
+            titles.extend(names)
+        field_tiles, field_titles = array_tiles(arrays, layers)
+        tiles.extend(field_tiles)
+        titles.extend(field_titles)
+        # A lone tile needs no title band; several are only distinguishable with
+        # one. Titles are dropped rather than blanked so the band collapses.
+        return tiles, ([] if len(tiles) == 1 else titles)
+
+    def headless_renders() -> "Iterable[tuple[str, Renderable]]":
+        """Build one render per sample, paired with a name for its output file.
+
+        Fully headless (no viewer, no screen): a sample's image sources — and
+        any array field — are tiled into one render, framed with the metadata
+        panel unless ``--plain``. Decluttering follows ``--show-all``. Shared by
+        both save forms so a clip and a directory show exactly the same pixels.
         """
         layers = LayerState(declutter=not show_all)
         for data, records, panel in prepared_samples():
             layers.update_classes(_present_classes(records.values()))
+            arrays = _array_labels(
+                data.labels, task_filter, filters.task_name_mode
+            )
+            layers.has_arrays = bool(arrays)
             sample_color_by = sample_color_mode(records)
-            for source_name, image in data.images.items():
-                viz: Renderable = blend_annotations(
-                    image.astype(np.uint8),
-                    records,
-                    layers,
-                    color_by=sample_color_by,
-                ).render_at(save_size(image.shape[1], image.shape[0]))
-                if not plain:
-                    viz = viz.with_panel(
-                        sidebar(
-                            panel,
-                            layers,
-                            task_names=tuple(records),
-                            controls=False,
-                        ),
-                    )
-                yield source_name, viz
+            tiles, titles = sample_tiles(
+                data.images, arrays, records, layers, sample_color_by
+            )
+            if not tiles:
+                continue
+            if len(tiles) == 1:
+                viz: Renderable = tiles[0]
+                viz.render_at(save_size(viz.width, viz.height))
+            else:
+                viz = save_grid(tiles, titles)
+            if not plain:
+                viz = viz.with_panel(
+                    sidebar(
+                        panel,
+                        layers,
+                        task_names=tuple(records),
+                        controls=False,
+                    ),
+                )
+            yield next(iter(data.images), "image"), viz
 
     if save is not None:
         _write_renders(
@@ -1217,43 +1476,25 @@ def inspect(
         return frame.with_panel(sidebar(panel, layers, task_names=task_names))
 
     def build_frame(
-        image: np.ndarray,
+        images: "Mapping[str, np.ndarray]",
+        arrays: "Mapping[str, np.ndarray]",
         records: "Mapping[str, DatasetRecord]",
         panel: "Mapping[str, PanelData]",
         reserve: float,
         layers: "LayerState",
         color_by: "ColorBy",
     ) -> Frame:
-        """Build the display `Frame` for one source."""
-        height, width = image.shape[:2]
-        # The viewer's interactive layer toggles (masks/keypoints/labels, a class
-        # focus) filter what is drawn without disturbing the metadata cards,
-        # legend, or panel — `blend_annotations` applies them to the detections.
-        if color_by != "class" or blend_all or len(records) <= 1:
-            viz = blend_annotations(
-                image,
-                records,
-                layers,
-                color_by=color_by,
-            )
-            viz.render_at(display_size(width, height, reserve))
+        """Compose one sample's tiles into a single `Frame`."""
+        tiles, titles = sample_tiles(images, arrays, records, layers, color_by)
+        if len(tiles) == 1:
+            viz = tiles[0]
+            viz.render_at(display_size(viz.width, viz.height, reserve))
             return framed(viz.frame(), panel, tuple(records), layers)
-        # A grid of per-record tiles; compose_tiles sizes them so the whole
-        # composite fits the screen and returns the composed hit map.
-        cols = max(1, math.ceil(math.sqrt(len(records))))
-        tiles = [
-            visualize_record(record, image, options=options)
-            for record in records.values()
-        ]
-        for tile in tiles:
-            # Grid tiles carry no per-record panel here, so they are plain images
-            # whose annotations the layer toggles filter.
-            if isinstance(tile, Image):
-                tile.annotations[:] = layers.apply_layers(
-                    tile.annotations, palette
-                )
+        # A grid of tiles; compose_tiles sizes them so the whole composite fits
+        # the screen and returns the composed hit map.
+        cols = max(1, math.ceil(math.sqrt(len(tiles))))
         return framed(
-            compose_tiles(tiles, cols, list(records), reserve),
+            compose_tiles(tiles, cols, titles, reserve),
             panel,
             tuple(records),
             layers,
@@ -1266,32 +1507,30 @@ def inspect(
         for data, records, panel in samples:
             layers = viewer.layers.copy()
             layers.update_classes(_present_classes(records.values()))
+            arrays = _array_labels(
+                data.labels, task_filter, filters.task_name_mode
+            )
+            layers.has_arrays = bool(arrays)
             color_by = sample_color_mode(records)
             reserve = panel_reserve if not plain else 0.0
-            windows: list[_PreparedInspectionWindow] = []
-            for source_name, source_image in data.images.items():
-                image = source_image.astype(np.uint8)
-                frame = build_frame(
-                    image,
-                    records,
-                    panel,
-                    reserve,
-                    layers,
-                    color_by,
-                )
-                windows.append(
-                    _PreparedInspectionWindow(
-                        name=source_name,
-                        image=image,
-                        frame=viewer.prepare(frame),
-                    )
-                )
             yield _PreparedInspectionSample(
+                images=data.images,
+                arrays=arrays,
                 records=records,
                 panel=panel,
                 layers=layers,
                 color_by=color_by,
-                windows=tuple(windows),
+                frame=viewer.prepare(
+                    build_frame(
+                        data.images,
+                        arrays,
+                        records,
+                        panel,
+                        reserve,
+                        layers,
+                        color_by,
+                    )
+                ),
             )
 
     def inspect_samples(
@@ -1301,47 +1540,46 @@ def inspect(
         shown = 0
         for sample in samples:
             viewer.layers.update_classes(sample.layers.classes)
+            # Content state, not a toggle: without syncing it the live and
+            # snapshot states never compare equal for a sample that has arrays,
+            # and every frame would be re-rendered instead of using the prefetch.
+            viewer.layers.has_arrays = sample.layers.has_arrays
             layers_match = viewer.layers == sample.layers
             reserve = panel_reserve if not plain else 0.0
 
-            for window in sample.windows:
-
-                def rerender(
-                    _layers: "LayerState",
-                    *,
-                    source: np.ndarray = window.image,
-                    sample_records: "Mapping[str, DatasetRecord]" = (
-                        sample.records
-                    ),
-                    sample_panel: "Mapping[str, PanelData]" = sample.panel,
-                    panel_width: float = reserve,
-                    identity: "ColorBy" = sample.color_by,
-                ) -> Frame:
-                    return build_frame(
-                        source,
-                        sample_records,
-                        sample_panel,
-                        panel_width,
-                        _layers,
-                        identity,
-                    )
-
-                prepared = (
-                    window.frame
-                    if layers_match
-                    else viewer.prepare(rerender(viewer.layers))
-                )
-                viewer.show_prepared(
-                    window.name,
-                    prepared,
-                    # Default-bound values keep each source window attached to
-                    # its own sample when layer toggles trigger a re-render.
-                    render=rerender,
+            def rerender(
+                _layers: "LayerState",
+                *,
+                sources: "Mapping[str, np.ndarray]" = sample.images,
+                sample_arrays: "Mapping[str, np.ndarray]" = sample.arrays,
+                sample_records: "Mapping[str, DatasetRecord]" = sample.records,
+                sample_panel: "Mapping[str, PanelData]" = sample.panel,
+                panel_width: float = reserve,
+                identity: "ColorBy" = sample.color_by,
+            ) -> Frame:
+                return build_frame(
+                    sources,
+                    sample_arrays,
+                    sample_records,
+                    sample_panel,
+                    panel_width,
+                    _layers,
+                    identity,
                 )
 
-            # Windows for sources absent from this sample close.
-            viewer.destroy_stale({window.name for window in sample.windows})
-            if sample.windows:
+            prepared = (
+                sample.frame
+                if layers_match
+                else viewer.prepare(rerender(viewer.layers))
+            )
+            viewer.show_prepared(
+                name,
+                prepared,
+                # Default-bound values keep the window attached to its own
+                # sample when layer toggles trigger a re-render.
+                render=rerender,
+            )
+            if sample.images:
                 shown += 1
                 if viewer.wait() == "q":
                     break
@@ -1580,6 +1818,7 @@ def compare(
             RenderOptions,
             Verdict,
             confusion_matrix_figure,
+            grid,
             match_detections,
             set_default_options,
         )
@@ -1829,13 +2068,11 @@ def compare(
             return None
         return (max(1, round(width * scale)), max(1, round(height * scale)))
 
-    def build_frame(
+    def source_scene(
         image: np.ndarray,
-        gt_records: "Mapping[str, DatasetRecord]",
-        pred_records: "Mapping[str, DatasetRecord]",
-    ) -> Frame:
-        """Match GT vs predictions for one image and build its display frame."""
-        result = match_sample(gt_records, pred_records)
+        result: "ComparisonResult",
+    ) -> "Renderable":
+        """Draw one image source's verdict scene, without the metrics panel."""
         viz = viz_compare(
             image,
             result=result,
@@ -1854,13 +2091,39 @@ def compare(
             # so it carries a mutable annotation list to `add` onto.
             if not isinstance(display, Image):
                 display = Image(frame.render()).with_hitmap(frame.hitmap)
-            display.add(class_legend)
+            display.add(class_legend.model_copy())
+        return display
+
+    def build_frame(
+        images: "Mapping[str, np.ndarray]",
+        gt_records: "Mapping[str, DatasetRecord]",
+        pred_records: "Mapping[str, DatasetRecord]",
+    ) -> Frame:
+        """Match GT vs predictions and compose every source into one `Frame`.
+
+        A multi-source sample is tiled rather than given a window per source,
+        so the metrics panel is attached once and the sources stay side by side.
+        """
+        result = match_sample(gt_records, pred_records)
+        scenes = [
+            source_scene(image.astype(np.uint8), result)
+            for image in images.values()
+        ]
+        if len(scenes) == 1:
+            composed: Renderable = scenes[0]
+        else:
+            composed = grid(
+                scenes,
+                ncols=max(1, math.ceil(math.sqrt(len(scenes)))),
+                titles=list(images),
+                bg=viz_theme.background,
+            )
         if plain:
-            return display.frame()
+            return composed.frame()
         metrics: dict[str, PanelData] = dict(result.summary())
         if per_class and len(result.per_class) > 1:
             metrics["by class"] = result.per_class_panel()
-        return display.with_panel(metrics, title="Comparison").frame()
+        return composed.with_panel(metrics, title="Comparison").frame()
 
     def paired(
         identity: "_SampleIdentity",
@@ -1885,13 +2148,12 @@ def compare(
             """
             for identity in shared:
                 gt_data, gt_records, pred_records = paired(identity)
-                for source_name, image in gt_data.images.items():
-                    yield (
-                        source_name,
-                        build_frame(
-                            image.astype(np.uint8), gt_records, pred_records
-                        ).image,
-                    )
+                yield (
+                    next(iter(gt_data.images), "image"),
+                    build_frame(
+                        gt_data.images, gt_records, pred_records
+                    ).image,
+                )
 
         _write_renders(
             compared_frames(),
@@ -1906,12 +2168,9 @@ def compare(
     assert viewer is not None
     for identity in shared:
         gt_data, gt_records, pred_records = paired(identity)
-        for source_name, image in gt_data.images.items():
-            viewer.show(
-                source_name,
-                build_frame(image.astype(np.uint8), gt_records, pred_records),
-            )
-        viewer.destroy_stale(set(gt_data.images.keys()))
+        viewer.show(
+            name, build_frame(gt_data.images, gt_records, pred_records)
+        )
         if viewer.wait() == "q":
             break
 
