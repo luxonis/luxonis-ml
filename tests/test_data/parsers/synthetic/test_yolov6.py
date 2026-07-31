@@ -95,7 +95,10 @@ def test_yolov6_parser(tmp_path: Path):
     assert {split_name for split_name, _ in tagged} == {"train"}
 
     records = [record for _, record in tagged]
-    assert _files(records) == [labeled, unlabeled]
+    # Compared unordered: the images come out in the order the split was
+    # globbed, which is the file system's to decide. That both are here
+    # exactly once is the part this pins.
+    assert sorted(_files(records)) == sorted([labeled, unlabeled])
     assert (
         next(
             record

@@ -198,17 +198,12 @@ def test_tensorflow_csv_resolves_each_filename_at_most_once(
     records = _records(parser._split_records(**kwargs))
 
     assert delegated == [spellings[-1]]
-    # Each spelling still lands on the image it names.
-    assert [record["file"] for record in records] == [
-        str(first.resolve()),
-        str(first.resolve()),
-        str(first.resolve()),
-        str(first.resolve()),
-        str(second.resolve()),
-        str(second.resolve()),
-        str(second.resolve()),
-        str(second.resolve()),
-    ]
+    # Each spelling still lands on the image it names, four rows apiece.
+    # Compared unordered: records come out in the order the split was
+    # globbed, which is the file system's to decide.
+    assert sorted(record["file"] for record in records) == sorted(
+        [str(first.resolve())] * 4 + [str(second.resolve())] * 4
+    )
 
 
 def test_tensorflow_csv_resolves_the_split_directory_once(
