@@ -52,6 +52,45 @@ def test_mixup(
         )
 
 
+@pytest.mark.parametrize(
+    ("batch", "expected"),
+    [
+        # A bare `np.array([])` has no width of its own and takes the
+        # populated sample's.
+        ([np.array([]), np.zeros((2, 7), np.float32)], (2, 7)),
+        # With nothing populated the width still has to come from the empty
+        # rows, not from the fallback.
+        (
+            [np.zeros((0, 7), np.float32), np.zeros((0, 7), np.float32)],
+            (0, 7),
+        ),
+    ],
+)
+def test_mixup_pads_empty_samples_to_the_batch_width(
+    batch: list[np.ndarray],
+    expected: tuple[int, int],
+    subtests: SubTests,
+) -> None:
+    """A sample with no boxes must not narrow the merged array."""
+    mixup = MixUp(p=1.0)
+    shapes = [(16, 16), (16, 16)]
+
+    with subtests.test("bboxes"):
+        assert mixup.apply_to_bboxes(list(batch), shapes).shape == expected
+
+    with subtests.test("keypoints"):
+        assert mixup.apply_to_keypoints(list(batch), shapes).shape == expected
+
+
+def test_mixup_leaves_the_callers_batch_alone() -> None:
+    mixup = MixUp(p=1.0)
+    batch = [np.array([]), np.zeros((2, 7), dtype=np.float32)]
+
+    mixup.apply_to_bboxes(list(batch), [(16, 16), (16, 16)])
+
+    assert batch[0].shape == (0,)
+
+
 def test_invalid():
     with pytest.raises(ValueError, match="must be in range"):
         MixUp(alpha=(-1, 1))

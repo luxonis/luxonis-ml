@@ -367,6 +367,16 @@ def test_loader_uses_metadata_from_custom_engine_single_contributor(
             }
 
     dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    # Splits are shuffled when the dataset is created, so which record ends up
+    # at which loader position is not knowable here. Read the positions back
+    # instead of assuming the generator's order survived.
+    reference = LuxonisLoader(
+        dataset,
+        view="train",
+        height=256,
+        width=256,
+        autopopulate_metadata=False,
+    )
     loader = LuxonisLoader(
         dataset,
         view="train",
@@ -379,7 +389,10 @@ def test_loader_uses_metadata_from_custom_engine_single_contributor(
 
     metadata = loader[0].metadata
 
-    assert metadata == {"record_id": 1}
+    # The engine reports input position 1 as its only contributor, so the
+    # loader must report that position's metadata rather than position 0's.
+    assert metadata == reference[1].metadata
+    assert metadata != reference[0].metadata
 
 
 @pytest.mark.parametrize(

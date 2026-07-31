@@ -1,5 +1,4 @@
 import warnings
-from collections import defaultdict
 from collections.abc import Callable, Iterable
 from math import prod
 from typing import Any, Literal, TypeAlias, cast
@@ -11,7 +10,7 @@ from loguru import logger
 from pydantic import Field
 from typing_extensions import override
 
-from luxonis_ml.data.utils.task_utils import get_task_name, task_is_metadata
+from luxonis_ml.data.utils.task_utils import get_task_type, task_is_metadata
 from luxonis_ml.typing import ConfigItem, LoaderMultiOutput, Params
 from luxonis_ml.utils import deprecated
 
@@ -20,6 +19,7 @@ from .batch_compose import BatchCompose
 from .batch_transform import BatchTransform
 from .custom import TRANSFORMATIONS, LetterboxResize
 from .utils import (
+    instance_count,
     postprocess_bboxes,
     postprocess_keypoints,
     postprocess_mask,
@@ -29,6 +29,8 @@ from .utils import (
 )
 
 Data: TypeAlias = dict[str, np.ndarray]
+# LDF layout of a single annotation: its trailing shape and its dtype.
+LabelSpec: TypeAlias = tuple[tuple[int, ...], np.dtype]
 TargetType: TypeAlias = Literal[
     "image",
     "array",
@@ -39,6 +41,12 @@ TargetType: TypeAlias = Literal[
     "keypoints",
     "metadata",
 ]
+
+# Target types describing individual instances, and so kept in step with the
+# bounding boxes of their task group as those are filtered.
+ASSOCIATED_TARGET_TYPES = frozenset(
+    {"instance_mask", "keypoints", "array", "metadata"}
+)
 
 
 class AlbumentationConfigItem(ConfigItem):
@@ -369,14 +377,16 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
         Raises:
             ValueError: If a target task type is unsupported, more than
-                one transform is marked for resizing, or a configured
-                transform is not an Albumentations transform.
+                one bounding-box target belongs to the same task group,
+                more than one transform is marked for resizing, or a
+                configured transform is not an Albumentations transform.
             TypeError: If a resizing transform has a non-numeric
                 probability ``p``.
 
         """
         self._targets: dict[str, TargetType] = {}
         self._target_names_to_tasks = {}
+        self._target_names_to_task_groups = {}
         self._n_classes = n_classes
         self._image_size = (height, width)
         self._source_names = source_names
@@ -439,6 +449,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
             self._targets[target_name] = target_type
             self._target_names_to_tasks[target_name] = task
+            self._target_names_to_task_groups[target_name] = (
+                self._get_task_group(task)
+            )
 
         for source_name in source_names:
             self._targets[source_name] = "image"
@@ -574,12 +587,45 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 "seed": seed,
             }
 
+        bbox_targets_by_group = {}
+        for target_name, target_type in self._targets.items():
+            if target_type != "bboxes":
+                continue
+            task_group = self._target_names_to_task_groups[target_name]
+            if task_group in bbox_targets_by_group:
+                raise ValueError(
+                    "Multiple bounding-box targets belong to task group "
+                    f"'{task_group}'."
+                )
+            bbox_targets_by_group[task_group] = target_name
+
+        self._bbox_targets_by_group = bbox_targets_by_group
+        bbox_associations = {
+            bbox_target: {
+                target_name: target_type
+                for target_name, target_type in self._targets.items()
+                if target_type in ASSOCIATED_TARGET_TYPES
+                and self._target_names_to_task_groups[target_name]
+                == task_group
+            }
+            for task_group, bbox_target in bbox_targets_by_group.items()
+        }
+        # Targets tied to a bbox target, the boxes themselves included. Only
+        # these are reported as empty when a transform clears them out.
+        self._grouped_targets = set(bbox_targets_by_group.values()) | {
+            target_name
+            for associations in bbox_associations.values()
+            for target_name in associations
+        }
+
         # Warning issued when "bbox_params" or "keypoint_params"
         # are provided to a compose with transformations that
         # do not use them. We don't care about these warnings.
         with warnings.catch_warnings(record=True):
             self._batch_transform = BatchCompose(
-                batch_transforms, **_get_params(is_custom=True)
+                batch_transforms,
+                bbox_associations=bbox_associations,
+                **_get_params(is_custom=True),
             )
             self._spatial_transform = self._wrap_transform(
                 A.Compose(wrapped_spatial_ops, **_get_params())
@@ -609,14 +655,35 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
     @override
     def apply(self, input_batch: list[LoaderMultiOutput]) -> LoaderMultiOutput:
-        data_batch, n_keypoints = self._preprocess_batch(input_batch)
+        data_batch, n_keypoints, label_specs = self._preprocess_batch(
+            input_batch
+        )
 
-        data = self._batch_transform(data_batch)
+        data = self._batch_transform(
+            data_batch, keypoints_per_instance=n_keypoints
+        )
 
+        # A batch transform discards the members it did not merge, and a task
+        # only those members carried is not part of this sample at all.
+        contributed = {}
+        for index in self.batch_augmentation_indices:
+            for target_name, spec in label_specs[index].items():
+                contributed.setdefault(target_name, spec)
+
+        # Albumentations chokes on zero-size targets, so they are dropped
+        # here. Ones a batch transform emptied are remembered so that
+        # postprocessing can still report them as empty rather than omit
+        # the task entirely.
+        emptied_targets = {}
         for target_name in list(data.keys()):
             value = data[target_name]
             if isinstance(value, np.ndarray) and value.size == 0:
                 del data[target_name]
+                if (
+                    target_name in contributed
+                    and target_name in self._grouped_targets
+                ):
+                    emptied_targets[target_name] = contributed[target_name]
 
         data = self._spatial_transform(**data)
         data = self._custom_transform(**data)
@@ -636,26 +703,29 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         else:
             data = self._pixel_transform(**data)
 
-        return self._postprocess(data, n_keypoints)
+        return self._postprocess(data, n_keypoints, emptied_targets)
 
     def _preprocess_batch(
         self, labels_batch: list[LoaderMultiOutput]
-    ) -> tuple[list[Data], dict[str, int]]:
+    ) -> tuple[list[Data], dict[str, int], list[dict[str, LabelSpec]]]:
         """Preprocess a batch of labels.
 
         Args:
             labels_batch: Loader outputs to preprocess.
 
         Returns:
-            Preprocessed data and keypoint counts for each task.
+            Preprocessed data, keypoint counts for each task, and, for every
+            member of the batch, the LDF layout of each target it provided
+            labels for.
 
         """
         data_batch = []
-        bbox_counters = defaultdict(int)
         n_keypoints = {}
+        label_specs: list[dict[str, LabelSpec]] = []
 
         for image_dict, labels in labels_batch:
             data = {}
+            specs: dict[str, LabelSpec] = {}
 
             key = next(iter(image_dict))
             data["_original_image_key"] = key
@@ -696,15 +766,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     continue
 
                 array = labels[task]
+                specs[target_name] = (array.shape[1:], array.dtype)
 
                 if target_type in {"mask", "instance_mask"}:
                     data[target_name] = preprocess_mask(array)
 
                 elif target_type == "bboxes":
-                    data[target_name] = preprocess_bboxes(
-                        array, bbox_counters[target_name]
-                    )
-                    bbox_counters[target_name] += data[target_name].shape[0]
+                    data[target_name] = preprocess_bboxes(array)
 
                 elif target_type == "keypoints":
                     n_keypoints[target_name] = array.shape[1] // 3
@@ -715,11 +783,15 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     data[target_name] = array
 
             data_batch.append(data)
+            label_specs.append(specs)
 
-        return data_batch, n_keypoints
+        return data_batch, n_keypoints, label_specs
 
     def _postprocess(
-        self, data: Data, n_keypoints: dict[str, int]
+        self,
+        data: Data,
+        n_keypoints: dict[str, int],
+        emptied_targets: dict[str, LabelSpec],
     ) -> LoaderMultiOutput:
         """Postprocess the augmented data back to LDF format.
 
@@ -729,6 +801,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         Args:
             data: Augmented data keyed by target name.
             n_keypoints: Mapping from task names to keypoint counts.
+            emptied_targets: LDF layout of the targets a batch transform
+                emptied because all the bounding boxes they belong to were
+                filtered out. They are reported as empty labels rather than
+                omitted.
 
         Returns:
             Augmented images and labels.
@@ -754,24 +830,22 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         bboxes_indices = {}
 
         for target_name, target_type in self._targets.items():
-            if target_name not in data:
+            if target_type != "bboxes" or target_name not in data:
                 continue
 
-            array = data[target_name]
-            if array.size == 0:
-                continue
-
+            # An emptied bbox target is kept rather than skipped: its
+            # associated labels are still reported as empty, so dropping the
+            # task would leave them without the boxes they belong to.
             task = self._target_names_to_tasks[target_name]
-            task_name = get_task_name(task)
-
-            if target_type == "bboxes":
-                out_labels[task], index = postprocess_bboxes(
-                    array, self._bbox_area_threshold
-                )
-                bboxes_indices[task_name] = index
+            out_labels[task], index = postprocess_bboxes(
+                data[target_name], self._bbox_area_threshold
+            )
+            bboxes_indices[self._target_names_to_task_groups[target_name]] = (
+                index
+            )
 
         for target_name, target_type in self._targets.items():
-            if target_name not in data:
+            if target_type == "bboxes" or target_name not in data:
                 continue
 
             array = data[target_name]
@@ -779,26 +853,27 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 continue
 
             task = self._target_names_to_tasks[target_name]
-            task_name = get_task_name(task)
-
-            if task_name not in bboxes_indices:
-                if "bboxes" in self._targets.values():
-                    bbox_ordering = np.array([], dtype=int)
-                elif target_type == "keypoints":
-                    bbox_ordering = np.arange(
-                        array.shape[0] // n_keypoints[target_name]
-                    )
-                else:
-                    bbox_ordering = np.arange(array.shape[0])
-            else:
-                bbox_ordering = bboxes_indices[task_name]
 
             if target_type == "mask":
                 out_labels[task] = postprocess_mask(array)
+                continue
 
-            elif target_type == "instance_mask":
-                masks = postprocess_mask(array)
-                out_labels[task] = masks[bbox_ordering]
+            if target_type == "classification":
+                out_labels[task] = array
+                continue
+
+            available = instance_count(
+                array, target_type, n_keypoints.get(target_name, 0)
+            )
+            bbox_ordering = self._resolve_ordering(
+                self._target_names_to_task_groups[target_name],
+                bboxes_indices,
+                available,
+                task,
+            )
+
+            if target_type == "instance_mask":
+                out_labels[task] = postprocess_mask(array)[bbox_ordering]
 
             elif target_type == "keypoints":
                 out_labels[task] = postprocess_keypoints(
@@ -808,13 +883,47 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     image_width,
                     n_keypoints[target_name],
                 )
-            elif target_type in {"array", "metadata"}:
+            else:
                 out_labels[task] = array[bbox_ordering]
 
-            elif target_type == "classification":
-                out_labels[task] = array
+        for target_name, (trailing, dtype) in emptied_targets.items():
+            task = self._target_names_to_tasks[target_name]
+            if self._targets[target_name] == "instance_mask":
+                # The recorded shape is the pre-augmentation one.
+                trailing = (image_height, image_width)
+            out_labels[task] = np.zeros((0, *trailing), dtype=dtype)
 
         return out_image_dict, out_labels
+
+    def _resolve_ordering(
+        self,
+        task_group: str,
+        bboxes_indices: dict[str, np.ndarray],
+        available: int,
+        task: str,
+    ) -> np.ndarray:
+        """Instances of a task to keep, in the order its boxes survived.
+
+        Instances a bounding box no longer accounts for are dropped. An
+        ordering reaching past the labels that are actually there means the
+        annotation carried a different number of instances than boxes, which
+        `BatchCompose` has already refused to guess at; the excess is dropped
+        so that the sample still loads.
+        """
+        if task_group not in bboxes_indices:
+            if task_group in self._bbox_targets_by_group:
+                return np.array([], dtype=int)
+            return np.arange(available)
+
+        ordering = bboxes_indices[task_group]
+        if ordering.size and ordering.max() >= available:
+            logger.warning(
+                f"Task '{task}' has {available} instances for "
+                f"{ordering.max() + 1} bounding boxes; the instances without "
+                f"a box are dropped and the rest may be misaligned."
+            )
+            ordering = ordering[ordering < available]
+        return ordering
 
     @staticmethod
     def _resolve_pipeline_stage(
@@ -901,6 +1010,21 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         if hasattr(A, config.name):
             return getattr(A, config.name)(**params)
         return TRANSFORMATIONS.get(config.name)(**params)  # type: ignore
+
+    @staticmethod
+    def _get_task_group(task: str) -> str:
+        """Return the complete task path without its task-type suffix.
+
+        Unlike `get_task_name`, this keeps every level of a nested task
+        name, so ``"a/b/keypoints"`` groups under ``"a/b"``. The leading
+        ``"/"`` of LDF's default task marks a name that is empty on purpose,
+        while a task with no separator at all has no name to group by and is
+        only ever grouped with itself.
+        """
+        group = task.removesuffix(get_task_type(task)).removesuffix("/")
+        if group:
+            return group
+        return "" if task.startswith("/") else task
 
     @staticmethod
     def _task_to_target_name(task: str) -> str:
