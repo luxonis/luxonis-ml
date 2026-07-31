@@ -12,17 +12,18 @@ Example:
 
         from luxonis_ml.tracker import LuxonisTracker
 
-        tracker = LuxonisTracker(
+        with LuxonisTracker(
             project_name="training",
             run_name="baseline",
             is_tensorboard=True,
-        )
-        tracker.log_metric("loss", 0.42, step=1)
-        tracker.close()
+        ) as tracker:
+            tracker.log_metric("loss", 0.42, step=1)
 
 Note:
     The tracker uses optional dependencies. Install ``luxonis-ml[tracker]``
     and the backend SDKs required by the integrations you enable.
+    `LuxonisRequestHeaderProvider` additionally requires MLflow, so it is
+    imported lazily on first access.
 
 See:
     `luxonis_ml.tracker.tracker` for the logging implementation and
@@ -30,10 +31,24 @@ See:
 
 """
 
+from typing import TYPE_CHECKING, Any
+
 from luxonis_ml.guard_extras import guard_missing_extra
 
 with guard_missing_extra("tracker"):
-    from .mlflow_plugins import LuxonisRequestHeaderProvider
     from .tracker import LuxonisTracker
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .mlflow_plugins import LuxonisRequestHeaderProvider
+
+
+def __getattr__(name: str) -> Any:
+    if name == "LuxonisRequestHeaderProvider":
+        with guard_missing_extra("mlflow"):
+            from .mlflow_plugins import LuxonisRequestHeaderProvider
+
+        return LuxonisRequestHeaderProvider
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = ["LuxonisRequestHeaderProvider", "LuxonisTracker"]
