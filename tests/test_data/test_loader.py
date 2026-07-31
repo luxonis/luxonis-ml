@@ -434,11 +434,15 @@ def test_loader_uses_metadata_from_custom_engine_single_contributor(
             }
 
     dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
-    primary_record_id = cast(
-        int,
-        LuxonisLoader(dataset, view="train", autopopulate_metadata=False)[
-            0
-        ].metadata["record_id"],
+    # Splits are shuffled when the dataset is created, so which record ends up
+    # at which loader position is not knowable here. Read the positions back
+    # instead of assuming the generator's order survived.
+    reference = LuxonisLoader(
+        dataset,
+        view="train",
+        height=256,
+        width=256,
+        autopopulate_metadata=False,
     )
     loader = LuxonisLoader(
         dataset,
@@ -452,11 +456,15 @@ def test_loader_uses_metadata_from_custom_engine_single_contributor(
 
     metadata = loader[0].metadata
 
-    # `SelectiveBatchEngine` reports input 1 as the only contributor. With
-    # two records that is always the one the primary sample did not load,
-    # whichever order the split happened to put them in.
-    assert metadata["record_id"] == 1 - primary_record_id
+    # Both loaders augment, so both report provenance. That is not what this
+    # test is about, so the record's own metadata is compared instead.
     assert metadata["augmentations"] == {}
+    record_id = metadata["record_id"]
+
+    # The engine reports input position 1 as its only contributor, so the
+    # loader must report that position's metadata rather than position 0's.
+    assert record_id == reference[1].metadata["record_id"]
+    assert record_id != reference[0].metadata["record_id"]
 
 
 @pytest.mark.parametrize(

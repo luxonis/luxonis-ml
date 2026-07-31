@@ -21,15 +21,108 @@ centralized.
      - :math:`\left(N, 3K\right)` normalized rows
      - :math:`\left(NK, 3\right)` pixel-space rows
 
-The appended bbox index :math:`i` is used during postprocessing to keep
-bbox-associated labels, such as instance masks and keypoints, aligned with the
-bounding boxes that survive augmentation and filtering.
+The appended bbox index :math:`i` is a position into the bbox-associated
+labels, such as instance masks and keypoints, and is used to keep them aligned
+with the bounding boxes that survive augmentation and filtering. It is local to
+whichever stage last wrote it: `BatchCompose` restamps it after every batch
+transform, so it is not stable across the whole pipeline.
 """
 
 from collections.abc import Iterator
 from typing import TypeVar
 
 import numpy as np
+
+
+def instance_count(
+    array: np.ndarray, target_type: str, n_keypoints: int = 0
+) -> int:
+    r"""Count the instances an Albumentations-layout target describes.
+
+    Each per-instance target type stores its instances on a different axis,
+    so the count cannot be read off ``len(array)`` alone.
+
+    Args:
+        array: Target in the Albumentations layout.
+        target_type: Target type the array holds, such as
+            ``"instance_mask"`` or ``"keypoints"``.
+        n_keypoints: Number of keypoints :math:`K` per instance. Only used
+            for keypoint targets, which store :math:`K` rows per instance.
+
+    Returns:
+        Number of instances in ``array``.
+
+    Raises:
+        ValueError: If ``target_type`` is ``"keypoints"`` and
+            ``n_keypoints`` is not positive.
+
+    Examples:
+        >>> instance_count(np.zeros((8, 8, 3)), "instance_mask")
+        3
+        >>> instance_count(np.zeros((6, 3)), "keypoints", n_keypoints=2)
+        3
+        >>> instance_count(np.zeros((4, 5)), "metadata")
+        4
+
+    """
+    if target_type == "instance_mask":
+        return array.shape[-1]
+
+    if target_type == "keypoints":
+        if n_keypoints < 1:
+            raise ValueError(
+                "Keypoint instances cannot be counted without knowing how "
+                "many keypoints each instance has."
+            )
+        return array.shape[0] // n_keypoints
+
+    return len(array)
+
+
+def pad_empty_entries(
+    batch: list[np.ndarray], n_columns: int = 6
+) -> list[np.ndarray]:
+    r"""Shape every empty entry so the batch can be concatenated.
+
+    A sample carrying no boxes or keypoints comes back in whatever shape the
+    transform left it in, including a one-dimensional ``np.array([])`` that
+    will not concatenate with the populated samples. Those entries are
+    replaced by correctly shaped empty rows.
+
+    The width is read off a populated entry, since a pipeline's optional
+    fields decide how wide these rows are. An entry that is empty but still
+    two-dimensional carries the same width and is used when no entry is
+    populated.
+
+    Args:
+        batch: Per-sample arrays, some of which may be empty.
+        n_columns: Width to fall back on when no entry carries one. Both
+            bbox rows :math:`\left[x_{\min}, y_{\min}, x_{\max}, y_{\max},
+            c, i\right]` and keypoint rows are six columns wide.
+
+    Returns:
+        The batch, with every empty entry shaped :math:`\left(0, n\right)`.
+
+    Examples:
+        >>> batch = [np.array([]), np.zeros((2, 7))]
+        >>> [array.shape for array in pad_empty_entries(batch)]
+        [(0, 7), (2, 7)]
+        >>> [array.shape for array in pad_empty_entries([np.array([])])]
+        [(0, 6)]
+
+    """
+    for array in batch:
+        if array.ndim == 2:
+            n_columns = array.shape[1]
+            if array.size > 0:
+                break
+
+    return [
+        np.zeros((0, n_columns), dtype=array.dtype)
+        if array.size == 0
+        else array
+        for array in batch
+    ]
 
 
 def preprocess_mask(seg: np.ndarray) -> np.ndarray:
@@ -60,7 +153,7 @@ def preprocess_mask(seg: np.ndarray) -> np.ndarray:
     return seg.transpose(1, 2, 0)
 
 
-def preprocess_bboxes(bboxes: np.ndarray, bbox_counter: int) -> np.ndarray:
+def preprocess_bboxes(bboxes: np.ndarray) -> np.ndarray:
     r"""Convert LDF bounding boxes to Albumentations format.
 
     LDF stores bounding boxes as normalized
@@ -68,29 +161,26 @@ def preprocess_bboxes(bboxes: np.ndarray, bbox_counter: int) -> np.ndarray:
     class ID and :math:`x` and :math:`y` are the top-left corner.
     Albumentations expects normalized
     :math:`\left[x_{\min}, y_{\min}, x_{\max}, y_{\max}, c\right]`
-    rows. This function also appends a stable per-box index used after
+    rows. This function also appends a per-box index used after
     augmentation to keep bbox-associated labels aligned with boxes that
     survived filtering.
 
     Args:
         bboxes: Bounding boxes of shape :math:`\left(N, 5\right)` in
             :math:`\left[c, x, y, w, h\right]` format.
-        bbox_counter: Offset used to create the appended bbox indices.
-            The first output row receives this value, the next receives
-            ``bbox_counter + 1``, and so on.
 
     Returns:
         Bounding boxes of shape :math:`\left(N, 6\right)` in
         :math:`\left[x_{\min}, y_{\min}, x_{\max}, y_{\max}, c, i\right]`
-        format, where :math:`i` is the stable bbox index.
+        format, where :math:`i` is the bbox index.
 
     Examples:
         >>> bboxes = np.array([[2, 0.1, 0.2, 0.3, 0.4]])
-        >>> out = preprocess_bboxes(bboxes, bbox_counter=5)
+        >>> out = preprocess_bboxes(bboxes)
         >>> np.round(out[:, :4], 4).tolist()
         [[0.1, 0.2, 0.4, 0.6]]
         >>> out[:, 4:].astype(int).tolist()
-        [[2, 5]]
+        [[2, 0]]
 
     """
     bboxes = bboxes[:, [1, 2, 3, 4, 0]]
@@ -101,9 +191,7 @@ def preprocess_bboxes(bboxes: np.ndarray, bbox_counter: int) -> np.ndarray:
 
     # Used later to filter out instance tasks associated
     # with bboxes that were removed during augmentations.
-    indices = np.arange(
-        bbox_counter, bboxes.shape[0] + bbox_counter, dtype=bboxes.dtype
-    )[:, None]
+    indices = np.arange(bboxes.shape[0], dtype=bboxes.dtype)[:, None]
     return np.concatenate((bboxes, indices), axis=1)
 
 
@@ -190,7 +278,7 @@ def postprocess_bboxes(
             :math:`\left(N, 6\right)` in
             :math:`\left[x_{\min}, y_{\min}, x_{\max}, y_{\max}, c,
             i\right]` format, where :math:`c` is the class ID and
-            :math:`i` is the stable bbox index.
+            :math:`i` is the bbox index.
         area_threshold: Minimum normalized box area
             :math:`w \cdot h` required for a box to remain valid.
 
