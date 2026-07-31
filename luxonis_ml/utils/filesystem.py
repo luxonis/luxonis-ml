@@ -88,7 +88,6 @@ class LuxonisFileSystem:
         ... def put_file_plugin(*args, **kwargs) -> str:
         ...     print("Custom put_file called!")
         ...     return "remote_path"
-        ...
         >>> fs = LuxonisFileSystem(
         ...     "file:///tmp/luxonis-ml",
         ...     put_file_plugin="put_file_plugin",

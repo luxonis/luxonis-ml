@@ -79,6 +79,9 @@ target-version = "py310"
 line-length = 79
 indent-width = 4
 
+[tool.ruff.format]
+docstring-code-format = true
+
 [tool.ruff.lint]
 select = [
   "ANN",
@@ -163,6 +166,9 @@ unfixable = ["B905"]
 "tests/*" = ["ANN201"]
 "__main__.py" = ["ANN201"]
 "tools/benchmark.py" = ["T201"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"__future__".msg = "Do not use imports from __future__."
 
 [tool.docformatter]
 black = true
