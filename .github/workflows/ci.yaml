@@ -350,11 +350,12 @@ jobs:
       - name: Check requirements
         run: python3 -c 'from luxonis_ml.${{ matrix.submodule }} import *'
 
-  # Benchmarks run only on release pull requests, so they can afford a
-  # long, quiet run. Telling a real regression from runner noise means
-  # measuring both refs the same way, which is what the matrix is for.
+  # Benchmarks run on every pull request. Both refs are measured in
+  # parallel and the pair finishes inside the slowest `tests` shard, so
+  # they cost wall-clock time only if that shard gets faster. Telling a
+  # real regression from runner noise means measuring both refs the same
+  # way, which is what the matrix is for.
   benchmark-refs:
-    if: ${{ startsWith(github.head_ref, 'release/') || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
 
     outputs:
@@ -447,15 +448,28 @@ jobs:
       # credentials. They are timed, so they must not share the machine
       # with other test processes - no `-n auto` here.
       - name: Run parser benchmarks
+        env:
+          REF: ${{ matrix.ref }}
+          SCALE: ${{ needs.benchmark-refs.outputs.scale }}
+          REPEAT: ${{ needs.benchmark-refs.outputs.repeat }}
+          AGGREGATE: ${{ needs.benchmark-refs.outputs.aggregate }}
         run: |
+          # A baseline ref older than the benchmark suite has nothing to
+          # measure. That is not this pull request's failure, so the leg
+          # stays green and the report says there was no baseline.
+          if [[ ! -d tests/test_data/parsers/benchmarks ]]; then
+            echo "::notice::'$REF' has no benchmark suite, so there is nothing to measure."
+            exit 0
+          fi
           pytest -m benchmark tests/test_data/parsers/benchmarks \
             --benchmark-json benchmark-results.json \
-            --benchmark-scale '${{ needs.benchmark-refs.outputs.scale }}' \
-            --benchmark-repeat '${{ needs.benchmark-refs.outputs.repeat }}' \
-            --benchmark-aggregate '${{ needs.benchmark-refs.outputs.aggregate }}' \
+            --benchmark-scale "$SCALE" \
+            --benchmark-repeat "$REPEAT" \
+            --benchmark-aggregate "$AGGREGATE" \
             -p no:sugar -v
 
       - name: Upload the benchmark results
+        if: ${{ hashFiles('benchmark-results.json') != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: parser-benchmarks-${{ matrix.role }}
@@ -488,33 +502,75 @@ jobs:
       - name: Install the reporting dependencies
         run: pip install cyclopts rich
 
-      - name: Download the results
+      # Downloaded one at a time, by name and into a named directory: a
+      # `pattern` that matches a single artifact - which is what a failed
+      # matrix leg leaves behind - unpacks into the workspace root
+      # instead of a per-artifact directory, and every path below breaks.
+      # A leg that produced nothing must not fail the report either, so
+      # the report can say which ref is missing.
+      - name: Download the current results
+        continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
-          pattern: parser-benchmarks-*
+          name: parser-benchmarks-current
+          path: parser-benchmarks-current
+
+      - name: Download the baseline results
+        continue-on-error: true
+        if: ${{ needs.benchmark-refs.outputs.baseline_ref != '' }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: parser-benchmarks-baseline
+          path: parser-benchmarks-baseline
+
+      - name: Note which results arrived
+        id: results
+        run: |
+          for role in current baseline; do
+            if [[ -f "parser-benchmarks-$role/benchmark-results.json" ]]; then
+              echo "$role=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "$role=false" >> "$GITHUB_OUTPUT"
+            fi
+          done
 
       - name: Compare the two refs
         id: compare
-        if: ${{ needs.benchmark-refs.outputs.baseline_ref != '' }}
+        if: ${{ steps.results.outputs.current == 'true' && steps.results.outputs.baseline == 'true' }}
         continue-on-error: true
+        # Refs reach the shell as environment variables, never as `${{ }}`
+        # interpolation: a pull request branch is named by whoever opened
+        # it, and this job now runs for all of them.
+        env:
+          THRESHOLD: ${{ needs.benchmark-refs.outputs.threshold }}
+          BASELINE: ${{ needs.benchmark-refs.outputs.baseline_ref }}
+          CURRENT: ${{ needs.benchmark-refs.outputs.current_ref }}
         run: |
           python tools/compare_benchmarks.py \
             parser-benchmarks-baseline/benchmark-results.json \
             parser-benchmarks-current/benchmark-results.json \
-            --threshold '${{ needs.benchmark-refs.outputs.threshold }}' \
+            --threshold "$THRESHOLD" \
             --output report.md \
-            --baseline-label '${{ needs.benchmark-refs.outputs.baseline_ref }}' \
-            --current-label '${{ needs.benchmark-refs.outputs.current_ref }}'
+            --baseline-label "$BASELINE" \
+            --current-label "$CURRENT"
 
       # With no baseline there is nothing to compare, so the run just
       # publishes what it measured.
       - name: Render the single-ref results
-        if: ${{ needs.benchmark-refs.outputs.baseline_ref == '' }}
+        if: ${{ steps.results.outputs.current == 'true' && steps.results.outputs.baseline != 'true' }}
+        env:
+          CURRENT: ${{ needs.benchmark-refs.outputs.current_ref }}
+          BASELINE: ${{ needs.benchmark-refs.outputs.baseline_ref }}
         run: |
           {
             echo '### Parser benchmarks'
             echo
-            echo "\`${{ needs.benchmark-refs.outputs.current_ref }}\`, with nothing to compare against."
+            if [[ -n "$BASELINE" ]]; then
+              echo "\`$CURRENT\`. No results for \`$BASELINE\` - it has no"
+              echo 'benchmark suite to run, so there is nothing to compare against.'
+            else
+              echo "\`$CURRENT\`, with nothing to compare against."
+            fi
             echo
             echo '| dataset type | images | records | seconds | records/s | peak MiB |'
             echo '| --- | --: | --: | --: | --: | --: |'
@@ -522,14 +578,31 @@ jobs:
               parser-benchmarks-current/benchmark-results.json
           } > report.md
 
+      # A ref that measured nothing still gets a report, so the summary
+      # and the comment say so rather than going blank.
+      - name: Report the missing measurements
+        if: ${{ steps.results.outputs.current != 'true' }}
+        env:
+          CURRENT: ${{ needs.benchmark-refs.outputs.current_ref }}
+        run: |
+          {
+            echo '### Parser benchmarks'
+            echo
+            echo "No results for \`$CURRENT\` - the benchmark job did not"
+            echo 'finish. See the run log.'
+          } > report.md
+
       - name: Publish the results to the job summary
         if: ${{ always() }}
         run: cat report.md >> "$GITHUB_STEP_SUMMARY"
 
       # Kept as a single edited comment rather than one per run, so a
-      # release pull request that benchmarks repeatedly stays readable.
+      # pull request that benchmarks on every push stays readable. Never
+      # worth failing the job over: a pull request from a fork gets a
+      # read-only token and cannot comment at all.
       - name: Comment the results on the pull request
         if: ${{ always() && github.event_name == 'pull_request' }}
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -552,5 +625,7 @@ jobs:
       - name: Fail on a regression
         if: ${{ steps.compare.outcome == 'failure' }}
         run: |
-          echo 'A parser regressed by more than the configured threshold.'
+          echo 'The benchmark comparison failed: either a parser regressed by'
+          echo 'more than the configured threshold, or the two reports had no'
+          echo 'dataset type in common. The report above says which.'
           exit 1
