@@ -97,6 +97,12 @@ _SAMPLE_FILTERS = Group("Sample filters", sort_key=20)
 _AUGMENTATION_OPTIONS = Group("Augmentation options", sort_key=30)
 _MATCHING_OPTIONS = Group("Matching options", sort_key=30)
 _VISUALIZATION_OPTIONS = Group("Visualization options", sort_key=40)
+# Options that only bite on one kind of label, listed after the ones that apply
+# to every scene: a dataset without keypoints (or masks, or arrays) can skip the
+# whole panel rather than read past its flags.
+_KEYPOINT_OPTIONS = Group("Keypoint options", sort_key=41)
+_SEGMENTATION_OPTIONS = Group("Segmentation options", sort_key=42)
+_ARRAY_OPTIONS = Group("Array options", sort_key=43)
 _VIEWER_OPTIONS = Group("Viewer options", sort_key=50)
 _REPORT_OPTIONS = Group("Reporting options", sort_key=50)
 _OUTPUT_OPTIONS = Group("Output options", sort_key=60)
@@ -731,11 +737,11 @@ def inspect(
     ] = True,
     skeletons: Annotated[
         bool,
-        Parameter(negative="", group=_VISUALIZATION_OPTIONS),
+        Parameter(negative="", group=_KEYPOINT_OPTIONS),
     ] = False,
     keypoint_labels: Annotated[
         Literal["none", "numbers", "names", "full"],
-        Parameter(group=_VISUALIZATION_OPTIONS),
+        Parameter(group=_KEYPOINT_OPTIONS),
     ] = "none",
     legend: Annotated[
         bool,
@@ -743,45 +749,43 @@ def inspect(
     ] = True,
     show_background: Annotated[
         bool,
-        Parameter(alias="-bg", negative="", group=_VISUALIZATION_OPTIONS),
+        Parameter(alias="-bg", negative="", group=_SEGMENTATION_OPTIONS),
     ] = False,
     array_viz: Annotated[
         bool,
-        Parameter(alias="-av", negative="", group=_VISUALIZATION_OPTIONS),
+        Parameter(alias="-av", negative="", group=_ARRAY_OPTIONS),
     ] = False,
     array_mode: Annotated[
         Literal["tile", "overlay"],
-        Parameter(group=_VISUALIZATION_OPTIONS),
+        Parameter(group=_ARRAY_OPTIONS),
     ] = "tile",
     array_kind: Annotated[
         "list[tuple[str, _ArrayKindName]] | None",
-        Parameter(group=_VISUALIZATION_OPTIONS),
+        Parameter(group=_ARRAY_OPTIONS),
     ] = None,
     array_gradient: Annotated[
         str | None,
-        Parameter(group=_VISUALIZATION_OPTIONS),
+        Parameter(group=_ARRAY_OPTIONS),
     ] = None,
     array_vmin: Annotated[
         float | None,
-        Parameter(group=_VISUALIZATION_OPTIONS),
+        Parameter(group=_ARRAY_OPTIONS),
     ] = None,
     array_vmax: Annotated[
         float | None,
-        Parameter(group=_VISUALIZATION_OPTIONS),
+        Parameter(group=_ARRAY_OPTIONS),
     ] = None,
     array_ignore: Annotated[
         float | None,
-        Parameter(group=_VISUALIZATION_OPTIONS),
+        Parameter(group=_ARRAY_OPTIONS),
     ] = None,
     array_source: Annotated[
         str | None,
-        Parameter(group=_VISUALIZATION_OPTIONS),
+        Parameter(group=_ARRAY_OPTIONS),
     ] = None,
     array_colorbar: Annotated[
         bool,
-        Parameter(
-            negative="--no-array-colorbar", group=_VISUALIZATION_OPTIONS
-        ),
+        Parameter(negative="--no-array-colorbar", group=_ARRAY_OPTIONS),
     ] = True,
     fast: Annotated[
         bool,
@@ -1738,12 +1742,12 @@ def compare(
         bool,
         Parameter(
             negative="--no-skeletons",
-            group=_VISUALIZATION_OPTIONS,
+            group=_KEYPOINT_OPTIONS,
         ),
     ] = True,
     keypoint_labels: Annotated[
         Literal["none", "numbers", "names", "full"],
-        Parameter(group=_VISUALIZATION_OPTIONS),
+        Parameter(group=_KEYPOINT_OPTIONS),
     ] = "none",
     legend: Annotated[
         bool,
@@ -1751,7 +1755,7 @@ def compare(
     ] = False,
     show_background: Annotated[
         bool,
-        Parameter(alias="-bg", negative="", group=_VISUALIZATION_OPTIONS),
+        Parameter(alias="-bg", negative="", group=_SEGMENTATION_OPTIONS),
     ] = False,
     theme: Annotated[
         Literal["dark", "light"],
