@@ -99,6 +99,21 @@ def _command_help(command: str) -> str:
     return console.export_text()
 
 
+def _help_panels(help_text: str) -> dict[str, str]:
+    """Split rendered help into its group panels, keyed by title."""
+    panels: dict[str, list[str]] = {}
+    body: list[str] | None = None
+    for line in help_text.splitlines():
+        heading = re.match(r"╭─+ (.+?) ─+╮$", line)
+        if heading is not None:
+            body = panels.setdefault(str(heading.group(1)), [])
+        elif line.startswith("╰"):
+            body = None
+        elif body is not None:
+            body.append(line)
+    return {name: "\n".join(body) for name, body in panels.items()}
+
+
 def test_inspect_and_compare_help_group_related_options() -> None:
     inspect_help = _command_help("inspect")
     compare_help = _command_help("compare")
@@ -108,6 +123,9 @@ def test_inspect_and_compare_help_group_related_options() -> None:
         "Sample filters",
         "Augmentation options",
         "Visualization options",
+        "Keypoint options",
+        "Segmentation options",
+        "Array options",
         "Viewer options",
         "Output options",
     ):
@@ -118,9 +136,39 @@ def test_inspect_and_compare_help_group_related_options() -> None:
         "Sample filters",
         "Matching options",
         "Visualization options",
+        "Keypoint options",
+        "Segmentation options",
         "Reporting options",
     ):
         assert group in compare_help
+
+
+@pytest.mark.parametrize("command", ["inspect", "compare"])
+@pytest.mark.parametrize(
+    ("flag", "group"),
+    [
+        ("--skeletons", "Keypoint options"),
+        ("--keypoint-labels", "Keypoint options"),
+        ("--show-background", "Segmentation options"),
+    ],
+)
+def test_label_type_flags_live_in_their_own_panel(
+    command: str, flag: str, group: str
+) -> None:
+    # A dataset with no keypoints (or masks) should be able to skip a whole
+    # panel, which only works if the flags are not mixed into the general one.
+    panels = _help_panels(_command_help(command))
+    assert flag in panels[group]
+    assert flag not in panels["Visualization options"]
+
+
+def test_every_array_flag_lives_in_the_array_panel() -> None:
+    panels = _help_panels(_command_help("inspect"))
+    array_flags = set(re.findall(r"--array-[\w-]+", _command_help("inspect")))
+    assert len(array_flags) >= 9
+    for flag in array_flags:
+        assert flag in panels["Array options"]
+    assert "--array" not in panels["Visualization options"]
 
 
 class _FakeBackend:
