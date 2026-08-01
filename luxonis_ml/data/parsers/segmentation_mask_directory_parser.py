@@ -44,11 +44,10 @@ class SegmentationMaskDirectoryParser(SplitParserPlugin):
             return None
         if not (split_path / "_classes.csv").exists():
             return None
-        # One listing answers "is the image there?" for every mask at
-        # once, through the same prefix rule the pairing uses - the
-        # records accept any image suffix, so validation must not demand
-        # `.jpg`. A listed name always exists unless it is a dangling
-        # symlink, the only case `Path.exists` still disagrees about.
+        # One listing answers "is the image there?" for every mask, through
+        # the same prefix rule the pairing uses - the records accept any
+        # image suffix, so validation must not demand `.jpg`. A listed name
+        # exists unless it is a dangling symlink.
         entries, by_prefix = SegmentationMaskDirectoryParser._index_directory(
             split_path
         )
@@ -94,9 +93,7 @@ class SegmentationMaskDirectoryParser(SplitParserPlugin):
                         by_prefix.setdefault(name[:dot], name)
                         dot = name.find(".", dot + 1)
         except OSError:
-            # A directory that cannot be listed leaves every lookup to
-            # `glob`, which then fails - or stays silent about an
-            # unreadable directory - exactly as it did before.
+            # An unlistable directory leaves every lookup to `glob`.
             pass
         return entries, by_prefix
 
@@ -120,8 +117,7 @@ class SegmentationMaskDirectoryParser(SplitParserPlugin):
         """
         del classes_path
         # The files of a split are the images its masks name, which the
-        # pairing already answers - the class table and the masks
-        # themselves say nothing about which files are there.
+        # pairing already answers.
         return list(
             dict.fromkeys(
                 image_path
@@ -157,16 +153,13 @@ class SegmentationMaskDirectoryParser(SplitParserPlugin):
         df = pl.read_csv(classes_path).filter(pl.col(idx_class).is_not_null())
         class_names = df[idx_class].to_list()
 
-        # Every mask is paired with its image before a single record is
-        # emitted, so a mask that names no image fails the parse itself
-        # rather than half-way through an import. Decoding a mask - the
-        # expensive part - stays in the generator, so a mask is read
-        # once, when its records are pulled.
+        # Paired up front, so that a mask naming no image fails the parse
+        # rather than a half-finished import. Decoding the masks - the
+        # expensive part - stays in the generator.
         pairs = list(self._pair_masks_with_images(image_dir, seg_dir))
         for mask_path, _ in pairs:
-            # An undecodable mask has to fail up front for the same
-            # reason. Checking the format signature keeps that failure
-            # eager without paying for a decode the generator repeats.
+            # An undecodable mask has to fail up front too, and checking
+            # the format signature costs no decode.
             if not cv2.haveImageReader(mask_path):
                 raise ValueError(f"Failed to read mask image: {mask_path}")
 
@@ -178,16 +171,12 @@ class SegmentationMaskDirectoryParser(SplitParserPlugin):
 
                 file = str(image_path)
                 # `IMREAD_GRAYSCALE` always decodes to `uint8`, so the
-                # pixel values present are the non-empty bins of a
-                # 256-bin count: the same ascending values sorting the
-                # whole mask would report.
+                # pixel values present are the non-empty bins of a 256-bin
+                # count, in ascending order.
                 class_ids = np.flatnonzero(np.bincount(mask.ravel())).tolist()
                 for class_id in class_ids:
                     class_name = class_names[class_id]
 
-                    # A cast comparison is the same 0/1 `uint8` array as
-                    # a zero-filled one indexed by that comparison, with
-                    # one full-size buffer written instead of two.
                     curr_seg_mask = (mask == class_id).astype(np.uint8)
                     yield {
                         "file": file,
@@ -214,25 +203,22 @@ class SegmentationMaskDirectoryParser(SplitParserPlugin):
             the order the masks are listed in.
 
         Raises:
-            RuntimeError: If a mask has no matching image. A generator
-                is what turns the exhausted lookup below into one, so
-                this stays a generator function even though its result
-                is consumed at once.
+            RuntimeError: If a mask has no matching image. The exhausted
+                `glob` below raises `StopIteration`, which a generator
+                turns into this.
 
         """
-        # Globbing `{stem}.*` per mask walks `image_dir` once per mask,
-        # so the lookups are answered by the prefix index instead - the
-        # same one `validate_split` checks, which is what keeps the two
-        # in agreement about which masks have an image.
+        # Globbing `{stem}.*` would walk `image_dir` once per mask, so the
+        # lookups go through the prefix index instead - the same one
+        # `validate_split` checks, which keeps the two in agreement about
+        # which masks have an image.
         entries, by_prefix = SegmentationMaskDirectoryParser._index_directory(
             image_dir
         )
         links = {name for name, entry in entries.items() if entry.is_symlink()}
 
-        # `realpath` resolves a path prefix first, so for a name that is
-        # not itself a symlink the result is the resolved directory
-        # joined with the name - no need to walk the shared prefix again
-        # for every image.
+        # For a name that is not itself a symlink, the resolved directory
+        # joined with it is what resolving the entry would give.
         resolved_dir = image_dir.absolute().resolve()
 
         for mask_path in seg_dir.glob("*_mask.*"):

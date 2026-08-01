@@ -71,16 +71,13 @@ class NativeParser(SplitParserPlugin):
     def _split_records(self, annotation_path: Path) -> DatasetIterator:
         """Stream native LDF annotations with their paths resolved.
 
-        The records are the JSON document itself, so all a record costs
-        is rewriting the media and mask references it names into resolved
-        paths. That happens as the record is yielded: nothing needs the
-        document walked before streaming starts.
+        The records are the JSON document itself, so a record costs no
+        more than rewriting the media and mask references it names into
+        resolved paths.
 
-        `_split_files` is deliberately left unimplemented. A split's
-        files are the references of this same document, so listing them
-        means reading and resolving all of it — the parse — and the
-        importer's fallback already does exactly that, for count-based
-        `split_ratios` alone.
+        `_split_files` is deliberately left unimplemented: listing a
+        split's files means reading and resolving the whole document,
+        which is the parse, and the importer's fallback already does that.
 
         Args:
             annotation_path: JSON file with annotations.
@@ -93,10 +90,8 @@ class NativeParser(SplitParserPlugin):
         resolved: dict[str, Path] = {}
 
         def resolve(value: PathType) -> Path:
-            # For a fixed base directory `resolve_manifest_path` depends
-            # only on `str(value)`, and a split names the same media once
-            # per annotation, so an uncached reference just repeats the
-            # `realpath` walk its siblings already did.
+            # A split names the same media once per annotation, and for a
+            # fixed base directory the result depends only on the spelling.
             key = str(value)
             path = resolved.get(key)
             if path is None:

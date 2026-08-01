@@ -396,10 +396,10 @@ def test_coco_format_detection_and_validation(tmp_path: Path):
 def test_coco_json_detection(tmp_path: Path, content: str, expected: bool):
     path = tmp_path / "labels.json"
     path.write_text(content)
-    assert COCOParser._is_coco_json(path) is expected
+    assert (COCOParser._load_coco_json(path) is not None) is expected
     if content == "{":
         path.unlink()
-        assert not COCOParser._is_coco_json(path)
+        assert COCOParser._load_coco_json(path) is None
 
 
 def test_coco_split_finalization_and_resolution(tmp_path: Path):

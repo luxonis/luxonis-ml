@@ -74,9 +74,8 @@ class YoloV4Parser(SplitParserPlugin):
             for ann_line in f:
                 img_path, _, boxes = ann_line.rstrip().partition(" ")
                 path = resolve_manifest_path(base_dir, img_path)
-                # Every path `resolve_manifest_path` returns as absolute has
-                # already been resolved, and resolving is idempotent, so only
-                # its relative fallback for Windows paths needs it again.
+                # `resolve_manifest_path` returns absolute paths already
+                # resolved; only its relative Windows fallback needs it.
                 annotated.add(path if path.is_absolute() else path.resolve())
                 if not path.exists():
                     self._warn_skipped_annotation(
@@ -105,12 +104,10 @@ class YoloV4Parser(SplitParserPlugin):
             annotation file.
 
         """
-        # A resolved path never ends in a symlink, so an image of the
-        # directory whose name is claimed by a resolved direct child of that
-        # same directory is that child, and resolving it again cannot tell
-        # the two apart. Names of annotations pointing elsewhere - a nested
-        # directory, another disk - are deliberately not collected, so those
-        # images still take the resolving path below.
+        # A resolved path never ends in a symlink, so an image whose name
+        # is claimed by a resolved direct child of the same directory is
+        # that child. Annotations pointing elsewhere are not collected, so
+        # those images still take the resolving path below.
         annotated_names = {
             path.name for path in annotated if path.parent == base_dir
         }
@@ -160,11 +157,9 @@ class YoloV4Parser(SplitParserPlugin):
                 yield {"file": file, "annotation": None}
                 continue
 
-            # Hoisted out of the box loop: the size is the only thing the
-            # records need the image for, so an image carrying several
-            # boxes is still read once. Closed right away - only the
-            # header is needed, and this streams one open image per
-            # annotated file otherwise.
+            # Hoisted out of the box loop: the records only need the size,
+            # so an image carrying several boxes is still read once. Only
+            # the header is needed, so the file is closed right away.
             with Image.open(file) as img:
                 width, height = img.size
 
@@ -203,9 +198,9 @@ class YoloV4Parser(SplitParserPlugin):
         for, so the same walk the records make answers this too - without
         the class names, the boxes, or a single image decode.
 
-        Missing images are reported here as well; the issue collector
+        Missing images are reported here as well. The issue collector
         keeps one message per distinct issue, so a parse that follows does
-        not report them a second time.
+        not report them twice.
 
         Args:
             image_dir: Directory with images.
@@ -220,9 +215,8 @@ class YoloV4Parser(SplitParserPlugin):
 
         base_dir = image_dir.absolute().resolve()
         annotated: set[Path] = set()
-        # A `dict` rather than a `set`, so that an image named by several
-        # annotation lines is reported once, in the order the records name
-        # it.
+        # A `dict` rather than a `set`: an image named by several lines is
+        # reported once, in the order the records name it.
         files: dict[Path, None] = {}
 
         for path, _ in self._annotation_lines(

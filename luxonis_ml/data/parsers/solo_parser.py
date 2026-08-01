@@ -78,12 +78,11 @@ class SOLOParser(SplitParserPlugin):
         """Stream one SOLO split as LDF records.
 
         The definitions are read and validated before the walk starts, so a
-        malformed split still fails without a record being pulled.
+        malformed split fails without a record being pulled.
 
-        Which captures of a split yield records is only known once every
-        frame JSON has been read, so `_split_files` is left unimplemented
-        and count-based ``split_ratios`` pay a throwaway parse instead of a
-        second walk on every import.
+        `_split_files` is left unimplemented: which captures yield records
+        is only known once every frame JSON has been read, which is the
+        parse itself.
 
         Args:
             split_path: Directory with SOLO sequences and annotations.
@@ -144,8 +143,6 @@ class SOLOParser(SplitParserPlugin):
                     frame = json.loads(frame_path.read_text())
 
                     current_step = frame["step"]
-                    # The set is mutated in place, so binding it once is the
-                    # same object the dictionary keeps holding.
                     processed = processed_annotations_per_step.setdefault(
                         current_step, set()
                     )
@@ -219,9 +216,6 @@ class SOLOParser(SplitParserPlugin):
                                     xmin, ymin = origin
                                     bbox_w, bbox_h = dimension
 
-                                    # Only the class and the box survive into
-                                    # a record; the wrapper dictionaries the
-                                    # merge step used to unwrap did not.
                                     bounding_boxes[instance_id] = (
                                         class_name,
                                         {
@@ -301,11 +295,10 @@ class SOLOParser(SplitParserPlugin):
                                 instance_segmentations
                             )
 
-                        # The merged record is anchored on the bounding
-                        # box - it carries the class name - so a capture
-                        # with keypoints or segmentations but no boxes
-                        # yields nothing instead of failing the box
-                        # lookup below, mid-stream.
+                        # The merged record is anchored on the bounding box,
+                        # which carries the class name, so a capture with
+                        # keypoints or segmentations but no boxes yields
+                        # nothing rather than failing the lookup below.
                         if bounding_boxes:
                             common_instance_ids = set.intersection(
                                 *[

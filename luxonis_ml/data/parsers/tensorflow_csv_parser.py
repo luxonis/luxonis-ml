@@ -41,9 +41,8 @@ class TensorflowCSVParser(SplitParserPlugin):
         annotation_path = split_path / "_annotations.csv"
         if not annotation_path.exists():
             return None
-        # Recognizing a split already lists its images and the parse needs
-        # that same listing, so it is handed over instead of walking a
-        # directory holding one entry per image a second time.
+        # The listing is handed on, so the directory is walked once
+        # between recognizing and parsing the split.
         return {
             "image_dir": split_path,
             "annotation_path": annotation_path,
@@ -98,27 +97,23 @@ class TensorflowCSVParser(SplitParserPlugin):
         )
         paths = self._resolve_images(image_dir, images)
         spellings = self._known_spellings(images, paths)
-        # A CSV holds one row per bounding box, so each filename is spelled
-        # once per box of its image. How a spelling resolves depends only on
-        # the spelling and on the split directory, both fixed for the whole
-        # file, so every distinct spelling is resolved at most once.
+        # A CSV holds one row per bounding box, so each filename is
+        # spelled once per box of its image. How a spelling resolves
+        # depends only on the spelling and the split directory, so every
+        # distinct spelling is resolved at most once.
         resolved: dict[str, str] = {}
 
         annotations: dict[str, list[tuple[Any, list[float]]]] = defaultdict(
             list
         )
-        # Looked up per row rather than hoisted so that a CSV missing a
-        # column still raises `KeyError` where indexing the row did, and
-        # only once a row actually needs the column.
         column = {name: index for index, name in enumerate(df.columns)}
         for row in df.iter_rows():
             filename = str(row[column["filename"]])
             path = spellings.get(filename) or resolved.get(filename)
             if path is None:
-                # `resolve_manifest_path` reads a spelling as a POSIX path
-                # before resolving it, so one that reads as the name of a
-                # listed image -- Windows-style or not -- resolves to that
-                # image, whose resolved path is already known.
+                # A spelling is read as a POSIX path first, so one that
+                # reads as the name of a listed image - Windows-style or
+                # not - resolves to that image.
                 path = spellings.get(str(parse_manifest_path(filename)))
                 if path is None:
                     path = str(resolve_manifest_path(image_dir, filename))
@@ -140,10 +135,9 @@ class TensorflowCSVParser(SplitParserPlugin):
             annotations[path].append((class_name, bbox_xywh))
 
         def generator() -> DatasetIterator:
-            # Deduplicated exactly like `_split_files`: two listed images
-            # resolving to the same path - a symlink next to its target -
-            # must not repeat that image's boxes while the enumeration
-            # reports the file once.
+            # Deduplicated exactly like `_split_files`: a symlink next to
+            # its target must not repeat that image's boxes while the
+            # enumeration reports the file once.
             for path in dict.fromkeys(paths):
                 image_annotations = annotations.get(path)
                 if not image_annotations:
@@ -180,10 +174,9 @@ class TensorflowCSVParser(SplitParserPlugin):
         resolved_dir = str(image_dir.resolve())
         paths = []
         for image in images:
-            # Resolving stats every component of a path. The images all live
-            # in `image_dir`, whose resolved form has no symlink left to
-            # follow, so only the file name itself can still redirect. The
-            # `os.path` spellings are the ones resolving itself uses: a
+            # The images all live in `image_dir`, whose resolved form has
+            # no symlink left to follow, so only the file name itself can
+            # still redirect. `os.path.islink` is what resolving uses: a
             # failed `lstat` counts as "not a link" instead of raising.
             if islink(image):  # noqa: PTH114
                 paths.append(str(image.resolve()))

@@ -34,10 +34,9 @@ def _prepare_import_records(
 ) -> DatasetIterator:
     """Turn parser output into records ready for `BaseDataset.add`.
 
-    Files are collected per split as the records stream past, which is why
-    a parser no longer has to publish a file list before it starts: the
-    only caller that needs one is `make_splits`, and that runs after every
-    record has been added.
+    Files are collected per split as the records stream past, so a parser
+    need not publish a file list up front - the only caller that needs one
+    is `make_splits`, which runs after every record has been added.
 
     Args:
         records: Split name and record, as produced by a parser.
@@ -74,9 +73,8 @@ def _prepare_import_records(
         ):
             continue
 
-        # A `dict` rather than a `set` so the files of a split keep the
-        # order the parser emitted them in, which is the order the old
-        # file-list pass produced.
+        # A `dict` rather than a `set`, so a split's files keep the order
+        # the parser emitted them in.
         files_of_split = split_files.setdefault(split_name, {})
         for file in record.files.values():
             files_of_split[file] = None
@@ -104,7 +102,7 @@ def _prepare_import_records(
                 raise ValueError(
                     f"Class '{class_name}' not found in task names."
                 ) from None
-            # Only `task_name` changes, so a shallow copy is enough and avoids
+            # Only `task_name` changes, so a shallow copy avoids
             # duplicating masks and polygons for every record.
             record = record.model_copy(update={"task_name": name})
         yield record
@@ -124,8 +122,7 @@ def _peek(records: DatasetIterator) -> DatasetIterator:
     """Return ``records``, raising if it yields nothing.
 
     Pulling the first record before anything is written keeps an empty
-    source failing before a dataset is populated, which is what the old
-    up-front file list used to guarantee.
+    source failing before a dataset is populated.
     """
     first = next(records, None)
     if first is None:
@@ -154,6 +151,55 @@ def _delete_replaces_dataset(dataset_kwargs: Mapping[str, Any]) -> bool:
     )
 
 
+def _validate_split_ratios(
+    split_ratios: dict[str, float | int] | None,
+) -> dict[str, int] | None:
+    """Reject unusable ``split_ratios`` and normalize count-based ones.
+
+    Args:
+        split_ratios: Ratios or counts as the caller gave them.
+
+    Returns:
+        A count per canonical split when the ratios are counts, or
+        ``None`` when they are percentages or absent.
+
+    Raises:
+        ValueError: If the counts name an unknown split or request
+            nothing, or if the percentages do not sum to :math:`1.0`.
+
+    """
+    if split_ratios is None:
+        return None
+
+    if not all(isinstance(value, int) for value in split_ratios.values()):
+        # `make_splits` runs once every record has been written, so its
+        # ratio check is repeated here: a typo must not cost a full import
+        # that the failure handler then deletes.
+        ratio_sum = sum(float(value) for value in split_ratios.values())
+        if not math.isclose(ratio_sum, 1.0):
+            raise ValueError(f"Ratios must sum to 1.0, got {ratio_sum:0.4f}")
+        return None
+
+    # Only the canonical three are read below, so anything else the caller
+    # asked for would be dropped without a word.
+    unknown_splits = set(split_ratios) - {"train", "val", "test"}
+    if unknown_splits:
+        raise ValueError(
+            "Count-based `split_ratios` only supports the splits "
+            f"'train', 'val' and 'test', got {sorted(unknown_splits)}."
+        )
+    count_ratios = {
+        name: int(split_ratios.get(name, 0))
+        for name in ("train", "val", "test")
+    }
+    if sum(count_ratios.values()) == 0:
+        raise ValueError(
+            "Count-based `split_ratios` must request at least one sample, "
+            f"got {split_ratios}."
+        )
+    return count_ratios
+
+
 def _enumerate_by_parsing(
     plugin: Any,
     source: Path,
@@ -163,8 +209,8 @@ def _enumerate_by_parsing(
     """Collect each split's files by parsing and discarding the records.
 
     The fallback for a parser that cannot enumerate its files without
-    parsing them. It costs a full extra parse, which is why it runs only
-    for count-based `split_ratios`.
+    parsing them. It costs a full extra parse, so it runs only for
+    count-based `split_ratios`.
     """
     collected: dict[str | None, dict[Path, None]] = {}
     result = plugin.parse(source, layout, **parser_kwargs)
@@ -253,39 +299,8 @@ class BaseDataset(
 
         # Resolved before the dataset is created so that invalid arguments do
         # not leave an empty dataset behind.
-        is_counts = split_ratios is not None and all(
-            isinstance(value, int) for value in split_ratios.values()
-        )
-        count_ratios: dict[str, int] | None = None
-        if is_counts:
-            assert split_ratios is not None
-            # Only the canonical three are read below, so anything else the
-            # caller asked for would be dropped without a word.
-            unknown_splits = set(split_ratios) - {"train", "val", "test"}
-            if unknown_splits:
-                raise ValueError(
-                    "Count-based `split_ratios` only supports the splits "
-                    f"'train', 'val' and 'test', got {sorted(unknown_splits)}."
-                )
-            count_ratios = {
-                name: int(split_ratios.get(name, 0))
-                for name in ("train", "val", "test")
-            }
-            if sum(count_ratios.values()) == 0:
-                raise ValueError(
-                    "Count-based `split_ratios` must request at least one "
-                    f"sample, got {split_ratios}."
-                )
-        elif split_ratios is not None:
-            # `make_splits` runs once every record has been written, so
-            # the ratios it would reject are checked here as well: a typo
-            # must not cost a full import, which the failure handler
-            # below would then delete.
-            ratio_sum = sum(float(value) for value in split_ratios.values())
-            if not math.isclose(ratio_sum, 1.0):
-                raise ValueError(
-                    f"Ratios must sum to 1.0, got {ratio_sum:0.4f}"
-                )
+        count_ratios = _validate_split_ratios(split_ratios)
+        is_counts = count_ratios is not None
 
         resolved_name = (
             dataset_name
@@ -296,10 +311,10 @@ class BaseDataset(
                 f"Could not derive a dataset name from source '{source}'. "
                 "Pass `dataset_name` explicitly."
             )
-        # The constructor opens an existing dataset of that name instead of
-        # replacing it, so whether this import created the dataset decides
-        # whether the failure handler below may delete it. Being asked to
-        # delete the old one first makes it this import's dataset again.
+        # The constructor opens an existing dataset of that name rather
+        # than replacing it, so whether this import created the dataset
+        # decides whether the failure handler below may delete it. Being
+        # asked to delete the old one first makes it this import's again.
         exists_parameters = inspect.signature(cls.exists).parameters
         replaces_existing = _delete_replaces_dataset(dataset_kwargs)
         created_now = replaces_existing or not cls.exists(
@@ -336,8 +351,7 @@ class BaseDataset(
             # even when `random_split` turned automatic splitting off.
             if split is None and count_ratios is not None:
                 # The only feature that has to know the files before a
-                # record is added. A parser that cannot enumerate them
-                # cheaply pays a throwaway parse here, and only here.
+                # record is added.
                 enumerated = plugin.enumerate_files(
                     source_path, layout, **resolved_parser_kwargs
                 )
@@ -398,8 +412,6 @@ class BaseDataset(
                     else None,
                 )
 
-            # Both file views are built only where they are used: an
-            # import takes exactly one of these branches.
             if split is not None:
                 dataset.make_splits(
                     {
@@ -444,24 +456,18 @@ class BaseDataset(
 
             logger.info("Dataset imported successfully.")
         except Exception:
-            # A parser streams its records, so a source it cannot finish
-            # reading fails part-way through `add`, once some of it is
-            # already written. Without this the caller is left with a
+            # Parsers stream, so a source that cannot be read to the end
+            # fails part-way through `add` and would otherwise leave a
             # registered, half-populated dataset that looks importable.
-            # Nothing here can be recovered by retrying, so the dataset
-            # is removed and the original error propagates.
+            # Remote storage goes too, or the media uploaded before the
+            # failure is orphaned in the bucket.
             #
-            # `Exception` rather than `BaseException`: a `KeyboardInterrupt`
-            # is the one failure a caller can act on, and answering a
-            # Ctrl-C halfway through a long import by deleting everything
-            # it had already uploaded is not what interrupting it asks
-            # for. An interrupted import keeps what it wrote.
+            # `Exception`, not `BaseException`: an interrupted import
+            # keeps what it wrote rather than answering Ctrl-C by
+            # deleting everything it had uploaded.
             #
-            # Only a dataset this import created may be removed. Importing
-            # into the name of an existing dataset appends to it, and the
-            # records that were already there are not this import's to
-            # delete. Remote storage is cleaned up as well, otherwise the
-            # media uploaded before the failure is orphaned in the bucket.
+            # Only a dataset this import created may be removed - an
+            # import into an existing name appends to it.
             if created_now:
                 with suppress(Exception):
                     dataset.delete_dataset(

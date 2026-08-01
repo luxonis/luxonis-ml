@@ -57,10 +57,9 @@ class CreateMLParser(SplitParserPlugin):
             Absolute, symlink-resolved path to the referenced image.
 
         """
-        # A reference holding neither separator can be neither absolute nor
-        # Windows-flavoured on any platform, so `resolve_manifest_path`
-        # provably collapses to joining it onto `base_dir`. Taking that
-        # shortcut avoids three throwaway path objects per manifest entry.
+        # A reference holding neither separator is a bare file name on any
+        # platform, which `resolve_manifest_path` would only join onto
+        # `base_dir` anyway.
         if (
             isinstance(reference, str)
             and "/" not in reference
@@ -88,9 +87,7 @@ class CreateMLParser(SplitParserPlugin):
         with open(annotation_path, encoding="utf-8") as f:
             annotations_data = json.load(f)
 
-        # `Path.resolve` walks the filesystem, and every entry of a manifest
-        # is resolved against the one directory that manifest sits in, so
-        # doing it once drops a `realpath` call per annotated image.
+        # The same for every entry, so resolved once.
         base_dir = image_dir.absolute().resolve()
 
         for annotations in annotations_data:
@@ -104,17 +101,13 @@ class CreateMLParser(SplitParserPlugin):
                 )
                 continue
             file = str(path)
-            # Opened once per frame, ahead of its boxes: the width and
-            # height a box is normalized by depend only on the frame, and
-            # an unreadable image has to fail the parse even when the
-            # frame carries no boxes to normalize. Closed right away -
-            # only the header is needed, and this streams one open image
-            # per frame otherwise.
+            # Ahead of the boxes, so that an unreadable image fails the
+            # parse even for a frame that carries none. Only the header is
+            # needed, so the file is closed right away.
             with Image.open(file) as img:
                 width, height = img.size
 
-            # A frame without boxes simply yields nothing, so it never
-            # reaches the dataset.
+            # A frame without boxes yields nothing at all.
             for curr_ann in annotations["annotations"]:
                 bbox_ann = curr_ann["coordinates"]
                 yield {
@@ -137,9 +130,8 @@ class CreateMLParser(SplitParserPlugin):
     ) -> list[Path]:
         """List the images of one split straight from its manifest.
 
-        The manifest is the index a parse reads anyway and it names every
-        image that can produce a record, so a count-based import picks its
-        subset without decoding a single image.
+        The manifest names every image that can produce a record, so a
+        count-based import picks its subset without decoding one.
 
         Args:
             image_dir: Directory with images.
@@ -157,13 +149,13 @@ class CreateMLParser(SplitParserPlugin):
 
         files: dict[Path, None] = {}
         for annotations in annotations_data:
-            # A frame without boxes produces no record at all, so it is not
-            # a file an import can choose.
+            # A frame without boxes produces no record, so it is not a
+            # file an import can choose.
             if not annotations["annotations"]:
                 continue
             path = self._resolve_image(base_dir, annotations["image"])
-            # A missing image is reported by the parse itself; enumerating
-            # only decides what can be selected.
+            # The parse reports a missing image; this only decides what
+            # can be selected.
             if path.exists():
                 files[path] = None
         return list(files)

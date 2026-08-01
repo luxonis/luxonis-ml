@@ -32,12 +32,9 @@ def prepare_source(
             local_dir,
         )
     else:
-        # A trailing separator would otherwise yield an empty name, which in
-        # turn makes both the dataset name and the download target empty.
-        # Split by `PurePath` rather than on "/" so that a local Windows
-        # path ends at its backslash, while a backslash on POSIX stays the
-        # ordinary file name character it is there. A URL is unaffected:
-        # both flavours separate on "/".
+        # `PurePath` rather than a split on "/", so that a local Windows
+        # path ends at its backslash while a backslash on POSIX stays the
+        # ordinary file name character it is there.
         name = PurePath(source_string).name
         if not name:
             raise ValueError(
@@ -46,9 +43,7 @@ def prepare_source(
         local_path = (local_dir or Path.cwd()) / name
         source_path = LuxonisFileSystem.download(source_string, local_path)
 
-    # Case-folded: Windows-authored and manually renamed archives commonly
-    # arrive as `.ZIP`, and an unextracted archive would otherwise reach
-    # the parsers as a single unrecognizable file.
+    # Manually renamed archives commonly arrive as `.ZIP`.
     if source_path.suffix.lower() == ".zip":
         with zipfile.ZipFile(source_path, "r") as archive:
             unzip_dir = source_path.parent / source_path.stem
@@ -94,10 +89,13 @@ def _resolve_extracted_zip_root(unzip_dir: Path) -> Path:
         "dataset.yaml",
         "dataset.yml",
     }
-    child_dirs = {path.name for path in only_entry.iterdir() if path.is_dir()}
-    child_files = {
-        path.name for path in only_entry.iterdir() if path.is_file()
-    }
+    child_dirs: set[str] = set()
+    child_files: set[str] = set()
+    for child in only_entry.iterdir():
+        if child.is_dir():
+            child_dirs.add(child.name)
+        elif child.is_file():
+            child_files.add(child.name)
     has_markers = bool(child_dirs & marker_dirs or child_files & marker_files)
     if not has_markers:
         recognized = any(
@@ -177,6 +175,20 @@ def _download_roboflow_dataset(
     return Path(dataset.location), project
 
 
+def _raise_for_api_error(response: requests.Response) -> None:
+    """Raise with whatever detail a failed Ultralytics response carries."""
+    if response.ok:
+        return
+    try:
+        error = response.json().get("error")
+    except ValueError:
+        error = response.text.strip()
+    detail = f"{response.status_code} {response.reason}" + (
+        f": {error}" if error else ""
+    )
+    raise RuntimeError(f"Ultralytics API request failed: {detail}")
+
+
 def _download_ultralytics_dataset(
     source: str,
     local_path: Path | None,
@@ -229,15 +241,7 @@ def _download_ultralytics_dataset(
         params={"username": parsed.netloc, "slug": path_parts[1]},
         timeout=30.0,
     )
-    if not dataset_response.ok:
-        try:
-            error = dataset_response.json().get("error")
-        except ValueError:
-            error = dataset_response.text
-        raise RuntimeError(
-            "Ultralytics API request failed "
-            f"({dataset_response.status_code}): {error}"
-        )
+    _raise_for_api_error(dataset_response)
 
     dataset = dataset_response.json()["dataset"]
     export_response = requests.get(
@@ -246,15 +250,7 @@ def _download_ultralytics_dataset(
         params={"v": version} if version is not None else None,
         timeout=120.0,
     )
-    if not export_response.ok:
-        try:
-            error = export_response.json().get("error")
-        except ValueError:
-            error = export_response.text.strip() or export_response.reason
-        detail = f"{export_response.status_code} {export_response.reason}" + (
-            f": {error}" if error else ""
-        )
-        raise RuntimeError(f"Ultralytics API request failed: {detail}")
+    _raise_for_api_error(export_response)
 
     destination_root = local_path or Path.cwd()
     destination = (

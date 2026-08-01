@@ -196,7 +196,7 @@ def test_luxonis_parser_forwards_arguments(
         use_keypoint_ann=True,
     )
     assert result.get_parser_issue_messages() == ["issue"]
-    assert parser._get_parser_issue_messages() == ["issue"]
+    assert parser.get_parser_issue_messages() == ["issue"]
     assert calls == [
         {
             "cls": LuxonisDataset,

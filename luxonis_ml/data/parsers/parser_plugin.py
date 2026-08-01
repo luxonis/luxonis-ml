@@ -1,7 +1,7 @@
 import random
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, TypeAlias, overload
@@ -24,12 +24,26 @@ PARSERS_REGISTRY: Registry[type["ParserPlugin"]] = Registry(name="parsers")
 SplitRecord: TypeAlias = tuple[str | None, "dict | DatasetRecord"]
 
 
+def centered_box(
+    x_center: Any, y_center: Any, width: Any, height: Any
+) -> dict[str, float]:
+    """Convert a YOLO-style ``cx cy w h`` annotation to a top-left box."""
+    box_width = float(width)
+    box_height = float(height)
+    return {
+        "x": float(x_center) - box_width / 2,
+        "y": float(y_center) - box_height / 2,
+        "w": box_width,
+        "h": box_height,
+    }
+
+
 @dataclass(frozen=True)
 class Layout:
     """What a parser recognized in a source.
 
-    Detection is what discovers a layout, and parsing is handed the result
-    instead of rediscovering it, so a source is inspected once per import.
+    `detect` discovers the layout and `parse` is handed the result, so a
+    source is inspected once per import.
 
     Attributes:
         splits: Parse arguments for each split, keyed by canonical split
@@ -50,12 +64,9 @@ class Layout:
 class ParseResult:
     """Data-only result produced by a parser plugin.
 
-    ``records`` is a single-pass iterator: a parser walks its source once
-    and tags each record with the split it belongs to, rather than
-    publishing a file list a caller has to be given up front.
-
     Attributes:
-        records: Split name and record, streamed in one pass.
+        records: Split name and record, streamed in a single pass over the
+            source.
         skeletons: Keypoint skeleton metadata keyed by task name. Complete
             once ``records`` is exhausted; a parser that already knows its
             skeletons may fill it before streaming starts.
@@ -163,10 +174,9 @@ class ParserPlugin(ABC):
     def detect(cls, source: Path) -> Layout | None:
         """Return the layout of ``source``, or ``None`` if unrecognized.
 
-        Whatever recognizing the source revealed - which splits it has,
-        where their images and annotations live - belongs in the returned
-        layout, because it is handed back to `parse` instead of being
-        discovered a second time.
+        Put whatever recognizing the source revealed - its splits, where
+        their images and annotations live - into the returned layout.
+        `parse` is handed it rather than discovering it again.
         """
         ...
 
@@ -189,10 +199,9 @@ class ParserPlugin(ABC):
         """List the files of each split without parsing annotations.
 
         Only count-based `split_ratios` need the files up front, to pick a
-        subset before anything is imported. Returning ``None`` says this
-        parser cannot answer more cheaply than parsing, and the importer
-        falls back to a throwaway parse - for that one case, not for
-        every import.
+        subset before anything is imported. Return ``None`` when this
+        parser cannot answer more cheaply than parsing; the importer then
+        falls back to a throwaway parse.
 
         Args:
             source: Root of the dataset.
@@ -225,20 +234,11 @@ class ParserPlugin(ABC):
         )
 
     @staticmethod
-    def _compare_stem_files(
-        list1: Iterable[Path], list2: Iterable[Path]
-    ) -> bool:
-        set1 = {Path(file).stem for file in list1}
-        set2 = {Path(file).stem for file in list2}
-        return bool(set1) and set1 == set2
-
-    @staticmethod
     def _list_images(image_dir: Path) -> list[Path]:
         """List the images of a directory that OpenCV can read.
 
-        The suffix is matched case-insensitively, so a source naming its
-        images `.JPG` - which the exact-case match this replaced skipped
-        without a word - is imported like any other.
+        Suffixes are matched case-insensitively, so a source naming its
+        images `.JPG` is imported like any other.
         """
         supported_formats = {
             ".bmp",
@@ -288,9 +288,8 @@ class SplitParserPlugin(ParserPlugin):
     def _split_files(self, **kwargs: Any) -> list[Path] | None:
         """List the files of one split without parsing its annotations.
 
-        Override where a split's files are a directory listing or an
-        index the parser reads anyway. Returning ``None`` means only a
-        parse can answer.
+        Override where a split's files are a directory listing or an index
+        the parser reads anyway. ``None`` means only a parse can answer.
         """
         del kwargs
         return None
@@ -489,32 +488,26 @@ def apply_counts_to_pool(
     shuffled = list(images)
     random.shuffle(shuffled)
 
+    splits = ("train", "val", "test")
     if total_requested > len(shuffled):
         logger.warning(
             f"Requested {total_requested} total samples, but only "
             f"{len(shuffled)} available. Filling splits by priority "
             "(most requested first)."
         )
-        sorted_splits = sorted(
-            ("train", "val", "test"),
-            key=lambda split: split_ratios.get(split, 0),
-            reverse=True,
-        )
-        sampled: dict[str, Sequence[PathType]] = {}
-        offset = 0
-        for split_name in sorted_splits:
-            count = min(
-                split_ratios.get(split_name, 0),
-                len(shuffled) - offset,
+        splits = tuple(
+            sorted(
+                splits,
+                key=lambda split: split_ratios.get(split, 0),
+                reverse=True,
             )
-            sampled[split_name] = shuffled[offset : offset + count]
-            offset += count
-        return sampled
+        )
 
-    sampled = {}
+    sampled: dict[str, Sequence[PathType]] = {}
     offset = 0
-    for split_name in ("train", "val", "test"):
-        count = split_ratios.get(split_name, 0)
+    for split_name in splits:
+        # The clamp only bites when the pool runs out.
+        count = min(split_ratios.get(split_name, 0), len(shuffled) - offset)
         sampled[split_name] = shuffled[offset : offset + count]
         offset += count
     return sampled

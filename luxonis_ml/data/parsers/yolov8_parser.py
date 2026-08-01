@@ -10,7 +10,7 @@ from typing_extensions import override
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
 
-from .parser_plugin import Layout, SplitParserPlugin
+from .parser_plugin import Layout, SplitParserPlugin, centered_box
 
 
 class Format(str, Enum):
@@ -92,13 +92,7 @@ class YOLOv8Parser(SplitParserPlugin):
     )
 
     def fit_boundingbox(self, points: np.ndarray) -> dict[str, float]:
-        """Fit a bounding box around a polygon mask.
-
-        Kept as part of the public API. `_split_records` computes the same
-        box straight from the parsed coordinates instead of calling this,
-        because building an array only to reduce it four times costs more
-        than the reduction saves at polygon sizes.
-        """
+        """Fit a bounding box around a polygon mask."""
         x_min = np.min(points[:, 0])
         y_min = np.min(points[:, 1])
         x_max = np.max(points[:, 0])
@@ -136,11 +130,11 @@ class YOLOv8Parser(SplitParserPlugin):
 
     @staticmethod
     def _has_polygon(annotation_path: Path) -> bool:
-        """Report whether a label file holds a line the parse decodes.
+        """Report whether a label file holds a polygon line.
 
-        A line longer than five values is a polygon only where the split
-        declares no ``kpt_shape``, and a polygon is the only annotation
-        whose image the parse reads.
+        Only meaningful where the split declares no ``kpt_shape``, in
+        which case a line of more than five values is a polygon - the one
+        annotation whose image the parse has to read.
 
         Args:
             annotation_path: Label file belonging to one image. It does
@@ -155,9 +149,7 @@ class YOLOv8Parser(SplitParserPlugin):
 
         with open(annotation_path, encoding="utf-8") as f:
             for line in f:
-                # Six fields already answer the question, and splitting
-                # off no more than six selects the same lines as splitting
-                # the whole line would.
+                # Six fields already answer the question.
                 if len(line.split(None, 5)) > 5:
                     return True
         return False
@@ -194,11 +186,10 @@ class YOLOv8Parser(SplitParserPlugin):
             yaml_roots: Directories to search, most specific first.
 
         Returns:
-            ``data.yaml`` where the export named it that - which both
-            Roboflow and Ultralytics do - so that an unrelated YAML
-            sitting next to it cannot win on name alone. Any other single
-            YAML of the first directory that has one, sorted so that a
-            directory holding several always resolves the same way.
+            ``data.yaml`` where the export named it that, as both Roboflow
+            and Ultralytics do, so an unrelated YAML beside it cannot win.
+            Otherwise the first YAML of the first directory that has one,
+            sorted so a directory holding several resolves consistently.
 
         """
         for yaml_root in yaml_roots:
@@ -224,11 +215,10 @@ class YOLOv8Parser(SplitParserPlugin):
             (
                 split_path / "images",
                 split_path / "labels",
-                # `split_path` is the dataset root itself when a source
-                # without splits is validated as one, and then the class
-                # file is inside it. Searching there first also keeps a
-                # genuine split from reaching for an unrelated YAML that
-                # happens to sit next to the dataset.
+                # A source without splits is validated as one, and then
+                # `split_path` is the dataset root holding the class file.
+                # Searching there first also keeps a genuine split from
+                # reaching for an unrelated YAML beside the dataset.
                 (split_path, split_path.parent),
             ),  # ROBOFLOW
             (
@@ -310,10 +300,9 @@ class YOLOv8Parser(SplitParserPlugin):
 
         Almost the plain listing: every image yields at least one record,
         background images included. The exception is an image whose every
-        annotation line is too short to parse, which yields nothing at
-        all - so its label file has to be looked at, or a count-based
-        `split_ratios` would sample an image that then contributes no
-        record and leave that split a sample short.
+        annotation line is too short to parse, which yields nothing - so
+        its label file is looked at, or a count-based `split_ratios` would
+        sample it and leave the split a record short.
 
         Args:
             image_dir: Directory with images.
@@ -336,10 +325,10 @@ class YOLOv8Parser(SplitParserPlugin):
         """Return whether the image owning this label file is recorded.
 
         Mirrors the generator's decisions without parsing any value: a
-        missing or empty label file still yields one background record, a
-        line with at least 5 fields yields an annotation record, and
-        shorter lines are skipped. Only an image whose every non-empty
-        line is too short produces nothing.
+        missing or empty label file yields one background record, a line
+        of at least 5 fields yields an annotation record, shorter lines
+        are skipped. Only an image whose every non-empty line is too short
+        produces nothing.
 
         Args:
             annotation_path: Label file of one image. It need not exist.
@@ -357,8 +346,7 @@ class YOLOv8Parser(SplitParserPlugin):
                 elements = line.split()
                 if not elements:
                     continue
-                # The first usable line settles it, so well-formed labels
-                # cost one split instead of one per annotation.
+                # The first usable line settles it.
                 if len(elements) >= 5:
                     return True
                 skipped_any = True
@@ -398,16 +386,13 @@ class YOLOv8Parser(SplitParserPlugin):
             """
             class_names = classes_data["names"]
 
-        # `classes_data` is never mutated, so the shape only has to be
-        # looked up once for the whole split.
         kpt_shape = classes_data.get("kpt_shape", None)
         n_kpts = kpt_dim = 0
         if kpt_shape is not None:
-            # Unpacked here, before any record streams: the header is
-            # read once for the whole split, and a malformed shape
+            # Unpacked before any record streams: a malformed shape
             # failing inside the generator would leave a registered,
-            # half-populated dataset behind - the same reason the
-            # polygon pre-check below exists.
+            # half-populated dataset behind. Same for the polygon
+            # pre-check below.
             try:
                 n_kpts, kpt_dim = kpt_shape
             except (TypeError, ValueError) as error:
@@ -420,9 +405,7 @@ class YOLOv8Parser(SplitParserPlugin):
         if kpt_shape is None:
             # A polygon is the only annotation whose image is read, so an
             # unreadable image is only fatal here. Checking the format
-            # signature costs no decode and keeps the failure where it
-            # belongs: a parse that fails once it is streaming leaves a
-            # registered, half-populated dataset behind.
+            # signature costs no decode.
             for img_path in images:
                 if self._has_polygon(
                     annotation_dir / f"{img_path.stem}.txt"
@@ -432,8 +415,6 @@ class YOLOv8Parser(SplitParserPlugin):
         def generator() -> DatasetIterator:
             for img_path in images:
                 ann_path = annotation_dir / f"{img_path.stem}.txt"
-                # One string per image instead of one per annotation; the
-                # records share it, which is safe because it is immutable.
                 file = str(img_path)
 
                 annotations: list[list[str]] = []
@@ -441,9 +422,8 @@ class YOLOv8Parser(SplitParserPlugin):
                 if ann_path.exists():
                     with open(ann_path, encoding="utf-8") as f:
                         # A line is empty exactly when it has no fields,
-                        # so splitting while reading both applies the old
-                        # pre-filter and produces the fields every kept
-                        # line is parsed into anyway.
+                        # so this both drops the blank lines and produces
+                        # the fields every kept line is parsed into.
                         annotations = [
                             elements
                             for line in f
@@ -466,21 +446,14 @@ class YOLOv8Parser(SplitParserPlugin):
                         class_id, x_center, y_center, width, height = (
                             annotation_elements
                         )
-                        class_name = class_names[int(class_id)]
-                        box_width = float(width)
-                        box_height = float(height)
-
                         yield {
                             "file": file,
                             "annotation": {
-                                "class": class_name,
+                                "class": class_names[int(class_id)],
                                 "instance_id": instance_id,
-                                "boundingbox": {
-                                    "x": float(x_center) - box_width / 2,
-                                    "y": float(y_center) - box_height / 2,
-                                    "w": box_width,
-                                    "h": box_height,
-                                },
+                                "boundingbox": centered_box(
+                                    x_center, y_center, width, height
+                                ),
                             },
                         }
 
@@ -503,15 +476,13 @@ class YOLOv8Parser(SplitParserPlugin):
                             height,
                             *keypoint_values,
                         ) = annotation_elements
-                        # `map` runs the same conversion in C and rejects
-                        # exactly the same tokens as the comprehension.
                         coordinates = list(map(float, keypoint_values))
 
-                        # Reshaping to `(n_kpts, kpt_dim)` and reading the
-                        # rows is the same as striding the flat values by
-                        # `kpt_dim`, but only when the count fits exactly;
-                        # any other shape keeps the numpy path so its `-1`
-                        # inference and its errors are unchanged.
+                        # Striding the flat values is the same as reading
+                        # the rows of an `(n_kpts, kpt_dim)` reshape, but
+                        # only when the count fits exactly. Any other shape
+                        # keeps the numpy path, for its `-1` inference and
+                        # its error messages.
                         if kpt_dim == 3 and len(coordinates) == n_kpts * 3:
                             keypoints = list(
                                 zip(
@@ -536,21 +507,14 @@ class YOLOv8Parser(SplitParserPlugin):
                                 coordinates, n_kpts, kpt_dim
                             )
 
-                        class_name = class_names[int(class_id)]
-                        box_width = float(width)
-                        box_height = float(height)
-
                         yield {
                             "file": file,
                             "annotation": {
-                                "class": class_name,
+                                "class": class_names[int(class_id)],
                                 "instance_id": instance_id,
-                                "boundingbox": {
-                                    "x": float(x_center) - box_width / 2,
-                                    "y": float(y_center) - box_height / 2,
-                                    "w": box_width,
-                                    "h": box_height,
-                                },
+                                "boundingbox": centered_box(
+                                    x_center, y_center, width, height
+                                ),
                                 "keypoints": {
                                     "keypoints": keypoints,
                                 },
@@ -560,19 +524,12 @@ class YOLOv8Parser(SplitParserPlugin):
                     else:
                         if image_size is None:
                             # Polygons are normalized, so every polygon of
-                            # one image resolves against the same decoded
-                            # size and the decode is shared between them.
+                            # one image shares this decode.
                             img = cv2.imread(file)
                             if img is None:
                                 raise ValueError(
                                     f"Failed to read image: {img_path}"
                                 )
-                            # Unpacked into an explicit pair rather than
-                            # kept as the shape slice, whose element type
-                            # depends on which numpy stubs are installed.
-                            # Named apart from the annotation-line
-                            # `height`/`width` so no later branch can
-                            # pick up a previous image's pixel size.
                             decoded_height, decoded_width = img.shape[:2]
                             image_size = (
                                 int(decoded_height),
@@ -581,16 +538,11 @@ class YOLOv8Parser(SplitParserPlugin):
                         img_height, img_width = image_size
 
                         class_id, *point_values = annotation_elements
-                        # `map` runs the same conversion in C and rejects
-                        # exactly the same tokens as the comprehension.
                         coordinates = list(map(float, point_values))
                         if len(coordinates) % 2:
-                            # An odd count used to reach `reshape(-1, 2)`;
-                            # let numpy raise it verbatim rather than
+                            # Let numpy raise on an odd count rather than
                             # silently dropping the trailing value.
                             np.array(coordinates).reshape(-1, 2)
-                        # Every other value, which is what reshaping to
-                        # two columns and taking a column amounts to.
                         xs = coordinates[0::2]
                         ys = coordinates[1::2]
                         x_min = min(xs)

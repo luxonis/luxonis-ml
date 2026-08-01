@@ -80,9 +80,8 @@ class LuxonisParser(Generic[T]):
         random_split = kwargs.pop("random_split", True)
         split_ratios = kwargs.pop("split_ratios", None)
 
-        # Cleared rather than left holding the previous parse: a failed
-        # call must not answer `get_parser_issue_messages` with what an
-        # earlier one collected.
+        # A failed call must not answer `get_parser_issue_messages` with
+        # what an earlier one collected.
         self._dataset = None
         self._issues.clear()
         self._dataset = self._dataset_class.import_dataset(
@@ -103,12 +102,8 @@ class LuxonisParser(Generic[T]):
 
     def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
         """Return issues collected during the most recent parse."""
-        return self._get_parser_issue_messages()
-
-    def _get_parser_issue_messages(self) -> list[ParserIssueMessage]:
         if self._dataset is not None:
             return self._dataset.get_parser_issue_messages()
-        # A parse that failed never returned a dataset to read these
-        # from, and the issues collected before it gave up are exactly
-        # what a caller handling that failure is asking about.
+        # A failed parse never returned a dataset to read these from, so
+        # fall back to what it collected before it gave up.
         return list(self._issues)

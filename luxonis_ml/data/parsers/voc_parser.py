@@ -26,11 +26,9 @@ class VOCParser(SplitParserPlugin):
 
     This is one of the formats that Roboflow can generate.
 
-    Which images a split actually contains is only known once its ``.xml``
-    documents have been read - ``<filename>`` may name an image that is
-    not there, and such an annotation is skipped - so `_split_files` is
-    deliberately left unimplemented. A directory listing would report
-    images that the parse never yields a record for.
+    `_split_files` is deliberately left unimplemented: ``<filename>`` may
+    name an image that is not there and the annotation is then skipped, so
+    a directory listing would report images that never yield a record.
     """
 
     dataset_types = ("voc",)
@@ -40,10 +38,6 @@ class VOCParser(SplitParserPlugin):
         if not split_path.exists():
             return None
 
-        # `_compare_stem_files` re-wraps every entry in a fresh `Path` before
-        # taking its stem; both listings already yield `Path`s and
-        # `Path(p).stem` is `p.stem` for any `p`, so the same two sets are
-        # built here without that per-entry round trip.
         image_stems = {
             image.stem for image in VOCParser._list_images(split_path)
         }
@@ -73,8 +67,7 @@ class VOCParser(SplitParserPlugin):
                 required XML tag is missing.
 
         """
-        # `image_dir` is the same for every annotation, so the symlink
-        # resolution it goes through is done once instead of once per file.
+        # The same for every annotation, so resolved once.
         base_dir = image_dir.absolute().resolve()
 
         for anno_xml in annotation_dir.glob("*.xml"):
@@ -103,9 +96,8 @@ class VOCParser(SplitParserPlugin):
             file = str(path)
             boxed = False
             for object_item in root.findall("object"):
-                # Read for its side effect on boxless objects too: a
-                # classification-style object without a `name` has always
-                # been an error.
+                # Read before the box check, so that an object without a
+                # `name` is an error whether or not it carries a box.
                 class_name = self._xml_find(object_item, "name")
 
                 bbox_info = object_item.find("bndbox")
@@ -117,10 +109,6 @@ class VOCParser(SplitParserPlugin):
                 xmax = float(self._xml_find(bbox_info, "xmax"))
                 ymax = float(self._xml_find(bbox_info, "ymax"))
                 boxed = True
-                # Dividing the corners as scalars is bit-for-bit what the
-                # float64 array this used to allocate did, and the tags are
-                # still read in their original order, so a missing one
-                # raises the same error as before.
                 yield {
                     "file": file,
                     "annotation": {

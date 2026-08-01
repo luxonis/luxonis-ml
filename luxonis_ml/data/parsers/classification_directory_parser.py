@@ -103,12 +103,10 @@ class ClassificationDirectoryParser(SplitParserPlugin):
             the directory when the tail is absolute.
 
         """
-        # `resolve` returns a path with no symlinked component left in it,
-        # so for an entry that is not itself a symlink the resolved
-        # directory joined with the entry name is exactly what resolving
-        # that entry returns - without following (and lstat-ing) the shared
-        # parent components once per image. A symlinked entry is the only
-        # case where the two can differ, and it keeps the full resolve.
+        # A resolved directory has no symlinked component left, so joining
+        # it with the name of an entry that is not itself a symlink gives
+        # what resolving that entry would - without walking the shared
+        # parent components once per image.
         resolved_dir = directory.absolute().resolve()
         with os.scandir(directory) as scan:
             symlinks = {entry.name for entry in scan if entry.is_symlink()}
@@ -136,17 +134,15 @@ class ClassificationDirectoryParser(SplitParserPlugin):
             if not class_path.is_dir():
                 continue
             # An empty class directory contributes neither a record nor a
-            # file. Skipping it also leaves an unreadable one as silent as
-            # `_list_images` is about it, rather than raising below.
+            # file.
             images = self._list_images(class_path)
             if not images:
                 continue
             if class_path.name in self._RESERVED_DIR_NAMES:
-                # The name belongs to another layout, so the directory is
-                # not a class - but it does hold images, and the other
-                # reading of the same name is a class legitimately called
-                # `train`, whose images would otherwise vanish from the
-                # import without a word.
+                # The directory holds images but its name belongs to
+                # another layout. It may still be a class legitimately
+                # called `train`, so say so rather than dropping it
+                # silently.
                 logger.warning(
                     f"Not importing '{class_path}' as a class: its name "
                     "belongs to another dataset layout. Rename the "
@@ -173,10 +169,7 @@ class ClassificationDirectoryParser(SplitParserPlugin):
         for class_name, resolved_dir, tails in self._walk_classes(class_dir):
             dir_path = str(resolved_dir)
             for tail in tails:
-                # Joined as strings on purpose: a record only needs the
-                # string, so building a `Path` per image just to stringify
-                # it would allocate an object and its cached `str` for
-                # nothing.
+                # Joined as strings: a record only needs the string.
                 yield {
                     "file": os.path.join(dir_path, tail),  # noqa: PTH118
                     "annotation": {"class": class_name},
@@ -185,8 +178,8 @@ class ClassificationDirectoryParser(SplitParserPlugin):
     def _split_files(self, class_dir: Path) -> list[Path]:
         """List the images of one split without building its records.
 
-        The class directories are the annotation: listing them is all a
-        parse does, so counting the files costs no more than one walk.
+        The class directories are the annotation, so listing them is all a
+        parse does anyway.
 
         Args:
             class_dir: Top-level class directory.

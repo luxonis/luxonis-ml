@@ -334,13 +334,6 @@ def test_parser_plugin_file_helpers(tmp_path: Path):
     (tmp_path / "notes.txt").write_text("not an image")
 
     assert set(ParserPlugin._list_images(tmp_path)) == {image, second}
-    assert ParserPlugin._compare_stem_files(
-        [tmp_path / "a.jpg"], [tmp_path / "a.xml"]
-    )
-    assert not ParserPlugin._compare_stem_files([], [])
-    assert not ParserPlugin._compare_stem_files(
-        [tmp_path / "a.jpg"], [tmp_path / "b.xml"]
-    )
 
     record = DatasetRecord(files={"image": image})
     assert list(_record_files(record)) == [image.absolute()]

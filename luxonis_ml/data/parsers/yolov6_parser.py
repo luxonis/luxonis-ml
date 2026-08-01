@@ -6,7 +6,7 @@ from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 
-from .parser_plugin import Layout, SplitParserPlugin
+from .parser_plugin import Layout, SplitParserPlugin, centered_box
 
 
 class YoloV6Parser(SplitParserPlugin):
@@ -53,9 +53,8 @@ class YoloV6Parser(SplitParserPlugin):
         data_yaml = split_path.parent.parent / "data.yaml"
         if not data_yaml.exists():
             return None
-        # The listing validation already paid for is handed to the parse as a
-        # parse argument so that recognizing and parsing a split walk the image
-        # directory once between them instead of once each.
+        # The listing is handed on so that recognizing and parsing a split
+        # walk the image directory once between them, not once each.
         return {
             "image_dir": split_path,
             "annotation_dir": label_split,
@@ -116,8 +115,8 @@ class YoloV6Parser(SplitParserPlugin):
 
         """
         del annotation_dir, classes_path
-        # The copy keeps a caller trimming the enumerated files from reaching
-        # into the listing the records are streamed from.
+        # Copied so that a caller trimming the enumerated files cannot
+        # reach into the listing the records are streamed from.
         return self._list_images(image_dir) if images is None else list(images)
 
     @override
@@ -160,9 +159,6 @@ class YoloV6Parser(SplitParserPlugin):
         def generator() -> DatasetIterator:
             for img_path in image_paths:
                 file = str(img_path)
-                # A stem is the name minus its suffix, and `with_suffix`
-                # appends when there is no suffix to replace, so appending to
-                # the stem names the same label file in both cases.
                 ann_path = annotation_dir / f"{img_path.stem}.txt"
 
                 annotation_data = []
@@ -178,23 +174,13 @@ class YoloV6Parser(SplitParserPlugin):
                     class_id, x_center, y_center, width, height = (
                         ann_line.split()
                     )
-                    class_name = class_names[int(class_id)]
-                    # Parsing a decimal literal is deterministic, so reusing
-                    # the size for the origin gives the same floats as
-                    # converting the same text twice.
-                    w = float(width)
-                    h = float(height)
-
                     yield {
                         "file": file,
                         "annotation": {
-                            "class": class_name,
-                            "boundingbox": {
-                                "x": float(x_center) - w / 2,
-                                "y": float(y_center) - h / 2,
-                                "w": w,
-                                "h": h,
-                            },
+                            "class": class_names[int(class_id)],
+                            "boundingbox": centered_box(
+                                x_center, y_center, width, height
+                            ),
                         },
                     }
 

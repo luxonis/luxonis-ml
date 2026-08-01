@@ -5,8 +5,8 @@ reading the code, so that nobody has to rediscover why a parser is shaped the
 way it is — or undoes one by "simplifying" it.
 
 Every entry here is measured by the benchmark suite and guarded by a regression
-test. The *why* of each individual change lives in a comment at the site; this
-file is the map, the numbers, and what is deliberately still slow.
+test. This file is the map, the numbers, and what is deliberately still slow;
+the code carries a short note only where a change is genuinely surprising.
 
 ## Re-measuring
 

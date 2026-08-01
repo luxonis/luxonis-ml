@@ -12,7 +12,6 @@ from luxonis_ml.data.parsers import (
     VOCParser,
 )
 from luxonis_ml.data.parsers import voc_parser as voc_parser_module
-from luxonis_ml.data.parsers.parser_plugin import ParserPlugin
 from tests.test_data.parsers.helpers import (
     _image,
     _plugin,
@@ -321,25 +320,10 @@ def test_voc_bbox_normalization_matches_the_numpy_original(
     ) == (x, y, width, height)
 
 
-def test_voc_validate_split_compares_stems_directly(
+def test_voc_validate_split_requires_an_xml_per_image(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Split validation must not re-wrap its listings in new ``Path``s.
-
-    ``_compare_stem_files`` builds a fresh ``Path`` for every entry of both
-    listings before taking its stem, which doubles the cost of validating a
-    large split - and validation is what recognizing a VOC dataset at all
-    consists of, so every candidate directory pays it.
-    """
     split = _voc_split(tmp_path, 2)
-
-    def _rewrapped(*args: Any, **kwargs: Any) -> bool:
-        raise AssertionError("the directory listings were re-wrapped")
-
-    monkeypatch.setattr(
-        ParserPlugin, "_compare_stem_files", staticmethod(_rewrapped)
-    )
 
     assert VOCParser.validate_split(split) == {
         "image_dir": split,

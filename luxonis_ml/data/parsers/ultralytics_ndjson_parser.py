@@ -16,7 +16,13 @@ from luxonis_ml.utils.path import (
     resolve_manifest_path,
 )
 
-from .parser_plugin import Layout, ParseResult, ParserPlugin, SplitRecord
+from .parser_plugin import (
+    Layout,
+    ParseResult,
+    ParserPlugin,
+    SplitRecord,
+    centered_box,
+)
 
 
 class UltralyticsNDJSONParser(ParserPlugin):
@@ -45,12 +51,10 @@ class UltralyticsNDJSONParser(ParserPlugin):
         if header is None:
             return None
 
-        # Which splits a manifest uses is written on its image records,
-        # so answering it exactly would cost a walk of the whole file —
-        # the walk parsing already makes, tagging each record with the
-        # split it names. The layout therefore claims the splits the
-        # format defines, and carries the manifest and its header so that
-        # neither is resolved a second time.
+        # Which splits a manifest uses is written on its image records, so
+        # answering exactly would cost a walk of the whole file - the walk
+        # the parse makes anyway. The layout claims the splits the format
+        # defines and carries the manifest and header along.
         splits: dict[str | None, dict[str, Any]] = {
             split_name: {"ndjson_path": ndjson_path, "header": header}
             for split_name in ("train", "val", "test")
@@ -67,8 +71,8 @@ class UltralyticsNDJSONParser(ParserPlugin):
         **kwargs: Any,
     ) -> ParseResult:
         del source, kwargs
-        # Every split of an NDJSON source is read from the same manifest,
-        # so any entry of the layout names it.
+        # Every split is read from the same manifest, so any entry of the
+        # layout names it.
         manifest = next(iter(layout.splits.values()))
         return ParseResult(
             self._stream_records(
@@ -88,10 +92,10 @@ class UltralyticsNDJSONParser(ParserPlugin):
     ) -> dict[str | None, list[Path]] | None:
         """List each split's images without downloading any of them.
 
-        The fallback the importer would use instead is a throwaway parse,
-        which for this format downloads every remote image and creates the
-        cache directory that the real parse then refuses to write into.
-        The destination of a remote image is derived from the record, so
+        Worth implementing here: the importer's fallback is a throwaway
+        parse, which for this format would download every remote image and
+        create the cache directory the real parse then refuses to write
+        into. A remote image's destination is derived from its record, so
         it can be named without fetching anything.
         """
         del source, kwargs
@@ -108,14 +112,12 @@ class UltralyticsNDJSONParser(ParserPlugin):
                 remote_image_dir=remote_image_dir,
                 download=False,
             )
-            # The records the parse drops have to be dropped here too:
-            # counting an image that is never added would leave a
-            # count-based split short of what was asked for. The parse
-            # warns about each one, so this stays silent.
+            # Drop what the parse drops: counting an image that is never
+            # added would leave a count-based split short. The parse warns
+            # about each one, so this stays silent.
             if not record.get("url") and not image_path.exists():
                 continue
-            # Parsing warns about every record's split; enumerating the
-            # same records again should not repeat all of it.
+            # Likewise for the split warnings.
             split_name = self._normalize_split_name(
                 record.get("split"), warn=False
             )
@@ -182,9 +184,6 @@ class UltralyticsNDJSONParser(ParserPlugin):
             annotations = record.get("annotations") or {}
             instance_id = 0
             yielded_annotation = False
-            # The file name identifies the image, not the annotation:
-            # stringifying it once per record keeps an image carrying
-            # thirty instances from paying for thirty conversions.
             image_file = str(image_path)
 
             for box in annotations.get("boxes", []):
@@ -197,12 +196,9 @@ class UltralyticsNDJSONParser(ParserPlugin):
                         "annotation": {
                             "class": class_names[int(class_id)],
                             "instance_id": instance_id,
-                            "boundingbox": {
-                                "x": float(x_center) - float(width) / 2,
-                                "y": float(y_center) - float(height) / 2,
-                                "w": float(width),
-                                "h": float(height),
-                            },
+                            "boundingbox": centered_box(
+                                x_center, y_center, width, height
+                            ),
                         },
                     },
                 )
@@ -223,10 +219,6 @@ class UltralyticsNDJSONParser(ParserPlugin):
                             "instance_segmentation": {
                                 "height": int(record["height"]),
                                 "width": int(record["width"]),
-                                # `tolist` on a `dtype=float` array hands
-                                # back Python floats, so converting each
-                                # coordinate again could not have changed
-                                # one.
                                 "points": list(
                                     map(tuple, points_array.tolist())
                                 ),
@@ -261,16 +253,12 @@ class UltralyticsNDJSONParser(ParserPlugin):
                     n_kpts, kpt_dim
                 )
                 if kpt_dim == 2:
-                    # The appended visibility column was a constant
-                    # ``2.0`` that ``int`` turned back into ``2``, so
-                    # building and concatenating it only to cast it
-                    # away produced this literal and nothing else.
+                    # Annotations without a visibility column are fully
+                    # visible.
                     keypoint_values = [
                         (x, y, 2) for x, y in keypoints_array.tolist()
                     ]
                 else:
-                    # As above, `tolist` already yields Python floats;
-                    # only the visibility flag needs converting.
                     keypoint_values = [
                         (x, y, int(v)) for x, y, v in keypoints_array.tolist()
                     ]
@@ -283,12 +271,9 @@ class UltralyticsNDJSONParser(ParserPlugin):
                         "annotation": {
                             "class": class_names[int(class_id)],
                             "instance_id": instance_id,
-                            "boundingbox": {
-                                "x": float(x_center) - float(width) / 2,
-                                "y": float(y_center) - float(height) / 2,
-                                "w": float(width),
-                                "h": float(height),
-                            },
+                            "boundingbox": centered_box(
+                                x_center, y_center, width, height
+                            ),
                             "keypoints": {"keypoints": keypoint_values},
                         },
                     },
@@ -444,11 +429,7 @@ class UltralyticsNDJSONParser(ParserPlugin):
 
     @staticmethod
     def _fit_boundingbox(points: np.ndarray) -> dict[str, float]:
-        # One reduction per axis rather than one per corner. `min` and
-        # `max` select an element instead of computing one, so reducing
-        # both columns in a single pass returns the very same floats —
-        # NaN propagation and the empty-polygon `ValueError` included —
-        # while halving the NumPy calls and dropping the column slices.
+        """Fit a bounding box around a polygon."""
         x_min, y_min = points.min(axis=0).tolist()
         x_max, y_max = points.max(axis=0).tolist()
         return {

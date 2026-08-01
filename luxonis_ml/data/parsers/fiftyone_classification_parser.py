@@ -77,8 +77,7 @@ class FiftyOneClassificationParser(SplitParserPlugin):
         except (json.JSONDecodeError, OSError):
             return None
 
-        # Recognizing a split already requires parsing `labels.json`, so the
-        # parsed content is handed over instead of being read a second time.
+        # `labels.json` is handed on rather than read a second time.
         return {"split_path": split_path, "labels_data": labels_data}
 
     @staticmethod
@@ -120,8 +119,8 @@ class FiftyOneClassificationParser(SplitParserPlugin):
         if is_flat_structure:
             cleaned_path = clean_imagenet_annotations(labels_path)
             if cleaned_path != labels_path:
-                # The cleanup rewrote the labels, so whatever validation read
-                # is not what this split is parsed from anymore.
+                # The cleanup rewrote the labels, so what validation read
+                # is no longer what this split is parsed from.
                 labels_data = None
             labels_path = cleaned_path
 
@@ -168,11 +167,10 @@ class FiftyOneClassificationParser(SplitParserPlugin):
         if labels_data is None:
             labels_data = self._read_labels(split_path / "labels.json")
 
-        # The ImageNet cleanup that a flat layout runs before parsing only
-        # renames classes and re-points two label indices; it neither adds
-        # nor removes a label. The images are therefore the same whichever
-        # labels file is read, so listing them does not have to run the
-        # cleanup - or rewrite anything on disk.
+        # The ImageNet cleanup a flat layout runs before parsing only
+        # renames classes and re-points two label indices, so the images
+        # are the same either way and this need not run it - or rewrite
+        # anything on disk.
         stem_to_path = self._stem_to_path(split_path)
         return [
             stem_to_path[image_stem]

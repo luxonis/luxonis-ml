@@ -3,7 +3,7 @@ from typing import Any
 
 from luxonis_ml.data import DatasetIterator
 
-from .parser_plugin import SplitParserPlugin
+from .parser_plugin import SplitParserPlugin, centered_box
 
 
 class DarknetParser(SplitParserPlugin):
@@ -31,9 +31,8 @@ class DarknetParser(SplitParserPlugin):
             return None
         if not (split_path / "_darknet.labels").exists():
             return None
-        # Recognizing a split already requires listing its images, so the
-        # listing is handed on as a parse argument instead of being dropped
-        # and rebuilt by `_split_records`.
+        # The listing is handed on rather than dropped and rebuilt by
+        # `_split_records`.
         image_paths = DarknetParser._list_images(split_path)
         if not image_paths:
             return None
@@ -53,8 +52,7 @@ class DarknetParser(SplitParserPlugin):
 
         Every listed image produces at least one record - one without
         annotations still yields a record with `annotation` set to None -
-        so the listing already is the file list, in the very order the
-        records refer to it.
+        so the listing already is the file list, in record order.
 
         Args:
             image_dir: Directory with images.
@@ -93,17 +91,13 @@ class DarknetParser(SplitParserPlugin):
             every image that carries none.
 
         """
-        # Read before the generator is entered so that an unreadable class
-        # file fails the parse itself rather than half-way through an
-        # import, and so that the label files stay unread until the records
-        # are actually pulled.
+        # Read before the generator is entered, so that an unreadable
+        # class file fails the parse rather than a half-finished import.
         with open(classes_path, encoding="utf-8") as f:
             class_names = {
                 i: line.rstrip() for i, line in enumerate(f.readlines())
             }
 
-        # `validate_split` hands its listing on, so this only runs for a
-        # caller that assembled the arguments itself.
         if image_paths is None:
             image_paths = self._list_images(image_dir)
 
@@ -125,22 +119,13 @@ class DarknetParser(SplitParserPlugin):
                     class_id, x_center, y_center, width, height = (
                         ann_line.split(" ")
                     )
-                    class_name = class_names[int(class_id)]
-                    # Both extents are needed twice by the centered box;
-                    # converting once is bit for bit the same float.
-                    box_width = float(width)
-                    box_height = float(height)
-
                     yield {
                         "file": file,
                         "annotation": {
-                            "class": class_name,
-                            "boundingbox": {
-                                "x": float(x_center) - box_width / 2,
-                                "y": float(y_center) - box_height / 2,
-                                "w": box_width,
-                                "h": box_height,
-                            },
+                            "class": class_names[int(class_id)],
+                            "boundingbox": centered_box(
+                                x_center, y_center, width, height
+                            ),
                         },
                     }
 
