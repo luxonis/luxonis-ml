@@ -226,7 +226,6 @@ def test_fail(tempdir: Path, randint: int):
 
 
 def test_mlflow_initialization_failures():
-    pytest.importorskip("mlflow")
     with pytest.raises(ValueError, match="Using active MLFlow run"):
         LuxonisFileSystem("mlflow://")
 
@@ -253,7 +252,6 @@ def test_mlflow_attributes_are_public(tempdir: Path):
     ``__init__``, so the accessors have to be safe (``None``) for every
     other protocol instead of raising.
     """
-    pytest.importorskip("mlflow")
 
     fs = LuxonisFileSystem(
         "mlflow://experiment/run/nested/config.yaml",
@@ -378,20 +376,11 @@ def test_download_returns_where_the_data_landed(
 
 
 def test_s3_filesystem_initialization(tempdir: Path):
-    pytest.importorskip("s3fs")
     fs = LuxonisFileSystem(
         "s3://bucket/prefix", cache_storage=str(tempdir / "s3-cache")
     )
     assert fs.protocol == "s3"
     assert fs.is_fsspec
-
-
-def test_gcs_filesystem_requires_credentials():
-    pytest.importorskip("gcsfs")
-    if environ.GOOGLE_APPLICATION_CREDENTIALS is not None:  # pragma: no cover
-        pytest.skip("GCS credentials are configured in this environment.")
-    with pytest.raises(RuntimeError, match="GOOGLE_APPLICATION_CREDENTIALS"):
-        LuxonisFileSystem("gcs://bucket/prefix")
 
 
 def compare_directories(

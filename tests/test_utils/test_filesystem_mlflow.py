@@ -12,6 +12,7 @@ from typing import NoReturn, cast
 from urllib.error import URLError
 from urllib.request import urlopen
 
+import mlflow
 import pytest
 
 from luxonis_ml.utils import filesystem
@@ -20,9 +21,7 @@ from luxonis_ml.utils.filesystem import (
     _get_protocol_and_path,
 )
 
-MLFLOW = pytest.importorskip("mlflow")
-
-SERVER_TIMEOUT_ENV = "LUXONISML_TEST_MLFLOW_SERVER_TIMEOUT"
+SERVER_TIMEOUT_ENV = "LUXONISML_TEST_mlflow_SERVER_TIMEOUT"
 DEFAULT_SERVER_TIMEOUT = 120.0
 
 
@@ -105,7 +104,7 @@ def mlflow_tracking_uri(
 
         yield tracking_uri
 
-        MLFLOW.end_run()
+        mlflow.end_run()
         process.terminate()
         with suppress(subprocess.TimeoutExpired):
             process.wait(timeout=10)
@@ -116,17 +115,17 @@ def mlflow_tracking_uri(
 
 @pytest.fixture(autouse=True)
 def configure_mlflow_tracking_uri(mlflow_tracking_uri: str) -> Iterator[None]:
-    MLFLOW.set_tracking_uri(mlflow_tracking_uri)
+    mlflow.set_tracking_uri(mlflow_tracking_uri)
 
     yield
 
-    MLFLOW.end_run()
+    mlflow.end_run()
 
 
 @pytest.fixture
 def mlflow_run(mlflow_tracking_uri: str, tempdir: Path, randint: int):
-    experiment_id = MLFLOW.create_experiment(f"fs-test-{randint}")
-    client = MLFLOW.MlflowClient(tracking_uri=mlflow_tracking_uri)
+    experiment_id = mlflow.create_experiment(f"fs-test-{randint}")
+    client = mlflow.MlflowClient(tracking_uri=mlflow_tracking_uri)
     run = client.create_run(experiment_id)
 
     yield experiment_id, run.info.run_id
@@ -771,7 +770,7 @@ def test_mlflow_active_run_upload(
     mlflow_tracking_uri: str,
     randint: int,
 ):
-    experiment_id = MLFLOW.create_experiment(f"active-fs-test-{randint}")
+    experiment_id = mlflow.create_experiment(f"active-fs-test-{randint}")
     local_file = tempdir / "active-source.txt"
     local_file.write_text("active run payload")
     local_dir = tempdir / "active-dir-source"
@@ -783,7 +782,7 @@ def test_mlflow_active_run_upload(
         file.write_text(f"active iterable payload {index}")
         iterable_files.append(file)
 
-    with MLFLOW.start_run(experiment_id=experiment_id) as run:
+    with mlflow.start_run(experiment_id=experiment_id) as run:
         fs = LuxonisFileSystem(
             "mlflow://",
             allow_active_mlflow_run=True,
@@ -792,13 +791,13 @@ def test_mlflow_active_run_upload(
         )
         assert (
             fs.put_file(
-                local_file, "active/renamed.txt", mlflow_instance=MLFLOW
+                local_file, "active/renamed.txt", mlflow_instance=mlflow
             )
             == f"mlflow://{experiment_id}/{run.info.run_id}/active/renamed.txt"
         )
-        fs.put_dir(local_dir, "active-dir", mlflow_instance=MLFLOW)
+        fs.put_dir(local_dir, "active-dir", mlflow_instance=mlflow)
         assert fs.put_dir(
-            iterable_files, "active-iterable", mlflow_instance=MLFLOW
+            iterable_files, "active-iterable", mlflow_instance=mlflow
         ) == {
             str(file): f"active-iterable/{file.name}"
             for file in iterable_files
@@ -842,11 +841,11 @@ def test_mlflow_active_run_read_round_trip(
     ``mlflow.active_run()`` is process-global, so resolution has to work
     off the ambient run alone.
     """
-    experiment_id = MLFLOW.create_experiment(f"active-read-test-{randint}")
+    experiment_id = mlflow.create_experiment(f"active-read-test-{randint}")
     local_file = tempdir / "active-read-source.txt"
     local_file.write_text("active run read payload")
 
-    with MLFLOW.start_run(experiment_id=experiment_id):
+    with mlflow.start_run(experiment_id=experiment_id):
         fs = LuxonisFileSystem(
             "mlflow://",
             allow_active_mlflow_run=True,
@@ -854,7 +853,7 @@ def test_mlflow_active_run_read_round_trip(
             tracking_uri=mlflow_tracking_uri,
         )
         fs.put_file(
-            local_file, "active-read/renamed.txt", mlflow_instance=MLFLOW
+            local_file, "active-read/renamed.txt", mlflow_instance=mlflow
         )
 
         assert fs.exists("active-read/renamed.txt")
@@ -904,11 +903,11 @@ def test_mlflow_active_run_url_round_trips(
     (rather than only the string) is the point: it proves the URL is
     usable, not merely well-formed.
     """
-    experiment_id = MLFLOW.create_experiment(f"active-url-test-{randint}")
+    experiment_id = mlflow.create_experiment(f"active-url-test-{randint}")
     local_file = tempdir / "active-url-source.txt"
     local_file.write_text("active run url payload")
 
-    with MLFLOW.start_run(experiment_id=experiment_id) as run:
+    with mlflow.start_run(experiment_id=experiment_id) as run:
         fs = LuxonisFileSystem(
             "mlflow://",
             allow_active_mlflow_run=True,
@@ -916,7 +915,7 @@ def test_mlflow_active_run_url_round_trips(
             tracking_uri=mlflow_tracking_uri,
         )
         fs.put_file(
-            local_file, "active-url/renamed.txt", mlflow_instance=MLFLOW
+            local_file, "active-url/renamed.txt", mlflow_instance=mlflow
         )
 
         run_url = f"mlflow://{experiment_id}/{run.info.run_id}"
@@ -989,7 +988,7 @@ def test_tracker_upload_artifact_to_mlflow(
     """
     from luxonis_ml.tracker import LuxonisTracker
 
-    experiment_id = MLFLOW.create_experiment(f"tracker-test-{randint}")
+    experiment_id = mlflow.create_experiment(f"tracker-test-{randint}")
     export_dir = tempdir / "export" / f"tracker-run-{randint}"
     export_dir.mkdir(parents=True)
     artifact = export_dir / "model.yaml"
