@@ -104,3 +104,10 @@ def test_annotations_helper_normalizes(image: str):
     car = _car()
     assert DatasetRecord(file=image, annotation=car)._annotations() == [car]  # type: ignore
     assert DatasetRecord(file=image, annotation=[car])._annotations() == [car]  # type: ignore
+
+
+def test_single_detection_is_stored_as_a_list(image: str):
+    """The field is list-only; validation upgrades a lone detection."""
+    car = _car()
+    record = DatasetRecord(file=image, annotation=car, task_name="t")  # type: ignore
+    assert record.annotation == [car]

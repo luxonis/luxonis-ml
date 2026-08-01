@@ -643,20 +643,14 @@ class BaseParser(ABC):
                 item = DatasetRecord(**item)
 
             if self._task_name is not None:
-                if item.annotation is None or (
-                    isinstance(item.annotation, list) and not item.annotation
-                ):
+                if not item.annotation:
                     for task_name in dict.fromkeys(self._task_name.values()):
                         yield item.model_copy(
                             update={"task_name": task_name}, deep=True
                         )
                 else:
                     grouped_annotations: dict[str, list[Detection]] = {}
-                    for annotation in (
-                        item.annotation
-                        if isinstance(item.annotation, list)
-                        else [item.annotation]
-                    ):
+                    for annotation in item.annotation:
                         class_name = annotation.class_name
                         task_name = item.task_name
                         if class_name is not None:
@@ -671,14 +665,9 @@ class BaseParser(ABC):
                         )
 
                     for task_name, annotations in grouped_annotations.items():
-                        annotation = (
-                            annotations
-                            if isinstance(item.annotation, list)
-                            else annotations[0]
-                        )
                         yield item.model_copy(
                             update={
-                                "annotation": annotation,
+                                "annotation": annotations,
                                 "task_name": task_name,
                             },
                             deep=True,
