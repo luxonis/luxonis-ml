@@ -15,6 +15,7 @@ from luxonis_ml.data import (
 from luxonis_ml.data.parsers.base_parser import BaseParser, ParserOutput
 from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.ldf import DatasetRecord, Detection
 from luxonis_ml.utils import environ
 
 from .utils import create_image
@@ -513,11 +514,12 @@ class _WarningParser(BaseParser):
         *,
         reason: str = "dummy skipped annotation",
         full_warnings: bool = False,
+        task_name: str | dict[str, str] | None = None,
     ):
         super().__init__(
             cast(BaseDataset, _DummyDataset()),
             DatasetType.COCO,
-            None,
+            task_name,
             full_warnings=full_warnings,
         )
         self.warning_count = warning_count
@@ -540,6 +542,67 @@ class _WarningParser(BaseParser):
                 annotation_id=annotation_id,
             )
         return iter(()), {}, []
+
+
+@pytest.mark.parametrize(
+    ("task_names", "expected"),
+    [
+        (
+            {"cat": "animals", "dog": "animals"},
+            {"animals": ["cat", "dog"]},
+        ),
+        (
+            {"cat": "felines", "dog": "canines"},
+            {"felines": ["cat"], "canines": ["dog"]},
+        ),
+    ],
+)
+def test_wrap_generator_groups_list_annotations_by_task(
+    tmp_path: Path,
+    task_names: dict[str, str],
+    expected: dict[str, list[str]],
+) -> None:
+    image = tmp_path / "image.jpg"
+    image.write_bytes(b"x")
+    record = DatasetRecord(
+        file=image,  # type: ignore[call-arg]
+        annotation=[
+            Detection(class_name="cat"),
+            Detection(class_name="dog"),
+        ],
+    )
+    parser = _WarningParser(0, task_name=task_names)
+
+    wrapped = list(parser._wrap_generator(iter([record])))
+    records = [cast(DatasetRecord, item) for item in wrapped]
+
+    assert {
+        item.task_name: [
+            annotation.class_name for annotation in item._annotations()
+        ]
+        for item in records
+    } == expected
+    assert [annotation.class_name for annotation in record._annotations()] == [
+        "cat",
+        "dog",
+    ]
+
+
+def test_wrap_generator_keeps_empty_list_for_each_mapped_task(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "negative.jpg"
+    image.write_bytes(b"x")
+    record = DatasetRecord(file=image, annotation=[])  # type: ignore[call-arg]
+    parser = _WarningParser(0, task_name={"cat": "felines", "dog": "canines"})
+
+    wrapped = [
+        cast(DatasetRecord, item)
+        for item in parser._wrap_generator(iter([record]))
+    ]
+
+    assert [item.task_name for item in wrapped] == ["felines", "canines"]
+    assert [item.annotation for item in wrapped] == [[], []]
 
 
 def test_skipped_annotation_warnings_are_capped():
