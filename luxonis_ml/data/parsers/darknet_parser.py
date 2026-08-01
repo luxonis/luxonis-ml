@@ -97,7 +97,7 @@ class DarknetParser(SplitParserPlugin):
         # file fails the parse itself rather than half-way through an
         # import, and so that the label files stay unread until the records
         # are actually pulled.
-        with open(classes_path) as f:
+        with open(classes_path, encoding="utf-8") as f:
             class_names = {
                 i: line.rstrip() for i, line in enumerate(f.readlines())
             }
@@ -112,7 +112,7 @@ class DarknetParser(SplitParserPlugin):
                 ann_path = img_path.with_suffix(".txt")
                 file = str(img_path)
                 if ann_path.exists():
-                    with open(ann_path) as f:
+                    with open(ann_path, encoding="utf-8") as f:
                         annotation_data = f.readlines()
                 else:
                     annotation_data = []

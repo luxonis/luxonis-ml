@@ -12,6 +12,20 @@ from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.utils import environ
 
 
+def _resolve_url(url: str, storage_url: str) -> str:
+    """Return the fetchable URL, or skip if credentials are missing."""
+    if not url.startswith(("roboflow://", "ultralytics://")):
+        return f"{storage_url}/{url}"
+    if url.startswith("roboflow://") and environ.ROBOFLOW_API_KEY is None:
+        pytest.skip("Roboflow API key is not set")
+    if (
+        url.startswith("ultralytics://")
+        and environ.ULTRALYTICS_API_KEY is None
+    ):
+        pytest.skip("Ultralytics API key is not set")
+    return url
+
+
 @pytest.mark.parametrize(
     ("url", "expected_task_types"),
     [
@@ -109,15 +123,7 @@ def test_dir_parser(
     storage_url: str,
     tempdir: Path,
 ):
-    if not url.startswith(("roboflow://", "ultralytics://")):
-        url = f"{storage_url}/{url}"
-    elif url.startswith("roboflow://") and environ.ROBOFLOW_API_KEY is None:
-        pytest.skip("Roboflow API key is not set")
-    elif (
-        url.startswith("ultralytics://")
-        and environ.ULTRALYTICS_API_KEY is None
-    ):
-        pytest.skip("Ultralytics API key is not set")
+    url = _resolve_url(url, storage_url)
 
     dataset = LuxonisDataset.import_dataset(
         url,
@@ -248,15 +254,7 @@ def test_dir_parser_explicit_type(
     storage_url: str,
     tempdir: Path,
 ):
-    if not url.startswith(("roboflow://", "ultralytics://")):
-        url = f"{storage_url}/{url}"
-    elif url.startswith("roboflow://") and environ.ROBOFLOW_API_KEY is None:
-        pytest.skip("Roboflow API key is not set")
-    elif (
-        url.startswith("ultralytics://")
-        and environ.ULTRALYTICS_API_KEY is None
-    ):
-        pytest.skip("Ultralytics API key is not set")
+    url = _resolve_url(url, storage_url)
 
     dataset = LuxonisDataset.import_dataset(
         url,

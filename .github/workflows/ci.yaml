@@ -391,6 +391,9 @@ jobs:
   benchmark-refs:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+
     outputs:
       matrix: ${{ steps.resolve.outputs.matrix }}
       current_ref: ${{ steps.resolve.outputs.current_ref }}
@@ -452,6 +455,9 @@ jobs:
     # Both refs run in parallel, so this is the whole workflow's budget.
     timeout-minutes: 50
 
+    permissions:
+      contents: read
+
     strategy:
       # Both refs are wanted even if one of them fails, so the report can
       # say which one did.
@@ -463,6 +469,9 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           ref: ${{ matrix.ref }}
+          # This job runs pull-request-authored code and pushes nothing,
+          # so the token must not stay behind in `.git/config`.
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
@@ -525,6 +534,9 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           ref: ${{ needs.benchmark-refs.outputs.current_ref }}
+          # This job runs pull-request-authored code and pushes nothing,
+          # so the token must not stay behind in `.git/config`.
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1

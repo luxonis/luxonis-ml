@@ -11,8 +11,9 @@ file is the map, the numbers, and what is deliberately still slow.
 ## Re-measuring
 
 ```bash
-pytest -m benchmark tests/test_data/parsers/benchmarks --benchmark-json after.json
-pytest -m benchmark tests/test_data/parsers/benchmarks --benchmark-compare after.json
+pytest -m benchmark tests/test_data/parsers/benchmarks --benchmark-json before.json
+# ... change a parser ...
+pytest -m benchmark tests/test_data/parsers/benchmarks --benchmark-compare before.json
 ```
 
 Add `--benchmark-repeat` and a bigger `--benchmark-scale` before believing a
@@ -129,7 +130,7 @@ file list any other way returns `None` and pays for that fallback.
 The YOLOv8 segmentation branch called `cv2.imread` once per polygon to read the
 image size, so an image with 10 polygons was decoded 10 times — and then all of
 that happened twice because of the second pass. 20 decodes became 1. That one
-change is most of the 8.4x.
+change is most of the 7.5x.
 
 The same pattern, at smaller scale, was in path resolution: `resolve()` is a
 `realpath` walk that lstats every component, and parsers called it per
@@ -151,9 +152,10 @@ a decode.
 pass, and the streaming API has no such pass: an undecodable mask is now
 found while the records stream, from inside `dataset.add`. This is the one
 place where one-pass parsing and fail-before-you-write genuinely conflict,
-and the parser cannot resolve it alone — restoring the guarantee for every
-format means making a failed `import_dataset` delete the dataset it
-created, which is a change to the importer rather than to any parser.
+and the parser cannot resolve it alone. The guarantee is restored one
+level up instead: `BaseDataset.import_dataset` deletes any dataset it
+created when the import fails, so a mid-stream SOLO failure does not
+leave a half-populated dataset behind.
 
 ## Per-parser notes
 

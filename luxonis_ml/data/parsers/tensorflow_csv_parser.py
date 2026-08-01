@@ -140,7 +140,11 @@ class TensorflowCSVParser(SplitParserPlugin):
             annotations[path].append((class_name, bbox_xywh))
 
         def generator() -> DatasetIterator:
-            for path in paths:
+            # Deduplicated exactly like `_split_files`: two listed images
+            # resolving to the same path - a symlink next to its target -
+            # must not repeat that image's boxes while the enumeration
+            # reports the file once.
+            for path in dict.fromkeys(paths):
                 image_annotations = annotations.get(path)
                 if not image_annotations:
                     yield {"file": path, "annotation": None}

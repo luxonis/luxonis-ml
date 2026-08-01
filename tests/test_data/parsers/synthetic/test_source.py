@@ -103,6 +103,32 @@ def test_prepare_source_routes_and_extracts_zip(
     assert source == tmp_path / "wrapped" / "wrapper"
 
 
+def test_prepare_source_extracts_uppercase_zip_suffix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """An archive named `dataset.ZIP` must still be extracted.
+
+    Regression: the archive check compared the suffix case-sensitively,
+    so a Windows-authored or manually renamed `.ZIP` archive reached the
+    parsers as a single unrecognizable file, and detection failed with
+    "not in expected format" instead of the archive being extracted.
+    """
+    archive = tmp_path / "wrapped.ZIP"
+    with zipfile.ZipFile(archive, "w") as output:
+        output.writestr("wrapper/train/bird/image.jpg", b"image")
+
+    class FileSystem:
+        @classmethod
+        def download(cls, source: str, destination: Path) -> Path:
+            return archive
+
+    monkeypatch.setattr(parser_source, "LuxonisFileSystem", FileSystem)
+    source, name = parser_source.prepare_source(archive, tmp_path)
+    assert name == archive.name
+    assert source == tmp_path / "wrapped" / "wrapper"
+
+
 def test_resolve_extracted_zip_root(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

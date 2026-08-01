@@ -212,6 +212,27 @@ def test_yolov8_keypoints(tmp_path: Path, kpt_dim: int):
         assert all(point[2] == 2 for point in keypoints)
 
 
+def test_yolov8_malformed_kpt_shape_fails_before_streaming(tmp_path: Path):
+    """A malformed `kpt_shape` must fail the parse, not the stream.
+
+    Regression: `n_kpts, kpt_dim = kpt_shape` ran inside the record
+    generator, once per keypoint line. A header holding one value or
+    three therefore raised an unpacking `ValueError` only after records
+    had already been written, leaving a registered, half-populated
+    dataset behind - exactly what the polygon pre-check exists to
+    prevent. The shape is read once per split, so it is checked there.
+    """
+    parser = _plugin(YOLOv8Parser)
+    root = tmp_path / "bad-kpt-shape" / "train"
+    image_dir, annotation_dir, classes_path = _write_yolo8_split(
+        root,
+        {"pose": "0 0.5 0.5 0.4 0.2 0.1 0.2 1 0.3 0.4 2\n"},
+        kpt_shape=[2, 3, 1],
+    )
+    with pytest.raises(ValueError, match="kpt_shape"):
+        parser._split_records(image_dir, annotation_dir, classes_path)
+
+
 def test_yolov8_decodes_each_image_once_and_only_when_consumed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

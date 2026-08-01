@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -24,14 +25,7 @@ def benchmark_scale(request: pytest.FixtureRequest) -> Scale:
     """Return the dataset size requested on the command line."""
     factor: float = request.config.getoption("--benchmark-scale") or 1.0
     base = Scale()
-    return Scale(
-        images=max(1, round(base.images * factor)),
-        annotations_per_image=base.annotations_per_image,
-        classes=base.classes,
-        keypoints=base.keypoints,
-        polygon_points=base.polygon_points,
-        image_size=base.image_size,
-    )
+    return replace(base, images=max(1, round(base.images * factor)))
 
 
 @pytest.fixture(scope="session")

@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Annotated
 
 from cyclopts import App, Parameter
-from rich import print
+from rich import print as rich_print
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -99,16 +99,20 @@ def digests(
 
     """
     scale = Scale(images=images)
-    payload = {}
+    digests_by_type = {}
     for name in _selected(dataset_type):
         case = _build(DIGEST_ROOT, name, scale)
-        payload[name] = digest(case)
-        print(
+        digests_by_type[name] = digest(case)
+        rich_print(
             f"[green]digested[/green] {name} "
-            f"({len(payload[name]['records'])} records)"
+            f"({len(digests_by_type[name]['records'])} records)"
         )
+    # The scale travels with the digests: comparing runs of different
+    # sizes would report every parser as changed, which is a false
+    # positive on the very gate this tool provides.
+    payload = {"images": images, "digests": digests_by_type}
     output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-    print(f"wrote {output}")
+    rich_print(f"wrote {output}")
 
 
 @app.command
@@ -125,20 +129,33 @@ def compare(
         images: Images per split; must match the baseline run.
 
     """
-    saved = json.loads(baseline.read_text())
+    payload = json.loads(baseline.read_text())
+    if "digests" in payload:
+        saved = payload["digests"]
+        baseline_images = payload.get("images")
+        if baseline_images != images:
+            raise SystemExit(
+                f"The baseline was taken with --images {baseline_images}, "
+                f"but this run uses --images {images}. The comparison "
+                "would report every parser as changed."
+            )
+    else:
+        # A digest file from before the scale was recorded next to the
+        # digests; the caller has to match the sizes on their own.
+        saved = payload
     scale = Scale(images=images)
     failures = 0
     for name in _selected(dataset_type):
         if name not in saved:
-            print(f"[yellow]skipped[/yellow] {name}: not in the baseline")
+            rich_print(f"[yellow]skipped[/yellow] {name}: not in the baseline")
             continue
         case = _build(DIGEST_ROOT, name, scale)
         differences = compare_digests(saved[name], digest(case))
         if differences:
             failures += 1
-            print(f"[red]CHANGED[/red] {name}: {', '.join(differences)}")
+            rich_print(f"[red]CHANGED[/red] {name}: {', '.join(differences)}")
         else:
-            print(f"[green]identical[/green] {name}")
+            rich_print(f"[green]identical[/green] {name}")
     if failures:
         raise SystemExit(f"{failures} parser(s) changed their output.")
 
@@ -170,8 +187,8 @@ def profile(
             pstats.Stats(profiler, stream=stream).sort_stats(
                 "tottime"
             ).print_stats(rows)
-            print(f"[bold]{name}[/bold]")
-            print("\n".join(stream.getvalue().splitlines()[4:]))
+            rich_print(f"[bold]{name}[/bold]")
+            rich_print("\n".join(stream.getvalue().splitlines()[4:]))
 
 
 @app.command
@@ -190,7 +207,7 @@ def benchmark(
     """
     scale = Scale(images=images)
     with tempfile.TemporaryDirectory() as tmp:
-        print(
+        rich_print(
             f"{'dataset type':<38}{'images':>8}{'records':>9}"
             f"{'gen s':>8}{'sec':>9}{'rec/s':>11}{'peak MiB':>10}"
         )
@@ -199,7 +216,7 @@ def benchmark(
             case = _build(Path(tmp), name, scale)
             generated = time.perf_counter() - start
             result = measure(case, repeat=repeat)
-            print(
+            rich_print(
                 f"{name:<38}{result.images:>8}{result.records:>9}"
                 f"{generated:>8.1f}{result.seconds:>9.3f}"
                 f"{result.records_per_second:>11,.0f}"

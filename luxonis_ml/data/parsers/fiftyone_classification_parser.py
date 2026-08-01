@@ -70,7 +70,7 @@ class FiftyOneClassificationParser(SplitParserPlugin):
             return None
 
         try:
-            with open(labels_path) as f:
+            with open(labels_path, encoding="utf-8") as f:
                 labels_data = json.load(f)
             if "classes" not in labels_data or "labels" not in labels_data:
                 return None
@@ -83,7 +83,7 @@ class FiftyOneClassificationParser(SplitParserPlugin):
 
     @staticmethod
     def _read_labels(labels_path: Path) -> dict[str, Any]:
-        with open(labels_path) as f:
+        with open(labels_path, encoding="utf-8") as f:
             return cast(dict[str, Any], json.load(f))
 
     def _stem_to_path(self, split_path: Path) -> dict[str, Path]:
@@ -194,7 +194,7 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
         Path to the cleaned labels file.
 
     """
-    with open(labels_path) as f:
+    with open(labels_path, encoding="utf-8") as f:
         labels_data = json.load(f)
 
     classes = labels_data["classes"]
@@ -244,7 +244,7 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
     labels_data["labels"] = labels
 
     cleaned_labels_path = labels_path.with_name("labels_fixed.json")
-    with open(cleaned_labels_path, "w") as f:
+    with open(cleaned_labels_path, "w", encoding="utf-8") as f:
         json.dump(labels_data, f)
 
     logger.info(f"Cleaned annotations saved to {cleaned_labels_path}")

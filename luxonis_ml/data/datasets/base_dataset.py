@@ -6,7 +6,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import suppress
 from itertools import chain
 from pathlib import Path
-from typing import Any, TypeAlias, cast
+from typing import Any, ClassVar, TypeAlias, cast
 
 from loguru import logger
 from semver.version import Version
@@ -180,7 +180,10 @@ class BaseDataset(
 ):
     """Base class for datasets in the Luxonis MLOps ecosystem."""
 
-    _parser_issue_messages: list[ParserIssueMessage] = []
+    # A `ClassVar` shared default: the import path rebinds it per
+    # instance and `get_parser_issue_messages` returns a copy, so the
+    # class-level list itself must never be appended to in place.
+    _parser_issue_messages: ClassVar[list[ParserIssueMessage]] = []
 
     @classmethod
     def import_dataset(

@@ -528,6 +528,37 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
             )
 
 
+def test_mask_derived_values_win_over_caller_metadata():
+    """The size stored next to the RLE must come from the mask itself.
+
+    Regression: the mask and polyline validators merged the caller's
+    remaining keys *after* the values they derived. A record supplying
+    `mask` together with `height` or `width` therefore kept the caller's
+    size next to `counts` encoded for the real mask shape, so `to_numpy`
+    decoded a wrong or invalid mask; a stray `mask` next to `points`
+    likewise overrode the polygon the validator rendered.
+    """
+    mask = np.zeros((4, 6), dtype=np.uint8)
+    mask[1:3, 2:5] = 1
+
+    seg = SegmentationAnnotation(mask=mask, height=100, width=200)  # type: ignore
+    assert (seg.height, seg.width) == (4, 6)
+    assert np.array_equal(seg.to_numpy(), mask)
+
+    rendered = SegmentationAnnotation(
+        points=[(0, 0), (1, 0), (1, 1), (0, 1)],  # type: ignore
+        height=4,
+        width=4,
+        mask=np.zeros((4, 4), dtype=np.uint8),  # type: ignore
+    )
+    expected = SegmentationAnnotation(
+        points=[(0, 0), (1, 0), (1, 1), (0, 1)],  # type: ignore
+        height=4,
+        width=4,
+    )
+    assert rendered == expected
+
+
 def test_array_annotation(subtests: SubTests, tempdir: Path):
     arr = np.random.rand(100, 100)
     arr_path = tempdir / "array.npy"

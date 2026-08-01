@@ -8,7 +8,10 @@ the same way, then calls this::
         --threshold 25 --output comparison.md
 
 Exits non-zero when a parser is more than ``--threshold`` percent slower
-than the baseline, which is what fails the release check.
+than the baseline *and* the change also exceeds the measured scatter of
+the two runs, which is what fails the release check. The second bar
+keeps the parsers that finish in hundredths of a second from failing a
+release whenever the runner is briefly busy with something else.
 """
 
 import sys
@@ -16,7 +19,7 @@ from pathlib import Path
 from typing import Annotated
 
 from cyclopts import App, Parameter
-from rich import print
+from rich import print as rich_print
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -57,7 +60,10 @@ def compare(
         threshold: How much slower a parser may get, in percent, before
             the comparison fails. Two runs of identical code differ by up
             to ~12% on the parsers quick enough for scheduling noise to
-            show, so the default leaves room for that.
+            show, so the default leaves room for that. A change only
+            fails when it also exceeds the two runs' combined measured
+            scatter, so a threshold crossing inside the noise band does
+            not fail on its own.
         output: Where to write the Markdown report, with the numbers set
             as math and coloured. Printed either way.
         plain_output: Where to write the same report without math or
@@ -85,7 +91,7 @@ def compare(
     markdown = render(rich=True)
     _write(output, markdown)
     _write(plain_output, render(rich=False))
-    print(markdown)
+    rich_print(markdown)
 
     if not report.compared:
         raise SystemExit(
@@ -138,7 +144,7 @@ def render(
     markdown = rendered(rich=True)
     _write(output, markdown)
     _write(plain_output, rendered(rich=False))
-    print(markdown)
+    rich_print(markdown)
 
 
 if __name__ == "__main__":

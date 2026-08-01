@@ -153,7 +153,7 @@ class YOLOv8Parser(SplitParserPlugin):
         if not annotation_path.exists():
             return False
 
-        with open(annotation_path) as f:
+        with open(annotation_path, encoding="utf-8") as f:
             for line in f:
                 # Six fields already answer the question, and splitting
                 # off no more than six selects the same lines as splitting
@@ -352,7 +352,7 @@ class YOLOv8Parser(SplitParserPlugin):
             return True
 
         skipped_any = False
-        with open(annotation_path) as f:
+        with open(annotation_path, encoding="utf-8") as f:
             for line in f:
                 elements = line.split()
                 if not elements:
@@ -381,7 +381,7 @@ class YOLOv8Parser(SplitParserPlugin):
             One record per annotation, and one per unannotated image.
 
         """
-        with open(classes_path) as f:
+        with open(classes_path, encoding="utf-8") as f:
             classes_data = cast(dict[str, Any], yaml.safe_load(f))
 
         if isinstance(classes_data["names"], list):
@@ -401,6 +401,20 @@ class YOLOv8Parser(SplitParserPlugin):
         # `classes_data` is never mutated, so the shape only has to be
         # looked up once for the whole split.
         kpt_shape = classes_data.get("kpt_shape", None)
+        n_kpts = kpt_dim = 0
+        if kpt_shape is not None:
+            # Unpacked here, before any record streams: the header is
+            # read once for the whole split, and a malformed shape
+            # failing inside the generator would leave a registered,
+            # half-populated dataset behind - the same reason the
+            # polygon pre-check below exists.
+            try:
+                n_kpts, kpt_dim = kpt_shape
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"Invalid `kpt_shape` in '{classes_path}': expected "
+                    f"two values, got {kpt_shape!r}."
+                ) from error
         images = self._list_images(image_dir)
 
         if kpt_shape is None:
@@ -425,7 +439,7 @@ class YOLOv8Parser(SplitParserPlugin):
                 annotations: list[list[str]] = []
                 # First check if file exists (would crash otherwise)
                 if ann_path.exists():
-                    with open(ann_path) as f:
+                    with open(ann_path, encoding="utf-8") as f:
                         # A line is empty exactly when it has no fields,
                         # so splitting while reading both applies the old
                         # pre-filter and produces the fields every kept
@@ -481,7 +495,6 @@ class YOLOv8Parser(SplitParserPlugin):
                         continue
 
                     elif kpt_shape is not None:
-                        n_kpts, kpt_dim = kpt_shape
                         (
                             class_id,
                             x_center,
@@ -557,8 +570,14 @@ class YOLOv8Parser(SplitParserPlugin):
                             # Unpacked into an explicit pair rather than
                             # kept as the shape slice, whose element type
                             # depends on which numpy stubs are installed.
-                            height, width = img.shape[:2]
-                            image_size = (int(height), int(width))
+                            # Named apart from the annotation-line
+                            # `height`/`width` so no later branch can
+                            # pick up a previous image's pixel size.
+                            decoded_height, decoded_width = img.shape[:2]
+                            image_size = (
+                                int(decoded_height),
+                                int(decoded_width),
+                            )
                         img_height, img_width = image_size
 
                         class_id, *point_values = annotation_elements

@@ -12,9 +12,9 @@ from luxonis_ml.data.parsers import (
     YoloV4Parser,
 )
 from tests.test_data.parsers.helpers import (
-    _collect_raw_records,
     _image,
     _plugin,
+    _records,
 )
 from tests.test_data.utils import create_image
 
@@ -94,7 +94,7 @@ def test_yolov4_parser(tmp_path: Path):
     )
     kwargs = parser.validate_split(split)
     assert kwargs is not None
-    records = _collect_raw_records(parser._split_records(**kwargs))
+    records = _records(parser._split_records(**kwargs))
 
     assert {Path(record["file"]).name for record in records} == {
         bbox.name,
@@ -143,7 +143,7 @@ def test_yolov4_walks_the_split_once_and_streams(
     assert Path(first["file"]).name == "boxed_0.jpg"
     assert decoded == [str(split / "boxed_0.jpg")], "records stream"
 
-    rest = _collect_raw_records(records)
+    rest = _records(records)
     assert len(rest) == 5
 
     # The order the records name their files in is the order a split's
@@ -199,9 +199,7 @@ def test_yolov4_split_files_cost_no_decode(
         "unlisted.jpg",
     ]
 
-    records = _collect_raw_records(
-        _plugin(YoloV4Parser)._split_records(**kwargs)
-    )
+    records = _records(_plugin(YoloV4Parser)._split_records(**kwargs))
     assert files == list(
         dict.fromkeys(Path(record["file"]) for record in records)
     )
@@ -237,7 +235,7 @@ def test_yolov4_resolves_each_annotated_path_once(
     parser = _plugin(YoloV4Parser)
     kwargs = parser.validate_split(split)
     assert kwargs is not None
-    assert len(_collect_raw_records(parser._split_records(**kwargs))) == 6
+    assert len(_records(parser._split_records(**kwargs))) == 6
 
     assert len(resolved) <= 1 + 5 + 1
 
@@ -264,7 +262,7 @@ def test_yolov4_symlinked_image_is_not_reported_as_unlisted(tmp_path: Path):
     kwargs = parser.validate_split(split)
     assert kwargs is not None
 
-    records = _collect_raw_records(parser._split_records(**kwargs))
+    records = _records(parser._split_records(**kwargs))
     assert [Path(record["file"]).name for record in records] == ["target.jpg"]
     assert [file.name for file in parser._split_files(**kwargs)] == [
         "target.jpg"

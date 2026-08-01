@@ -45,18 +45,22 @@ class SegmentationMaskDirectoryParser(SplitParserPlugin):
         if not (split_path / "_classes.csv").exists():
             return None
         # One listing answers "is the image there?" for every mask at
-        # once. A listed name always exists unless it is a dangling
+        # once, through the same prefix rule the pairing uses - the
+        # records accept any image suffix, so validation must not demand
+        # `.jpg`. A listed name always exists unless it is a dangling
         # symlink, the only case `Path.exists` still disagrees about.
-        entries: dict[str, os.DirEntry[str]] = {}
-        try:
-            with os.scandir(split_path) as listing:
-                entries = {entry.name: entry for entry in listing}
-        except OSError:
-            # A directory that cannot be listed has no masks to check
-            # either: the glob below is driven by the same listing.
-            pass
+        entries, by_prefix = SegmentationMaskDirectoryParser._index_directory(
+            split_path
+        )
         for mask_path in split_path.glob("*_mask.*"):
-            image = entries.get(f"{mask_path.stem[:-5]}.jpg")
+            stem = mask_path.stem[:-5]
+            if _GLOB_MAGIC.search(stem):
+                # A stem that is a pattern must keep matching as one,
+                # exactly as the pairing resolves it.
+                if next(split_path.glob(f"{stem}.*"), None) is None:
+                    return None
+                continue
+            image = entries.get(by_prefix.get(stem, ""))
             if image is None or (
                 image.is_symlink() and not Path(image.path).exists()
             ):
@@ -66,6 +70,35 @@ class SegmentationMaskDirectoryParser(SplitParserPlugin):
             "seg_dir": split_path,
             "classes_path": split_path / "_classes.csv",
         }
+
+    @staticmethod
+    def _index_directory(
+        directory: Path,
+    ) -> tuple[dict[str, os.DirEntry[str]], dict[str, str]]:
+        """List ``directory`` once, indexing names by their dot prefixes.
+
+        A name matches the ``{stem}.*`` glob exactly when it starts with
+        ``{stem}.``, so keeping the first listed name - the one ``next``
+        would have taken - under each of its dot-delimited prefixes
+        answers every such lookup from a single listing.
+        """
+        entries: dict[str, os.DirEntry[str]] = {}
+        by_prefix: dict[str, str] = {}
+        try:
+            with os.scandir(directory) as listing:
+                for entry in listing:
+                    name = entry.name
+                    entries[name] = entry
+                    dot = name.find(".")
+                    while dot >= 0:
+                        by_prefix.setdefault(name[:dot], name)
+                        dot = name.find(".", dot + 1)
+        except OSError:
+            # A directory that cannot be listed leaves every lookup to
+            # `glob`, which then fails - or stays silent about an
+            # unreadable directory - exactly as it did before.
+            pass
+        return entries, by_prefix
 
     def _split_files(
         self, image_dir: Path, seg_dir: Path, classes_path: Path
@@ -148,14 +181,14 @@ class SegmentationMaskDirectoryParser(SplitParserPlugin):
                 # pixel values present are the non-empty bins of a
                 # 256-bin count: the same ascending values sorting the
                 # whole mask would report.
-                ids = np.flatnonzero(np.bincount(mask.ravel())).tolist()
-                for id in ids:
-                    class_name = class_names[id]
+                class_ids = np.flatnonzero(np.bincount(mask.ravel())).tolist()
+                for class_id in class_ids:
+                    class_name = class_names[class_id]
 
                     # A cast comparison is the same 0/1 `uint8` array as
                     # a zero-filled one indexed by that comparison, with
                     # one full-size buffer written instead of two.
-                    curr_seg_mask = (mask == id).astype(np.uint8)
+                    curr_seg_mask = (mask == class_id).astype(np.uint8)
                     yield {
                         "file": file,
                         "annotation": {
@@ -187,29 +220,14 @@ class SegmentationMaskDirectoryParser(SplitParserPlugin):
                 is consumed at once.
 
         """
-        # Globbing `{stem}.*` per mask walks `image_dir` once per mask.
-        # A name matches that pattern exactly when it starts with
-        # `{stem}.`, so indexing every name under each of its
-        # dot-delimited prefixes - keeping the first name listed, the
-        # one `next` would have taken - answers every lookup from a
-        # single listing.
-        by_prefix: dict[str, str] = {}
-        links: set[str] = set()
-        try:
-            with os.scandir(image_dir) as listing:
-                for entry in listing:
-                    name = entry.name
-                    if entry.is_symlink():
-                        links.add(name)
-                    dot = name.find(".")
-                    while dot >= 0:
-                        by_prefix.setdefault(name[:dot], name)
-                        dot = name.find(".", dot + 1)
-        except OSError:
-            # An index that could not be built leaves every lookup to
-            # `glob`, which then fails - or stays silent about an
-            # unreadable directory - exactly as it did before.
-            pass
+        # Globbing `{stem}.*` per mask walks `image_dir` once per mask,
+        # so the lookups are answered by the prefix index instead - the
+        # same one `validate_split` checks, which is what keeps the two
+        # in agreement about which masks have an image.
+        entries, by_prefix = SegmentationMaskDirectoryParser._index_directory(
+            image_dir
+        )
+        links = {name for name, entry in entries.items() if entry.is_symlink()}
 
         # `realpath` resolves a path prefix first, so for a name that is
         # not itself a symlink the result is the resolved directory

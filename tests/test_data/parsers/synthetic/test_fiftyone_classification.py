@@ -21,9 +21,9 @@ from luxonis_ml.data.parsers.fiftyone_classification_parser import (
 )
 from luxonis_ml.enums import DatasetType
 from tests.test_data.parsers.helpers import (
-    _collect_raw_records,
     _image,
     _plugin,
+    _records,
 )
 from tests.test_data.utils import create_image
 
@@ -123,7 +123,7 @@ def test_fiftyone_classification_validation_and_missing_stem(tmp_path: Path):
     )
     kwargs = parser.validate_split(split)
     assert kwargs is not None
-    assert _collect_raw_records(parser._split_records(**kwargs)) == [
+    assert _records(parser._split_records(**kwargs)) == [
         {"file": image, "annotation": {"class": "bird"}}
     ]
     assert len(parser._issues.messages) == 1
@@ -133,7 +133,7 @@ def test_fiftyone_classification_validation_and_missing_stem(tmp_path: Path):
     (flat / "labels.json").write_text(
         json.dumps({"classes": ["bird"], "labels": {"flat": 0}})
     )
-    assert _collect_raw_records(parser._split_records(flat)) == [
+    assert _records(parser._split_records(flat)) == [
         {"file": flat_image, "annotation": {"class": "bird"}}
     ]
 
@@ -223,7 +223,7 @@ def test_labels_are_walked_once_and_records_stream_lazily(tmp_path: Path):
     assert labels.walks == 1
     assert labels.visited == ["a"]
 
-    assert len(_collect_raw_records(records)) == 2
+    assert len(_records(records)) == 2
     assert labels.walks == 1
     assert labels.visited == ["a", "b", "c"]
 
@@ -300,7 +300,7 @@ def test_records_and_files_follow_label_order(tmp_path: Path):
     assert parser._split_files(**kwargs) == [jpg, png]
     assert parser._issues.messages == []
 
-    assert _collect_raw_records(parser._split_records(**kwargs)) == [
+    assert _records(parser._split_records(**kwargs)) == [
         {"file": jpg, "annotation": {"class": "cat"}},
         {"file": png, "annotation": {"class": "bird"}},
     ]
@@ -359,7 +359,7 @@ def test_flat_layout_parses_the_cleaned_labels(tmp_path: Path):
     assert parser._split_files(**kwargs) == [image]
     assert not (flat / "labels_fixed.json").exists()
 
-    assert _collect_raw_records(parser._split_records(**kwargs)) == [
+    assert _records(parser._split_records(**kwargs)) == [
         {"file": image, "annotation": {"class": "class-134"}}
     ]
     assert (flat / "labels_fixed.json").exists()

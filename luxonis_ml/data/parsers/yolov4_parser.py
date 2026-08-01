@@ -70,7 +70,7 @@ class YoloV4Parser(SplitParserPlugin):
             reported as a skipped annotation instead.
 
         """
-        with open(annotation_path) as f:
+        with open(annotation_path, encoding="utf-8") as f:
             for ann_line in f:
                 img_path, _, boxes = ann_line.rstrip().partition(" ")
                 path = resolve_manifest_path(base_dir, img_path)
@@ -142,7 +142,7 @@ class YoloV4Parser(SplitParserPlugin):
             none, and one for every image the annotations do not list.
 
         """
-        with open(classes_path) as f:
+        with open(classes_path, encoding="utf-8") as f:
             class_names = {
                 i: line.rstrip() for i, line in enumerate(f.readlines())
             }
@@ -162,9 +162,11 @@ class YoloV4Parser(SplitParserPlugin):
 
             # Hoisted out of the box loop: the size is the only thing the
             # records need the image for, so an image carrying several
-            # boxes is still read once.
-            img = Image.open(file)
-            width, height = img.size
+            # boxes is still read once. Closed right away - only the
+            # header is needed, and this streams one open image per
+            # annotated file otherwise.
+            with Image.open(file) as img:
+                width, height = img.size
 
             for ann_data in boxes.split(" "):
                 curr_ann_data = ann_data.split(",")

@@ -15,9 +15,9 @@ from luxonis_ml.data.parsers import (
     SOLOParser,
 )
 from tests.test_data.parsers.helpers import (
-    _collect_raw_records,
     _image,
     _plugin,
+    _records,
 )
 
 
@@ -151,7 +151,7 @@ def test_solo_decodes_every_mask_exactly_once(
     records = _plugin(SOLOParser)._split_records(split_path)
     assert decoded == [], "no mask may be decoded before a record is asked for"
 
-    collected = _collect_raw_records(records)
+    collected = _records(records)
     assert len(decoded) == 2, "each mask is decoded exactly once"
     assert [path.name for path in _record_paths(collected)] == [
         "step0.camera.jpg"
@@ -304,7 +304,7 @@ def test_solo_parser_all_annotation_types(tmp_path: Path):
     _write_solo_frame(split, annotations)
 
     assert parser.validate_split(split) == {"split_path": split}
-    records = _collect_raw_records(parser._split_records(split))
+    records = _records(parser._split_records(split))
     assert parser._skeletons == {
         "bird": {"labels": ["head", "tail"]},
         "cat": {"labels": ["head", "tail"]},
@@ -332,6 +332,39 @@ def test_solo_parser_all_annotation_types(tmp_path: Path):
     ]
     assert parser._get_solo_bbox_class_names(definitions) == ["bird", "cat"]
     assert parser._get_solo_keypoint_names(definitions) == ["head", "tail"]
+
+
+def test_solo_capture_without_boxes_yields_no_merged_records(tmp_path: Path):
+    """A capture carrying keypoints but no bounding boxes must not crash.
+
+    Regression: `common_instance_ids` was intersected over the non-empty
+    annotation dictionaries only, so a capture with `KeypointAnnotation`
+    values and no `BoundingBox2DAnnotation` kept the keypoint instance
+    ids, and the `bounding_boxes[instance_id]` lookup raised `KeyError`
+    while the records streamed - after the dataset had been created. The
+    merge is anchored on the bounding box, so such a capture must simply
+    yield nothing.
+    """
+    parser = _plugin(SOLOParser)
+    split = tmp_path / "train"
+    _write_solo_metadata(split)
+    annotations = [
+        {
+            "@type": "type.unity.com/unity.solo.KeypointAnnotation",
+            "values": [
+                {
+                    "instanceId": 1,
+                    "keypoints": [
+                        {"location": [2, 1], "state": 2},
+                        {"location": [10, 5], "state": 1},
+                    ],
+                }
+            ],
+        },
+    ]
+    _write_solo_frame(split, annotations)
+
+    assert _records(parser._split_records(split)) == []
 
 
 def test_solo_parser_structure_errors(tmp_path: Path):
@@ -393,12 +426,12 @@ def test_solo_parser_missing_masks(
         ],
     )
     with pytest.raises(FileNotFoundError, match="not existent"):
-        _collect_raw_records(parser._split_records(split))
+        _records(parser._split_records(split))
 
     mask = split / "sequence.0" / mask_name
     mask.write_text("broken")
     with pytest.raises(ValueError, match="Failed to read mask image"):
-        _collect_raw_records(parser._split_records(split))
+        _records(parser._split_records(split))
 
 
 def test_solo_parser_missing_image(tmp_path: Path):
@@ -407,7 +440,7 @@ def test_solo_parser_missing_image(tmp_path: Path):
     _write_solo_metadata(split)
     _write_solo_frame(split, [], create_image=False)
     with pytest.raises(FileNotFoundError, match="not existent"):
-        _collect_raw_records(parser._split_records(split))
+        _records(parser._split_records(split))
 
 
 def _write_solo_sequences(
@@ -540,7 +573,7 @@ def test_solo_walks_the_split_once(
     assert frame_reads == [], "no frame is read before a record is asked for"
     assert masked == [], "the walk must not build a mask it was not asked for"
 
-    collected = _collect_raw_records(records)
+    collected = _records(records)
     assert len(frame_reads) == 2, "each frame file is read exactly once"
     assert len(collected) == 8  # 1 semantic + 3 merged, per sequence
     assert len(masked) == 8  # 1 semantic + 3 instance masks, per sequence
@@ -583,7 +616,7 @@ def test_solo_records_are_produced_one_at_a_time(
     next(records)
     assert len(decoded) == 1, "only the mask of the first record is decoded"
 
-    _collect_raw_records(records)
+    _records(records)
     assert len(decoded) == 4  # one semantic and one instance mask per sequence
 
 

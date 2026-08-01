@@ -46,7 +46,10 @@ def prepare_source(
         local_path = (local_dir or Path.cwd()) / name
         source_path = LuxonisFileSystem.download(source_string, local_path)
 
-    if source_path.suffix == ".zip":
+    # Case-folded: Windows-authored and manually renamed archives commonly
+    # arrive as `.ZIP`, and an unextracted archive would otherwise reach
+    # the parsers as a single unrecognizable file.
+    if source_path.suffix.lower() == ".zip":
         with zipfile.ZipFile(source_path, "r") as archive:
             unzip_dir = source_path.parent / source_path.stem
             logger.info(f"Extracting '{source_path.name}' to '{unzip_dir}'")

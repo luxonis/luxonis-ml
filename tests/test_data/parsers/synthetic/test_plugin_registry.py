@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import (
     Any,
+    ClassVar,
 )
 
 import pytest
@@ -312,7 +313,8 @@ def test_get_parser_plugin_resolves_by_split_coverage(
 
     class SyntheticYoloV6(_SyntheticSplitParser):
         dataset_types = ("yolov6",)
-        splits: dict[str | None, dict[str, Any]] = {}
+        # `ClassVar`: reassigned per case below, never per instance.
+        splits: ClassVar[dict[str | None, dict[str, Any]]] = {}
 
         @classmethod
         def detect(cls, source: Path) -> Layout | None:
@@ -322,7 +324,7 @@ def test_get_parser_plugin_resolves_by_split_coverage(
 
     class SyntheticYoloV8(SyntheticYoloV6):
         dataset_types = ("yolov8",)
-        splits: dict[str | None, dict[str, Any]] = {}
+        splits: ClassVar[dict[str | None, dict[str, Any]]] = {}
 
     monkeypatch.setattr(
         PARSERS_REGISTRY,

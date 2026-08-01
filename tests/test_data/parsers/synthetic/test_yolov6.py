@@ -117,6 +117,25 @@ def test_yolov6_parser(tmp_path: Path):
     )
 
 
+def test_yolov6_reads_mapping_form_class_names(tmp_path: Path):
+    """`names` declared as an index-to-name mapping must label records.
+
+    Regression: the class table was built with `dict(enumerate(names))`,
+    which assumes a sequence. YOLO `data.yaml` files also declare
+    `names` as a mapping from class index to class name; enumerating one
+    iterates its keys, so every annotation was labelled with the integer
+    key instead of the class name. The YOLOv8 parser accepts both forms,
+    so the two parsers disagreed on the same file.
+    """
+    parser = _plugin(YoloV6Parser)
+    root = tmp_path / "dataset"
+    _dataset(root, unlabeled=())
+    (root / "data.yaml").write_text("names:\n  0: budgie\n")
+
+    records = [record for _, record in _split_records(_parse(parser, root))]
+    assert {record["annotation"]["class"] for record in records} == {"budgie"}
+
+
 def test_yolov6_detects_a_single_split_directory(tmp_path: Path):
     """Guard parsing one ``images/<split>`` directory on its own.
 

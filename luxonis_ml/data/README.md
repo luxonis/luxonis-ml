@@ -36,7 +36,7 @@ Each of these steps will be explained in more detail in the following examples.
   - [LuxonisLoader](#luxonisloader)
     - [Dataset Loading](#dataset-loading)
   - [Dataset Import](#dataset-import)
-    - [Dataset Creation](#dataset-creation)
+    - [Importing a Dataset](#importing-a-dataset)
     - [Dataset Import CLI](#dataset-import-cli)
   - [Annotation Format](#annotation-format)
     - [Classification](#classification)
@@ -704,7 +704,7 @@ The supported formats are:
   3, class3
   ```
 
-### Dataset Creation
+### Importing a Dataset
 
 Call `LuxonisDataset.import_dataset` with the path to the dataset. Optionally, you can specify the name of the dataset and its format.
 If no name is specified, the dataset will be created with the name of the directory containing the dataset.

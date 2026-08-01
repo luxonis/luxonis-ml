@@ -11,7 +11,7 @@ import statistics
 import time
 import tracemalloc
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -52,14 +52,7 @@ class Scale:
         Used by builders whose format is heavy enough per image that the
         common image count would dominate the suite's runtime.
         """
-        return Scale(
-            images=max(1, self.images // factor),
-            annotations_per_image=self.annotations_per_image,
-            classes=self.classes,
-            keypoints=self.keypoints,
-            polygon_points=self.polygon_points,
-            image_size=self.image_size,
-        )
+        return replace(self, images=max(1, self.images // factor))
 
 
 @dataclass(frozen=True)

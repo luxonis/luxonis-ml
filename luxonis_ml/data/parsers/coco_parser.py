@@ -33,7 +33,7 @@ def _load_annotations(annotation_path: Path) -> dict[str, Any]:
         Decoded contents of the file.
 
     """
-    with open(annotation_path) as f:
+    with open(annotation_path, encoding="utf-8") as f:
         data: dict[str, Any] = json.load(f)
     return data
 
@@ -132,7 +132,7 @@ class COCOParser(SplitParserPlugin):
     def _load_coco_json(json_path: Path) -> dict[str, Any] | None:
         """Decode ``json_path`` if it has the required COCO fields."""
         try:
-            with open(json_path) as f:
+            with open(json_path, encoding="utf-8") as f:
                 data = json.load(f)
         except (json.JSONDecodeError, OSError):
             return None
@@ -177,19 +177,16 @@ class COCOParser(SplitParserPlugin):
         json_path = next(split_path.glob("*.json"), None)
         if not json_path:
             return None
+        data = COCOParser._load_coco_json(json_path)
+        if data is None:
+            return None
         if json_path.name == "_annotations.coco.json":
-            data = COCOParser._load_coco_json(json_path)
-            if data is None:
-                return None
             logger.info("Identified Roboflow format")
             return {
                 "image_dir": split_path,
                 "annotation_path": json_path,
                 "annotation_data": data,
             }
-        data = COCOParser._load_coco_json(json_path)
-        if data is None:
-            return None
         logger.info("Identified FiftyOne format")
         dirs = [d for d in split_path.iterdir() if d.is_dir()]
         if len(dirs) != 1:
@@ -309,9 +306,20 @@ class COCOParser(SplitParserPlugin):
                 and use_keypoint_ann
                 and dir_format is COCOFormat.FIFTYONE
             ):
+                # The mapping is caller-supplied, so it may name only
+                # some of the splits, or files that do not exist. A test
+                # split is skippable - its keypoint annotations are not
+                # publicly available - but a train or val split without
+                # its file must fail with a message naming the option
+                # rather than with a bare `KeyError`.
+                relative = keypoint_ann_paths.get(canonical_name)
                 if canonical_name == "test":
-                    kp_path = dataset_dir / keypoint_ann_paths["test"]
-                    if not kp_path.exists():
+                    kp_path = (
+                        dataset_dir / relative
+                        if relative is not None
+                        else None
+                    )
+                    if kp_path is None or not kp_path.exists():
                         logger.warning(
                             f"Keypoint annotation file not found: {kp_path}. "
                             "Skipping test split."
@@ -319,9 +327,17 @@ class COCOParser(SplitParserPlugin):
                         continue
                     annotation_path = kp_path
                 else:
-                    annotation_path = (
-                        dataset_dir / keypoint_ann_paths[canonical_name]
-                    )
+                    if relative is None:
+                        raise ValueError(
+                            "`keypoint_ann_paths` is missing an entry "
+                            f"for the '{canonical_name}' split."
+                        )
+                    annotation_path = dataset_dir / relative
+                    if not annotation_path.exists():
+                        raise ValueError(
+                            "Keypoint annotation file not found: "
+                            f"{annotation_path}"
+                        )
                 # A keypoint annotation file replaces the one the split
                 # was recognized by, so it is not the decoded one.
                 annotation_data = None
@@ -375,7 +391,12 @@ class COCOParser(SplitParserPlugin):
                 "where the test set annotations are not publicly available."
             )
             return []
-        split_point = round(len(val_files) * 0.5)
+        if not val_files:
+            return []
+        # `max` keeps at least one image in the validation split: python
+        # rounds half to even, so a single validation image would
+        # otherwise get a split point of zero and move to `test` whole.
+        split_point = max(1, round(len(val_files) * 0.5))
         return list(val_files[split_point:])
 
     def _iter_kept_annotations(
@@ -991,9 +1012,11 @@ def clean_annotations(
         return annotation_path
 
     filtered_image_ids = {img["id"] for img in filtered_images}
+    # `annotations` is optional in a COCO file (test sets ship without
+    # them), and the readers above all default it to an empty list.
     filtered_annotations = [
         ann
-        for ann in annotation_data["annotations"]
+        for ann in annotation_data.get("annotations", [])
         if ann["image_id"] in filtered_image_ids
     ]
 
@@ -1001,7 +1024,7 @@ def clean_annotations(
     annotation_data["annotations"] = filtered_annotations
 
     cleaned_annotation_path = annotation_path.with_name("labels_fixed.json")
-    with open(cleaned_annotation_path, "w") as f:
+    with open(cleaned_annotation_path, "w", encoding="utf-8") as f:
         _write_json(f, annotation_data)
 
     return cleaned_annotation_path

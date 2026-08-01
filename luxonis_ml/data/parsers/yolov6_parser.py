@@ -143,9 +143,15 @@ class YoloV6Parser(SplitParserPlugin):
             One record per annotation, and one per unannotated image.
 
         """
-        with open(classes_path) as f:
+        with open(classes_path, encoding="utf-8") as f:
             classes_data = cast(dict[str, Any], yaml.safe_load(f))
-        class_names = dict(enumerate(classes_data["names"]))
+        # YOLO `data.yaml` files declare `names` either as a sequence or
+        # as an index-to-name mapping; the YOLOv8 parser accepts both, so
+        # the two must agree on the same file.
+        names = classes_data["names"]
+        class_names = (
+            names if isinstance(names, dict) else dict(enumerate(names))
+        )
 
         image_paths = (
             self._list_images(image_dir) if images is None else images
@@ -161,7 +167,7 @@ class YoloV6Parser(SplitParserPlugin):
 
                 annotation_data = []
                 if ann_path.exists():
-                    with open(ann_path) as f:
+                    with open(ann_path, encoding="utf-8") as f:
                         annotation_data = f.readlines()
 
                 if not annotation_data:

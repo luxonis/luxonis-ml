@@ -82,10 +82,16 @@ def digest(case: BenchmarkCase) -> dict[str, Any]:
     # The old contract reported every split of a split-based source, empty
     # ones included, and reported `None` for a source parsed as a whole.
     # Reproducing that keeps digests taken before the API change valid.
+    # Any other split name a parser emits is appended after the fixed
+    # three - dropping it would let a change confined to that split
+    # compare as identical.
     splits = (
         {
             name: list(split_files.get(name, {}))
-            for name in ("train", "val", "test")
+            for name in (
+                *("train", "val", "test"),
+                *sorted(set(split_files) - {"train", "val", "test"}),
+            )
         }
         if layout.split_names
         else None

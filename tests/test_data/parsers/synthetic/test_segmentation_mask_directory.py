@@ -17,6 +17,7 @@ from tests.test_data.parsers.helpers import (
     _image,
     _plugin,
     _records,
+    _symlink,
 )
 
 CLASSES = ("background", "bird", "cat", "dog")
@@ -71,14 +72,6 @@ def _count_imreads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return calls
 
 
-def _symlink(link: Path, target: Path) -> None:
-    """Create a symlink or skip the test where that is not allowed."""
-    try:
-        link.symlink_to(target)
-    except (OSError, NotImplementedError):  # pragma: no cover - platform
-        pytest.skip("symlinks are not supported here")
-
-
 def test_segmentation_mask_directory_parser(tmp_path: Path):
     parser = _plugin(SegmentationMaskDirectoryParser)
     split = tmp_path / "train"
@@ -116,6 +109,31 @@ def test_segmentation_mask_directory_parser(tmp_path: Path):
     # half-imported dataset behind.
     with pytest.raises(ValueError, match="Failed to read mask"):
         parser._split_records(broken, broken, broken / "_classes.csv")
+
+
+def test_png_images_validate_like_they_parse(tmp_path: Path):
+    """A split whose images are not `.jpg` must still be recognized.
+
+    Regression: `validate_split` looked every image up as `{stem}.jpg`
+    while the pairing accepts any suffix through the prefix rule, so a
+    split of `.png` images failed validation, `detect` returned `None`,
+    and the layout was reported as "not in expected format" even though
+    the parse handles it.
+    """
+    parser = _plugin(SegmentationMaskDirectoryParser)
+    split = tmp_path / "train"
+    split.mkdir()
+    _write_classes(split)
+    image = _image(split / "sample.png", size=(2, 2))
+    _write_mask(
+        split / "sample_mask.png",
+        np.array([[0, 1], [1, 0]], dtype=np.uint8),
+    )
+
+    kwargs = parser.validate_split(split)
+    assert kwargs is not None
+    records = _records(parser._split_records(**kwargs))
+    assert {Path(record["file"]) for record in records} == {image.resolve()}
 
 
 def test_every_mask_is_decoded_once(

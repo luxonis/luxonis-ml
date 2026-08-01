@@ -1069,8 +1069,12 @@ class SegmentationAnnotation(Annotation):
         if mask.ndim != 2:
             raise ValueError("Mask must be a 2D binary array")
 
+        # The derived RLE keys are merged last: `counts` is encoded for
+        # the decoded mask's real shape, so a `height` or `width` the
+        # caller passed alongside `mask` must not override the size the
+        # encoding was made for.
         rest = {key: item for key, item in values.items() if key != "mask"}
-        return {**cls._numpy_to_rle(mask), **rest}
+        return {**rest, **cls._numpy_to_rle(mask)}
 
     @model_validator(mode="before")
     @classmethod
@@ -1102,7 +1106,9 @@ class SegmentationAnnotation(Annotation):
         rest = {
             key: item for key, item in values.items() if key not in consumed
         }
-        return {"mask": np.array(mask).astype(np.uint8), **rest}
+        # Merged last so a stray `mask` in the input cannot override the
+        # mask rendered from the points.
+        return {**rest, "mask": np.array(mask).astype(np.uint8)}
 
     @staticmethod
     def _clip_points(

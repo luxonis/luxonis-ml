@@ -586,7 +586,11 @@ def test_coco_directory_parse_and_keypoint_paths(tmp_path: Path):
 
     splits = _files_by_split(_parse(parser, root))
     # No test split at all, so the validation images stand in for it.
-    assert len(splits.get("val", [])) + len(splits.get("test", [])) == 1
+    # Regression: the halving used `round(len * 0.5)`, which rounds half
+    # to even, so a lone validation image got a split point of zero and
+    # moved to `test` whole, leaving `val` empty. It must stay in `val`.
+    assert len(splits.get("val", [])) == 1
+    assert len(splits.get("test", [])) == 0
 
     (root / "test").mkdir()
     with pytest.raises(ValueError, match="Test split"):
@@ -746,6 +750,57 @@ def test_coco_directory_parse_and_keypoint_paths(tmp_path: Path):
         )
     )
     assert len(splits["test"]) == 1
+
+
+def test_coco_partial_keypoint_paths_fail_with_a_clear_message(
+    tmp_path: Path,
+):
+    """A partial `keypoint_ann_paths` must name the option, not crash.
+
+    Regression: the `test` split handled a missing mapping entry and a
+    missing file, but `train` and `val` indexed the caller-supplied
+    mapping directly - a mapping without their key raised a bare
+    `KeyError`, and one naming a nonexistent file failed later inside
+    the annotation loading with a `FileNotFoundError` that named
+    neither the option nor the split.
+    """
+    root = tmp_path / "dataset"
+    for split_name in ("train", "validation"):
+        image_dir, _ = _write_coco_split(
+            root / split_name,
+            roboflow=False,
+            data=_coco_data(
+                [
+                    {
+                        "id": 1,
+                        "file_name": f"{split_name}.jpg",
+                        "width": 20,
+                        "height": 10,
+                    }
+                ]
+            ),
+        )
+        _image(image_dir / f"{split_name}.jpg")
+
+    parser = _plugin(COCOParser)
+    with pytest.raises(ValueError, match="keypoint_ann_paths"):
+        _parse(
+            parser,
+            root,
+            use_keypoint_ann=True,
+            keypoint_ann_paths={"val": "raw/person_keypoints_val2017.json"},
+        )
+
+    with pytest.raises(ValueError, match="not found"):
+        _parse(
+            parser,
+            root,
+            use_keypoint_ann=True,
+            keypoint_ann_paths={
+                "train": "raw/missing_train.json",
+                "val": "raw/missing_val.json",
+            },
+        )
 
 
 def test_coco_val_to_test_halves_only_the_labelled_images(tmp_path: Path):
@@ -1283,6 +1338,36 @@ def test_clean_coco_annotations(tmp_path: Path):
     assert [image["id"] for image in data["images"]] == [2]
     assert [annotation["id"] for annotation in data["annotations"]] == [2]
     assert cleaned.read_text() == json.dumps(data)
+
+    # Regression: `annotations` is optional in a COCO file (test sets
+    # ship without it), but cleaning one that also held a blacklisted
+    # file name indexed the key directly and raised `KeyError` in the
+    # middle of an import.
+    annotation_path.write_text(
+        json.dumps(
+            {
+                "images": [
+                    {
+                        "id": 1,
+                        "file_name": "000000341448.jpg",
+                        "width": 1,
+                        "height": 1,
+                    },
+                    {
+                        "id": 2,
+                        "file_name": "safe.jpg",
+                        "width": 1,
+                        "height": 1,
+                    },
+                ],
+                "categories": [],
+            }
+        )
+    )
+    cleaned = clean_annotations(annotation_path)
+    data = json.loads(cleaned.read_text())
+    assert [image["id"] for image in data["images"]] == [2]
+    assert data["annotations"] == []
 
 
 def test_clean_coco_annotations_filters_in_place(tmp_path: Path):

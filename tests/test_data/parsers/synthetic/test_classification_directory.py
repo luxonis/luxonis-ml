@@ -25,6 +25,7 @@ from tests.test_data.parsers.helpers import (
     _plugin,
     _records,
     _split_records,
+    _symlink,
 )
 from tests.test_data.utils import create_image
 
@@ -328,13 +329,12 @@ def test_clsdir_resolves_symlinks_like_realpath(tmp_path: Path):
     dataset_dir = tmp_path / "clsdir"
     budgie = dataset_dir / "budgie"
     _image(budgie / "own.jpg")
-    (budgie / "linked.jpg").symlink_to(store / "outside.jpg")
-    (budgie / "relative.jpg").symlink_to(
-        Path("..") / ".." / "store" / "outside.jpg"
+    _symlink(budgie / "linked.jpg", store / "outside.jpg")
+    _symlink(
+        budgie / "relative.jpg",
+        Path("..") / ".." / "store" / "outside.jpg",
     )
-    (dataset_dir / "finch").symlink_to(
-        store / "shared", target_is_directory=True
-    )
+    _symlink(dataset_dir / "finch", store / "shared", target_is_directory=True)
 
     parser = _plugin(ClassificationDirectoryParser)
     layout = _detect(dataset_dir)
@@ -362,7 +362,7 @@ def test_clsdir_lists_an_image_reached_twice_only_once(tmp_path: Path):
     dataset_dir = tmp_path / "clsdir"
     budgie = dataset_dir / "budgie"
     _image(budgie / "own.jpg")
-    (budgie / "copy.jpg").symlink_to(budgie / "own.jpg")
+    _symlink(budgie / "copy.jpg", budgie / "own.jpg")
 
     parser = _plugin(ClassificationDirectoryParser)
     layout = _detect(dataset_dir)

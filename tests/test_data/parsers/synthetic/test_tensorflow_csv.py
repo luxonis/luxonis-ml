@@ -1,6 +1,7 @@
 """TensorFlow CSV parser."""
 
 import inspect
+import os
 from collections.abc import Sequence
 from pathlib import Path
 from types import GeneratorType
@@ -206,6 +207,9 @@ def test_tensorflow_csv_resolves_each_filename_at_most_once(
     )
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="symlinks need extra privileges on Windows"
+)
 def test_tensorflow_csv_resolves_the_split_directory_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -247,6 +251,32 @@ def test_tensorflow_csv_resolves_the_split_directory_once(
     assert files == {str(image.resolve()) for image in plain} | {
         str(target.resolve())
     }
+
+
+@pytest.mark.skipif(
+    os.name == "nt", reason="symlinks need extra privileges on Windows"
+)
+def test_tensorflow_csv_streams_each_resolved_image_once(tmp_path: Path):
+    """Two listings resolving to one path must not repeat its boxes.
+
+    Regression: `_split_files` collapses the resolved paths with
+    `dict.fromkeys`, but the record generator iterated the raw list. A
+    symlink listed next to its target inside the same split therefore
+    yielded every bounding box of that image twice, while
+    `enumerate_files` reported the file once - an enumeration that
+    disagreed with the records.
+    """
+    split = tmp_path / "train"
+    target = _image(split / "target.jpg", size=(20, 10))
+    (split / "link.jpg").symlink_to(target)
+    _write_annotations(split, [_row("target.jpg")])
+
+    parser = _plugin(TensorflowCSVParser)
+    kwargs = parser.validate_split(split)
+    assert kwargs is not None
+    records = _records(parser._split_records(**kwargs))
+
+    assert [record["file"] for record in records] == [str(target.resolve())]
 
 
 def test_tensorflow_csv_streams_the_annotation_rows(

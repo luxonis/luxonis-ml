@@ -104,16 +104,13 @@ class NativeParser(SplitParserPlugin):
             return path
 
         for record in json.loads(annotation_path.read_text()):
-            try:
-                if "file" in record:
-                    record["file"] = resolve(record["file"])
-                elif "files" in record:
-                    media = record["files"]
-                    for key, value in media.items():
-                        if isinstance(value, PathType):
-                            media[key] = resolve(value)
-            except KeyError:
-                pass
+            if "file" in record:
+                record["file"] = resolve(record["file"])
+            elif "files" in record:
+                media = record["files"]
+                for key, value in media.items():
+                    if isinstance(value, PathType):
+                        media[key] = resolve(value)
 
             annotation = record.get("annotation")
             if isinstance(annotation, dict):

@@ -5,10 +5,11 @@ from collections.abc import (
 from pathlib import Path
 from typing import (
     Any,
+    ClassVar,
     TypeVar,
-    cast,
 )
 
+import pytest
 from PIL import Image
 
 from luxonis_ml.data import (
@@ -22,15 +23,6 @@ from luxonis_ml.data.parsers.parser_plugin import (
     SplitParserPlugin,
 )
 from tests.test_data.utils import create_image
-
-
-def _collect_raw_records(records: DatasetIterator) -> list[dict[str, Any]]:
-    """Collect parser output, which plugins emit as plain dictionaries."""
-    collected = []
-    for record in records:
-        assert isinstance(record, dict)
-        collected.append(record)
-    return collected
 
 
 def _write_yolov8_split(
@@ -77,19 +69,30 @@ def _plugin(parser_type: type[T]) -> T:
     return parser_type(ParseIssueCollector())
 
 
+def _symlink(link: Path, target: Path, **kwargs: Any) -> None:
+    """Create a symlink or skip the test where that is not allowed."""
+    try:
+        link.symlink_to(target, **kwargs)
+    except (OSError, NotImplementedError):  # pragma: no cover - platform
+        pytest.skip("symlinks are not supported here")
+
+
 def _records(parsed: "ParseResult | DatasetIterator") -> list[dict[str, Any]]:
     """Collect the records of a parse result or a raw record stream.
 
     `ParseResult.records` pairs each record with its split, while a
     plugin's `_split_records` yields the records on their own; both are
     reduced to the records themselves so a test can assert on either.
+    Every record is asserted to be a plain dictionary, which is the form
+    the plugins emit.
     """
     records = parsed.records if isinstance(parsed, ParseResult) else parsed
-    collected = [
-        record[1] if isinstance(record, tuple) else record
-        for record in records
-    ]
-    return cast(list[dict[str, Any]], collected)
+    collected = []
+    for record in records:
+        record = record[1] if isinstance(record, tuple) else record
+        assert isinstance(record, dict)
+        collected.append(record)
+    return collected
 
 
 def _split_records(parsed: ParseResult) -> list[tuple[str | None, Any]]:
@@ -99,8 +102,10 @@ def _split_records(parsed: ParseResult) -> list[tuple[str | None, Any]]:
 
 class _SyntheticSplitParser(SplitParserPlugin):
     dataset_types = ("synthetic-split",)
+    # Class-level detection state, reassigned by tests and restored by
+    # the package conftest's autouse fixture after each of them.
     recognized = False
-    splits: dict[str | None, dict[str, Any]] = {}
+    splits: ClassVar[dict[str | None, dict[str, Any]]] = {}
 
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:

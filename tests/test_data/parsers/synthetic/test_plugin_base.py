@@ -3,7 +3,6 @@ annotation-issue reporting and count-based split maths.
 """
 
 import json
-import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
@@ -281,41 +280,46 @@ def test_uppercase_image_extensions_are_recognized(
         dataset.delete_dataset(delete_local=True)
 
 
-_ANSI = re.compile(r"\x1b\[[0-9;]*m")
-
-
-def test_parse_issue_collector_deduplicates_and_summarizes(
-    capsys: pytest.CaptureFixture[str],
-):
+def test_parse_issue_collector_deduplicates_and_summarizes():
     collector = ParseIssueCollector(warning_limit=1)
-    collector.warn(
-        ParserIssue.MISSING_IMAGE,
-        "missing",
-        source="annotations.json",
-        image="missing.jpg",
-        annotation_id=1,
+    # Asserted through a dedicated sink, like the capped-warnings test:
+    # where the global logging setup routes its output - stdout, stderr,
+    # a rich handler - is not this test's concern.
+    messages: list[str] = []
+    sink_id = logger.add(
+        lambda message: messages.append(str(message).strip()),
+        format="{message}",
+        level="WARNING",
     )
-    collector.warn(
-        ParserIssue.MISSING_IMAGE,
-        "missing",
-        source="annotations.json",
-        image="missing.jpg",
-        annotation_id=1,
-    )
-    collector.warn(ParserIssue.MISSING_IMAGE, "other")
-    collector.log_summary()
+    try:
+        collector.warn(
+            ParserIssue.MISSING_IMAGE,
+            "missing",
+            source="annotations.json",
+            image="missing.jpg",
+            annotation_id=1,
+        )
+        collector.warn(
+            ParserIssue.MISSING_IMAGE,
+            "missing",
+            source="annotations.json",
+            image="missing.jpg",
+            annotation_id=1,
+        )
+        collector.warn(ParserIssue.MISSING_IMAGE, "other")
+        collector.log_summary()
+    finally:
+        logger.remove(sink_id)
 
     assert len(collector.messages) == 2
-    # The logger colourizes when it writes to a terminal, which splits the
-    # words being asserted on with escape sequences.
-    output = _ANSI.sub("", capsys.readouterr().out)
+    output = "\n".join(messages)
     assert "annotation_id=1" in output
     assert "Skipped logging 1 additional warnings" in output
     assert "Skipped annotations: missing (1 records)" in output
     assert "Skipped annotations: other (1 records)" in output
 
-    messages = collector.messages
-    messages.clear()
+    reported = collector.messages
+    reported.clear()
     assert len(collector.messages) == 2
 
     full = ParseIssueCollector(full_warnings=True, warning_limit=0)
@@ -386,7 +390,9 @@ def test_split_plugin_helpers_and_errors(tmp_path: Path):
     }
 
 
-def test_split_plugin_streams_every_split_once(tmp_path: Path):
+def test_split_plugin_streams_every_split_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """Records carry their split instead of a file list being published.
 
     Regression: the base class used to parse each split into its own
@@ -410,11 +416,13 @@ def test_split_plugin_streams_every_split_once(tmp_path: Path):
     parsed = parser.parse(tmp_path / "dataset", layout)
     assert isinstance(parsed.records, Iterator)
 
-    ParserPlugin._list_images = staticmethod(counting_list_images)
-    try:
-        tagged = list(parsed.records)
-    finally:
-        ParserPlugin._list_images = staticmethod(original)
+    # `monkeypatch` rather than a manual try/finally: it reverts at
+    # teardown however the test exits, so a failed assertion cannot
+    # leave the patched staticmethod on the shared base class.
+    monkeypatch.setattr(
+        ParserPlugin, "_list_images", staticmethod(counting_list_images)
+    )
+    tagged = list(parsed.records)
 
     assert [split for split, _ in tagged] == ["train", "test"]
     # One listing per split, not two: nothing walks the source again to

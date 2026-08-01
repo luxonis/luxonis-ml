@@ -85,7 +85,7 @@ class CreateMLParser(SplitParserPlugin):
             a single time and each record is emitted as it is read.
 
         """
-        with open(annotation_path) as f:
+        with open(annotation_path, encoding="utf-8") as f:
             annotations_data = json.load(f)
 
         # `Path.resolve` walks the filesystem, and every entry of a manifest
@@ -107,9 +107,11 @@ class CreateMLParser(SplitParserPlugin):
             # Opened once per frame, ahead of its boxes: the width and
             # height a box is normalized by depend only on the frame, and
             # an unreadable image has to fail the parse even when the
-            # frame carries no boxes to normalize.
-            img = Image.open(file)
-            width, height = img.size
+            # frame carries no boxes to normalize. Closed right away -
+            # only the header is needed, and this streams one open image
+            # per frame otherwise.
+            with Image.open(file) as img:
+                width, height = img.size
 
             # A frame without boxes simply yields nothing, so it never
             # reaches the dataset.
@@ -148,7 +150,7 @@ class CreateMLParser(SplitParserPlugin):
             deduplicated, mirroring a manifest that names one image twice.
 
         """
-        with open(annotation_path) as f:
+        with open(annotation_path, encoding="utf-8") as f:
             annotations_data = json.load(f)
 
         base_dir = image_dir.absolute().resolve()

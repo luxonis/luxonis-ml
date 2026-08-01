@@ -60,7 +60,7 @@ class SOLOParser(SplitParserPlugin):
             json_path = next(split_path.glob(json_fname), None)
             if not json_path:
                 return None
-        with open(split_path / "metadata.json") as json_file:
+        with open(split_path / "metadata.json", encoding="utf-8") as json_file:
             metadata_dict = json.load(json_file)
         # check if all sequences are present
         total_sequences_expected = metadata_dict["totalSequences"]
@@ -107,7 +107,9 @@ class SOLOParser(SplitParserPlugin):
             split_path / "annotation_definitions.json"
         )
         if annotation_definitions_path.exists():
-            with open(annotation_definitions_path) as json_file:
+            with open(
+                annotation_definitions_path, encoding="utf-8"
+            ) as json_file:
                 annotation_definitions_dict = json.load(json_file)
         else:
             raise FileNotFoundError(
@@ -299,7 +301,12 @@ class SOLOParser(SplitParserPlugin):
                                 instance_segmentations
                             )
 
-                        if non_empty_annotations:
+                        # The merged record is anchored on the bounding
+                        # box - it carries the class name - so a capture
+                        # with keypoints or segmentations but no boxes
+                        # yields nothing instead of failing the box
+                        # lookup below, mid-stream.
+                        if bounding_boxes:
                             common_instance_ids = set.intersection(
                                 *[
                                     set(ann.keys())
