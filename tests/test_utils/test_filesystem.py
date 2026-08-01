@@ -396,8 +396,7 @@ def test_file_uuid_does_not_hold_the_file_in_memory(tempdir: Path):
 
     The assertion is on the *shape* of the cost rather than a measured
     number: memory must be bounded by the chunk size, not by the file,
-    which is what makes the peak flat as files grow. The old code would
-    reach ~112 MiB here.
+    which is what makes the peak flat as files grow.
     """
     file_path = tempdir / "payload.bin"
     file_path.write_bytes(os.urandom(16 * _UUID_CHUNK_SIZE))
