@@ -1,12 +1,14 @@
-from typing import Any
+from collections.abc import Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.container import BarContainer
 
+from luxonis_ml.data.utils.data_utils import ClassDistributionRow
+
 
 def _prepare_class_data(
-    task_data: list[dict[str, Any]],
+    task_data: Sequence[ClassDistributionRow],
 ) -> tuple[list[str], list[int]]:
     """Extract class names and counts from task data."""
     classes = [x["class_name"] for x in task_data]
@@ -32,7 +34,7 @@ def _annotate_bars(
 
 
 def plot_class_distribution(
-    ax: plt.Axes, task_type: str, task_data: list[dict[str, Any]]
+    ax: plt.Axes, task_type: str, task_data: Sequence[ClassDistributionRow]
 ) -> None:  # pragma: no cover
     """Plot a class distribution bar chart.
 
