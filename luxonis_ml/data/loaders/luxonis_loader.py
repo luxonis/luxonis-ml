@@ -404,12 +404,16 @@ class LuxonisLoader(BaseLoader):
                                 image_width,
                             )
                         )
-                    elif task_type == "classification" or task_is_metadata(
-                        task
-                    ):
+                    elif task_type == "classification":
                         labels[task] = np.zeros(
                             (len(self._classes[task_name]),)
                         )
+                    elif task_is_metadata(task):
+                        # Metadata is per-instance, so an absent metadata task is
+                        # empty (like an empty boundingbox), not a class-length
+                        # vector — otherwise it decodes into phantom box-less
+                        # instances whose every value reads as 0.0.
+                        labels[task] = np.zeros((0,))
 
         return img_dict, labels
 
