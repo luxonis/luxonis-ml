@@ -1,5 +1,6 @@
 import os
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -21,7 +22,7 @@ from luxonis_ml.utils.filesystem import (
     _get_protocol_and_path,
 )
 
-SERVER_TIMEOUT_ENV = "LUXONISML_TEST_mlflow_SERVER_TIMEOUT"
+SERVER_TIMEOUT_ENV = "LUXONISML_TEST_MLFLOW_SERVER_TIMEOUT"
 DEFAULT_SERVER_TIMEOUT = 120.0
 
 
@@ -520,6 +521,70 @@ def test_mlflow_transfers_are_staged_beside_their_endpoint(
     assert staging_dirs == [source_dir, destination.parent]
     assert downloaded == destination
     assert downloaded.read_text() == "staging payload"
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or getattr(os, "geteuid", lambda: 0)() == 0,
+    reason="read-only directories are not enforced for Windows or root",
+)
+def test_mlflow_upload_falls_back_when_the_source_is_read_only(
+    tempdir: Path,
+    mlflow_tracking_uri: str,
+    mlflow_run: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Regression test for staging beside a read-only source.
+
+    Staging next to the source needs write permission there, which a
+    read-only mount -- a shared dataset volume, an archived checkpoint
+    tree -- does not grant.
+    ``tempfile.TemporaryDirectory(dir=local_path.parent)`` then raised
+    ``PermissionError`` before the ``hardlink_to``/``copy2`` fallback
+    could run, so a renamed upload out of such a directory could not
+    succeed at all. That is the ordinary path rather than an edge case:
+    ``_put_files`` renames every file to ``<uuid><suffix>`` whenever a
+    ``uuid_dict`` is given, so a whole dataset push goes through it.
+
+    ``$TMPDIR`` is the only place left to rename in, which is what the
+    recorded attempts pin: beside the source first, the default location
+    second. Falling back does reintroduce the tmpfs overflow the ``dir``
+    argument exists to avoid, so it has to stay a fallback rather than
+    become the default --
+    ``test_mlflow_transfers_are_staged_beside_their_endpoint`` pins the
+    writable case that must keep bypassing it.
+    """
+    experiment_id, run_id = mlflow_run
+    staging_dirs: list[Path | None] = []
+
+    class RecordingTempfile:
+        """Records where ``filesystem`` asks for its staging dirs."""
+
+        @staticmethod
+        def TemporaryDirectory(*args, **kwargs) -> tempfile.TemporaryDirectory:
+            staging_dirs.append(kwargs.get("dir"))
+            return tempfile.TemporaryDirectory(*args, **kwargs)
+
+    monkeypatch.setattr(filesystem, "tempfile", RecordingTempfile)
+
+    source_dir = tempdir / "read-only-source"
+    source_dir.mkdir()
+    local_file = source_dir / "source.txt"
+    local_file.write_text("read-only payload")
+
+    fs = LuxonisFileSystem(
+        f"mlflow://{experiment_id}/{run_id}",
+        tracking_uri=mlflow_tracking_uri,
+    )
+    source_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)
+    try:
+        fs.put_file(local_file, "read-only/renamed.txt")
+    finally:
+        # Restored before `tempdir` is torn down, which cannot remove a
+        # directory it is not allowed to write to.
+        source_dir.chmod(stat.S_IRWXU)
+
+    assert staging_dirs == [source_dir, None]
+    assert fs.read_text("read-only/renamed.txt") == "read-only payload"
 
 
 def test_mlflow_error_paths(

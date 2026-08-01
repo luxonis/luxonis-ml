@@ -1065,7 +1065,13 @@ class LuxonisFileSystem:
         # source's filesystem, where a hardlink stands in for the copy:
         # the default `$TMPDIR` is a RAM-backed tmpfs on most Linux
         # distros, too small to hold a multi-GB artifact.
-        with tempfile.TemporaryDirectory(dir=local_path.parent) as temp_dir:
+        try:
+            staging = tempfile.TemporaryDirectory(dir=local_path.parent)
+        except OSError:
+            # A read-only source directory cannot hold the staging dir,
+            # which leaves `$TMPDIR` as the only place to rename in.
+            staging = tempfile.TemporaryDirectory()
+        with staging as temp_dir:
             renamed_path = Path(temp_dir) / target_name
             try:
                 renamed_path.hardlink_to(local_path)
