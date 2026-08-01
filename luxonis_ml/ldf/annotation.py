@@ -1256,7 +1256,9 @@ class DatasetRecord(BaseModelExtraForbid):
 
     Attributes:
         files: File paths keyed by source name.
-        annotation: Optional detection associated with the dataset record.
+        annotation: Optional detections associated with the dataset record.
+            Validation also accepts a single `Detection` and stores it as a
+            one-element list, so the model always carries ``list[Detection]``.
         task_name: The name of the task to which the record belongs.
         sample_metadata: JSON-like metadata for the whole sample. Values
             should be JSON-serializable. Missing metadata defaults to an empty
@@ -1289,9 +1291,21 @@ class DatasetRecord(BaseModelExtraForbid):
     """
 
     files: dict[str, FilePath]
-    annotation: Detection | None = None
+    annotation: list[Detection] | None = None
     task_name: str = ""
     sample_metadata: Params = Field(default_factory=dict)
+
+    def _annotations(self) -> list[Detection]:
+        """Return this record's detections as a list.
+
+        ``annotation`` is ``None`` on an annotation-free record; this
+        normalizes it to an empty list for iteration.
+
+        Returns:
+            The record's detections (empty when there is no annotation).
+
+        """
+        return self.annotation or []
 
     @property
     def file(self) -> FilePath:
@@ -1347,77 +1361,93 @@ class DatasetRecord(BaseModelExtraForbid):
             }
         return values
 
+    @field_validator("annotation", mode="before")
+    @classmethod
+    def validate_annotation(cls, value: Any) -> Any:
+        # Tuples pass through: pydantic itself coerces them to a list.
+        if value is None or isinstance(value, (list, tuple)):
+            return value
+        return [value]
+
     def to_parquet_rows(self) -> Iterable[ParquetRecord]:
         """Recursively convert the dataset record and all its
         annotations and sub-annotations to parquet rows.
+
+        Every detection in ``annotation`` is flattened into the same parquet
+        rows, so the on-disk format does not depend on how the record was
+        grouped. Each secondary media source still receives exactly one
+        null-annotation row (not one per detection).
 
         Yields:
             Annotation data rows.
 
         """
-        yield from self._to_parquet_rows(self.annotation, self.task_name)
+        yield from self._rows_for_task(self._annotations(), self.task_name)
 
-    def _to_parquet_rows(
-        self, annotation: Detection | None, task_name: str
+    def _rows_for_task(
+        self, annotations: list[Detection], task_name: str
     ) -> Iterable[ParquetRecord]:
         file_items = sorted(self.files.items(), key=lambda x: str(x[1]))
         for i, (source, file_path) in enumerate(file_items):
             is_main = i == 0
-
-            if annotation is None or not is_main:
-                yield {
-                    "file": str(file_path),
-                    "source_name": source,
-                    "task_name": task_name,
-                    "class_name": None,
-                    "instance_id": None,
-                    "task_type": None,
-                    "annotation": None,
-                    "sample_metadata": json.dumps(self.sample_metadata),
-                }
+            if not is_main or not annotations:
+                yield self._null_row(source, file_path, task_name)
             else:
-                for task_type in _LABEL_TASK_TYPES:
-                    label: Annotation | None = getattr(annotation, task_type)
-
-                    if label is not None:
-                        yield {
-                            "file": str(file_path),
-                            "source_name": source,
-                            "task_name": task_name,
-                            "class_name": annotation.class_name,
-                            "instance_id": annotation.instance_id,
-                            "task_type": task_type,
-                            "annotation": label.model_dump_json(),
-                            "sample_metadata": json.dumps(
-                                self.sample_metadata
-                            ),
-                        }
-                for key, data in annotation.metadata.items():
-                    yield {
-                        "file": str(file_path),
-                        "source_name": source,
-                        "task_name": task_name,
-                        "class_name": annotation.class_name,
-                        "instance_id": annotation.instance_id,
-                        "task_type": f"metadata/{key}",
-                        "annotation": json.dumps(data),
-                        "sample_metadata": json.dumps(self.sample_metadata),
-                    }
-                if annotation.class_name is not None:
-                    yield {
-                        "file": str(file_path),
-                        "source_name": source,
-                        "task_name": task_name,
-                        "class_name": annotation.class_name,
-                        "instance_id": annotation.instance_id,
-                        "task_type": "classification",
-                        "annotation": "{}",
-                        "sample_metadata": json.dumps(self.sample_metadata),
-                    }
-                for name, detection in annotation.sub_detections.items():
-                    yield from self._to_parquet_rows(
-                        detection, f"{task_name}/{name}"
+                for annotation in annotations:
+                    yield from self._detection_rows(
+                        annotation, source, file_path, task_name
                     )
+
+    def _null_row(
+        self, source: str, file_path: FilePath, task_name: str
+    ) -> ParquetRecord:
+        return {
+            "file": str(file_path),
+            "source_name": source,
+            "task_name": task_name,
+            "class_name": None,
+            "instance_id": None,
+            "task_type": None,
+            "annotation": None,
+            "sample_metadata": json.dumps(self.sample_metadata),
+        }
+
+    def _detection_rows(
+        self,
+        annotation: Detection,
+        source: str,
+        file_path: FilePath,
+        task_name: str,
+    ) -> Iterable[ParquetRecord]:
+        metadata = json.dumps(self.sample_metadata)
+
+        def row(task_type: str, payload: str) -> ParquetRecord:
+            return {
+                "file": str(file_path),
+                "source_name": source,
+                "task_name": task_name,
+                "class_name": annotation.class_name,
+                "instance_id": annotation.instance_id,
+                "task_type": task_type,
+                "annotation": payload,
+                "sample_metadata": metadata,
+            }
+
+        for task_type in _LABEL_TASK_TYPES:
+            label: Annotation | None = getattr(annotation, task_type)
+            if label is not None:
+                yield row(task_type, label.model_dump_json())
+        for key, data in annotation.metadata.items():
+            yield row(f"metadata/{key}", json.dumps(data))
+        if annotation.class_name is not None:
+            yield row("classification", "{}")
+        for name, detection in annotation.sub_detections.items():
+            yield from self._detection_rows(
+                detection,
+                source,
+                file_path,
+                f"{task_name}/{name}",
+            )
 
     @staticmethod
     def decode_metadata(value: object) -> Params:

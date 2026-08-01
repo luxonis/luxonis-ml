@@ -1175,15 +1175,16 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         uuid_dict = {}
         for record in data_batch:
             self._progress.update(task, advance=1)
-            if record.annotation is None or record.annotation.array is None:
-                continue
-            ann = record.annotation.array
-            if self.is_remote:
-                uuid = self._fs.get_file_uuid(ann.path, local=True)
-                uuid_dict[str(ann.path)] = uuid
-                ann.path = Path(uuid).with_suffix(ann.path.suffix)
-            else:
-                ann.path = ann.path.absolute().resolve()
+            for detection in record._annotations():
+                if detection.array is None:
+                    continue
+                ann = detection.array
+                if self.is_remote:
+                    uuid = self._fs.get_file_uuid(ann.path, local=True)
+                    uuid_dict[str(ann.path)] = uuid
+                    ann.path = Path(uuid).with_suffix(ann.path.suffix)
+                else:
+                    ann.path = ann.path.absolute().resolve()
         self._progress.stop()
         self._progress.remove_task(task)
         if self.is_remote:
@@ -1315,6 +1316,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         Raises:
             ValueError: If the records yielded by the generator are not in the expected format.
             ValueError: If the dataset contains metadata annotations with conflicting types.
+            ValueError: If a record without a ``task_name`` holds annotations
+                whose classes belong to different existing tasks, so no single
+                task can be inferred.
 
         """
         logger.info(f"Adding data to dataset '{self._dataset_name}'...")
@@ -1344,14 +1348,28 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 if not isinstance(record, DatasetRecord):
                     record = DatasetRecord(**record)
                 sources.update(record.files.keys())
-                ann = record.annotation
-                if ann is not None:
+                anns = record._annotations()
+                if anns:
                     if not record.task_name:
-                        record.task_name = infer_task(
-                            record.task_name,
-                            ann.class_name,
-                            self.get_classes(),
-                        )
+                        current_classes = self.get_classes()
+                        inferred = {
+                            infer_task(
+                                record.task_name,
+                                ann.class_name,
+                                current_classes,
+                            )
+                            for ann in anns
+                            if ann.class_name is not None
+                        }
+                        if len(inferred) > 1:
+                            raise ValueError(
+                                "Cannot infer a single task for a record "
+                                "whose annotation classes belong to "
+                                f"different tasks: {sorted(inferred)}. "
+                                "Pass an explicit `task_name` to the record."
+                            )
+                        if inferred:
+                            record.task_name = inferred.pop()
 
                     def update_state(task_name: str, ann: Detection) -> None:
                         if ann.class_name is not None:
@@ -1393,7 +1411,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                         for name, sub_detection in ann.sub_detections.items():
                             update_state(f"{task_name}/{name}", sub_detection)
 
-                    update_state(record.task_name, ann)
+                    for ann in anns:
+                        update_state(record.task_name, ann)
 
                 data_batch.append(record)
                 if i % batch_size == 0:
