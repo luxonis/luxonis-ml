@@ -36,7 +36,8 @@ dependencies = { file = ["luxonis_ml/utils/requirements.txt"] }
 version = { attr = "luxonis_ml.__version__" }
 
 [tool.setuptools.dynamic.optional-dependencies]
-data = { file = ["luxonis_ml/data/requirements.txt"] }
+ldf = { file = ["luxonis_ml/ldf/requirements.txt"] }
+data = { file = ["luxonis_ml/ldf/requirements.txt", "luxonis_ml/data/requirements.txt"] }
 utils = { file = ["luxonis_ml/utils/requirements.txt"] }
 tracker = { file = ["luxonis_ml/tracker/requirements.txt"] }
 telemetry = { file = ["extra_requirements/posthog.txt"] }
@@ -49,6 +50,7 @@ mlflow = { file = ["extra_requirements/mlflow.txt"] }
 
 [tool.setuptools.dynamic.optional-dependencies.all]
 file = [
+  "luxonis_ml/ldf/requirements.txt",
   "luxonis_ml/data/requirements.txt",
   "luxonis_ml/utils/requirements.txt",
   "luxonis_ml/tracker/requirements.txt",
@@ -62,6 +64,7 @@ file = [
 
 [tool.setuptools.dynamic.optional-dependencies.dev]
 file = [
+  "luxonis_ml/ldf/requirements.txt",
   "luxonis_ml/data/requirements.txt",
   "luxonis_ml/utils/requirements.txt",
   "luxonis_ml/tracker/requirements.txt",
