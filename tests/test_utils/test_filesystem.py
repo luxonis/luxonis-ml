@@ -236,6 +236,41 @@ def test_mlflow_initialization_failures():
         LuxonisFileSystem("mlflow://experiment/run")
 
 
+def test_mlflow_attributes_are_public(tempdir: Path):
+    """Regression test for the MLflow attributes becoming private.
+
+    ``experiment_id``, ``run_id``, ``artifact_path`` and
+    ``tracking_uri`` are documented as public attributes and are read
+    directly by downstream packages -- ``luxonis-train`` uses
+    ``fs.experiment_id`` and ``fs.run_id`` in ``Config.get_config`` to
+    resolve ``mlflow://<experiment>/<run>/config.yaml`` URLs. Renaming
+    them to ``_experiment_id``/``_run_id``/... broke that with an
+    ``AttributeError``, so they must stay reachable under their public
+    names.
+
+    The non-MLflow half of the test matters just as much: the private
+    fields used to be assigned only in the MLflow branch of
+    ``__init__``, so the accessors have to be safe (``None``) for every
+    other protocol instead of raising.
+    """
+    pytest.importorskip("mlflow")
+
+    fs = LuxonisFileSystem(
+        "mlflow://experiment/run/nested/config.yaml",
+        tracking_uri="http://127.0.0.1:1",
+    )
+    assert fs.experiment_id == "experiment"
+    assert fs.run_id == "run"
+    assert fs.artifact_path == "nested/config.yaml"
+    assert fs.tracking_uri == "http://127.0.0.1:1"
+
+    local_fs = LuxonisFileSystem(str(tempdir))
+    assert local_fs.experiment_id is None
+    assert local_fs.run_id is None
+    assert local_fs.artifact_path is None
+    assert local_fs.tracking_uri is None
+
+
 def test_bytes(fs: LuxonisFileSystem, randint: int):
     bytes_file = f"bytes_test_{randint}.txt"
     fs.put_bytes(f"bytes test {randint}".encode(), bytes_file)
@@ -303,6 +338,43 @@ def test_local_filesystem_edge_cases(tempdir: Path):
     downloaded_dir = fs.get_dir("uuid-dir", existing_dir)
     assert downloaded_dir == existing_dir / "uuid-dir"
     assert (downloaded_dir / "fixed-uuid.txt").read_text() == "uuid"
+
+
+def test_download_returns_where_the_data_landed(
+    tempdir: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Regression test for ``download`` returning a stale path.
+
+    ``LuxonisFileSystem.download`` called ``get_dir``/``get_file`` and
+    discarded their return values, handing back the path it had computed
+    itself instead. Both methods nest the download inside ``local_path``
+    when that path already exists -- ``fsspec`` copies like ``cp -r`` --
+    so a second download into the same destination wrote the fresh data
+    to ``<dest>/data/data`` while ``download`` still returned
+    ``<dest>/data``, the stale copy from the first call.
+
+    ``download`` short-circuits ``file://`` URLs because they are
+    already local, so the protocol check is the single thing stubbed out
+    here; everything below it is the real ``fsspec`` code path shared
+    with ``s3://`` and ``gcs://``.
+    """
+    remote_dir = tempdir / "remote" / "data"
+    remote_dir.mkdir(parents=True)
+    (remote_dir / "payload.txt").write_text("first")
+
+    monkeypatch.setattr(
+        LuxonisFileSystem, "get_protocol", staticmethod(lambda _: "s3")
+    )
+
+    url = str(remote_dir)
+    dest = tempdir / "dest"
+    first = LuxonisFileSystem.download(url, dest)
+    assert (first / "payload.txt").read_text() == "first"
+
+    (remote_dir / "payload.txt").write_text("second")
+    second = LuxonisFileSystem.download(url, dest)
+    assert (second / "payload.txt").read_text() == "second"
+    assert second != first
 
 
 def test_s3_filesystem_initialization(tempdir: Path):
