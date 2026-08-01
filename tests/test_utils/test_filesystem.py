@@ -1,4 +1,5 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
@@ -70,16 +71,92 @@ def fs(
     return LuxonisFileSystem(url_path)
 
 
+def _remove_remote(fs: LuxonisFileSystem, name: str) -> None:
+    """Delete a remote file or directory, if it is there at all."""
+    with suppress(Exception):
+        if not fs.exists(name):
+            return
+        if fs.is_directory(name):
+            fs.delete_dir(name)
+        else:
+            fs.delete_file(name)
+
+
+@pytest.fixture
+def remote(fs: LuxonisFileSystem) -> Iterator[Callable[[str], str]]:
+    """Reserve remote names and remove them once the test is done.
+
+    The ``s3://`` and ``gcs://`` filesystems address a bucket shared by
+    every run, on every platform and Python version, so whatever a test
+    uploads and does not delete stays there for good. Several of these
+    tests then open with ``assert not fs.exists(name)`` on a name built
+    from ``randint``, which is drawn from a range of 100_000 -- so as
+    the leftovers pile up, the chance of a run colliding with one grows
+    with every run, until a test fails on a name it never created. That
+    is what made ``test_static_directory`` fail on a green branch.
+
+    Clearing the name on the way in, and not only on the way out, is
+    what makes this self-correcting: a run killed before its teardown,
+    and every name already sitting in the bucket, stop being able to
+    fail the next test that happens to draw them.
+    """
+    reserved: list[str] = []
+
+    def reserve(name: str) -> str:
+        _remove_remote(fs, name)
+        reserved.append(name)
+        return name
+
+    yield reserve
+
+    for name in reserved:
+        _remove_remote(fs, name)
+
+
+def test_remote_names_are_cleared_before_use(
+    fs: LuxonisFileSystem,
+    local_dir: Path,
+    randint: int,
+    remote: Callable[[str], str],
+):
+    """Regression test for the shared bucket accumulating uploads.
+
+    Reserving a name has to clear it, not just schedule it for deletion.
+    The bucket still holds every leftover from before this fixture
+    existed, and a run killed between its upload and its teardown will
+    keep adding more, so the tests that open with ``assert not
+    fs.exists(name)`` stay exposed until reserving is what frees the
+    name. ``test_static_directory`` failed exactly that way, on a branch
+    that changed nothing but a hashing routine.
+
+    Files and directories are both covered because they are removed
+    through different calls, and a directory left behind by an
+    interrupted run is the more likely of the two -- uploads are what
+    these tests mostly do.
+
+    Reserving up front, before the leftover is planted, is what keeps
+    this test from leaking the very thing it is testing when an
+    assertion fails.
+    """
+    leftover_file = remote(f"leftover_file_{randint}.txt")
+    fs.put_bytes(b"leftover", leftover_file)
+    assert fs.exists(leftover_file)
+    assert not fs.exists(remote(leftover_file))
+
+    leftover_dir = remote(f"leftover_dir_{randint}")
+    fs.put_dir(local_dir, leftover_dir)
+    assert fs.is_directory(leftover_dir)
+    assert not fs.exists(remote(leftover_dir))
+
+
 def test_file(
     fs: LuxonisFileSystem,
     local_file: Path,
     subtests: SubTests,
     protocol_tempdir: Path,
+    remote: Callable[[str], str],
 ):
-    uploaded_file = f"upload_{local_file.name}"
-    if fs.exists(uploaded_file):  # pragma: no cover
-        fs.delete_file(uploaded_file)
-
+    uploaded_file = remote(f"upload_{local_file.name}")
     assert not fs.exists(uploaded_file)
 
     with subtests.test("upload"):
@@ -104,8 +181,9 @@ def test_static_file(
     protocol_tempdir: Path,
     subtests: SubTests,
     randint: int,
+    remote: Callable[[str], str],
 ):
-    file_name = f"static_file_upload_{randint}.txt"
+    file_name = remote(f"static_file_upload_{randint}.txt")
     url = f"{fs._url}/{file_name}"
     with subtests.test("upload"):
         assert not fs.exists(file_name)
@@ -124,9 +202,10 @@ def test_directory(
     local_dir: Path,
     subtests: SubTests,
     protocol_tempdir: Path,
+    remote: Callable[[str], str],
 ):
     with subtests.test("name"):
-        uploaded_dir = f"upload_{local_dir.name}_name"
+        uploaded_dir = remote(f"upload_{local_dir.name}_name")
         assert not fs.exists(uploaded_dir)
 
         fs.put_dir(local_dir, uploaded_dir)
@@ -139,7 +218,7 @@ def test_directory(
         compare_directories(dir_path, local_dir)
 
     with subtests.test("list"):
-        uploaded_dir = f"upload_{local_dir.name}_list"
+        uploaded_dir = remote(f"upload_{local_dir.name}_list")
         assert not fs.exists(uploaded_dir)
 
         fs.put_dir([str(p) for p in local_dir.rglob("*.txt")], uploaded_dir)
@@ -161,8 +240,9 @@ def test_static_directory(
     protocol_tempdir: Path,
     subtests: SubTests,
     randint: int,
+    remote: Callable[[str], str],
 ):
-    dir_name = f"static_dir_upload_{randint}"
+    dir_name = remote(f"static_dir_upload_{randint}")
     url = f"{fs._url}/{dir_name}"
     with subtests.test("upload"):
         assert not fs.exists(dir_name)
@@ -175,11 +255,13 @@ def test_static_directory(
         compare_directories(dir, local_dir)
 
 
-def test_walk_dir(fs: LuxonisFileSystem, local_dir: Path, subtests: SubTests):
-    uploaded_dir = f"dir_upload_{local_dir.name}"
-
-    if fs.exists(uploaded_dir):  # pragma: no cover
-        fs.delete_dir(uploaded_dir)
+def test_walk_dir(
+    fs: LuxonisFileSystem,
+    local_dir: Path,
+    subtests: SubTests,
+    remote: Callable[[str], str],
+):
+    uploaded_dir = remote(f"dir_upload_{local_dir.name}")
 
     fs.put_dir(local_dir, uploaded_dir)
 
@@ -312,8 +394,10 @@ def test_ignored_cache_storage_is_reported(
     assert warnings_log == []
 
 
-def test_bytes(fs: LuxonisFileSystem, randint: int):
-    bytes_file = f"bytes_test_{randint}.txt"
+def test_bytes(
+    fs: LuxonisFileSystem, randint: int, remote: Callable[[str], str]
+):
+    bytes_file = remote(f"bytes_test_{randint}.txt")
     fs.put_bytes(f"bytes test {randint}".encode(), bytes_file)
     assert fs.exists(bytes_file)
     buffer = fs.read_to_byte_buffer(bytes_file)
