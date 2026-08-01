@@ -8,6 +8,7 @@ from albumentations.core.bbox_utils import denormalize_bboxes, normalize_bboxes
 from typing_extensions import override
 
 from luxonis_ml.data.augmentations.batch_transform import BatchTransform
+from luxonis_ml.data.augmentations.utils import pad_empty_entries
 from luxonis_ml.utils.logging import deprecated
 
 
@@ -271,12 +272,10 @@ class Mosaic4(BatchTransform):
 
         """
         new_bboxes = []
+        bboxes_batch = pad_empty_entries(bboxes_batch)
         for i, (bboxes, (orig_height, orig_width)) in enumerate(
             zip(bboxes_batch, image_shapes, strict=True)
         ):
-            if bboxes.size == 0:  # pragma: no cover
-                bboxes = np.zeros((0, 6), dtype=bboxes.dtype)
-
             bbox = self._apply_mosaic4_to_bboxes(
                 bboxes,
                 orig_height,
@@ -313,12 +312,10 @@ class Mosaic4(BatchTransform):
 
         """
         new_keypoints = []
+        keypoints_batch = pad_empty_entries(keypoints_batch)
         for i, (keypoints, (orig_height, orig_width)) in enumerate(
             zip(keypoints_batch, image_shapes, strict=True)
         ):
-            if keypoints.size == 0:
-                keypoints = np.zeros((0, 6), dtype=keypoints.dtype)
-
             new_keypoint = self._apply_mosaic4_to_keypoints(
                 keypoints,
                 orig_height,
@@ -457,9 +454,6 @@ class Mosaic4(BatchTransform):
                 ]
                 out_masks.append(combined_mask)
 
-        if not out_masks:
-            return np.zeros((out_height, out_width, 0), dtype=np.uint8)
-
         return np.stack(out_masks, axis=-1)
 
     @staticmethod
@@ -545,7 +539,7 @@ class Mosaic4(BatchTransform):
         elif position_index == 2:
             shift_x = out_width - in_width
             shift_y = out_height
-        elif position_index == 3:
+        else:
             shift_x = out_width
             shift_y = out_height
 
