@@ -363,3 +363,90 @@ def test_flat_layout_parses_the_cleaned_labels(tmp_path: Path):
         {"file": image, "annotation": {"class": "class-134"}}
     ]
     assert (flat / "labels_fixed.json").exists()
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "5",
+        '"just a string"',
+        "[]",
+        '{"classes": {}, "labels": {}}',
+        '{"classes": [1, 2], "labels": {}}',
+        '{"classes": [], "labels": []}',
+    ],
+)
+def test_fiftyone_rejects_a_malformed_labels_file(
+    tmp_path: Path, content: str
+) -> None:
+    """A `labels.json` of the wrong shape is not a FiftyOne split.
+
+    Regression: the key check was ``"classes" not in labels_data``, which
+    raises `TypeError` for a document holding a number - aborting the
+    auto-detection of every other format - and let a non-list ``classes``
+    or non-dict ``labels`` through to fail mid-parse.
+    """
+    split = tmp_path / "train"
+    _image(split / "data" / "a.jpg")
+    (split / "labels.json").write_text(content)
+
+    parser = _plugin(FiftyOneClassificationParser)
+    assert parser.validate_split(split) is None
+
+
+@pytest.mark.parametrize("class_idx", [-1, True, "1"])
+def test_fiftyone_raises_on_a_label_naming_no_class(
+    tmp_path: Path, class_idx: object
+) -> None:
+    """An index that would silently mislabel is the same error as one
+    that runs off the end.
+
+    `test_invalid_class_index_raises_while_parsing` pins that behaviour
+    for an index past the end of the class list, where indexing raises on
+    its own. Regression: an index that indexes *successfully* but names
+    the wrong class went unnoticed - ``-1`` selects the last class and
+    ``True`` the second one - so the image was imported mislabelled.
+    """
+    split = tmp_path / "train"
+    _image(split / "data" / "a.jpg")
+    (split / "labels.json").write_text(
+        json.dumps({"classes": ["bird", "cat"], "labels": {"a": class_idx}})
+    )
+
+    parser = _plugin(FiftyOneClassificationParser)
+    kwargs = parser.validate_split(split)
+    assert kwargs is not None
+
+    with pytest.raises(IndexError, match="does not hold"):
+        _records(parser._split_records(**kwargs))
+
+
+def test_fiftyone_flat_source_named_like_a_split_is_still_cleaned(
+    tmp_path: Path,
+) -> None:
+    """The ImageNet cleanup follows the layout, not the directory name.
+
+    Regression: flatness was read off ``split_path.name``, so a flat
+    source sitting in a directory called `train` was parsed as a split and
+    silently kept the stale ImageNet label it ships with.
+    """
+    flat = tmp_path / "train"
+    image = _image(flat / "data" / "006742.jpg")
+    (flat / "labels.json").write_text(
+        json.dumps(
+            {
+                "classes": [f"class-{index}" for index in range(640)],
+                "labels": {"006742": 517},
+            }
+        )
+    )
+
+    layout = FiftyOneClassificationParser.detect(flat)
+    assert layout is not None
+    # No named split was found, so the source is parsed as a whole.
+    assert layout.split_names == []
+
+    parser = _plugin(FiftyOneClassificationParser)
+    assert _records(parser.parse(flat, layout)) == [
+        {"file": image, "annotation": {"class": "class-134"}}
+    ]

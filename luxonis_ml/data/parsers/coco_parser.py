@@ -138,6 +138,21 @@ class COCOParser(SplitParserPlugin):
         return None
 
     @staticmethod
+    def _coco_categories(annotation_data: dict[str, Any]) -> list[Any]:
+        """Return the category table, from wherever the file keeps it.
+
+        `_load_coco_json` recognizes a file whose categories are nested
+        inside ``info``, so reading only the top-level key would leave the
+        table empty and every ``category_id`` unresolvable.
+        """
+        categories = annotation_data.get("categories")
+        if categories is None:
+            info = annotation_data.get("info")
+            if isinstance(info, dict):
+                categories = info.get("categories")
+        return categories if isinstance(categories, list) else []
+
+    @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         """Return the parse arguments when ``split_path`` holds COCO labels.
 
@@ -469,7 +484,7 @@ class COCOParser(SplitParserPlugin):
         if annotation_data is None:
             annotation_data = _load_annotations(annotation_path)
 
-        coco_categories = annotation_data.get("categories", [])
+        coco_categories = self._coco_categories(annotation_data)
         categories = {cat["id"]: cat["name"] for cat in coco_categories}
         # Whether the split has skeletons decides whether an unannotated
         # image contributes a record.
@@ -548,7 +563,7 @@ class COCOParser(SplitParserPlugin):
 
         coco_images = annotation_data["images"]
         coco_annotations = annotation_data.get("annotations", [])
-        coco_categories = annotation_data.get("categories", [])
+        coco_categories = self._coco_categories(annotation_data)
         categories = {cat["id"]: cat["name"] for cat in coco_categories}
 
         skeletons = {}

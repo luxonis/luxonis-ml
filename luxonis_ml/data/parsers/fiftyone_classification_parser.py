@@ -3,11 +3,12 @@ from pathlib import Path
 from typing import Any, cast
 
 from loguru import logger
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
 
-from .parser_plugin import SplitParserPlugin
+from .parser_plugin import Layout, SplitParserPlugin
 
 
 class FiftyOneClassificationParser(SplitParserPlugin):
@@ -72,13 +73,55 @@ class FiftyOneClassificationParser(SplitParserPlugin):
         try:
             with open(labels_path, encoding="utf-8") as f:
                 labels_data = json.load(f)
-            if "classes" not in labels_data or "labels" not in labels_data:
-                return None
         except (json.JSONDecodeError, OSError):
+            return None
+
+        # Checked by type rather than by key: `"classes" in labels_data`
+        # raises on a `labels.json` holding a number, which would abort
+        # the detection of every other format too.
+        if not isinstance(labels_data, dict):
+            return None
+        classes = labels_data.get("classes")
+        labels = labels_data.get("labels")
+        if (
+            not isinstance(classes, list)
+            or not all(isinstance(name, str) for name in classes)
+            or not isinstance(labels, dict)
+        ):
             return None
 
         # `labels.json` is handed on rather than read a second time.
         return {"split_path": split_path, "labels_data": labels_data}
+
+    @staticmethod
+    def _names_a_class(class_idx: Any, classes: list[str]) -> bool:
+        """Report whether a label selects a class that exists.
+
+        Indexing alone does not answer this. A negative index picks a
+        class from the end of the list, and ``True`` picks the second
+        one, so both would quietly label an image with the wrong class
+        where an index past the end at least raises. `bool` is rejected
+        on purpose: it is an `int`, but a label of ``true`` is malformed
+        rather than a request for class 1.
+        """
+        return type(class_idx) is int and 0 <= class_idx < len(classes)
+
+    @classmethod
+    @override
+    def detect(cls, source: Path) -> Layout | None:
+        layout = super().detect(source)
+        if layout is None:
+            return None
+        # Which layout a directory belongs to is positional, not something
+        # the directory itself shows: a `train` split and a flat source
+        # sitting in a directory called `train` look alike, so only
+        # detection can tell them apart.
+        return Layout(
+            {
+                split_name: {**split_kwargs, "is_flat": split_name is None}
+                for split_name, split_kwargs in layout.splits.items()
+            }
+        )
 
     @staticmethod
     def _read_labels(labels_path: Path) -> dict[str, Any]:
@@ -100,6 +143,7 @@ class FiftyOneClassificationParser(SplitParserPlugin):
         self,
         split_path: Path,
         labels_data: dict[str, Any] | None = None,
+        is_flat: bool = True,
     ) -> DatasetIterator:
         """Stream the records of one FiftyOne split directory.
 
@@ -107,6 +151,9 @@ class FiftyOneClassificationParser(SplitParserPlugin):
             split_path: Directory holding ``data`` and ``labels.json``.
             labels_data: Content of ``labels.json`` as parsed by
                 `validate_split`. Read from disk when not given.
+            is_flat: Whether ``split_path`` is a whole flat source rather
+                than one split of a split-based one, as `detect`
+                determined. Only a flat source runs the ImageNet cleanup.
 
         Yields:
             One classification record per label naming an image that the
@@ -115,8 +162,7 @@ class FiftyOneClassificationParser(SplitParserPlugin):
         """
         labels_path = split_path / "labels.json"
 
-        is_flat_structure = split_path.name not in self.split_names
-        if is_flat_structure:
+        if is_flat:
             cleaned_path = clean_imagenet_annotations(labels_path)
             if cleaned_path != labels_path:
                 # The cleanup rewrote the labels, so what validation read
@@ -142,6 +188,16 @@ class FiftyOneClassificationParser(SplitParserPlugin):
                 )
                 continue
 
+            # A label naming no class is an error the parser raises, not a
+            # record it quietly drops - checked here, as the label is
+            # reached, so the walk stays single-pass.
+            if not self._names_a_class(class_idx, classes):
+                raise IndexError(
+                    f"Label for image '{image_stem}' in '{labels_path}' "
+                    f"names class index {class_idx!r}, which the "
+                    f"{len(classes)}-class list does not hold."
+                )
+
             yield {
                 "file": image_path,
                 "annotation": {"class": classes[class_idx]},
@@ -151,6 +207,7 @@ class FiftyOneClassificationParser(SplitParserPlugin):
         self,
         split_path: Path,
         labels_data: dict[str, Any] | None = None,
+        is_flat: bool = True,
     ) -> list[Path]:
         """List the images one FiftyOne split parses into records.
 
@@ -158,12 +215,14 @@ class FiftyOneClassificationParser(SplitParserPlugin):
             split_path: Directory holding ``data`` and ``labels.json``.
             labels_data: Content of ``labels.json`` as parsed by
                 `validate_split`. Read from disk when not given.
+            is_flat: Unused. Listing the files is the same either way.
 
         Returns:
             The split's images in label order, leaving out both the images
             no label names and the labels naming a missing image.
 
         """
+        del is_flat
         if labels_data is None:
             labels_data = self._read_labels(split_path / "labels.json")
 

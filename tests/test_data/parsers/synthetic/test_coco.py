@@ -1402,3 +1402,46 @@ def test_clean_coco_annotations_filters_in_place(tmp_path: Path):
     assert cleaned == annotation_path.with_name("labels_fixed.json")
     assert given == json.loads(cleaned.read_text())
     assert [image["id"] for image in given["images"]] == [2]
+
+
+def test_coco_reads_categories_nested_in_info(tmp_path: Path):
+    """A file whose categories sit under ``info`` parses like any other.
+
+    Regression: `_load_coco_json` accepts the nested form, so such a
+    source is recognized, but the parse built its category table from the
+    top-level key alone. Every annotated record then failed the
+    ``category_id`` lookup with a bare `KeyError`.
+    """
+    split = tmp_path / "train"
+    image_dir, annotation_path = _write_coco_split(
+        split,
+        roboflow=True,
+        data={
+            "images": [
+                {"id": 1, "file_name": "img.jpg", "height": 10, "width": 20}
+            ],
+            "annotations": [
+                {
+                    "id": 1,
+                    "image_id": 1,
+                    "category_id": 7,
+                    "bbox": [0, 0, 10, 5],
+                }
+            ],
+            "info": {"categories": [{"id": 7, "name": "person"}]},
+        },
+    )
+    _image(image_dir / "img.jpg", size=(20, 10))
+
+    parser = _plugin(COCOParser)
+    kwargs = parser.validate_split(split)
+    assert kwargs is not None
+
+    records = _records(parser._split_records(**kwargs))
+    assert [record["annotation"]["class"] for record in records] == ["person"]
+    # Listing the split has to agree, or a count-based import would drop
+    # the image the records do name.
+    assert parser._split_files(**kwargs) == [
+        (image_dir / "img.jpg").absolute().resolve()
+    ]
+    assert annotation_path.exists()

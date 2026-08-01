@@ -131,12 +131,14 @@ def test_dir_parser(
         delete_local=True,
         save_dir=tempdir,
     )
-    assert len(dataset) > 0
-    loader = LuxonisLoader(dataset)
-    _, ann = next(iter(loader))
-    task_types = {get_task_type(task) for task in ann}
-    assert task_types == expected_task_types
-    dataset.delete_dataset(delete_local=True)
+    try:
+        assert len(dataset) > 0
+        loader = LuxonisLoader(dataset)
+        _, ann = next(iter(loader))
+        task_types = {get_task_type(task) for task in ann}
+        assert task_types == expected_task_types
+    finally:
+        dataset.delete_dataset(delete_local=True)
 
 
 @pytest.mark.parametrize(
@@ -263,9 +265,11 @@ def test_dir_parser_explicit_type(
         delete_local=True,
         save_dir=tempdir,
     )
-    assert len(dataset) > 0
-    loader = LuxonisLoader(dataset)
-    _, ann = next(iter(loader))
-    task_types = {get_task_type(task) for task in ann}
-    assert task_types == expected_task_types
-    dataset.delete_dataset(delete_local=True)
+    try:
+        assert len(dataset) > 0
+        loader = LuxonisLoader(dataset)
+        _, ann = next(iter(loader))
+        task_types = {get_task_type(task) for task in ann}
+        assert task_types == expected_task_types
+    finally:
+        dataset.delete_dataset(delete_local=True)
