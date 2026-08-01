@@ -1,8 +1,14 @@
 """The shared Color primitive parses every color-like input shape."""
 
+import numpy as np
 import pytest
 
-from luxonis_ml.utils.color import Color
+from luxonis_ml.utils.color import Color, Palette
+from luxonis_ml.utils.color.gradient import (
+    GRADIENTS,
+    Gradient,
+    resolve_gradient,
+)
 
 
 def test_parse_hex_with_and_without_hash():
@@ -106,3 +112,90 @@ def test_dark_title_is_lighter_than_body_on_dark():
     # Same purple family, but the title is clearly lighter (stronger on dark).
     assert dark.card_title.b > dark.card_title.r
     assert sum(dark.card_title.rgb) > sum(dark.card_text.rgb)
+
+
+def test_parse_rejects_a_tuple_that_is_not_rgb_or_rgba():
+    with pytest.raises(ValueError, match="3 or 4 elements"):
+        Color.parse((1, 2))  # type: ignore[arg-type]
+
+
+def test_saturate_moves_toward_and_away_from_gray():
+    muted = Color(140, 120, 120)
+    assert muted.saturate(1.0).hls[2] == pytest.approx(1.0)
+    assert muted.saturate(-1.0).hls[2] == pytest.approx(0.0)
+    assert muted.saturate(0.5).a == muted.a  # alpha is preserved
+
+
+def test_shift_hue_is_a_full_circle_at_one_turn():
+    color = Color(200, 60, 40)
+    assert color.shift_hue(1.0).rgb == color.rgb
+    # Half a turn lands on the opposing hue, so the channels really move.
+    assert color.shift_hue(0.5).rgb != color.rgb
+
+
+def test_palette_at_does_not_register_the_class():
+    palette = Palette()
+    first = palette.at(0)
+    assert len(palette) == 0  # peeking must not consume a slot
+    assert palette.color_for("car") == first
+    assert len(palette) == 1
+
+
+def test_pinned_class_keeps_its_color_and_consumes_no_slot():
+    palette = Palette().pin("car", "#ff0000")
+    assert palette.color_for("car") == Color(255, 0, 0)
+    # The pin sits outside the sequence, so the next class still gets slot 0.
+    assert palette.color_for("person") == palette.at(0)
+
+
+def test_with_colors_returns_a_specialized_copy():
+    shared = Palette(classes=["car"])
+    car = shared.color_for("car")
+    special = shared.with_colors({"person": "#00ff00"})
+
+    assert special.color_for("person") == Color(0, 255, 0)
+    assert special.color_for("car") == car  # inherits what was assigned
+    # The original is untouched, so a shared palette survives specialization.
+    assert shared.color_for("person") != Color(0, 255, 0)
+
+
+def test_gradient_needs_at_least_two_colors():
+    with pytest.raises(ValueError, match="at least two colors"):
+        Gradient.from_colors(["red"])
+
+
+def test_gradient_positions_must_match_the_colors():
+    with pytest.raises(ValueError, match="one entry per color"):
+        Gradient.from_colors(["black", "white"], positions=[0.0, 0.5, 1.0])
+
+
+def test_gradient_honors_explicit_stop_positions():
+    # White arrives at 0.25, so the midpoint is already past it.
+    gradient = Gradient.from_colors(["black", "white"], positions=[0.0, 0.25])
+    assert gradient.color_at(0.25) == Color(255, 255, 255)
+    assert gradient.color_at(0.5) == Color(255, 255, 255)
+    assert gradient.color_at(0.125).rgb == (128, 128, 128)
+
+
+def test_colorize_maps_a_field_to_rgb_and_clamps():
+    field = np.array([[0.0, 1.0], [-5.0, 5.0]])
+    rgb = Gradient.from_colors(["black", "white"]).colorize(field)
+
+    assert rgb.shape == (2, 2, 3)
+    assert rgb.dtype == np.uint8
+    # Out-of-range scalars clamp to the end stops rather than wrapping.
+    assert rgb[0, 0].tolist() == [0, 0, 0]
+    assert rgb[1, 0].tolist() == [0, 0, 0]
+    assert rgb[1, 1].tolist() == [255, 255, 255]
+
+
+def test_resolve_gradient_accepts_a_name_or_an_instance():
+    assert resolve_gradient("grayscale") is GRADIENTS["grayscale"]
+    custom = Gradient.from_colors(["black", "white"])
+    assert resolve_gradient(custom) is custom
+
+
+def test_resolve_gradient_names_the_alternatives_when_unknown():
+    with pytest.raises(KeyError, match="unknown gradient") as excinfo:
+        resolve_gradient("not-a-gradient")
+    assert "grayscale" in str(excinfo.value)
