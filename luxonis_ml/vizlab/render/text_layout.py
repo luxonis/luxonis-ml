@@ -406,7 +406,8 @@ def tracked_spans_width(
 
     """
     return sum(
-        width(char, size * span.scale, weight=span.weight) + tracking
+        width(char, size * span.scale, weight=span.weight, mono=span.mono)
+        + tracking
         for span in spans
         for char in span.text
     )
@@ -443,4 +444,7 @@ def draw_tracked_spans(
             canvas.draw_spans(
                 (x, baseline), [span.with_text(char)], size=size, color=color
             )
-            x += width(char, run_size, weight=span.weight) + tracking
+            x += (
+                width(char, run_size, weight=span.weight, mono=span.mono)
+                + tracking
+            )

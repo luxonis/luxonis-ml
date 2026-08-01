@@ -2,7 +2,14 @@
 
 import numpy as np
 
-from luxonis_ml.vizlab import BBox, Classification, Color, Keypoints, Mask
+from luxonis_ml.vizlab import (
+    BBox,
+    Classification,
+    Color,
+    Keypoints,
+    Mask,
+    SemanticMask,
+)
 from luxonis_ml.vizlab.annotations import Annotation
 from luxonis_ml.vizlab.style import Palette, derive_child_color
 from luxonis_ml.vizlab.viewer import LayerState
@@ -388,3 +395,23 @@ def test_copy_carries_array_state() -> None:
 def test_is_default_is_false_when_arrays_are_hidden() -> None:
     assert LayerState().is_default()
     assert not LayerState(arrays=False).is_default()
+
+
+def test_hiding_a_class_blanks_it_from_semantic_masks() -> None:
+    # A semantic mask carries its classes in its id map, not in `label`, so
+    # the class filter has to reach inside it.
+    labels = np.array([[0, 1], [2, 2]], dtype=np.uint8)
+    mask = SemanticMask(labels=labels, names={1: "car", 2: "person"})
+    (out,) = LayerState(hidden={"person"}).apply_layers([mask], PALETTE)
+    assert isinstance(out, SemanticMask)
+    assert out._ignored() == {0, 2}
+    assert mask.ignore_index == 0  # the input mask is untouched
+
+
+def test_hiding_a_class_drops_nested_annotations_of_that_class() -> None:
+    box = _detection("car")
+    box.add(BBox(x=0.2, y=0.2, w=0.1, h=0.1, label="person"))
+    (out,) = LayerState(hidden={"person"}).apply_layers([box], PALETTE)
+    kinds = _child_kinds(out)
+    assert "BBox" not in kinds  # the nested person box is gone
+    assert kinds == ["Keypoints", "Mask"]  # unhidden children stay

@@ -1321,6 +1321,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         Raises:
             ValueError: If the records yielded by the generator are not in the expected format.
             ValueError: If the dataset contains metadata annotations with conflicting types.
+            ValueError: If a record without a ``task_name`` holds annotations
+                whose classes belong to different existing tasks, so no single
+                task can be inferred.
 
         """
         logger.info(f"Adding data to dataset '{self._dataset_name}'...")
@@ -1353,11 +1356,25 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 anns = record._annotations()
                 if anns:
                     if not record.task_name:
-                        record.task_name = infer_task(
-                            record.task_name,
-                            anns[0].class_name,
-                            self.get_classes(),
-                        )
+                        current_classes = self.get_classes()
+                        inferred = {
+                            infer_task(
+                                record.task_name,
+                                ann.class_name,
+                                current_classes,
+                            )
+                            for ann in anns
+                            if ann.class_name is not None
+                        }
+                        if len(inferred) > 1:
+                            raise ValueError(
+                                "Cannot infer a single task for a record "
+                                "whose annotation classes belong to "
+                                f"different tasks: {sorted(inferred)}. "
+                                "Pass an explicit `task_name` to the record."
+                            )
+                        if inferred:
+                            record.task_name = inferred.pop()
 
                     def update_state(task_name: str, ann: Detection) -> None:
                         if ann.class_name is not None:

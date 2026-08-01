@@ -8,6 +8,7 @@ from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.render.canvas import Canvas
 from luxonis_ml.vizlab.render.fonts import DEFAULT_FONTS
 from luxonis_ml.vizlab.render.markup import Span, escape, parse
+from luxonis_ml.vizlab.render.text_layout import tracked_spans_width, width
 from luxonis_ml.vizlab.style import Style
 
 
@@ -323,3 +324,13 @@ def test_mono_markup_changes_caption_pixels() -> None:
     plain = _render(Caption(text="frame_0007"))
     mono = _render(Caption(text="<code>frame_0007</code>"))
     assert not np.array_equal(plain, mono)
+
+
+def test_tracked_span_widths_measure_in_the_spans_own_face() -> None:
+    # Letterspaced headings advance by measured char widths; measuring a mono
+    # run in the sans face makes the glyphs and the advances disagree.
+    mono = tracked_spans_width([Span("mm", mono=True)], 16.0)
+    sans = tracked_spans_width([Span("mm")], 16.0)
+    assert mono == pytest.approx(2 * width("m", 16.0, mono=True))
+    assert sans == pytest.approx(2 * width("m", 16.0))
+    assert mono != pytest.approx(sans)

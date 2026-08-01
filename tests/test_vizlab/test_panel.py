@@ -15,6 +15,7 @@ from luxonis_ml.vizlab.layout.panel import (
     _metrics,
 )
 from luxonis_ml.vizlab.render import text_layout
+from luxonis_ml.vizlab.style import Style
 
 
 def test_value_ops_are_monospace_keys_are_not() -> None:
@@ -473,3 +474,14 @@ def test_the_shadow_scales_with_the_render() -> None:
     small, large = _metrics(1.0, Color(0, 0, 0)), _metrics(3.0, Color(0, 0, 0))
     assert large.shadow.blur > small.shadow.blur
     assert large.shadow.dy > small.shadow.dy
+
+
+def test_a_styles_font_size_scales_the_panel() -> None:
+    image = _img()
+    data = {"speed": 12.4}
+    default = with_panel(image, data).render()
+    explicit = with_panel(image, data, style=Style()).render()
+    big = with_panel(image, data, style=Style(font_size=32.0)).render()
+    assert explicit.shape == default.shape  # the default style is a no-op
+    assert big.shape[0] > default.shape[0]
+    assert big.shape[1] > default.shape[1]

@@ -405,8 +405,8 @@ class Renderable:
         )
         from luxonis_ml.vizlab.scene.html import (
             LAYERS,
+            class_slugs,
             layered_document,
-            slug,
         )
         from luxonis_ml.vizlab.scene.html import (
             draws_anything as _draws_anything,
@@ -465,6 +465,11 @@ class Renderable:
             fragments: list[tuple[str, bytes]] = []
             classes: list[str] = []
             present: set[str] = set()
+            # One unique slug per class name, shared by the fragments and the
+            # controls; `slug` alone can fold "Car" and "car" into one id.
+            slugs = class_slugs(
+                dict.fromkeys(label for _, label in found if label is not None)
+            )
             for layer, label in found:
                 marks = draw(
                     kinds={layer}, classes={label}, labels=False, chrome=False
@@ -477,7 +482,7 @@ class Renderable:
                 present.add(layer)
                 css = ["vl-layer", f"vl-{layer}"]
                 if label is not None:
-                    css.append(f"vl-cls-{slug(label)}")
+                    css.append(f"vl-cls-{slugs[label]}")
                     if label not in classes:
                         classes.append(label)
                 fragments.append((" ".join(css), marks))
@@ -494,7 +499,7 @@ class Renderable:
                 labelled = True
                 fragments.append(
                     (
-                        f"vl-layer vl-label vl-cls-{slug(label)}",
+                        f"vl-layer vl-label vl-cls-{slugs[label]}",
                         chips,
                     )
                 )
@@ -519,6 +524,7 @@ class Renderable:
                 kinds=[*kinds, "label"] if labelled else kinds,
                 classes=classes,
                 swatches=swatches,
+                slugs=slugs,
                 nav=nav,
                 title=title,
             )

@@ -283,10 +283,12 @@ class LayerState:
         """Return ``annotations`` filtered and adjusted for the current state.
 
         Tiny crowded detections are dropped first (when `declutter` is on); then
-        detections of a hidden class and hidden masks/keypoints are dropped, and
-        with labels off chip text is removed while each shape keeps its color.
-        Inputs are never mutated — a pruned copy is returned (the same
-        annotations, in a new list, when nothing changes them).
+        annotations of a hidden class (nested ones included) and hidden
+        masks/keypoints are dropped, a hidden class's ids are blanked from
+        semantic masks, and with labels off chip text is removed while each
+        shape keeps its color. Inputs are never mutated — a pruned copy is
+        returned (the same annotations, in a new list, when nothing changes
+        them).
 
         Args:
             annotations: The scene's top-level annotations.
@@ -304,11 +306,6 @@ class LayerState:
             return kept
         out: list[Annotation] = []
         for annotation in kept:
-            if (
-                annotation.label is not None
-                and annotation.label in self.hidden
-            ):
-                continue
             out.extend(self._transform(annotation, palette, None))
         return out
 
@@ -322,8 +319,11 @@ class LayerState:
 
         Returns a list because hiding a box replaces it with its (kept) children,
         promoted in place — so one input annotation can yield zero (fully hidden),
-        one, or several outputs.
+        one, or several outputs. An annotation of a hidden class yields nothing,
+        at any nesting depth.
         """
+        if annotation.label is not None and annotation.label in self.hidden:
+            return []
         if _is_mask(annotation) and not self.masks:
             return []
         if _is_field(annotation) and not self.arrays:
@@ -344,9 +344,32 @@ class LayerState:
             return children
         clone = annotation.model_copy()
         clone.children = children
+        if isinstance(clone, SemanticMask):
+            _hide_mask_classes(clone, self.hidden)
         if not self.labels:
             _strip_label(clone, palette)
         return [clone]
+
+
+def _hide_mask_classes(mask: SemanticMask, hidden: set[str]) -> None:
+    """Extend ``mask.ignore_index`` with the ids of classes in ``hidden``.
+
+    A semantic mask carries its classes in its own id map rather than in
+    ``label``, so hiding a class means teaching the (already copied) mask to
+    treat those ids as background.
+    """
+    if not hidden or mask.labels is None:
+        return
+    hidden_ids = [
+        int(class_id)
+        for class_id in mask._ids()
+        if mask._name(int(class_id)) in hidden
+    ]
+    if not hidden_ids:
+        return
+    ignored = mask.ignore_index
+    existing = [ignored] if isinstance(ignored, int) else list(ignored)
+    mask.ignore_index = [*existing, *hidden_ids]
 
 
 def _declutter(annotations: list[Annotation]) -> list[Annotation]:

@@ -529,3 +529,27 @@ def test_visualize_record_adds_metadata_card():
     img = visualize_record(record, np.zeros((60, 60, 3), np.uint8))
     assert isinstance(img, Image)
     assert any(isinstance(a, InfoCard) for a in img.annotations)
+
+
+def test_visualize_record_keeps_every_array_detection(
+    tmp_path: Path,
+) -> None:
+    """Several array-bearing detections in one record all reach the scene."""
+    paths = tmp_path / "first.npy", tmp_path / "second.npy"
+    np.save(paths[0], np.zeros((4, 6), np.float32))
+    np.save(paths[1], np.ones((4, 6), np.float32))
+    record = _record(
+        "det",
+        *(
+            Detection(class_name=None, array=ArrayAnnotation(path=path))
+            for path in paths
+        ),
+    )
+    drawn = visualize_record(
+        record,
+        np.zeros((32, 48, 3), np.uint8),
+        options=RenderOptions(array_view="overlay"),
+    )
+    assert isinstance(drawn, Image)
+    fields = [a for a in drawn.annotations if isinstance(a, ArrayField)]
+    assert len(fields) == 2

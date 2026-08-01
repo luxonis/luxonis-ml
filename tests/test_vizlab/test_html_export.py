@@ -887,3 +887,25 @@ def test_an_annotation_that_paints_nothing_gets_no_control() -> None:
     assert re.findall(r'id="vl-l-(\w+)"', page) == ["box", "label"]
     assert re.findall(r'id="vl-c-([\w-]+)"', page) == ["car"]
     assert "vl-cls-ghost" not in page
+
+
+def test_class_names_that_share_a_slug_keep_distinct_controls() -> None:
+    """Class names that collapse to one slug must not share one control.
+
+    "Car" and "car" slug identically; duplicate checkbox ids would bind both
+    labels to the first input, so one chip toggles both classes and the other
+    goes dead.
+    """
+    image = _blank()
+    image.add(BBox(x=0.1, y=0.1, w=0.3, h=0.3).tag("Car"))
+    image.add(BBox(x=0.5, y=0.5, w=0.3, h=0.3).tag("car"))
+    page = image.render_html()
+
+    ids = re.findall(r'id="(vl-c-[\w-]+)"', page)
+    assert len(ids) == 2
+    assert len(set(ids)) == 2
+    for key in ids:
+        assert page.count(f'for="{key}"') == 1
+        group = key.removeprefix("vl-c-")
+        assert f'<g class="vl-layer vl-box vl-cls-{group}">' in page
+        assert f"#{key}:not(:checked)~.vl-figure .vl-cls-{group}" in page

@@ -106,7 +106,8 @@ class Frame:
             side: Which edge to attach the panel to (``"right"`` default).
             width: Panel width in pixels, or ``None`` to auto-size.
             title: Optional bold heading above the panel content.
-            style: Style whose font is used (defaults to the library default).
+            style: Style whose ``font_size`` scales the panel's type and
+                spacing (defaults to the library default).
             bg: Panel/composite background; defaults to the image's theme.
 
         Returns:

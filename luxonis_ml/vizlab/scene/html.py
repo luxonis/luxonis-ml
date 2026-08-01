@@ -13,7 +13,7 @@ together, at every window width, with no JavaScript in the loop.
 """
 
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from html import escape as escape_html
 from typing import NamedTuple
 
@@ -447,6 +447,32 @@ def slug(value: str) -> str:
     return cleaned or "unnamed"
 
 
+def class_slugs(names: "Iterable[str]") -> dict[str, str]:
+    """Map each class name to a unique slug for its checkbox id and CSS class.
+
+    `slug` alone can fold two distinct names into one key ("Car" and "car",
+    say), which would emit two inputs with the same ``id`` — the browser then
+    binds both labels to the first one and the second control goes dead. A
+    collision gets a numeric suffix instead, in input order.
+
+    Examples:
+        >>> class_slugs(["Car", "car"])
+        {'Car': 'car', 'car': 'car-2'}
+
+    """
+    keys: dict[str, str] = {}
+    taken: set[str] = set()
+    for name in names:
+        base = slug(name)
+        candidate, counter = base, 1
+        while candidate in taken:
+            counter += 1
+            candidate = f"{base}-{counter}"
+        keys[name] = candidate
+        taken.add(candidate)
+    return keys
+
+
 def _scope_ids(body: str, prefix: str) -> str:
     """Namespace a fragment's ``id``s and the references pointing at them.
 
@@ -524,7 +550,11 @@ _CONTROL_STYLE = """
 """
 
 
-def _control_css(kinds: "Sequence[str]", classes: "Sequence[str]") -> str:
+def _control_css(
+    kinds: "Sequence[str]",
+    classes: "Sequence[str]",
+    slugs: "Mapping[str, str]",
+) -> str:
     """Build the rules that make the controls actually hide things.
 
     Every rule is a sibling-combinator match on a hidden ``<input>``, which is
@@ -541,7 +571,7 @@ def _control_css(kinds: "Sequence[str]", classes: "Sequence[str]") -> str:
             "{display:none}"
         )
     for name in classes:
-        key = slug(name)
+        key = slugs[name]
         rules.append(
             f"#vl-c-{key}:checked~.vl-bar label[for=vl-c-{key}]"
             "{color:var(--vl-text);border-color:currentColor}"
@@ -552,7 +582,10 @@ def _control_css(kinds: "Sequence[str]", classes: "Sequence[str]") -> str:
 
 
 def _control_html(
-    kinds: "Sequence[str]", classes: "Sequence[str]", swatches: dict[str, str]
+    kinds: "Sequence[str]",
+    classes: "Sequence[str]",
+    swatches: dict[str, str],
+    slugs: "Mapping[str, str]",
 ) -> str:
     """Build the hidden inputs and the visible bar of labels."""
     labels = dict(LAYERS)
@@ -567,7 +600,7 @@ def _control_html(
 
     class_chips: list[str] = []
     for name in classes:
-        key = slug(name)
+        key = slugs[name]
         tint = swatches.get(name, "currentColor")
         inputs.append(
             f'<input type="checkbox" class="vl-toggle vl-class" '
@@ -604,6 +637,7 @@ def layered_document(
     kinds: "Sequence[str]",
     classes: "Sequence[str]",
     swatches: "dict[str, str] | None" = None,
+    slugs: "Mapping[str, str] | None" = None,
     nav: "Nav | None" = None,
     title: str = "vizlab",
 ) -> str:
@@ -624,6 +658,9 @@ def layered_document(
         kinds: Layer slugs present, in `LAYERS` order.
         classes: Class names present, in legend order.
         swatches: Class name to CSS colour, for the control chips.
+        slugs: Class name to unique slug (see `class_slugs`), matching the
+            ``vl-cls-…`` classes on ``fragments``; derived from ``classes``
+            when omitted.
         nav: Links to this page's neighbours in a series, if it is part of one.
         title: The page's ``<title>``, as plain text.
 
@@ -632,7 +669,8 @@ def layered_document(
 
     """
     hover, cards, rules = _hover_regions(hits, size)
-    controls = _control_html(kinds, classes, swatches or {})
+    keys = slugs if slugs is not None else class_slugs(classes)
+    controls = _control_html(kinds, classes, swatches or {}, keys)
     figure = layered_svg(base, fragments, size, hover)
     return (
         "<!DOCTYPE html>\n"
@@ -642,7 +680,7 @@ def layered_document(
         '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
         f"<title>{escape_html(title)}</title>\n"
         f"<style>{_page_variables(theme, size)}{_STYLE}"
-        f"{_control_css(kinds, classes)}{_NAV_STYLE}{rules}</style>\n"
+        f"{_control_css(kinds, classes, keys)}{_NAV_STYLE}{rules}</style>\n"
         "</head>\n"
         "<body>\n"
         f"{_nav_html(nav)}"

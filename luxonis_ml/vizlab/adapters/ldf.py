@@ -492,7 +492,7 @@ def visualize_record(
 
     segmentations: list[tuple[str | None, SegmentationAnnotation]] = []
     class_tags: list[str] = []
-    arrays: dict[str, ArrayAnnotation] = {}
+    arrays: list[tuple[str, ArrayAnnotation]] = []
 
     for detection in record._annotations():
         _scan_detection(
@@ -543,7 +543,7 @@ def _scan_detection(
     img: "Image",
     segmentations: "list[tuple[str | None, SegmentationAnnotation]]",
     class_tags: list[str],
-    arrays: "dict[str, ArrayAnnotation]",
+    arrays: "list[tuple[str, ArrayAnnotation]]",
 ) -> None:
     """Add a detection's spatial annotations and collect its record-level parts."""
     for annotation in _spatial_annotations(detection, options, task_name):
@@ -559,7 +559,7 @@ def _scan_detection(
 
 def _add_array_fields(
     img: "Image",
-    arrays: "dict[str, ArrayAnnotation]",
+    arrays: "list[tuple[str, ArrayAnnotation]]",
     options: RenderOptions,
 ) -> None:
     """Draw each renderable array field over the image, when enabled.
@@ -573,7 +573,7 @@ def _add_array_fields(
 
     if options.array_view == "off" or not arrays:
         return
-    for task_name, annotation in arrays.items():
+    for task_name, annotation in arrays:
         drawing = array_annotation(
             annotation.to_numpy(),
             task_name=task_name,
@@ -591,7 +591,7 @@ def _collect_record_annotations(
     task_name: str,
     segmentations: "list[tuple[str | None, SegmentationAnnotation]]",
     class_tags: list[str],
-    arrays: "dict[str, ArrayAnnotation]",
+    arrays: "list[tuple[str, ArrayAnnotation]]",
 ) -> None:
     """Collect record-level annotations from one complete detection tree."""
     if detection.segmentation is not None:
@@ -599,7 +599,7 @@ def _collect_record_annotations(
     if _is_pure_classification(detection) and detection.class_name is not None:
         class_tags.append(detection.class_name)
     if detection.array is not None:
-        arrays[task_name or "array"] = detection.array
+        arrays.append((task_name or "array", detection.array))
     for name, sub_detection in detection.sub_detections.items():
         _collect_record_annotations(
             sub_detection,

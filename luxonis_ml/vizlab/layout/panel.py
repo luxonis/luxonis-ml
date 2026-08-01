@@ -1249,7 +1249,8 @@ def with_panel(
         width: Panel width in pixels for every side; ``None`` auto-sizes from
             the content. For a bottom panel this also sets the content width.
         title: Optional bold heading drawn above the tree.
-        style: Style whose font is used (defaults to the library default).
+        style: Style whose ``font_size`` scales the panel's type and spacing
+            (defaults to the library default).
         bg: Panel background color; defaults to the image's theme background.
 
     Returns:
@@ -1293,11 +1294,16 @@ def compose_panel(
     action)`` click targets of the panel's controls and legend swatches, in
     composed-image pixels (see `luxonis_ml.vizlab.interaction.frame.Frame.with_panel`).
     """
-    _ = style or DEFAULT_STYLE
+    style = style or DEFAULT_STYLE
     # The image is placed at its display (render_at) size, not its source size.
     img_w, img_h = image._resolved_size(None)
     background = Color.parse(bg) if bg is not None else image.theme.background
-    m = _metrics(style_scale(img_w, img_h), background)
+    # All panel geometry flows from one scale, so the style's font size scales
+    # type and spacing together (double the default size, double the panel).
+    scale = (
+        style_scale(img_w, img_h) * style.font_size / DEFAULT_STYLE.font_size
+    )
+    m = _metrics(scale, background)
 
     sections = _format_sections(data)
     panel_w = width if width is not None else _auto_width(sections, title, m)

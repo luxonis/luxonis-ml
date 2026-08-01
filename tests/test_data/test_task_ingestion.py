@@ -1,6 +1,8 @@
 from collections import defaultdict
 from pathlib import Path
 
+import pytest
+
 from luxonis_ml.data import (
     BucketStorage,
     LuxonisDataset,
@@ -225,3 +227,77 @@ def test_task_ingestion(
         "detection": STEP,
         "segmentation": STEP,
     }
+
+
+def test_list_annotation_task_inference(
+    bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
+):
+    dataset = LuxonisDataset(
+        dataset_name,
+        bucket_storage=bucket_storage,
+        delete_local=True,
+        delete_remote=True,
+    )
+
+    def seed() -> DatasetIterator:
+        path = create_image(0, tempdir)
+        yield {
+            "file": str(path),
+            "task_name": "animals",
+            "annotation": {
+                "class": "cat",
+                "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
+            },
+        }
+        yield {
+            "file": str(path),
+            "task_name": "vehicles",
+            "annotation": {
+                "class": "car",
+                "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.2, "h": 0.2},
+            },
+        }
+
+    dataset.add(seed())
+
+    def mixed() -> DatasetIterator:
+        yield {
+            "file": str(create_image(1, tempdir)),
+            "annotation": [
+                {
+                    "class": "cat",
+                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
+                },
+                {
+                    "class": "car",
+                    "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.2, "h": 0.2},
+                },
+            ],
+        }
+
+    # "cat" and "car" live in different tasks; inferring the record's task
+    # from the first detection alone would silently file the car under
+    # "animals" and pollute that task's classes.
+    with pytest.raises(ValueError, match="different tasks"):
+        dataset.add(mixed())
+
+    def agreeing() -> DatasetIterator:
+        yield {
+            "file": str(create_image(2, tempdir)),
+            "annotation": [
+                {
+                    "class": "cat",
+                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
+                },
+                {
+                    "class": "cat",
+                    "boundingbox": {"x": 0.3, "y": 0.3, "w": 0.1, "h": 0.1},
+                },
+            ],
+        }
+
+    dataset.add(agreeing())
+
+    classes = dataset.get_classes()
+    assert set(classes["animals"]) == {"cat"}
+    assert set(classes["vehicles"]) == {"car"}
