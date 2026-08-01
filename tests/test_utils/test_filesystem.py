@@ -1,3 +1,6 @@
+import os
+import tracemalloc
+import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -8,6 +11,7 @@ from pytest_subtests import SubTests
 
 from luxonis_ml.utils.environ import environ
 from luxonis_ml.utils.filesystem import (
+    _UUID_CHUNK_SIZE,
     LuxonisFileSystem,
     _get_protocol_and_path,
 )
@@ -310,6 +314,104 @@ def test_ignored_cache_storage_is_reported(
         "mlflow://experiment/run", tracking_uri="http://127.0.0.1:1"
     )
     assert warnings_log == []
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param(b"", id="empty"),
+        pytest.param(b"luxonis", id="ascii"),
+        pytest.param(b"\x00\x01\xff", id="non-utf8"),
+        pytest.param(bytes(range(256)) * 8, id="all-byte-values"),
+    ],
+)
+def test_file_uuid_survives_chunked_hashing(tempdir: Path, content: bytes):
+    """Pins the file UUIDs against the whole-file hash they replaced.
+
+    ``get_file_uuid`` used to read the entire file, hex encode it and
+    hand the result to ``uuid.uuid5``. It now feeds the hash in chunks
+    instead, which is only safe because hex encodes every byte on its
+    own, so the hex of a concatenation is the concatenation of the
+    hexes.
+
+    These UUIDs are the identity of every file in a dataset, so this
+    compares against the original expression rather than a recomputed
+    one -- a value that merely looked reasonable would silently orphan
+    existing data. The empty and non-UTF-8 cases are here because a hex
+    string hides both: an empty file must still hash the namespace, and
+    raw bytes must never reach a UTF-8 decode.
+    """
+    file_path = tempdir / "payload.bin"
+    file_path.write_bytes(content)
+
+    fs = LuxonisFileSystem(str(tempdir))
+    expected = str(uuid.uuid5(uuid.NAMESPACE_URL, content.hex()))
+
+    assert fs.get_file_uuid(file_path, local=True) == expected
+    assert fs.get_file_uuid(file_path.name) == expected
+
+
+@pytest.mark.parametrize(
+    "size",
+    [
+        _UUID_CHUNK_SIZE - 1,
+        _UUID_CHUNK_SIZE,
+        _UUID_CHUNK_SIZE + 1,
+        2 * _UUID_CHUNK_SIZE + 7,
+    ],
+)
+def test_file_uuid_is_independent_of_chunk_boundaries(
+    tempdir: Path, size: int
+):
+    """Pins the UUID across the read boundaries chunking introduces.
+
+    Sizes either side of ``_UUID_CHUNK_SIZE`` are the ones that would
+    expose a partial read or an off-by-one in the loop, and they are the
+    only place a chunked hash can diverge from a whole-file one. Tuning
+    the chunk size must stay a pure performance decision, so this is
+    parametrized on the constant rather than on fixed numbers.
+    """
+    content = os.urandom(size)
+    file_path = tempdir / "payload.bin"
+    file_path.write_bytes(content)
+
+    fs = LuxonisFileSystem(str(tempdir))
+
+    assert fs.get_file_uuid(file_path, local=True) == str(
+        uuid.uuid5(uuid.NAMESPACE_URL, content.hex())
+    )
+
+
+def test_file_uuid_does_not_hold_the_file_in_memory(tempdir: Path):
+    """Regression test for hashing a file at 7x its size in memory.
+
+    The old expression, ``uuid5(NAMESPACE_URL, f.read().hex())``, peaked
+    at seven times the file size: the bytes, the hex string at two bytes
+    per byte, that string UTF-8 encoded inside ``uuid5``, and the
+    namespace concatenation copying it once more. ``get_file_uuids``
+    then fans this out over a thread pool -- up to ``min(32, cpu + 4)``
+    files at once -- and ``LuxonisDataset`` calls it for every file in a
+    batch, so a directory of large media could exhaust memory before it
+    was ever loaded.
+
+    The assertion is on the *shape* of the cost rather than a measured
+    number: memory must be bounded by the chunk size, not by the file,
+    which is what makes the peak flat as files grow. The old code would
+    reach ~112 MiB here.
+    """
+    file_path = tempdir / "payload.bin"
+    file_path.write_bytes(os.urandom(16 * _UUID_CHUNK_SIZE))
+
+    fs = LuxonisFileSystem(str(tempdir))
+
+    tracemalloc.start()
+    try:
+        fs.get_file_uuid(file_path, local=True)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert peak < 8 * _UUID_CHUNK_SIZE
 
 
 def test_bytes(fs: LuxonisFileSystem, randint: int):

@@ -1,3 +1,5 @@
+import binascii
+import hashlib
 import os.path as osp
 import shutil
 import subprocess
@@ -12,7 +14,7 @@ from importlib.util import find_spec
 from io import BytesIO
 from pathlib import Path, PurePosixPath
 from types import ModuleType
-from typing import Any, Final, Literal, Protocol, cast, overload
+from typing import IO, Any, Final, Literal, Protocol, cast, overload
 
 import fsspec
 from loguru import logger
@@ -39,6 +41,10 @@ class PutFile(Protocol):
 PUT_FILE_REGISTRY: Final[Registry[PutFile]] = Registry(  # type: ignore
     name="put_file",
 )
+
+# Bounds the memory a single UUID computation uses. Each chunk is hex
+# encoded, so the transient cost is twice this, per concurrent call.
+_UUID_CHUNK_SIZE: Final = 1 << 20
 
 
 class FSType(Enum):
@@ -834,19 +840,23 @@ class LuxonisFileSystem:
             ValueError: If using MLflow and either no relative artifact
                 path is specified or the run cannot be resolved.
 
+        Note:
+            The file is hashed in chunks, so memory use does not grow
+            with its size. MLflow is the exception: its artifacts are
+            downloaded through ``read_to_byte_buffer``, which holds the
+            whole file in memory before hashing begins.
+
         """
 
         if local:
-            with open(path, "rb") as f:
-                file_contents = cast(bytes, f.read())
-        elif self.is_mlflow:
-            file_contents = self.read_to_byte_buffer(str(path)).read()
-        else:
-            download_path = str(self._path / path)
-            with self._fs.open(download_path, "rb") as f:
-                file_contents = cast(bytes, f.read())
+            with open(path, "rb") as file:
+                return _uuid_from_stream(file)
 
-        return str(uuid.uuid5(uuid.NAMESPACE_URL, file_contents.hex()))
+        if self.is_mlflow:
+            return _uuid_from_stream(self.read_to_byte_buffer(str(path)))
+
+        with self._fs.open(str(self._path / path), "rb") as file:
+            return _uuid_from_stream(cast(IO[bytes], file))
 
     def get_file_uuids(
         self, paths: Iterable[PathType], local: bool = False
@@ -861,6 +871,10 @@ class LuxonisFileSystem:
 
         Returns:
             Dictionary mapping paths to their UUIDs.
+
+        Note:
+            The files are hashed concurrently, so the memory bound of
+            ``get_file_uuid`` applies once per thread in the pool.
 
         """
 
@@ -1474,6 +1488,37 @@ def _get_protocol_and_path(path: str) -> tuple[str, str | None]:
         protocol = "file"
 
     return protocol, path or None
+
+
+def _uuid_from_stream(stream: IO[bytes]) -> str:
+    """Compute a file's UUID without holding the file in memory.
+
+    ``uuid.uuid5(namespace, name)`` is defined as
+    ``sha1(namespace.bytes + name.encode())``, truncated to 16 bytes and
+    stamped with the version, and the ``name`` used here is the hex of
+    the file's bytes. Hex encodes each byte on its own, so the hex of a
+    concatenation is the concatenation of the hexes -- feeding the hash
+    chunk by chunk therefore produces the exact same digest as hashing
+    the whole file at once.
+
+    Preserving the digest is the entire constraint: these UUIDs are the
+    identity of every file in a dataset, so a value that merely looked
+    reasonable would silently orphan existing data.
+
+    Args:
+        stream: Binary stream positioned at the start of the file.
+
+    Returns:
+        UUID generated from the file bytes.
+
+    """
+    # NOTE: Not a security hash -- this reproduces `uuid.uuid5`, whose
+    # algorithm is fixed by RFC 4122. The flag keeps it working where
+    # SHA-1 is disabled for security use, such as FIPS mode.
+    digest = hashlib.sha1(uuid.NAMESPACE_URL.bytes, usedforsecurity=False)
+    while chunk := stream.read(_UUID_CHUNK_SIZE):
+        digest.update(binascii.hexlify(chunk))
+    return str(uuid.UUID(bytes=digest.digest()[:16], version=5))
 
 
 def _pip_install(protocol: str, package: str) -> None:  # pragma: no cover
