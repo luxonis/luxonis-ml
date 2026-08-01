@@ -59,7 +59,22 @@ class LuxonisFileSystem:
 
     This class provides a unified interface for file operations across
     different storage backends, including local filesystems, S3, GCS,
-    and MLflow artifact storage.
+    and MLflow artifact storage. The backend is chosen by the protocol
+    of the URL::
+
+        file://<path>
+        s3://<bucket>/<path>
+        gcs://<bucket>/<path>
+        mlflow://<experiment_id>/<run_id>/<artifact_path>
+
+    A path with no protocol is treated as a local one. For MLflow the
+    ``<artifact_path>`` is optional and defaults to the run's artifact
+    root, so ``mlflow://<experiment_id>/<run_id>`` is itself a valid
+    destination. A bare ``mlflow://`` binds the filesystem to whichever
+    run is currently active instead, and requires
+    ``allow_active_mlflow_run=True``. MLflow artifacts cannot be
+    removed, so the ``delete_*`` methods raise ``NotImplementedError``
+    for them.
 
     For more flexibility, users can register custom implementations
     of the ``put_file`` method in ``PUT_FILE_REGISTRY``. Its name
@@ -94,6 +109,18 @@ class LuxonisFileSystem:
         >>> print(remote_path)
         remote_path
 
+        Uploading to the artifact store of a specific MLflow run,
+        which returns the URL of the new artifact.
+
+        .. code-block:: python
+
+            fs = LuxonisFileSystem(
+                "mlflow://12/abc123/checkpoints",
+                tracking_uri="http://localhost:5000",
+            )
+            fs.put_file("model.ckpt", "best.ckpt")
+            # -> "mlflow://12/abc123/checkpoints/best.ckpt"
+
     """
 
     @typechecked
@@ -110,12 +137,19 @@ class LuxonisFileSystem:
 
         Args:
             path: Input path consisting of a protocol and path, or
-                only a path for local files.
+                only a path for local files. MLflow paths are of the
+                form ``mlflow://<experiment_id>/<run_id>/<artifact_path>``,
+                where the artifact path is optional, or a bare
+                ``mlflow://`` to use the active run.
             allow_active_mlflow_run: Whether operations
                 are allowed on the active MLflow run.
             allow_local: Whether operations are allowed
                 on the local file system.
-            cache_storage: Path to cache storage. No cache is used if not set.
+            cache_storage: Path to an ``fsspec`` ``filecache``
+                directory, used only by the ``s3://`` and ``gcs://``
+                backends. No cache is used if not set, and it is
+                ignored, with a warning, for ``file://`` and
+                ``mlflow://``.
             put_file_plugin: Name of a registered
                 function in `PUT_FILE_REGISTRY` to use instead of
                 `LuxonisFileSystem.put_file`. The registered function
@@ -177,6 +211,9 @@ class LuxonisFileSystem:
                 raise ValueError(
                     "There is no 'MLFLOW_TRACKING_URI' in environment variables"
                 )
+
+            if self._cache_storage is not None:
+                logger.warning("Ignoring cache storage for MLflow filesystem.")
         else:
             self._fs_type = FSType.FSSPEC
             self._fs = self.init_fsspec_filesystem()
@@ -338,6 +375,16 @@ class LuxonisFileSystem:
             ValueError: If using MLflow and there is no active run or
                 no MLflow instance provided.
 
+        Note:
+            MLflow stores a file under its local base name, so uploading
+            under a different one is staged through a temporary copy.
+            It is placed next to the source, meaning a large artifact
+            needs free space on the source's own filesystem rather than
+            in ``$TMPDIR``. If that directory is not writable the
+            staging falls back to ``$TMPDIR``, which on most Linux
+            distributions is a RAM-backed ``tmpfs``, so a large artifact
+            may then fail with ``No space left on device``.
+
         """
         local_path = Path(local_path)
         if self.is_mlflow:
@@ -412,6 +459,12 @@ class LuxonisFileSystem:
                     directory.
                 2. If uploading to an active MLflow run without an
                     MLflow instance.
+
+        Note:
+            A directory is uploaded to MLflow in one call and is never
+            staged. Passing individual files uploads them one by one
+            through ``put_file`` instead, so with ``uuid_dict`` set the
+            staging described there applies to each of them.
 
         """
         if isinstance(local_paths, PathType):
@@ -503,6 +556,11 @@ class LuxonisFileSystem:
             ValueError: If using MLflow and either no relative artifact
                 path is specified or the run cannot be resolved.
 
+        Note:
+            An MLflow download is staged next to the destination, so a
+            large artifact needs free space on the destination's own
+            filesystem rather than in ``$TMPDIR``.
+
         """
         local_path = Path(local_path)
         if self.is_mlflow:
@@ -581,6 +639,11 @@ class LuxonisFileSystem:
 
         Raises:
             ValueError: If using MLflow and the run cannot be resolved.
+
+        Note:
+            An MLflow download is staged next to the destination, so a
+            large artifact needs free space on the destination's own
+            filesystem rather than in ``$TMPDIR``.
 
         """
         local_dir = Path(local_dir)
@@ -1068,8 +1131,14 @@ class LuxonisFileSystem:
         try:
             staging = tempfile.TemporaryDirectory(dir=local_path.parent)
         except OSError:
-            # A read-only source directory cannot hold the staging dir,
-            # which leaves `$TMPDIR` as the only place to rename in.
+            # A read-only mount, a full volume, an exhausted quota --
+            # anything that stops a staging dir from being created next
+            # to the source lands here, leaving `$TMPDIR` as the only
+            # place left to rename in. This stays a fallback rather than
+            # becoming the default because it gives up the guarantee
+            # above: the rename degrades back into a copy onto that
+            # small tmpfs, so a large artifact can still fail here with
+            # `No space left on device`.
             staging = tempfile.TemporaryDirectory()
         with staging as temp_dir:
             renamed_path = Path(temp_dir) / target_name

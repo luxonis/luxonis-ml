@@ -1,7 +1,9 @@
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from _pytest.fixtures import SubRequest
+from loguru import logger
 from pytest_subtests import SubTests
 
 from luxonis_ml.utils.environ import environ
@@ -267,6 +269,47 @@ def test_mlflow_attributes_are_public(tempdir: Path):
     assert local_fs.run_id is None
     assert local_fs.artifact_path is None
     assert local_fs.tracking_uri is None
+
+
+@pytest.fixture
+def warnings_log() -> Iterator[list[str]]:
+    """Collect loguru warnings, which pytest's caplog does not see."""
+    messages: list[str] = []
+    handler = logger.add(messages.append, level="WARNING", format="{message}")
+    yield messages
+    logger.remove(handler)
+
+
+def test_ignored_cache_storage_is_reported(
+    tempdir: Path, warnings_log: list[str]
+):
+    """Regression test for ``cache_storage`` silently doing nothing.
+
+    The argument is only ever read in ``init_fsspec_filesystem``, which
+    an MLflow filesystem never calls, so it was accepted, stored and
+    then ignored: no caching, no error and no warning. The ``file://``
+    backend ignores it just as thoroughly but has always said so, which
+    is what makes the silence a defect rather than a design.
+
+    Both halves are pinned because the warning has to be conditional --
+    firing it unconditionally would nag every MLflow user who never
+    asked for a cache.
+    """
+    LuxonisFileSystem(
+        "mlflow://experiment/run",
+        tracking_uri="http://127.0.0.1:1",
+        cache_storage=str(tempdir / "cache"),
+    )
+    assert (
+        "".join(warnings_log).strip()
+        == "Ignoring cache storage for MLflow filesystem."
+    )
+
+    warnings_log.clear()
+    LuxonisFileSystem(
+        "mlflow://experiment/run", tracking_uri="http://127.0.0.1:1"
+    )
+    assert warnings_log == []
 
 
 def test_bytes(fs: LuxonisFileSystem, randint: int):
