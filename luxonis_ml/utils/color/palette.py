@@ -120,7 +120,7 @@ class SequenceColors:
         overflow: Generator used once the anchors are exhausted.
 
     Examples:
-        >>> from luxonis_ml.vizlab.color import Color
+        >>> from luxonis_ml.utils.color import Color
         >>> gen = SequenceColors((Color(255, 0, 0), Color(0, 255, 0)))
         >>> gen(0)
         Color(r=255, g=0, b=0, a=255)
