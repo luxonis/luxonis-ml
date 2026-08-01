@@ -548,20 +548,25 @@ class LuxonisTracker:
     ) -> None:
         """Upload an artifact specifically to MLflow.
 
+        The artifact is always stored at the root of the run's artifact
+        directory. Only the base name of ``name`` is used, so callers
+        can pass a full local path without leaking the local directory
+        structure into the artifact store.
+
         Args:
             path: Path to the artifact.
             name: Artifact name. If ``None``, uses the file name.
 
         """
-        fs = LuxonisFileSystem(
-            "mlflow://",
-            allow_active_mlflow_run=True,
-            allow_local=False,
-        )
-        fs.put_file(
-            local_path=path,
-            remote_path=name or path.name,
-            mlflow_instance=self.experiment.get("mlflow"),
+        _ = self.experiment["mlflow"]
+        if self.project_id is None or self.run_id is None:
+            raise ValueError("MLflow experiment and run must be initialized.")
+
+        remote_path = Path(name or path).name
+        LuxonisFileSystem.upload(
+            path,
+            f"mlflow://{self.project_id}/{self.run_id}/{remote_path}",
+            tracking_uri=self.mlflow_tracking_uri,
         )
 
     @rank_zero_only
@@ -604,8 +609,10 @@ class LuxonisTracker:
             import wandb
 
             table = wandb.Table(
-                columns=["Row Index"]
-                + [f"Col {i}" for i in range(matrix.shape[1])]
+                columns=[
+                    "Row Index",
+                    *[f"Col {i}" for i in range(matrix.shape[1])],
+                ]
             )
             for i, row in enumerate(matrix):
                 table.add_data(i, *row)
