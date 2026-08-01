@@ -30,9 +30,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '.[0].number // empty')
+          # A commit can be associated with more than one pull request and the
+          # order is not guaranteed, so match the one that actually produced
+          # $GITHUB_SHA instead of taking the first.
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+            --jq 'map(select(.merge_commit_sha == env.GITHUB_SHA)) | .[0].number // empty')
           if [[ -z "$pr" ]]; then
-            echo "::error::No pull request is associated with $GITHUB_SHA" >&2
+            echo "::error::No merged pull request produced $GITHUB_SHA" >&2
             exit 1
           fi
 
