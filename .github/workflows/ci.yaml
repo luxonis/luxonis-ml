@@ -240,18 +240,6 @@ jobs:
           disable_search: true
           handle_no_reports_found: true
 
-      - name: Upload coverage results to Codecov
-        if: ${{ always() && matrix.os == 'ubuntu-latest' }}
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
-          files: coverage-${{ matrix.os }}-${{ matrix.group }}.xml
-          flags: pytest-${{ matrix.os }}
-          name: pytest-${{ matrix.os }}-${{ matrix.group }}
-          disable_search: true
-          handle_no_reports_found: true
-
       - name: Upload coverage as artifact
         if: ${{ always() && matrix.os == 'ubuntu-latest'  }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -260,6 +248,51 @@ jobs:
           path: coverage-${{ matrix.os }}-${{ matrix.group }}.xml
           if-no-files-found: ignore
           overwrite: true
+
+  coverage:
+    needs: tests
+    runs-on: ubuntu-latest
+
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      # Required by codecov-action, it builds the path-fixing file network
+      # from the checked out repository.
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.head_ref }}
+          persist-credentials: false
+
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: coverage-ubuntu-latest-*
+          path: coverage
+          merge-multiple: true
+
+      - name: Collect coverage files
+        id: coverage-files
+        shell: bash
+        run: |
+          files=$(find coverage -type f -name 'coverage-ubuntu-latest-*.xml' | sort | paste -sd, -)
+          if [[ -z "$files" ]]; then
+            echo "No coverage files found" >&2
+            exit 1
+          fi
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+
+      - name: Upload coverage results to Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+          files: ${{ steps.coverage-files.outputs.files }}
+          flags: pytest-ubuntu-latest
+          name: pytest-ubuntu-latest
+          disable_search: true
 
   check-requirements:
     if: ${{ startsWith(github.head_ref, 'release/') }}
