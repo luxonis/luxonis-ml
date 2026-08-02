@@ -2166,7 +2166,9 @@ def _fake_roboflow_module(location: Path) -> types.ModuleType:
             export_format: str, destination: str
         ) -> types.SimpleNamespace:
             assert export_format == "coco"
-            assert destination.endswith("/project")
+            # Compared as a path, not as a string: the destination is
+            # built with `/`, which is a backslash on Windows.
+            assert Path(destination).name == "project"
             return types.SimpleNamespace(location=str(location))
 
     class Project:
