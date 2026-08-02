@@ -1,9 +1,12 @@
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from _pytest.fixtures import SubRequest
+from loguru import logger
 from pytest_subtests import SubTests
 
+from luxonis_ml.utils.environ import environ
 from luxonis_ml.utils.filesystem import (
     LuxonisFileSystem,
     _get_protocol_and_path,
@@ -224,12 +227,203 @@ def test_fail(tempdir: Path, randint: int):
         LuxonisFileSystem(str(file), allow_local=False)
 
 
+def test_mlflow_initialization_failures():
+    with pytest.raises(ValueError, match="Using active MLFlow run"):
+        LuxonisFileSystem("mlflow://")
+
+    if environ.MLFLOW_TRACKING_URI is not None:  # pragma: no cover
+        pytest.skip("MLFLOW_TRACKING_URI is configured in this environment.")
+    with pytest.raises(ValueError, match="MLFLOW_TRACKING_URI"):
+        LuxonisFileSystem("mlflow://experiment/run")
+
+
+def test_mlflow_attributes_are_public(tempdir: Path):
+    """Regression test for the MLflow attributes becoming private.
+
+    ``experiment_id``, ``run_id``, ``artifact_path`` and
+    ``tracking_uri`` are documented as public attributes and are read
+    directly by downstream packages -- ``luxonis-train`` uses
+    ``fs.experiment_id`` and ``fs.run_id`` in ``Config.get_config`` to
+    resolve ``mlflow://<experiment>/<run>/config.yaml`` URLs. Renaming
+    them to ``_experiment_id``/``_run_id``/... broke that with an
+    ``AttributeError``, so they must stay reachable under their public
+    names.
+
+    The non-MLflow half of the test matters just as much: the private
+    fields used to be assigned only in the MLflow branch of
+    ``__init__``, so the accessors have to be safe (``None``) for every
+    other protocol instead of raising.
+    """
+
+    fs = LuxonisFileSystem(
+        "mlflow://experiment/run/nested/config.yaml",
+        tracking_uri="http://127.0.0.1:1",
+    )
+    assert fs.experiment_id == "experiment"
+    assert fs.run_id == "run"
+    assert fs.artifact_path == "nested/config.yaml"
+    assert fs.tracking_uri == "http://127.0.0.1:1"
+
+    local_fs = LuxonisFileSystem(str(tempdir))
+    assert local_fs.experiment_id is None
+    assert local_fs.run_id is None
+    assert local_fs.artifact_path is None
+    assert local_fs.tracking_uri is None
+
+
+@pytest.fixture
+def warnings_log() -> Iterator[list[str]]:
+    """Collect loguru warnings, which pytest's caplog does not see."""
+    messages: list[str] = []
+    handler = logger.add(messages.append, level="WARNING", format="{message}")
+    yield messages
+    logger.remove(handler)
+
+
+def test_ignored_cache_storage_is_reported(
+    tempdir: Path, warnings_log: list[str]
+):
+    """Regression test for ``cache_storage`` silently doing nothing.
+
+    The argument is only ever read in ``init_fsspec_filesystem``, which
+    an MLflow filesystem never calls, so it was accepted, stored and
+    then ignored: no caching, no error and no warning. The ``file://``
+    backend ignores it just as thoroughly but has always said so, which
+    is what makes the silence a defect rather than a design.
+
+    Both halves are pinned because the warning has to be conditional --
+    firing it unconditionally would nag every MLflow user who never
+    asked for a cache.
+    """
+    LuxonisFileSystem(
+        "mlflow://experiment/run",
+        tracking_uri="http://127.0.0.1:1",
+        cache_storage=str(tempdir / "cache"),
+    )
+    assert (
+        "".join(warnings_log).strip()
+        == "Ignoring cache storage for MLflow filesystem."
+    )
+
+    warnings_log.clear()
+    LuxonisFileSystem(
+        "mlflow://experiment/run", tracking_uri="http://127.0.0.1:1"
+    )
+    assert warnings_log == []
+
+
 def test_bytes(fs: LuxonisFileSystem, randint: int):
     bytes_file = f"bytes_test_{randint}.txt"
     fs.put_bytes(f"bytes test {randint}".encode(), bytes_file)
     assert fs.exists(bytes_file)
     buffer = fs.read_to_byte_buffer(bytes_file)
     assert buffer.read() == f"bytes test {randint}".encode()
+
+
+def test_local_filesystem_edge_cases(tempdir: Path):
+    fs = LuxonisFileSystem(str(tempdir), cache_storage=str(tempdir / "cache"))
+    assert fs.protocol == "file"
+    assert not fs.is_mlflow
+    assert fs.full_path == f"file://{tempdir}"
+
+    file_path = tempdir / "file.txt"
+    file_path.write_text("content")
+    assert fs.read_text(file_path.name) == "content"
+    assert fs.read_to_byte_buffer(file_path.name).read() == b"content"
+    assert (
+        LuxonisFileSystem(str(file_path)).read_to_byte_buffer().read()
+        == b"content"
+    )
+    assert fs.get_file_uuid(file_path, local=True) == fs.get_file_uuid(
+        file_path.name
+    )
+
+    download_dir = tempdir / "downloads"
+    download_dir.mkdir()
+    assert (
+        fs.get_file(file_path.name, download_dir)
+        == download_dir / file_path.name
+    )
+
+    delete_a = tempdir / "delete_a.txt"
+    delete_b = tempdir / "delete_b.txt"
+    delete_a.write_text("a")
+    delete_b.write_text("b")
+    fs.delete_files([delete_a.name, delete_b.name])
+    assert not delete_a.exists()
+    assert not delete_b.exists()
+
+    delete_dir = tempdir / "delete_dir"
+    delete_dir.mkdir()
+    (delete_dir / "nested.txt").write_text("nested")
+    fs.delete_dir(delete_dir.name)
+    assert not delete_dir.exists()
+
+    with pytest.raises(ValueError, match="No directory specified"):
+        fs.delete_dir()
+    with pytest.raises(ValueError, match="Path must be a directory"):
+        fs.put_dir(file_path, "invalid-dir")
+
+    uuid_source = tempdir / "uuid_source.txt"
+    uuid_source.write_text("uuid")
+    upload_map = fs.put_dir(
+        [uuid_source],
+        "uuid-dir",
+        uuid_dict={str(uuid_source): "fixed-uuid"},
+    )
+    assert upload_map == {str(uuid_source): "uuid-dir/fixed-uuid.txt"}
+    assert fs.exists("uuid-dir/fixed-uuid.txt")
+
+    existing_dir = tempdir / "existing-download-root"
+    existing_dir.mkdir()
+    downloaded_dir = fs.get_dir("uuid-dir", existing_dir)
+    assert downloaded_dir == existing_dir / "uuid-dir"
+    assert (downloaded_dir / "fixed-uuid.txt").read_text() == "uuid"
+
+
+def test_download_returns_where_the_data_landed(
+    tempdir: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Regression test for ``download`` returning a stale path.
+
+    ``LuxonisFileSystem.download`` called ``get_dir``/``get_file`` and
+    discarded their return values, handing back the path it had computed
+    itself instead. Both methods nest the download inside ``local_path``
+    when that path already exists -- ``fsspec`` copies like ``cp -r`` --
+    so a second download into the same destination wrote the fresh data
+    to ``<dest>/data/data`` while ``download`` still returned
+    ``<dest>/data``, the stale copy from the first call.
+
+    ``download`` short-circuits ``file://`` URLs because they are
+    already local, so the protocol check is the single thing stubbed out
+    here; everything below it is the real ``fsspec`` code path shared
+    with ``s3://`` and ``gcs://``.
+    """
+    remote_dir = tempdir / "remote" / "data"
+    remote_dir.mkdir(parents=True)
+    (remote_dir / "payload.txt").write_text("first")
+
+    monkeypatch.setattr(
+        LuxonisFileSystem, "get_protocol", staticmethod(lambda _: "s3")
+    )
+
+    url = str(remote_dir)
+    dest = tempdir / "dest"
+    first = LuxonisFileSystem.download(url, dest)
+    assert (first / "payload.txt").read_text() == "first"
+
+    (remote_dir / "payload.txt").write_text("second")
+    second = LuxonisFileSystem.download(url, dest)
+    assert (second / "payload.txt").read_text() == "second"
+    assert second != first
+
+
+def test_s3_filesystem_initialization(tempdir: Path):
+    fs = LuxonisFileSystem(
+        "s3://bucket/prefix", cache_storage=str(tempdir / "s3-cache")
+    )
+    assert fs.protocol == "s3"
+    assert fs.is_fsspec
 
 
 def compare_directories(
