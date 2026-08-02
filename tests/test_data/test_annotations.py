@@ -212,6 +212,50 @@ def test_bbox_annotation(subtests: SubTests):
         )
 
 
+def test_validation_leaves_the_producers_annotation_alone(
+    subtests: SubTests, tempdir: Path
+):
+    """Building a record must not edit the dictionary it was given.
+
+    Regression: `DatasetRecord.validate_files` used to deep-copy the whole
+    record, and dropping that copy in favour of a shallow rebuild left the
+    clipping validators editing the caller's own nested dictionaries and
+    lists. A generator that builds one annotation and yields it for many
+    files - the documented way to add a dataset - therefore saw its
+    annotation clipped by the first record and wrote the clipped values
+    for every record after it, warning about it only once.
+    """
+    file = (tempdir / "producer.jpg").resolve()
+    cv2.imwrite(str(file), np.zeros((100, 100, 3)))
+
+    with subtests.test("bbox"):
+        annotation = {
+            "class": "budgie",
+            "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.8, "h": 0.8},
+        }
+        DatasetRecord(file=file, annotation=annotation)  # type: ignore
+        assert annotation["boundingbox"] == {
+            "x": 0.5,
+            "y": 0.5,
+            "w": 0.8,
+            "h": 0.8,
+        }
+
+    with subtests.test("keypoints"):
+        keypoints = [(1.5, 0.5, 2)]
+        annotation = {"class": "budgie", "keypoints": {"keypoints": keypoints}}
+        DatasetRecord(file=file, annotation=annotation)  # type: ignore
+        assert keypoints == [(1.5, 0.5, 2)]
+
+    with subtests.test("rle"):
+        segmentation = {"height": 4, "width": 4, "counts": [0, 4, 12]}
+        annotation = {"class": "budgie", "segmentation": dict(segmentation)}
+        DatasetRecord(file=file, annotation=annotation)  # type: ignore
+        # The counts a record is built from stay the list the producer
+        # wrote, not the byte string `pycocotools` encoded them into.
+        assert annotation["segmentation"] == segmentation
+
+
 def test_keypoints_annotation(subtests: SubTests):
     with subtests.test("no_auto_clip"):
         with pytest.raises(pydantic.ValidationError):
@@ -482,6 +526,37 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
                 height=4,
                 width=4,
             )
+
+
+def test_mask_derived_values_win_over_caller_metadata():
+    """The size stored next to the RLE must come from the mask itself.
+
+    Regression: the mask and polyline validators merged the caller's
+    remaining keys *after* the values they derived. A record supplying
+    `mask` together with `height` or `width` therefore kept the caller's
+    size next to `counts` encoded for the real mask shape, so `to_numpy`
+    decoded a wrong or invalid mask; a stray `mask` next to `points`
+    likewise overrode the polygon the validator rendered.
+    """
+    mask = np.zeros((4, 6), dtype=np.uint8)
+    mask[1:3, 2:5] = 1
+
+    seg = SegmentationAnnotation(mask=mask, height=100, width=200)  # type: ignore
+    assert (seg.height, seg.width) == (4, 6)
+    assert np.array_equal(seg.to_numpy(), mask)
+
+    rendered = SegmentationAnnotation(
+        points=[(0, 0), (1, 0), (1, 1), (0, 1)],  # type: ignore
+        height=4,
+        width=4,
+        mask=np.zeros((4, 4), dtype=np.uint8),  # type: ignore
+    )
+    expected = SegmentationAnnotation(
+        points=[(0, 0), (1, 0), (1, 1), (0, 1)],  # type: ignore
+        height=4,
+        width=4,
+    )
+    assert rendered == expected
 
 
 def test_array_annotation(subtests: SubTests, tempdir: Path):

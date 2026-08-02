@@ -99,6 +99,8 @@ class ParserIssue(Enum):
         NON_NUMERIC_ANNOTATION: Annotation contains non-numeric values.
         MISSING_IMAGE_STEM: Annotation image stem cannot be matched to an
             image file.
+        MALFORMED_ANNOTATION: Annotation does not have the shape its format
+            requires.
 
     """
 
@@ -106,6 +108,7 @@ class ParserIssue(Enum):
     COCO_ISCROWD = "coco_iscrowd"
     NON_NUMERIC_ANNOTATION = "non_numeric_annotation"
     MISSING_IMAGE_STEM = "missing_image_stem"
+    MALFORMED_ANNOTATION = "malformed_annotation"
 
 
 @dataclass(frozen=True, slots=True)

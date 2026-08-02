@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -7,10 +8,10 @@ from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
 from luxonis_ml.utils.path import resolve_manifest_path
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import SplitParserPlugin
 
 
-class YoloV4Parser(BaseParser):
+class YoloV4Parser(SplitParserPlugin):
     """Parse a directory with YOLOv4 annotations into LDF.
 
     Expected format::
@@ -28,6 +29,8 @@ class YoloV4Parser(BaseParser):
     This is one of the formats that Roboflow can generate.
     """
 
+    dataset_types = ("yolov4",)
+
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
@@ -42,61 +45,38 @@ class YoloV4Parser(BaseParser):
             "classes_path": classes,
         }
 
-    def from_dir(
-        self, dataset_dir: Path
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        added_train_imgs = self._parse_split(
-            image_dir=dataset_dir / "train",
-            annotation_path=dataset_dir / "train" / "_annotations.txt",
-            classes_path=dataset_dir / "train" / "_classes.txt",
-        )
-        added_val_imgs = self._parse_split(
-            image_dir=dataset_dir / "valid",
-            annotation_path=dataset_dir / "valid" / "_annotations.txt",
-            classes_path=dataset_dir / "valid" / "_classes.txt",
-        )
-        added_test_imgs = self._parse_split(
-            image_dir=dataset_dir / "test",
-            annotation_path=dataset_dir / "test" / "_annotations.txt",
-            classes_path=dataset_dir / "test" / "_classes.txt",
-        )
-        return added_train_imgs, added_val_imgs, added_test_imgs
+    def _annotation_lines(
+        self,
+        base_dir: Path,
+        annotation_path: Path,
+        annotated: set[Path],
+    ) -> Iterator[tuple[Path, str]]:
+        """Walk the annotation file, resolving the image of every line.
 
-    def from_split(
-        self, image_dir: Path, annotation_path: Path, classes_path: Path
-    ) -> ParserOutput:
-        """Parse YOLOv4 annotations into LDF records.
-
-        Annotations include classification and object detection.
+        The annotations themselves are never held in memory: each line is
+        handed to the caller as it is read.
 
         Args:
-            image_dir: Directory with images.
+            base_dir: Resolved directory relative image paths are read
+                against.
             annotation_path: Annotation file.
-            classes_path: File with class names.
+            annotated: Filled with the resolved image of every line, the
+                lines naming a missing image included, so that a caller
+                can tell which images of the directory are unlisted.
 
-        Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+        Yields:
+            The resolved image of each line whose image exists, together
+            with the rest of the line. A line naming a missing image is
+            reported as a skipped annotation instead.
 
         """
-        with open(classes_path) as f:
-            class_names = {
-                i: line.rstrip() for i, line in enumerate(f.readlines())
-            }
-
-        def generator() -> DatasetIterator:
-            with open(annotation_path) as f:
-                annotation_data = [line.rstrip() for line in f]
-
-            annotated_images: set[Path] = set()
-
-            for ann_line in annotation_data:
-                data = ann_line.split(" ")
-                img_path = data[0]
-                path = resolve_manifest_path(
-                    image_dir.absolute().resolve(), img_path
-                )
-                annotated_images.add(path.resolve())
+        with open(annotation_path, encoding="utf-8") as f:
+            for ann_line in f:
+                img_path, _, boxes = ann_line.rstrip().partition(" ")
+                path = resolve_manifest_path(base_dir, img_path)
+                # `resolve_manifest_path` returns absolute paths already
+                # resolved; only its relative Windows fallback needs it.
+                annotated.add(path if path.is_absolute() else path.resolve())
                 if not path.exists():
                     self._warn_skipped_annotation(
                         ParserIssue.MISSING_IMAGE,
@@ -106,39 +86,145 @@ class YoloV4Parser(BaseParser):
                     )
                     continue
 
-                file = str(path)
+                yield path, boxes
 
-                # Handle image names listed with no following annotation in the line
-                if len(data) == 1:
-                    yield {"file": file, "annotation": None}
-                    continue
+    def _unlisted_images(
+        self, image_dir: Path, base_dir: Path, annotated: set[Path]
+    ) -> Iterator[Path]:
+        """Yield the images of the directory no annotation line names.
 
-                img = Image.open(file)
+        Args:
+            image_dir: Directory with images.
+            base_dir: Resolved ``image_dir``.
+            annotated: Resolved image of every annotation line, as filled
+                by `_annotation_lines`.
+
+        Yields:
+            Images present in the directory but absent from the
+            annotation file.
+
+        """
+        # A resolved path never ends in a symlink, so an image whose name
+        # is claimed by a resolved direct child of the same directory is
+        # that child. Annotations pointing elsewhere are not collected, so
+        # those images still take the resolving path below.
+        annotated_names = {
+            path.name for path in annotated if path.parent == base_dir
+        }
+
+        for img_path in self._list_images(image_dir):
+            if (
+                img_path.name not in annotated_names
+                and img_path.resolve() not in annotated
+            ):
+                yield img_path
+
+    def _split_records(
+        self,
+        image_dir: Path,
+        annotation_path: Path,
+        classes_path: Path,
+    ) -> DatasetIterator:
+        """Parse YOLOv4 annotations into LDF records.
+
+        Annotations include classification and object detection.
+
+        Args:
+            image_dir: Directory with images.
+            annotation_path: Annotation file.
+            classes_path: File with class names.
+
+        Yields:
+            One record per annotation, one for every listed image carrying
+            none, and one for every image the annotations do not list.
+
+        """
+        with open(classes_path, encoding="utf-8") as f:
+            class_names = {
+                i: line.rstrip() for i, line in enumerate(f.readlines())
+            }
+
+        base_dir = image_dir.absolute().resolve()
+        annotated: set[Path] = set()
+
+        for path, boxes in self._annotation_lines(
+            base_dir, annotation_path, annotated
+        ):
+            file = str(path)
+
+            # Handle image names listed with no annotation following them
+            if not boxes:
+                yield {"file": file, "annotation": None}
+                continue
+
+            # Hoisted out of the box loop: the records only need the size,
+            # so an image carrying several boxes is still read once. Only
+            # the header is needed, so the file is closed right away.
+            with Image.open(file) as img:
                 width, height = img.size
 
-                for ann_data in data[1:]:
-                    curr_ann_data = ann_data.split(",")
-                    class_name = class_names[int(curr_ann_data[4])]
+            for ann_data in boxes.split(" "):
+                curr_ann_data = ann_data.split(",")
+                class_name = class_names[int(curr_ann_data[4])]
 
-                    bbox_xyxy = [float(i) for i in curr_ann_data[:4]]
-                    yield {
-                        "file": file,
-                        "annotation": {
-                            "class": class_name,
-                            "boundingbox": {
-                                "x": bbox_xyxy[0] / width,
-                                "y": bbox_xyxy[1] / height,
-                                "w": (bbox_xyxy[2] - bbox_xyxy[0]) / width,
-                                "h": (bbox_xyxy[3] - bbox_xyxy[1]) / height,
-                            },
+                bbox_xyxy = [float(i) for i in curr_ann_data[:4]]
+                yield {
+                    "file": file,
+                    "annotation": {
+                        "class": class_name,
+                        "boundingbox": {
+                            "x": bbox_xyxy[0] / width,
+                            "y": bbox_xyxy[1] / height,
+                            "w": (bbox_xyxy[2] - bbox_xyxy[0]) / width,
+                            "h": (bbox_xyxy[3] - bbox_xyxy[1]) / height,
                         },
-                    }
+                    },
+                }
 
-            # Images in the directory not listed in annotations file
-            for img_path in self._list_images(image_dir):
-                if img_path.resolve() not in annotated_images:
-                    yield {"file": str(img_path), "annotation": None}
+        # Which images of the directory are unlisted is only known once
+        # every annotation line has been read, so they are emitted last.
+        for img_path in self._unlisted_images(image_dir, base_dir, annotated):
+            yield {"file": str(img_path), "annotation": None}
 
-        added_images = self._get_added_images(generator())
+    def _split_files(
+        self,
+        image_dir: Path,
+        annotation_path: Path,
+        classes_path: Path,
+    ) -> list[Path]:
+        """List the images of one split without reading any of them.
 
-        return generator(), {}, added_images
+        The annotation file names every image the split holds a record
+        for, so the same walk the records make answers this too - without
+        the class names, the boxes, or a single image decode.
+
+        Missing images are reported here as well. The issue collector
+        keeps one message per distinct issue, so a parse that follows does
+        not report them twice.
+
+        Args:
+            image_dir: Directory with images.
+            annotation_path: Annotation file.
+            classes_path: File with class names.
+
+        Returns:
+            The images the records name, in the order they name them.
+
+        """
+        del classes_path
+
+        base_dir = image_dir.absolute().resolve()
+        annotated: set[Path] = set()
+        # A `dict` rather than a `set`: an image named by several lines is
+        # reported once, in the order the records name it.
+        files: dict[Path, None] = {}
+
+        for path, _ in self._annotation_lines(
+            base_dir, annotation_path, annotated
+        ):
+            files[path] = None
+
+        for img_path in self._unlisted_images(image_dir, base_dir, annotated):
+            files[img_path] = None
+
+        return list(files)

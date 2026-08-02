@@ -1,5 +1,4 @@
 import json
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -7,10 +6,13 @@ from luxonis_ml.data import DatasetIterator
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils.path import resolve_manifest_path
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import SplitParserPlugin
+
+_MASK_KEYS = ("segmentation", "instance_segmentation")
+"""Annotation keys whose ``mask`` may hold a path to a mask file."""
 
 
-class NativeParser(BaseParser):
+class NativeParser(SplitParserPlugin):
     """Parse a directory with native LDF annotations.
 
     Expected format::
@@ -56,7 +58,8 @@ class NativeParser(BaseParser):
 
     """
 
-    _SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
+    dataset_types = ("native",)
+    split_names = ("train", "val", "test")
 
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
@@ -65,57 +68,54 @@ class NativeParser(BaseParser):
             return None
         return {"annotation_path": annotation_path}
 
-    def from_dir(
-        self, dataset_dir: Path
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        added_train_imgs = self._parse_split(
-            annotation_path=dataset_dir / "train" / "annotations.json",
-        )
-        added_val_imgs = self._parse_split(
-            annotation_path=dataset_dir / "val" / "annotations.json",
-        )
-        added_test_imgs = self._parse_split(
-            annotation_path=dataset_dir / "test" / "annotations.json",
-        )
-        return added_train_imgs, added_val_imgs, added_test_imgs
+    def _split_records(self, annotation_path: Path) -> DatasetIterator:
+        """Stream native LDF annotations with their paths resolved.
 
-    def from_split(self, annotation_path: Path) -> ParserOutput:
-        """Parse native LDF annotations.
+        The records are the JSON document itself, so a record costs no
+        more than rewriting the media and mask references it names into
+        resolved paths.
+
+        `_split_files` is deliberately left unimplemented: listing a
+        split's files means reading and resolving the whole document,
+        which is the parse, and the importer's fallback already does that.
 
         Args:
             annotation_path: JSON file with annotations.
 
-        Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+        Yields:
+            Annotation records, with every path they name resolved.
 
         """
-        data = json.loads(annotation_path.read_text())
+        base_dir = annotation_path.parent
+        resolved: dict[str, Path] = {}
 
-        def generator() -> DatasetIterator:
-            for record in data:
-                with suppress(KeyError):
-                    if "file" in record:
-                        record["file"] = resolve_manifest_path(
-                            annotation_path.parent, record["file"]
-                        )
-                    elif "files" in record:
-                        for key, value in record["files"].items():
-                            if isinstance(value, PathType):
-                                record["files"][key] = resolve_manifest_path(
-                                    annotation_path.parent, value
-                                )
-                for mask_type in ["segmentation", "instance_segmentation"]:
-                    with suppress(KeyError):
-                        mask = record["annotation"][mask_type]["mask"]
-                        if isinstance(mask, PathType):
-                            record["annotation"][mask_type]["mask"] = (
-                                resolve_manifest_path(
-                                    annotation_path.parent, mask
-                                )
-                            )
-                yield record
+        def resolve(value: PathType) -> Path:
+            # A split names the same media once per annotation, and for a
+            # fixed base directory the result depends only on the spelling.
+            key = str(value)
+            path = resolved.get(key)
+            if path is None:
+                path = resolved[key] = resolve_manifest_path(base_dir, key)
+            return path
 
-        added_images = self._get_added_images(generator())
+        for record in json.loads(annotation_path.read_text()):
+            if "file" in record:
+                record["file"] = resolve(record["file"])
+            elif "files" in record:
+                media = record["files"]
+                for key, value in media.items():
+                    if isinstance(value, PathType):
+                        media[key] = resolve(value)
 
-        return generator(), {}, added_images
+            annotation = record.get("annotation")
+            if isinstance(annotation, dict):
+                for mask_key in _MASK_KEYS:
+                    try:
+                        segmentation = annotation[mask_key]
+                        mask = segmentation["mask"]
+                    except KeyError:
+                        continue
+                    if isinstance(mask, PathType):
+                        segmentation["mask"] = resolve(mask)
+
+            yield record

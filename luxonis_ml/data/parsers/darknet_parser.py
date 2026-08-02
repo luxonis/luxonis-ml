@@ -3,10 +3,10 @@ from typing import Any
 
 from luxonis_ml.data import DatasetIterator
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import SplitParserPlugin, centered_box
 
 
-class DarknetParser(BaseParser):
+class DarknetParser(SplitParserPlugin):
     """Parse a directory with Darknet annotations into LDF.
 
     Expected format::
@@ -23,37 +23,59 @@ class DarknetParser(BaseParser):
     This is one of the formats that Roboflow can generate.
     """
 
+    dataset_types = ("darknet",)
+
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
         if not (split_path / "_darknet.labels").exists():
             return None
-        if not BaseParser._list_images(split_path):
+        # The listing is handed on rather than dropped and rebuilt by
+        # `_split_records`.
+        image_paths = DarknetParser._list_images(split_path)
+        if not image_paths:
             return None
         return {
             "image_dir": split_path,
             "classes_path": split_path / "_darknet.labels",
+            "image_paths": image_paths,
         }
 
-    def from_dir(
-        self, dataset_dir: Path
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        added_train_imgs = self._parse_split(
-            image_dir=dataset_dir / "train",
-            classes_path=dataset_dir / "train" / "_darknet.labels",
-        )
-        added_val_imgs = self._parse_split(
-            image_dir=dataset_dir / "valid",
-            classes_path=dataset_dir / "valid" / "_darknet.labels",
-        )
-        added_test_imgs = self._parse_split(
-            image_dir=dataset_dir / "test",
-            classes_path=dataset_dir / "test" / "_darknet.labels",
-        )
-        return added_train_imgs, added_val_imgs, added_test_imgs
+    def _split_files(
+        self,
+        image_dir: Path,
+        classes_path: Path,
+        image_paths: list[Path] | None = None,
+    ) -> list[Path]:
+        """List the images of one split without reading its labels.
 
-    def from_split(self, image_dir: Path, classes_path: Path) -> ParserOutput:
+        Every listed image produces at least one record - one without
+        annotations still yields a record with `annotation` set to None -
+        so the listing already is the file list, in record order.
+
+        Args:
+            image_dir: Directory with images.
+            classes_path: File with class names, which the file list does
+                not depend on.
+            image_paths: Images of the split, as already listed by
+                `validate_split`. Listed from `image_dir` when omitted.
+
+        Returns:
+            The images of the split.
+
+        """
+        del classes_path
+        if image_paths is None:
+            return self._list_images(image_dir)
+        return image_paths
+
+    def _split_records(
+        self,
+        image_dir: Path,
+        classes_path: Path,
+        image_paths: list[Path] | None = None,
+    ) -> DatasetIterator:
         """Parse Darknet annotations into LDF records.
 
         Annotations include classification and object detection.
@@ -61,23 +83,30 @@ class DarknetParser(BaseParser):
         Args:
             image_dir: Directory with images.
             classes_path: File with class names.
+            image_paths: Images of the split, as already listed by
+                `validate_split`. Listed from `image_dir` when omitted.
 
         Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+            One record per annotation, plus one with no annotation for
+            every image that carries none.
 
         """
-        with open(classes_path) as f:
+        # Read before the generator is entered, so that an unreadable
+        # class file fails the parse rather than a half-finished import.
+        with open(classes_path, encoding="utf-8") as f:
             class_names = {
                 i: line.rstrip() for i, line in enumerate(f.readlines())
             }
 
+        if image_paths is None:
+            image_paths = self._list_images(image_dir)
+
         def generator() -> DatasetIterator:
-            for img_path in self._list_images(image_dir):
+            for img_path in image_paths:
                 ann_path = img_path.with_suffix(".txt")
                 file = str(img_path)
                 if ann_path.exists():
-                    with open(ann_path) as f:
+                    with open(ann_path, encoding="utf-8") as f:
                         annotation_data = f.readlines()
                 else:
                     annotation_data = []
@@ -87,24 +116,17 @@ class DarknetParser(BaseParser):
                     continue
 
                 for ann_line in annotation_data:
-                    class_id, x_center, y_center, width, height = list(
+                    class_id, x_center, y_center, width, height = (
                         ann_line.split(" ")
                     )
-                    class_name = class_names[int(class_id)]
-
                     yield {
                         "file": file,
                         "annotation": {
-                            "class": class_name,
-                            "boundingbox": {
-                                "x": float(x_center) - float(width) / 2,
-                                "y": float(y_center) - float(height) / 2,
-                                "w": float(width),
-                                "h": float(height),
-                            },
+                            "class": class_names[int(class_id)],
+                            "boundingbox": centered_box(
+                                x_center, y_center, width, height
+                            ),
                         },
                     }
 
-        added_images = self._get_added_images(generator())
-
-        return generator(), {}, added_images
+        return generator()

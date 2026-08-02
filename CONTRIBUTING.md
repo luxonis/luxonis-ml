@@ -99,6 +99,78 @@ CI splits the full suite across Ubuntu and Windows and runs with `-n auto`.
 When a change touches shared data loading, parsing, exporting, storage, or
 annotation behavior, add or update tests near the affected workflow.
 
+### Parser tests
+
+Parser tests live in `tests/test_data/parsers/`, one module per dataset type,
+split by what the test needs:
+
+| Directory     | Contents                                                           |
+| ------------- | ------------------------------------------------------------------ |
+| `synthetic/`  | Builds every input it parses. Runs anywhere, no credentials.       |
+| `real_world/` | Parses datasets downloaded from the test bucket. Needs GCS access. |
+| `benchmarks/` | Performance benchmarks over large generated datasets.              |
+
+While developing a parser, `pytest tests/test_data/parsers/synthetic -q` is the
+fast loop; it needs neither network nor credentials.
+
+### Parser benchmarks
+
+The benchmarks build a large synthetic dataset for every parser, covering all
+the features that parser supports, then time a full parse and record its peak
+memory. They are marked `benchmark` and excluded from the default run, so they
+must be selected explicitly:
+
+```bash
+pytest -m benchmark tests/test_data/parsers/benchmarks
+pytest -m benchmark tests/test_data/parsers/benchmarks --benchmark-scale 5
+```
+
+| Option                  | Effect                                                      |
+| ----------------------- | ----------------------------------------------------------- |
+| `--benchmark-scale`     | Multiplies the number of images per split.                  |
+| `--benchmark-repeat`    | Times each parse this many times.                           |
+| `--benchmark-aggregate` | Reduces those timings: `min` (default), `mean` or `median`. |
+| `--benchmark-json`      | Writes the results to a JSON file.                          |
+| `--benchmark-compare`   | Prints each result against an earlier JSON file.            |
+
+Do not run them with `-n auto`; sharing the machine makes the timings useless.
+
+The `± %` column is the scatter of the repeated timings. It is what says
+whether a difference between two runs means anything: the quickest parsers
+finish in hundredths of a second and scatter by more than a slow parser ever
+will, however many repeats they are given. Raising `--benchmark-scale` is the
+only thing that genuinely quiets them, because it makes each parse long enough
+for the scatter to stop mattering.
+
+`min` is the default reduction rather than `mean` because the noise is
+one-sided — a busy machine can only ever make a parse slower — so the fastest
+of N timings is the most reproducible summary of them.
+
+### Comparing two refs
+
+CI runs the suite on release PRs, benchmarking the release ref and its base as
+a matrix so both are measured the same way, then compares the two and fails if
+a parser regressed. The same comparison runs locally:
+
+```bash
+python tools/compare_benchmarks.py base.json head.json --threshold 25
+```
+
+A parser is only reported as regressed when it is both past the threshold and
+more than twice the two runs' combined scatter, so a slow runner cannot fail a
+release on its own. Peak memory is shown but never gates: it is reproducible
+within one run of the suite and not across differently measured ones.
+
+`tools/profile_parsers.py` drives the same datasets outside pytest — it can
+profile a parser, time it, and prove that an optimization left every record
+byte-identical:
+
+```bash
+python tools/profile_parsers.py profile --dataset-type yolov8
+python tools/profile_parsers.py digests before.json   # before the change
+python tools/profile_parsers.py compare before.json   # after it
+```
+
 ## Documentation
 
 Public API docs are generated from docstrings with pydoctor using the

@@ -1,12 +1,16 @@
+import os
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from luxonis_ml.data import DatasetIterator
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import SplitParserPlugin
 
 
-class ClassificationDirectoryParser(BaseParser):
+class ClassificationDirectoryParser(SplitParserPlugin):
     """Parse a directory with classification annotations into LDF.
 
     Supports two directory structures:
@@ -38,25 +42,37 @@ class ClassificationDirectoryParser(BaseParser):
     The split structure is one of the formats that Roboflow can generate.
     """
 
+    dataset_types = ("clsdir",)
+
+    #: Directory names that belong to other layouts and are never classes.
+    _RESERVED_DIR_NAMES = frozenset(
+        {
+            "train",
+            "valid",
+            "test",
+            "val",
+            "validation",
+            "images",
+            "labels",
+            "data",
+            "raw",
+            "masks",
+        }
+    )
+
+    @classmethod
+    def _list_class_dirs(cls, split_path: Path) -> list[Path]:
+        return [
+            path
+            for path in split_path.iterdir()
+            if path.is_dir() and path.name not in cls._RESERVED_DIR_NAMES
+        ]
+
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
-        classes = [
-            d
-            for d in split_path.iterdir()
-            if d.is_dir()
-            and d.name
-            not in {
-                "train",
-                "valid",
-                "test",
-                "val",
-                "validation",
-                "images",
-                "labels",
-            }
-        ]
+        classes = ClassificationDirectoryParser._list_class_dirs(split_path)
         if not classes:
             return None
         # For now allow info.json, can be extended to other metadata files
@@ -69,15 +85,74 @@ class ClassificationDirectoryParser(BaseParser):
             return None
         return {"class_dir": split_path}
 
-    def from_dir(
-        self, dataset_dir: Path
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        added_train_imgs = self._parse_split(class_dir=dataset_dir / "train")
-        added_val_imgs = self._parse_split(class_dir=dataset_dir / "valid")
-        added_test_imgs = self._parse_split(class_dir=dataset_dir / "test")
-        return added_train_imgs, added_val_imgs, added_test_imgs
+    @staticmethod
+    def _resolve_listed(
+        directory: Path, entries: list[Path]
+    ) -> tuple[Path, list[str]]:
+        """Resolve entries listed in one directory against its real path.
 
-    def from_split(self, class_dir: Path) -> ParserOutput:
+        Args:
+            directory: Directory ``entries`` were listed from.
+            entries: Paths of the form ``directory / name``.
+
+        Returns:
+            The resolved directory and, for every entry in order, the tail
+            to join onto it: the entry name, or the entry's own resolved
+            path when the entry is a symlink. Joining stays correct for
+            both, because `Path.__truediv__` and `os.path.join` alike drop
+            the directory when the tail is absolute.
+
+        """
+        # A resolved directory has no symlinked component left, so joining
+        # it with the name of an entry that is not itself a symlink gives
+        # what resolving that entry would - without walking the shared
+        # parent components once per image.
+        resolved_dir = directory.absolute().resolve()
+        with os.scandir(directory) as scan:
+            symlinks = {entry.name for entry in scan if entry.is_symlink()}
+        return resolved_dir, [
+            str(entry.absolute().resolve())
+            if entry.name in symlinks
+            else entry.name
+            for entry in entries
+        ]
+
+    def _walk_classes(
+        self, class_dir: Path
+    ) -> Iterator[tuple[str, Path, list[str]]]:
+        """Walk the class directories of one split, listing each once.
+
+        Args:
+            class_dir: Top-level class directory.
+
+        Yields:
+            The class name, the resolved directory holding its images, and
+            the tail to join onto that directory for every image in it.
+
+        """
+        for class_path in class_dir.iterdir():
+            if not class_path.is_dir():
+                continue
+            # An empty class directory contributes neither a record nor a
+            # file.
+            images = self._list_images(class_path)
+            if not images:
+                continue
+            if class_path.name in self._RESERVED_DIR_NAMES:
+                # The directory holds images but its name belongs to
+                # another layout. It may still be a class legitimately
+                # called `train`, so say so rather than dropping it
+                # silently.
+                logger.warning(
+                    f"Not importing '{class_path}' as a class: its name "
+                    "belongs to another dataset layout. Rename the "
+                    "directory if it really is a class."
+                )
+                continue
+            resolved_dir, tails = self._resolve_listed(class_path, images)
+            yield class_path.name, resolved_dir, tails
+
+    def _split_records(self, class_dir: Path) -> DatasetIterator:
         """Parse classification-directory annotations into LDF records.
 
         Annotations include classification labels.
@@ -85,21 +160,40 @@ class ClassificationDirectoryParser(BaseParser):
         Args:
             class_dir: Top-level class directory.
 
-        Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+        Yields:
+            One classification record per image, class directory by class
+            directory. Nothing is listed before the first record is asked
+            for, so a source too large to hold in memory streams.
 
         """
-        class_names = [d.name for d in class_dir.iterdir() if d.is_dir()]
+        for class_name, resolved_dir, tails in self._walk_classes(class_dir):
+            dir_path = str(resolved_dir)
+            for tail in tails:
+                # Joined as strings: a record only needs the string.
+                yield {
+                    "file": os.path.join(dir_path, tail),  # noqa: PTH118
+                    "annotation": {"class": class_name},
+                }
 
-        def generator() -> DatasetIterator:
-            for class_name in class_names:
-                for img_path in self._list_images(class_dir / class_name):
-                    yield {
-                        "file": str(img_path.absolute().resolve()),
-                        "annotation": {"class": class_name},
-                    }
+    def _split_files(self, class_dir: Path) -> list[Path]:
+        """List the images of one split without building its records.
 
-        added_images = self._get_added_images(generator())
+        The class directories are the annotation, so listing them is all a
+        parse does anyway.
 
-        return generator(), {}, added_images
+        Args:
+            class_dir: Top-level class directory.
+
+        Returns:
+            The images of the split, deduplicated, in listing order. Two
+            entries resolving to the same image - a file and a symlink to
+            it in one class directory - name a single file.
+
+        """
+        return list(
+            dict.fromkeys(
+                resolved_dir / tail
+                for _, resolved_dir, tails in self._walk_classes(class_dir)
+                for tail in tails
+            )
+        )

@@ -339,7 +339,6 @@ import json
 import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
-from copy import deepcopy
 from pathlib import Path
 from typing import Annotated, Any, Literal, Optional, TypeAlias
 
@@ -732,25 +731,35 @@ class BBoxAnnotation(Annotation):
     @model_validator(mode="before")
     @classmethod
     def _validate_values(cls, values: dict[str, Any]) -> dict[str, Any]:
+        # Clipped into a new dictionary rather than in place: a record
+        # handed to `add` may hold a dict its producer still owns and
+        # reuses for the next file.
+        clipped = dict(values)
         warn = False
         for key in ["x", "y", "w", "h"]:
-            if values[key] < -2 or values[key] > 2:
+            if clipped[key] < -2 or clipped[key] > 2:
                 raise ValueError(
                     "BBox annotation has value outside of automatic clipping range ([-2, 2]). "
                     "Values should be normalized based on image size to range [0, 1]."
                 )
-            if not (0 <= values[key] <= 1):
+            if not (0 <= clipped[key] <= 1):
                 warn = True
-                values[key] = max(0, min(1, values[key]))
+                clipped[key] = max(0, min(1, clipped[key]))
         if warn:
             logger.warning(
                 "BBox annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
             )
 
-        return cls._clip_sum(values)
+        return cls._clip_sum(clipped)
 
     @staticmethod
     def _clip_sum(values: dict[str, Any]) -> dict[str, Any]:
+        """Clip width and height so neither runs past the right or bottom
+        edge.
+
+        Edits ``values`` in place, so it is only ever given the copy
+        `_validate_values` made.
+        """
         if values["x"] + values["w"] > 1:
             values["w"] = 1 - values["x"]
             logger.warning(
@@ -835,8 +844,12 @@ class KeypointAnnotation(Annotation):
         if "keypoints" not in values:
             return values
 
+        # A new list rather than an in-place edit, for the same reason
+        # `_clip_points` builds one: the keypoints may belong to an
+        # annotation dict its producer still owns and reuses.
+        clipped = list(values["keypoints"])
         warn = False
-        for i, keypoint in enumerate(values["keypoints"]):
+        for i, keypoint in enumerate(clipped):
             if (keypoint[0] < -2 or keypoint[0] > 2) or (
                 keypoint[1] < -2 or keypoint[1] > 2
             ):
@@ -851,13 +864,13 @@ class KeypointAnnotation(Annotation):
             if not (0 <= keypoint[1] <= 1):
                 new_keypoint[1] = max(0, min(1, keypoint[1]))
                 warn = True
-            values["keypoints"][i] = tuple(new_keypoint)
+            clipped[i] = tuple(new_keypoint)
 
         if warn:
             logger.warning(
                 "Keypoint annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
             )
-        return values
+        return {**values, "keypoints": clipped}
 
 
 class SegmentationAnnotation(Annotation):
@@ -976,11 +989,14 @@ class SegmentationAnnotation(Annotation):
         if not check_type(height, int) or not check_type(width, int):
             raise ValueError("Height and width must be integers")
 
+        # Encoded into a new dictionary rather than in place, so that a
+        # producer reusing one annotation dict across records still sees
+        # the counts it wrote.
         counts = values["counts"]
         if isinstance(counts, str):
-            values["counts"] = counts.encode("utf-8")
+            return {**values, "counts": counts.encode("utf-8")}
 
-        elif isinstance(counts, list):
+        if isinstance(counts, list):
             for c in counts:
                 if not isinstance(c, int) or c < 0:
                     raise ValueError(
@@ -993,9 +1009,12 @@ class SegmentationAnnotation(Annotation):
                     height,
                     width,
                 )
-            values["counts"] = rle["counts"]
-            values["height"] = rle["size"][0]
-            values["width"] = rle["size"][1]
+            return {
+                **values,
+                "counts": rle["counts"],
+                "height": rle["size"][0],
+                "width": rle["size"][1],
+            }
 
         return values
 
@@ -1015,9 +1034,11 @@ class SegmentationAnnotation(Annotation):
     def _validate_mask(cls, values: dict[str, Any]) -> dict[str, Any]:
         if "mask" not in values:
             return values
-        values = deepcopy(values)
 
-        mask = values.pop("mask")
+        # Read rather than popped: a record handed to `add` may hold a
+        # dict its producer still owns, and rebuilding the result below
+        # is cheaper than the defensive deep copy this used to make.
+        mask = values["mask"]
         if isinstance(mask, PathType):
             mask_path = Path(mask)
             if mask_path.suffix == ".npy":
@@ -1048,7 +1069,12 @@ class SegmentationAnnotation(Annotation):
         if mask.ndim != 2:
             raise ValueError("Mask must be a 2D binary array")
 
-        return {**cls._numpy_to_rle(mask), **values}
+        # The derived RLE keys are merged last: `counts` is encoded for
+        # the decoded mask's real shape, so a `height` or `width` the
+        # caller passed alongside `mask` must not override the size the
+        # encoding was made for.
+        rest = {key: item for key, item in values.items() if key != "mask"}
+        return {**rest, **cls._numpy_to_rle(mask)}
 
     @model_validator(mode="before")
     @classmethod
@@ -1056,33 +1082,47 @@ class SegmentationAnnotation(Annotation):
         if {"points", "width", "height"} - set(values.keys()):
             return values
 
-        values = deepcopy(values)
-
-        width = values.pop("width")
-        height = values.pop("height")
+        # Read rather than popped, so that a producer reusing one
+        # annotation dict across records still sees it intact.
+        width = values["width"]
+        height = values["height"]
         if not check_type(height, int) or not check_type(width, int):
             raise ValueError("Height and width must be integers")
 
-        points = values.pop("points")
+        points = values["points"]
         if not check_type(points, list[tuple[float, float]]):
             raise ValueError("Polyline must be a list of float 2D points")
 
         if len(points) < 3:
             raise ValueError("Polyline must contain at least 3 points")
 
-        cls._clip_points(points)
+        clipped = cls._clip_points(points)
 
-        polyline = [(round(x * width), round(y * height)) for x, y in points]
+        polyline = [(round(x * width), round(y * height)) for x, y in clipped]
         mask = Image.new("L", (width, height), 0)
         draw = ImageDraw.Draw(mask)
         draw.polygon(polyline, fill=1, outline=1)
-        return {"mask": np.array(mask).astype(np.uint8), **values}
+        consumed = {"points", "width", "height"}
+        rest = {
+            key: item for key, item in values.items() if key not in consumed
+        }
+        # Merged last so a stray `mask` in the input cannot override the
+        # mask rendered from the points.
+        return {**rest, "mask": np.array(mask).astype(np.uint8)}
 
     @staticmethod
-    def _clip_points(points: list[tuple[float, float]]) -> None:
+    def _clip_points(
+        points: list[tuple[float, float]],
+    ) -> list[tuple[float, float]]:
+        """Return the points clipped to :math:`[0, 1]`.
+
+        A new list rather than an in-place edit: the points may belong to
+        an annotation dict its producer still owns and reuses.
+        """
+        clipped = list(points)
         warn = False
-        for i in range(len(points)):
-            x, y = points[i]
+        for i in range(len(clipped)):
+            x, y = clipped[i]
             if (x < -2 or x > 2) or (y < -2 or y > 2):
                 raise ValueError(
                     "Polyline annotation has value outside of automatic clipping range ([-2, 2]). "
@@ -1096,12 +1136,13 @@ class SegmentationAnnotation(Annotation):
                 new_y = max(0, min(1, y))
                 warn = True
 
-            points[i] = (new_x, new_y)
+            clipped[i] = (new_x, new_y)
 
         if warn:
             logger.warning(
                 "Polyline annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
             )
+        return clipped
 
 
 class InstanceSegmentationAnnotation(SegmentationAnnotation):
@@ -1306,15 +1347,25 @@ class DatasetRecord(BaseModelExtraForbid):
     @model_validator(mode="before")
     @classmethod
     def validate_files(cls, values: dict[str, Any]) -> dict[str, Any]:
-        values = deepcopy(values)
-        if "file" in values:
-            values["files"] = {"image": values.pop("file")}
-        if "files" in values:
-            files_dict = values["files"]
-            values["files"] = {
-                k: Path(v).absolute() for k, v in files_dict.items()
-            }
-        return values
+        if "file" not in values and "files" not in values:
+            return values
+
+        # Rebuilt rather than edited in place. This used to deep copy the
+        # whole record - masks and polygons included - to avoid touching a
+        # dict its producer may still hold; one shallow dict does the same
+        # job for a fraction of the cost.
+        rebuilt = {
+            key: item
+            for key, item in values.items()
+            if key not in {"file", "files"}
+        }
+        files_dict = (
+            {"image": values["file"]} if "file" in values else values["files"]
+        )
+        rebuilt["files"] = {
+            key: Path(item).absolute() for key, item in files_dict.items()
+        }
+        return rebuilt
 
     def to_parquet_rows(self) -> Iterable[ParquetRecord]:
         """Recursively convert the dataset record and all its

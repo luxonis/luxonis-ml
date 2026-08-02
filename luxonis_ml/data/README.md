@@ -35,9 +35,9 @@ Each of these steps will be explained in more detail in the following examples.
     - [LuxonisML CLI](#luxonisml-cli)
   - [LuxonisLoader](#luxonisloader)
     - [Dataset Loading](#dataset-loading)
-  - [LuxonisParser](#luxonisparser)
-    - [Dataset Creation](#dataset-creation)
-    - [LuxonisParser CLI](#luxonisparser-cli)
+  - [Dataset Import](#dataset-import)
+    - [Importing a Dataset](#importing-a-dataset)
+    - [Dataset Import CLI](#dataset-import-cli)
   - [Annotation Format](#annotation-format)
     - [Classification](#classification)
     - [Bounding Box](#bounding-box)
@@ -391,9 +391,9 @@ for img, labels in loader:
     ...
 ```
 
-## LuxonisParser
+## Dataset Import
 
-`LuxonisParser` offers a simple API for creating datasets from several common dataset formats. All of these formats are supported by `roboflow`.
+`LuxonisDataset.import_dataset` creates datasets from several common dataset formats. All of these formats are supported by `roboflow`.
 
 The supported formats are:
 
@@ -704,9 +704,9 @@ The supported formats are:
   3, class3
   ```
 
-### Dataset Creation
+### Importing a Dataset
 
-The first step is to initialize the `LuxonisParser` object with the path to the dataset. Optionally, you can specify the name of the dataset and the type of the dataset.
+Call `LuxonisDataset.import_dataset` with the path to the dataset. Optionally, you can specify the name of the dataset and its format.
 If no name is specified, the dataset will be created with the name of the directory containing the dataset.
 If no type is specified, the parser will try to infer the type from the dataset directory structure.
 
@@ -718,16 +718,16 @@ The `task_name` argument can be specified as a single string or as a dictionary.
 Alternatively, you can provide a dictionary that maps class names to task names for better dataset organization. See the example below.
 
 > [!NOTE]
-> 📚 For a complete list of all parameters of the `LuxonisParser` class, see the [parsers README.md](parsers/README.md).
+> 📚 For supported formats and parser-specific options, see the [parsers README.md](parsers/README.md).
 
 ```python
-from luxonisml.data import LuxonisParser
+from luxonis_ml.data import LuxonisDataset
 from luxonis_ml.enums import DatasetType
 
 dataset_dir = "path/to/dataset"
 
-parser = LuxonisParser(
-  dataset_dir=dataset_dir,
+dataset = LuxonisDataset.import_dataset(
+  dataset_dir,
   dataset_name="my_dataset",
   dataset_type=DatasetType.COCO,
   task_name={
@@ -738,18 +738,16 @@ parser = LuxonisParser(
       "neck": "HeadNeck",
       "joint": "FullPersonBody"
   },
+)
 ```
 
-After initializing the parser, you can parse the dataset to create a `LuxonisDataset` instance. The `LuxonisDataset` instance will contain the data from the dataset with splits for training, validation, and testing based on the dataset directory structure.
-
-```python
-dataset = parser.parse()
-```
+The returned dataset contains the imported records and any splits supplied by
+the source format.
 
 > [!NOTE]
 > The dataset parsers do not follow symbolic links. Datasets that rely on symlinks may not be parsed correctly.
 
-### LuxonisParser CLI
+### Dataset import CLI
 
 The parser can be invoked using the `luxonis_ml data parse` command.
 

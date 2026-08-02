@@ -8,10 +8,10 @@ from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
 from luxonis_ml.utils.path import resolve_manifest_path
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import SplitParserPlugin
 
 
-class CreateMLParser(BaseParser):
+class CreateMLParser(SplitParserPlugin):
     """Parse a directory with CreateML annotations into LDF.
 
     Expected format::
@@ -28,47 +28,50 @@ class CreateMLParser(BaseParser):
     This is one of the formats that Roboflow can generate.
     """
 
+    dataset_types = ("createml",)
+
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
         if not (split_path / "_annotations.createml.json").exists():
             return None
-        if not BaseParser._list_images(split_path):
+        if not CreateMLParser._list_images(split_path):
             return None
         return {
             "image_dir": split_path,
             "annotation_path": split_path / "_annotations.createml.json",
         }
 
-    def from_dir(
-        self, dataset_dir: Path
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        added_train_imgs = self._parse_split(
-            image_dir=dataset_dir / "train",
-            annotation_path=dataset_dir
-            / "train"
-            / "_annotations.createml.json",
-        )
-        added_val_imgs = self._parse_split(
-            image_dir=dataset_dir / "valid",
-            annotation_path=dataset_dir
-            / "valid"
-            / "_annotations.createml.json",
-        )
-        added_test_imgs = self._parse_split(
-            image_dir=dataset_dir / "test",
-            annotation_path=dataset_dir
-            / "test"
-            / "_annotations.createml.json",
-        )
+    @staticmethod
+    def _resolve_image(base_dir: Path, reference: Any) -> Path:
+        """Resolve a manifest image reference against its split
+        directory.
 
-        return added_train_imgs, added_val_imgs, added_test_imgs
+        Args:
+            base_dir: Already absolute and resolved directory the
+                manifest lives in.
+            reference: The ``image`` value of a manifest entry.
 
-    def from_split(
+        Returns:
+            Absolute, symlink-resolved path to the referenced image.
+
+        """
+        # A reference holding neither separator is a bare file name on any
+        # platform, which `resolve_manifest_path` would only join onto
+        # `base_dir` anyway.
+        if (
+            isinstance(reference, str)
+            and "/" not in reference
+            and "\\" not in reference
+        ):
+            return (base_dir / reference).resolve()
+        return resolve_manifest_path(base_dir, reference)
+
+    def _split_records(
         self, image_dir: Path, annotation_path: Path
-    ) -> ParserOutput:
-        """Parse CreateML annotations into LDF records.
+    ) -> DatasetIterator:
+        """Stream CreateML annotations of one split as LDF records.
 
         Annotations include classification and object detection.
 
@@ -76,19 +79,19 @@ class CreateMLParser(BaseParser):
             image_dir: Directory with images.
             annotation_path: Annotation JSON file.
 
-        Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+        Yields:
+            One record per box, in manifest order. The manifest is walked
+            a single time and each record is emitted as it is read.
 
         """
-        with open(annotation_path) as f:
+        with open(annotation_path, encoding="utf-8") as f:
             annotations_data = json.load(f)
 
-        images_annotations = []
+        # The same for every entry, so resolved once.
+        base_dir = image_dir.absolute().resolve()
+
         for annotations in annotations_data:
-            path = resolve_manifest_path(
-                image_dir.absolute().resolve(), annotations["image"]
-            )
+            path = self._resolve_image(base_dir, annotations["image"])
             if not path.exists():
                 self._warn_skipped_annotation(
                     ParserIssue.MISSING_IMAGE,
@@ -98,41 +101,61 @@ class CreateMLParser(BaseParser):
                 )
                 continue
             file = str(path)
-            img = Image.open(file)
-            width, height = img.size
+            # Ahead of the boxes, so that an unreadable image fails the
+            # parse even for a frame that carries none. Only the header is
+            # needed, so the file is closed right away.
+            with Image.open(file) as img:
+                width, height = img.size
 
-            curr_annotations = {"path": str(path), "classes": [], "bboxes": []}
+            # A frame without boxes yields nothing at all.
             for curr_ann in annotations["annotations"]:
-                class_name = curr_ann["label"]
-                curr_annotations["classes"].append(class_name)
-
                 bbox_ann = curr_ann["coordinates"]
-                bbox_xywh = [
-                    (bbox_ann["x"] - bbox_ann["width"] / 2) / width,
-                    (bbox_ann["y"] - bbox_ann["height"] / 2) / height,
-                    bbox_ann["width"] / width,
-                    bbox_ann["height"] / height,
-                ]
-                curr_annotations["bboxes"].append((class_name, bbox_xywh))
-            images_annotations.append(curr_annotations)
-
-        def generator() -> DatasetIterator:
-            for curr_annotations in images_annotations:
-                path = curr_annotations["path"]
-                for bbox_class, (x, y, w, h) in curr_annotations["bboxes"]:
-                    yield {
-                        "file": path,
-                        "annotation": {
-                            "class": bbox_class,
-                            "boundingbox": {
-                                "x": x,
-                                "y": y,
-                                "w": w,
-                                "h": h,
-                            },
+                yield {
+                    "file": file,
+                    "annotation": {
+                        "class": curr_ann["label"],
+                        "boundingbox": {
+                            "x": (bbox_ann["x"] - bbox_ann["width"] / 2)
+                            / width,
+                            "y": (bbox_ann["y"] - bbox_ann["height"] / 2)
+                            / height,
+                            "w": bbox_ann["width"] / width,
+                            "h": bbox_ann["height"] / height,
                         },
-                    }
+                    },
+                }
 
-        added_images = self._get_added_images(generator())
+    def _split_files(
+        self, image_dir: Path, annotation_path: Path
+    ) -> list[Path]:
+        """List the images of one split straight from its manifest.
 
-        return generator(), {}, added_images
+        The manifest names every image that can produce a record, so a
+        count-based import picks its subset without decoding one.
+
+        Args:
+            image_dir: Directory with images.
+            annotation_path: Annotation JSON file.
+
+        Returns:
+            The images yielding at least one record, in manifest order and
+            deduplicated, mirroring a manifest that names one image twice.
+
+        """
+        with open(annotation_path, encoding="utf-8") as f:
+            annotations_data = json.load(f)
+
+        base_dir = image_dir.absolute().resolve()
+
+        files: dict[Path, None] = {}
+        for annotations in annotations_data:
+            # A frame without boxes produces no record, so it is not a
+            # file an import can choose.
+            if not annotations["annotations"]:
+                continue
+            path = self._resolve_image(base_dir, annotations["image"])
+            # The parse reports a missing image; this only decides what
+            # can be selected.
+            if path.exists():
+                files[path] = None
+        return list(files)

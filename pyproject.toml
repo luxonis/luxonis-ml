@@ -166,6 +166,7 @@ unfixable = ["B905"]
 "tests/*" = ["ANN201"]
 "__main__.py" = ["ANN201"]
 "tools/benchmark.py" = ["T201"]
+"tools/profile_parsers.py" = ["T201"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "__future__".msg = "Do not use imports from __future__."
@@ -190,18 +191,34 @@ reportUnnecessaryIsInstance = "none"
 paths = ["luxonis_train"]
 exclude = ["luxonis_ml/tracker", "examples", "__main__.py"]
 
-[tool.pytest]
+[tool.pytest.ini_options]
 doctest_optionflags = [
   "NORMALIZE_WHITESPACE",
   "IGNORE_EXCEPTION_DETAIL",
   "NUMBER",
 ]
 testpaths = ["tests", "luxonis_ml"]
-addopts = ["--disable-warnings", "--doctest-modules"]
+addopts = ["--disable-warnings", "--doctest-modules", "-m", "not benchmark"]
+markers = [
+  "benchmark: parser performance benchmark; excluded by default, select with `-m benchmark`",
+]
 
 
 [tool.coverage.run]
-omit = ["luxonis_ml/utils/logging.py", "luxonis_ml/tracker/*", "**/__main__.py"]
+# The benchmark suite is deselected by `-m "not benchmark"`, so the run
+# that measures coverage cannot execute it and it would report as dead
+# code. `comparison.py` is deliberately not omitted: it gates releases
+# and its tests do run by default.
+omit = [
+  "luxonis_ml/utils/logging.py",
+  "luxonis_ml/tracker/*",
+  "**/__main__.py",
+  "tests/test_data/parsers/benchmarks/conftest.py",
+  "tests/test_data/parsers/benchmarks/datasets/*",
+  "tests/test_data/parsers/benchmarks/equivalence.py",
+  "tests/test_data/parsers/benchmarks/harness.py",
+  "tests/test_data/parsers/benchmarks/test_parser_benchmarks.py",
+]
 source = ["luxonis_ml", "tests"]
 
 [tool.coverage.report]

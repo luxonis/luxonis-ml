@@ -1,16 +1,17 @@
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import Layout, SplitParserPlugin
 
 
-class FiftyOneClassificationParser(BaseParser):
+class FiftyOneClassificationParser(SplitParserPlugin):
     """Parse FiftyOne image classification data into LDF.
 
     Supports two directory structures:
@@ -52,7 +53,8 @@ class FiftyOneClassificationParser(BaseParser):
 
     """
 
-    _SPLIT_NAMES: tuple[str, ...] = ("train", "validation", "test")
+    dataset_types = ("fiftyone-classification",)
+    split_names = ("train", "validation", "test")
 
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
@@ -69,78 +71,171 @@ class FiftyOneClassificationParser(BaseParser):
             return None
 
         try:
-            with open(labels_path) as f:
+            with open(labels_path, encoding="utf-8") as f:
                 labels_data = json.load(f)
-            if "classes" not in labels_data or "labels" not in labels_data:
-                return None
         except (json.JSONDecodeError, OSError):
             return None
 
-        return {"split_path": split_path}
+        # Checked by type rather than by key: `"classes" in labels_data`
+        # raises on a `labels.json` holding a number, which would abort
+        # the detection of every other format too.
+        if not isinstance(labels_data, dict):
+            return None
+        classes = labels_data.get("classes")
+        labels = labels_data.get("labels")
+        if (
+            not isinstance(classes, list)
+            or not all(isinstance(name, str) for name in classes)
+            or not isinstance(labels, dict)
+        ):
+            return None
 
-    def from_dir(
-        self, dataset_dir: Path, **kwargs
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        added_train_imgs: list[Path] = []
-        added_val_imgs: list[Path] = []
-        added_test_imgs: list[Path] = []
+        # `labels.json` is handed on rather than read a second time.
+        return {"split_path": split_path, "labels_data": labels_data}
 
-        if (dataset_dir / "train").exists():
-            added_train_imgs = self._parse_split(
-                split_path=dataset_dir / "train"
-            )
+    @staticmethod
+    def _names_a_class(class_idx: Any, classes: list[str]) -> bool:
+        """Report whether a label selects a class that exists.
 
-        if (dataset_dir / "validation").exists():
-            added_val_imgs = self._parse_split(
-                split_path=dataset_dir / "validation"
-            )
+        Indexing alone does not answer this. A negative index picks a
+        class from the end of the list, and ``True`` picks the second
+        one, so both would quietly label an image with the wrong class
+        where an index past the end at least raises. `bool` is rejected
+        on purpose: it is an `int`, but a label of ``true`` is malformed
+        rather than a request for class 1.
+        """
+        return type(class_idx) is int and 0 <= class_idx < len(classes)
 
-        if (dataset_dir / "test").exists():
-            added_test_imgs = self._parse_split(
-                split_path=dataset_dir / "test"
-            )
+    @classmethod
+    @override
+    def detect(cls, source: Path) -> Layout | None:
+        layout = super().detect(source)
+        if layout is None:
+            return None
+        # Which layout a directory belongs to is positional, not something
+        # the directory itself shows: a `train` split and a flat source
+        # sitting in a directory called `train` look alike, so only
+        # detection can tell them apart.
+        return Layout(
+            {
+                split_name: {**split_kwargs, "is_flat": split_name is None}
+                for split_name, split_kwargs in layout.splits.items()
+            }
+        )
 
-        return added_train_imgs, added_val_imgs, added_test_imgs
+    @staticmethod
+    def _read_labels(labels_path: Path) -> dict[str, Any]:
+        with open(labels_path, encoding="utf-8") as f:
+            return cast(dict[str, Any], json.load(f))
 
-    def from_split(self, split_path: Path) -> ParserOutput:
+    def _stem_to_path(self, split_path: Path) -> dict[str, Path]:
+        """Map each image stem in a split's ``data`` directory to its path.
+
+        Labels name an image by its stem, so the extension a split happens
+        to use is resolved through a single listing of the directory.
+        """
+        return {
+            image.stem: image
+            for image in self._list_images(split_path / "data")
+        }
+
+    def _split_records(
+        self,
+        split_path: Path,
+        labels_data: dict[str, Any] | None = None,
+        is_flat: bool = True,
+    ) -> DatasetIterator:
+        """Stream the records of one FiftyOne split directory.
+
+        Args:
+            split_path: Directory holding ``data`` and ``labels.json``.
+            labels_data: Content of ``labels.json`` as parsed by
+                `validate_split`. Read from disk when not given.
+            is_flat: Whether ``split_path`` is a whole flat source rather
+                than one split of a split-based one, as `detect`
+                determined. Only a flat source runs the ImageNet cleanup.
+
+        Yields:
+            One classification record per label naming an image that the
+            split actually contains, in label order.
+
+        """
         labels_path = split_path / "labels.json"
-        data_path = split_path / "data"
 
-        is_flat_structure = split_path.name not in self._SPLIT_NAMES
-        if is_flat_structure:
-            labels_path = clean_imagenet_annotations(labels_path)
+        if is_flat:
+            cleaned_path = clean_imagenet_annotations(labels_path)
+            if cleaned_path != labels_path:
+                # The cleanup rewrote the labels, so what validation read
+                # is no longer what this split is parsed from.
+                labels_data = None
+            labels_path = cleaned_path
 
-        with open(labels_path) as f:
-            labels_data = json.load(f)
+        if labels_data is None:
+            labels_data = self._read_labels(labels_path)
 
         classes = labels_data["classes"]
         labels = labels_data["labels"]
+        stem_to_path = self._stem_to_path(split_path)
 
-        images = self._list_images(data_path)
-        stem_to_path = {img.stem: img for img in images}
+        for image_stem, class_idx in labels.items():
+            image_path = stem_to_path.get(image_stem)
+            if image_path is None:
+                self._warn_skipped_annotation(
+                    ParserIssue.MISSING_IMAGE_STEM,
+                    "label references an image stem that is not present in the split",
+                    source=labels_path,
+                    image=image_stem,
+                )
+                continue
 
-        def generator() -> DatasetIterator:
-            for image_stem, class_idx in labels.items():
-                if image_stem not in stem_to_path:
-                    self._warn_skipped_annotation(
-                        ParserIssue.MISSING_IMAGE_STEM,
-                        "label references an image stem that is not present in the split",
-                        source=labels_path,
-                        image=image_stem,
-                    )
-                    continue
+            # A label naming no class is an error the parser raises, not a
+            # record it quietly drops - checked here, as the label is
+            # reached, so the walk stays single-pass.
+            if not self._names_a_class(class_idx, classes):
+                raise IndexError(
+                    f"Label for image '{image_stem}' in '{labels_path}' "
+                    f"names class index {class_idx!r}, which the "
+                    f"{len(classes)}-class list does not hold."
+                )
 
-                img_path = stem_to_path[image_stem]
-                class_name = classes[class_idx]
+            yield {
+                "file": image_path,
+                "annotation": {"class": classes[class_idx]},
+            }
 
-                yield {
-                    "file": img_path,
-                    "annotation": {"class": class_name},
-                }
+    def _split_files(
+        self,
+        split_path: Path,
+        labels_data: dict[str, Any] | None = None,
+        is_flat: bool = True,
+    ) -> list[Path]:
+        """List the images one FiftyOne split parses into records.
 
-        added_images = self._get_added_images(generator())
+        Args:
+            split_path: Directory holding ``data`` and ``labels.json``.
+            labels_data: Content of ``labels.json`` as parsed by
+                `validate_split`. Read from disk when not given.
+            is_flat: Unused. Listing the files is the same either way.
 
-        return generator(), {}, added_images
+        Returns:
+            The split's images in label order, leaving out both the images
+            no label names and the labels naming a missing image.
+
+        """
+        del is_flat
+        if labels_data is None:
+            labels_data = self._read_labels(split_path / "labels.json")
+
+        # The ImageNet cleanup a flat layout runs before parsing only
+        # renames classes and re-points two label indices, so the images
+        # are the same either way and this need not run it - or rewrite
+        # anything on disk.
+        stem_to_path = self._stem_to_path(split_path)
+        return [
+            stem_to_path[image_stem]
+            for image_stem in labels_data["labels"]
+            if image_stem in stem_to_path
+        ]
 
 
 def clean_imagenet_annotations(labels_path: Path) -> Path:
@@ -156,7 +251,7 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
         Path to the cleaned labels file.
 
     """
-    with open(labels_path) as f:
+    with open(labels_path, encoding="utf-8") as f:
         labels_data = json.load(f)
 
     classes = labels_data["classes"]
@@ -206,7 +301,7 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
     labels_data["labels"] = labels
 
     cleaned_labels_path = labels_path.with_name("labels_fixed.json")
-    with open(cleaned_labels_path, "w") as f:
+    with open(cleaned_labels_path, "w", encoding="utf-8") as f:
         json.dump(labels_data, f)
 
     logger.info(f"Cleaned annotations saved to {cleaned_labels_path}")
