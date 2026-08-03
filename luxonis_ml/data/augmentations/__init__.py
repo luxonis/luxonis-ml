@@ -24,7 +24,7 @@ optional stage filtering through ``apply_on_stages``. When
 The engine groups transforms by behavior rather than preserving the exact
 input order:
 
-    1. Batch transforms, such as `MixUp` and `Mosaic4`.
+    1. Batch transforms, such as `MixUp` or `Mosaic4`.
     2. Spatial transforms, such as Albumentations dual transforms.
     3. Custom basic transforms.
     4. Pixel-only transforms.

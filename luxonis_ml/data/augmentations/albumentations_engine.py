@@ -18,7 +18,8 @@ from luxonis_ml.utils import deprecated
 from .base_engine import AugmentationEngine
 from .batch_compose import BatchCompose
 from .batch_transform import BatchTransform
-from .custom import TRANSFORMATIONS, LetterboxResize
+from .custom import TRANSFORMATIONS
+from .custom.letterbox_resize import create_letterbox_or_resize
 from .utils import (
     instance_count,
     postprocess_bboxes,
@@ -252,7 +253,30 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     All augmentations provided by the Albumentations library are supported.
 
     Batch Augmentations
-    -----------------------------
+    -------------------
+
+    These require several images at once and must be configured as
+    top-level augmentations. Nesting one inside a composition such as
+    ``OneOf`` or ``Sequential`` raises a ``ValueError``.
+
+    `CutMix`
+    ~~~~~~~~
+
+    CutMix is a data augmentation technique that patches one source image
+    into another using a rectangle sampled from a beta-distributed mixing
+    coefficient.
+
+    Bounding boxes of the first image survive as long as the part of them
+    left outside the patch is at least ``bbox_min_visibility`` of their
+    original area; the ones the patch covers past that are dropped
+    together with their instance masks, keypoints and metadata. Bounding
+    boxes of the second image are clipped to the patch.
+
+    ``occluded_bbox_strategy`` picks what happens to a survivor the patch
+    partly covers. The default ``"keep"`` leaves it at its original
+    extent, since the object still fills the box and is only covered up;
+    ``"clip"`` shrinks it to the largest part of itself the patch does not
+    reach, so no box edge is left sitting on top of the patch.
 
     `MixUp`
     ~~~~~~~
@@ -631,7 +655,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     )
                 resize_probability = float(resize_probability)
                 if resize_probability < 1:
-                    fallback_resize = self._create_default_resize_transform(
+                    fallback_resize = create_letterbox_or_resize(
                         keep_aspect_ratio=keep_aspect_ratio,
                         height=height,
                         width=width,
@@ -683,7 +707,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             wrapped_spatial_ops = spatial_transforms
 
         if resize_transform is None:
-            resize_transform = self._create_default_resize_transform(
+            resize_transform = create_letterbox_or_resize(
                 keep_aspect_ratio=keep_aspect_ratio,
                 height=height,
                 width=width,
@@ -1178,21 +1202,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         return kps
 
     @staticmethod
-    def _create_default_resize_transform(
-        keep_aspect_ratio: bool,
-        height: int,
-        width: int,
-        p: float = 1.0,
-    ) -> A.DualTransform:
-        if keep_aspect_ratio:
-            return LetterboxResize(
-                height=height,
-                width=width,
-                p=p,
-            )
-        return A.Resize(height=height, width=width, p=p)
-
-    @staticmethod
     def _create_transformation(
         config: AlbumentationConfigItem,
         tracked_paths: dict[int, str],
@@ -1242,9 +1251,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                         raise ValueError(
                             f"Batch transform '{item['name']}' cannot be "
                             f"nested inside '{config.name}'. "
-                            f"Batch transforms (e.g Mosaic4 and MixUp) "
-                            f"require multiple images and must be used "
-                            f"as top-level augmentations."
+                            "Batch transforms (e.g. Mosaic4, MixUp, "
+                            "and CutMix) require multiple images and "
+                            "must be used as top-level augmentations."
                         )
                     nested_transforms.append(transform)
                 else:

@@ -779,3 +779,104 @@ def test_tracks_batch_transforms_applied_in_any_sub_batch():
     # into one image and input 4 passed through; MixUp then merged the two.
     assert engine.batch_augmentation_indices == [0, 1, 2, 3, 4]
     assert set(engine.applied_augmentations) == {"Mosaic4", "MixUp"}
+
+
+def test_tracks_cutmix_runtime_parameters():
+    """`CutMix` samples its mixing coefficient and its patch bounds.
+
+    The patch bounds are derived from the coefficient and the first image
+    shape, so they are runtime values rather than configuration echoed
+    back, and describe what the augmentation did to the sample.
+    """
+    engine = AlbumentationsEngine(
+        64,
+        64,
+        {},
+        {},
+        ["image"],
+        [{"name": "CutMix", "params": {"p": 1.0, "alpha": 1.0}}],
+        seed=42,
+    )
+
+    engine.apply(_make_sample() * 2)
+
+    params = engine.applied_augmentations["CutMix"]
+    assert set(params) == {"lambda_value", "x1", "y1", "x2", "y2"}
+    assert 0.0 <= params["lambda_value"] <= 1.0  # type: ignore[operator]
+    assert 0 <= params["x1"] <= params["x2"] <= 64  # type: ignore[operator]
+    assert 0 <= params["y1"] <= params["y2"] <= 64  # type: ignore[operator]
+    # The patch is what the loader reports, so it has to survive the trip
+    # through the sample metadata unchanged.
+    assert json.loads(json.dumps(params)) == params
+
+
+def test_cutmix_reports_both_merged_inputs():
+    engine = AlbumentationsEngine(
+        64,
+        64,
+        {},
+        {},
+        ["image"],
+        [{"name": "CutMix", "params": {"p": 1.0}}],
+        seed=42,
+    )
+
+    engine.apply(_make_sample() * 2)
+
+    assert engine.batch_augmentation_indices == [0, 1]
+
+
+def test_omits_cutmix_that_did_not_apply():
+    engine = AlbumentationsEngine(
+        64,
+        64,
+        {},
+        {},
+        ["image"],
+        [{"name": "CutMix", "params": {"p": 0.0}}],
+        seed=42,
+    )
+
+    engine.apply(_make_sample() * 2)
+
+    assert engine.applied_augmentations == {}
+    assert engine.batch_augmentation_indices == [0]
+
+
+def test_tracks_cutmix_alongside_its_labels():
+    """Provenance must survive the label bookkeeping `CutMix` performs.
+
+    `CutMix` rewrites bounding boxes and keypoints as it patches, which is
+    the part of the composition that drops and reindexes rows. Tracking
+    reads the transformation itself, so it has to stay unaffected.
+    """
+    targets = {
+        "task/boundingbox": "boundingbox",
+        "task/keypoints": "keypoints",
+    }
+    engine = AlbumentationsEngine(
+        320,
+        320,
+        targets,
+        dict.fromkeys(targets, 1),
+        ["image"],
+        [{"name": "CutMix", "params": {"p": 1.0}}],
+        seed=3,
+    )
+    image = np.zeros((320, 320, 3), dtype=np.uint8)
+
+    def labels(offset: float) -> dict[str, np.ndarray]:
+        return {
+            "task/boundingbox": np.array(
+                [[0.0, 0.1 + offset, 0.1 + offset, 0.2, 0.2]]
+            ),
+            "task/keypoints": np.array([[0.15 + offset, 0.15 + offset, 2.0]]),
+        }
+
+    engine.apply(
+        [({"image": image}, labels(0.0)), ({"image": image}, labels(0.5))]
+    )
+
+    params = engine.applied_augmentations["CutMix"]
+    assert set(params) == {"lambda_value", "x1", "y1", "x2", "y2"}
+    assert engine.batch_augmentation_indices == [0, 1]
