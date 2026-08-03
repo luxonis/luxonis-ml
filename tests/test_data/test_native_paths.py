@@ -96,10 +96,6 @@ def test_yolov4_parser_keeps_unlabeled_image_with_duplicate_basename(
 
 
 def test_native_parser_resolves_array_annotation_paths(tempdir: Path):
-    # An array annotation points at a companion .npy the same way a mask points
-    # at a companion image. Before this was resolved against the manifest, a
-    # relative path was validated against the process's CWD instead, so any
-    # portable dataset carrying arrays failed to parse at all.
     import numpy as np
 
     image_path = create_image(0, tempdir)
@@ -136,16 +132,13 @@ def test_native_parser_resolves_array_annotation_paths(tempdir: Path):
     ).from_split(annotation_path=annotations_path)
 
     record = next(iter(generator))
-    assert isinstance(record, dict)  # the parser yields raw manifest records
+    assert isinstance(record, dict)
     assert record["annotation"]["array"]["path"] == array_path.resolve()
 
 
 def test_native_parser_resolves_paths_for_a_list_of_annotations(
     tempdir: Path,
 ):
-    # `annotation` may be a single detection or a list of them. Indexing the
-    # list as if it were a detection used to raise TypeError, which the
-    # surrounding suppress(KeyError) did not catch.
     image_path = create_image(0, tempdir)
     split_dir = tempdir / "train"
     (split_dir / "images").mkdir(parents=True)
@@ -183,15 +176,12 @@ def test_native_parser_resolves_paths_for_a_list_of_annotations(
     ).from_split(annotation_path=annotations_path)
 
     record = next(iter(generator))
-    assert isinstance(record, dict)  # the parser yields raw manifest records
+    assert isinstance(record, dict)
     resolved = record["annotation"][0]["segmentation"]["mask"]
     assert resolved == mask_path.resolve()
 
 
 def test_native_parser_resolves_paths_inside_sub_detections(tempdir: Path):
-    # A nested detection carries companion files exactly like a top-level one,
-    # so its paths are written relative to the manifest too and have to be
-    # resolved with the same recursion.
     image_path = create_image(0, tempdir)
     split_dir = tempdir / "train"
     (split_dir / "images").mkdir(parents=True)
@@ -233,6 +223,6 @@ def test_native_parser_resolves_paths_inside_sub_detections(tempdir: Path):
     ).from_split(annotation_path=annotations_path)
 
     record = next(iter(generator))
-    assert isinstance(record, dict)  # the parser yields raw manifest records
+    assert isinstance(record, dict)
     nested = record["annotation"]["sub_detections"]["head"]
     assert nested["instance_segmentation"]["mask"] == mask_path.resolve()
