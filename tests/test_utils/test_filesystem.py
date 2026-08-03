@@ -1,6 +1,6 @@
 from collections.abc import Callable, Iterator
-from contextlib import suppress
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from _pytest.fixtures import SubRequest
@@ -73,13 +73,12 @@ def fs(
 
 def _remove_remote(fs: LuxonisFileSystem, name: str) -> None:
     """Delete a remote file or directory, if it is there at all."""
-    with suppress(Exception):
-        if not fs.exists(name):
-            return
-        if fs.is_directory(name):
-            fs.delete_dir(name)
-        else:
-            fs.delete_file(name)
+    if not fs.exists(name):
+        return
+    if fs.is_directory(name):
+        fs.delete_dir(name)
+    else:
+        fs.delete_file(name)
 
 
 @pytest.fixture
@@ -87,25 +86,24 @@ def remote(fs: LuxonisFileSystem) -> Iterator[Callable[[str], str]]:
     """Reserve remote names and remove them once the test is done.
 
     The ``s3://`` and ``gcs://`` filesystems address a bucket shared by
-    every run, on every platform and Python version, so whatever a test
-    uploads and does not delete stays there for good. Several of these
-    tests then open with ``assert not fs.exists(name)`` on a name built
-    from ``randint``, which is drawn from a range of 100_000 -- so as
-    the leftovers pile up, the chance of a run colliding with one grows
-    with every run, until a test fails on a name it never created. That
-    is what made ``test_static_directory`` fail on a green branch.
-
-    Clearing the name on the way in, and not only on the way out, is
-    what makes this self-correcting: a run killed before its teardown,
-    and every name already sitting in the bucket, stop being able to
-    fail the next test that happens to draw them.
+    every run, on every platform and Python version. Each logical test
+    name therefore gets a UUID-backed remote name, which isolates it
+    from leftovers and concurrent runs. Repeated reservations of the
+    same logical name return the same remote name and clear it before
+    use, protecting retries within the test as well.
     """
     reserved: list[str] = []
+    names: dict[str, str] = {}
 
     def reserve(name: str) -> str:
-        _remove_remote(fs, name)
-        reserved.append(name)
-        return name
+        if name not in names:
+            unique_name = f"{name}.{uuid4().hex}"
+            names[name] = unique_name
+            reserved.append(unique_name)
+
+        unique_name = names[name]
+        _remove_remote(fs, unique_name)
+        return unique_name
 
     yield reserve
 
@@ -121,32 +119,31 @@ def test_remote_names_are_cleared_before_use(
 ):
     """Regression test for the shared bucket accumulating uploads.
 
-    Reserving a name has to clear it, not just schedule it for deletion.
-    The bucket still holds every leftover from before this fixture
-    existed, and a run killed between its upload and its teardown will
-    keep adding more, so the tests that open with ``assert not
-    fs.exists(name)`` stay exposed until reserving is what frees the
-    name. ``test_static_directory`` failed exactly that way, on a branch
-    that changed nothing but a hashing routine.
+    Reserving a name has to clear it, not just schedule it for deletion,
+    and repeated reservations must resolve to the same UUID-backed
+    remote name.
 
     Files and directories are both covered because they are removed
     through different calls, and a directory left behind by an
     interrupted run is the more likely of the two -- uploads are what
     these tests mostly do.
 
-    Reserving up front, before the leftover is planted, is what keeps
-    this test from leaking the very thing it is testing when an
-    assertion fails.
+    Reserving up front, before the leftover is planted, keeps this test
+    from leaking the very thing it is testing when an assertion fails.
     """
-    leftover_file = remote(f"leftover_file_{randint}.txt")
+    file_name = f"leftover_file_{randint}.txt"
+    leftover_file = remote(file_name)
     fs.put_bytes(b"leftover", leftover_file)
     assert fs.exists(leftover_file)
-    assert not fs.exists(remote(leftover_file))
+    assert remote(file_name) == leftover_file
+    assert not fs.exists(leftover_file)
 
-    leftover_dir = remote(f"leftover_dir_{randint}")
+    dir_name = f"leftover_dir_{randint}"
+    leftover_dir = remote(dir_name)
     fs.put_dir(local_dir, leftover_dir)
     assert fs.is_directory(leftover_dir)
-    assert not fs.exists(remote(leftover_dir))
+    assert remote(dir_name) == leftover_dir
+    assert not fs.exists(leftover_dir)
 
 
 def test_file(
