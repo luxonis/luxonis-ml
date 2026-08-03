@@ -40,6 +40,7 @@ from luxonis_ml.typing import (
     LoaderOutput,
     Params,
     PathType,
+    TrackedAugmentations,
 )
 
 
@@ -622,7 +623,7 @@ class LuxonisLoader(BaseLoader):
                 stacklevel=2,
             )
         else:
-            sample_metadata["augmentations"] = (
+            sample_metadata["augmentations"] = TrackedAugmentations(
                 self._augmentations.applied_augmentations
             )
         return img_dict, labels, sample_metadata

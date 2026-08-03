@@ -10,17 +10,18 @@ from rich.table import Table
 
 from luxonis_ml.data import LuxonisDataset
 from luxonis_ml.data.utils.enums import BucketStorage
-from luxonis_ml.typing import Params, check_type
+from luxonis_ml.typing import Params, TrackedAugmentations, check_type
 
 
-def get_tracked_augmentations(metadata: Params) -> dict[str, Params] | None:
+def get_tracked_augmentations(
+    metadata: Params,
+) -> TrackedAugmentations | None:
     """Read the augmentation provenance the loader added to a sample.
 
     A dataset is free to store its own ``"augmentations"`` metadata, which
-    the loader keeps in place of the tracked provenance. Only a mapping of
-    configured paths to their runtime parameters can have come from the
-    loader, so anything else is left to be read as the record metadata it
-    is.
+    the loader keeps in place of tracked provenance. Loader-created mappings
+    carry a marker type, so user metadata is never inferred to be provenance
+    merely because it has a similar nested-dictionary shape.
 
     Args:
         metadata: Sample metadata as returned by `LuxonisLoader`.
@@ -31,9 +32,11 @@ def get_tracked_augmentations(metadata: Params) -> dict[str, Params] | None:
 
     """
     augmentations = metadata.get("augmentations")
-    if not check_type(augmentations, dict[str, Params]):
-        return None
-    return augmentations
+    return (
+        augmentations
+        if isinstance(augmentations, TrackedAugmentations)
+        else None
+    )
 
 
 def get_applied_augmentations(metadata: Params) -> list[str]:
