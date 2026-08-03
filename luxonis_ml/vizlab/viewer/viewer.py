@@ -23,10 +23,16 @@ from .backend import MouseHandler, WindowBackend
 from .cv2_backend import Cv2Backend
 from .hud import render_controls_card
 from .layers import LayerState
-from .tooltip_render import blit_rgba_on_bgr, draw_tooltip
+from .tooltip_render import TooltipCard, blit_rgba_on_bgr, prepare_tooltip
 
 #: A per-window callback that re-renders the window's `Frame` for a `LayerState`.
 RenderFn = Callable[[LayerState], Frame]
+
+#: `wait`'s poll timeout while nothing is moving — long enough to idle cheaply.
+_IDLE_POLL_MS = 20
+#: ...and right after a hover redraw, so a moving tooltip is not held a whole
+#: idle poll behind the cursor. The pointer stopping restores the idle timeout.
+_ACTIVE_POLL_MS = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +73,23 @@ class _HoverState:
     #: Action string from a panel click, awaiting the `wait` loop to apply it.
     pending: str | None = None
     render: RenderFn | None = None
+    #: Buffer the tooltip is drawn into, so `base` stays a clean backdrop to
+    #: restore from. Allocated on the window's first hover.
+    scratch: np.ndarray | None = None
+    #: The card rendered for `hover`, reused for as long as the pointer stays
+    #: within the same region and only its position changes.
+    card: TooltipCard | None = None
+    #: Region of `scratch` the last tooltip covered, restored before the next
+    #: one is drawn — repainting the whole frame per mouse-move is wasteful.
+    painted: tuple[int, int, int, int] | None = None
+
+    def clear_hover(self) -> None:
+        """Drop the tooltip and every buffer derived from the current frame."""
+        self.hover = None
+        self.scratch = None
+        self.card = None
+        self.painted = None
+        self.dirty = False
 
 
 def _key_char(key: int) -> str:
@@ -280,8 +303,7 @@ class Viewer:
         state.base = bgr
         state.hitmap = hitmap
         state.clickmap = clickmap
-        state.hover = None
-        state.dirty = False
+        state.clear_hover()
         self._backend.show(name, bgr)
 
     def show_blocking(self, name: str, display: Renderable) -> str:
@@ -296,9 +318,14 @@ class Viewer:
         """Block for a keypress, redrawing hover tooltips; return its char.
 
         For pull backends (`Cv2Backend`); push backends use `run` instead.
+
+        The poll timeout is what mouse-moves are delivered through, so it also
+        paces hover redraws: it stays short while the tooltip is moving and
+        relaxes as soon as the pointer settles.
         """
+        poll = _IDLE_POLL_MS
         while True:
-            key_result = self._handle_polled_key(self._backend.poll_key(20))
+            key_result = self._handle_polled_key(self._backend.poll_key(poll))
             if key_result is not None:
                 handled, char = key_result
                 if not handled:
@@ -306,7 +333,7 @@ class Viewer:
                 continue
             if self._consume_pending_action():
                 continue
-            self._flush_hover()
+            poll = _ACTIVE_POLL_MS if self._flush_hover() else _IDLE_POLL_MS
 
     def _handle_polled_key(self, key: int) -> tuple[bool, str] | None:
         """Return ``(handled, char)`` for a key, or ``None`` when none arrived."""
@@ -332,13 +359,16 @@ class Viewer:
         self._apply_action(pending)
         return True
 
-    def _flush_hover(self) -> None:
-        """Redraw every window whose hover state changed."""
+    def _flush_hover(self) -> bool:
+        """Redraw every window whose hover state changed, reporting whether any did."""
+        redrawn = False
         for name, state in self._windows.items():
             if not state.dirty:
                 continue
             state.dirty = False
             self._render_hover(name, state)
+            redrawn = True
+        return redrawn
 
     def run(self, on_key: Callable[[str], None]) -> None:
         """Enter driven mode: the backend's own event loop delivers events.
@@ -367,13 +397,28 @@ class Viewer:
         self._backend.set_key_handler(dispatch)
 
     def _render_hover(self, name: str, state: _HoverState) -> None:
-        """Present ``state``'s base frame, with its current tooltip if any."""
-        if state.hover is None:
+        """Present ``state``'s base frame, with its current tooltip if any.
+
+        The tooltip is drawn into a scratch buffer that is otherwise a copy of
+        the base frame, and only the region the previous card covered is
+        restored — a mouse-move repaints a card-sized patch, not a whole frame.
+        """
+        if state.hover is None and state.painted is None:
             self._backend.show(name, state.base)
-        else:
-            frame = state.base.copy()
-            draw_tooltip(frame, state.hover, state.mouse)
-            self._backend.show(name, frame)
+            return
+        if state.scratch is None:
+            state.scratch = state.base.copy()
+        frame = state.scratch
+        if state.painted is not None:
+            x0, y0, x1, y1 = state.painted
+            frame[y0:y1, x0:x1] = state.base[y0:y1, x0:x1]
+            state.painted = None
+        if state.hover is not None:
+            if state.card is None or state.card.tooltip is not state.hover:
+                state.card = prepare_tooltip(frame, state.hover)
+            if state.card is not None:
+                state.painted = state.card.draw(frame, state.mouse)
+        self._backend.show(name, frame)
 
     def destroy_stale(self, current: set[str]) -> None:
         """Close every open window whose name is not in ``current``."""

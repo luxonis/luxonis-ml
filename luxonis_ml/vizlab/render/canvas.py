@@ -1290,7 +1290,30 @@ class Canvas:
         self._canvas.drawImage(image, float(x0), float(y0))
 
 
-def gaussian_blur(rgba: np.ndarray, sigma: float) -> np.ndarray:
+def _draw_scaled(
+    image: "skia.Image",
+    width: int,
+    height: int,
+    paint: "skia.Paint",
+) -> "skia.Image":
+    """Draw ``image`` into a fresh ``width`` x ``height`` raster through ``paint``."""
+    info = skia.ImageInfo.Make(int(width), int(height), _RGBA, _UNPREMUL)
+    surface = skia.Surface.MakeRaster(info)
+    canvas = surface.getCanvas()
+    canvas.clear(skia.Color4f(0, 0, 0, 0))
+    canvas.drawImageRect(
+        image,
+        skia.Rect.MakeWH(image.width(), image.height()),
+        skia.Rect.MakeWH(float(width), float(height)),
+        skia.SamplingOptions(skia.FilterMode.kLinear),
+        paint,
+    )
+    return surface.makeImageSnapshot()
+
+
+def gaussian_blur(
+    rgba: np.ndarray, sigma: float, *, downscale: int = 1
+) -> np.ndarray:
     """Gaussian-blur an RGBA image by ``sigma`` pixels, via Skia.
 
     Used for the frosted-glass backdrop behind translucent UI cards. Edges clamp
@@ -1301,6 +1324,11 @@ def gaussian_blur(rgba: np.ndarray, sigma: float) -> np.ndarray:
         rgba: An ``(H, W, 4)`` ``uint8`` array in RGBA order.
         sigma: Blur radius (standard deviation) in pixels; ``<= 0`` returns a
             copy unchanged.
+        downscale: Blur at ``1/downscale`` resolution and scale the result back
+            up, in one pass each way. A blurred image is low-frequency, so for a
+            large ``sigma`` this is visually indistinguishable from the
+            full-resolution blur at a fraction of the cost — Skia's raster blur
+            is linear in pixel count, so a quarter-scale blur is ~16x cheaper.
 
     Returns:
         A new ``(H, W, 4)`` ``uint8`` RGBA array, blurred.
@@ -1310,15 +1338,24 @@ def gaussian_blur(rgba: np.ndarray, sigma: float) -> np.ndarray:
         return rgba.copy()
 
     height, width = rgba.shape[:2]
-    info = skia.ImageInfo.Make(int(width), int(height), _RGBA, _UNPREMUL)
-    surface = skia.Surface.MakeRaster(info)
-    canvas = surface.getCanvas()
-    canvas.clear(skia.Color4f(0, 0, 0, 0))
-    image = skia.Image.fromarray(np.ascontiguousarray(rgba), colorType=_RGBA)
-    paint = skia.Paint(
-        ImageFilter=skia.ImageFilters.Blur(
-            float(sigma), float(sigma), skia.TileMode.kClamp
-        )
+    scale = max(1, int(downscale))
+    small_w, small_h = (
+        max(1, int(width) // scale),
+        max(1, int(height) // scale),
     )
-    canvas.drawImage(image, 0.0, 0.0, skia.SamplingOptions(), paint)
-    return surface.makeImageSnapshot().toarray(colorType=_RGBA)
+    image = skia.Image.fromarray(np.ascontiguousarray(rgba), colorType=_RGBA)
+    blurred = _draw_scaled(
+        image,
+        small_w,
+        small_h,
+        skia.Paint(
+            ImageFilter=skia.ImageFilters.Blur(
+                sigma / scale, sigma / scale, skia.TileMode.kClamp
+            )
+        ),
+    )
+    if scale == 1:
+        return blurred.toarray(colorType=_RGBA)
+    return _draw_scaled(blurred, width, height, skia.Paint()).toarray(
+        colorType=_RGBA
+    )

@@ -15,6 +15,7 @@ _CvCallback = Callable[[int, int, int, int, None], None]
 
 class _FakeCv2(ModuleType):
     WINDOW_NORMAL = 17
+    WINDOW_GUI_NORMAL = 32
     EVENT_MOUSEMOVE = 1
     EVENT_LBUTTONDOWN = 2
 
@@ -137,7 +138,9 @@ def test_window_lifecycle_and_geometry(
     backend.destroy_window("main")
 
     assert cv2.calls == [
-        ("named", ("main", cv2.WINDOW_NORMAL)),
+        # GUI_NORMAL opts out of the Qt status bar, which repaints on every
+        # mouse-move and doubled the cost of presenting a frame.
+        ("named", ("main", cv2.WINDOW_NORMAL | cv2.WINDOW_GUI_NORMAL)),
         ("show", ("main", 30, 20)),
         ("resize", ("main", 300, 200)),
         ("move", ("main", 0, 0)),

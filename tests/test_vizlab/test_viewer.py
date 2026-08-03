@@ -100,6 +100,98 @@ def test_hover_outside_boxes_keeps_base_frame() -> None:
     assert np.array_equal(backend.shown[-1][1], base)
 
 
+def test_moving_hover_repaints_only_the_last_card_and_matches_a_full_redraw() -> (
+    None
+):
+    # The tooltip is composited into a scratch buffer and only the region the
+    # previous card covered is restored, rather than re-copying the whole frame.
+    # Restore too little and the old card smears across the window, so every
+    # frame is checked against the same thing drawn from scratch.
+    backend = FakeBackend(keys=[-1] * 6 + [ord("q")])
+    viewer = Viewer(backend, hud=False)
+    image, tip = _tooltip_image(h=300, w=400)
+    viewer.show("w", image.frame())
+    base = backend.shown[-1][1]
+
+    for x, y in ((90, 70), (120, 90), (100, 75), (200, 150), (60, 60)):
+        backend.handlers["w"](x, y, False)
+        viewer._flush_hover()
+        expected = base.copy()
+        draw_tooltip(expected, tip, (x, y))
+        assert np.array_equal(backend.shown[-1][1], expected), (x, y)
+
+
+def test_hover_card_is_rendered_once_per_region_not_once_per_move() -> None:
+    # Re-rendering the card on every mouse-move dominated the redraw; only its
+    # position changes while the pointer stays inside one hover region.
+    backend = FakeBackend()
+    viewer = Viewer(backend, hud=False)
+    image, tip = _tooltip_image(h=300, w=400)
+    viewer.show("w", image.frame())
+    state = viewer._windows["w"]
+
+    backend.handlers["w"](90, 70, False)
+    viewer._flush_hover()
+    card = state.card
+    assert card is not None
+    assert card.tooltip is tip
+
+    backend.handlers["w"](120, 95, False)
+    viewer._flush_hover()
+    assert state.card is card  # same region -> the very same card object
+
+    other = Tooltip(title="bike", rows=(("id", "9"),))
+    state.hover = other
+    viewer._render_hover("w", state)
+    assert state.card is not None
+    assert state.card is not card
+    assert state.card.tooltip is other
+
+
+def test_rerender_drops_the_hover_scratch_so_no_tooltip_survives_it() -> None:
+    # The scratch buffer is a copy of the *old* frame; keeping it across a
+    # re-render would show a stale tooltip over stale pixels.
+    backend = FakeBackend()
+    viewer = Viewer(backend, hud=False)
+    image, _ = _tooltip_image(h=300, w=400)
+    frame = image.frame()
+    viewer.show("w", frame, render=lambda _layers: frame)
+    state = viewer._windows["w"]
+
+    backend.handlers["w"](90, 70, False)
+    viewer._flush_hover()
+    assert state.scratch is not None
+    assert state.painted is not None
+
+    viewer._rerender("w", state)
+    assert state.scratch is None
+    assert state.card is None
+    assert state.painted is None
+    assert np.array_equal(backend.shown[-1][1], state.base)
+
+
+def test_wait_polls_tightly_while_a_tooltip_is_moving() -> None:
+    # A hover redraw costs far less than the idle poll it used to wait out, so
+    # the loop polls tightly right after one and relaxes once nothing moves.
+    timeouts: list[int] = []
+
+    class PollRecordingBackend(FakeBackend):
+        def poll_key(self, timeout_ms: int) -> int:
+            timeouts.append(timeout_ms)
+            if len(timeouts) == 1:  # first poll: deliver a move to hover over
+                self.handlers["w"](100, 60, False)
+            return -1 if len(timeouts) < 4 else ord("q")
+
+    backend = PollRecordingBackend()
+    viewer = Viewer(backend, hud=False)
+    image, _ = _tooltip_image()
+    viewer.show("w", image.frame())
+
+    assert viewer.wait() == "q"
+    # idle -> the move is flushed -> tight -> nothing left to draw -> idle again
+    assert timeouts == [20, 1, 20, 20]
+
+
 def test_show_fits_frame_to_screen() -> None:
     backend = FakeBackend(screen=(100, 100))
     viewer = Viewer(backend)
@@ -212,16 +304,12 @@ def test_blit_frost_blurs_the_backdrop_only_under_the_card() -> None:
     assert np.array_equal(plain, sharp)
 
 
-def test_frost_backdrop_fills_the_body_but_not_the_shadow_or_margin() -> None:
+def test_frost_weight_covers_the_body_but_not_the_shadow_or_margin() -> None:
     # The frost must fill the colored body at *any* panel opacity, yet leave the
     # drop shadow sharp (the shadow is pure black, so keying on color not alpha
     # avoids a blurred halo around the panel) and the transparent margin sharp.
-    from luxonis_ml.vizlab.viewer.tooltip_render import _frost_backdrop
-
-    rng = np.random.default_rng(0)
-    roi = rng.integers(0, 255, (80, 120, 3), dtype=np.uint8)
-    roi_f = roi.astype(np.float32)
-    roi_std = roi_f.std()
+    # `_CardArrays` folds that decision into the blurred backdrop's weight.
+    from luxonis_ml.vizlab.viewer.tooltip_render import _CardArrays
 
     for body_alpha in (230, 150, 90):  # opaque -> quite translucent panel
         card = np.zeros((80, 120, 4), np.uint8)
@@ -230,13 +318,25 @@ def test_frost_backdrop_fills_the_body_but_not_the_shadow_or_margin() -> None:
         card[15:65, 20:100, 3] = body_alpha  # ...at the panel's opacity
         card[30:34, 30:80, :3] = (200, 210, 250)  # opaque "text" on the body
         card[30:34, 30:80, 3] = 255
-        out = _frost_backdrop(roi, card, 12.0)
+        arrays = _CardArrays(card, blur=12.0)
+        assert arrays.frost_weight is not None
+        frost = arrays.frost_weight[..., 0]
 
-        assert out[45:63, 25:95].std() < roi_std * 0.5  # body clearly blurred
-        # The shadow ring (black, translucent) is left sharp -> no blurred halo.
-        assert np.allclose(out[8:12, 40:80], roi_f[8:12, 40:80])
-        # The fully-transparent margin is left sharp too.
-        assert np.allclose(out[:4, :4], roi_f[:4, :4])
+        # Under the body, the blurred backdrop gets exactly what the panel lets
+        # through -- the frost is full-strength wherever the fill is colored.
+        assert np.allclose(frost[35:60, 25:95], 1.0 - body_alpha / 255.0)
+        # The shadow ring (black, translucent) gets none -> no blurred halo.
+        assert not frost[8:12, 40:80].any()
+        # Nor does the fully-transparent margin.
+        assert not frost[:4, :4].any()
+        # And every pixel stays fully accounted for: card + frost + frame == 1.
+        alpha = card[..., 3].astype(np.float32) / 255.0
+        assert np.allclose(alpha + frost + arrays.frame_weight[..., 0], 1.0)
+        # Both weights carry all three channels rather than broadcasting from a
+        # length-1 trailing axis. NumPy multiplies by such an axis an order of
+        # magnitude slower, and these are multiplied over the card per redraw.
+        assert arrays.frost_weight.shape == (*card.shape[:2], 3)
+        assert arrays.frame_weight.shape == (*card.shape[:2], 3)
 
 
 def test_draw_tooltip_empty_is_noop() -> None:

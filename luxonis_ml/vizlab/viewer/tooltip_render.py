@@ -172,6 +172,78 @@ def render_tooltip_card(tooltip: Tooltip, size: int) -> np.ndarray:
     return canvas.to_rgba()
 
 
+class _CardArrays:
+    """An RGBA card folded into the per-pixel weights compositing it needs.
+
+    Drawing the card sums three terms — its own color, the blurred backdrop
+    showing through its body, and the untouched frame everywhere else::
+
+        out = card*a + (blurred*m + frame*(1 - m))*(1 - a)
+            = card*a + blurred*(m*(1 - a)) + frame*((1 - m)*(1 - a))
+
+    Only ``blurred`` and ``frame`` change as the card moves, so the bracketed
+    weights are folded once, here. A redraw is then two multiply-adds over the
+    card rather than ten array operations, and it writes through a buffer this
+    owns instead of allocating one per term.
+
+    Folding also gets the card split off the redraw path, which is where the
+    naive version spent as much time as the blur itself: the RGB-to-BGR
+    reversal is a negative-stride copy and the body mask reduces over a
+    non-contiguous channel axis, both an order of magnitude slower than the
+    same work on contiguous memory.
+    """
+
+    def __init__(self, rgba: np.ndarray, blur: float) -> None:
+        self.rgba = rgba
+        self.blur = blur
+        shape = (*rgba.shape[:2], 3)
+        # Each weight is expanded across all three channels rather than left as
+        # a broadcast ``(H, W, 1)``: NumPy multiplies by a length-1 trailing
+        # axis an order of magnitude slower than by a matching one, and these
+        # are multiplied over the whole card on every redraw.
+        alpha = np.empty(shape, np.float32)
+        alpha[:] = rgba[..., 3:4]
+        alpha /= 255.0
+        rest = 1.0 - alpha
+        #: The card's own color, premultiplied by its alpha.
+        self.card = np.ascontiguousarray(rgba[..., 2::-1], np.float32) * alpha
+        #: Weight of the blurred backdrop, or ``None`` when the card is unfrosted.
+        self.frost_weight: np.ndarray | None = None
+        if blur > 0.0:
+            self.frost_weight = np.empty(shape, np.float32)
+            self.frost_weight[:] = _body_mask(rgba)
+            self.frost_weight *= rest
+            rest = rest - self.frost_weight
+        #: Weight of the frame showing through unblurred.
+        self.frame_weight = rest
+        self._buffer = np.empty(shape, np.float32)
+
+    def blit(
+        self, frame: np.ndarray, x: int, y: int
+    ) -> tuple[int, int, int, int] | None:
+        """Composite the card onto a BGR ``frame``; return the region it touched.
+
+        Returns ``None`` when the card falls entirely outside the frame.
+        """
+        fh, fw = frame.shape[:2]
+        ch, cw = self.rgba.shape[:2]
+        x0, y0 = max(0, x), max(0, y)
+        x1, y1 = min(fw, x + cw), min(fh, y + ch)
+        if x1 <= x0 or y1 <= y0:
+            return None
+        rows, cols = slice(y0 - y, y1 - y), slice(x0 - x, x1 - x)
+        roi = frame[y0:y1, x0:x1]
+        out = self._buffer[rows, cols]
+        np.multiply(roi, self.frame_weight[rows, cols], out=out)
+        if self.frost_weight is not None:
+            blurred = _blur_bgr(roi, self.blur)
+            blurred *= self.frost_weight[rows, cols]
+            np.add(out, blurred, out=out)
+        np.add(out, self.card[rows, cols], out=out)
+        np.copyto(roi, out, casting="unsafe")
+        return x0, y0, x1, y1
+
+
 def blit_rgba_on_bgr(
     frame: np.ndarray, rgba: np.ndarray, x: int, y: int, *, blur: float = 0.0
 ) -> None:
@@ -179,24 +251,12 @@ def blit_rgba_on_bgr(
 
     With ``blur > 0`` the frame behind the card's solid body is Gaussian-blurred
     first, so the translucent card reads as frosted glass; the soft drop shadow
-    around the body is left sharp (see `_frost_backdrop`).
+    around the body is left sharp (see `_body_mask`).
+
+    For a card drawn once (the controls HUD). A card drawn repeatedly should go
+    through `TooltipCard`, which keeps the weights this folds on every call.
     """
-    fh, fw = frame.shape[:2]
-    ch, cw = rgba.shape[:2]
-    x0, y0 = max(0, x), max(0, y)
-    x1, y1 = min(fw, x + cw), min(fh, y + ch)
-    if x1 <= x0 or y1 <= y0:
-        return
-    sub = rgba[y0 - y : y1 - y, x0 - x : x1 - x]
-    roi = frame[y0:y1, x0:x1]
-    alpha = sub[..., 3:4].astype(np.float32) / 255.0
-    card_bgr = sub[..., 2::-1].astype(np.float32)  # RGB -> BGR
-    backdrop = (
-        _frost_backdrop(roi, sub, blur)
-        if blur > 0.0
-        else roi.astype(np.float32)
-    )
-    roi[:] = (card_bgr * alpha + backdrop * (1.0 - alpha)).astype(np.uint8)
+    _CardArrays(rgba, blur).blit(frame, x, y)
 
 
 #: Card body color (max RGB channel, 0-255) at or above which the backdrop is
@@ -207,35 +267,25 @@ def blit_rgba_on_bgr(
 _FROST_BODY_MIN_RGB = 12.0
 
 
-def _frost_backdrop(
-    roi: np.ndarray, card: np.ndarray, blur: float
-) -> np.ndarray:
-    """Blur the frame region behind a card, confined to the card's colored body.
+def _body_mask(card: np.ndarray) -> np.ndarray:
+    """Where a card's frost applies: ~1 over its body, 0 over its drop shadow.
 
-    The blur fills the card body (so the translucent panel reads as frosted
-    glass) but not the drop shadow around it: the shadow is pure black, while the
-    body fill and text carry real color, so the mask keys on the card's color
-    rather than its alpha. That keeps the frost off the shadow's translucent
-    fringe (no blurred halo) and holds at any panel opacity. Returns a float BGR
-    array the caller composites the card over.
+    The blur must fill the card body (so the translucent panel reads as frosted
+    glass) but not the drop shadow around it: the shadow is pure black, while
+    the body fill and text carry real color, so the mask keys on the card's
+    color rather than its alpha. That keeps the frost off the shadow's
+    translucent fringe (no blurred halo) and holds at any panel opacity.
 
     Args:
-        roi: The BGR frame region under the card (not mutated).
-        card: The card's ``(H, W, 4)`` ``uint8`` RGBA, aligned to ``roi``.
-        blur: Gaussian blur sigma in pixels.
+        card: The card's ``(H, W, 4)`` ``uint8`` RGBA.
 
     Returns:
-        The ``(H, W, 3)`` ``float32`` backdrop: blurred under the body, original
-        elsewhere.
+        An ``(H, W, 1)`` ``float32`` mask, with a one-pixel feather along the
+        body's anti-aliased edge.
 
     """
-    blurred = _blur_bgr(roi, blur)
-    # The soft shadow is black (max channel 0); the body fill and text are
-    # colored, so this is ~1 over the whole body and 0 over the shadow, with a
-    # one-pixel feather along the body's anti-aliased edge.
     body = card[..., :3].max(axis=2).astype(np.float32)
-    mask = np.clip(body / _FROST_BODY_MIN_RGB, 0.0, 1.0)[..., None]
-    return blurred * mask + roi.astype(np.float32) * (1.0 - mask)
+    return np.clip(body / _FROST_BODY_MIN_RGB, 0.0, 1.0)[..., None]
 
 
 def _blur_bgr(roi: np.ndarray, sigma: float) -> np.ndarray:
@@ -246,7 +296,7 @@ def _blur_bgr(roi: np.ndarray, sigma: float) -> np.ndarray:
     full-resolution blur, but with a cost that stays low and roughly flat as the
     sigma grows.
     """
-    from luxonis_ml.vizlab.render.canvas import Canvas, gaussian_blur
+    from luxonis_ml.vizlab.render.canvas import gaussian_blur
 
     height, width = roi.shape[:2]
     rgba = np.empty((height, width, 4), dtype=np.uint8)
@@ -255,15 +305,81 @@ def _blur_bgr(roi: np.ndarray, sigma: float) -> np.ndarray:
     # opaque (the clamp tile-mode avoids a dark halo).
     rgba[..., :3] = roi
     rgba[..., 3] = 255
-    scale = int(min(4, max(1, sigma // 3)))
-    if scale > 1:
-        sw, sh = max(1, width // scale), max(1, height // scale)
-        small = Canvas.from_rgba(rgba).scaled(sw, sh).to_rgba()
-        small = gaussian_blur(small, sigma / scale)
-        rgba = Canvas.from_rgba(small).scaled(width, height).to_rgba()
-    else:
-        rgba = gaussian_blur(rgba, sigma)
-    return rgba[..., :3].astype(np.float32)
+    blurred = gaussian_blur(
+        rgba, sigma, downscale=int(min(4, max(1, sigma // 3)))
+    )
+    return blurred[..., :3].astype(np.float32)
+
+
+#: Gap between the cursor and the tooltip card's top-left corner, in pixels.
+_CURSOR_GAP = 16
+
+
+class TooltipCard:
+    """A tooltip rendered once, ready to be drawn wherever the cursor goes.
+
+    Only the *position* of a hover tooltip changes as the mouse moves, so a
+    viewer renders the card once — when the pointer enters a new hover region —
+    and calls `draw` on every move. Build one with `prepare_tooltip`.
+
+    Attributes:
+        tooltip: The tooltip this card was rendered from; compare it against the
+            one currently hovered to know whether the card can be reused.
+
+    """
+
+    def __init__(
+        self, tooltip: Tooltip, rgba: np.ndarray, blur: float
+    ) -> None:
+        self.tooltip = tooltip
+        self._card = _CardArrays(rgba, blur)
+
+    def draw(
+        self, frame: np.ndarray, at: tuple[int, int]
+    ) -> tuple[int, int, int, int] | None:
+        """Draw the card just past ``at``, clamped to stay fully in-bounds.
+
+        Args:
+            frame: The BGR frame to composite onto, in place.
+            at: The cursor position in frame pixels.
+
+        Returns:
+            The ``(x0, y0, x1, y1)`` frame region the card covered, which a
+            caller redrawing the tooltip can restore instead of the whole frame.
+
+        """
+        height, width = frame.shape[:2]
+        ch, cw = self._card.rgba.shape[:2]
+        return self._card.blit(
+            frame,
+            max(0, min(int(at[0]) + _CURSOR_GAP, width - cw)),
+            max(0, min(int(at[1]) + _CURSOR_GAP, height - ch)),
+        )
+
+
+def prepare_tooltip(frame: np.ndarray, tooltip: Tooltip) -> TooltipCard | None:
+    """Render ``tooltip`` for a ``frame``-sized window, ready to draw repeatedly.
+
+    Args:
+        frame: The BGR frame the card will be drawn onto; its size sets the type
+            size, so the card stays legible on large windows.
+        tooltip: The hover content.
+
+    Returns:
+        The prepared card, or ``None`` when there is nothing to show or the card
+        would not fit within the frame.
+
+    """
+    if tooltip.is_empty:
+        return None
+    height, width = frame.shape[:2]
+    size = int(min(24, max(13, round(min(width, height) / 48))))
+    rgba = render_tooltip_card(tooltip, size)
+    ch, cw = rgba.shape[:2]
+    if cw >= width or ch >= height:
+        return None
+    # A frosted-glass backdrop behind the translucent card, scaled with the type.
+    return TooltipCard(tooltip, rgba, blur=size * 0.7)
 
 
 def draw_tooltip(
@@ -272,18 +388,9 @@ def draw_tooltip(
     """Draw ``tooltip`` near ``at`` on the BGR ``frame`` (a no-op if empty).
 
     The card is clamped to stay fully in-bounds and skipped entirely if it would
-    not fit within the frame.
+    not fit within the frame. Drawing the same tooltip repeatedly (following the
+    cursor) should keep a `prepare_tooltip` card instead of re-rendering here.
     """
-    if tooltip.is_empty:
-        return
-    height, width = frame.shape[:2]
-    # Scale the type to the frame so it stays legible on large windows.
-    size = int(min(24, max(13, round(min(width, height) / 48))))
-    card = render_tooltip_card(tooltip, size)
-    ch, cw = card.shape[:2]
-    if cw >= width or ch >= height:
-        return
-    x = max(0, min(int(at[0]) + 16, width - cw))
-    y = max(0, min(int(at[1]) + 16, height - ch))
-    # A frosted-glass backdrop behind the translucent card, scaled with the type.
-    blit_rgba_on_bgr(frame, card, x, y, blur=size * 0.7)
+    card = prepare_tooltip(frame, tooltip)
+    if card is not None:
+        card.draw(frame, at)
