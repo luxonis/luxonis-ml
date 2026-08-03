@@ -175,7 +175,9 @@ Notes:
       ``Image(options=...)`` or installed for a scope with `default_options` /
       `set_default_options`. Per-annotation, `Annotation.styled` layers a partial
       style over the theme and `Annotation.color` / `Palette` pins fix a class's
-      color.
+      color. ``Theme.with_palette("okabe-ito")`` swaps in one of the
+      colorblind-safe presets in :data:`PALETTES`; `Palette.from_colormap`
+      builds a categorical palette out of a `Gradient`.
     - `blend`, `hstack`, `vstack`, `grid`, and `with_panel` return new composed
       images and leave their inputs unchanged.
 
@@ -277,12 +279,16 @@ with guard_missing_extra("viz"):
         DARK_THEME,
         DEFAULT_PALETTE,
         LIGHT_THEME,
+        PALETTES,
+        ColormapColors,
+        CVDDistinctColors,
         GoldenRatioColors,
         LabelPlacement,
         MaskOutline,
         Palette,
         Style,
         Theme,
+        resolve_generator,
     )
     from .tooltip import Tooltip
     from .video import (
@@ -299,17 +305,20 @@ __all__ = [
     "DEFAULT_PALETTE",
     "GRADIENTS",
     "LIGHT_THEME",
+    "PALETTES",
     "VIDEO_FORMATS",
     "Annotation",
     "ArrayField",
     "ArrayImage",
     "BBox",
     "Block",
+    "CVDDistinctColors",
     "Caption",
     "ClassDistribution",
     "Classification",
     "Color",
     "ColorBar",
+    "ColormapColors",
     "ComparisonReport",
     "ComparisonResult",
     "Composite",
@@ -359,6 +368,7 @@ __all__ = [
     "is_video_path",
     "match_detections",
     "order_by_position",
+    "resolve_generator",
     "resolve_gradient",
     "save_video",
     "set_default_options",

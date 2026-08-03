@@ -11,10 +11,14 @@ from .derive import derive_child_color, derive_child_style
 from .palette import (
     BRAND_COLORS,
     DEFAULT_PALETTE,
+    PALETTES,
     ColorGenerator,
+    ColormapColors,
+    CVDDistinctColors,
     GoldenRatioColors,
     Palette,
     SequenceColors,
+    resolve_generator,
 )
 from .style import (
     DEFAULT_STYLE,
@@ -39,7 +43,10 @@ __all__ = [
     "DEFAULT_PALETTE",
     "DEFAULT_STYLE",
     "LIGHT_THEME",
+    "PALETTES",
+    "CVDDistinctColors",
     "ColorGenerator",
+    "ColormapColors",
     "GoldenRatioColors",
     "LabelPlacement",
     "MaskOutline",
@@ -53,5 +60,6 @@ __all__ = [
     "current_style_overrides",
     "derive_child_color",
     "derive_child_style",
+    "resolve_generator",
     "style_scale",
 ]

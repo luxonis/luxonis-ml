@@ -10,7 +10,12 @@ and test-isolated rather than a mutable module global.
 
 The palette lives inside ``theme`` (there is no separate ``palette`` field), so a
 class keeps one source of truth for its color; pin classes with
-`Theme.with_class_colors` or `Theme.with_palette`.
+`Theme.with_class_colors` or `Theme.with_palette`. A colorblind-safe palette is
+selected by name through the same door the default `Gradient` is::
+
+    RenderOptions(
+        theme=DARK_THEME.with_palette("okabe-ito"), gradient="viridis"
+    )
 """
 
 from collections.abc import Generator, Mapping

@@ -8,17 +8,25 @@ style package uses internally.
 from luxonis_ml.utils.color.palette import (
     BRAND_COLORS,
     DEFAULT_PALETTE,
+    PALETTES,
     ColorGenerator,
+    ColormapColors,
+    CVDDistinctColors,
     GoldenRatioColors,
     Palette,
     SequenceColors,
+    resolve_generator,
 )
 
 __all__ = [
     "BRAND_COLORS",
     "DEFAULT_PALETTE",
+    "PALETTES",
+    "CVDDistinctColors",
     "ColorGenerator",
+    "ColormapColors",
     "GoldenRatioColors",
     "Palette",
     "SequenceColors",
+    "resolve_generator",
 ]

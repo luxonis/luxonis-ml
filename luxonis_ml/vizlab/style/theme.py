@@ -12,6 +12,13 @@ theme is carried by a `luxonis_ml.vizlab.RenderOptions`: install one for a scope
 with `luxonis_ml.vizlab.default_options` / `luxonis_ml.vizlab.set_default_options`,
 or pass ``options=`` to a single `Image`. Build variants with `Theme.with_style`,
 `Theme.with_palette`, and `Theme.with_class_colors`.
+
+`Theme.with_palette` also takes the *name* of a colorblind-safe preset, which is
+how a render opts into one::
+
+    RenderOptions(theme=DARK_THEME.with_palette("okabe-ito"))
+
+See :data:`luxonis_ml.utils.color.PALETTES` for the registered names.
 """
 
 from collections.abc import Mapping
@@ -58,9 +65,29 @@ class Theme:
         """Return a copy of this theme using ``style`` as its default style."""
         return replace(self, style=style)
 
-    def with_palette(self, palette: Palette) -> "Theme":
-        """Return a copy of this theme using ``palette`` for class colors."""
-        return replace(self, palette=palette)
+    def with_palette(self, palette: "Palette | str") -> "Theme":
+        """Return a copy of this theme using ``palette`` for class colors.
+
+        Args:
+            palette: A `Palette`, or the name of a colorblind-safe preset in
+                :data:`luxonis_ml.utils.color.PALETTES` — the same
+                name-or-object selection `RenderOptions.gradient` uses for
+                colormaps. A name builds a fresh palette, so class colors are
+                assigned in first-seen order from that set.
+
+        Returns:
+            A new `Theme` with the given palette.
+
+        Examples:
+            >>> theme = DARK_THEME.with_palette("okabe-ito")
+            >>> theme.palette.color_for("car")
+            Color(r=230, g=159, b=0, a=255)
+
+        """
+        resolved = (
+            Palette(generator=palette) if isinstance(palette, str) else palette
+        )
+        return replace(self, palette=resolved)
 
     def with_class_colors(self, colors: Mapping[str, ColorLike]) -> "Theme":
         """Return a copy whose palette pins the given ``{class: color}`` map.
