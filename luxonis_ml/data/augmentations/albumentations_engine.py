@@ -71,91 +71,6 @@ ASSOCIATED_TARGET_TYPES = frozenset(
 )
 
 
-def _normalize_params(
-    params: Mapping[Any, Any], transform: Any = None
-) -> Params:
-    """Keep the sampled parameters that can be reported as provenance.
-
-    Args:
-        params: Parameters `Albumentations` reported back.
-        transform: Transformation they belong to, needed to tell a
-            configured value from a sampled one. Nested parameters have no
-            transformation of their own.
-
-    """
-    normalized: Params = {}
-    for key, value in params.items():
-        key = str(key)
-        value = _normalize_value(value)
-        if value is _OMIT or _is_configured(transform, key, value):
-            continue
-        normalized[key] = value
-    return normalized
-
-
-def _is_configured(transform: Any, key: str, value: Any) -> bool:
-    """Whether a reported parameter only echoes back the configuration.
-
-    Some transformations do sample these: `A.CropAndPad` draws its ``fill``
-    from the range it was given, and the drawn value belongs in the report.
-    Keys the transformation knows nothing about, such as the input
-    ``shape``, are never sampled.
-    """
-    if key not in _STATIC_PARAMS:
-        return False
-    configured = getattr(transform, key, _OMIT)
-    return configured is _OMIT or _normalize_value(configured) == value
-
-
-def _normalize_value(value: Any) -> Any:
-    if isinstance(value, np.ndarray):
-        return _OMIT
-    if isinstance(value, np.generic):
-        return _normalize_value(value.item())
-    if isinstance(value, Mapping):
-        return _normalize_params(value)
-    if isinstance(value, (list, tuple)):
-        normalized = []
-        for item in value:
-            item = _normalize_value(item)
-            # Dropping a single item would reindex the sequence and
-            # misrepresent its length.
-            if item is _OMIT:
-                return _OMIT
-            normalized.append(item)
-        return normalized
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    return str(value)
-
-
-def _reset_params(transform: Any) -> None:
-    if hasattr(transform, "params"):
-        transform.params = {}
-    if isinstance(transform, A.BaseCompose):
-        for child in transform.transforms:
-            _reset_params(child)
-
-
-def _disambiguate_paths(paths: dict[int, str]) -> dict[int, str]:
-    """Suffix repeated configured paths with ``"#<n>"``.
-
-    The same transformation can be configured more than once, and without
-    the suffix all occurrences would collapse into a single entry.
-    """
-    duplicated = {
-        path for path, count in Counter(paths.values()).items() if count > 1
-    }
-    seen: Counter[str] = Counter()
-    disambiguated = {}
-    for key, path in paths.items():
-        if path in duplicated:
-            seen[path] += 1
-            path = f"{path}#{seen[path]}"
-        disambiguated[key] = path
-    return disambiguated
-
-
 class AlbumentationConfigItem(ConfigItem):
     """Configuration item for `AlbumentationsEngine`.
 
@@ -1326,3 +1241,88 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             return data
 
         return apply_transform
+
+
+def _normalize_params(
+    params: Mapping[Any, Any], transform: Any = None
+) -> Params:
+    """Keep the sampled parameters that can be reported as provenance.
+
+    Args:
+        params: Parameters `Albumentations` reported back.
+        transform: Transformation they belong to, needed to tell a
+            configured value from a sampled one. Nested parameters have no
+            transformation of their own.
+
+    """
+    normalized: Params = {}
+    for key, value in params.items():
+        key = str(key)
+        value = _normalize_value(value)
+        if value is _OMIT or _is_configured(transform, key, value):
+            continue
+        normalized[key] = value
+    return normalized
+
+
+def _is_configured(transform: Any, key: str, value: Any) -> bool:
+    """Whether a reported parameter only echoes back the configuration.
+
+    Some transformations do sample these: `A.CropAndPad` draws its ``fill``
+    from the range it was given, and the drawn value belongs in the report.
+    Keys the transformation knows nothing about, such as the input
+    ``shape``, are never sampled.
+    """
+    if key not in _STATIC_PARAMS:
+        return False
+    configured = getattr(transform, key, _OMIT)
+    return configured is _OMIT or _normalize_value(configured) == value
+
+
+def _normalize_value(value: Any) -> Any:
+    if isinstance(value, np.ndarray):
+        return _OMIT
+    if isinstance(value, np.generic):
+        return _normalize_value(value.item())
+    if isinstance(value, Mapping):
+        return _normalize_params(value)
+    if isinstance(value, (list, tuple)):
+        normalized = []
+        for item in value:
+            item = _normalize_value(item)
+            # Dropping a single item would reindex the sequence and
+            # misrepresent its length.
+            if item is _OMIT:
+                return _OMIT
+            normalized.append(item)
+        return normalized
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _reset_params(transform: Any) -> None:
+    if hasattr(transform, "params"):
+        transform.params = {}
+    if isinstance(transform, A.BaseCompose):
+        for child in transform.transforms:
+            _reset_params(child)
+
+
+def _disambiguate_paths(paths: dict[int, str]) -> dict[int, str]:
+    """Suffix repeated configured paths with ``"#<n>"``.
+
+    The same transformation can be configured more than once, and without
+    the suffix all occurrences would collapse into a single entry.
+    """
+    duplicated = {
+        path for path, count in Counter(paths.values()).items() if count > 1
+    }
+    seen: Counter[str] = Counter()
+    disambiguated = {}
+    for key, path in paths.items():
+        if path in duplicated:
+            seen[path] += 1
+            path = f"{path}#{seen[path]}"
+        disambiguated[key] = path
+    return disambiguated
