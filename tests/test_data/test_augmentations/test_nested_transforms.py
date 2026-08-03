@@ -132,6 +132,21 @@ def test_batch_transform_inside_composition():
             ]
         )
 
+    with pytest.raises(ValueError, match="cannot be nested inside"):
+        _make_engine(
+            [
+                {
+                    "name": "Sequential",
+                    "params": {
+                        "transforms": [
+                            {"name": "CutMix", "params": {"p": 1}},
+                        ],
+                        "p": 1,
+                    },
+                }
+            ]
+        )
+
 
 # equivalence tests
 @pytest.fixture

@@ -20,7 +20,12 @@ from luxonis_ml.ldf import (
     Detection,
     KeypointAnnotation,
 )
-from luxonis_ml.typing import Labels, LoaderOutput, Params
+from luxonis_ml.typing import (
+    Labels,
+    LoaderOutput,
+    Params,
+    TrackedAugmentations,
+)
 
 
 def _ignore_exists(
@@ -393,18 +398,17 @@ def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
             yield SimpleNamespace(
                 images={"image": image},
                 labels={},
-                metadata={},
+                # What the loader records for an augmented sample: the applied
+                # transforms keyed by name, with their runtime parameters.
+                metadata={
+                    "augmentations": TrackedAugmentations(
+                        {"HorizontalFlip": {"p": 1.0}}
+                    )
+                },
             )
 
         def _init_augmentations(self, **_kwargs: object) -> object:
             return object()
-
-    class _Collector:
-        def __init__(self, *_args: object, **_kwargs: object) -> None:
-            pass
-
-        def get_applied_augmentations(self) -> list[str]:
-            return ["HorizontalFlip"]
 
     import luxonis_ml.vizlab.adapters.instances as instances_module
     from luxonis_ml.data.loaders import label_converter
@@ -460,7 +464,6 @@ def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
     monkeypatch.setattr(data_main, "check_exists", _ignore_exists)
     monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
     monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
-    monkeypatch.setattr(data_main, "AugmentationsCollector", _Collector)
     # inspect imports Viewer from the viewer package at call time, so patch it
     # there; the real viewer drives a headless fake backend.
     monkeypatch.setattr(
@@ -531,6 +534,123 @@ def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
     assert first.children[0].color == first.color
     assert first.children[0].tooltip is first_tip
     assert second_tip.rows[0] == ("instance_id", "8")
+
+
+@pytest.mark.parametrize(
+    ("augmentations", "expected"),
+    [
+        # The loader's own provenance is bulky runtime parameters; without
+        # --list-augmentations it would bury the record metadata.
+        (TrackedAugmentations({"HorizontalFlip": {"p": 1.0}}), False),
+        # A record's own "augmentations" field is ordinary metadata and stays.
+        ({"note": "manual"}, True),
+    ],
+)
+def test_inspect_hides_loader_augmentations_from_the_metadata_panel(
+    monkeypatch: pytest.MonkeyPatch,
+    augmentations: Params,
+    expected: bool,
+) -> None:
+    image = np.zeros((40, 60, 3), dtype=np.uint8)
+    record = DatasetRecord.model_construct(
+        files={},
+        annotation=[
+            Detection(
+                class_name="car",
+                instance_id=1,
+                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.2, h=0.2),
+            )
+        ],
+        task_name="objects",
+    )
+
+    class _Dataset:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return 1
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"objects": {"car": 0}}
+
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"objects": ["car"]}
+
+        def get_task_names(self) -> list[str]:
+            return ["objects"]
+
+        def get_categorical_encodings(self) -> dict[str, object]:
+            return {}
+
+        def get_skeletons(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self._augmentations = None
+
+        def __iter__(self) -> Iterator[SimpleNamespace]:
+            yield SimpleNamespace(
+                images={"image": image},
+                labels={},
+                metadata={
+                    "split": "train",
+                    "augmentations": augmentations,
+                },
+            )
+
+    from luxonis_ml.data.loaders import label_converter
+    from luxonis_ml.vizlab import (
+        Frame,
+        RenderOptions,
+        Style,
+        set_default_options,
+    )
+    from luxonis_ml.vizlab.color import ColorLike
+    from luxonis_ml.vizlab.layout.panel import PanelData
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    panels: list[PanelData] = []
+
+    def capture_panel(
+        self: Frame,
+        data: PanelData,
+        *,
+        side: str = "right",
+        width: float | None = None,
+        title: str | None = None,
+        style: Style | None = None,
+        bg: ColorLike | None = None,
+    ) -> Frame:
+        panels.append(data)
+        return self
+
+    backend = _FakeBackend(keys=[ord("q")])
+    monkeypatch.setattr(data_main, "check_exists", _ignore_exists)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    monkeypatch.setattr(
+        viewer_module, "Viewer", lambda **_k: RealViewer(backend)
+    )
+    monkeypatch.setattr(
+        label_converter,
+        "loader_output_to_records",
+        lambda *_args, **_kwargs: {"objects": record},
+    )
+    monkeypatch.setattr(Frame, "with_panel", capture_panel)
+
+    try:
+        data_main.inspect("dataset", list_augmentations=False)
+    finally:
+        set_default_options(RenderOptions())
+
+    assert len(panels) == 1
+    panel = panels[0]
+    assert isinstance(panel, dict)
+    # The rest of the record metadata is unaffected either way.
+    assert panel["split"] == "train"
+    assert ("augmentations" in panel) is expected
 
 
 def test_inspect_grid_renders_real_frames(

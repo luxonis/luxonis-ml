@@ -375,3 +375,15 @@ class LetterboxResize(A.DualTransform):
             padded_img = padded_img[..., None]
 
         return padded_img
+
+
+def create_letterbox_or_resize(
+    keep_aspect_ratio: bool,
+    height: int,
+    width: int,
+    p: float = 1.0,
+) -> "LetterboxResize | A.Resize":
+    """Create a resize transform, letterboxed when aspect ratio is kept."""
+    if keep_aspect_ratio:
+        return LetterboxResize(height=height, width=width, p=p)
+    return A.Resize(height=height, width=width, p=p)

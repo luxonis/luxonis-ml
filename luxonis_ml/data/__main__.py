@@ -29,12 +29,10 @@ from luxonis_ml.data import (
     LuxonisParser,
     UpdateMode,
 )
-from luxonis_ml.data.utils.augmentations_collector import (
-    AugmentationsCollector,
-)
 from luxonis_ml.data.utils.cli_utils import (
     check_exists,
     get_dataset_info,
+    get_tracked_augmentations,
     parse_split_ratio,
     print_info,
 )
@@ -943,6 +941,12 @@ def inspect(
 
     """
     check_exists(name, bucket_storage)
+    if list_augmentations and aug_config is None:
+        logger.warning(
+            "The '--list-augmentations' option requires "
+            "'--aug-config' to be set. No augmentations will be listed."
+        )
+        list_augmentations = False
 
     view = view or ["train"]
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
@@ -1019,24 +1023,6 @@ def inspect(
             keep_aspect_ratio=not ignore_aspect_ratio,
             seed=42 if deterministic else None,
         )
-
-    if list_augmentations:
-        if aug_config is None:
-            logger.warning(
-                "--list-augmentations was set but --aug-config was not "
-                "provided. No augmentations will be shown."
-            )
-            get_applied_augmentations = list
-        elif loader._augmentations is not None:
-            collector = AugmentationsCollector(
-                loader._augmentations,  # type: ignore
-                aug_config,
-            )
-            get_applied_augmentations = collector.get_applied_augmentations
-        else:
-            get_applied_augmentations = list
-    else:
-        get_applied_augmentations = list
 
     classes = dataset.get_classes()
     # Class names per task, so an array whose channels ride the LDF class
@@ -1275,15 +1261,23 @@ def inspect(
     def build_panel(
         sample_labels: "Labels", sample_metadata: "Params"
     ) -> "dict[str, PanelData]":
+        tracked_augmentations = get_tracked_augmentations(sample_metadata)
+        if tracked_augmentations is not None:
+            # The runtime parameters of every transformation would bury the
+            # record metadata the panel exists to show; they get their own
+            # entry below when the user asks for them.
+            sample_metadata = {
+                key: value
+                for key, value in sample_metadata.items()
+                if key != "augmentations"
+            }
         panel = (
             dict(_present_sample_metadata(sample_metadata))
             if sample_metadata
             else {}
         )
-        if list_augmentations:
-            applied = get_applied_augmentations()
-            if applied:
-                panel["augmentations"] = list(applied)
+        if list_augmentations and tracked_augmentations:
+            panel["augmentations"] = list(tracked_augmentations)
         return panel
 
     def records_from_labels(labels: "Labels") -> "dict[str, DatasetRecord]":
