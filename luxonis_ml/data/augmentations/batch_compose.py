@@ -1,4 +1,5 @@
 import random
+from typing import Any
 
 import albumentations as A
 import numpy as np
@@ -17,6 +18,11 @@ class BatchCompose(A.Compose):
         transforms: Batch transformations in composition order.
         batch_size: Product of nested transform batch sizes,
             :math:`\prod_i b_i`.
+        applied_params: Runtime parameters of the transformations that
+            shaped the sample returned by the latest call, keyed by
+            transformation identity. Invocations on sub-batches that did
+            not survive into that sample are not reported; of those that
+            did, the last one wins.
 
     """
 
@@ -54,6 +60,7 @@ class BatchCompose(A.Compose):
 
         self.batch_size = 1
         self.batch_augmentation_indices = [0]
+        self.applied_params: dict[int, dict[str, Any]] = {}
         for transform in self.transforms:
             self.batch_size *= transform.batch_size
 
@@ -92,6 +99,10 @@ class BatchCompose(A.Compose):
         self._mismatched_fields = set()
 
         input_indices = [[i] for i in range(len(data_batch))]
+        self.applied_params = {}
+        # Every invocation that applied, with the inputs it merged. Which of
+        # them shaped the returned sample is only known at the very end.
+        invocations: list[tuple[int, list[int], dict[str, Any]]] = []
         if not self.transforms:
             return data_batch[0]
 
@@ -115,17 +126,21 @@ class BatchCompose(A.Compose):
                     i * transform.batch_size : (i + 1) * transform.batch_size
                 ]
 
-                if not transform.params:
+                # A transform that applied collapsed the batched lists
+                # `yield_batches` produced into single values. Empty
+                # ``params`` does not tell the two apart, as a transform can
+                # apply while sampling no parameters at all.
+                if isinstance(next(iter(data.values())), list):
                     data = first_sample
                     new_indices.append(batch_indices[0])
                 else:
-                    new_indices.append(
-                        [
-                            index
-                            for indices in batch_indices
-                            for index in indices
-                        ]
+                    merged_indices = [
+                        index for indices in batch_indices for index in indices
+                    ]
+                    invocations.append(
+                        (id(transform), merged_indices, dict(transform.params))
                     )
+                    new_indices.append(merged_indices)
 
                 bbox_counts = self._reindex_bboxes(data)
                 data = self.check_data_post_transform(data)
@@ -141,6 +156,16 @@ class BatchCompose(A.Compose):
 
         assert len(data_batch) == 1
         self.batch_augmentation_indices = input_indices[0]
+
+        # A sub-batch a transform applied to can still be dropped by a later
+        # one that did not apply and passed its first input through instead.
+        surviving = set(self.batch_augmentation_indices)
+        self.applied_params = {
+            key: params
+            for key, indices, params in invocations
+            if not surviving.isdisjoint(indices)
+        }
+
         data = data_batch[0]
 
         data = self._make_contiguous(data)
