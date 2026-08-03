@@ -29,6 +29,9 @@ class NativeParser(BaseParser):
     the resulting `DatasetRecord`. It is distinct from
     ``annotation["metadata"]``, which creates metadata label tasks.
 
+    ``annotation`` accepts either a single detection or a list of them, in
+    line with `DatasetRecord.annotation`.
+
     Example ``annotations.json`` entry:
 
         .. code-block:: json
@@ -105,15 +108,20 @@ class NativeParser(BaseParser):
                                 record["files"][key] = resolve_manifest_path(
                                     annotation_path.parent, value
                                 )
-                for mask_type in ["segmentation", "instance_segmentation"]:
-                    with suppress(KeyError):
-                        mask = record["annotation"][mask_type]["mask"]
-                        if isinstance(mask, PathType):
-                            record["annotation"][mask_type]["mask"] = (
-                                resolve_manifest_path(
+                annotation = record.get("annotation")
+                annotations = (
+                    annotation
+                    if isinstance(annotation, list)
+                    else [annotation]
+                )
+                for ann in annotations:
+                    for mask_type in ["segmentation", "instance_segmentation"]:
+                        with suppress(KeyError, TypeError):
+                            mask = ann[mask_type]["mask"]
+                            if isinstance(mask, PathType):
+                                ann[mask_type]["mask"] = resolve_manifest_path(
                                     annotation_path.parent, mask
                                 )
-                            )
                 yield record
 
         added_images = self._get_added_images(generator())

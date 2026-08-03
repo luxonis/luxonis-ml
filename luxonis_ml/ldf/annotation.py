@@ -1259,6 +1259,9 @@ class DatasetRecord(BaseModelExtraForbid):
         annotation: Optional detections associated with the dataset record.
             Validation also accepts a single `Detection` and stores it as a
             one-element list, so the model always carries ``list[Detection]``.
+            Reading the field therefore always yields a list, even for a
+            record constructed from a single `Detection` — reach for
+            ``record.annotation[0]`` where a single detection is expected.
         task_name: The name of the task to which the record belongs.
         sample_metadata: JSON-like metadata for the whole sample. Values
             should be JSON-serializable. Missing metadata defaults to an empty
