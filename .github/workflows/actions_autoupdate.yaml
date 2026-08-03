@@ -10,7 +10,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # `persist-credentials` must stay enabled: the updater below pushes its
+      # branch with a plain `git push`, relying on the token this step writes
+      # into the local git config.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # zizmor: ignore[artipacked]
         with:
           token: ${{ secrets.WORKFLOW_SECRET }}
 
