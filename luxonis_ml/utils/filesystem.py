@@ -1516,7 +1516,9 @@ def _uuid_from_stream(stream: IO[bytes]) -> str:
     # NOTE: Not a security hash -- this reproduces `uuid.uuid5`, whose
     # algorithm is fixed by RFC 4122. The flag keeps it working where
     # SHA-1 is disabled for security use, such as FIPS mode.
-    digest = hashlib.sha1(uuid.NAMESPACE_URL.bytes, usedforsecurity=False)
+    digest = hashlib.sha1(
+        uuid.NAMESPACE_URL.bytes, usedforsecurity=False
+    )  # nosemgrep
     while chunk := stream.read(_UUID_CHUNK_SIZE):
         digest.update(binascii.hexlify(chunk))
     return str(uuid.UUID(bytes=digest.digest()[:16], version=5))
