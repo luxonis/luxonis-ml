@@ -158,11 +158,17 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     into another using a rectangle sampled from a beta-distributed mixing
     coefficient.
 
-    Bounding boxes of the first image are kept whole as long as the part
-    of them left outside the patch is at least ``bbox_min_visibility`` of
-    their original area; the ones the patch covers past that are dropped
+    Bounding boxes of the first image survive as long as the part of them
+    left outside the patch is at least ``bbox_min_visibility`` of their
+    original area; the ones the patch covers past that are dropped
     together with their instance masks, keypoints and metadata. Bounding
     boxes of the second image are clipped to the patch.
+
+    ``occluded_bbox_strategy`` picks what happens to a survivor the patch
+    partly covers. The default ``"keep"`` leaves it at its original
+    extent, since the object still fills the box and is only covered up;
+    ``"clip"`` shrinks it to the largest part of itself the patch does not
+    reach, so no box edge is left sitting on top of the patch.
 
     `MixUp`
     ~~~~~~~

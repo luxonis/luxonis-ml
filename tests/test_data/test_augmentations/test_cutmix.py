@@ -357,6 +357,106 @@ def test_cutmix_bboxes_min_visibility_drops_mostly_covered() -> None:
     np.testing.assert_allclose(bboxes, [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]])
 
 
+def test_cutmix_bboxes_keep_strategy_leaves_the_box_whole() -> None:
+    """The default keeps the box: the object still fills it."""
+    cutmix = CutMix(p=1.0, alpha=1.0)
+    bbox1 = np.array([[0.0, 0.0, 1.0, 1.0, 0.0, 0.0]])
+
+    bboxes = cutmix.apply_to_bboxes(
+        [bbox1, np.array([])],
+        image_shapes=[(10, 10), (10, 10)],
+        x1=6,
+        y1=0,
+        x2=10,
+        y2=10,
+    )
+
+    np.testing.assert_allclose(bboxes, bbox1)
+
+
+def test_cutmix_bboxes_clip_strategy_shrinks_to_the_visible_side() -> None:
+    cutmix = CutMix(p=1.0, alpha=1.0, occluded_bbox_strategy="clip")
+    bbox1 = np.array([[0.0, 0.0, 1.0, 1.0, 0.0, 0.0]])
+
+    bboxes = cutmix.apply_to_bboxes(
+        [bbox1, np.array([])],
+        image_shapes=[(10, 10), (10, 10)],
+        x1=6,
+        y1=0,
+        x2=10,
+        y2=10,
+    )
+
+    np.testing.assert_allclose(bboxes, [[0.0, 0.0, 0.6, 1.0, 0.0, 0.0]])
+
+
+def test_cutmix_bboxes_clip_picks_the_largest_remaining_side() -> None:
+    """A patch inside a box cannot be clipped out of it.
+
+    The box is cut at one of the patch's edges instead, keeping whichever
+    of the four strips that leaves is biggest - here the one above the
+    patch, at 40 pixels against 30 for each of the other three.
+    """
+    cutmix = CutMix(p=1.0, alpha=1.0, occluded_bbox_strategy="clip")
+    bbox1 = np.array([[0.0, 0.0, 1.0, 1.0, 0.0, 0.0]])
+
+    bboxes = cutmix.apply_to_bboxes(
+        [bbox1, np.array([])],
+        image_shapes=[(10, 10), (10, 10)],
+        x1=3,
+        y1=4,
+        x2=7,
+        y2=7,
+    )
+
+    np.testing.assert_allclose(bboxes, [[0.0, 0.0, 1.0, 0.4, 0.0, 0.0]])
+
+
+def test_cutmix_bboxes_clip_leaves_untouched_boxes_alone() -> None:
+    cutmix = CutMix(p=1.0, alpha=1.0, occluded_bbox_strategy="clip")
+    bbox1 = np.array([[0.0, 0.0, 0.4, 0.4, 0.0, 0.0]])
+
+    bboxes = cutmix.apply_to_bboxes(
+        [bbox1, np.array([])],
+        image_shapes=[(10, 10), (10, 10)],
+        x1=6,
+        y1=6,
+        x2=10,
+        y2=10,
+    )
+
+    np.testing.assert_allclose(bboxes, bbox1)
+
+
+def test_cutmix_bboxes_clip_collapses_a_fully_covered_box() -> None:
+    """Cutting away a box the patch covers whole must not invert it.
+
+    Every candidate strip is empty here, and a negative-width box would
+    survive the area filters further down the pipeline.
+    """
+    cutmix = CutMix(
+        p=1.0,
+        alpha=1.0,
+        bbox_min_visibility=0.0,
+        occluded_bbox_strategy="clip",
+    )
+    bbox1 = np.array([[0.2, 0.2, 0.4, 0.4, 0.0, 0.0]])
+
+    bboxes = cutmix.apply_to_bboxes(
+        [bbox1, np.array([])],
+        image_shapes=[(10, 10), (10, 10)],
+        x1=0,
+        y1=0,
+        x2=10,
+        y2=10,
+    )
+
+    left, top, right, bottom = bboxes[0, :4]
+    assert right >= left
+    assert bottom >= top
+    assert (right - left) * (bottom - top) == 0
+
+
 def test_cutmix_empty_bboxes() -> None:
     cutmix = CutMix(p=1.0, alpha=1.0)
 
@@ -473,7 +573,7 @@ def test_bbox_patch_helpers_empty_results() -> None:
     )
     assert zero_area.shape == (0, 6)
 
-    unchanged = CutMix._collapse_occluded_bboxes(
+    unchanged = CutMix._occlude_bboxes(
         bboxes,
         height=10,
         width=10,
@@ -522,6 +622,11 @@ def test_invalid_alpha(alpha: float) -> None:
         CutMix(alpha=alpha)
 
 
+def test_invalid_occluded_bbox_strategy() -> None:
+    with pytest.raises(ValueError, match="'keep' or 'clip'"):
+        CutMix(occluded_bbox_strategy="crop")  # type: ignore[arg-type]
+
+
 def test_invalid_bbox_min_visibility() -> None:
     with pytest.raises(ValueError, match=r"\[0, 1\]"):
         CutMix(bbox_min_visibility=1.5)
@@ -548,9 +653,10 @@ def _instance_labels(first_id: int) -> Labels:
     }
 
 
+@pytest.mark.parametrize("strategy", ["keep", "clip"])
 @pytest.mark.parametrize("seed", range(40))
 def test_dropped_bboxes_take_their_instance_labels_with_them(
-    seed: int,
+    seed: int, strategy: str
 ) -> None:
     """A box the patch covers must not leave its mask and id behind.
 
@@ -570,7 +676,12 @@ def test_dropped_bboxes_take_their_instance_labels_with_them(
         targets,
         dict.fromkeys(targets, 1),
         ["image"],
-        [{"name": "CutMix", "params": {"p": 1.0}}],
+        [
+            {
+                "name": "CutMix",
+                "params": {"p": 1.0, "occluded_bbox_strategy": strategy},
+            }
+        ],
         seed=seed,
     )
     image = np.zeros((320, 320, 3), dtype=np.uint8)
@@ -586,11 +697,15 @@ def test_dropped_bboxes_take_their_instance_labels_with_them(
     masks = output["task/instance_segmentation"]
     ids = output["task/metadata/id"]
     assert boxes.shape[0] == masks.shape[0] == ids.shape[0]
-    assert_boxes_match_masks(boxes, masks)
     # Each mask was painted with its own id, so this pins down which
     # instance every surviving row actually came from.
     for mask, instance_id in zip(masks, ids, strict=True):
         assert np.unique(mask[mask != 0]).tolist() == [instance_id]
+
+    if strategy == "keep":
+        # Under "clip" the box is deliberately smaller than the part of
+        # the mask left showing, so its centroid can fall outside.
+        assert_boxes_match_masks(boxes, masks)
 
 
 def test_occluded_bboxes_do_not_mutate_the_input() -> None:
@@ -598,7 +713,7 @@ def test_occluded_bboxes_do_not_mutate_the_input() -> None:
     bboxes = np.array([[0.0, 0.0, 0.4, 0.4, 0.0, 0.0]])
     bboxes.setflags(write=False)
 
-    CutMix._collapse_occluded_bboxes(
+    CutMix._occlude_bboxes(
         bboxes,
         height=10,
         width=10,

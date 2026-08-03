@@ -24,10 +24,13 @@ class CutMix(BatchTransform):
 
     Bounding boxes from the first image are kept if their visible area
     (original area minus the intersection with the patch) is at least
-    ``bbox_min_visibility`` times their original area. Bounding boxes from
-    the second image are clipped to the patch region. Keypoints from the
-    first image that fall inside the patch are marked invisible, while
-    keypoints from the second image outside the patch are marked invisible.
+    ``bbox_min_visibility`` times their original area;
+    ``occluded_bbox_strategy`` decides whether the survivors keep their
+    full extent or are clipped to the part the patch leaves alone.
+    Bounding boxes from the second image are clipped to the patch region.
+    Keypoints from the first image that fall inside the patch are marked
+    invisible, while keypoints from the second image outside the patch are
+    marked invisible.
 
     See:
         `CutMix: Regularization Strategy to Train Strong Classifiers with
@@ -39,6 +42,7 @@ class CutMix(BatchTransform):
         alpha: float = 1.0,
         keep_aspect_ratio: bool = True,
         bbox_min_visibility: float = 0.5,
+        occluded_bbox_strategy: Literal["keep", "clip"] = "keep",
         p: float = 0.5,
     ):
         r"""Create a CutMix augmentation.
@@ -54,11 +58,30 @@ class CutMix(BatchTransform):
             bbox_min_visibility: Minimum fraction of a first-image
                 bounding box that must remain visible (outside the patch)
                 for the box to be kept. Must lie in :math:`[0, 1]`.
+            occluded_bbox_strategy: What to do with the first-image boxes
+                the patch partly covers but does not hide past
+                ``bbox_min_visibility``.
+
+                - ``"keep"`` leaves them at their original extent, on the
+                  grounds that the object still occupies the whole box and
+                  is merely covered up. This is what the reference
+                  implementations do.
+                - ``"clip"`` shrinks them to the largest part of themselves
+                  the patch does not reach, so that no box edge sits on top
+                  of the patch. A patch cutting a box in two keeps the
+                  larger of the two remaining sides.
+
+                Which box survives is decided by ``bbox_min_visibility``
+                either way; this only changes the extent of the survivors.
+                Note that ``"clip"`` can leave a visible keypoint outside
+                its own, now smaller, box.
             p: Probability of applying the transform.
 
         Raises:
-            ValueError: If ``alpha`` is not a finite positive number or
-                ``bbox_min_visibility`` is outside :math:`[0, 1]`.
+            ValueError: If ``alpha`` is not a finite positive number,
+                ``bbox_min_visibility`` is outside :math:`[0, 1]`, or
+                ``occluded_bbox_strategy`` is not one of ``"keep"`` and
+                ``"clip"``.
 
         """
         super().__init__(batch_size=2, p=p)
@@ -69,8 +92,18 @@ class CutMix(BatchTransform):
         if not 0.0 <= bbox_min_visibility <= 1.0:
             raise ValueError("bbox_min_visibility must be in range [0, 1].")
 
+        if occluded_bbox_strategy not in {"keep", "clip"}:
+            raise ValueError(
+                "occluded_bbox_strategy must be either 'keep' or 'clip', "
+                f"got '{occluded_bbox_strategy}'."
+            )
+
         self._alpha = alpha
         self._bbox_min_visibility = bbox_min_visibility
+        # Annotated because the membership check above widens the literal.
+        self._occluded_bbox_strategy: Literal["keep", "clip"] = (
+            occluded_bbox_strategy
+        )
         self._resize_transform = create_letterbox_or_resize(
             keep_aspect_ratio, 1, 1
         )
@@ -280,7 +313,7 @@ class CutMix(BatchTransform):
         if bbox1.size == 0:
             bbox1 = self._empty_rows(bbox1, 6)
         else:
-            bbox1 = self._collapse_occluded_bboxes(
+            bbox1 = self._occlude_bboxes(
                 bbox1,
                 image_shapes[0][0],
                 image_shapes[0][1],
@@ -289,6 +322,7 @@ class CutMix(BatchTransform):
                 x2,
                 y2,
                 self._bbox_min_visibility,
+                self._occluded_bbox_strategy,
             )
 
         if bbox2.size == 0:
@@ -490,7 +524,7 @@ class CutMix(BatchTransform):
         return normalize_bboxes(clipped, (height, width))
 
     @staticmethod
-    def _collapse_occluded_bboxes(
+    def _occlude_bboxes(
         bboxes: np.ndarray,
         height: int,
         width: int,
@@ -499,8 +533,14 @@ class CutMix(BatchTransform):
         x2: int,
         y2: int,
         min_visibility: float,
+        strategy: Literal["keep", "clip"] = "keep",
     ) -> np.ndarray:
-        """Zero out the boxes the patch covers past ``min_visibility``."""
+        """Account for the patch covering part of the first image's boxes.
+
+        Boxes the patch hides past ``min_visibility`` are zeroed out. Under
+        the ``"clip"`` strategy the survivors are also shrunk to the part
+        of themselves the patch does not reach.
+        """
         if bboxes.size == 0 or x1 == x2 or y1 == y2:
             return bboxes
 
@@ -529,9 +569,52 @@ class CutMix(BatchTransform):
                 1.0 - intersection_area / original_area,
                 0.0,
             )
-        # The caller's array may be read-only, and is not ours to modify.
-        bboxes = bboxes.copy()
+        if strategy == "clip":
+            # `denormalized` is already a copy of the caller's array.
+            bboxes = normalize_bboxes(
+                CutMix._largest_uncovered_part(denormalized, x1, y1, x2, y2),
+                (height, width),
+            )
+        else:
+            # The caller's array may be read-only, and is not ours to modify.
+            bboxes = bboxes.copy()
+
         bboxes[visible_fraction < min_visibility, :4] = 0.0
+        return bboxes
+
+    @staticmethod
+    def _largest_uncovered_part(
+        bboxes: np.ndarray, x1: int, y1: int, x2: int, y2: int
+    ) -> np.ndarray:
+        """Shrink each box to its largest part outside the patch.
+
+        Cutting a box at one of the patch's edges leaves four candidate
+        rectangles - the strips to the left of, to the right of, above and
+        below the patch. The largest of them is the biggest axis-aligned
+        box that avoids the patch altogether, and a box the patch never
+        reaches comes back unchanged because one of its strips is the box
+        itself.
+        """
+        left, top, right, bottom = (bboxes[:, i] for i in range(4))
+        candidates = np.stack(
+            [
+                np.stack([left, top, np.minimum(right, x1), bottom], axis=-1),
+                np.stack([np.maximum(left, x2), top, right, bottom], axis=-1),
+                np.stack([left, top, right, np.minimum(bottom, y1)], axis=-1),
+                np.stack([left, np.maximum(top, y2), right, bottom], axis=-1),
+            ]
+        )
+        widths = np.clip(candidates[..., 2] - candidates[..., 0], 0, None)
+        heights = np.clip(candidates[..., 3] - candidates[..., 1], 0, None)
+        largest = np.argmax(widths * heights, axis=0)
+
+        part = candidates[largest, np.arange(len(bboxes))]
+        # A box the patch covers whole has no part left; collapse it rather
+        # than let the cut turn it inside out.
+        part[:, 2] = np.maximum(part[:, 2], part[:, 0])
+        part[:, 3] = np.maximum(part[:, 3], part[:, 1])
+
+        bboxes[:, :4] = part
         return bboxes
 
     @staticmethod

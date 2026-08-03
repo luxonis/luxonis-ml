@@ -108,6 +108,7 @@ The configuration format for the `AlbumentationsEngine` consists of a list of re
     p: 0.5
     alpha: 1.0
     bbox_min_visibility: 0.5
+    occluded_bbox_strategy: keep
 ```
 
 `alpha: 1.0` corresponds to the uniform patch-area sampling used as the
@@ -115,6 +116,14 @@ default in the CutMix paper. `bbox_min_visibility` controls how strictly
 first-image bounding boxes are kept when the patch occludes them: a box
 is kept only when its remaining visible area is at least this fraction
 of its original area.
+
+`occluded_bbox_strategy` decides what happens to the boxes that do stay.
+With `keep` (the default, and what the reference implementations do) an
+occluded box keeps its original extent, on the grounds that the object
+still fills it and is merely covered up. With `clip` the box is shrunk to
+the largest part of itself the patch does not reach, so that no box edge
+sits on top of the patch; a patch landing in the middle of a box keeps
+the largest of the four strips around it.
 
 ### Order of Transformations
 
