@@ -17,7 +17,12 @@ from luxonis_ml.data import (
 from luxonis_ml.data.augmentations import AugmentationEngine
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.typing import LoaderMultiOutput, LoaderSingleOutput, Params
+from luxonis_ml.typing import (
+    LoaderMultiOutput,
+    LoaderSingleOutput,
+    Params,
+    TrackedAugmentations,
+)
 from luxonis_ml.utils import LuxonisFileSystem
 
 from .utils import create_dataset, create_image
@@ -343,6 +348,7 @@ def test_loader_records_augmentations_in_sample_metadata(
 
     metadata = loader[0].metadata
 
+    assert isinstance(metadata["augmentations"], TrackedAugmentations)
     assert metadata == {
         "augmentations": {"HorizontalFlip": {}},
         "record_id": "sample-1",
@@ -363,7 +369,7 @@ def test_loader_keeps_stored_metadata_over_the_reserved_augmentations_key(
         yield {
             "file": img,
             "sample_metadata": {
-                "augmentations": ["stored-value"],
+                "augmentations": {"user_pipeline": {"run_id": 42}},
                 "record_id": "sample-1",
             },
             "annotation": {"class": "person"},
@@ -382,7 +388,7 @@ def test_loader_keeps_stored_metadata_over_the_reserved_augmentations_key(
         metadata = loader[0].metadata
 
     assert metadata == {
-        "augmentations": ["stored-value"],
+        "augmentations": {"user_pipeline": {"run_id": 42}},
         "record_id": "sample-1",
     }
 

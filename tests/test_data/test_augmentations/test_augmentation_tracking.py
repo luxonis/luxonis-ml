@@ -16,7 +16,7 @@ from luxonis_ml.data.utils.cli_utils import (
     get_applied_augmentations,
     get_tracked_augmentations,
 )
-from luxonis_ml.typing import LoaderMultiOutput, Params
+from luxonis_ml.typing import LoaderMultiOutput, Params, TrackedAugmentations
 
 
 def _make_sample(size: int = 64) -> list[LoaderMultiOutput]:
@@ -187,7 +187,7 @@ def test_tracks_applied_batch_transform_without_runtime_parameters():
 
 def test_inspect_reads_augmentation_metadata():
     assert get_applied_augmentations(
-        {"augmentations": {"HorizontalFlip": {}}}
+        {"augmentations": TrackedAugmentations({"HorizontalFlip": {}})}
     ) == ["HorizontalFlip"]
     assert get_applied_augmentations({"augmentations": ["invalid"]}) == []
 
@@ -195,17 +195,15 @@ def test_inspect_reads_augmentation_metadata():
 def test_inspect_does_not_read_stored_metadata_as_augmentations():
     """A record may store its own ``"augmentations"`` metadata.
 
-    The loader keeps the stored value, so anything that does not look like
-    tracked provenance is the record's own metadata. Listing its keys
-    presented them as augmentations that had been applied.
+    The loader keeps the stored value. Its shape must not cause it to be
+    mistaken for augmentation provenance and listed as applied transforms.
     """
-    stored: Params = {"augmentations": {"session": "studio-a", "lens": "wide"}}
+    stored: Params = {"augmentations": {"user_pipeline": {"run_id": 42}}}
 
     assert get_tracked_augmentations(stored) is None
     assert get_applied_augmentations(stored) == []
-    assert get_tracked_augmentations({"augmentations": {"Blur": {}}}) == {
-        "Blur": {}
-    }
+    tracked = {"augmentations": TrackedAugmentations({"Blur": {}})}
+    assert get_tracked_augmentations(tracked) == {"Blur": {}}
 
 
 def test_tracks_only_configured_augmentations_that_are_applied():
