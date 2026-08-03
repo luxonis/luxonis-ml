@@ -67,8 +67,10 @@ all = [
 # `--only-group lint`, which installs a single binary instead of the whole
 # dependency tree that `dev` pulls in through `luxonis-ml[all]`.
 lint = ["prek~=0.4"]
+docs = ["pydoctor~=25.10"]
 dev = [
   { include-group = "lint" },
+  { include-group = "docs" },
   "luxonis-ml[all]",
   "hypothesis~=6.161",
   "onnx~=1.22",
@@ -80,7 +82,6 @@ dev = [
   "pytest-subtests~=0.15",
   "pytest-xdist~=3.8",
 ]
-docs = ["pydoctor~=25.10"]
 
 [project.scripts]
 luxonis_ml = "luxonis_ml.__main__:app"
