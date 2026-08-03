@@ -91,7 +91,7 @@ def test_chrome_for_picks_by_background_lightness():
     # and a hairline border.
     assert light.card_bg.r > 240
     assert light.card_bg.g > 240
-    assert light.card_text is brand.PURPLE
+    assert light.card_text is brand.PURPLE_TEXT
     assert light.card_title is brand.PURPLE_TITLE
     assert light.border is not None
     # Dark chrome: navy card, light-purple (periwinkle) text — on-brand, not
@@ -107,7 +107,7 @@ def test_light_title_is_deeper_than_body_purple():
 
     # Same blue-purple family, but the title is clearly darker than the body.
     assert brand.PURPLE_TITLE.b > brand.PURPLE_TITLE.r
-    assert sum(brand.PURPLE_TITLE.rgb) < sum(brand.PURPLE.rgb)
+    assert sum(brand.PURPLE_TITLE.rgb) < sum(brand.PURPLE_TEXT.rgb)
 
 
 def test_dark_title_is_lighter_than_body_on_dark():
@@ -118,6 +118,25 @@ def test_dark_title_is_lighter_than_body_on_dark():
     # Same purple family, but the title is clearly lighter (stronger on dark).
     assert dark.card_title.b > dark.card_title.r
     assert sum(dark.card_title.rgb) > sum(dark.card_text.rgb)
+
+
+def test_each_family_reads_as_dark_text_on_its_own_soft_tint():
+    """A swapped soft/text pair is still two valid brand colors, so only the
+    contrast relationship between them catches a bad transcription.
+    """
+    from luxonis_ml.utils.color import brand
+
+    families = [
+        (brand.PURPLE, brand.PURPLE_SOFT, brand.PURPLE_TEXT),
+        (brand.GREEN, brand.GREEN_SOFT, brand.GREEN_TEXT),
+        (brand.ORANGE, brand.ORANGE_SOFT, brand.ORANGE_TEXT),
+        (brand.RED, brand.RED_SOFT, brand.RED_TEXT),
+    ]
+    for solid, soft, text in families:
+        assert soft.is_light  # a pale chip fill ...
+        assert not text.is_light  # ... that its label reads as dark on
+        # The text color is the darkened variant of the family, not the solid.
+        assert sum(text.rgb) < sum(solid.rgb)
 
 
 def test_parse_rejects_a_tuple_that_is_not_rgb_or_rgba():
