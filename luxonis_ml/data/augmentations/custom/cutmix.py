@@ -57,14 +57,14 @@ class CutMix(BatchTransform):
             p: Probability of applying the transform.
 
         Raises:
-            ValueError: If ``alpha`` is not positive or
+            ValueError: If ``alpha`` is not a finite positive number or
                 ``bbox_min_visibility`` is outside :math:`[0, 1]`.
 
         """
         super().__init__(batch_size=2, p=p)
 
-        if alpha <= 0:
-            raise ValueError("Alpha must be greater than 0.")
+        if not math.isfinite(alpha) or alpha <= 0:
+            raise ValueError("Alpha must be a finite number greater than 0.")
 
         if not 0.0 <= bbox_min_visibility <= 1.0:
             raise ValueError("bbox_min_visibility must be in range [0, 1].")
@@ -257,6 +257,12 @@ class CutMix(BatchTransform):
         ``bbox_min_visibility`` of the original area. Bounding boxes from
         the second image are clipped to the patch region.
 
+        Boxes that do not survive are collapsed to zero area rather than
+        removed, so that the returned rows stay aligned with the instance
+        masks, keypoints and metadata concatenated alongside them.
+        `BatchCompose` discards the collapsed rows together with their
+        associated labels once the batch has been merged.
+
         Args:
             bboxes_batch: Bounding boxes to transform, in normalized
                 Albumentations format.
@@ -274,7 +280,7 @@ class CutMix(BatchTransform):
         if bbox1.size == 0:
             bbox1 = self._empty_rows(bbox1, 6)
         else:
-            bbox1 = self._filter_bboxes_by_visibility(
+            bbox1 = self._collapse_occluded_bboxes(
                 bbox1,
                 image_shapes[0][0],
                 image_shapes[0][1],
@@ -478,15 +484,13 @@ class CutMix(BatchTransform):
         clipped[:, 1] = np.clip(clipped[:, 1], y1, y2)
         clipped[:, 3] = np.clip(clipped[:, 3], y1, y2)
 
-        valid = (clipped[:, 2] > clipped[:, 0]) & (
-            clipped[:, 3] > clipped[:, 1]
-        )
-        if not np.any(valid):
-            return CutMix._empty_rows(bboxes, bboxes.shape[1])
-        return normalize_bboxes(clipped[valid], (height, width))
+        # A box that misses the patch entirely is clipped to zero area by
+        # the lines above; it is left in place so that the row still lines
+        # up with its instance labels.
+        return normalize_bboxes(clipped, (height, width))
 
     @staticmethod
-    def _filter_bboxes_by_visibility(
+    def _collapse_occluded_bboxes(
         bboxes: np.ndarray,
         height: int,
         width: int,
@@ -496,6 +500,7 @@ class CutMix(BatchTransform):
         y2: int,
         min_visibility: float,
     ) -> np.ndarray:
+        """Zero out the boxes the patch covers past ``min_visibility``."""
         if bboxes.size == 0 or x1 == x2 or y1 == y2:
             return bboxes
 
@@ -524,7 +529,10 @@ class CutMix(BatchTransform):
                 1.0 - intersection_area / original_area,
                 0.0,
             )
-        return bboxes[visible_fraction >= min_visibility]
+        # The caller's array may be read-only, and is not ours to modify.
+        bboxes = bboxes.copy()
+        bboxes[visible_fraction < min_visibility, :4] = 0.0
+        return bboxes
 
     @staticmethod
     def _mark_keypoints_in_patch(

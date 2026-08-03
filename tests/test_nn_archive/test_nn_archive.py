@@ -50,7 +50,13 @@ def create_onnx_model():
         "output1", TensorProto.FLOAT, [1, 5, 5, 5]
     )
     graph = helper.make_graph(
-        [], "DummyModel", [input0, input1], [output0, output1]
+        [
+            helper.make_node("Identity", ["input0"], ["output0"]),
+            helper.make_node("Identity", ["input1"], ["output1"]),
+        ],
+        "DummyModel",
+        [input0, input1],
+        [output0, output1],
     )
 
     model = helper.make_model(graph, producer_name="DummyModelProducer")

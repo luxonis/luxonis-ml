@@ -202,6 +202,14 @@ class RemoteFileDownloader:
                 f"Expected one of {sorted(ALLOWED_IMAGE_SUFFIXES)}."
             )
 
+        if suffix == ".heic":
+            # ``pillow-heif`` is not registered with Pillow on import. Do it
+            # only when HEIC validation is requested to keep the plugin's
+            # global registration scoped to the format that needs it.
+            from pillow_heif import register_heif_opener
+
+            register_heif_opener()
+
         try:
             with Image.open(path) as image:
                 image_format = image.format

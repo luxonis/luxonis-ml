@@ -89,10 +89,12 @@ def find_filepath_uuid(
     Examples:
         >>> import polars as pl
         >>> path = Path("image.jpg").absolute().resolve()
-        >>> index = pl.DataFrame({
-        ...     "original_filepath": [str(path)],
-        ...     "uuid": ["abc"],
-        ... })
+        >>> index = pl.DataFrame(
+        ...     {
+        ...         "original_filepath": [str(path)],
+        ...         "uuid": ["abc"],
+        ...     }
+        ... )
         >>> find_filepath_uuid(path, index)
         'abc'
         >>> find_filepath_uuid("missing.jpg", index, raise_on_missing=True)
@@ -158,10 +160,12 @@ def find_filepath_group_id(
     Examples:
         >>> import polars as pl
         >>> path = Path("image.jpg").absolute().resolve()
-        >>> index = pl.DataFrame({
-        ...     "original_filepath": [str(path)],
-        ...     "group_id": ["group-1"],
-        ... })
+        >>> index = pl.DataFrame(
+        ...     {
+        ...         "original_filepath": [str(path)],
+        ...         "group_id": ["group-1"],
+        ...     }
+        ... )
         >>> find_filepath_group_id(path, index)
         'group-1'
         >>> find_filepath_group_id(None, None) is None

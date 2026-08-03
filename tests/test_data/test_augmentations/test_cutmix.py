@@ -1,7 +1,11 @@
 import numpy as np
 import pytest
 
+from luxonis_ml.data import AlbumentationsEngine
 from luxonis_ml.data.augmentations.custom.cutmix import CutMix
+from luxonis_ml.typing import Labels
+
+from .test_batched import assert_boxes_match_masks
 
 
 def test_compute_patch() -> None:
@@ -308,9 +312,13 @@ def test_cutmix_bboxes_strict_visibility() -> None:
         y2=7,
     )
 
+    # The second box is fully covered by the patch, so it is collapsed to
+    # zero area instead of removed, keeping the row count aligned with the
+    # instance labels. `BatchCompose` drops the two together afterwards.
     expected = np.array(
         [
             [0.0, 0.0, 0.3, 0.2, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0, 1.0, 1.0],
             [0.4, 0.3, 0.8, 0.7, 1.0, 1.0],
         ]
     )
@@ -346,7 +354,7 @@ def test_cutmix_bboxes_min_visibility_drops_mostly_covered() -> None:
         y2=4,
     )
 
-    assert bboxes.shape == (0, 6)
+    np.testing.assert_allclose(bboxes, [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]])
 
 
 def test_cutmix_empty_bboxes() -> None:
@@ -453,17 +461,19 @@ def test_resize_invalid_target_type() -> None:
 def test_bbox_patch_helpers_empty_results() -> None:
     bboxes = np.array([[0.0, 0.0, 0.2, 0.2, 0.0, 0.0]])
 
+    # The box lies entirely outside the patch, so clipping collapses it.
     clipped = CutMix._clip_bboxes_to_patch(
         bboxes, height=10, width=10, x1=4, y1=4, x2=8, y2=8
     )
-    assert clipped.shape == (0, 6)
+    np.testing.assert_allclose(clipped, [[0.4, 0.4, 0.4, 0.4, 0.0, 0.0]])
 
+    # A patch with no area means the second image is dropped whole.
     zero_area = CutMix._clip_bboxes_to_patch(
         bboxes, height=10, width=10, x1=4, y1=4, x2=4, y2=8
     )
     assert zero_area.shape == (0, 6)
 
-    unchanged = CutMix._filter_bboxes_by_visibility(
+    unchanged = CutMix._collapse_occluded_bboxes(
         bboxes,
         height=10,
         width=10,
@@ -498,9 +508,18 @@ def test_keypoint_and_dimension_helpers_empty_or_dimensional() -> None:
     assert expanded.shape == (2, 3, 1)
 
 
-def test_invalid_alpha() -> None:
+@pytest.mark.parametrize(
+    "alpha", [0, -1.0, float("nan"), float("inf"), float("-inf")]
+)
+def test_invalid_alpha(alpha: float) -> None:
+    """``np.random.beta`` only fails once the transform is applied.
+
+    A non-finite ``alpha`` passes ``alpha <= 0``, so without an explicit
+    check the error surfaces mid-training rather than at configuration
+    time.
+    """
     with pytest.raises(ValueError, match="greater than 0"):
-        CutMix(alpha=0)
+        CutMix(alpha=alpha)
 
 
 def test_invalid_bbox_min_visibility() -> None:
@@ -508,3 +527,86 @@ def test_invalid_bbox_min_visibility() -> None:
         CutMix(bbox_min_visibility=1.5)
     with pytest.raises(ValueError, match=r"\[0, 1\]"):
         CutMix(bbox_min_visibility=-0.1)
+
+
+def _instance_labels(first_id: int) -> Labels:
+    """Two instances whose masks cover exactly their own box.
+
+    Sharing the box outline means any box that keeps enough visible area to
+    survive keeps a non-empty mask too, so an empty mask is a mispairing
+    rather than an artifact of the patch position.
+    """
+    mask = np.zeros((2, 320, 320), dtype=np.uint8)
+    mask[0, 48:112, 48:112] = first_id
+    mask[1, 208:272, 208:272] = first_id + 1
+    return {
+        "task/boundingbox": np.array(
+            [[0.0, 0.15, 0.15, 0.20, 0.20], [0.0, 0.65, 0.65, 0.20, 0.20]]
+        ),
+        "task/instance_segmentation": mask,
+        "task/metadata/id": np.array([first_id, first_id + 1]),
+    }
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_dropped_bboxes_take_their_instance_labels_with_them(
+    seed: int,
+) -> None:
+    """A box the patch covers must not leave its mask and id behind.
+
+    CutMix used to delete the occluded rows from the bounding boxes alone,
+    so the instance masks and metadata it concatenated alongside them
+    stayed one entry longer and every later instance was paired with the
+    wrong box.
+    """
+    targets = {
+        "task/boundingbox": "boundingbox",
+        "task/instance_segmentation": "instance_segmentation",
+        "task/metadata/id": "metadata",
+    }
+    engine = AlbumentationsEngine(
+        320,
+        320,
+        targets,
+        dict.fromkeys(targets, 1),
+        ["image"],
+        [{"name": "CutMix", "params": {"p": 1.0}}],
+        seed=seed,
+    )
+    image = np.zeros((320, 320, 3), dtype=np.uint8)
+
+    _, output = engine.apply(
+        [
+            ({"image": image}, _instance_labels(1)),
+            ({"image": image}, _instance_labels(11)),
+        ]
+    )
+
+    boxes = output["task/boundingbox"]
+    masks = output["task/instance_segmentation"]
+    ids = output["task/metadata/id"]
+    assert boxes.shape[0] == masks.shape[0] == ids.shape[0]
+    assert_boxes_match_masks(boxes, masks)
+    # Each mask was painted with its own id, so this pins down which
+    # instance every surviving row actually came from.
+    for mask, instance_id in zip(masks, ids, strict=True):
+        assert np.unique(mask[mask != 0]).tolist() == [instance_id]
+
+
+def test_occluded_bboxes_do_not_mutate_the_input() -> None:
+    """The batch arrays belong to the caller and may be read-only."""
+    bboxes = np.array([[0.0, 0.0, 0.4, 0.4, 0.0, 0.0]])
+    bboxes.setflags(write=False)
+
+    CutMix._collapse_occluded_bboxes(
+        bboxes,
+        height=10,
+        width=10,
+        x1=0,
+        y1=0,
+        x2=10,
+        y2=10,
+        min_visibility=0.5,
+    )
+
+    np.testing.assert_allclose(bboxes, [[0.0, 0.0, 0.4, 0.4, 0.0, 0.0]])
