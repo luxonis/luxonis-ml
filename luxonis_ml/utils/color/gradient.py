@@ -9,13 +9,19 @@ A handful of ready-made gradients are registered by name in :data:`GRADIENTS`
 (perceptually-uniform ones like ``"viridis"``/``"turbo"`` plus classics like
 ``"jet"`` and ``"hot"``). Resolve a name or pass your own with
 `resolve_gradient`; build a custom one with `Gradient.from_colors`.
+
+Only `Gradient.colorize` needs NumPy, and it imports it when called, so this
+module stays importable on a base ``luxonis-ml`` install that has no NumPy.
 """
 
 from dataclasses import dataclass
-
-import numpy as np
+from typing import TYPE_CHECKING
 
 from .base import Color, ColorLike
+
+if TYPE_CHECKING:
+    import numpy as np
+    import numpy.typing as npt
 
 
 @dataclass(frozen=True)
@@ -63,34 +69,41 @@ class Gradient:
 
         Raises:
             ValueError: If fewer than two colors are given, or ``positions`` is
-                given with a different length than ``colors``.
+                given with a different length than ``colors``, a position outside
+                ``[0, 1]``, or a repeated position.
 
         """
         parsed = [Color.parse(c) for c in colors]
         if len(parsed) < 2:
             raise ValueError("a gradient needs at least two colors")
         if positions is None:
-            positions = list(np.linspace(0.0, 1.0, len(parsed)))
+            last = len(parsed) - 1
+            positions = [i / last for i in range(len(parsed))]
         elif len(positions) != len(parsed):
             raise ValueError("positions must have one entry per color")
+        else:
+            outside = [p for p in positions if not 0.0 <= p <= 1.0]
+            if outside:
+                raise ValueError(
+                    f"positions must lie in [0, 1], got {outside}"
+                )
+            # Two stops at the same position leave the interpolation between
+            # them undefined, so the resulting color would depend on stop order.
+            if len(set(positions)) != len(positions):
+                raise ValueError(
+                    f"positions must be distinct, got {positions}"
+                )
         stops = sorted(
             ((float(p), c) for p, c in zip(positions, parsed, strict=True)),
             key=lambda stop: stop[0],
         )
         return cls(tuple(stops))
 
-    def _channels(
-        self,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Return the stop positions and per-channel values as arrays."""
-        xp = np.array([p for p, _ in self.stops], dtype=np.float64)
-        rs = np.array([c.r for _, c in self.stops], dtype=np.float64)
-        gs = np.array([c.g for _, c in self.stops], dtype=np.float64)
-        bs = np.array([c.b for _, c in self.stops], dtype=np.float64)
-        return xp, rs, gs, bs
-
     def color_at(self, t: float) -> Color:
         """Return the color at scalar ``t`` in ``[0, 1]`` (clamped).
+
+        All four channels are interpolated, so a gradient between translucent
+        stops fades in alpha too.
 
         Args:
             t: The position along the gradient.
@@ -99,36 +112,53 @@ class Gradient:
             The interpolated `Color`.
 
         """
-        xp, rs, gs, bs = self._channels()
         clamped = min(1.0, max(0.0, t))
-        return Color(
-            round(float(np.interp(clamped, xp, rs))),
-            round(float(np.interp(clamped, xp, gs))),
-            round(float(np.interp(clamped, xp, bs))),
-        )
+        if clamped <= self.stops[0][0]:
+            return self.stops[0][1]
+        for (p0, low), (p1, high) in zip(
+            self.stops, self.stops[1:], strict=False
+        ):
+            if clamped <= p1:
+                # Slope first, then offset — the order ``np.interp`` uses, so a
+                # scalar lookup rounds exactly like the same value in `colorize`.
+                span, offset = p1 - p0, clamped - p0
+                return Color(
+                    round(low.r + (high.r - low.r) / span * offset),
+                    round(low.g + (high.g - low.g) / span * offset),
+                    round(low.b + (high.b - low.b) / span * offset),
+                    round(low.a + (high.a - low.a) / span * offset),
+                )
+        return self.stops[-1][1]
 
-    def colorize(self, field: np.ndarray) -> np.ndarray:
+    def colorize(self, field: "npt.ArrayLike") -> "np.ndarray":
         """Map a scalar field to RGB, interpolating each channel through the stops.
+
+        Only the color channels are mapped: the result is opaque RGB, so any
+        alpha on the stops is ignored. Use `color_at` when alpha matters.
 
         Args:
             field: An array of scalars, expected in ``[0, 1]`` (values are
-                clamped). Any shape is accepted.
+                clamped). Any shape is accepted, as is anything
+                ``numpy.asarray`` converts to a float array.
 
         Returns:
             A ``uint8`` array shaped ``(*field.shape, 3)`` in RGB order.
 
         """
-        xp, rs, gs, bs = self._channels()
-        flat = np.clip(np.asarray(field, dtype=np.float64).ravel(), 0.0, 1.0)
+        import numpy as np
+
+        values = np.asarray(field, dtype=np.float64)
+        xp = [p for p, _ in self.stops]
+        flat = np.clip(values.ravel(), 0.0, 1.0)
         rgb = np.stack(
             [
-                np.interp(flat, xp, rs),
-                np.interp(flat, xp, gs),
-                np.interp(flat, xp, bs),
+                np.interp(flat, xp, [c.r for _, c in self.stops]),
+                np.interp(flat, xp, [c.g for _, c in self.stops]),
+                np.interp(flat, xp, [c.b for _, c in self.stops]),
             ],
             axis=-1,
         )
-        return np.round(rgb).astype(np.uint8).reshape(*field.shape, 3)
+        return np.round(rgb).astype(np.uint8).reshape(*values.shape, 3)
 
 
 # Preset colormaps. The perceptually-uniform families (viridis, magma, inferno,

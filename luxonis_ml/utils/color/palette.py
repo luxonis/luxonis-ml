@@ -24,6 +24,7 @@ the same order, but not across arbitrary reorderings. Pin a color explicitly wit
 map to one exact color forever.
 """
 
+import threading
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 
@@ -201,6 +202,9 @@ class Palette:
         """
         self._generator: ColorGenerator = generator or GoldenRatioColors()
         self._colors: dict[str, Color] = {}
+        # Assigning a color is a read-modify-write of `_colors`, and
+        # `DEFAULT_PALETTE` is shared process-wide, so serialize that step.
+        self._lock = threading.Lock()
         self._pins: dict[str, Color] = {
             name: Color.parse(value) for name, value in (colors or {}).items()
         }
@@ -228,7 +232,9 @@ class Palette:
         """Return the color assigned to ``key``, assigning a new one if unseen.
 
         The first time a key is seen it takes the next color in the sequence; every
-        later call for that key returns the same color.
+        later call for that key returns the same color. Two threads racing to
+        register different keys get different colors: only the assignment is
+        locked, so the common case of an already-colored key stays lock-free.
 
         Args:
             key: The label (or any string identity) to color.
@@ -242,8 +248,11 @@ class Palette:
             return pinned
         color = self._colors.get(key)
         if color is None:
-            color = self._generator(len(self._colors))
-            self._colors[key] = color
+            with self._lock:
+                color = self._colors.get(key)
+                if color is None:
+                    color = self._generator(len(self._colors))
+                    self._colors[key] = color
         return color
 
     def pin(self, key: str, color: ColorLike) -> "Palette":

@@ -1,9 +1,15 @@
 """The shared Color primitive parses every color-like input shape."""
 
+import importlib.util
+import sys
+import time
+from threading import Thread
+
 import numpy as np
 import pytest
 
 from luxonis_ml.utils.color import Color, Palette
+from luxonis_ml.utils.color import gradient as gradient_module
 from luxonis_ml.utils.color.gradient import (
     GRADIENTS,
     Gradient,
@@ -159,6 +165,35 @@ def test_with_colors_returns_a_specialized_copy():
     assert shared.color_for("person") != Color(0, 255, 0)
 
 
+def test_two_threads_registering_at_once_get_different_colors():
+    """An unguarded `color_for` gives two racing threads the same color.
+
+    Assigning reads the class count and then writes it back, so the two steps
+    have to be atomic for concurrent first uses to land on different slots.
+
+    """
+
+    def slow_generator(index: int) -> Color:
+        # Widen the read-then-write window so the race is hit every run.
+        time.sleep(0.05)
+        return Color(index, index, index)
+
+    palette = Palette(generator=slow_generator)
+    assigned: dict[str, Color] = {}
+
+    def register(key: str) -> None:
+        assigned[key] = palette.color_for(key)
+
+    threads = [Thread(target=register, args=(key,)) for key in ("car", "bus")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert assigned["car"] != assigned["bus"]
+    assert {c.r for c in assigned.values()} == {0, 1}
+
+
 def test_gradient_needs_at_least_two_colors():
     with pytest.raises(ValueError, match="at least two colors"):
         Gradient.from_colors(["red"])
@@ -187,6 +222,68 @@ def test_colorize_maps_a_field_to_rgb_and_clamps():
     assert rgb[0, 0].tolist() == [0, 0, 0]
     assert rgb[1, 0].tolist() == [0, 0, 0]
     assert rgb[1, 1].tolist() == [255, 255, 255]
+
+
+def test_gradient_rejects_positions_outside_the_unit_range():
+    with pytest.raises(ValueError, match=r"must lie in \[0, 1\]"):
+        Gradient.from_colors(["black", "white"], positions=[0.0, 1.5])
+
+
+def test_gradient_rejects_repeated_positions():
+    # Two stops at the same spot make the color between them order-dependent.
+    with pytest.raises(ValueError, match="must be distinct"):
+        Gradient.from_colors(
+            ["black", "white", "red"], positions=[0.0, 0.5, 0.5]
+        )
+
+
+def test_color_at_interpolates_alpha_with_the_color_channels():
+    gradient = Gradient.from_colors([Color(0, 0, 0, 0), Color(0, 0, 0, 200)])
+    assert gradient.color_at(0.0).a == 0
+    assert gradient.color_at(0.5).a == 100
+    assert gradient.color_at(1.0).a == 200
+
+
+def test_colorize_accepts_any_array_like():
+    # The field is converted with np.asarray, so nested lists work too.
+    rgb = Gradient.from_colors(["black", "white"]).colorize([[0.0, 1.0]])
+
+    assert rgb.shape == (1, 2, 3)
+    assert rgb[0, 0].tolist() == [0, 0, 0]
+    assert rgb[0, 1].tolist() == [255, 255, 255]
+
+
+def test_gradient_module_imports_without_numpy(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Importing this module must not need NumPy.
+
+    NumPy is not among the base dependencies in ``utils/requirements.txt``, so
+    only `Gradient.colorize` — which is handed a NumPy array anyway — may need
+    it.
+
+    """
+    monkeypatch.setitem(
+        sys.modules, "numpy", None
+    )  # makes `import numpy` fail
+
+    # Load a second copy from source, so the real module stays untouched. The
+    # package name keeps its relative imports resolvable.
+    spec = importlib.util.spec_from_file_location(
+        "luxonis_ml.utils.color._gradient_probe", gradient_module.__file__
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    probe = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(probe)
+
+    assert probe.Gradient.from_colors(["black", "white"]).color_at(
+        0.5
+    ).rgb == (
+        128,
+        128,
+        128,
+    )
 
 
 def test_resolve_gradient_accepts_a_name_or_an_instance():

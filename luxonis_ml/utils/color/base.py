@@ -325,8 +325,10 @@ class Color:
     def readable_text_color(self) -> "Color":
         """Return black or white, whichever is more readable on this color.
 
-        Uses the standard relative-luminance threshold so label text placed on a
-        chip of this color stays legible.
+        Weights the channels the way WCAG relative luminance does, but leaves
+        them gamma-encoded rather than linearizing first — an approximation of
+        perceived brightness, which is all the black-or-white choice needs to
+        keep label text on a chip of this color legible.
 
         Returns:
             Opaque black or white as a `Color`.
