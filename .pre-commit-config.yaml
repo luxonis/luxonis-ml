@@ -3,12 +3,12 @@ repos:
     hooks:
       - id: export-requirements
         name: Export pip compatibility requirements
-        entry: scripts/export_requirements.sh
+        entry: tools/export_requirements.sh
         language: system
         pass_filenames: false
         # Inputs and outputs both, so hand-edits to the generated files are
         # caught as well.
-        files: ^(pyproject\.toml|uv\.lock|luxonis_ml/__init__\.py|requirements(-[a-z]+)?\.txt|scripts/export_requirements\.sh)$
+        files: ^(pyproject\.toml|uv\.lock|luxonis_ml/__init__\.py|requirements(-[a-z]+)?\.txt|tools/export_requirements\.sh)$
 
   - repo: https://github.com/crate-ci/typos
     rev: v1.47.2

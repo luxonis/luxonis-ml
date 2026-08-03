@@ -18,12 +18,13 @@ uv run prek install
 uv run luxonis_ml checkhealth
 ```
 
-`uv sync` creates `.venv`, installs the package in editable mode with every
-extra, and adds the `dev` dependency group. There is no
-`source .venv/bin/activate` step: `uv run <cmd>` syncs the environment and runs
-the command inside it. Use `uv run --no-sync <cmd>` when you have hand-installed
-something into `.venv` that a sync would revert, such as a git checkout of a
-dependency.
+`uv sync` creates `.venv` and installs the package in editable mode together
+with the `dev` dependency group. That group depends on `luxonis-ml[all]`, so a
+plain `uv sync` pulls in every extra as well — you do not need `--all-extras`.
+There is no `source .venv/bin/activate` step: `uv run <cmd>` syncs the
+environment and runs the command inside it. Use `uv run --no-sync <cmd>` when
+you have hand-installed something into `.venv` that a sync would revert, such
+as a git checkout of a dependency.
 
 **The project targets Python 3.10 or newer.** `.python-version` pins the local
 interpreter to 3.10, which is what CI runs, and `uv` downloads it for you if it
@@ -34,7 +35,7 @@ inputs. Do not edit them by hand. Change dependencies in `pyproject.toml` (or
 with `uv add`), then run:
 
 ```bash
-scripts/export_requirements.sh
+tools/export_requirements.sh
 ```
 
 A pre-commit hook runs it for you whenever the dependency files change, so
@@ -43,16 +44,16 @@ usually you only need to review and stage the refreshed `uv.lock` and
 
 ## Repository Map
 
-| Path                             | Purpose                                                                          |
-| -------------------------------- | -------------------------------------------------------------------------------- |
-| `luxonis_ml/data`                | Dataset creation, parsers, exporters, loaders, augmentations, and LDF utilities. |
-| `luxonis_ml/utils`               | Shared config, filesystem, path, logging, graph, and registry helpers.           |
-| `luxonis_ml/nn_archive`          | Model archive metadata and archive generation utilities.                         |
-| `luxonis_ml/tracker`             | Experiment tracking integrations.                                                |
-| `luxonis_ml/telemetry`           | Lightweight telemetry client, events, redaction, and backends.                   |
-| `tests`                          | Pytest suite, fixtures, integration tests, and data workflow coverage.           |
-| `tools/build_pydoctor_docs.py`   | The local and CI entrypoint for generated API docs.                              |
-| `scripts/export_requirements.sh` | Regenerates `uv.lock` and the `requirements*.txt` exports.                       |
+| Path                           | Purpose                                                                          |
+| ------------------------------ | -------------------------------------------------------------------------------- |
+| `luxonis_ml/data`              | Dataset creation, parsers, exporters, loaders, augmentations, and LDF utilities. |
+| `luxonis_ml/utils`             | Shared config, filesystem, path, logging, graph, and registry helpers.           |
+| `luxonis_ml/nn_archive`        | Model archive metadata and archive generation utilities.                         |
+| `luxonis_ml/tracker`           | Experiment tracking integrations.                                                |
+| `luxonis_ml/telemetry`         | Lightweight telemetry client, events, redaction, and backends.                   |
+| `tests`                        | Pytest suite, fixtures, integration tests, and data workflow coverage.           |
+| `tools/build_pydoctor_docs.py` | The local and CI entrypoint for generated API docs.                              |
+| `tools/export_requirements.sh` | Regenerates `uv.lock` and the `requirements*.txt` exports.                       |
 
 Package dependencies are defined entirely in `pyproject.toml`: runtime
 requirements in `[project.dependencies]`, the per-module and cloud extras in
@@ -121,7 +122,7 @@ Public API docs are generated from docstrings with pydoctor using the
 Build the current checkout locally:
 
 ```bash
-uv run --only-group docs python tools/build_pydoctor_docs.py --mode current --output apidocs
+uv run python tools/build_pydoctor_docs.py --mode current --output apidocs
 ```
 
 Open `apidocs/latest/index.html` to inspect the result.

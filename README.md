@@ -85,7 +85,7 @@ Versioned release docs are published under `releases/<tag>/` for releases create
 To build the docs locally, run:
 
 ```bash
-uv run --only-group docs python tools/build_pydoctor_docs.py --mode current --output apidocs
+uv run python tools/build_pydoctor_docs.py --mode current --output apidocs
 ```
 
 The local site will be written to `apidocs/latest/index.html`.
