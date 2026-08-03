@@ -42,8 +42,9 @@ PUT_FILE_REGISTRY: Final[Registry[PutFile]] = Registry(  # type: ignore
     name="put_file",
 )
 
-# Bounds the memory a single UUID computation uses. Each chunk is hex
-# encoded, so the transient cost is twice this, per concurrent call.
+# Bounds the memory a single UUID computation uses. While each chunk
+# remains live, hex encoding allocates a buffer twice its size, making the
+# peak transient cost approximately three times this per concurrent call.
 _UUID_CHUNK_SIZE: Final = 1 << 20
 
 
