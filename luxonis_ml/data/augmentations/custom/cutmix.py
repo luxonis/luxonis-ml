@@ -44,8 +44,11 @@ class CutMix(BatchTransform):
         r"""Create a CutMix augmentation.
 
         Args:
-            alpha: Positive parameter for the
-                :math:`Beta(\alpha, \alpha)` distribution.
+            alpha: Positive shape parameter for the symmetric
+                :math:`Beta(\alpha, \alpha)` distribution that determines
+                the patch size. ``1.0`` samples uniformly; values below
+                ``1.0`` favor very small or very large patches, while values
+                above ``1.0`` favor mid-sized patches.
             keep_aspect_ratio: Whether to preserve the second image's
                 aspect ratio when resizing.
             bbox_min_visibility: Minimum fraction of a first-image
@@ -330,6 +333,11 @@ class CutMix(BatchTransform):
         """
         keypoints1, keypoints2 = keypoints_batch
 
+        if x1 == x2 or y1 == y2:
+            if keypoints1.size == 0:
+                return self._empty_rows(keypoints1, 5)
+            return keypoints1.copy()
+
         if keypoints1.size == 0:
             keypoints1 = self._empty_rows(keypoints1, 5)
         else:
@@ -353,6 +361,51 @@ class CutMix(BatchTransform):
             )
 
         return np.concatenate([keypoints1, keypoints2], axis=0)
+
+    @override
+    def apply_to_array(
+        self,
+        array_batch: list[np.ndarray],
+        x1: int,
+        y1: int,
+        x2: int,
+        y2: int,
+        **_,
+    ) -> np.ndarray:
+        """Apply CutMix to arbitrary arrays."""
+        if x1 == x2 or y1 == y2:
+            return array_batch[0].copy()
+        return super().apply_to_array(array_batch)
+
+    @override
+    def apply_to_metadata(
+        self,
+        metadata_batch: list[np.ndarray],
+        x1: int,
+        y1: int,
+        x2: int,
+        y2: int,
+        **_,
+    ) -> np.ndarray:
+        """Apply CutMix to metadata arrays."""
+        if x1 == x2 or y1 == y2:
+            return metadata_batch[0].copy()
+        return super().apply_to_metadata(metadata_batch)
+
+    @override
+    def apply_to_classification(
+        self,
+        classification_batch: list[np.ndarray],
+        x1: int,
+        y1: int,
+        x2: int,
+        y2: int,
+        **_,
+    ) -> np.ndarray:
+        """Apply CutMix to classification labels."""
+        if x1 == x2 or y1 == y2:
+            return classification_batch[0].copy()
+        return super().apply_to_classification(classification_batch)
 
     def _resize(
         self,

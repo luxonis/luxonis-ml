@@ -383,6 +383,47 @@ def test_cutmix_keypoints() -> None:
     np.testing.assert_array_equal(keypoints[:, -1], [0.0, 2.0, 2.0, 0.0])
 
 
+def test_cutmix_keypoints_zero_area_patch() -> None:
+    cutmix = CutMix(p=1.0, alpha=1.0)
+    keypoints1 = np.array([[2.0, 2.0, 0.0, 0.0, 2.0]])
+    keypoints2 = np.array([[6.0, 6.0, 0.0, 0.0, 2.0]])
+
+    keypoints = cutmix.apply_to_keypoints(
+        [keypoints1, keypoints2],
+        image_shapes=[(8, 8), (8, 8)],
+        x1=2,
+        y1=1,
+        x2=2,
+        y2=7,
+    )
+
+    np.testing.assert_array_equal(keypoints, keypoints1)
+
+
+def test_cutmix_non_spatial_labels_zero_area_patch() -> None:
+    cutmix = CutMix(p=1.0, alpha=1.0)
+    array1 = np.array([[1.0, 2.0]])
+    metadata1 = np.array([[3.0]])
+    classification1 = np.array([1.0, 0.0])
+
+    params = {"x1": 2, "y1": 1, "x2": 2, "y2": 7}
+
+    np.testing.assert_array_equal(
+        cutmix.apply_to_array([array1, np.array([[4.0, 5.0]])], **params),
+        array1,
+    )
+    np.testing.assert_array_equal(
+        cutmix.apply_to_metadata([metadata1, np.array([[6.0]])], **params),
+        metadata1,
+    )
+    np.testing.assert_array_equal(
+        cutmix.apply_to_classification(
+            [classification1, np.array([0.0, 1.0])], **params
+        ),
+        classification1,
+    )
+
+
 def test_cutmix_empty_keypoints() -> None:
     cutmix = CutMix(p=1.0, alpha=1.0)
 
