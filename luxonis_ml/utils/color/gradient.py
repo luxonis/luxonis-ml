@@ -1,7 +1,7 @@
 """Color gradients (colormaps) for scalar fields such as heatmaps.
 
 A `Gradient` maps a scalar in ``[0, 1]`` to a `Color` by linearly interpolating
-between ordered color stops. It is the color model for `Heatmap`, kept separate
+between ordered color stops. It is the color model for heatmaps, kept separate
 from the class `Palette` because a heatmap colors a continuous magnitude, not a
 set of discrete classes.
 
@@ -81,18 +81,13 @@ class Gradient:
             positions = [i / last for i in range(len(parsed))]
         elif len(positions) != len(parsed):
             raise ValueError("positions must have one entry per color")
-        else:
-            outside = [p for p in positions if not 0.0 <= p <= 1.0]
-            if outside:
-                raise ValueError(
-                    f"positions must lie in [0, 1], got {outside}"
-                )
-            # Two stops at the same position leave the interpolation between
-            # them undefined, so the resulting color would depend on stop order.
-            if len(set(positions)) != len(positions):
-                raise ValueError(
-                    f"positions must be distinct, got {positions}"
-                )
+
+        outside = [p for p in positions if not 0.0 <= p <= 1.0]
+        if outside:
+            raise ValueError(f"positions must lie in [0, 1], got {outside}")
+        # Two stops at one position leave the color between them undefined.
+        if len(set(positions)) != len(positions):
+            raise ValueError(f"positions must be distinct, got {positions}")
         stops = sorted(
             ((float(p), c) for p, c in zip(positions, parsed, strict=True)),
             key=lambda stop: stop[0],
@@ -148,8 +143,8 @@ class Gradient:
         import numpy as np
 
         values = np.asarray(field, dtype=np.float64)
-        xp = [p for p, _ in self.stops]
         flat = np.clip(values.ravel(), 0.0, 1.0)
+        xp = [p for p, _ in self.stops]
         rgb = np.stack(
             [
                 np.interp(flat, xp, [c.r for _, c in self.stops]),
@@ -236,14 +231,14 @@ GRADIENTS: dict[str, Gradient] = {
 """The preset gradients, keyed by name. See `resolve_gradient`."""
 
 DEFAULT_GRADIENT = "turbo"
-"""Name of the gradient used by `Heatmap` when none is given."""
+"""Name of the gradient used for an unsigned field when none is given."""
 
 DIVERGING_GRADIENTS = frozenset({"coolwarm", "rdbu", "seismic"})
 """Presets built around a neutral midpoint.
 
 Each has an odd number of evenly spaced stops with a near-white one in the
-middle, so pairing them with `Heatmap.center` puts that neutral color exactly on
-the center value. The sequential presets have no such anchor: centering them
+middle, so centering a heatmap puts that neutral color exactly on the center
+value. The sequential presets have no such anchor: centering them
 still balances the range, but no particular color marks the middle.
 """
 

@@ -11,10 +11,9 @@ module reimplements it:
 
 None of the above needs NumPy, so importing this package stays cheap for a base
 ``luxonis-ml[utils]`` install. `Gradient` (colormaps for scalar fields such as
-heatmaps) lives in `luxonis_ml.utils.color.gradient` and is imported directly
-from there rather than re-exported here; it also imports without NumPy, and only
-its `Gradient.colorize` method — which takes a NumPy array in the first place —
-needs it. NumPy is therefore never a dependency of importing any of this.
+heatmaps) lives in `luxonis_ml.utils.color.gradient` and is imported from there
+rather than re-exported here. It too imports without NumPy: only its
+`colorize` method needs it, and that one is handed a NumPy array anyway.
 """
 
 from . import brand

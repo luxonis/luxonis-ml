@@ -162,8 +162,4 @@ def chrome_for(background: Color) -> Chrome:
         True
 
     """
-    return (
-        LIGHT_CHROME
-        if background.readable_text_color().r < 128
-        else DARK_CHROME
-    )
+    return LIGHT_CHROME if background.is_light else DARK_CHROME

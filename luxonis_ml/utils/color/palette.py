@@ -11,8 +11,8 @@ Luxonis brand colors are reserved for chrome (see
 palette to the brand :data:`BRAND_COLORS` when they want to.
 
 Swapping the whole color scheme is a single argument — ``Palette(generator=...)`` —
-so the strategy lives in exactly one place and callers (``BBox`` and friends) only
-ever touch `Palette.color_for`.
+so the strategy lives in exactly one place and callers only ever touch
+`Palette.color_for`.
 
 Because the spacing guarantee only holds for *sequential* indices, colors are
 assigned in order of first appearance and memoized: within a process, a class keeps
@@ -20,8 +20,8 @@ its color across every image (the module-level :data:`DEFAULT_PALETTE` is shared
 The trade-off is that a class's color depends on the order classes are first seen,
 not on its name alone — stable within a run and across runs that request classes in
 the same order, but not across arbitrary reorderings. Pin a color explicitly with
-``BBox(color=...)`` or by pre-registering classes in a fixed order when a name must
-map to one exact color forever.
+`Palette.pin` or by pre-registering classes in a fixed order when a name must map
+to one exact color forever.
 """
 
 import threading

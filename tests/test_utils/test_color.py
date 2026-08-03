@@ -166,12 +166,7 @@ def test_with_colors_returns_a_specialized_copy():
 
 
 def test_two_threads_registering_at_once_get_different_colors():
-    """An unguarded `color_for` gives two racing threads the same color.
-
-    Assigning reads the class count and then writes it back, so the two steps
-    have to be atomic for concurrent first uses to land on different slots.
-
-    """
+    """Concurrent first uses must not land on the same generator slot."""
 
     def slow_generator(index: int) -> Color:
         # Widen the read-then-write window so the race is hit every run.
@@ -256,16 +251,9 @@ def test_colorize_accepts_any_array_like():
 def test_gradient_module_imports_without_numpy(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """Importing this module must not need NumPy.
-
-    NumPy is not among the base dependencies in ``utils/requirements.txt``, so
-    only `Gradient.colorize` — which is handed a NumPy array anyway — may need
-    it.
-
-    """
-    monkeypatch.setitem(
-        sys.modules, "numpy", None
-    )  # makes `import numpy` fail
+    """NumPy is not a base dependency; this module must import without it."""
+    # A None entry makes `import numpy` fail.
+    monkeypatch.setitem(sys.modules, "numpy", None)
 
     # Load a second copy from source, so the real module stays untouched. The
     # package name keeps its relative imports resolvable.
