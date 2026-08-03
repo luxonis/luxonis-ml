@@ -25,6 +25,7 @@ from luxonis_ml.vizlab.annotations import (
     Heatmap,
     Keypoints,
     Mask,
+    Ruler,
     SemanticMask,
 )
 from luxonis_ml.vizlab.color import Color
@@ -457,7 +458,10 @@ def _strip_label(annotation: Annotation, palette: Palette) -> None:
     """Remove an annotation's chip text in place, keeping its color.
 
     A labeled annotation's palette color is baked onto it first, so dropping the
-    label leaves the shape exactly the same color it had.
+    label leaves the shape exactly the same color it had. Chip text an
+    annotation generates for itself rather than being given (a `Ruler`'s
+    measurement) is switched off at its own source, since blanking the shared
+    fields cannot reach it.
     """
     if annotation.color is None and annotation.label is not None:
         annotation.color = palette.color_for(annotation.label)
@@ -466,3 +470,5 @@ def _strip_label(annotation: Annotation, palette: Palette) -> None:
     annotation.payload = None
     if isinstance(annotation, Classification):
         annotation.tags = []
+    if isinstance(annotation, Ruler):
+        annotation.measurement = False

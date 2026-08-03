@@ -298,6 +298,32 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
             self._extent_cache = (_nonzero_bounds(self._dense()),)
         return self._extent_cache[0]
 
+    def region_at(self, width: int, height: int) -> Rect | None:
+        """Return the mask's set pixels' bounds, scaled to the canvas.
+
+        `extent` is in the mask's own pixels, which are the source image's
+        rather than the canvas's whenever the scene is rendered at another size.
+
+        Args:
+            width: Canvas width in pixels.
+            height: Canvas height in pixels.
+
+        Returns:
+            The bounding `Rect` in canvas pixels, or ``None`` for an empty mask.
+
+        """
+        region = self.extent()
+        if region is None:
+            return None
+        mask_h, mask_w = self._dense().shape[:2]
+        sx, sy = width / mask_w, height / mask_h
+        return Rect(
+            region.left * sx,
+            region.top * sy,
+            region.right * sx,
+            region.bottom * sy,
+        )
+
     def draw_fill(
         self, ctx: RenderContext, style: Style, color: Color
     ) -> None:
@@ -356,17 +382,8 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
 
         """
         canvas = ctx.canvas
-        mask_h, mask_w = self._dense().shape[:2]
-        region = self.extent()
+        region = self.region_at(canvas.width, canvas.height)
         if region is not None:
-            sx = canvas.width / mask_w
-            sy = canvas.height / mask_h
-            region = Rect(
-                region.left * sx,
-                region.top * sy,
-                region.right * sx,
-                region.bottom * sy,
-            )
             ctx.emit_hit(region, self.tooltip)
             if self.label_chip:
                 place_label(

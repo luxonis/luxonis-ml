@@ -446,6 +446,27 @@ class Annotation(BaseModel):
 
         """
 
+    def region_at(self, width: int, height: int) -> Rect | None:
+        """Return this annotation's bounds on a ``width`` x ``height`` canvas.
+
+        `extent` cannot answer this: a spatial annotation stores normalized
+        coordinates (a box, keypoints, a polyline) or source-mask pixels (a
+        mask), so its bounds in *canvas* pixels only exist once a canvas size is
+        known. Anything that wants to point at an annotation from outside it —
+        an `Arrow` resolving an endpoint against the shape it connects — needs
+        that rectangle without knowing which annotation it is holding.
+
+        Args:
+            width: Canvas width in pixels.
+            height: Canvas height in pixels.
+
+        Returns:
+            The bounding `Rect` in canvas pixels, or ``None`` for an annotation
+            with no spatial extent (image-level chrome, an empty shape).
+
+        """
+        return self.extent()
+
     @abstractmethod
     def draw(self, ctx: RenderContext, style: Style, color: Color) -> None:
         """Draw the sharp (vector) layer of this annotation onto the canvas.

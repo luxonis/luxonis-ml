@@ -19,7 +19,15 @@ if TYPE_CHECKING:
 #: Every layer an annotation can belong to, in draw order. An annotation
 #: declares its own through `Annotation.LAYER`, so a custom one joins the
 #: vocabulary by setting that rather than by being listed here.
-LAYERS: tuple[str, ...] = ("field", "mask", "box", "keypoint", "overlay")
+LAYERS: tuple[str, ...] = (
+    "field",
+    "mask",
+    "polyline",
+    "box",
+    "keypoint",
+    "relation",
+    "overlay",
+)
 
 
 @dataclass(frozen=True)

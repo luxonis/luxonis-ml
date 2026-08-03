@@ -268,23 +268,45 @@ class Keypoints(KeypointAnnotation, Annotation):
         if region is not None:
             ctx.emit_hit(region, self.tooltip)
 
+    def region_at(self, width: int, height: int) -> Rect | None:
+        """Return the bounds of the visible joints, in canvas pixels.
+
+        Args:
+            width: Canvas width in pixels.
+            height: Canvas height in pixels.
+
+        Returns:
+            The bounding `Rect` of the joints above ``visibility_threshold``, or
+            ``None`` when none of them are visible.
+
+        """
+        xy, vis = self._resolve(width, height)
+        points = xy[vis > self.visibility_threshold]
+        if len(points) == 0:
+            return None
+        return Rect(
+            float(points[:, 0].min()),
+            float(points[:, 1].min()),
+            float(points[:, 0].max()),
+            float(points[:, 1].max()),
+        )
+
     def _hit_region(
         self, width: int, height: int, style: Style
     ) -> Rect | None:
         """Return the padded bounds of the visible joints, or ``None`` if none."""
-        xy, vis = self._resolve(width, height)
-        points = xy[vis > self.visibility_threshold]
-        if len(points) == 0:
+        region = self.region_at(width, height)
+        if region is None:
             return None
         pad = (
             style.keypoint_radius * _DIAMOND_SCALE
             + style.keypoint_outline_width
         )
         return Rect(
-            float(points[:, 0].min()) - pad,
-            float(points[:, 1].min()) - pad,
-            float(points[:, 0].max()) + pad,
-            float(points[:, 1].max()) + pad,
+            region.left - pad,
+            region.top - pad,
+            region.right + pad,
+            region.bottom + pad,
         )
 
     def _draw_diamond(

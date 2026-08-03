@@ -42,6 +42,13 @@ relevant part of the API:
 
 - `BBox` — detection labels (plain, oriented, OCR payload, nested).
 - `Keypoints`, `Mask`, `SemanticMask` — point- and pixel-level labels.
+- `Polyline` — open or closed runs of points (lane lines, boundaries,
+  trajectories, wireframes), optionally tapered, arrowed, or colored by a value
+  that varies along the run.
+- `Arrow` — a relation between two things in the scene, whose endpoints may be
+  other annotations and resolve to their edges at render time.
+- `ScaleBar`, `Ruler` — a corner-pinned bar of a round length, and a measured
+  span between two points, given a caller-supplied pixels-per-unit calibration.
 - `Classification`, `Legend`, `Caption` — image-level overlays.
 - `Heatmap`, `ColorBar` — dense scalar fields under gradient themes, and the
   key that says which value a color stands for.
@@ -214,6 +221,7 @@ with guard_missing_extra("viz"):
         Annotation,
         ArrayField,
         ArrayImage,
+        Arrow,
         BBox,
         Caption,
         ClassDistribution,
@@ -228,8 +236,11 @@ with guard_missing_extra("viz"):
         Legend,
         Mask,
         NormalMap,
+        Polyline,
         RenderContext,
+        Ruler,
         ScalarField,
+        ScaleBar,
         SegmentationScores,
         SemanticMask,
     )
@@ -310,6 +321,7 @@ __all__ = [
     "Annotation",
     "ArrayField",
     "ArrayImage",
+    "Arrow",
     "BBox",
     "Block",
     "CVDDistinctColors",
@@ -342,11 +354,14 @@ __all__ = [
     "Match",
     "NormalMap",
     "Palette",
+    "Polyline",
     "Rect",
     "RenderContext",
     "RenderOptions",
     "Renderable",
+    "Ruler",
     "ScalarField",
+    "ScaleBar",
     "SegmentationScores",
     "SemanticMask",
     "Style",

@@ -153,6 +153,19 @@ class BBox(BBoxAnnotation, Annotation):
             return self._rect(width, height)
         return bounding_rect(self._corners(width, height))
 
+    def region_at(self, width: int, height: int) -> Rect | None:
+        """Return the box's outline bounds in canvas pixels.
+
+        Args:
+            width: Canvas width in pixels.
+            height: Canvas height in pixels.
+
+        Returns:
+            The box's bounding `Rect` (of the rotated corners, when oriented).
+
+        """
+        return self._region(width, height)
+
     def draw(self, ctx: RenderContext, style: Style, color: Color) -> None:
         """Draw the box outline (its label chip is drawn later, on top).
 

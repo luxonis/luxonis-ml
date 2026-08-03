@@ -2,8 +2,11 @@
 
 Most users import these objects from `luxonis_ml.vizlab`. Spatial annotations
 (`BBox`, `Keypoints`, and `Mask`) extend the corresponding LDF models with
-rendering state such as labels, colors, and styles. `Classification`, `Caption`,
-`InfoCard`, and `Legend` are image-level overlays anchored to a `Corner`.
+rendering state such as labels, colors, and styles. `Polyline`, `Arrow`, and
+`Ruler` are geometry LDF has no model for — a run of points, a relation between
+two annotations, and a measured span — so they subclass `Annotation` directly.
+`Classification`, `Caption`, `InfoCard`, `Legend`, and `ScaleBar` are
+image-level overlays anchored to a `Corner`.
 
 All annotations can be passed to `Image.add`. Attach nested annotations with
 `Annotation.add`; child colors and styles are derived from their parent unless
@@ -27,6 +30,9 @@ from .heatmap import Heatmap
 from .keypoints import Keypoints
 from .mask import Mask, SemanticMask
 from .overlay import Corner, CornerStack
+from .polyline import Polyline
+from .relation import Arrow
+from .scalebar import Ruler, ScaleBar
 from .text import Caption, InfoCard, Legend
 
 # The render annotations carry a self-referential ``children: list[Annotation]``
@@ -38,6 +44,10 @@ for _model in (
     Keypoints,
     Mask,
     SemanticMask,
+    Polyline,
+    Arrow,
+    Ruler,
+    ScaleBar,
     Heatmap,
     CornerStack,
     Classification,
@@ -60,6 +70,7 @@ __all__ = [
     "Annotation",
     "ArrayField",
     "ArrayImage",
+    "Arrow",
     "BBox",
     "Caption",
     "ClassDistribution",
@@ -75,8 +86,11 @@ __all__ = [
     "Legend",
     "Mask",
     "NormalMap",
+    "Polyline",
     "RenderContext",
+    "Ruler",
     "ScalarField",
+    "ScaleBar",
     "SegmentationScores",
     "SemanticMask",
 ]

@@ -172,6 +172,47 @@ def bounding_rect(points: Sequence[XY]) -> Rect:
     return Rect(min(xs), min(ys), max(xs), max(ys))
 
 
+def arrow_head(
+    tip: XY, direction: XY, length: float, width: float
+) -> tuple[XY, XY, XY]:
+    """Return the three corners of a triangular arrow head.
+
+    The head points along ``direction`` with its apex at ``tip``, so the caller
+    draws it as a filled triangle. Shared by every mark that says "this way":
+    a `Polyline`'s direction chevrons and an `Arrow`'s heads.
+
+    Args:
+        tip: The apex ``(x, y)``, in pixels.
+        direction: The direction the head points in; any non-zero length.
+        length: Distance from the apex back to the base, in pixels.
+        width: Full width of the base, in pixels.
+
+    Returns:
+        The apex followed by the two base corners. A zero ``direction`` has no
+        orientation to draw, so it collapses to three copies of ``tip`` — a
+        degenerate triangle that paints nothing.
+
+    Examples:
+        >>> arrow_head((10.0, 0.0), (1.0, 0.0), 4.0, 4.0)
+        ((10.0, 0.0), (6.0, 2.0), (6.0, -2.0))
+        >>> arrow_head((0.0, 0.0), (0.0, 0.0), 4.0, 4.0)
+        ((0.0, 0.0), (0.0, 0.0), (0.0, 0.0))
+
+    """
+    dx, dy = direction
+    norm = math.hypot(dx, dy)
+    if norm == 0.0:
+        return (tip, tip, tip)
+    ux, uy = dx / norm, dy / norm
+    base = (tip[0] - ux * length, tip[1] - uy * length)
+    half = width / 2.0
+    return (
+        tip,
+        (base[0] - uy * half, base[1] + ux * half),
+        (base[0] + uy * half, base[1] - ux * half),
+    )
+
+
 def oriented_corners(
     cx: float, cy: float, width: float, height: float, angle_rad: float
 ) -> tuple[XY, XY, XY, XY]:

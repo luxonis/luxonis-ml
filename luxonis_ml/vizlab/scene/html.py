@@ -434,6 +434,8 @@ LAYERS: tuple[tuple[str, str], ...] = (
     ("box", "boxes"),
     ("mask", "masks"),
     ("keypoint", "keypoints"),
+    ("polyline", "polylines"),
+    ("relation", "arrows"),
     ("field", "arrays"),
     ("overlay", "overlays"),
     ("label", "labels"),

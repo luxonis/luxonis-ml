@@ -8,6 +8,7 @@ from luxonis_ml.vizlab import (
     Color,
     Keypoints,
     Mask,
+    Ruler,
     SemanticMask,
 )
 from luxonis_ml.vizlab.annotations import Annotation
@@ -103,6 +104,16 @@ def test_labels_off_empties_classification_tags() -> None:
     )
     assert isinstance(tag, Classification)
     assert tag.tags == []
+
+
+def test_labels_off_silences_a_rulers_generated_measurement() -> None:
+    span = Ruler(start=(0.1, 0.5), end=(0.6, 0.5))
+    (quiet,) = LayerState(labels=False).apply_layers([span], PALETTE)
+    assert isinstance(quiet, Ruler)
+    # The chip text a ruler makes for itself is not in the shared fields, so
+    # blanking those cannot reach it; it is switched off at its source instead.
+    assert quiet.measurement is False
+    assert span.measurement is True  # input untouched
 
 
 def test_hidden_class_is_dropped_but_others_stay() -> None:
