@@ -1,9 +1,11 @@
 """Tests for the interactive `Viewer`, driven by a fake window backend."""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
-from luxonis_ml.vizlab import BBox, Image, Tooltip
+from luxonis_ml.vizlab import BBox, Image, Tooltip, io
 from luxonis_ml.vizlab.interaction.frame import Frame
 from luxonis_ml.vizlab.viewer import (
     Cv2Backend,
@@ -190,6 +192,138 @@ def test_wait_polls_tightly_while_a_tooltip_is_moving() -> None:
     assert viewer.wait() == "q"
     # idle -> the move is flushed -> tight -> nothing left to draw -> idle again
     assert timeouts == [20, 1, 20, 20]
+
+
+def _saved_bgr(path: Path) -> np.ndarray:
+    """Read a saved PNG back as the BGR frame it was written from."""
+    return io.export(io.load_rgba(path), "bgr")
+
+
+def test_save_key_writes_the_shown_frame_and_is_not_forwarded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Replaces the save action the OpenCV Qt window used to offer, which went
+    # away with its (expensive) expanded chrome.
+    monkeypatch.chdir(tmp_path)
+    backend = FakeBackend(keys=[ord("s"), ord("q")])
+    viewer = Viewer(backend, hud=False)
+    image, _ = _tooltip_image()
+    viewer.show("shots", image.frame())
+    shown = backend.shown[-1][1]
+
+    assert viewer.wait() == "q"  # "s" was consumed, so it does not advance
+    assert np.array_equal(_saved_bgr(tmp_path / "shots.png"), shown)
+
+
+def test_save_captures_the_hover_tooltip_exactly_as_displayed(
+    tmp_path: Path,
+) -> None:
+    backend = FakeBackend()
+    viewer = Viewer(backend, hud=False)
+    image, _ = _tooltip_image()
+    viewer.show("w", image.frame())
+    base = backend.shown[-1][1]
+
+    backend.handlers["w"](100, 60, False)  # over the box -> tooltip up
+    viewer._flush_hover()
+    with_tooltip = backend.shown[-1][1]
+    assert not np.array_equal(with_tooltip, base)
+
+    # What lands on disk is the frame on screen, tooltip included -- not the
+    # clean base the tooltip is composited over.
+    (path,) = viewer.save(tmp_path)
+    assert np.array_equal(_saved_bgr(path), with_tooltip)
+
+
+def test_repeated_saves_are_numbered_rather_than_overwriting(
+    tmp_path: Path,
+) -> None:
+    viewer = Viewer(FakeBackend(), hud=False)
+    viewer.show("w", _tooltip_image()[0].frame())
+
+    names = [viewer.save(tmp_path)[0].name for _ in range(3)]
+    assert names == ["w.png", "w-1.png", "w-2.png"]
+
+
+def test_a_frame_is_saved_under_its_own_name_not_the_window_title(
+    tmp_path: Path,
+) -> None:
+    # One window shows every sample in turn, so its title says nothing about
+    # which sample is on screen; the caller passes the source image's name.
+    viewer = Viewer(FakeBackend(), hud=False, save_dir=tmp_path)
+    image, _ = _tooltip_image()
+
+    viewer.show("coco", image.frame(), save_as="000000012345")
+    assert [p.name for p in viewer.save()] == ["000000012345.png"]
+
+    viewer.show("coco", image.frame(), save_as="000000067890")
+    assert [p.name for p in viewer.save()] == ["000000067890.png"]
+
+    # Without one, the window name still stands in.
+    viewer.show("coco", image.frame())
+    assert [p.name for p in viewer.save()] == ["coco.png"]
+
+
+def test_save_dir_is_used_by_the_key_and_created_only_on_the_first_save(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    shots = tmp_path / "luxonis-inspect" / "coco"
+    backend = FakeBackend(keys=[ord("s"), ord("q")])
+    viewer = Viewer(backend, hud=False, save_dir=shots)
+    viewer.show("coco", _tooltip_image()[0].frame(), save_as="street")
+
+    assert viewer.save_dir == shots
+    assert not shots.exists()  # a session that never saves leaves nothing
+
+    assert viewer.wait() == "q"
+    assert [p.name for p in shots.iterdir()] == ["street.png"]
+
+
+@pytest.mark.parametrize(
+    ("window", "expected"),
+    [
+        ("COCO train", "COCO-train.png"),
+        ("shapes/v2: split", "shapes-v2-split.png"),
+        ("...", "frame.png"),  # nothing usable survives -> a fallback stem
+    ],
+)
+def test_window_names_become_safe_filenames(
+    tmp_path: Path, window: str, expected: str
+) -> None:
+    viewer = Viewer(FakeBackend(), hud=False)
+    viewer.show(window, _tooltip_image()[0].frame())
+
+    assert viewer.save(tmp_path)[0].name == expected
+
+
+def test_clicking_the_panel_save_row_writes_a_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    viewer = Viewer(FakeBackend(), hud=False)
+    viewer.show("w", _tooltip_image()[0].frame())
+
+    viewer._apply_action("key:s")
+    assert (tmp_path / "w.png").exists()
+
+
+def test_save_key_falls_through_when_there_is_nothing_to_save() -> None:
+    # No window open -> the key belongs to the caller rather than being eaten.
+    assert Viewer(FakeBackend(), hud=False)._handle_control_key("s") is False
+
+
+def test_a_failed_save_is_reported_without_killing_the_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    viewer = Viewer(FakeBackend(), hud=False)
+    viewer.show("w", _tooltip_image()[0].frame())
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(io, "save", refuse)
+    viewer._save_shown()  # reported, not raised
 
 
 def test_show_fits_frame_to_screen() -> None:

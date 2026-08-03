@@ -76,6 +76,10 @@ app = App(help="Dataset utilities.")
 
 BucketStorageT: TypeAlias = Annotated[BucketStorage, Parameter(alias="-b")]
 _SampleIdentity: TypeAlias = tuple[tuple[str, str], ...]
+#: Where the viewer's ``s`` key collects saved frames, under a per-dataset
+#: subdirectory. Created on the first save, so a session that never saves
+#: leaves nothing behind.
+_SAVE_ROOT = Path("luxonis-inspect")
 #: Mirrors `luxonis_ml.vizlab.options.ArrayKind`, spelled out here because this
 #: module must import without the ``viz`` extra installed.
 _ArrayKindName: TypeAlias = Literal[
@@ -122,6 +126,8 @@ class _PreparedInspectionSample:
     layers: "LayerState"
     color_by: "ColorBy"
     frame: "PreparedFrame"
+    #: What the ``s`` key names this sample's file (see `_sample_stem`).
+    save_as: "str | None"
 
 
 def _deduped_class_names(
@@ -297,6 +303,28 @@ def _present_sample_metadata(
             "(no metadata)"
         )
     return presented
+
+
+def _sample_stem(sample_metadata: "Params") -> "str | None":
+    """Name a sample after its source image(s), for an interactive save.
+
+    The loader reports ``filenames`` as a ``{source_name: basename}`` mapping
+    (see `_flatten_filenames`), so a saved frame can carry the name of the image
+    it came from rather than the window's. Multi-source samples join their
+    stems, since one frame tiles all of them.
+
+    Args:
+        sample_metadata: One sample's metadata.
+
+    Returns:
+        The joined image stems, or ``None`` when the loader reported no
+        filenames (the viewer then falls back to the window name).
+
+    """
+    files = sample_metadata.get("filenames")
+    if not isinstance(files, Mapping) or not files:
+        return None
+    return "-".join(Path(str(name)).stem for name in files.values())
 
 
 def _flatten_filenames(
@@ -835,6 +863,9 @@ def inspect(
     - ``c`` — cycle a class focus through the classes present in the sample
       (isolating one class at a time; again to show all). After toggling classes
       by clicking the legend, ``c`` first resets them and restarts the cycle.
+    - ``s`` — save the current view as a PNG under
+      ``luxonis-inspect/<dataset>/``, named after the sample's source image and
+      numbered so saving the same sample twice does not overwrite.
     - click a control row in the panel to trigger it, or a legend swatch to
       toggle that class on/off (disabled classes stay in the legend, dimmed).
     - any other key advances to the next sample; ``q`` quits.
@@ -1488,7 +1519,7 @@ def inspect(
     # (and their hit maps) to the viewer.
     # The controls live in the side panel now (see `sidebar`), so the viewer does
     # not also float its HUD over the image.
-    viewer = Viewer(hud=False)
+    viewer = Viewer(hud=False, save_dir=_SAVE_ROOT / name)
     # Decluttering hides tiny detections in crowded scenes by default; --show-all
     # starts with it off (the `d` key still toggles it live either way).
     viewer.layers.declutter = not show_all
@@ -1610,6 +1641,7 @@ def inspect(
                 panel=panel,
                 layers=layers,
                 color_by=color_by,
+                save_as=_sample_stem(data.metadata),
                 frame=viewer.prepare(
                     build_frame(
                         data.images,
@@ -1668,6 +1700,7 @@ def inspect(
                 # Default-bound values keep the window attached to its own
                 # sample when layer toggles trigger a re-render.
                 render=rerender,
+                save_as=sample.save_as,
             )
             if sample.images:
                 shown += 1
@@ -2137,7 +2170,11 @@ def compare(
     # ``--save`` renders the same frames headlessly, so the viewer — and the
     # screen probe that opens a window to find the display size — is only built
     # for the interactive path.
-    viewer = None if save is not None else Viewer()
+    viewer = (
+        None
+        if save is not None
+        else Viewer(save_dir=_SAVE_ROOT / f"{name}_vs_{predictions}")
+    )
     screen = viewer.screen if viewer is not None else None
     # The metrics panel is a fixed pixel width; reserve room for it when fitting.
     panel_reserve = 0.0 if plain else 400.0
@@ -2263,7 +2300,11 @@ def compare(
     for identity in shared:
         gt_data, gt_records, pred_records = paired(identity)
         viewer.show(
-            name, build_frame(gt_data.images, gt_records, pred_records)
+            name,
+            build_frame(gt_data.images, gt_records, pred_records),
+            # The window is titled with the dataset; a saved frame is named
+            # after the pair of images it actually shows.
+            save_as="-".join(Path(file).stem for _, file in identity),
         )
         if viewer.wait() == "q":
             break

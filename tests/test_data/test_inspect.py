@@ -286,6 +286,28 @@ def test_present_sample_metadata_flattens_single_source_filenames() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("metadata", "expected"),
+    [
+        # A saved frame carries the name of the image it came from, not the
+        # window's -- one window shows every sample of the dataset in turn.
+        ({"filenames": {"image": "frame_001.jpg"}}, "frame_001"),
+        # Directories are dropped; the viewer wants a filename stem.
+        ({"filenames": {"image": "train/2024/frame_001.png"}}, "frame_001"),
+        # One frame tiles every source of a multi-image sample, so it is named
+        # after all of them.
+        ({"filenames": {"left": "a.jpg", "right": "b.jpg"}}, "a-b"),
+        # Nothing to go on -> the viewer falls back to the window name.
+        ({"filenames": {}}, None),
+        ({"record_id": 5}, None),
+    ],
+)
+def test_sample_stem_names_a_save_after_its_source_image(
+    metadata: Params, expected: "str | None"
+) -> None:
+    assert data_main._sample_stem(metadata) == expected
+
+
 def test_present_sample_metadata_keeps_multi_source_filenames() -> None:
     # A true multi-image record keeps the full mapping (nothing to collapse).
     md = {"filenames": {"image": "a.jpg", "depth": "a.png"}, "record_id": 5}
@@ -1021,8 +1043,10 @@ def test_inspect_sample_filters_select_whole_matching_sample(
 
     backend = _FakeBackend(keys=[ord("q")])
 
-    def make_viewer(*, hud: bool) -> RealViewer:
-        return RealViewer(backend, hud=hud)
+    def make_viewer(
+        *, hud: bool, save_dir: "str | Path | None" = None
+    ) -> RealViewer:
+        return RealViewer(backend, hud=hud, save_dir=save_dir)
 
     def convert_labels(
         labels: Labels,
@@ -1169,8 +1193,10 @@ def test_inspect_prefetch_renders_the_next_frame_while_waiting_for_input(
 
     backend = _WaitingBackend()
 
-    def make_viewer(*, hud: bool) -> RealViewer:
-        return RealViewer(backend, hud=hud)
+    def make_viewer(
+        *, hud: bool, save_dir: "str | Path | None" = None
+    ) -> RealViewer:
+        return RealViewer(backend, hud=hud, save_dir=save_dir)
 
     def convert_labels(
         labels: Labels,

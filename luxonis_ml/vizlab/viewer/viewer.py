@@ -8,10 +8,13 @@ touch windowing themselves. Composition retains interactions automatically, so
 calling `frame()` on a grid or panel works the same way as on one `Image`.
 """
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
+from loguru import logger
 
 from luxonis_ml.vizlab import io
 from luxonis_ml.vizlab.interaction.frame import Frame
@@ -33,6 +36,31 @@ _IDLE_POLL_MS = 20
 #: ...and right after a hover redraw, so a moving tooltip is not held a whole
 #: idle poll behind the cursor. The pointer stopping restores the idle timeout.
 _ACTIVE_POLL_MS = 1
+
+#: Key that writes the displayed frames to disk (see `Viewer.save`).
+_SAVE_KEY = "s"
+
+#: Runs of characters replaced when a window name becomes a filename.
+_UNSAFE_IN_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _slug(name: str) -> str:
+    """Turn a window name into a filename stem that is safe on any platform."""
+    return _UNSAFE_IN_NAME.sub("-", name).strip("-.") or "frame"
+
+
+def _unique_path(directory: Path, stem: str) -> Path:
+    """Return ``<stem>.png`` in ``directory``, numbering past any that exist.
+
+    Saving several times in one session builds up a numbered series instead of
+    overwriting the previous shot.
+    """
+    path = directory / f"{stem}.png"
+    index = 1
+    while path.exists():
+        path = directory / f"{stem}-{index}.png"
+        index += 1
+    return path
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +110,17 @@ class _HoverState:
     #: Region of `scratch` the last tooltip covered, restored before the next
     #: one is drawn — repainting the whole frame per mouse-move is wasteful.
     painted: tuple[int, int, int, int] | None = None
+    #: What `Viewer.save` names this window's file, when the caller knows the
+    #: subject better than the window title does (the source image, say). Falls
+    #: back to the window name.
+    save_as: str | None = None
+
+    @property
+    def shown(self) -> np.ndarray:
+        """The frame currently on screen — the scratch when a tooltip is up."""
+        if self.painted is None or self.scratch is None:
+            return self.base
+        return self.scratch
 
     def clear_hover(self) -> None:
         """Drop the tooltip and every buffer derived from the current frame."""
@@ -126,16 +165,25 @@ class Viewer:
         hud: Whether to float the controls HUD over each interactive window. Turn
             it off when the controls are shown elsewhere (e.g. a side panel that
             already lists them, as ``luxonis_ml data inspect`` does).
+        save_dir: Where the ``s`` key writes frames (see `save`), created on the
+            first save. Defaults to the working directory; give it a directory
+            of its own so a session's shots collect somewhere predictable
+            instead of scattering over the caller's cwd.
 
     """
 
     def __init__(
-        self, backend: WindowBackend | None = None, *, hud: bool = True
+        self,
+        backend: WindowBackend | None = None,
+        *,
+        hud: bool = True,
+        save_dir: "str | Path | None" = None,
     ) -> None:
         self._backend: WindowBackend = (
             backend if backend is not None else Cv2Backend()
         )
         self._hud = hud
+        self._save_dir = Path.cwd() if save_dir is None else Path(save_dir)
         self._screen = self._backend.screen_size()
         self._windows: dict[str, _HoverState] = {}
         self._live: set[str] = set()
@@ -148,6 +196,11 @@ class Viewer:
     def screen(self) -> tuple[int, int] | None:
         """The backend's screen size in pixels, or ``None`` if unavailable."""
         return self._screen
+
+    @property
+    def save_dir(self) -> Path:
+        """Where the ``s`` key writes frames (see `save`)."""
+        return self._save_dir
 
     @property
     def layers(self) -> LayerState:
@@ -196,7 +249,12 @@ class Viewer:
             self._backend.center(name, width, height, self._screen)
 
     def show(
-        self, name: str, frame: Frame, *, render: RenderFn | None = None
+        self,
+        name: str,
+        frame: Frame,
+        *,
+        render: RenderFn | None = None,
+        save_as: str | None = None,
     ) -> None:
         """Present ``frame`` in window ``name`` and arm its hover tooltips.
 
@@ -210,9 +268,15 @@ class Viewer:
                 `LayerState`. When given, the window becomes interactive: the
                 layer-control keys (see `layers`) re-render it through this
                 callback and a small controls HUD is drawn on it.
+            save_as: What to name this frame's file if it is saved (see `save`),
+                without a suffix. A window shown once per subject should pass
+                the subject's own name — its source image, say — since the
+                window title stays the same across all of them.
 
         """
-        self.show_prepared(name, self.prepare(frame), render=render)
+        self.show_prepared(
+            name, self.prepare(frame), render=render, save_as=save_as
+        )
 
     def prepare(self, frame: Frame) -> PreparedFrame:
         """Render and screen-fit ``frame`` without touching the window backend.
@@ -236,6 +300,7 @@ class Viewer:
         prepared: PreparedFrame,
         *,
         render: RenderFn | None = None,
+        save_as: str | None = None,
     ) -> None:
         """Present a value returned by `prepare` without rendering it again.
 
@@ -243,6 +308,7 @@ class Viewer:
             name: The window identifier.
             prepared: Display-ready frame data.
             render: Optional callback used for interactive layer re-renders.
+            save_as: What to name this frame's file if it is saved (see `show`).
 
         """
         bgr = prepared.bgr.copy()
@@ -254,6 +320,7 @@ class Viewer:
             hitmap=prepared.hitmap,
             clickmap=prepared.clickmap,
             render=render,
+            save_as=save_as,
         )
         self._windows[name] = state
         self._backend.set_mouse_handler(name, self._handler(name, state))
@@ -285,6 +352,19 @@ class Viewer:
         """Rebuild every open interactive window."""
         for name, state in self._windows.items():
             self._rerender(name, state)
+
+    def _handle_control_key(self, char: str) -> bool:
+        """Apply a viewer or layer control key; return whether it was consumed.
+
+        The save key belongs to the viewer rather than to `LayerState`: it
+        writes what is on screen instead of changing what is drawn. With no
+        window open there is nothing to save, so the key falls through to the
+        caller rather than being swallowed.
+        """
+        if char.lower() == _SAVE_KEY and self._windows:
+            self._save_shown()
+            return True
+        return self._handle_layer_key(char)
 
     def _handle_layer_key(self, char: str) -> bool:
         """Apply a layer key and re-render, returning whether it was handled."""
@@ -340,7 +420,7 @@ class Viewer:
         if key == -1:
             return None
         char = _key_char(key)
-        return self._handle_layer_key(char), char
+        return self._handle_control_key(char), char
 
     def _consume_pending_action(self) -> bool:
         """Apply and clear the first queued panel action, if any."""
@@ -390,7 +470,7 @@ class Viewer:
 
         def dispatch(key: int) -> None:
             char = _key_char(key)
-            if self._handle_layer_key(char):
+            if self._handle_control_key(char):
                 return
             on_key(char)
 
@@ -419,6 +499,51 @@ class Viewer:
             if state.card is not None:
                 state.painted = state.card.draw(frame, state.mouse)
         self._backend.show(name, frame)
+
+    def save(self, directory: "str | Path | None" = None) -> list[Path]:
+        """Write every open window's current frame to a PNG file.
+
+        The frame is written exactly as displayed — hover tooltip and controls
+        HUD included — so the file matches what was on screen. Bound to the
+        ``s`` key, replacing the one the OpenCV Qt window used to offer.
+
+        Each file is named after what the window is showing — the ``save_as``
+        given to `show`, else the window name — with a number appended rather
+        than overwriting a file already there.
+
+        Args:
+            directory: Where to write, created if missing; defaults to
+                `save_dir`.
+
+        Returns:
+            The paths written, one per open window, in window order.
+
+        Raises:
+            OSError: If the directory cannot be created or a file not written.
+
+        """
+        target = self._save_dir if directory is None else Path(directory)
+        target.mkdir(parents=True, exist_ok=True)
+        written = []
+        for name, state in self._windows.items():
+            path = _unique_path(target, _slug(state.save_as or name))
+            io.save(io.load_rgba(state.shown, "bgr"), path)
+            written.append(path)
+        return written
+
+    def _save_shown(self) -> None:
+        """Save every window for the ``s`` key, reporting where it landed.
+
+        A failure here (an unwritable directory, say) must not take down an
+        interactive session, so it is reported rather than raised.
+        """
+        try:
+            written = self.save()
+        except OSError as error:
+            logger.error(f"Could not save the current frame: {error}")
+            return
+        for path in written:
+            logger.info(f"Saved the current view to {path}")
 
     def destroy_stale(self, current: set[str]) -> None:
         """Close every open window whose name is not in ``current``."""
@@ -491,6 +616,9 @@ class Viewer:
         """
         kind, _, arg = action.partition(":")
         if kind == "key":
+            if arg.lower() == _SAVE_KEY:
+                self._save_shown()
+                return
             self._layers.handle(arg)
         elif kind == "class":
             self._layers.toggle_class(arg)

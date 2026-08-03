@@ -275,6 +275,12 @@ class LayerState:
         if self.has_arrays:
             controls.append(toggle("a", "arrays", self.arrays))
         controls.append(Control("c", "class", class_value, class_active))
+        # Not a layer toggle, and deliberately not in `handle`: saving writes
+        # the frame rather than changing it, so the viewer owns the action (see
+        # `luxonis_ml.vizlab.viewer.Viewer.save`). It is listed here because
+        # this is the one description of the key map, feeding both the HUD and
+        # the side panel — including the panel row that makes it clickable.
+        controls.append(Control("s", "save", "png", None))
         return controls
 
     def apply_layers(

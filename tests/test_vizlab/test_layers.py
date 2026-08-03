@@ -383,6 +383,15 @@ def test_array_control_row_appears_only_when_the_sample_has_fields() -> None:
     assert keyed["a"].value == "on"
 
 
+def test_save_is_listed_as_a_control_but_is_not_a_layer_key() -> None:
+    # Listed so the HUD and the side panel show (and offer a click on) it, yet
+    # deliberately unhandled here: `Viewer` writes the frame, nothing is toggled.
+    keyed = {c.key: c for c in LayerState().controls()}
+    assert keyed["s"].name == "save"
+    assert keyed["s"].active is None
+    assert LayerState().handle("s") is False
+
+
 def test_copy_carries_array_state() -> None:
     # copy() enumerates fields by hand; a missed one only shows up under
     # --prefetch, as a snapshot that silently disagrees with the live state.
