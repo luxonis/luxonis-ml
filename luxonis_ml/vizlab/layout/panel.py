@@ -11,6 +11,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import NamedTuple, TypeAlias, TypeGuard
 
+from luxonis_ml.typing import ParamValue
 from luxonis_ml.utils.color import brand
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
@@ -20,6 +21,7 @@ from luxonis_ml.vizlab.render.capture import InteractionCapture
 from luxonis_ml.vizlab.render.markup import Span, parse
 from luxonis_ml.vizlab.scene.image import Composite, Renderable
 from luxonis_ml.vizlab.style import DEFAULT_STYLE, Style, style_scale
+from luxonis_ml.vizlab.tooltip import Tooltip
 
 
 @dataclass(frozen=True)
@@ -83,14 +85,35 @@ class Controls:
     rows: tuple[tuple[str, str, str, bool | None], ...]
 
 
+@dataclass(frozen=True)
+class Hints:
+    """Named rows whose detail is revealed on hover rather than printed.
+
+    Each row draws only its label; the JSON-like value beside it becomes a hover
+    `luxonis_ml.vizlab.tooltip.Tooltip` that an interactive
+    `luxonis_ml.vizlab.viewer.Viewer` (or the interactive HTML export) shows when
+    the pointer rests on the row. Use it for detail worth keeping but not worth
+    spending panel rows on — the parameters an augmentation sampled, say, which
+    would bury the metadata around them if written out. A static render (a PNG,
+    an SVG) shows the labels alone, so the detail is never required reading.
+
+    Attributes:
+        items: One ``(label, detail)`` per row, in draw order. ``detail`` is
+            JSON-like data rendered in the tooltip by `Tooltip.resolved_rows`.
+
+    """
+
+    items: tuple[tuple[str, "ParamValue"], ...]
+
+
 #: JSON-like metadata a panel can render: a scalar, a `Block` / `Swatches` /
-#: `Controls` field, or a mapping/sequence nested arbitrarily. Anything else is
-#: stringified as a leaf.
+#: `Controls` / `Hints` field, or a mapping/sequence nested arbitrarily.
+#: Anything else is stringified as a leaf.
 PanelKey: TypeAlias = str
 """A JSON-compatible mapping key accepted by panel data."""
 
 PanelLeaf: TypeAlias = (
-    Block | Swatches | Controls | str | int | float | bool | None
+    Block | Swatches | Controls | Hints | str | int | float | bool | None
 )
 """A non-container value accepted by a panel."""
 
@@ -281,6 +304,29 @@ def _format_tree(data: "PanelData", depth: int = 0) -> list[Line]:
     return [(depth, "", False, _format_scalar(data))]
 
 
+def format_tree(data: "PanelData") -> list[Line]:
+    """Flatten JSON-like data into indented key/value lines.
+
+    The panel's own formatter, exposed so that other surfaces showing JSON-like
+    data — a hover `luxonis_ml.vizlab.tooltip.Tooltip`, say — lay it out the
+    same way a side panel does instead of inventing a second spelling.
+
+    Args:
+        data: A mapping, sequence, or scalar (nested arbitrarily).
+
+    Returns:
+        Logical lines ``(depth, prefix, prefix_is_key, body)``; see
+        `_format_tree`.
+
+    Examples:
+        >>> format_tree({"scale": [0.9, 1.1]})
+        [(0, 'scale:', True, ''), (1, '• ', False, '0.9'), \
+(1, '• ', False, '1.1')]
+
+    """
+    return _format_tree(data)
+
+
 def _mapping_lines(
     data: Mapping[PanelKey, PanelData], depth: int
 ) -> list[Line]:
@@ -333,6 +379,8 @@ class Section(NamedTuple):
     #: Whether the legend exposes class-toggle click regions.
     swatches_interactive: bool = True
     controls: tuple[tuple[str, str, str, bool | None], ...] | None = None
+    #: (label, detail) per hoverable row; the detail rides in a `Tooltip`.
+    hints: tuple[tuple[str, "ParamValue"], ...] | None = None
 
 
 def _format_sections(data: "PanelData") -> list[Section]:
@@ -400,6 +448,9 @@ def _format_sections(data: "PanelData") -> list[Section]:
         elif isinstance(value, Controls):
             flush()
             sections.append(Section(str(key), [], controls=value.rows))
+        elif isinstance(value, Hints):
+            flush()
+            sections.append(Section(str(key), [], hints=value.items))
         elif _is_container(value):
             flush()
             sections.append(Section(str(key), _format_tree(value, 0)))
@@ -491,6 +542,7 @@ class _BodyLayout:
     content_w: float
     metrics: _Metrics
     clicks: list[tuple[Rect, str]] | None = None
+    hovers: list[tuple[Rect, Tooltip]] | None = None
     text: TextMetrics = field(init=False)
     row_h: float = field(init=False)
     header: TextMetrics = field(init=False)
@@ -548,6 +600,8 @@ class _BodyLayout:
         """Lay out the populated body variant of ``section``."""
         if section.controls is not None:
             return self._controls(section.controls, y)
+        if section.hints is not None:
+            return self._hints(section.hints, y)
         if section.swatches is not None:
             return self._swatches(
                 section.swatches,
@@ -595,6 +649,37 @@ class _BodyLayout:
                     size=self.metrics.size,
                     color=color,
                 )
+        return y
+
+    def _hints(
+        self, rows: tuple[tuple[str, "ParamValue"], ...], y: float
+    ) -> float:
+        """Draw hoverable label rows and collect their hover targets."""
+        m = self.metrics
+        for label, detail in rows:
+            if self.canvas is not None:
+                self.canvas.markup(
+                    (self.x0, self.y0 + y + self.text.ascent),
+                    label,
+                    size=m.size,
+                    color=m.key,
+                    weight=600,
+                )
+            if self.hovers is not None:
+                # The whole row is the target, so the pointer does not have to
+                # find the label's own glyphs.
+                self.hovers.append(
+                    (
+                        Rect(
+                            self.x0,
+                            self.y0 + y,
+                            self.x0 + self.content_w,
+                            self.y0 + y + self.row_h,
+                        ),
+                        Tooltip(title=label, data=detail),
+                    )
+                )
+            y += self.row_h
         return y
 
     def _controls(
@@ -779,9 +864,12 @@ def _layout_body(
     content_w: float,
     m: _Metrics,
     clicks: "list[tuple[Rect, str]] | None" = None,
+    hovers: "list[tuple[Rect, Tooltip]] | None" = None,
 ) -> float:
     """Measure or draw the panel body and return its height."""
-    return _BodyLayout(canvas, x0, y0, content_w, m, clicks).run(sections)
+    return _BodyLayout(canvas, x0, y0, content_w, m, clicks, hovers).run(
+        sections
+    )
 
 
 def _key_label(key: str) -> str:
@@ -863,6 +951,8 @@ def _section_width(section: Section, m: _Metrics) -> float:
         return heading
     if section.controls is not None:
         return max(heading, _controls_width(section.controls, m))
+    if section.hints is not None:
+        return max(heading, _hints_width(section.hints, m))
     if section.swatches is not None:
         return max(heading, _swatches_width(section, m))
     return max(heading, _lines_width(section.lines, m))
@@ -880,6 +970,19 @@ def _section_heading_width(section: Section, m: _Metrics) -> float:
     if section.swatches is not None:
         width += m.indent + _legend_toggle_width(m)
     return width
+
+
+def _hints_width(
+    rows: tuple[tuple[str, "ParamValue"], ...], m: _Metrics
+) -> float:
+    """Return the widest hoverable label; the detail lives in its tooltip."""
+    return max(
+        (
+            text_layout.measure_markup(label, m.size, weight=600).width
+            for label, _detail in rows
+        ),
+        default=0.0,
+    )
 
 
 def _controls_width(
@@ -1037,7 +1140,7 @@ def _place_panel(
     )
 
 
-def _collect_panel_clicks(
+def _collect_panel_regions(
     content: _PanelContent,
     *,
     x0: float,
@@ -1045,9 +1148,10 @@ def _collect_panel_clicks(
     footer_top: float,
     content_w: float,
     m: _Metrics,
-) -> list[tuple[Rect, str]]:
-    """Measure interactive rows at their final positions."""
+) -> tuple[list[tuple[Rect, str]], list[tuple[Rect, Tooltip]]]:
+    """Measure clickable and hoverable rows at their final positions."""
     clicks: list[tuple[Rect, str]] = []
+    hovers: list[tuple[Rect, Tooltip]] = []
     _layout_body(
         None,
         content.body,
@@ -1056,6 +1160,7 @@ def _collect_panel_clicks(
         content_w,
         m,
         clicks,
+        hovers,
     )
     if content.footer:
         _layout_body(
@@ -1066,8 +1171,9 @@ def _collect_panel_clicks(
             content_w,
             m,
             clicks,
+            hovers,
         )
-    return clicks
+    return clicks, hovers
 
 
 @dataclass(frozen=True)
@@ -1083,6 +1189,7 @@ class _PanelPainter:
     placement: _PanelPlacement
     metrics: _Metrics
     clicks: list[tuple[Rect, str]]
+    hovers: list[tuple[Rect, Tooltip]]
 
     @property
     def _x0(self) -> float:
@@ -1107,7 +1214,7 @@ class _PanelPainter:
         environment: RenderEnvironment,
         capture: InteractionCapture | None,
     ) -> None:
-        """Paint the scene and register its panel click regions."""
+        """Paint the scene and register its panel click and hover regions."""
         self._draw_surfaces(canvas, environment, capture)
         # The panel's text is chrome; a layer fragment draws the annotations
         # alone, over the page the full render already painted.
@@ -1116,6 +1223,8 @@ class _PanelPainter:
         if capture is not None:
             for rect, action in self.clicks:
                 capture.add_click(rect, action)
+            for rect, tooltip in self.hovers:
+                capture.add_hover(rect, tooltip)
 
     def _draw_surfaces(
         self,
@@ -1280,7 +1389,12 @@ def compose_panel(
     title: str | None = None,
     style: Style | None = None,
     bg: ColorLike | None = None,
-) -> tuple[Renderable, tuple[float, float], list[tuple[Rect, str]]]:
+) -> tuple[
+    Renderable,
+    tuple[float, float],
+    list[tuple[Rect, str]],
+    list[tuple[Rect, Tooltip]],
+]:
     """Assemble the framed image-plus-panel as a lazy, target-aware `Composite`.
 
     The image and the panel are laid out as two separate rounded surfaces — each
@@ -1290,8 +1404,9 @@ def compose_panel(
     `Image._draw_onto`, so its annotations stay vector in an SVG) and the panel
     chrome (rounded cards, title, key/value rows, legend) to raster or SVG.
     Also returns the ``(dx, dy)`` the source image was translated by (so a caller
-    carrying a hover `HitMap` can shift it to stay aligned) and the ``(region,
-    action)`` click targets of the panel's controls and legend swatches, in
+    carrying a hover `HitMap` can shift it to stay aligned), the ``(region,
+    action)`` click targets of the panel's controls and legend swatches, and the
+    ``(region, tooltip)`` hover targets of its `Hints` rows, in
     composed-image pixels (see `luxonis_ml.vizlab.interaction.frame.Frame.with_panel`).
     """
     style = style or DEFAULT_STYLE
@@ -1324,7 +1439,7 @@ def compose_panel(
         - m.pad
         - content.footer_inner
     )
-    clicks = _collect_panel_clicks(
+    clicks, hovers = _collect_panel_regions(
         content,
         x0=x0,
         body_y0=body_y0,
@@ -1342,6 +1457,7 @@ def compose_panel(
         placement=placement,
         metrics=m,
         clicks=clicks,
+        hovers=hovers,
     )
     composite = Composite(
         (placement.out_w, placement.out_h),
@@ -1352,4 +1468,5 @@ def compose_panel(
         composite,
         (float(placement.image_x), float(placement.image_y)),
         clicks,
+        hovers,
     )

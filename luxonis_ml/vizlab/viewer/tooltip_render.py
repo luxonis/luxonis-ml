@@ -107,7 +107,13 @@ def render_tooltip_card(tooltip: Tooltip, size: int) -> np.ndarray:
     title = tooltip.title
     tint = tooltip.tint
     title_color = tint if tint is not None else brand.CARD_TITLE
-    pairs = [(f"{key}: ", value) for key, value in tooltip.rows]
+    # A key already carrying its own punctuation (a JSON-like tree's ``"key:"``
+    # header or ``"• "`` bullet, see `Tooltip.resolved_rows`) is drawn as-is;
+    # a plain key gets the usual ``": "`` separator.
+    pairs = [
+        (key if key.endswith((":", " ")) else f"{key}: ", value)
+        for key, value in tooltip.resolved_rows
+    ]
 
     pad, gap = round(size * 0.7), round(size * 0.4)
     title_size = size * 1.06

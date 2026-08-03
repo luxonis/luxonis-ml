@@ -1,15 +1,18 @@
 """The `Tooltip`: hover metadata carried by a spatial annotation.
 
-A `Tooltip` is plain data — a title, a list of key/value rows, and an optional
-tint color — attached to an annotation (see `Annotation.tooltip`). It says *what*
-to show when the annotation is hovered; the interactive viewer decides *how* to
-draw it (see `luxonis_ml.vizlab.viewer`). Keeping it rendering-free means the
-data layer can attach hover content without importing any windowing code.
+A `Tooltip` is plain data — a title, a list of key/value rows, optional JSON-like
+``data``, and an optional tint color — attached to an annotation (see
+`Annotation.tooltip`). It says *what* to show when the annotation is hovered; the
+interactive viewer decides *how* to draw it (see `luxonis_ml.vizlab.viewer`).
+Keeping it rendering-free means the data layer can attach hover content without
+importing any windowing code.
 
 Its strings are inline markup, like every other string vizlab draws.
 """
 
 from dataclasses import dataclass
+
+from luxonis_ml.typing import ParamValue
 
 from .color import Color
 
@@ -28,6 +31,10 @@ class Tooltip:
     Attributes:
         title: Optional heading (e.g. a class name), drawn in the tint color.
         rows: Ordered ``(key, value)`` string pairs shown beneath the title.
+        data: Optional JSON-like value (a mapping, sequence, or scalar, nested
+            arbitrarily) shown after ``rows`` as an indented key/value tree —
+            the same shape the metadata panel draws, so a nested blob reads the
+            same wherever it appears. See `resolved_rows`.
         tint: Optional title color; ``None`` uses the default card heading color.
 
     Examples:
@@ -37,14 +44,44 @@ class Tooltip:
         True
         >>> Tooltip(title="<b>car</b>", rows=(("id", "7"),)).title
         '<b>car</b>'
+        >>> Tooltip(data={"p": 0.5}).is_empty
+        False
 
     """
 
     title: str | None = None
     rows: tuple[tuple[str, str], ...] = ()
     tint: Color | None = None
+    data: "ParamValue | None" = None
 
     @property
     def is_empty(self) -> bool:
-        """Whether there is nothing to show (no title and no rows)."""
-        return not self.title and not self.rows
+        """Whether there is nothing to show (no title, rows, or data)."""
+        return not self.title and not self.rows and self.data is None
+
+    @property
+    def resolved_rows(self) -> tuple[tuple[str, str], ...]:
+        """The rows to draw: ``rows``, then ``data`` flattened into rows.
+
+        JSON-like ``data`` is flattened by the metadata panel's own formatter,
+        so a nested value becomes indented ``key: value`` rows (and a list
+        becomes bullets) exactly as it would in a side panel. Renderers draw
+        this instead of ``rows`` so both kinds of content share one layout.
+
+        Examples:
+            >>> Tooltip(data={"scale": [0.9, 1.1]}).resolved_rows
+            (('scale:', ''), ('  • ', '0.9'), ('  • ', '1.1'))
+            >>> Tooltip(rows=(("id", "7"),), data={"p": 0.5}).resolved_rows
+            (('id', '7'), ('p: ', '0.5'))
+
+        """
+        if self.data is None:
+            return self.rows
+        # Imported here: the panel module pulls in the whole scene graph, and a
+        # tooltip is plain data that must stay importable without it.
+        from luxonis_ml.vizlab.layout.panel import format_tree
+
+        return self.rows + tuple(
+            (f"{'  ' * depth}{prefix}", body)
+            for depth, prefix, _is_key, body in format_tree(self.data)
+        )

@@ -416,6 +416,7 @@ def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
         LIGHT_THEME,
         Annotation,
         Frame,
+        Hints,
         Palette,
         RenderOptions,
         Style,
@@ -507,7 +508,8 @@ def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
     assert len(panels) == 1
     panel = panels[0]
     assert isinstance(panel, dict)
-    assert panel["augmentations"] == ["HorizontalFlip"]
+    # The name is the row; the parameters it sampled ride in its hover tooltip.
+    assert panel["augmentations"] == Hints((("HorizontalFlip", {"p": 1.0}),))
     assert "controls" in panel
     assert "classes" not in panel
 

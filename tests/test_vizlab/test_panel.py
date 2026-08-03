@@ -445,6 +445,45 @@ def test_frame_with_panel_offsets_the_hitmap_to_match() -> None:
     assert (rect.left, rect.top) == (10.0 + _MARGIN, 20.0 + _MARGIN)
 
 
+def test_hints_rows_are_hoverable_and_carry_their_detail() -> None:
+    """A `Hints` row draws only its label and hovers to reveal its data."""
+    from luxonis_ml.vizlab import Hints
+    from luxonis_ml.vizlab.interaction.frame import Frame
+
+    framed = Frame(_img(200, 140)).with_panel(
+        {
+            "augmentations": Hints(
+                (
+                    ("HorizontalFlip", {"p": 0.5}),
+                    ("Affine", {"rotate": -12.345678}),
+                )
+            )
+        }
+    )
+    assert [tip.title for _rect, tip in framed.hitmap.items] == [
+        "HorizontalFlip",
+        "Affine",
+    ]
+    rect, tooltip = framed.hitmap.items[0]
+    # The region sits in the panel, right of the image, and hit-tests there.
+    assert rect.left > 200
+    mid_y = (rect.top + rect.bottom) / 2
+    assert framed.hitmap.hit(rect.left + 1.0, mid_y) is tooltip
+    assert framed.hitmap.hit(rect.left - 1.0, rect.top - 1.0) is None
+
+
+def test_hints_detail_costs_the_panel_no_rows() -> None:
+    """The detail is hover-only: the rows are the labels, nothing more."""
+    from luxonis_ml.vizlab import Hints
+
+    (section,) = _format_sections(
+        {"augmentations": Hints((("Flip", {"p": 0.5}),))}
+    )
+    assert section.heading == "augmentations"
+    assert section.hints == (("Flip", {"p": 0.5}),)
+    assert section.lines == []  # the detail never becomes a row
+
+
 def test_with_panel_wraps_long_value() -> None:
     img = _img(100, 60)
     out = with_panel(img, {"note": "lorem ipsum dolor sit amet " * 6})

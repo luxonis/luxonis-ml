@@ -215,8 +215,10 @@ def _tooltip_html(tooltip: Tooltip) -> str:
         heading = markup_html(tooltip.title, weight=700)
         title = f'<span class="vl-title"{tint}>{heading}</span>'
     rows = []
-    for key, value in tooltip.rows:
-        name = markup_html(f"{key}: ", weight=600)
+    for key, value in tooltip.resolved_rows:
+        # See `render_tooltip_card`: a tree key brings its own punctuation.
+        label = key if key.endswith((":", " ")) else f"{key}: "
+        name = markup_html(label, weight=600)
         text = markup_html(value, weight=500, mono=True)
         rows.append(
             f'<div><span class="vl-key">{name}</span>'

@@ -252,6 +252,7 @@ with guard_missing_extra("viz"):
     from .layout import (
         Block,
         Controls,
+        Hints,
         Swatches,
         blend,
         combine,
@@ -320,6 +321,7 @@ __all__ = [
     "GoldenRatioColors",
     "Gradient",
     "Heatmap",
+    "Hints",
     "HitMap",
     "Image",
     "InfoCard",

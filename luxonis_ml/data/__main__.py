@@ -1040,6 +1040,7 @@ def inspect(
             LIGHT_THEME,
             Controls,
             Frame,
+            Hints,
             Image,
             MaskOutline,
             Palette,
@@ -1277,7 +1278,11 @@ def inspect(
             else {}
         )
         if list_augmentations and tracked_augmentations:
-            panel["augmentations"] = list(tracked_augmentations)
+            # The name is the row; the parameters it sampled this sample are
+            # its hover detail, so the list stays as short as the names.
+            panel["augmentations"] = Hints(
+                tuple(tracked_augmentations.items())
+            )
         return panel
 
     def records_from_labels(labels: "Labels") -> "dict[str, DatasetRecord]":

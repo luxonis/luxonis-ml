@@ -118,7 +118,7 @@ class Frame:
         """
         from luxonis_ml.vizlab.layout.panel import compose_panel
 
-        image, (dx, dy), clicks = compose_panel(
+        image, (dx, dy), clicks, hovers = compose_panel(
             self.image,
             data,
             side=side,
@@ -129,7 +129,7 @@ class Frame:
         )
         return Frame(
             image,
-            self.hitmap.offset(dx, dy),
+            self.hitmap.offset(dx, dy).merge(HitMap(hovers)),
             self.clickmap.offset(dx, dy).merge(ClickMap(clicks)),
             self.environment,
         )

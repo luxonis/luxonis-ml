@@ -10,11 +10,12 @@ from .compose import (
     order_by_position,
     vstack,
 )
-from .panel import Block, Controls, Swatches, with_panel
+from .panel import Block, Controls, Hints, Swatches, with_panel
 
 __all__ = [
     "Block",
     "Controls",
+    "Hints",
     "Swatches",
     "blend",
     "combine",
