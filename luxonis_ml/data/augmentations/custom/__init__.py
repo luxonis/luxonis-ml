@@ -8,6 +8,7 @@ standard Albumentations transforms.
 Built-in custom transforms include:
 
     - `LetterboxResize` for aspect-ratio preserving resize and padding.
+    - `CutMix` for patching pairs of images and compatible labels.
     - `MixUp` for blending pairs of images and compatible labels.
     - `Mosaic4` for composing a :math:`2 \times 2` image mosaic.
     - Symmetric keypoint flips and transposition helpers for keypoint tasks.
@@ -32,6 +33,7 @@ import albumentations as A
 
 from luxonis_ml.utils import Registry
 
+from .cutmix import CutMix
 from .letterbox_resize import LetterboxResize
 from .mixup import MixUp
 from .mosaic import Mosaic4
@@ -46,6 +48,7 @@ TRANSFORMATIONS: Registry[type[A.BasicTransform]] = Registry(
 )
 
 TRANSFORMATIONS.register(module=LetterboxResize)
+TRANSFORMATIONS.register(module=CutMix)
 TRANSFORMATIONS.register(module=MixUp)
 TRANSFORMATIONS.register(module=Mosaic4)
 TRANSFORMATIONS.register(module=HorizontalSymmetricKeypointsFlip)
@@ -54,6 +57,7 @@ TRANSFORMATIONS.register(module=TransposeSymmetricKeypoints)
 
 __all__ = [
     "TRANSFORMATIONS",
+    "CutMix",
     "HorizontalSymmetricKeypointsFlip",
     "LetterboxResize",
     "MixUp",

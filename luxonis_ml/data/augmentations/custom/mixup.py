@@ -1,13 +1,15 @@
 import random
 from typing import Any, Literal
 
-import albumentations as A
 import cv2
 import numpy as np
 from typing_extensions import override
 
 from luxonis_ml.data.augmentations.batch_transform import BatchTransform
-from luxonis_ml.data.augmentations.custom import LetterboxResize
+from luxonis_ml.data.augmentations.custom.letterbox_resize import (
+    LetterboxResize,
+    create_letterbox_or_resize,
+)
 from luxonis_ml.data.augmentations.utils import pad_empty_entries
 
 
@@ -52,10 +54,9 @@ class MixUp(BatchTransform):
         self._alpha = (
             alpha if isinstance(alpha, list | tuple) else (alpha, alpha)
         )
-        if keep_aspect_ratio:
-            self._resize_transform = LetterboxResize(1, 1)
-        else:
-            self._resize_transform = A.Resize(1, 1)
+        self._resize_transform = create_letterbox_or_resize(
+            keep_aspect_ratio, 1, 1
+        )
 
         if not 0 <= self._alpha[0] <= 1 or not 0 <= self._alpha[1] <= 1:
             raise ValueError("Alpha must be in range [0, 1].")
