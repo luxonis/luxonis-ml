@@ -11,8 +11,8 @@ Luxonis brand colors are reserved for chrome (see
 palette to the brand :data:`BRAND_COLORS` when they want to.
 
 Swapping the whole color scheme is a single argument — ``Palette(generator=...)`` —
-so the strategy lives in exactly one place and callers (``BBox`` and friends) only
-ever touch `Palette.color_for`.
+so the strategy lives in exactly one place and callers only ever touch
+`Palette.color_for`.
 
 Because the spacing guarantee only holds for *sequential* indices, colors are
 assigned in order of first appearance and memoized: within a process, a class keeps
@@ -20,10 +20,11 @@ its color across every image (the module-level :data:`DEFAULT_PALETTE` is shared
 The trade-off is that a class's color depends on the order classes are first seen,
 not on its name alone — stable within a run and across runs that request classes in
 the same order, but not across arbitrary reorderings. Pin a color explicitly with
-``BBox(color=...)`` or by pre-registering classes in a fixed order when a name must
-map to one exact color forever.
+`Palette.pin` or by pre-registering classes in a fixed order when a name must map
+to one exact color forever.
 """
 
+import threading
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 
@@ -120,7 +121,7 @@ class SequenceColors:
         overflow: Generator used once the anchors are exhausted.
 
     Examples:
-        >>> from luxonis_ml.vizlab.color import Color
+        >>> from luxonis_ml.utils.color import Color
         >>> gen = SequenceColors((Color(255, 0, 0), Color(0, 255, 0)))
         >>> gen(0)
         Color(r=255, g=0, b=0, a=255)
@@ -201,6 +202,9 @@ class Palette:
         """
         self._generator: ColorGenerator = generator or GoldenRatioColors()
         self._colors: dict[str, Color] = {}
+        # Assigning a color is a read-modify-write of `_colors`, and
+        # `DEFAULT_PALETTE` is shared process-wide, so serialize that step.
+        self._lock = threading.Lock()
         self._pins: dict[str, Color] = {
             name: Color.parse(value) for name, value in (colors or {}).items()
         }
@@ -228,7 +232,9 @@ class Palette:
         """Return the color assigned to ``key``, assigning a new one if unseen.
 
         The first time a key is seen it takes the next color in the sequence; every
-        later call for that key returns the same color.
+        later call for that key returns the same color. Two threads racing to
+        register different keys get different colors: only the assignment is
+        locked, so the common case of an already-colored key stays lock-free.
 
         Args:
             key: The label (or any string identity) to color.
@@ -242,8 +248,11 @@ class Palette:
             return pinned
         color = self._colors.get(key)
         if color is None:
-            color = self._generator(len(self._colors))
-            self._colors[key] = color
+            with self._lock:
+                color = self._colors.get(key)
+                if color is None:
+                    color = self._generator(len(self._colors))
+                    self._colors[key] = color
         return color
 
     def pin(self, key: str, color: ColorLike) -> "Palette":

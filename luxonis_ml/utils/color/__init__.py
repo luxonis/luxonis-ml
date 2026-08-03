@@ -8,12 +8,6 @@ module reimplements it:
   for every non-label color (backgrounds, cards, dividers, verdict marks).
 - `Palette` / `GoldenRatioColors` / `SequenceColors` — distinct per-class label
   colors from a pluggable index-based generator.
-
-None of the above needs NumPy, so importing this package stays cheap for a base
-``luxonis-ml[utils]`` install. The one color tool that does need NumPy —
-`Gradient` (colormaps for scalar fields such as heatmaps) — lives in
-`luxonis_ml.utils.color.gradient` and is imported directly from there, not
-re-exported here, so the base import does not pull in NumPy.
 """
 
 from . import brand

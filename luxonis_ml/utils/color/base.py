@@ -1,13 +1,14 @@
 """Color parsing and manipulation.
 
 The `Color` class is the single color primitive shared across ``luxonis-ml`` —
-`luxonis_ml.vizlab` re-exports it, and other submodules (e.g. augmentation fill
-values) parse colors through it too, so no module reimplements color handling.
+the visualization layer re-exports it, and other submodules (e.g. augmentation
+fill values) parse colors through it too, so no module reimplements color
+handling.
 
 Colors are normalized to an ``(r, g, b, a)`` tuple of 8-bit integers. `Color.parse`
 accepts the shapes users actually have on hand — hex strings, CSS color names, a
 single grayscale integer, RGB/RGBA tuples, or another `Color` — and exposes the
-HSL-space operations the palette and sub-label style derivation rely on.
+HSL-space operations the palette and style derivation rely on.
 """
 
 import colorsys
@@ -153,11 +154,11 @@ class Color:
         A leading ``#`` forces hex parsing (so a bad hex reports as such);
         otherwise hex is tried first, then a color name.
         """
-        if text.startswith("#"):
-            return cls._from_hex(text)
         try:
             return cls._from_hex(text)
         except ValueError:
+            if text.startswith("#"):
+                raise
             return cls._from_name(text)
 
     @classmethod
@@ -183,16 +184,11 @@ class Color:
             return cls(r, g, b)
         try:
             from PIL import ImageColor
-        except ImportError:
-            ImageColor = None
-        if ImageColor is not None:
-            try:
-                r, g, b = ImageColor.getrgb(text)[:3]
-            except ValueError:
-                pass
-            else:
-                return cls(r, g, b)
-        raise ValueError(f"invalid color name {text!r}")
+
+            r, g, b = ImageColor.getrgb(text)[:3]
+        except (ImportError, ValueError):
+            raise ValueError(f"invalid color name {text!r}") from None
+        return cls(r, g, b)
 
     @classmethod
     def _from_hex(cls, text: str) -> "Color":
@@ -223,13 +219,15 @@ class Color:
         return cls(r, g, b, a)
 
     @classmethod
-    def from_hls(cls, h: float, ll: float, s: float, a: int = 255) -> "Color":
+    def from_hls(
+        cls, hue: float, lightness: float, saturation: float, a: int = 255
+    ) -> "Color":
         """Build a color from hue/lightness/saturation.
 
         Args:
-            h: Hue in ``[0, 1]``.
-            ll: Lightness in ``[0, 1]``.
-            s: Saturation in ``[0, 1]``.
+            hue: Hue in ``[0, 1]``.
+            lightness: Lightness in ``[0, 1]``.
+            saturation: Saturation in ``[0, 1]``.
             a: Alpha channel, 0-255.
 
         Returns:
@@ -237,7 +235,9 @@ class Color:
 
         """
         r, g, b = colorsys.hls_to_rgb(
-            h % 1.0, max(0.0, min(1.0, ll)), max(0.0, min(1.0, s))
+            hue % 1.0,
+            max(0.0, min(1.0, lightness)),
+            max(0.0, min(1.0, saturation)),
         )
         return cls(_clamp8(r * 255), _clamp8(g * 255), _clamp8(b * 255), a)
 
@@ -279,8 +279,10 @@ class Color:
             A lighter `Color`, alpha preserved.
 
         """
-        h, ll, s = self.hls
-        return Color.from_hls(h, ll + (1.0 - ll) * amount, s, self.a)
+        hue, lightness, saturation = self.hls
+        return Color.from_hls(
+            hue, lightness + (1.0 - lightness) * amount, saturation, self.a
+        )
 
     def darken(self, amount: float) -> "Color":
         """Move the color toward black in HSL space.
@@ -292,8 +294,10 @@ class Color:
             A darker `Color`, alpha preserved.
 
         """
-        h, ll, s = self.hls
-        return Color.from_hls(h, ll * (1.0 - amount), s, self.a)
+        hue, lightness, saturation = self.hls
+        return Color.from_hls(
+            hue, lightness * (1.0 - amount), saturation, self.a
+        )
 
     def saturate(self, amount: float) -> "Color":
         """Increase (or, with a negative amount, decrease) saturation.
@@ -305,9 +309,12 @@ class Color:
             A `Color` with adjusted saturation, alpha preserved.
 
         """
-        h, ll, s = self.hls
-        new_s = s + (1.0 - s) * amount if amount >= 0 else s * (1.0 + amount)
-        return Color.from_hls(h, ll, new_s, self.a)
+        hue, lightness, saturation = self.hls
+        if amount >= 0:
+            new = saturation + (1.0 - saturation) * amount
+        else:
+            new = saturation * (1.0 + amount)
+        return Color.from_hls(hue, lightness, new, self.a)
 
     def shift_hue(self, turns: float) -> "Color":
         """Rotate the hue around the color wheel.
@@ -319,22 +326,29 @@ class Color:
             A hue-rotated `Color`, alpha preserved.
 
         """
-        h, ll, s = self.hls
-        return Color.from_hls(h + turns, ll, s, self.a)
+        hue, lightness, saturation = self.hls
+        return Color.from_hls(hue + turns, lightness, saturation, self.a)
 
-    def readable_text_color(self) -> "Color":
-        """Return black or white, whichever is more readable on this color.
+    @property
+    def is_light(self) -> bool:
+        """Whether this color is bright enough to need dark text on top.
 
-        Uses the standard relative-luminance threshold so label text placed on a
-        chip of this color stays legible.
-
-        Returns:
-            Opaque black or white as a `Color`.
-
+        Weights the channels the way WCAG relative luminance does, but leaves
+        them gamma-encoded rather than linearizing first — an approximation of
+        perceived brightness, which is all a light/dark decision needs.
         """
         r, g, b = self.r / 255, self.g / 255, self.b / 255
-        luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-        return Color(17, 17, 17) if luminance > 0.55 else Color(255, 255, 255)
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55
+
+    def readable_text_color(self) -> "Color":
+        """Return near-black or white, whichever is more readable on this color.
+
+        Returns:
+            Opaque `Color`: a soft near-black on light colors, white on dark
+            ones, so label text on a chip of this color stays legible.
+
+        """
+        return Color(17, 17, 17) if self.is_light else Color(255, 255, 255)
 
 
 ColorLike: TypeAlias = str | int | tuple[int, ...] | Color

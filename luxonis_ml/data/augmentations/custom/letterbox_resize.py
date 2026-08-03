@@ -6,35 +6,7 @@ import numpy as np
 from typing_extensions import override
 
 from luxonis_ml.typing import RGB
-from luxonis_ml.typing import Color as ColorLike
-from luxonis_ml.utils.color import Color
-
-
-def _fill_color(value: ColorLike, name: str) -> RGB:
-    """Resolve a user-supplied padding value to an ``(r, g, b)`` triple.
-
-    `Color.parse` clamps channels into ``[0, 255]``. A fill value outside that
-    range is a config mistake rather than something to round off, so it is
-    rejected here instead of silently padding with a different color.
-
-    Args:
-        value: A color name, hex string, grayscale int, or ``(r, g, b)`` tuple.
-        name: The parameter name, used in the error message.
-
-    Returns:
-        The resolved RGB triple.
-
-    Raises:
-        ValueError: If any channel falls outside ``[0, 255]``.
-
-    """
-    channels = value if isinstance(value, tuple) else (value,)
-    for channel in channels:
-        if isinstance(channel, int) and not 0 <= channel <= 255:
-            raise ValueError(
-                f"{name} value {channel} is out of range [0, 255]"
-            )
-    return Color.parse(value).rgb
+from luxonis_ml.utils.color import Color, ColorLike
 
 
 class LetterboxResize(A.DualTransform):
@@ -66,8 +38,8 @@ class LetterboxResize(A.DualTransform):
             width: The desired width of the output image
             interpolation: ``cv2`` flag to specify interpolation used
                 when resizing. Defaults to ``cv2.INTER_LINEAR``.
-            image_fill_value: Padding value for images.
-                Can be a string color name or an RGB tuple.
+            image_fill_value: Padding value for images. Can be a color name,
+                a hex string, a grayscale integer, or an RGB tuple.
                 Defaults to ``"black"``.
             mask_fill_value: Padding value for masks. Must be an integer
                 representing a class label. Defaults to ``0`` (background).
@@ -81,10 +53,12 @@ class LetterboxResize(A.DualTransform):
         self.width = width
 
         self._interpolation = interpolation
-        self._image_fill_value = _fill_color(
+        self._image_fill_value = self._fill_color(
             image_fill_value, "image_fill_value"
         )
-        self._mask_fill_value = _fill_color(mask_fill_value, "mask_fill_value")
+        self._mask_fill_value = self._fill_color(
+            mask_fill_value, "mask_fill_value"
+        )
 
     @property
     @override
@@ -375,6 +349,21 @@ class LetterboxResize(A.DualTransform):
             padded_img = padded_img[..., None]
 
         return padded_img
+
+    @staticmethod
+    def _fill_color(value: ColorLike, name: str) -> RGB:
+        """Resolve a padding value to RGB, rejecting out-of-range channels.
+
+        `Color.parse` clamps rather than raising, which for a fill value would
+        silently pad with a color the config never asked for.
+        """
+        channels = value if isinstance(value, tuple) else (value,)
+        for channel in channels:
+            if isinstance(channel, int) and not 0 <= channel <= 255:
+                raise ValueError(
+                    f"{name} value {channel} is out of range [0, 255]"
+                )
+        return Color.parse(value).rgb
 
 
 def create_letterbox_or_resize(

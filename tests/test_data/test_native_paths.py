@@ -186,3 +186,50 @@ def test_native_parser_resolves_paths_for_a_list_of_annotations(
     assert isinstance(record, dict)  # the parser yields raw manifest records
     resolved = record["annotation"][0]["segmentation"]["mask"]
     assert resolved == mask_path.resolve()
+
+
+def test_native_parser_resolves_paths_inside_sub_detections(tempdir: Path):
+    image_path = create_image(0, tempdir)
+    split_dir = tempdir / "train"
+    (split_dir / "images").mkdir(parents=True)
+    (split_dir / "masks").mkdir(parents=True)
+    copied_image = split_dir / "images" / image_path.name
+    copied_image.write_bytes(image_path.read_bytes())
+    mask_path = split_dir / "masks" / "head.png"
+    mask_path.write_bytes(image_path.read_bytes())
+
+    annotations_path = split_dir / "annotations.json"
+    annotations_path.write_text(
+        json.dumps(
+            [
+                {
+                    "file": f"images/{image_path.name}",
+                    "task_name": "person",
+                    "annotation": {
+                        "class": "person",
+                        "sub_detections": {
+                            "head": {
+                                "class": "head",
+                                "instance_segmentation": {
+                                    "mask": "masks/head.png"
+                                },
+                            }
+                        },
+                    },
+                }
+            ],
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    generator, _, _ = NativeParser(
+        dataset=None,  # type: ignore[arg-type]
+        dataset_type=DatasetType.NATIVE,
+        task_name=None,
+    ).from_split(annotation_path=annotations_path)
+
+    record = next(iter(generator))
+    assert isinstance(record, dict)
+    nested = record["annotation"]["sub_detections"]["head"]
+    assert nested["instance_segmentation"]["mask"] == mask_path.resolve()

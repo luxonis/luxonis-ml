@@ -1,6 +1,8 @@
 """The Luxonis brand colors and the UI-chrome palette built from them.
 
-These are the company colors, taken from the Luxonis design tokens. They are the
+These are the company colors, transcribed from the shared Luxonis design tokens
+that the frontend renders from, so a chart or overlay produced here matches the
+web UI rather than drifting from it. They are the
 single home for every non-label color in the stack: visualization *chrome* —
 composite backgrounds, card fills, panel keys and titles, dividers, chart tracks,
 and verdict marks — is colored from here so the framing reads as on-brand out of
@@ -16,7 +18,7 @@ Examples:
     Color(r=76, g=79, b=241, a=255)
     >>> brand.CARD_KEY is brand.PERIWINKLE
     True
-    >>> brand.chrome_for(brand.LIGHT_BACKGROUND).card_text is brand.PURPLE
+    >>> brand.chrome_for(brand.LIGHT_BACKGROUND).card_text is brand.PURPLE_TEXT
     True
 
 """
@@ -25,26 +27,60 @@ from dataclasses import dataclass
 
 from .base import Color
 
-# -- Core brand colors (the Luxonis design tokens) --------------------------
-PURPLE = Color(76, 79, 241)  # #4c4ff1 — the primary "Luxonis Purple"
+# -- Core brand colors ------------------------------------------------------
+# The saturated fill of each semantic family, for filled surfaces rather than
+# for text (the `*_TEXT` ramp below is what labels and icons should use).
+PURPLE = Color(76, 79, 241)  # #4C4FF1 — the primary "Luxonis Purple"
 GREEN = Color(18, 183, 106)  # #12B76A
 ORANGE = Color(220, 104, 3)  # #DC6803
 RED = Color(240, 68, 56)  # #F04438
 
-PERIWINKLE = Color(141, 164, 244)  # #8da4f4 — light purple
+# The lighter "decoration" variant of each family, which the design system also
+# uses as that family's outline/border color.
+PERIWINKLE = Color(141, 164, 244)  # #8DA4F4 — light purple
 MINT = Color(108, 233, 166)  # #6CE9A6 — light green
 AMBER = Color(254, 200, 75)  # #FEC84B — light orange
 SALMON = Color(253, 162, 155)  # #FDA29B — light red
 
 #: A deep-indigo shade of :data:`PURPLE` (same hue) for light-mode titles and
-#: headings: a stronger, higher-contrast purple that outranks the regular
-#: brand purple used for body text (≈ 15:1 on white).
+#: headings: a stronger, higher-contrast purple that outranks :data:`PURPLE_TEXT`
+#: used for body text (≈ 15:1 on white). The design system has no heading token,
+#: so this one is ours.
 PURPLE_TITLE = Color(22, 24, 112)  # #161870
 
-# Neutral "ink" ramp (brand grays), dark to light.
+# Neutral "ink" ramp (brand grays), dark to light: body text, labels, and the
+# muted/disabled end of the scale.
 INK = Color(29, 41, 57)  # #1D2939 — darkest neutral
 SLATE = Color(71, 84, 103)  # #475467 — muted mid neutral
 STEEL = Color(102, 112, 133)  # #667085 — light neutral
+FAINT = Color(211, 211, 211)  # #D3D3D3 — disabled text and placeholders
+
+# -- Soft tints -------------------------------------------------------------
+# Pale fills for chips, badges, and callouts, one per family. The active tint is
+# a pale blue rather than a wash of the indigo brand purple; that is what the
+# design system specifies, not a transcription slip.
+PURPLE_SOFT = Color(220, 239, 252)  # #DCEFFC
+GRAY_SOFT = Color(242, 244, 247)  # #F2F4F7
+GREEN_SOFT = Color(236, 253, 243)  # #ECFDF3
+ORANGE_SOFT = Color(255, 250, 235)  # #FFFAEB
+RED_SOFT = Color(254, 243, 242)  # #FEF3F2
+
+# -- Foreground text colors -------------------------------------------------
+# Darkened per-family colors for text and icons, contrast-tuned to sit on the
+# soft tints above (or on white). Use these instead of the solids for anything
+# a reader has to actually read.
+PURPLE_TEXT = Color(87, 36, 232)  # #5724E8
+GRAY_TEXT = Color(52, 64, 84)  # #344054
+GREEN_TEXT = Color(2, 122, 72)  # #027A48
+ORANGE_TEXT = Color(181, 71, 8)  # #B54708
+RED_TEXT = Color(180, 35, 24)  # #B42318
+
+#: Neutral hairline border, for rules and outlines with no semantic color.
+GRAY_BORDER = Color(229, 229, 229)  # #E5E5E5
+
+#: The design system draws hover states as the base color at 85% alpha, so
+#: ``PURPLE.with_alpha(HOVER_ALPHA)`` is the hover fill for a purple surface.
+HOVER_ALPHA = 0xD9
 
 # -- Chrome palette (semantic; used across the annotations) -----------------
 #: Deep navy composite background painted behind stacks, grids, and pad gaps.
@@ -74,9 +110,9 @@ MUTED = SLATE  # empty track fills and the "other" segment
 LIGHT_CARD_BG = Color(255, 255, 255, 236)
 #: Caption chips in light mode: opaque white for a single crisp line.
 LIGHT_CAPTION_BG = Color(255, 255, 255, 240)
-LIGHT_CARD_TEXT = PURPLE  # body text in the regular brand purple
+LIGHT_CARD_TEXT = PURPLE_TEXT  # body text in the family's text purple
 LIGHT_CARD_TITLE = PURPLE_TITLE  # deeper heading, to outrank the body text
-LIGHT_CARD_KEY = PURPLE  # keys / accents in the bright brand purple
+LIGHT_CARD_KEY = PURPLE_TEXT  # keys / accents in the same text purple
 #: Hairline card border and image/panel rule, a translucent brand purple.
 LIGHT_CARD_BORDER = PURPLE.with_alpha(38)
 LIGHT_DIVIDER = PURPLE.with_alpha(46)
@@ -162,8 +198,4 @@ def chrome_for(background: Color) -> Chrome:
         True
 
     """
-    return (
-        LIGHT_CHROME
-        if background.readable_text_color().r < 128
-        else DARK_CHROME
-    )
+    return LIGHT_CHROME if background.is_light else DARK_CHROME
