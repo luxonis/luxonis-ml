@@ -13,9 +13,12 @@ so the renderer can place all labels together. A whole dataset sample renders in
 one call with `visualize_record` — the record's annotations become the overlays
 and its ``sample_metadata`` becomes a side panel.
 
-A runnable tour of every feature lives in ``vizlab_examples/gallery.py``; it
-writes the figures shown and linked below to ``vizlab_examples/output/``. TODO:
-publish these images and replace each ``TODO-HOST`` path with its hosted URL.
+A runnable tour of every feature lives in ``vizlab_examples/vizlab.ipynb``: it
+walks each annotation type beside the LDF data that produces it, and covers the
+parts a static figure cannot show — hover tooltips, the interactive HTML export,
+and the viewer. ``vizlab_examples/gallery.py`` writes the figures shown and
+linked below to ``vizlab_examples/output/``. TODO: publish these images and
+replace each ``TODO-HOST`` path with its hosted URL.
 
 .. image:: TODO-HOST/from_record.png
    :alt: A DatasetRecord dict rendered to an annotated street frame.
@@ -196,7 +199,8 @@ Notes:
     `Renderable.frame`). Composition preserves those regions automatically, so
     ``Frame.capture(grid(...))`` is as viewer-ready as ``Frame.capture(image)``.
 
-    See ``vizlab_examples/`` for a runnable feature overview.
+    See ``vizlab_examples/vizlab.ipynb`` for a runnable feature overview, and
+    ``vizlab_examples/README.md`` for what else lives there.
 
 """
 

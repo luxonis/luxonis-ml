@@ -103,7 +103,7 @@ file = [
 target-version = "py310"
 line-length = 79
 indent-width = 4
-extend-exclude = ["vizlab_examples"]
+extend-exclude = ["vizlab_examples", "vizlab_test_data"]
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -202,7 +202,13 @@ wrap-summaries = 72
 wrap-descriptions = 72
 
 [tool.pyright]
-exclude = ["luxonis_ml/tracker", "examples", "vizlab_examples", "__main__.py"]
+exclude = [
+  "luxonis_ml/tracker",
+  "examples",
+  "vizlab_examples",
+  "vizlab_test_data",
+  "__main__.py",
+]
 typeCheckingMode = "basic"
 reportMissingTypeStubs = "none"
 reportPrivateImportUsage = "none"

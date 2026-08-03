@@ -1,6 +1,7 @@
 """Coverage for the IO layer: loading, exporting, and saving."""
 
 import sys
+from io import BytesIO
 from pathlib import Path
 
 import numpy as np
@@ -164,6 +165,20 @@ def test_to_pil_and_save_formats(tmp_path: Path) -> None:
         assert (tmp_path / name).exists()
     with pytest.raises(ValueError, match="unsupported output format"):
         io.save(rgba, tmp_path / "e.gif")
+
+
+def test_repr_png_renders_scenes_and_composites() -> None:
+    """A scene reprs as a PNG of itself, so notebooks display it inline."""
+    from luxonis_ml.vizlab import BBox, Image, grid
+
+    scene = Image(np.zeros((16, 24, 3), dtype=np.uint8)).add(
+        BBox(x=0.1, y=0.1, w=0.5, h=0.5, label="car")
+    )
+    for renderable in (scene, grid([scene, scene], ncols=2)):
+        png = renderable._repr_png_()
+        assert png.startswith(b"\x89PNG\r\n\x1a\n")
+        with PILImage.open(BytesIO(png)) as decoded:
+            assert decoded.size == (renderable.width, renderable.height)
 
 
 def test_to_pil_without_pillow_raises(monkeypatch: pytest.MonkeyPatch) -> None:

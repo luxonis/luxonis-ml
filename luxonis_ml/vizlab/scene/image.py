@@ -10,6 +10,7 @@ import hashlib
 from collections.abc import Callable, Hashable, Iterable, Mapping
 from dataclasses import fields, is_dataclass
 from enum import Enum
+from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -580,6 +581,21 @@ class Renderable:
     def show(self) -> None:
         """Render and open the scene in Pillow's default viewer."""
         self.to_pil().show()
+
+    def _repr_png_(self) -> bytes:
+        """Render as PNG bytes, so a notebook displays the scene inline.
+
+        IPython calls this when a scene is the value of the last expression in
+        a cell, which makes ``image`` on its own line show the picture — no
+        ``display`` call and no Matplotlib.
+
+        Returns:
+            The rendered scene, PNG-encoded.
+
+        """
+        buffer = BytesIO()
+        self.to_pil().save(buffer, format="PNG")
+        return buffer.getvalue()
 
     def render_hits(
         self, size: tuple[int, int] | None = None
