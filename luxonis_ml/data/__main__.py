@@ -22,7 +22,6 @@ from luxonis_ml.data import (
 )
 from luxonis_ml.data.utils.cli_utils import (
     check_exists,
-    get_applied_augmentations,
     get_dataset_info,
     get_tracked_augmentations,
     parse_split_ratio,
@@ -313,17 +312,13 @@ def inspect(
     for data in loader:
         images_dict = data.images
         labels = data.labels
+        tracked_augmentations = get_tracked_augmentations(data.metadata)
 
         if print_sample_metadata:
             metadata = data.metadata
-            if (
-                not list_augmentations
-                and get_tracked_augmentations(metadata) is not None
-            ):
-                # The runtime parameters of every transformation would
-                # bury the record metadata this flag exists to show. Only
-                # the tracked provenance is dropped; a record storing its
-                # own "augmentations" field is metadata like any other.
+            if not list_augmentations and tracked_augmentations is not None:
+                # The runtime parameters of every transformation would bury
+                # the record metadata this flag exists to show.
                 metadata = {
                     k: v for k, v in metadata.items() if k != "augmentations"
                 }
@@ -378,8 +373,7 @@ def inspect(
                     )
                     if list_augmentations:
                         instance_image = add_augmentation_footer(
-                            instance_image,
-                            get_applied_augmentations(data.metadata),
+                            instance_image, list(tracked_augmentations or {})
                         )
                     cv2.resizeWindow(
                         source_name,
@@ -408,8 +402,7 @@ def inspect(
                 )
                 if list_augmentations:
                     labeled_image = add_augmentation_footer(
-                        labeled_image,
-                        get_applied_augmentations(data.metadata),
+                        labeled_image, list(tracked_augmentations or {})
                     )
                 cv2.resizeWindow(
                     source_name, labeled_image.shape[1], labeled_image.shape[0]

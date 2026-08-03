@@ -12,15 +12,18 @@ from luxonis_ml.data.augmentations.albumentations_engine import (
     _normalize_params,
 )
 from luxonis_ml.data.augmentations.custom import TRANSFORMATIONS
-from luxonis_ml.data.utils.cli_utils import (
-    get_applied_augmentations,
-    get_tracked_augmentations,
-)
+from luxonis_ml.data.utils.cli_utils import get_tracked_augmentations
 from luxonis_ml.typing import LoaderMultiOutput, Params, TrackedAugmentations
 
 
 def _make_sample(size: int = 64) -> list[LoaderMultiOutput]:
     return [({"image": np.zeros((size, size, 3), dtype=np.uint8)}, {})]
+
+
+def _engine(
+    config: list[Params], seed: int | None = None
+) -> AlbumentationsEngine:
+    return AlbumentationsEngine(64, 64, {}, {}, ["image"], config, seed=seed)
 
 
 @contextmanager
@@ -171,14 +174,7 @@ def test_skipped_batch_transform_still_passes_through_first_input():
 
 def test_tracks_applied_batch_transform_without_runtime_parameters():
     with _registered(PickSecond):
-        engine = AlbumentationsEngine(
-            64,
-            64,
-            {},
-            {},
-            ["image"],
-            [{"name": "PickSecond", "params": {"p": 1.0}}],
-        )
+        engine = _engine([{"name": "PickSecond", "params": {"p": 1.0}}])
 
         engine.apply(_make_sample() * 2)
 
@@ -186,10 +182,12 @@ def test_tracks_applied_batch_transform_without_runtime_parameters():
 
 
 def test_inspect_reads_augmentation_metadata():
-    assert get_applied_augmentations(
-        {"augmentations": TrackedAugmentations({"HorizontalFlip": {}})}
-    ) == ["HorizontalFlip"]
-    assert get_applied_augmentations({"augmentations": ["invalid"]}) == []
+    tracked: Params = {
+        "augmentations": TrackedAugmentations({"HorizontalFlip": {}})
+    }
+
+    assert get_tracked_augmentations(tracked) == {"HorizontalFlip": {}}
+    assert get_tracked_augmentations({"augmentations": ["invalid"]}) is None
 
 
 def test_inspect_does_not_read_stored_metadata_as_augmentations():
@@ -201,9 +199,6 @@ def test_inspect_does_not_read_stored_metadata_as_augmentations():
     stored: Params = {"augmentations": {"user_pipeline": {"run_id": 42}}}
 
     assert get_tracked_augmentations(stored) is None
-    assert get_applied_augmentations(stored) == []
-    tracked = {"augmentations": TrackedAugmentations({"Blur": {}})}
-    assert get_tracked_augmentations(tracked) == {"Blur": {}}
 
 
 def test_tracks_only_configured_augmentations_that_are_applied():
@@ -224,7 +219,7 @@ def test_tracks_only_configured_augmentations_that_are_applied():
             },
         },
     ]
-    engine = AlbumentationsEngine(64, 64, {}, {}, ["image"], config, seed=2)
+    engine = _engine(config, seed=2)
 
     engine.apply(_make_sample())
 
@@ -248,14 +243,7 @@ def test_clears_applied_augmentations_between_calls():
     The mapping is handed to the loader alongside the sample it describes,
     so the next call has to start from a fresh one rather than reuse it.
     """
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
-        [{"name": "HorizontalFlip", "params": {"p": 1.0}}],
-    )
+    engine = _engine([{"name": "HorizontalFlip", "params": {"p": 1.0}}])
 
     engine.apply(_make_sample())
     flipped = engine.applied_augmentations
@@ -269,14 +257,8 @@ def test_clears_applied_augmentations_between_calls():
 
 
 def test_omits_array_and_known_non_random_parameters():
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
-        [{"name": "Rotate", "params": {"limit": 15, "p": 1.0}}],
-        seed=42,
+    engine = _engine(
+        [{"name": "Rotate", "params": {"limit": 15, "p": 1.0}}], seed=42
     )
 
     engine.apply(_make_sample())
@@ -294,12 +276,7 @@ def test_reports_a_parameter_sampled_under_a_static_name():
     suppressing the name outright hid the padding colour the sample was
     actually given.
     """
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
+    engine = _engine(
         [
             {
                 "name": "CropAndPad",
@@ -323,12 +300,7 @@ def test_reports_randomly_derived_crop_bounds():
     They used to be suppressed as non-random parameters, which left the
     transformation reporting an empty parameter dictionary.
     """
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
+    engine = _engine(
         [
             {
                 "name": "Rotate",
@@ -372,12 +344,7 @@ def test_pixel_transforms_follow_the_engine_seed():
     """
 
     def sample_parameters() -> list[Params]:
-        engine = AlbumentationsEngine(
-            64,
-            64,
-            {},
-            {},
-            ["image"],
+        engine = _engine(
             [{"name": "RandomBrightnessContrast", "params": {"p": 1.0}}],
             seed=42,
         )
@@ -402,15 +369,7 @@ def test_omits_sequences_of_arrays_instead_of_emptying_them():
     Filtering the arrays out of the list used to leave an empty list,
     which reads as "applied, but drew no shadows".
     """
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
-        [{"name": "RandomShadow", "params": {"p": 1.0}}],
-        seed=3,
-    )
+    engine = _engine([{"name": "RandomShadow", "params": {"p": 1.0}}], seed=3)
 
     engine.apply(_make_sample())
 
@@ -419,13 +378,8 @@ def test_omits_sequences_of_arrays_instead_of_emptying_them():
 
 
 def test_tracks_applied_batch_augmentations():
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
-        [{"name": "MixUp", "params": {"p": 1.0, "alpha": [0.3, 0.7]}}],
+    engine = _engine(
+        [{"name": "MixUp", "params": {"p": 1.0, "alpha": [0.3, 0.7]}}]
     )
 
     engine.apply(_make_sample() * 2)
@@ -436,12 +390,7 @@ def test_tracks_applied_batch_augmentations():
 
 
 def test_tracks_mosaic_runtime_parameters():
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
+    engine = _engine(
         [
             {
                 "name": "Mosaic4",
@@ -461,12 +410,7 @@ def test_tracks_mosaic_runtime_parameters():
 
 
 def test_tracks_every_selected_someof_transform():
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
+    engine = _engine(
         [
             {
                 "name": "SomeOf",
@@ -496,12 +440,7 @@ def test_tracks_every_selected_someof_transform():
 
 
 def test_tracks_nested_oneof_selection_without_the_parent_paths():
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
+    engine = _engine(
         [
             {
                 "name": "OneOf",
@@ -534,12 +473,7 @@ def test_tracks_nested_oneof_selection_without_the_parent_paths():
 
 
 def test_disambiguates_repeated_configured_paths():
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
+    engine = _engine(
         [
             {"name": "HorizontalFlip", "params": {"p": 1.0}},
             {"name": "HorizontalFlip", "params": {"p": 1.0}},
@@ -560,12 +494,7 @@ def test_keeps_parameters_of_every_repeated_configured_path():
     Collapsing them into a single entry reported the first one's runtime
     parameters for both, which falsifies the provenance of the second.
     """
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
+    engine = _engine(
         [
             {"name": "Blur", "params": {"blur_limit": (3, 3), "p": 1.0}},
             {"name": "Blur", "params": {"blur_limit": (21, 21), "p": 1.0}},
@@ -582,12 +511,7 @@ def test_keeps_parameters_of_every_repeated_configured_path():
 
 
 def test_tracks_probabilistic_resize_under_its_oneof_path():
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
+    engine = _engine(
         [
             {
                 "name": "Resize",
@@ -613,12 +537,7 @@ def test_tracks_the_injected_fallback_of_a_probabilistic_resize():
     When that branch is picked the sample really was resized, so reporting
     nothing would be indistinguishable from an un-augmented sample.
     """
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
+    engine = _engine(
         [
             {
                 "name": "Resize",
@@ -642,12 +561,7 @@ def test_tracks_nested_transforms_carrying_unknown_keys():
     Re-validating them against the strict configuration model rejected
     configurations that the engine is otherwise happy to build.
     """
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
+    engine = _engine(
         [
             {
                 "name": "OneOf",
@@ -683,15 +597,7 @@ def test_tracks_leaf_transforms_exposing_a_transforms_attribute():
     assert not isinstance(A.ColorJitter(), A.BaseCompose)
     assert hasattr(A.ColorJitter(), "transforms")
 
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
-        [{"name": "ColorJitter", "params": {"p": 1.0}}],
-        seed=1,
-    )
+    engine = _engine([{"name": "ColorJitter", "params": {"p": 1.0}}], seed=1)
 
     engine.apply(_make_sample())
 
@@ -704,15 +610,7 @@ def test_tracks_a_configured_lambda_transform():
     Skipping every transformation whose class is named ``Lambda`` also
     hid the ones the user configured.
     """
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
-        [{"name": "Lambda", "params": {"p": 1.0}}],
-        seed=1,
-    )
+    engine = _engine([{"name": "Lambda", "params": {"p": 1.0}}], seed=1)
 
     engine.apply(_make_sample())
 
@@ -734,14 +632,8 @@ def test_tracks_transforms_registered_under_an_alias():
             return {"strength": 7}
 
     with _registered(AliasedBlur, "AliasedName"):
-        engine = AlbumentationsEngine(
-            64,
-            64,
-            {},
-            {},
-            ["image"],
-            [{"name": "AliasedName", "params": {"p": 1.0}}],
-            seed=1,
+        engine = _engine(
+            [{"name": "AliasedName", "params": {"p": 1.0}}], seed=1
         )
 
         engine.apply(_make_sample())
@@ -755,12 +647,7 @@ def test_tracks_batch_transforms_applied_in_any_sub_batch():
     Reading ``params`` once after the composition ran only described the
     last invocation, so an applied augmentation could go unreported.
     """
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
+    engine = _engine(
         [
             {
                 "name": "Mosaic4",
@@ -786,14 +673,8 @@ def test_tracks_cutmix_runtime_parameters():
     shape, so they are runtime values rather than configuration echoed
     back, and describe what the augmentation did to the sample.
     """
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
-        [{"name": "CutMix", "params": {"p": 1.0, "alpha": 1.0}}],
-        seed=42,
+    engine = _engine(
+        [{"name": "CutMix", "params": {"p": 1.0, "alpha": 1.0}}], seed=42
     )
 
     engine.apply(_make_sample() * 2)
@@ -809,15 +690,7 @@ def test_tracks_cutmix_runtime_parameters():
 
 
 def test_cutmix_reports_both_merged_inputs():
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
-        [{"name": "CutMix", "params": {"p": 1.0}}],
-        seed=42,
-    )
+    engine = _engine([{"name": "CutMix", "params": {"p": 1.0}}], seed=42)
 
     engine.apply(_make_sample() * 2)
 
@@ -825,15 +698,7 @@ def test_cutmix_reports_both_merged_inputs():
 
 
 def test_omits_cutmix_that_did_not_apply():
-    engine = AlbumentationsEngine(
-        64,
-        64,
-        {},
-        {},
-        ["image"],
-        [{"name": "CutMix", "params": {"p": 0.0}}],
-        seed=42,
-    )
+    engine = _engine([{"name": "CutMix", "params": {"p": 0.0}}], seed=42)
 
     engine.apply(_make_sample() * 2)
 

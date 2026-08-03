@@ -20,11 +20,9 @@ class BatchCompose(A.Compose):
             :math:`\prod_i b_i`.
         applied_params: Runtime parameters of the transformations that
             shaped the sample returned by the latest call, keyed by
-            transformation identity. A transformation is invoked once per
-            sub-batch, and only the sub-batches whose lineage survives into
-            the returned sample are reported; for a transformation that
-            contributed more than once, the parameters are those of its
-            last surviving invocation.
+            transformation identity. Invocations on sub-batches that did
+            not survive into that sample are not reported; of those that
+            did, the last one wins.
 
     """
 
@@ -103,8 +101,7 @@ class BatchCompose(A.Compose):
         input_indices = [[i] for i in range(len(data_batch))]
         self.applied_params = {}
         # Every invocation that applied, with the inputs it merged. Which of
-        # them shaped the returned sample is only known once the surviving
-        # lineage has been followed to the end of the composition.
+        # them shaped the returned sample is only known at the very end.
         invocations: list[tuple[int, list[int], dict[str, Any]]] = []
         if not self.transforms:
             return data_batch[0]
@@ -130,10 +127,9 @@ class BatchCompose(A.Compose):
                 ]
 
                 # A transform that applied collapsed the batched lists
-                # `yield_batches` produced into single values; one that did
-                # not returns them untouched. Empty ``params`` does not tell
-                # the two apart, as a transform can apply while sampling no
-                # parameters at all.
+                # `yield_batches` produced into single values. Empty
+                # ``params`` does not tell the two apart, as a transform can
+                # apply while sampling no parameters at all.
                 if isinstance(next(iter(data.values())), list):
                     data = first_sample
                     new_indices.append(batch_indices[0])
@@ -161,10 +157,8 @@ class BatchCompose(A.Compose):
         assert len(data_batch) == 1
         self.batch_augmentation_indices = input_indices[0]
 
-        # A sub-batch a transformation applied to can still be dropped later,
-        # by a transformation that did not apply and passed its first input
-        # through instead. Reporting such an invocation would claim an
-        # augmentation that never touched the returned sample.
+        # A sub-batch a transform applied to can still be dropped by a later
+        # one that did not apply and passed its first input through instead.
         surviving = set(self.batch_augmentation_indices)
         self.applied_params = {
             key: params

@@ -94,13 +94,12 @@ class AugmentationEngine(
 
     @property
     def applied_augmentations(self) -> dict[str, Params]:
-        """Configured augmentations applied by the latest `apply` call.
+        """Runtime parameters keyed by configured augmentation path.
 
-        The mapping keys are configured augmentation paths and values are the
-        runtime parameters selected by the engine. Engines that do not support
-        provenance tracking return an empty dictionary. Implementations must
-        not reuse the mapping across calls, as callers keep it alongside the
-        sample it describes.
+        Describes the latest `apply` call; engines without provenance
+        tracking return an empty dictionary. Callers keep the mapping
+        alongside the sample it describes, so it must not be reused
+        across calls.
         """
         return {}
 

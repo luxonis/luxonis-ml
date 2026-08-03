@@ -164,9 +164,8 @@ Pass ``autopopulate_metadata=False`` to return only stored metadata:
 
 Augmented outputs additionally carry an ``"augmentations"`` mapping from
 configured augmentation paths to the runtime parameters the engine selected.
-A parameter value is a primitive, or a list or mapping of them. Unlike
-``"filenames"``, it is added regardless of ``autopopulate_metadata``
-because it describes the returned arrays rather than the dataset record:
+Unlike ``"filenames"``, it is added regardless of ``autopopulate_metadata``,
+as it describes the returned arrays rather than the dataset record:
 
 .. python::
 
@@ -178,9 +177,8 @@ because it describes the returned arrays rather than the dataset record:
         },
     }
 
-Both ``"filenames"`` and ``"augmentations"`` are reserved keys. Metadata
-stored on the record always wins: if a record already defines one of them,
-the loader keeps the stored value and warns instead of overwriting it.
+Both keys are reserved. A record defining one of them keeps its own value,
+and the loader warns rather than overwriting it.
 
 When a batch augmentation combines several samples, metadata from the input
 samples is preserved in ``"batch_augmentation_metadata"``:

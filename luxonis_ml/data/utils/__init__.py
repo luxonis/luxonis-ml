@@ -114,16 +114,3 @@ __all__ = [
     "visualize",
     "warn_on_duplicates",
 ]
-
-
-def __getattr__(name: str) -> object:
-    if name == "AugmentationsCollector":
-        from .augmentations_collector import _REMOVED_MESSAGE
-
-        # The same hint an import by module path gets. `ImportError` rather
-        # than `AttributeError`, because
-        # `from luxonis_ml.data.utils import AugmentationsCollector`
-        # replaces an `AttributeError` with its own message and the hint
-        # would be lost.
-        raise ImportError(_REMOVED_MESSAGE)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

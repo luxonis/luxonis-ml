@@ -38,9 +38,9 @@ LabelSpec: TypeAlias = tuple[tuple[int, ...], np.dtype]
 _OMIT: Final = object()
 
 # Parameters `Albumentations` can report back unchanged from how the
-# transformation was configured. Such a value says nothing about what
-# happened to a particular sample, but the same key carries a sampled value
-# for other transformations, so the two are told apart per transformation.
+# transformation was configured, saying nothing about what happened to a
+# particular sample. Other transformations do sample them, so the two cases
+# are told apart per transformation.
 _STATIC_PARAMS: Final[frozenset[str]] = frozenset(
     {
         "fill",
@@ -78,9 +78,9 @@ def _normalize_params(
 
     Args:
         params: Parameters `Albumentations` reported back.
-        transform: Transformation the parameters belong to, needed to tell
-            a configured value from a sampled one. Parameters nested inside
-            another parameter have no transformation of their own.
+        transform: Transformation they belong to, needed to tell a
+            configured value from a sampled one. Nested parameters have no
+            transformation of their own.
 
     """
     normalized: Params = {}
@@ -96,11 +96,10 @@ def _normalize_params(
 def _is_configured(transform: Any, key: str, value: Any) -> bool:
     """Whether a reported parameter only echoes back the configuration.
 
-    A transformation that samples one of these parameters reports a value
-    that differs from the one it was configured with - `A.CropAndPad` draws
-    its ``fill`` from the range it was given - and that value is part of
-    what happened to the sample. Keys the transformation knows nothing
-    about, such as the input ``shape``, are never sampled.
+    Some transformations do sample these: `A.CropAndPad` draws its ``fill``
+    from the range it was given, and the drawn value belongs in the report.
+    Keys the transformation knows nothing about, such as the input
+    ``shape``, are never sampled.
     """
     if key not in _STATIC_PARAMS:
         return False
@@ -119,8 +118,8 @@ def _normalize_value(value: Any) -> Any:
         normalized = []
         for item in value:
             item = _normalize_value(item)
-            # Reporting the remaining items would silently reindex the
-            # sequence and misrepresent its length.
+            # Dropping a single item would reindex the sequence and
+            # misrepresent its length.
             if item is _OMIT:
                 return _OMIT
             normalized.append(item)
@@ -141,9 +140,8 @@ def _reset_params(transform: Any) -> None:
 def _disambiguate_paths(paths: dict[int, str]) -> dict[int, str]:
     """Suffix repeated configured paths with ``"#<n>"``.
 
-    The same transformation can be configured more than once, possibly with
-    different parameters. Without the suffix all occurrences would collapse
-    into a single entry reporting only the last one's runtime parameters.
+    The same transformation can be configured more than once, and without
+    the suffix all occurrences would collapse into a single entry.
     """
     duplicated = {
         path for path, count in Counter(paths.values()).items() if count > 1
@@ -661,9 +659,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                         width=width,
                         p=1 - resize_probability,
                     )
-                    # Either branch of the `OneOf` can be picked, so both
-                    # are tracked. Reporting only the configured one would
-                    # leave a resized sample looking un-augmented.
+                    # Either branch can be picked, so both are tracked;
+                    # otherwise a fallback-resized sample would look
+                    # un-augmented.
                     self._tracked_augmentation_paths[id(transform)] = (
                         f"OneOf/{cfg.name}"
                     )
@@ -781,7 +779,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             )
             # Composed once, and seeded like the rest: `A.ReplayCompose`
             # reseeds the transformations it is given, so building one per
-            # call would throw the seeded random state away every time.
+            # call would throw the seeded random state away.
             self._pixel_compose = A.ReplayCompose(pixel_transforms)
             self._pixel_compose.set_random_seed(seed)
             self._pixel_transform = self._wrap_transform(
@@ -817,7 +815,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
     @override
     def apply(self, input_batch: list[LoaderMultiOutput]) -> LoaderMultiOutput:
-        # Rebound, not cleared: the previous mapping is kept by its caller
+        # Rebound rather than cleared: the caller keeps the previous mapping
         # alongside the sample it describes.
         self._applied_augmentations = {}
         for compose in self._compositions:
@@ -871,7 +869,12 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         else:
             data = self._pixel_transform(**data)
 
-        self._record_applied_augmentations()
+        # Albumentations leaves the sampled ``params`` on each
+        # transformation, so the pipeline is read once at the end, in a
+        # group order that the resize and pixel swap above cannot shift.
+        self._record_batch_augmentations()
+        for compose in self._compositions:
+            self._record_augmentations(compose)
 
         return self._postprocess(data, n_keypoints, emptied_targets)
 
@@ -885,34 +888,18 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             self._resize_compose,
         )
 
-    def _record_applied_augmentations(self) -> None:
-        """Record what applied, once every composition has run.
-
-        Albumentations leaves the sampled ``params`` on each transformation
-        after the call, so the whole pipeline can be read at the end rather
-        than after every stage. The report is then keyed in pipeline-group
-        order, which does not shift with the resize and pixel stages
-        swapping places for an oversized sample.
-        """
-        self._record_applied_batch_augmentations()
-        for compose in self._compositions:
-            self._record_composed_augmentations(compose)
-
-    def _record_composed_augmentations(self, transform: Any) -> None:
+    def _record_augmentations(self, transform: Any) -> None:
         """Record the tracked transformations of a composition that applied.
 
         Transformations are matched by identity rather than by class name,
-        so registry aliases, repeated entries, and the `A.Lambda` instances
-        the engine injects itself are all handled correctly.
-
-        Only `A.BaseCompose` instances are descended into. A ``transforms``
-        attribute is not enough: leaf transformations such as
-        `A.ColorJitter` expose one for their internal adjustment functions,
-        and treating those as children would drop the transformation.
+        which keeps registry aliases and repeated entries apart. Only
+        `A.BaseCompose` instances are descended into; a ``transforms``
+        attribute is not enough, as leaves such as `A.ColorJitter` expose
+        one for their internal adjustment functions.
         """
         if isinstance(transform, A.BaseCompose):
             for child in transform.transforms:
-                self._record_composed_augmentations(child)
+                self._record_augmentations(child)
             return
 
         # Batch transforms are read from `BatchCompose.applied_params`
@@ -920,25 +907,21 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         if isinstance(transform, BatchTransform):
             return
 
-        # Unlike a batch transform, whose `update_transform_params` may
-        # sample nothing at all, a transformation applied here always
-        # reports at least the input ``shape`` that
-        # `A.BasicTransform.update_transform_params` adds, so empty
-        # parameters mean the transformation did not apply.
+        # A transformation applied here always reports at least the input
+        # ``shape`` that `A.BasicTransform.update_transform_params` adds,
+        # so empty parameters mean it did not apply.
         path = self._tracked_augmentation_paths.get(id(transform))
         if path is not None and getattr(transform, "params", None):
             self._applied_augmentations[path] = _normalize_params(
                 transform.params, transform
             )
 
-    def _record_applied_batch_augmentations(self) -> None:
+    def _record_batch_augmentations(self) -> None:
         """Record batch transforms from the parameters `BatchCompose` kept.
 
-        A batch transform is invoked once per sub-batch, so its ``params``
-        only describe the last invocation, which may well be one whose
-        output was discarded. `BatchCompose` keeps the parameters of the
-        invocations that shaped the returned sample, which is what
-        provenance has to report.
+        A batch transform is invoked once per sub-batch, so its own
+        ``params`` only describe the last invocation, whose output may well
+        have been discarded.
         """
         batch_transforms = {
             id(transform): transform
@@ -1212,15 +1195,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         Args:
             config: Validated configuration item to instantiate.
             tracked_paths: Collects the configured path of every created
-                leaf transformation, keyed by its identity. Provenance is
-                matched by identity so that registry aliases and repeated
-                entries are handled correctly.
+                leaf transformation, keyed by its identity.
             parent_path: Configured names of the enclosing compositions.
-
-        Returns:
-            The instantiated transformation. Configurations naming a
-            composition (``OneOf``, ``SomeOf``, ``Sequential``) yield an
-            `A.BaseCompose`.
 
         Raises:
             ValueError: If a batch transform is nested inside another
@@ -1263,10 +1239,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             params["transforms"] = nested_transforms
 
         if hasattr(A, config.name):
-            transform = getattr(A, config.name)(**params)
+            constructor = getattr(A, config.name)
         else:
             constructor = TRANSFORMATIONS.get(config.name)
-            transform = constructor(**params)  # type: ignore
+
+        transform = constructor(**params)  # type: ignore
 
         if not isinstance(transform, A.BaseCompose):
             tracked_paths[id(transform)] = "/".join(current_path)

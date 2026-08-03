@@ -18,40 +18,14 @@ def get_tracked_augmentations(
 ) -> TrackedAugmentations | None:
     """Read the augmentation provenance the loader added to a sample.
 
-    A dataset is free to store its own ``"augmentations"`` metadata, which
-    the loader keeps in place of tracked provenance. Loader-created mappings
-    carry a marker type, so user metadata is never inferred to be provenance
-    merely because it has a similar nested-dictionary shape.
-
-    Args:
-        metadata: Sample metadata as returned by `LuxonisLoader`.
-
-    Returns:
-        Runtime parameters keyed by configured augmentation path, or
-        ``None`` when the sample carries no tracked provenance.
-
+    A record can store its own ``"augmentations"`` metadata, which the
+    loader keeps instead. The marker type tells the two apart; the shape
+    alone does not.
     """
     augmentations = metadata.get("augmentations")
-    return (
-        augmentations
-        if isinstance(augmentations, TrackedAugmentations)
-        else None
-    )
-
-
-def get_applied_augmentations(metadata: Params) -> list[str]:
-    """Read the augmentations applied to a sample from its metadata.
-
-    Args:
-        metadata: Sample metadata as returned by `LuxonisLoader`.
-
-    Returns:
-        Configured paths of the applied augmentations, or nothing when the
-        dataset stores its own ``"augmentations"`` metadata, which the
-        loader keeps in place of the tracked provenance.
-
-    """
-    return list(get_tracked_augmentations(metadata) or {})
+    if isinstance(augmentations, TrackedAugmentations):
+        return augmentations
+    return None
 
 
 def parse_split_ratio(

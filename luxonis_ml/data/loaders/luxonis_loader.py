@@ -165,10 +165,9 @@ class LuxonisLoader(BaseLoader):
                 such as source filenames. When enabled, returned metadata
                 includes a ``"filenames"`` dictionary keyed by source name.
                 Set to ``False`` to return only metadata stored in
-                `DatasetRecord.sample_metadata`, apart from runtime
-                augmentation provenance on augmented outputs, which is
-                reported regardless because it describes the returned
-                arrays rather than the dataset record.
+                `DatasetRecord.sample_metadata`. Augmentation provenance
+                is reported either way, as it describes the returned
+                arrays rather than the record.
 
         Raises:
             ValueError: If `color_space` is neither a string nor a
@@ -452,22 +451,16 @@ class LuxonisLoader(BaseLoader):
 
         source_to_path = self._idx_to_img_paths[idx]
 
-        if self._autopopulate_metadata:
-            if "filenames" in sample_metadata:
-                warnings.warn(
-                    "Record metadata already defines the reserved "
-                    "'filenames' key. Keeping the stored value; source "
-                    "filenames will not be reported for this dataset.",
-                    stacklevel=2,
-                )
-            else:
-                sample_metadata = {
-                    "filenames": {
-                        source_name: path.name
-                        for source_name, path in source_to_path.items()
-                    },
-                    **sample_metadata,
-                }
+        if self._autopopulate_metadata and self._reserve_key(
+            sample_metadata, "filenames"
+        ):
+            sample_metadata = {
+                "filenames": {
+                    source_name: path.name
+                    for source_name, path in source_to_path.items()
+                },
+                **sample_metadata,
+            }
 
         img_dict: dict[str, np.ndarray] = {}
 
@@ -614,19 +607,23 @@ class LuxonisLoader(BaseLoader):
         else:
             sample_metadata = sample_metadata_list[metadata_indices[0]]
 
-        if "augmentations" in sample_metadata:
-            warnings.warn(
-                "Record metadata already defines the reserved "
-                "'augmentations' key. Keeping the stored value; "
-                "augmentation provenance will not be reported for "
-                "this dataset.",
-                stacklevel=2,
-            )
-        else:
+        if self._reserve_key(sample_metadata, "augmentations"):
             sample_metadata["augmentations"] = TrackedAugmentations(
                 self._augmentations.applied_augmentations
             )
         return img_dict, labels, sample_metadata
+
+    @staticmethod
+    def _reserve_key(metadata: Params, key: str) -> bool:
+        """Whether the loader may fill in one of its reserved keys."""
+        if key not in metadata:
+            return True
+        warnings.warn(
+            f"Record metadata already defines the reserved '{key}' key. "
+            "Keeping the stored value.",
+            stacklevel=3,
+        )
+        return False
 
     @staticmethod
     def _merge_sample_metadata(
