@@ -105,8 +105,8 @@ Warning:
     reliable when every record is emitted consistently.
 
 `Detection.scale_to_boxes` supports box-relative annotations. When enabled,
-keypoints and segmentation values are interpreted relative to the bounding box
-and rescaled to image-normalized coordinates before storage.
+keypoints are interpreted relative to the bounding box and rescaled to
+image-normalized coordinates before storage.
 
 
 Classification
@@ -340,6 +340,7 @@ import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
+from numbers import Real
 from pathlib import Path
 from typing import (
     Annotated,
@@ -435,9 +436,8 @@ class Detection(BaseModelExtraForbid):
     types of annotations and metadata as well as nested sub-detections for
     hierarchical annotations.
 
-    When ``scale_to_boxes`` is enabled, keypoints and segmentation data are
-    interpreted relative to the bounding box and rescaled to image-normalized
-    coordinates.
+    When ``scale_to_boxes`` is enabled, keypoints are interpreted relative to
+    the bounding box and rescaled to image-normalized coordinates.
 
     Example:
         >>> detection = Detection(
@@ -544,7 +544,7 @@ class Detection(BaseModelExtraForbid):
         instance_segmentation: Optional instance segmentation annotation.
         segmentation: Optional semantic segmentation annotation.
         array: Optional array annotation.
-        scale_to_boxes: Whether annotation coordinates should be rescaled from
+        scale_to_boxes: Whether keypoint coordinates should be rescaled from
             bounding-box-relative coordinates.
         sub_detections: Nested detections keyed by sub-detection name.
 
@@ -609,7 +609,7 @@ class Detection(BaseModelExtraForbid):
             return self
         if self.boundingbox is None:
             raise ValueError(
-                "`scaled_to_boxes` is set to True, "
+                "`scale_to_boxes` is set to True, "
                 "but no bounding box is provided."
             )
         x, y, w, h = (
@@ -688,7 +688,7 @@ class ClassificationAnnotation(Annotation):
             n_classes: Total number of known classes.
 
         Returns:
-            Multi-hot class label vector of shape :math:`\left(N\right,)`
+            Multi-hot class label vector of shape :math:`\left(N,\right)`
             where :math:`N` is the total number of classes.
 
         """
@@ -723,7 +723,7 @@ class BBoxAnnotation(Annotation):
             class_id: The numeric class ID of the annotation.
 
         Returns:
-            An array of shape :math:`\left(5\right,)`
+            An array of shape :math:`\left(5,\right)`
             in the format ``[class_id, x, y, w, h]``.
 
         """
@@ -757,6 +757,14 @@ class BBoxAnnotation(Annotation):
     @model_validator(mode="before")
     @classmethod
     def _validate_values(cls, values: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(values, Mapping) or not all(
+            isinstance(values.get(key), Real) for key in ["x", "y", "w", "h"]
+        ):
+            # Let pydantic report the missing or non-numeric fields instead
+            # of raising `KeyError` or `TypeError` from the clipping below.
+            return values
+
+        values = dict(values)
         warn = False
         for key in ["x", "y", "w", "h"]:
             if values[key] < -2 or values[key] > 2:
@@ -813,7 +821,7 @@ class KeypointAnnotation(Annotation):
         r"""Convert the keypoint annotation to flattened row format.
 
         Returns:
-            An array of shape :math:`\left(3K\right,)` where :math:`K`
+            An array of shape :math:`\left(3K,\right)` where :math:`K`
             is the number of keypoints. The format of the array is
             :math:`\left[x_1, y_1, v_1, x_2, y_2, v_2, \ldots \right]`
             where :math:`\left(x_i, y_i, v_i\right)` are the coordinates and visibility
@@ -860,6 +868,7 @@ class KeypointAnnotation(Annotation):
         if "keypoints" not in values:
             return values
 
+        values = {**values, "keypoints": list(values["keypoints"])}
         warn = False
         for i, keypoint in enumerate(values["keypoints"]):
             if (keypoint[0] < -2 or keypoint[0] > 2) or (
@@ -1077,7 +1086,9 @@ class SegmentationAnnotation(Annotation):
         if mask.ndim != 2:
             raise ValueError("Mask must be a 2D binary array")
 
-        return {**cls._numpy_to_rle(mask), **values}
+        # The size derived from the mask wins over any `height` and `width`
+        # the caller supplied alongside it, so `size` matches `counts`.
+        return {**values, **cls._numpy_to_rle(mask)}
 
     @model_validator(mode="before")
     @classmethod
@@ -1234,7 +1245,7 @@ class ArrayAnnotation(Annotation):
                 f"Array annotation file must be a .npy file. Got {path}"
             )
         try:
-            np.load(path)
+            np.load(path, mmap_mode="r")
         except Exception as e:
             raise ValueError(
                 f"Failed to load array annotation from {path}."
@@ -1339,6 +1350,8 @@ class DatasetRecord(BaseModelExtraForbid):
     def validate_files(cls, values: dict[str, Any]) -> dict[str, Any]:
         values = deepcopy(values)
         if "file" in values:
+            if "files" in values:
+                raise ValueError("Provide either 'file' or 'files', not both.")
             values["files"] = {"image": values.pop("file")}
         if "files" in values:
             files_dict = values["files"]
@@ -1360,6 +1373,7 @@ class DatasetRecord(BaseModelExtraForbid):
     def _to_parquet_rows(
         self, annotation: Detection | None, task_name: str
     ) -> Iterable[ParquetRecord]:
+        sample_metadata = json.dumps(self.sample_metadata)
         file_items = sorted(self.files.items(), key=lambda x: str(x[1]))
         for i, (source, file_path) in enumerate(file_items):
             is_main = i == 0
@@ -1373,7 +1387,7 @@ class DatasetRecord(BaseModelExtraForbid):
                     "instance_id": None,
                     "task_type": None,
                     "annotation": None,
-                    "sample_metadata": json.dumps(self.sample_metadata),
+                    "sample_metadata": sample_metadata,
                 }
             else:
                 for task_type in _LABEL_TASK_TYPES:
@@ -1388,9 +1402,7 @@ class DatasetRecord(BaseModelExtraForbid):
                             "instance_id": annotation.instance_id,
                             "task_type": task_type,
                             "annotation": label.model_dump_json(),
-                            "sample_metadata": json.dumps(
-                                self.sample_metadata
-                            ),
+                            "sample_metadata": sample_metadata,
                         }
                 for key, data in annotation.metadata.items():
                     yield {
@@ -1401,7 +1413,7 @@ class DatasetRecord(BaseModelExtraForbid):
                         "instance_id": annotation.instance_id,
                         "task_type": f"metadata/{key}",
                         "annotation": json.dumps(data),
-                        "sample_metadata": json.dumps(self.sample_metadata),
+                        "sample_metadata": sample_metadata,
                     }
                 if annotation.class_name is not None:
                     yield {
@@ -1412,7 +1424,7 @@ class DatasetRecord(BaseModelExtraForbid):
                         "instance_id": annotation.instance_id,
                         "task_type": "classification",
                         "annotation": "{}",
-                        "sample_metadata": json.dumps(self.sample_metadata),
+                        "sample_metadata": sample_metadata,
                     }
                 for name, detection in annotation.sub_detections.items():
                     yield from self._to_parquet_rows(
