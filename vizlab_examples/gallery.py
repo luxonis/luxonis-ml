@@ -1,6 +1,12 @@
 """Documentation-figure generator for ``luxonis-ml`` visualization and augments.
 
-Renders a set of ONGs into ``vizlab_examples/output/`` for the docs. Two groups:
+This is the *figure builder*, not the tour: it renders a set of figures into
+``vizlab_examples/output/`` for the docs to link. To **read** about the features
+instead, open ``vizlab_examples/vizlab.ipynb`` — the notebook walks every
+annotation type, the LDF data that produces it, and the parts that a static
+figure cannot show (hover tooltips, the interactive HTML export, the viewer).
+
+Two groups of figures:
 the ``vizlab`` feature figures (synthetic, no external assets), and the custom
 augmentation figures (real dataset samples run through each transform).
 
@@ -33,12 +39,22 @@ vizlab feature figures — each a self-contained group that drops into the docs:
 - ``confusion_matrix.png`` — a dataset-level confusion matrix accumulated with
   ``ComparisonReport`` (truth by prediction, with a ``∅`` miss/false-alarm row).
 - ``heatmaps.png`` — one field under several gradient themes.
+- ``array_kinds.png`` — every reading of an LDF array label side by side.
+- ``arrays.png`` — a dense scalar field (an LDF ``array`` label, e.g. a
+  disparity map) as its own tile, blended over the image, with its no-data
+  holes dropped out, and why two fields need a pinned range to be comparable.
+- ``color_key.png`` — ``ColorBar``, the continuous counterpart to the class
+  legend: bare ends, a unit with interior ticks, and stacking under a legend.
+- ``motion.webp`` — a sequence of scenes encoded into one animated file with
+  ``save_video`` (the only moving figure; ``.mp4``/``.webm`` work the same way).
 - ``distributions.png`` — one prediction under every distribution mode.
 - ``compose.png`` — blend / stack / grid composition.
 - ``smart_combine.png`` — ``combine``: layout-free composition of a mixed set of
   images and image groups (GT/prediction pair and per-class heatmaps).
 - ``panel.png`` — the metadata side panel.
-- ``typography.png`` — bundled fonts and inline ``<b>/<i>/<code>`` markup.
+- ``typography.png`` — the bundled fonts (Inter + JetBrains Mono) at work.
+- ``markup.png`` — the inline-markup vocabulary, each tag shown beside its own
+  effect, plus the same tags in labels, the panel, and a hover tooltip.
 
 Custom-augmentation figures — one before/after strip per transform in
 ``luxonis_ml.data.augmentations.custom``, drawn with vizlab so boxes, keypoints,
@@ -59,6 +75,10 @@ Run it from a checkout with the ``viz`` (and, for augments, ``data``) extra::
 
     python vizlab_examples/gallery.py
 
+Keep the figure list above in step with ``vizlab.ipynb``: the notebook is what
+readers are pointed at, and these figures are what the API docs embed, so a
+feature that gains a figure here should gain a section there.
+
 All spatial coordinates are image-normalized in ``[0, 1]`` (the Luxonis Data
 Format convention): a box is ``x, y`` (top-left) plus ``w, h``; a keypoint is
 ``(x, y, visibility)`` with COCO visibility ``0``/``1``/``2``.
@@ -77,12 +97,17 @@ if TYPE_CHECKING:
 from luxonis_ml.vizlab import (
     DARK_THEME,
     LIGHT_THEME,
+    ArrayImage,
     BBox,
     Caption,
     ClassDistribution,
     Classification,
+    ColorBar,
+    Color,
     ComparisonReport,
     Corner,
+    FlowField,
+    FlowWheel,
     Gradient,
     Heatmap,
     Image,
@@ -91,16 +116,22 @@ from luxonis_ml.vizlab import (
     LabelPlacement,
     Legend,
     Mask,
+    NormalMap,
     RenderOptions,
+    ScalarField,
+    SegmentationScores,
     SemanticMask,
     Style,
+    Tooltip,
     blend,
     combine,
     compare,
     confusion_matrix_figure,
+    escape,
     grid,
     hstack,
     match_detections,
+    save_video,
     vstack,
     with_panel,
 )
@@ -400,6 +431,22 @@ def _light_theme() -> Image:
     )
 
 
+def _array_field() -> Image:
+    # An LDF ``array`` label -- here a disparity map -- colored through a
+    # gradient and keyed by a ColorBar, so the values can be read back off it.
+    field = _disparity_field(_W, _H)
+    heat = Heatmap(values=field, weight_by_value=False, alpha=0.75)
+    return (
+        Image(gradient(_W, _H, hue=0.55))
+        .add(heat)
+        .add(
+            ColorBar.for_heatmap(
+                heat, title="disparity", unit="px", corner=Corner.TOP_LEFT
+            )
+        )
+    )
+
+
 def render_overview() -> Path:
     """One at-a-glance grid with a single cell per feature.
 
@@ -416,6 +463,7 @@ def render_overview() -> Path:
         "polygon mask": _polygon_mask(),
         "semantic mask": _semantic(),
         "heatmap": _heatmap(),
+        "array field + key": _array_field(),
         "class distribution": _distribution(),
         "nested sub-labels": _nested(),
         "classification": _classification(),
@@ -461,6 +509,7 @@ def render_overlays() -> Path:
         "classification": _classification(),
         "captions + legend": _captions_legend(),
         "heatmap": _heatmap(),
+        "array field + key": _array_field(),
         "class distribution": _distribution(),
     }
     return save(
@@ -962,6 +1011,297 @@ def render_heatmap_themes() -> Path:
     return save(grid(cells, ncols=5, titles=titles), "heatmaps.png")
 
 
+def _disparity_field(width: int, height: int) -> np.ndarray:
+    """Build a disparity-like field: a ground plane plus two nearer objects.
+
+    Values are in pixels, the way a real stereo disparity map stores them —
+    large close to the camera (the bottom of the frame), small far away.
+    """
+    ys = np.linspace(0.0, 1.0, height)[:, None]
+    xs = np.linspace(0.0, 1.0, width)[None, :]
+    field = 6.0 + 250.0 * np.clip(ys - 0.35, 0.0, None) ** 1.6
+    for cx, cy, radius, value in ((0.22, 0.62, 0.17, 190.0), (0.72, 0.5, 0.1, 95.0)):
+        inside = ((xs - cx) ** 2 + ((ys - cy) * 1.3) ** 2) < radius**2
+        field = np.where(inside, value, field)
+    return field
+
+
+def render_array_fields() -> Path:
+    """Show the two ways to look at a dense scalar field, and its no-data holes.
+
+    An LDF ``array`` label — a disparity or depth map, an uncertainty field — is
+    rendered by `Heatmap`, keyed by `ColorBar`, and reached from a loader label
+    by `luxonis_ml.vizlab.adapters.arrays`. ``data inspect --array-viz`` picks
+    between the first two cells with ``--array-mode``.
+    """
+    field = _disparity_field(300, 220)
+    photo = street_scene(300, 220)
+    # The theme background, so a tile with no photo under it reads as "no image"
+    # rather than as a very dark value -- the same choice `data inspect` makes.
+    backdrop = np.full(
+        (220, 300, 3), DARK_THEME.background.rgb, dtype=np.uint8
+    )
+
+    # A sensor gap marked with a sentinel rather than a value: those pixels drop
+    # out of the range *and* are drawn transparent, so a hole reads as "not
+    # measured" instead of as a very small disparity.
+    holed = field.copy()
+    holed[40:105, 165:255] = 0.0
+    # The same scene measured worse. Auto-scaled it looks just like the truth --
+    # every field is stretched to its own extremes -- so only a pinned range
+    # shows that it under-reads.
+    weaker = field * 0.45
+
+    heatmaps = [
+        Heatmap(values=field, weight_by_value=False),
+        Heatmap(values=field, weight_by_value=False, alpha=0.6),
+        Heatmap(
+            values=holed, weight_by_value=False, alpha=0.85, ignore_value=0.0
+        ),
+        Heatmap(values=weaker, weight_by_value=False),
+        Heatmap(
+            values=weaker,
+            weight_by_value=False,
+            vmin=float(field.min()),
+            vmax=float(field.max()),
+        ),
+    ]
+    bases = [backdrop, photo, photo, backdrop, backdrop]
+    cells = [
+        Image(base).add(heat).add(
+            # Top-left: the sky, the one part of a driving frame with nothing
+            # in it. The key must not cover what it describes.
+            ColorBar.for_heatmap(
+                heat, title="disparity", unit="px", corner=Corner.TOP_LEFT
+            )
+        )
+        for base, heat in zip(bases, heatmaps, strict=True)
+    ]
+    titles = [
+        "own tile",
+        "over the image",
+        "no-data holes",
+        "a weaker field, auto-scaled",
+        "the same field, pinned",
+    ]
+    return save(grid(cells, ncols=5, titles=titles), "arrays.png")
+
+
+def _flow_field(width: int, height: int) -> np.ndarray:
+    """Build a plausible optical flow field: forward motion down a road.
+
+    Driving straight ahead makes every pixel stream away from a vanishing point,
+    faster the further from it, which is why a real flow field reads as a full
+    sweep of hue rather than one colour.
+    """
+    ys = np.linspace(-1.0, 1.0, height)[None, :, None]
+    xs = np.linspace(-1.0, 1.0, width)[None, None, :]
+    # Radially outward from a vanishing point sitting slightly above centre.
+    dx, dy = xs - 0.0, ys + 0.25
+    speed = 14.0 * np.hypot(dx, dy)
+    return np.concatenate([dx * speed, dy * speed], axis=0).astype(np.float32)
+
+
+def _normal_field(width: int, height: int) -> np.ndarray:
+    """Build unit surface normals over a rounded bump on a flat plane."""
+    ys = np.linspace(-1.0, 1.0, height)[:, None]
+    xs = np.linspace(-1.0, 1.0, width)[None, :]
+    bump = np.exp(-((xs**2 + ys**2) * 3.0))
+    # The surface gradient gives the tilt; normalizing makes them unit vectors.
+    nx, ny = -2.0 * xs * 3.0 * bump, -2.0 * ys * 3.0 * bump
+    vectors = np.stack([nx, ny, np.ones_like(bump)])
+    return (vectors / np.linalg.norm(vectors, axis=0)).astype(np.float32)
+
+
+def _score_stack(width: int, height: int) -> np.ndarray:
+    """Build a segmentation score stack: background, then sky, road, and a car.
+
+    Channel 0 is the background class every segmentation head carries, and it
+    stays `SemanticMask.ignore_index`'s default — so it is scored like any other
+    class here and simply never drawn.
+    """
+    ys = np.linspace(0.0, 1.0, height)[:, None]
+    xs = np.linspace(0.0, 1.0, width)[None, :]
+    spread = np.ones((height, width))
+    background = np.full((height, width), 0.05)
+    sky = np.clip(1.0 - ys * 2.6, 0.0, 1.0) * spread
+    road = np.clip((ys - 0.32) * 2.4, 0.0, 1.0) * spread
+    car = np.exp(-(((xs - 0.3) ** 2 + (ys - 0.62) ** 2) * 40.0)) * spread
+    # Scaled into logit territory: a trained head is decisive in the interior
+    # of a region and only hesitates at the boundaries, which is exactly the
+    # structure a confidence view is meant to expose. Values this close
+    # together would soft-max to near-uniform and show nothing.
+    stack = np.stack([background, sky, road, car]) * 9.0
+    return stack.astype(np.float32)
+
+
+def render_array_kinds() -> Path:
+    """Show every reading of an LDF ``array`` label side by side.
+
+    The same escape-hatch label type, six ways. Which one a given label gets is
+    `luxonis_ml.vizlab.adapters.arrays.resolve_array_kind`'s decision — an
+    explicit ``--array-kind``, then a reserved task name, then the shape. There
+    is no single right picture for an array, which is the whole reason these are
+    separate annotations rather than one with a mode.
+    """
+    width, height = 320, 220
+    photo = street_scene(width, height)
+    backdrop = np.full(
+        (height, width, 3), DARK_THEME.background.rgb, dtype=np.uint8
+    )
+    disparity = _disparity_field(width, height)
+    # An error map is what you get subtracting a prediction from the truth, so
+    # it straddles zero -- the one case a sequential gradient cannot show.
+    error = disparity - _disparity_field(width, height) * 0.72 - 12.0
+    flow = _flow_field(width, height)
+    scores = _score_stack(width, height)
+
+    scalar = ScalarField(values=disparity)
+    signed = ScalarField(values=error, center=0.0)
+    motion = FlowField(values=flow)
+    normals = NormalMap(values=_normal_field(width, height))
+    picture = ArrayImage(values=photo.astype(np.float32) / 255.0)
+    classes = SegmentationScores(
+        values=scores, names=["background", "sky", "road", "car"]
+    )
+    # The same stack read the other way: not which class won, but by how
+    # much. The boundaries are where the model was actually deciding.
+    certainty = classes.confidence()
+    # Both halves of the stack in one picture: hue for the winning class,
+    # solidity for how much it won by.
+    weighted = SegmentationScores(
+        values=scores,
+        names=["background", "sky", "road", "car"],
+        weight_by_confidence=True,
+        # A crisp outline would contradict the fill, which fades precisely
+        # because the boundary is where the model was least sure of it.
+        contour=False,
+    )
+
+    cells = [
+        Image(backdrop)
+        .add(scalar)
+        .add(
+            ColorBar.for_heatmap(
+                scalar, title="disparity", unit="px", corner=Corner.TOP_LEFT
+            )
+        ),
+        Image(backdrop)
+        .add(signed)
+        .add(
+            ColorBar.for_heatmap(
+                signed, title="error", unit="px", corner=Corner.TOP_LEFT
+            )
+        ),
+        Image(backdrop)
+        .add(motion)
+        .add(FlowWheel.for_field(motion, corner=Corner.TOP_LEFT)),
+        Image(backdrop).add(normals),
+        Image(backdrop).add(picture),
+        Image(backdrop)
+        .add(classes)
+        .add(
+            Legend(
+                entries=["sky", "road", "car"],
+                title="classes",
+                corner=Corner.TOP_RIGHT,
+            )
+        ),
+        Image(backdrop)
+        .add(certainty)
+        .add(
+            ColorBar.for_heatmap(
+                certainty, title="certainty", corner=Corner.TOP_LEFT
+            )
+        ),
+        Image(backdrop)
+        .add(weighted)
+        .add(
+            Legend(
+                entries=["sky", "road", "car"],
+                title="classes",
+                corner=Corner.TOP_RIGHT,
+            )
+        ),
+    ]
+    titles = [
+        "scalar — depth or disparity",
+        "signed — zero at the neutral colour",
+        "flow — hue is heading",
+        "normals — xyz as RGB",
+        "image — already a picture",
+        "scores — argmax to a mask",
+        "confidence — how sure",
+        "class confidence — both at once",
+    ]
+    return save(grid(cells, ncols=4, titles=titles), "array_kinds.png")
+
+
+def render_color_key() -> Path:
+    """Show `ColorBar`, the continuous counterpart to `Legend`.
+
+    A `Heatmap` says which pixel is hotter; only a key says what "hot" *is*.
+    Build one with `ColorBar.for_heatmap` and it copies the field's gradient and
+    resolved range, so the two can never drift apart.
+    """
+    field = _blob_field(300, 220, [(0.4, 0.45, 0.16), (0.72, 0.65, 0.1)])
+    cells = [
+        # Bare ends, the default: just the two values the strip spans.
+        Image(gradient(300, 220, hue=0.55))
+        .add(Heatmap(values=field, gradient="viridis"))
+        .add(ColorBar(gradient="viridis", vmax=1.0, title="score")),
+        # A unit and an interior tick, for reading values off the middle.
+        Image(gradient(300, 220, hue=0.6))
+        .add(Heatmap(values=field * 40.0, gradient="magma"))
+        .add(
+            ColorBar(
+                gradient="magma",
+                vmax=40.0,
+                title="depth",
+                unit="m",
+                ticks=3,
+            )
+        ),
+        # Keys stack with a Legend rather than covering it, so a scene can carry
+        # a class palette and a continuous scale in the same corner.
+        Image(gradient(300, 220, hue=0.5))
+        .add(Heatmap(values=field, gradient="turbo"))
+        .add(Legend(entries=["car", "person"], corner=Corner.BOTTOM_RIGHT))
+        .add(ColorBar(vmax=1.0, title="heat", corner=Corner.BOTTOM_RIGHT)),
+    ]
+    titles = ["ends only", "unit and interior ticks", "stacked with a legend"]
+    return save(grid(cells, ncols=3, titles=titles), "color_key.png")
+
+
+def render_motion() -> Path:
+    """Write a sequence of scenes to one animated file.
+
+    `save_video` (and `VideoWriter`, its incremental form) take the same scenes
+    `Image.save` takes and encode them into one clip. The extension picks the
+    format: ``.mp4``/``.webm``/``.avi``/``.mkv`` for video, ``.gif``/``.webp``/
+    ``.apng``/``.avif`` for an animated image that embeds anywhere a picture
+    does. Frames that disagree on size are fitted rather than stretched.
+    """
+    frames = []
+    for step in range(12):
+        t = step / 11.0
+        scene = Image(street_scene(340, 220))
+        scene.add(
+            BBox(
+                x=0.06 + 0.55 * t,
+                y=0.46 - 0.06 * t,
+                w=0.26 - 0.08 * t,
+                h=0.3 - 0.09 * t,
+                label="car",
+                score=0.72 + 0.2 * t,
+            )
+        )
+        scene.add(Caption(text=f"frame <b>{step + 1}</b> of 12"))
+        frames.append(scene)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    return save_video(frames, OUTPUT_DIR / "motion.webp", fps=6)
+
+
 def render_distribution_modes() -> Path:
     """Show one prediction under every `ClassDistribution` render mode.
 
@@ -1196,9 +1536,13 @@ def render_from_record() -> Path:
     `DatasetRecord.model_validate` +
     `visualize_record` call turns it into the
     finished frame: boxes, an instance-segmented truck, per-object semantic
-    masks, a nested license plate with its OCR text, keypoints, image-level
-    classification tags, and a metadata side panel — all inferred from the data,
-    with no vizlab annotation objects built by hand.
+    masks, a nested license plate carrying its transcription, keypoints,
+    image-level classification tags, and a metadata side panel — all inferred
+    from the data, with no vizlab annotation objects built by hand.
+
+    Detection metadata (the plate's text, the track ids) is surfaced on hover
+    rather than drawn into the frame, so it does not show in this static figure;
+    the box-less truck's metadata has nothing to hover and becomes a corner card.
     """
     from luxonis_ml.ldf import DatasetRecord
     from luxonis_ml.vizlab import RenderOptions, visualize_record
@@ -1261,7 +1605,8 @@ def render_from_record() -> Path:
                 },
                 "metadata": {"track_id": 11},
             },
-            # A car with a nested license plate (its text) and driver.
+            # A car with a nested license plate (its transcription in metadata,
+            # shown on hover) and driver.
             {
                 "class_name": "car",
                 "instance_id": 1,
@@ -1308,7 +1653,9 @@ def render_from_record() -> Path:
                 "boundingbox": {"x": 0.40, "y": 0.355, "w": 0.09, "h": 0.43},
                 "keypoints": {"keypoints": _RECORD_POSE},
             },
-            # A traffic sign whose recognized text rides on the label chip.
+            # A traffic sign whose recognized text is carried as metadata. The
+            # LDF adapter surfaces metadata on hover rather than on the chip
+            # (see `BBox.payload` for text that is drawn on the chip itself).
             {
                 "class_name": "sign",
                 "instance_id": 4,
@@ -1332,7 +1679,10 @@ def render_from_record() -> Path:
 
 
 def render_typography() -> Path:
-    """Bundled fonts (Inter + JetBrains Mono) and inline ``<b>/<i>/<code>`` tags."""
+    """The bundled fonts (Inter + JetBrains Mono) across cards, charts, panels.
+
+    See `render_markup` for the inline-markup vocabulary itself.
+    """
     markup = Image(gradient(_W, _H, hue=0.62)).add(
         InfoCard(
             rows=[
@@ -1372,6 +1722,171 @@ def render_typography() -> Path:
         titles=["markup: bold / italic / mono", "mono numbers", "mono values"],
     )
     return save(grid_img, "typography.png")
+
+
+#: Reference cells are wider than the standard gallery cell so a tag's source
+#: and its rendered result fit on one line side by side.
+_MW, _MH = 500, 270
+def _markup_row(source: str) -> str:
+    """Build a reference row showing a markup snippet beside its own effect.
+
+    The left half is the snippet itself, escaped so it renders as the characters
+    you would type; the right half is that very same string left unescaped, so
+    every row demonstrates exactly what it documents.
+
+    Args:
+        source: The markup snippet to show and to apply.
+
+    Returns:
+        A row for `InfoCard`.
+
+    """
+    # Rows are ragged rather than padded into columns on purpose: wrapping
+    # collapses runs of whitespace (as word-wrapping should), so padding with
+    # spaces would not survive `Canvas.wrap_spans` anyway.
+    return f"<code>{escape(source)}</code>  →  {source}"
+
+
+def _markup_reference(title: str, sources: list[str], hue: float) -> Image:
+    """Render one reference card of ``source → result`` rows."""
+    return Image(gradient(_MW, _MH, hue=hue)).add(
+        InfoCard(
+            rows=[_markup_row(source) for source in sources],
+            title=title,
+            corner=Corner.TOP_LEFT,
+        )
+    )
+
+
+def _over(base: np.ndarray, card: np.ndarray, x: int, y: int) -> np.ndarray:
+    """Alpha-composite an RGBA ``card`` onto an RGB ``base`` at ``(x, y)``."""
+    out = base.astype(np.float32).copy()
+    patch = out[y : y + card.shape[0], x : x + card.shape[1]]
+    alpha = card[..., 3:4].astype(np.float32) / 255.0
+    patch[:] = card[..., :3] * alpha + patch * (1.0 - alpha)
+    return out.astype(np.uint8)
+
+
+def render_markup() -> Path:
+    """The inline-markup vocabulary, and the same tags at work in a scene.
+
+    The top row is a self-documenting reference: each row prints a snippet
+    (escaped) next to the result of applying it. The bottom row shows the same
+    vocabulary in the places it actually gets used — annotation labels, the
+    metadata panel, and a hover tooltip.
+
+    Colors are pinned explicitly on the labelled boxes below. An annotation's
+    ``label`` doubles as its palette key and its viewer-visibility key, so
+    ``<b>car</b>`` and ``car`` are two different classes as far as coloring and
+    class-toggling are concerned; markup belongs in a label for emphasis, not
+    for renaming.
+    """
+    styles = _markup_reference(
+        "<b>text styles</b>",
+        [
+            "<b>bold</b>",
+            "<i>italic</i>",
+            "<u>underline</u>",
+            "<s>struck</s>",
+            "<code>mono()</code>",
+            "<b>nested <i>tags</i></b>",
+        ],
+        hue=0.62,
+    )
+    spans = _markup_reference(
+        "<b>&lt;span&gt; attributes</b>",
+        [
+            "<span color='#ff6b6b'>color</span>",
+            "<span weight='300'>light</span>",
+            "<span weight='bold'>bold</span>",
+            "<span size='140%'>bigger</span>",
+        ],
+        hue=0.34,
+    )
+    # Nothing here is a tag, so every row renders as the characters it shows.
+    literals = _markup_reference(
+        "<b>literal text</b>",
+        [
+            "3 < 4 is true",
+            "&lt;b&gt; via entities",
+            "<zz>unknown tag</zz>",
+        ],
+        hue=0.08,
+    )
+
+    scene = (
+        Image(street_scene(_MW, _MH))
+        .add(
+            BBox(
+                x=0.06,
+                y=0.46,
+                w=0.42,
+                h=0.34,
+                label="<b>car</b>  <span color='#9be9a8'>0.97</span>",
+                color="#4c8dff",
+            )
+        )
+        .add(
+            BBox(
+                x=0.63,
+                y=0.36,
+                w=0.16,
+                h=0.46,
+                label="<i>person</i>  <s>0.41</s>",
+                color="#e879f9",
+            )
+        )
+        .add(
+            Caption(
+                text="<b>frame 7</b>  ·  <code>seq/img_0007.jpg</code>",
+                corner=Corner.TOP_LEFT,
+            )
+        )
+    )
+
+    panel = Image(street_scene(300, _MH)).with_panel(
+        {
+            "<b>source</b>": "<code>img_0007.jpg</code>",
+            "<b>speed</b>": "<span color='#9be9a8'>12.4</span> m/s",
+            "<b>review</b>": "<s>pending</s>  <b>done</b>",
+        },
+        title="<b>sample</b>",
+    )
+
+    # Hover cards take markup too; the LDF adapter escapes dataset metadata on
+    # the way in, so an arbitrary value still reads as itself (last row).
+    from luxonis_ml.vizlab.viewer.tooltip_render import render_tooltip_card
+
+    card = render_tooltip_card(
+        Tooltip(
+            title="<b>car</b>  <span size='85%'>#7</span>",
+            rows=(
+                ("plate", "<code>LJ 82-A31</code>"),
+                ("state", "<i>occluded</i>"),
+                ("raw", escape("<unverified>")),
+            ),
+            tint=Color.parse("#4c8dff"),
+        ),
+        15,
+    )
+    backdrop = street_scene(_MW, _MH)
+    hover = Image(_over(backdrop, card, 26, 42))
+
+    return save(
+        grid(
+            [styles, spans, literals, scene, panel, hover],
+            ncols=3,
+            titles=[
+                "weight · slant · decoration · family",
+                "<code>&lt;span&gt;</code> color, weight, size",
+                "anything that is not a tag",
+                "labels and captions",
+                "metadata panel",
+                "hover tooltip",
+            ],
+        ),
+        "markup.png",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1836,11 +2351,16 @@ def main() -> None:
         render_compare_keypoints(),
         render_confusion_matrix(),
         render_heatmap_themes(),
+        render_array_fields(),
+        render_array_kinds(),
+        render_color_key(),
+        render_motion(),
         render_distribution_modes(),
         render_compose(),
         render_smart_combine(),
         render_panel(),
         render_typography(),
+        render_markup(),
     ):
         print(f"wrote {path}")
 
