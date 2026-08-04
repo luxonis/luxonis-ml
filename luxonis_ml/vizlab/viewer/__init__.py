@@ -6,6 +6,7 @@ core rendering package stays free of any windowing/OpenCV import until a viewer 
 actually used.
 """
 
+from . import clipboard
 from .backend import WindowBackend
 from .cv2_backend import Cv2Backend
 from .layers import LayerState
@@ -17,7 +18,7 @@ from .tooltip_render import (
     prepare_tooltip,
     render_tooltip_card,
 )
-from .viewer import PreparedFrame, Viewer
+from .viewer import PreparedFrame, Viewer, report_pick
 
 __all__ = [
     "Cv2Backend",
@@ -28,7 +29,9 @@ __all__ = [
     "TooltipCard",
     "Viewer",
     "WindowBackend",
+    "clipboard",
     "draw_tooltip",
     "prepare_tooltip",
     "render_tooltip_card",
+    "report_pick",
 ]

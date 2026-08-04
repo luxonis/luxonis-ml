@@ -204,9 +204,12 @@ Notes:
     subpackage (import it explicitly: ``from luxonis_ml.vizlab.viewer import
     Viewer``). It is deliberately *not* re-exported here so the core rendering
     package never imports a windowing/OpenCV backend until a viewer is used. Pair
-    it with `Frame` (a renderable scene plus the hover/click regions captured by
-    `Renderable.frame`). Composition preserves those regions automatically, so
-    ``Frame.capture(grid(...))`` is as viewer-ready as ``Frame.capture(image)``.
+    it with `Frame` (a renderable scene plus the hover/click/pick regions
+    captured by `Renderable.frame`). Composition preserves those regions
+    automatically, so ``Frame.capture(grid(...))`` is as viewer-ready as
+    ``Frame.capture(image)``. Clicking an annotation there prints and copies the
+    data it was drawn from, which the LDF adapter fills in for you (see
+    `Annotation.source` and `PickMap`).
 
     See ``vizlab_examples/vizlab.ipynb`` for a runnable feature overview, and
     ``vizlab_examples/README.md`` for what else lives there.
@@ -283,7 +286,7 @@ with guard_missing_extra("viz"):
         set_default_options,
     )
     from .presets import COCO_CLASSES
-    from .render import HitMap
+    from .render import HitMap, PickMap
     from .render.markup import escape
     from .scene import Composite, Image, Renderable
     from .style import (
@@ -354,6 +357,7 @@ __all__ = [
     "Match",
     "NormalMap",
     "Palette",
+    "PickMap",
     "Polyline",
     "Rect",
     "RenderContext",

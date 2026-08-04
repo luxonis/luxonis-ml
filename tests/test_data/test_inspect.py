@@ -514,7 +514,6 @@ def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
             "dataset",
             aug_config=aug_config,
             per_instance=True,
-            list_augmentations=True,
             theme="light",
             legend=True,
             filters=SampleFilterConfig(task_name=["objects"]),
@@ -561,19 +560,21 @@ def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
 
 
 @pytest.mark.parametrize(
-    ("augmentations", "expected"),
+    ("augmentations", "as_hints"),
     [
-        # The loader's own provenance is bulky runtime parameters; without
-        # --list-augmentations it would bury the record metadata.
-        (TrackedAugmentations({"HorizontalFlip": {"p": 1.0}}), False),
-        # A record's own "augmentations" field is ordinary metadata and stays.
-        ({"note": "manual"}, True),
+        # The loader's own provenance is bulky runtime parameters, so it is
+        # lifted out of the metadata into its own row per transformation, each
+        # holding its parameters as hover detail.
+        (TrackedAugmentations({"HorizontalFlip": {"p": 1.0}}), True),
+        # A record's own "augmentations" field is ordinary metadata and stays
+        # written out as-is.
+        ({"note": "manual"}, False),
     ],
 )
-def test_inspect_hides_loader_augmentations_from_the_metadata_panel(
+def test_inspect_lists_loader_augmentations_apart_from_record_metadata(
     monkeypatch: pytest.MonkeyPatch,
     augmentations: Params,
-    expected: bool,
+    as_hints: bool,
 ) -> None:
     image = np.zeros((40, 60, 3), dtype=np.uint8)
     record = DatasetRecord.model_construct(
@@ -627,6 +628,7 @@ def test_inspect_hides_loader_augmentations_from_the_metadata_panel(
     from luxonis_ml.data.loaders import label_converter
     from luxonis_ml.vizlab import (
         Frame,
+        Hints,
         RenderOptions,
         Style,
         set_default_options,
@@ -665,7 +667,7 @@ def test_inspect_hides_loader_augmentations_from_the_metadata_panel(
     monkeypatch.setattr(Frame, "with_panel", capture_panel)
 
     try:
-        data_main.inspect("dataset", list_augmentations=False)
+        data_main.inspect("dataset")
     finally:
         set_default_options(RenderOptions())
 
@@ -674,7 +676,12 @@ def test_inspect_hides_loader_augmentations_from_the_metadata_panel(
     assert isinstance(panel, dict)
     # The rest of the record metadata is unaffected either way.
     assert panel["split"] == "train"
-    assert ("augmentations" in panel) is expected
+    if as_hints:
+        assert panel["augmentations"] == Hints(
+            (("HorizontalFlip", {"p": 1.0}),)
+        )
+    else:
+        assert panel["augmentations"] == {"note": "manual"}
 
 
 def test_inspect_grid_renders_real_frames(
@@ -1087,7 +1094,6 @@ def test_inspect_sample_filters_select_whole_matching_sample(
                 max_instances=2,
                 search="0042",
             ),
-            list_augmentations=False,
             prefetch=1,
         )
     finally:
@@ -1221,7 +1227,6 @@ def test_inspect_prefetch_renders_the_next_frame_while_waiting_for_input(
     try:
         data_main.inspect(
             "dataset",
-            list_augmentations=False,
             plain=True,
             prefetch=1,
         )

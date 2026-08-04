@@ -1,75 +1,86 @@
-"""A `HitMap`: which `Tooltip` sits under a given pixel.
+"""Interaction maps: what sits under a given pixel.
 
-Rendering an image (or a composite of images) can emit a `HitMap` — the list of
-``(rect, tooltip)`` pairs for every annotation that carries hover content, in the
-final pixel coordinates of the rendered frame. An interactive viewer queries it
-with `HitMap.hit` on mouse-move; `HitMap.offset` and `HitMap.scaled` transform a
-map when its frame is placed into a larger composite or resized for display.
+Rendering an image (or a composite of images) can emit three parallel maps, each
+a list of ``(rect, payload)`` pairs in the final pixel coordinates of the
+rendered frame:
+
+- a `HitMap` of hover `Tooltip` content, for the annotations that carry any;
+- a `ClickMap` of viewer *actions* (panel controls, legend swatches);
+- a `PickMap` of the source data an annotation was built from, which an
+  interactive viewer prints or copies when the annotation is clicked.
+
+All three share `RegionMap`: a viewer queries one with `RegionMap.hit` on mouse
+input, and `RegionMap.offset`/`RegionMap.scaled` transform a map when its frame
+is placed into a larger composite or resized for display.
 """
 
 from dataclasses import dataclass, field
+from typing import Generic, TypeVar
 
+from typing_extensions import Self
+
+from luxonis_ml.typing import ParamValue
 from luxonis_ml.vizlab.geometry import Rect
 from luxonis_ml.vizlab.tooltip import Tooltip
 
+#: What a map's regions resolve to — a tooltip, an action, or source data.
+PayloadT = TypeVar("PayloadT")
+
 
 @dataclass
-class HitMap:
-    """Hover hit-test entries in final frame pixels.
+class RegionMap(Generic[PayloadT]):
+    """Hit-test entries in final frame pixels, each carrying a payload.
 
-    Each entry is a ``(rect, tooltip)`` pair; `hit` returns the tooltip of the
-    smallest rectangle containing a point, so a small box nested inside a large
-    one still wins the hover.
+    `hit` returns the payload of the *smallest* rectangle containing a point, so
+    a small box nested inside a large one still wins.
 
     Attributes:
-        items: The ``(rect, tooltip)`` entries, in draw order.
+        items: The ``(rect, payload)`` entries, in draw order.
 
     """
 
-    items: list[tuple[Rect, Tooltip]] = field(default_factory=list)
+    items: list[tuple[Rect, PayloadT]] = field(default_factory=list)
 
     @classmethod
-    def empty(cls) -> "HitMap":
-        """Return a hit map with no entries."""
+    def empty(cls) -> Self:
+        """Return a map with no entries."""
         return cls([])
 
-    def hit(self, x: float, y: float) -> Tooltip | None:
-        """Return the tooltip of the smallest box containing ``(x, y)``.
+    def hit(self, x: float, y: float) -> PayloadT | None:
+        """Return the payload of the smallest box containing ``(x, y)``.
 
         Args:
             x: Point x in frame pixels.
             y: Point y in frame pixels.
 
         Returns:
-            The matching `Tooltip`, or ``None`` when no box contains the point.
+            The matching payload, or ``None`` when no box contains the point.
             On ties the first (earliest-drawn) box wins.
 
         """
-        best: Tooltip | None = None
+        best: PayloadT | None = None
         best_area: float | None = None
-        for rect, tooltip in self.items:
+        for rect, payload in self.items:
             if rect.left <= x <= rect.right and rect.top <= y <= rect.bottom:
                 area = rect.area
                 if best_area is None or area < best_area:
-                    best, best_area = tooltip, area
+                    best, best_area = payload, area
         return best
 
-    def offset(self, dx: float, dy: float) -> "HitMap":
+    def offset(self, dx: float, dy: float) -> Self:
         """Return a copy with every rectangle shifted by ``(dx, dy)`` pixels."""
-        return HitMap(
+        return type(self)(
             [
-                (Rect(r.left + dx, r.top + dy, r.right + dx, r.bottom + dy), t)
-                for r, t in self.items
+                (Rect(r.left + dx, r.top + dy, r.right + dx, r.bottom + dy), p)
+                for r, p in self.items
             ]
         )
 
-    def scaled(
-        self, factor_x: float, factor_y: float | None = None
-    ) -> "HitMap":
+    def scaled(self, factor_x: float, factor_y: float | None = None) -> Self:
         """Return a copy with rectangles scaled about the origin on each axis."""
         if factor_y is None:
             factor_y = factor_x
-        return HitMap(
+        return type(self)(
             [
                 (
                     Rect(
@@ -78,105 +89,49 @@ class HitMap:
                         r.right * factor_x,
                         r.bottom * factor_y,
                     ),
-                    t,
+                    p,
                 )
-                for r, t in self.items
+                for r, p in self.items
             ]
         )
 
-    def merge(self, other: "HitMap") -> "HitMap":
+    def merge(self, other: Self) -> Self:
         """Return a new map with this map's entries followed by ``other``'s."""
-        return HitMap([*self.items, *other.items])
+        return type(self)([*self.items, *other.items])
 
-    def __or__(self, other: "HitMap") -> "HitMap":
+    def __or__(self, other: Self) -> Self:
         """``self | other`` — shorthand for `merge`."""
         return self.merge(other)
 
 
 @dataclass
-class ClickMap:
-    """Click hit-test entries in final frame pixels.
+class HitMap(RegionMap[Tooltip]):
+    """Hover regions, each carrying the `Tooltip` to show over it."""
 
-    Each entry is a ``(rect, action)`` pair, where ``action`` is an opaque string
-    a viewer dispatches when the region is clicked (e.g. ``"key:m"`` for a control
-    or ``"class:car"`` for a legend swatch). Mirrors `HitMap`, but the payload is
-    an action rather than a `Tooltip`; smallest containing rectangle wins.
 
-    Attributes:
-        items: The ``(rect, action)`` entries, in draw order.
+@dataclass
+class ClickMap(RegionMap[str]):
+    """Click regions, each carrying an action string a viewer dispatches.
 
+    An action is opaque to the map — e.g. ``"key:m"`` for a control or
+    ``"class:car"`` for a legend swatch (see `luxonis_ml.vizlab.viewer.Viewer`).
     """
 
-    items: list[tuple[Rect, str]] = field(default_factory=list)
 
-    @classmethod
-    def empty(cls) -> "ClickMap":
-        """Return a click map with no entries."""
-        return cls([])
+@dataclass
+class PickMap(RegionMap["ParamValue"]):
+    """Click regions, each carrying the source data of the annotation drawn there.
 
-    def hit(self, x: float, y: float) -> str | None:
-        """Return the action of the smallest box containing ``(x, y)``.
-
-        Args:
-            x: Point x in frame pixels.
-            y: Point y in frame pixels.
-
-        Returns:
-            The matching action string, or ``None`` when no box contains the
-            point. On ties the first (earliest-drawn) box wins.
-
-        """
-        best: str | None = None
-        best_area: float | None = None
-        for rect, action in self.items:
-            if rect.left <= x <= rect.right and rect.top <= y <= rect.bottom:
-                area = rect.area
-                if best_area is None or area < best_area:
-                    best, best_area = action, area
-        return best
-
-    def offset(self, dx: float, dy: float) -> "ClickMap":
-        """Return a copy with every rectangle shifted by ``(dx, dy)`` pixels."""
-        return ClickMap(
-            [
-                (Rect(r.left + dx, r.top + dy, r.right + dx, r.bottom + dy), a)
-                for r, a in self.items
-            ]
-        )
-
-    def scaled(
-        self, factor_x: float, factor_y: float | None = None
-    ) -> "ClickMap":
-        """Return a copy with rectangles scaled about the origin on each axis."""
-        if factor_y is None:
-            factor_y = factor_x
-        return ClickMap(
-            [
-                (
-                    Rect(
-                        r.left * factor_x,
-                        r.top * factor_y,
-                        r.right * factor_x,
-                        r.bottom * factor_y,
-                    ),
-                    a,
-                )
-                for r, a in self.items
-            ]
-        )
-
-    def merge(self, other: "ClickMap") -> "ClickMap":
-        """Return a new map with this map's entries followed by ``other``'s."""
-        return ClickMap([*self.items, *other.items])
-
-    def __or__(self, other: "ClickMap") -> "ClickMap":
-        """``self | other`` — shorthand for `merge`."""
-        return self.merge(other)
+    The payload is JSON-like — for a dataset detection, the LDF annotation it was
+    rendered from — so a viewer can print or copy it when the annotation is
+    clicked. A `None` payload is never stored, which is what lets `RegionMap.hit`
+    report a miss as ``None``.
+    """
 
 
 @dataclass
 class InteractionCapture:
-    """Mutable render-time collector for hover and click regions.
+    """Mutable render-time collector for hover, click, and pick regions.
 
     A capture carries an affine transform from the scene currently being drawn
     to the final output pixels. Nested composites derive child captures instead
@@ -186,6 +141,7 @@ class InteractionCapture:
 
     hover: list[tuple[Rect, Tooltip]] = field(default_factory=list)
     clicks: list[tuple[Rect, str]] = field(default_factory=list)
+    picks: list[tuple[Rect, "ParamValue"]] = field(default_factory=list)
     scale_x: float = 1.0
     scale_y: float = 1.0
     offset_x: float = 0.0
@@ -204,6 +160,7 @@ class InteractionCapture:
         return InteractionCapture(
             hover=self.hover,
             clicks=self.clicks,
+            picks=self.picks,
             scale_x=self.scale_x * scale_x,
             scale_y=self.scale_y * scale_y,
             offset_x=self.offset_x + self.scale_x * x,
@@ -226,6 +183,10 @@ class InteractionCapture:
         """Add a click region expressed in the current scene's coordinates."""
         self.clicks.append((self._rect(rect), action))
 
+    def add_pick(self, rect: Rect, source: "ParamValue") -> None:
+        """Add a pickable region expressed in the current scene's coordinates."""
+        self.picks.append((self._rect(rect), source))
+
     def add_hitmap(self, hitmap: HitMap) -> None:
         """Add every entry from ``hitmap`` using the current transform."""
         for rect, tooltip in hitmap.items:
@@ -235,3 +196,8 @@ class InteractionCapture:
         """Add every entry from ``clickmap`` using the current transform."""
         for rect, action in clickmap.items:
             self.add_click(rect, action)
+
+    def add_pickmap(self, pickmap: PickMap) -> None:
+        """Add every entry from ``pickmap`` using the current transform."""
+        for rect, source in pickmap.items:
+            self.add_pick(rect, source)

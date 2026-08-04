@@ -26,6 +26,7 @@ from luxonis_ml.vizlab.render.canvas import Canvas
 from luxonis_ml.vizlab.render.capture import (
     HitMap,
     InteractionCapture,
+    PickMap,
 )
 from luxonis_ml.vizlab.render.context import LayerMask
 from luxonis_ml.vizlab.scene.html import Nav, html_document
@@ -184,6 +185,8 @@ class Renderable:
     #: A precomputed hover map (in this scene's own pixels), carried by composites
     #: whose tiles' tooltips no longer live on annotations — see `with_hitmap`.
     _hits: "HitMap | None" = None
+    #: The same for the pick regions of a baked scene — see `with_pickmap`.
+    _picks: "PickMap | None" = None
 
     @property
     def width(self) -> int:
@@ -637,6 +640,23 @@ class Renderable:
         self._hits = hitmap
         return self
 
+    def with_pickmap(self, pickmap: PickMap) -> Self:
+        """Attach a precomputed `PickMap` (in this scene's pixels).
+
+        The `with_hitmap` sibling for clickable annotation sources: a scene baked
+        to pixels keeps answering clicks with the data its annotations were drawn
+        from.
+
+        Args:
+            pickmap: The pick map, in this scene's current pixel coordinates.
+
+        Returns:
+            This scene, to allow chaining.
+
+        """
+        self._picks = pickmap
+        return self
+
     def capture(
         self, size: tuple[int, int] | None = None
     ) -> "tuple[InteractionCapture, RenderEnvironment]":
@@ -714,12 +734,16 @@ class Renderable:
         y: float,
         size: tuple[int, int],
     ) -> None:
-        """Emit a map attached with `with_hitmap` into ``capture``."""
-        if capture is None or self._hits is None:
+        """Emit maps attached with `with_hitmap`/`with_pickmap` into ``capture``."""
+        if capture is None or (self._hits is None and self._picks is None):
             return
         factor_x = size[0] / self.width if self.width else 1.0
         factor_y = size[1] / self.height if self.height else 1.0
-        capture.transformed(x, y, factor_x, factor_y).add_hitmap(self._hits)
+        placed = capture.transformed(x, y, factor_x, factor_y)
+        if self._hits is not None:
+            placed.add_hitmap(self._hits)
+        if self._picks is not None:
+            placed.add_pickmap(self._picks)
 
 
 class Image(Renderable):
@@ -792,6 +816,7 @@ class Image(Renderable):
         # A precomputed hover map (in this image's own pixels), carried by
         # composites whose tiles were baked to pixels — see `with_hitmap`.
         self._hits: HitMap | None = None
+        self._picks: PickMap | None = None
 
     @property
     def width(self) -> int:
@@ -891,6 +916,7 @@ class Image(Renderable):
         clone._cache = None
         clone._cache_key = None
         clone._hits = self._hits
+        clone._picks = self._picks
         return clone
 
     def render(self, size: tuple[int, int] | None = None) -> np.ndarray:
@@ -1214,6 +1240,7 @@ class Composite(Renderable):
         clone = Composite(self._size, self._scene, options=self._options)
         clone._render_size = self._render_size
         clone._hits = self._hits
+        clone._picks = self._picks
         return clone
 
     def __repr__(self) -> str:

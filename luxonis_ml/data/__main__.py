@@ -79,6 +79,12 @@ _SampleIdentity: TypeAlias = tuple[tuple[str, str], ...]
 #: subdirectory. Created on the first save, so a session that never saves
 #: leaves nothing behind.
 _SAVE_ROOT = Path("luxonis-inspect")
+#: Said once per interactive session: clicking is the only interaction the
+#: panel's control list cannot show, since every row there is keyed by a key.
+_PICK_HINT = (
+    "[dim]Click an annotation to print its JSON here"
+    " (and copy it to the clipboard).[/dim]"
+)
 #: Mirrors `luxonis_ml.vizlab.options.ArrayKind`, spelled out here because this
 #: module must import without the ``viz`` extra installed.
 _ArrayKindName: TypeAlias = Literal[
@@ -1283,8 +1289,8 @@ def inspect(
         tracked_augmentations = get_tracked_augmentations(sample_metadata)
         if tracked_augmentations is not None:
             # The runtime parameters of every transformation would bury the
-            # record metadata the panel exists to show; they get their own
-            # entry below when the user asks for them.
+            # record metadata the panel exists to show, so they are dropped
+            # here and re-added below as names with hover detail.
             sample_metadata = {
                 key: value
                 for key, value in sample_metadata.items()
@@ -1505,6 +1511,7 @@ def inspect(
     # The controls live in the side panel now (see `sidebar`), so the viewer does
     # not also float its HUD over the image.
     viewer = Viewer(hud=False, save_dir=_SAVE_ROOT / name)
+    print(_PICK_HINT)
     # Decluttering hides tiny detections in crowded scenes by default; --show-all
     # starts with it off (the `d` key still toggles it live either way).
     viewer.layers.declutter = not show_all
@@ -2160,6 +2167,8 @@ def compare(
         if save is not None
         else Viewer(save_dir=_SAVE_ROOT / f"{name}_vs_{predictions}")
     )
+    if viewer is not None:
+        print(_PICK_HINT)
     screen = viewer.screen if viewer is not None else None
     # The metrics panel is a fixed pixel width; reserve room for it when fitting.
     panel_reserve = 0.0 if plain else 400.0
@@ -2204,7 +2213,11 @@ def compare(
             # Overlay the class legend; bake a grid composite to an image first
             # so it carries a mutable annotation list to `add` onto.
             if not isinstance(display, Image):
-                display = Image(frame.render()).with_hitmap(frame.hitmap)
+                display = (
+                    Image(frame.render())
+                    .with_hitmap(frame.hitmap)
+                    .with_pickmap(frame.pickmap)
+                )
             display.add(class_legend.model_copy())
         return display
 

@@ -385,6 +385,7 @@ class Ruler(Annotation):
                 region.bottom + pad,
             ),
             self.tooltip,
+            self.source,
         )
         middle = ((x0 + x1) / 2.0, (y0 + y1) / 2.0)
         payload = self.payload

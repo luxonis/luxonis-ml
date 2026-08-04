@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, ClassVar
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import Self
 
+from luxonis_ml.typing import ParamValue
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
 from luxonis_ml.vizlab.render import RenderEnvironment
@@ -69,7 +70,7 @@ class RenderContext:
             (stroke, typography, chip padding) track the canvas resolution. ``1.0``
             leaves styles at their nominal sizes.
         capture: Render-time interaction collector. Annotations that carry a
-            `Tooltip` append their ``(region, tooltip)`` to it during the label
+            `Tooltip` or a ``source`` append their region to it during the label
             pass (see `emit_hit`), in final display-pixel coordinates; nested
             composites wrap it so regions transform with their pixels.
         environment: Scoped style state resolved once at the render boundary.
@@ -116,22 +117,33 @@ class RenderContext:
             gradient=self.gradient,
         )
 
-    def emit_hit(self, region: Rect, tooltip: Tooltip | None) -> None:
-        """Record a hover region for the current annotation, if collecting.
+    def emit_hit(
+        self,
+        region: Rect,
+        tooltip: Tooltip | None,
+        source: "ParamValue | None" = None,
+    ) -> None:
+        """Record the current annotation's interaction regions, if collecting.
 
         A no-op unless a collector is attached (`capture`) and the annotation
-        carries a `Tooltip`. ``region`` must be in the canvas's final display
-        pixels (the label pass runs on the already-scaled canvas).
+        carries hover content or source data; each is recorded only if present,
+        so an annotation can be pickable without being hoverable and vice versa.
+        ``region`` must be in the canvas's final display pixels (the label pass
+        runs on the already-scaled canvas).
 
         Args:
             region: The annotation's axis-aligned bounds in display pixels.
             tooltip: The hover content to associate with ``region``, if any.
+            source: The data the annotation was built from (see
+                `Annotation.source`), surfaced when ``region`` is clicked.
 
         """
-        if tooltip is None:
+        if self.capture is None:
             return
-        if self.capture is not None:
+        if tooltip is not None:
             self.capture.add_hover(region, tooltip)
+        if source is not None:
+            self.capture.add_pick(region, source)
 
 
 class Annotation(BaseModel):
@@ -160,6 +172,11 @@ class Annotation(BaseModel):
         tooltip: Optional hover content surfaced by an interactive viewer when the
             annotation is hovered (see `luxonis_ml.vizlab.viewer`). Non-rendering
             state: it never draws, but `Image.render_hits` reports its region.
+        source: Optional JSON-like data this annotation was built from — for a
+            dataset detection, the LDF annotation itself. Like ``tooltip`` it
+            never draws; an interactive viewer prints and copies it when the
+            annotation is clicked (see `luxonis_ml.vizlab.PickMap`), so a shape
+            on screen can be traced back to the record that produced it.
         children: Nested sub-label annotations, drawn on top of this one.
 
     Examples:
@@ -188,6 +205,7 @@ class Annotation(BaseModel):
     style_overrides: dict[str, StyleValue] = Field(default_factory=dict)
     palette: Palette | None = None
     tooltip: Tooltip | None = None
+    source: "ParamValue | None" = None
     children: list["Annotation"] = Field(default_factory=list)
 
     #: Whether this is image-level chrome drawn on top of everything (e.g. a tag).

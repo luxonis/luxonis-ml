@@ -1,10 +1,10 @@
 """A `Frame`: a displayable scene paired with its interaction maps.
 
-Every `Renderable` captures hover and click regions through the same scene graph
-that places its pixels. `Renderable.frame` snapshots those regions alongside the
-scene, so a `Viewer` receives one typed value instead of loose maps that are easy
-to mismatch. Composition preserves the regions, so a grid or panel yields the
-same value as a single image does.
+Every `Renderable` captures hover, click, and pick regions through the same
+scene graph that places its pixels. `Renderable.frame` snapshots those regions
+alongside the scene, so a `Viewer` receives one typed value instead of loose maps
+that are easy to mismatch. Composition preserves the regions, so a grid or panel
+yields the same value as a single image does.
 """
 
 from dataclasses import dataclass, field
@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from luxonis_ml.vizlab.render import RenderEnvironment
-from luxonis_ml.vizlab.render.capture import ClickMap, HitMap
+from luxonis_ml.vizlab.render.capture import ClickMap, HitMap, PickMap
 from luxonis_ml.vizlab.scene.image import Renderable
 
 if TYPE_CHECKING:
@@ -36,6 +36,9 @@ class Frame:
         clickmap: Clickable regions (panel controls / legend swatches) in native
             render pixels, each with an action string a `Viewer` dispatches;
             defaults to an empty map (nothing clickable).
+        pickmap: Regions carrying the source data of the annotation drawn there
+            (see `Annotation.source`), in native render pixels; a `Viewer` prints
+            and copies it when the region is clicked. Defaults to an empty map.
         environment: Ambient style snapshot used when the frame captured its
             interaction maps. Manually constructed frames leave it unset.
 
@@ -44,6 +47,7 @@ class Frame:
     image: Renderable
     hitmap: HitMap = field(default_factory=HitMap.empty)
     clickmap: ClickMap = field(default_factory=ClickMap.empty)
+    pickmap: PickMap = field(default_factory=PickMap.empty)
     environment: RenderEnvironment | None = None
 
     @classmethod
@@ -66,6 +70,7 @@ class Frame:
             scene,
             HitMap(interactions.hover),
             ClickMap(interactions.clicks),
+            PickMap(interactions.picks),
             environment,
         )
 
@@ -79,11 +84,17 @@ class Frame:
         """Return a copy carrying ``image`` but this frame's interaction maps.
 
         For coordinate-preserving changes only: an overlay (e.g. a `Legend`) drawn
-        on top leaves the existing hover and click rectangles valid, so both maps
-        are reused as-is. To attach a side panel (which reframes the image at an
-        offset) use `with_panel`, which shifts the map to match.
+        on top leaves the existing hover, click, and pick rectangles valid, so
+        every map is reused as-is. To attach a side panel (which reframes the
+        image at an offset) use `with_panel`, which shifts the maps to match.
         """
-        return Frame(image, self.hitmap, self.clickmap, self.environment)
+        return Frame(
+            image,
+            self.hitmap,
+            self.clickmap,
+            self.pickmap,
+            self.environment,
+        )
 
     def with_panel(
         self,
@@ -131,5 +142,6 @@ class Frame:
             image,
             self.hitmap.offset(dx, dy).merge(HitMap(hovers)),
             self.clickmap.offset(dx, dy).merge(ClickMap(clicks)),
+            self.pickmap.offset(dx, dy),
             self.environment,
         )

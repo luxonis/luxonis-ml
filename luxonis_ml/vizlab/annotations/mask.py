@@ -384,7 +384,7 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
         canvas = ctx.canvas
         region = self.region_at(canvas.width, canvas.height)
         if region is not None:
-            ctx.emit_hit(region, self.tooltip)
+            ctx.emit_hit(region, self.tooltip, self.source)
             if self.label_chip:
                 place_label(
                     ctx,

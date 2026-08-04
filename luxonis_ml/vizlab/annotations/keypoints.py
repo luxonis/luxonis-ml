@@ -266,7 +266,7 @@ class Keypoints(KeypointAnnotation, Annotation):
             return
         region = self._hit_region(ctx.canvas.width, ctx.canvas.height, style)
         if region is not None:
-            ctx.emit_hit(region, self.tooltip)
+            ctx.emit_hit(region, self.tooltip, self.source)
 
     def region_at(self, width: int, height: int) -> Rect | None:
         """Return the bounds of the visible joints, in canvas pixels.

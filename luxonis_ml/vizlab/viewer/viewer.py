@@ -8,20 +8,24 @@ touch windowing themselves. Composition retains interactions automatically, so
 calling `frame()` on a grid or panel works the same way as on one `Image`.
 """
 
+import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 from loguru import logger
+from rich import print_json
 
+from luxonis_ml.typing import ParamValue
 from luxonis_ml.vizlab import io
 from luxonis_ml.vizlab.interaction.frame import Frame
-from luxonis_ml.vizlab.render.capture import ClickMap, HitMap
+from luxonis_ml.vizlab.render.capture import ClickMap, HitMap, PickMap
 from luxonis_ml.vizlab.scene.image import Renderable
 from luxonis_ml.vizlab.tooltip import Tooltip
 
+from . import clipboard
 from .backend import MouseHandler, WindowBackend
 from .cv2_backend import Cv2Backend
 from .hud import render_controls_card
@@ -30,6 +34,14 @@ from .tooltip_render import TooltipCard, blit_rgba_on_bgr, prepare_tooltip
 
 #: A per-window callback that re-renders the window's `Frame` for a `LayerState`.
 RenderFn = Callable[[LayerState], Frame]
+
+#: What a `Viewer` does with the source data of a clicked annotation.
+PickFn = Callable[[ParamValue], None]
+
+#: Longest string `report_pick` prints in full. Comfortably above anything a
+#: person writes into dataset metadata (a path, a note, a URL) and far below the
+#: run-length data of even a small mask, which is the value this exists for.
+_READABLE_LIMIT = 200
 
 #: `wait`'s poll timeout while nothing is moving — long enough to idle cheaply.
 _IDLE_POLL_MS = 20
@@ -47,6 +59,57 @@ _UNSAFE_IN_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 def _slug(name: str) -> str:
     """Turn a window name into a filename stem that is safe on any platform."""
     return _UNSAFE_IN_NAME.sub("-", name).strip("-.") or "frame"
+
+
+def report_pick(source: "ParamValue") -> None:
+    """Print a clicked annotation's source data as JSON and copy it.
+
+    The default `Viewer` pick handler. The two destinations are wanted for
+    different things, so they are not given the same text: the terminal gets a
+    version fit to *read*, with any value too long for a person elided (see
+    `_readable`), while the clipboard gets the annotation *whole*, so what is
+    pasted back is the real thing. Each elision says how much it stands for, so
+    the printout never implies the copy was cut short too.
+
+    Printing is also what makes a click useful where nothing can be copied at
+    all. The clipboard write is queued rather than awaited (see
+    `luxonis_ml.vizlab.viewer.clipboard.copy_later`): taking ownership of a
+    selection costs enough to stutter the viewer that called this.
+
+    Args:
+        source: The annotation's source data (see `Annotation.source`). Values
+            JSON cannot represent are stringified rather than raising, since a
+            click must never take down an interactive session.
+
+    """
+    print_json(_dumps(_readable(source)))
+    clipboard.copy_later(_dumps(source))
+
+
+def _dumps(source: "ParamValue") -> str:
+    """Render ``source`` as the JSON a pick is reported in."""
+    return json.dumps(source, indent=2, ensure_ascii=False, default=str)
+
+
+def _readable(source: "ParamValue") -> "ParamValue":
+    """Return ``source`` with values too long to read replaced by a summary.
+
+    A segmentation mask is carried as run-length data, which for a single
+    720p instance runs past 70,000 characters — several hundred wrapped
+    terminal lines of digits, burying the class, the identity and the metadata
+    that the click was about. It is worth keeping (it is what makes the copied
+    annotation reproduce the mask) but never worth reading, and the same goes
+    for anything else that long.
+    """
+    if isinstance(source, str):
+        if len(source) <= _READABLE_LIMIT:
+            return source
+        return f"… {len(source)} characters, copied in full …"
+    if isinstance(source, Mapping):
+        return {key: _readable(value) for key, value in source.items()}
+    if isinstance(source, Sequence):
+        return [_readable(item) for item in source]
+    return source
 
 
 def _unique_path(directory: Path, stem: str) -> Path:
@@ -76,12 +139,14 @@ class PreparedFrame:
         bgr: Display-ready BGR pixels.
         hitmap: Hover regions scaled to the BGR pixels.
         clickmap: Click regions scaled to the BGR pixels.
+        pickmap: Annotation source regions scaled to the BGR pixels.
 
     """
 
     bgr: np.ndarray
     hitmap: HitMap
     clickmap: ClickMap
+    pickmap: PickMap = field(default_factory=PickMap.empty)
 
 
 @dataclass
@@ -95,11 +160,15 @@ class _HoverState:
     base: np.ndarray
     hitmap: HitMap
     clickmap: ClickMap = field(default_factory=ClickMap.empty)
+    pickmap: PickMap = field(default_factory=PickMap.empty)
     hover: Tooltip | None = None
     mouse: tuple[int, int] = field(default=(0, 0))
     dirty: bool = False
     #: Action string from a panel click, awaiting the `wait` loop to apply it.
     pending: str | None = None
+    #: Source data of an annotation clicked in the image, awaiting the same loop.
+    #: A pick map never stores ``None``, so ``None`` means "nothing clicked".
+    picked: "ParamValue | None" = None
     render: RenderFn | None = None
     #: Buffer the tooltip is drawn into, so `base` stays a clean backdrop to
     #: restore from. Allocated on the window's first hover.
@@ -224,6 +293,10 @@ class Viewer:
       ``on_key`` callback and return to the backend's own loop; hover tooltips
       then redraw inline on each mouse move.
 
+    Clicking works in both models: a click on a panel control or legend swatch
+    applies it, and a click on an annotation reports the data that annotation was
+    drawn from — by default printing it as JSON and copying it (see ``on_pick``).
+
     Use `destroy_stale` to close windows no longer in use and `close` to tear
     everything down.
 
@@ -236,6 +309,10 @@ class Viewer:
             first save. Defaults to the working directory; give it a directory
             of its own so a session's shots collect somewhere predictable
             instead of scattering over the caller's cwd.
+        on_pick: What to do with the source data of a clicked annotation (see
+            `Annotation.source`). ``None`` uses the default: print it as JSON
+            and copy it to the clipboard. Pass a callback to route it elsewhere,
+            or ``lambda source: None`` to make clicking annotations inert.
 
     """
 
@@ -245,12 +322,14 @@ class Viewer:
         *,
         hud: bool = True,
         save_dir: "str | Path | None" = None,
+        on_pick: PickFn | None = None,
     ) -> None:
         self._backend: WindowBackend = (
             backend if backend is not None else Cv2Backend()
         )
         self._hud = hud
         self._save_dir = Path.cwd() if save_dir is None else Path(save_dir)
+        self._on_pick: PickFn = report_pick if on_pick is None else on_pick
         self._screen = self._backend.screen_size()
         #: One key read ahead while scanning an escape sequence and
         #: found not to belong to it, returned by the next `_poll`.
@@ -282,17 +361,20 @@ class Viewer:
         """
         return self._layers
 
-    def _prepare(self, frame: Frame) -> tuple[np.ndarray, HitMap, ClickMap]:
+    def _prepare(
+        self, frame: Frame
+    ) -> tuple[np.ndarray, HitMap, ClickMap, PickMap]:
         """Render ``frame`` to a screen-fitted BGR image and scale its maps.
 
         The image is rendered once at its natural size to learn its dimensions
         (which may already reflect a `Image.render_at` size); if that overflows
         the screen it is re-rendered smaller — so labels stay crisp rather than
-        being resampled afterwards — and the hit/click maps are scaled to match.
+        being resampled afterwards — and every interaction map is scaled to match.
         """
         rgba = frame.render()
         hitmap = frame.hitmap
         clickmap = frame.clickmap
+        pickmap = frame.pickmap
         out_h, out_w = rgba.shape[:2]
         fit = 1.0
         if self._screen is not None:
@@ -306,7 +388,8 @@ class Viewer:
             rgba = frame.render(size)
             hitmap = hitmap.scaled(fit)
             clickmap = clickmap.scaled(fit)
-        return io.export(rgba, "bgr"), hitmap, clickmap
+            pickmap = pickmap.scaled(fit)
+        return io.export(rgba, "bgr"), hitmap, clickmap, pickmap
 
     def _open(self, name: str, frame: np.ndarray) -> None:
         """Create (if needed), size, and center the window for ``frame``."""
@@ -361,8 +444,8 @@ class Viewer:
             Display-ready pixels and aligned interaction maps.
 
         """
-        bgr, hitmap, clickmap = self._prepare(frame)
-        return PreparedFrame(bgr, hitmap, clickmap)
+        bgr, hitmap, clickmap, pickmap = self._prepare(frame)
+        return PreparedFrame(bgr, hitmap, clickmap, pickmap)
 
     def show_prepared(
         self,
@@ -389,6 +472,7 @@ class Viewer:
             base=bgr,
             hitmap=prepared.hitmap,
             clickmap=prepared.clickmap,
+            pickmap=prepared.pickmap,
             render=render,
             save_as=save_as,
         )
@@ -448,17 +532,18 @@ class Viewer:
         if state.render is None:
             return
         frame = state.render(self._layers)
-        bgr, hitmap, clickmap = self._prepare(frame)
+        bgr, hitmap, clickmap, pickmap = self._prepare(frame)
         self._draw_hud(bgr)
         state.base = bgr
         state.hitmap = hitmap
         state.clickmap = clickmap
+        state.pickmap = pickmap
         state.clear_hover()
         self._backend.show(name, bgr)
 
     def show_blocking(self, name: str, display: Renderable) -> str:
         """Show one frame (no hover) and block until a key; return its char."""
-        bgr, _, _ = self._prepare(Frame(display))
+        bgr, *_ = self._prepare(Frame(display))
         self._open(name, bgr)
         self._windows.pop(name, None)
         self._backend.show(name, bgr)
@@ -481,7 +566,7 @@ class Viewer:
                 if not handled:
                     return char
                 continue
-            if self._consume_pending_action():
+            if self._consume_pending_action() or self._consume_pending_pick():
                 continue
             poll = _ACTIVE_POLL_MS if self._flush_hover() else _IDLE_POLL_MS
 
@@ -543,6 +628,23 @@ class Viewer:
         for state in self._windows.values():
             state.pending = None
         self._apply_action(pending)
+        return True
+
+    def _consume_pending_pick(self) -> bool:
+        """Report and clear the first queued annotation pick, if any."""
+        picked = next(
+            (
+                state.picked
+                for state in self._windows.values()
+                if state.picked is not None
+            ),
+            None,
+        )
+        if picked is None:
+            return False
+        for state in self._windows.values():
+            state.picked = None
+        self._pick(picked)
         return True
 
     def _flush_hover(self) -> bool:
@@ -682,14 +784,26 @@ class Viewer:
         return handler
 
     def _handle_click(self, state: _HoverState, x: int, y: int) -> None:
-        """Dispatch or queue the click-map action at ``(x, y)``."""
+        """Dispatch or queue what was clicked at ``(x, y)``.
+
+        A control (panel button, legend swatch) wins over an annotation: the
+        maps do not overlap in practice, but a control is chrome the click was
+        certainly aimed at, whereas the picked annotation only reports itself.
+        """
         action = state.clickmap.hit(x, y)
-        if action is None:
+        if action is not None:
+            if self._driven:
+                self._apply_action(action)
+            else:
+                state.pending = action
+            return
+        source = state.pickmap.hit(x, y)
+        if source is None:
             return
         if self._driven:
-            self._apply_action(action)
+            self._pick(source)
         else:
-            state.pending = action
+            state.picked = source
 
     def _handle_hover(
         self,
@@ -712,6 +826,18 @@ class Viewer:
             self._render_hover(name, state)
         else:
             state.dirty = True
+
+    def _pick(self, source: "ParamValue") -> None:
+        """Hand a clicked annotation's source data to the pick handler.
+
+        Like `_save_shown`, a failure here is reported instead of raised: the
+        handler is caller-supplied (and the default one talks to the clipboard),
+        and neither is worth ending an interactive session over.
+        """
+        try:
+            self._on_pick(source)
+        except Exception as error:
+            logger.error(f"Could not report the clicked annotation: {error}")
 
     def _apply_action(self, action: str) -> None:
         """Apply a panel-click ``action`` to the layers and re-render every window.

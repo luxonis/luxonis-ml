@@ -217,7 +217,7 @@ class BBox(BBoxAnnotation, Annotation):
 
         """
         region = self._region(ctx.canvas.width, ctx.canvas.height)
-        ctx.emit_hit(region, self.tooltip)
+        ctx.emit_hit(region, self.tooltip, self.source)
         place_label(
             ctx,
             region,

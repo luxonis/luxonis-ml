@@ -5,13 +5,15 @@ in this package knows what a scene, a layout or a viewer is.
 """
 
 from . import text_layout
-from .capture import ClickMap, HitMap, InteractionCapture
+from .capture import ClickMap, HitMap, InteractionCapture, PickMap, RegionMap
 from .context import RenderEnvironment
 
 __all__ = [
     "ClickMap",
     "HitMap",
     "InteractionCapture",
+    "PickMap",
+    "RegionMap",
     "RenderEnvironment",
     "text_layout",
 ]

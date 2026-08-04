@@ -285,6 +285,7 @@ class Arrow(Annotation):
                 region.bottom + pad,
             ),
             self.tooltip,
+            self.source,
         )
         middle = _midpoint(path)
         place_label(

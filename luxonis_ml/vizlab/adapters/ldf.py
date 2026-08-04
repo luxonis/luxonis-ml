@@ -68,9 +68,14 @@ def _spatial_annotations(
     its children so they share its derived color. ``sub_detections`` recurse as
     children. Semantic segmentation and pure classification are handled at the
     record level (see `visualize_record`), not here.
+
+    Every shape that stands for the whole detection also carries it as its
+    `Annotation.source`, so clicking it in a viewer reports the annotation it
+    was drawn from.
     """
     palette = options.theme.palette
     label = detection.class_name
+    source = _detection_source(detection)
     root: Annotation | None = None
     tops: list[Annotation] = []
 
@@ -78,6 +83,7 @@ def _spatial_annotations(
         root = BBox.from_ldf(
             detection.boundingbox, label=label, palette=palette
         )
+        root.source = source
         # The box's metadata rides along as hover content, if enabled.
         if options.hover_metadata:
             root.tooltip = _detection_tooltip(detection, options)
@@ -85,24 +91,28 @@ def _spatial_annotations(
     # Keypoints and the instance mask are children of the box (deriving its
     # color), or top-level when there is no box; they carry no label then.
     child_label = None if root is not None else label
+    shapes: list[Annotation] = []
     if detection.keypoints is not None:
-        _attach(
-            root,
-            tops,
+        shapes.append(
             _keypoints_annotation(
                 detection.keypoints, options, task_name, child_label
-            ),
+            )
         )
     if detection.instance_segmentation is not None:
-        _attach(
-            root,
-            tops,
+        shapes.append(
             Mask.from_ldf(
                 detection.instance_segmentation,
                 label=child_label,
                 palette=palette,
-            ),
+            )
         )
+    for shape in shapes:
+        # Inside a box these are only parts of it, and the box already answers a
+        # click; standing alone, each stands in for the whole detection.
+        if root is None:
+            shape.source = source
+        _attach(root, tops, shape)
+
     for name, sub in detection.sub_detections.items():
         for child in _spatial_annotations(sub, options, f"{task_name}/{name}"):
             _attach(root, tops, child)
@@ -261,6 +271,21 @@ def _suppress_redundant_mask_labels(annotations: list[Annotation]) -> None:
     for a in annotations:
         if isinstance(a, Mask) and a.label in boxed:
             a.label_chip = False
+
+
+def _detection_source(detection: "Detection") -> "ParamValue":
+    """Dump one detection to the JSON a viewer reports when it is clicked.
+
+    This is the detection as LDF writes it — unset and default-valued fields
+    dropped, masks in their run-length form — so what lands on the clipboard is
+    the annotation itself, ready to paste back into a dataset generator, rather
+    than a rendering of it. Nested ``sub_detections`` come along, which is what
+    makes a parent's JSON the whole subtree while each sub-box answers with only
+    its own.
+    """
+    return detection.model_dump(
+        mode="json", exclude_none=True, exclude_defaults=True
+    )
 
 
 def _detection_tooltip(
