@@ -295,6 +295,94 @@ def test_filter_task_names_rejects_unknown_task(randint: int, tempdir: Path):
         LuxonisLoader(dataset, filter_task_names=["missing"])
 
 
+def test_out_of_order_instance_ids_keep_labels_paired(
+    dataset_name: str, tempdir: Path
+):
+    """Regression: sorting instances must carry their class and metadata.
+
+    Spatial annotations are sorted by ``instance_id``. Class ids used to be
+    left in source order, so a record whose instances are not emitted in
+    ``instance_id`` order handed each box its neighbor's class. Metadata was
+    not sorted at all, so it paired with the wrong instance too.
+    """
+
+    def generator() -> DatasetIterator:
+        path = str(create_image(0, tempdir))
+        # Emitted as instance 1 first, so source order != instance order.
+        yield {
+            "file": path,
+            "task_name": "traffic",
+            "annotation": {
+                "class": "person",
+                "instance_id": 1,
+                "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.2, "h": 0.2},
+                "metadata": {"tag": "one"},
+            },
+        }
+        yield {
+            "file": path,
+            "task_name": "traffic",
+            "annotation": {
+                "class": "car",
+                "instance_id": 0,
+                "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
+                "metadata": {"tag": "zero"},
+            },
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    assert dataset.get_classes() == {"traffic": {"car": 0, "person": 1}}
+
+    labels = next(iter(LuxonisLoader(dataset, view="train"))).labels
+
+    boxes = labels["traffic/boundingbox"]
+    # Row order is by instance id, so the car (instance 0) comes first and
+    # each row's class column must be its own.
+    assert boxes[:, 1].tolist() == [0.1, 0.5]
+    assert boxes[:, 0].tolist() == [0.0, 1.0]
+
+    assert labels["traffic/metadata/tag"].tolist() == ["zero", "one"]
+
+
+def test_metadata_absent_on_some_instances_is_row_aligned(
+    dataset_name: str, tempdir: Path
+):
+    """Regression: a field only some instances carry keeps its rows.
+
+    The loader used to emit one value per annotation that had the field, so
+    the array was shorter than the instance count and nothing could tell
+    which instance each value belonged to.
+    """
+
+    def generator() -> DatasetIterator:
+        path = str(create_image(0, tempdir))
+        yield {
+            "file": path,
+            "task_name": "traffic",
+            "annotation": {
+                "class": "car",
+                "instance_id": 0,
+                "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
+                "metadata": {"tag": "kept"},
+            },
+        }
+        yield {
+            "file": path,
+            "task_name": "traffic",
+            "annotation": {
+                "class": "person",
+                "instance_id": 1,
+                "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.2, "h": 0.2},
+            },
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    labels = next(iter(LuxonisLoader(dataset, view="train"))).labels
+
+    assert len(labels["traffic/boundingbox"]) == 2
+    assert labels["traffic/metadata/tag"].tolist() == ["kept", None]
+
+
 def test_loader_passes_is_validation_pipeline_to_legacy_engines(
     dataset_name: str, tempdir: Path
 ):

@@ -73,7 +73,7 @@ def loader_output_to_records(
         >>> classes = {"det": {"car": 0}}
         >>> records = loader_output_to_records(labels, classes=classes)
         >>> record = records["det"]
-        >>> det = record._annotations()[0]
+        >>> det = (record.annotation or [])[0]
         >>> det.class_name, det.boundingbox.w
         ('car', 0.3)
 
@@ -253,9 +253,10 @@ def _decode_metadata(
 ) -> dict[int, dict[str, int | float | str | Category]]:
     """Recover per-instance metadata dicts keyed by instance index.
 
-    Only metadata arrays whose length matches the instance count are attached;
-    categorical values are decoded back to their string names when an encoding
-    for the task is available.
+    Only metadata arrays whose length matches the instance count are attached,
+    and within those the padded rows of instances that do not carry the field
+    are skipped. Categorical ids are decoded back to their string names when
+    an encoding for the task is available.
     """
     per_instance: dict[int, dict[str, int | float | str | Category]] = (
         defaultdict(dict)
@@ -276,7 +277,12 @@ def _decode_metadata(
             }
         for i, value in enumerate(values):
             item = value.item() if hasattr(value, "item") else value
-            if decoder is not None:
+            if item is None:
+                # A padded row: this instance does not carry the field.
+                continue
+            if decoder is not None and isinstance(item, (int, float)):
+                # A loader built with ``keep_categorical_as_strings`` already
+                # hands back the name, so only encoded ids are decoded.
                 item = decoder.get(int(item), item)
             if isinstance(item, (str, int, float, Category)):
                 per_instance[i][key] = item

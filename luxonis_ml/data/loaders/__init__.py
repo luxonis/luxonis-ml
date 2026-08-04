@@ -130,8 +130,9 @@ Output Layouts
      - :math:`\left(N, 3K\right)`
      - Flattened :math:`\left(x, y, v\right)` keypoint triplets.
    * - ``metadata``
-     - Original value structure.
-     - Values keyed by metadata field name.
+     - :math:`\left(N\right)`
+     - One value per instance, in the same row order as the task's spatial
+       labels. Instances that do not carry the field hold ``None``.
    * - ``array``
      - :math:`\left(N, C, \ldots\right)`
      - Whatever each ``.npy`` held, wrapped in an instance and a class axis.
@@ -139,30 +140,18 @@ Output Layouts
 Array labels
 ------------
 
-``array`` is the escape hatch, and the only layout that is not self-describing:
-the trailing axes are whatever shape the ``.npy`` files had. The two leading
-axes come from `ArrayAnnotation.combine_to_numpy`, which stacks one row per
-annotation and places each row's data in its own class slot, leaving the rest of
-that row zero. So a single :math:`\left(H, W\right)` disparity map in a
-one-class task arrives as :math:`\left(1, 1, H, W\right)`, and
-``labels["task/array"][0, 0]`` is all zeros unless class slot ``0`` happens to
-be the populated one.
+``array`` is the only layout whose trailing shape is not fixed: it is whatever
+the ``.npy`` files held. The two leading axes come from
+`ArrayAnnotation.combine_to_numpy`, which stacks one row per annotation and puts
+each row's data in its own class slot, leaving the rest of that row zero.
 
-That leaves two ways to store a multi-channel array, and the choice matters:
-
-* **One file per array.** A :math:`\left(2, H, W\right)` flow field written as a
-  single ``.npy`` under one class arrives as
-  :math:`\left(1, 1, 2, H, W\right)`. The channels survive, but nothing names
-  them.
-* **One file per channel.** The same field written as two annotations with class
-  names ``u`` and ``v`` arrives as :math:`\left(2, 2, H, W\right)`, populated
-  down the diagonal. Summing away the instance axis recovers
-  :math:`\left(2, H, W\right)` *in class order*, so the channels carry the
-  task's own class names.
-
-Consumers prefer the named form when the annotations occupy distinct class
-slots. Prefer the per-channel form for anything whose channels have meanings worth recording
-— segmentation scores especially, where the names are the class names.
+This makes the storage layout matter. A :math:`\left(2, H, W\right)` array
+written as one ``.npy`` under a single class arrives as
+:math:`\left(1, 1, 2, H, W\right)`, with nothing naming its channels. Written as
+two annotations with class names ``u`` and ``v``, it arrives as
+:math:`\left(2, 2, H, W\right)` populated down the diagonal, and summing away
+the instance axis recovers :math:`\left(2, H, W\right)` in class order. Use the
+per-channel form when the channels have names worth keeping.
 
 See:
     `luxonis_ml.ldf.annotation` for the ingestion schemas that are converted

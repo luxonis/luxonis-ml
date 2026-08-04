@@ -754,9 +754,14 @@ def visualize(
         if len(values) == 0:
             continue
 
+        # Instances that do not carry the field are padded with ``None``.
         formatted_values = [
-            format_metadata_value(task, value) for value in values
+            format_metadata_value(task, value)
+            for value in values
+            if value is not None
         ]
+        if not formatted_values:
+            continue
         unique_values = list(dict.fromkeys(formatted_values))
         metadata_labels.append((label_name, unique_values))
 
