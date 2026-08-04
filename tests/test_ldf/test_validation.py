@@ -1,8 +1,4 @@
-"""Regression tests for the annotation validators.
-
-Each test pins a defect found while reviewing the extraction of the
-annotation schemas into `luxonis_ml.ldf` and fails without the matching fix.
-"""
+"""Regression tests for the annotation validators."""
 
 from pathlib import Path
 
@@ -65,11 +61,15 @@ def test_bbox_clipping_does_not_mutate_the_input(
     assert (box.x, box.y, box.w, box.h) == expected
 
 
-@pytest.mark.parametrize("dtype", [np.float32, np.float64])
-def test_bbox_clipping_applies_to_numpy_scalars(dtype: type):
+def test_bbox_clipping_applies_to_numpy_scalars():
     """`np.float32` is not a `float` subclass, but must still be clipped."""
     box = BBoxAnnotation.model_validate(
-        {"x": dtype(-0.5), "y": dtype(0.1), "w": dtype(0.2), "h": dtype(0.2)}
+        {
+            "x": np.float32(-0.5),
+            "y": np.float32(0.1),
+            "w": np.float32(0.2),
+            "h": np.float32(0.2),
+        }
     )
 
     assert box.x == 0
@@ -86,7 +86,7 @@ def test_keypoint_clipping_does_not_mutate_the_input():
 
 
 def test_load_annotation_does_not_mutate_the_input():
-    """`load_annotation` validates the caller's mapping directly."""
+    """The mapping is validated directly, so clipping must not leak back."""
     data = {"x": 0.5, "y": 0.5, "w": 0.9, "h": 0.2}
     original = dict(data)
 

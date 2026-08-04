@@ -1,10 +1,7 @@
-"""Parquet row contract for Luxonis Data Format annotations.
+"""Parquet row schema of the Luxonis Data Format.
 
-This module defines the low-level annotation row shape written to LDF parquet
-shards. It is deliberately dependency-light (only the standard library and
-`luxonis_ml.typing`) so it can live in the lightweight `luxonis_ml.ldf` package
-alongside the annotation models. The heavier `ParquetFileManager` (which uses
-polars) remains in `luxonis_ml.data.utils.parquet`.
+Annotations are flattened into one `ParquetRecord` per label before they are
+written. `luxonis_ml.data.utils.parquet.ParquetFileManager` does the writing.
 """
 
 from typing import TypedDict

@@ -342,15 +342,7 @@ from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from numbers import Real
 from pathlib import Path
-from typing import (
-    Annotated,
-    Any,
-    Literal,
-    Optional,
-    TypeAlias,
-    TypedDict,
-    cast,
-)
+from typing import Annotated, Any, Literal, Optional, TypeAlias, TypedDict
 
 import numpy as np
 import pycocotools.mask
@@ -387,13 +379,6 @@ The values indicate the visibility of a keypoint in an image:
 """
 NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
 """A float value normalized to the range [0, 1]."""
-
-
-class _EncodedRLE(TypedDict):
-    """Compressed COCO RLE returned by pycocotools."""
-
-    size: list[int]
-    counts: bytes
 
 
 class _SerializedRLE(TypedDict):
@@ -757,11 +742,11 @@ class BBoxAnnotation(Annotation):
     @model_validator(mode="before")
     @classmethod
     def _validate_values(cls, values: dict[str, Any]) -> dict[str, Any]:
+        # `Real` so numpy scalars are clipped as well. Anything else is left
+        # for pydantic to report instead of failing on the clipping below.
         if not isinstance(values, Mapping) or not all(
             isinstance(values.get(key), Real) for key in ["x", "y", "w", "h"]
         ):
-            # Let pydantic report the missing or non-numeric fields instead
-            # of raising `KeyError` or `TypeError` from the clipping below.
             return values
 
         values = dict(values)
@@ -1018,16 +1003,10 @@ class SegmentationAnnotation(Annotation):
                     )
 
             with warnings.catch_warnings(record=True):
-                rle = cast(
-                    _EncodedRLE,
-                    pycocotools.mask.frPyObjects(
-                        {
-                            "counts": counts,
-                            "size": [height, width],
-                        },  # type: ignore
-                        height,
-                        width,
-                    ),
+                rle = pycocotools.mask.frPyObjects(
+                    {"counts": counts, "size": [height, width]},  # type: ignore
+                    height,
+                    width,
                 )
             values["counts"] = rle["counts"]
             values["height"] = rle["size"][0]
@@ -1039,7 +1018,7 @@ class SegmentationAnnotation(Annotation):
     def _numpy_to_rle(mask: np.ndarray) -> _SerializedRLE:
         mask = np.asfortranarray(mask.astype(np.uint8))
         with warnings.catch_warnings(record=True):
-            rle = cast(_EncodedRLE, pycocotools.mask.encode(mask))
+            rle = pycocotools.mask.encode(mask)
         return {
             "height": rle["size"][0],
             "width": rle["size"][1],
@@ -1086,8 +1065,8 @@ class SegmentationAnnotation(Annotation):
         if mask.ndim != 2:
             raise ValueError("Mask must be a 2D binary array")
 
-        # The size derived from the mask wins over any `height` and `width`
-        # the caller supplied alongside it, so `size` matches `counts`.
+        # The encoded size wins over any `height` and `width` sent with the
+        # mask, otherwise the stored size would not match the counts.
         return {**values, **cls._numpy_to_rle(mask)}
 
     @model_validator(mode="before")
@@ -1432,7 +1411,7 @@ class DatasetRecord(BaseModelExtraForbid):
                     )
 
     @staticmethod
-    def decode_metadata(value: object) -> Params:
+    def decode_metadata(value: Any) -> Params:
         """Decode serialized record metadata into a dictionary.
 
         Args:
@@ -1460,7 +1439,7 @@ def load_annotation(
         "instance_segmentation",
         "array",
     ],
-    data: Mapping[str, object],
+    data: Mapping[str, Any],
 ) -> "Annotation":
     """Load an annotation from serialized data.
 

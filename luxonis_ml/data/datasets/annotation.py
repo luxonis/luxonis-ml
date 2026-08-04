@@ -1,12 +1,7 @@
-"""Backward-compatibility shim for the LDF annotation schemas.
+"""Re-exports of the LDF annotation schemas.
 
-The annotation record and payload models were extracted into the lightweight
-`luxonis_ml.ldf` package so that both `luxonis_ml.data` and `luxonis_ml.vizlab`
-can share the same annotation contracts without pulling each other's heavy
-dependencies. This module re-exports them, so existing imports such as
-``from luxonis_ml.data.datasets.annotation import Detection`` keep working.
-
-See `luxonis_ml.ldf.annotation` for the full documentation and examples.
+The models live in `luxonis_ml.ldf.annotation`; this module keeps imports such
+as ``from luxonis_ml.data.datasets.annotation import Detection`` working.
 """
 
 from luxonis_ml.ldf.annotation import (
