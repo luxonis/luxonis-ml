@@ -20,6 +20,7 @@ def setup_logging(
     | None = None,
     file: PathType | None = None,
     use_rich: bool = True,
+    pretty_validation_errors: bool = True,
     **kwargs,
 ) -> None:  # pragma: no cover
     """Set up global logging using loguru and rich.
@@ -30,6 +31,9 @@ def setup_logging(
         file: Path to the log file. If provided, logs will be saved to
             this file.
         use_rich: If True, uses rich for logging.
+        pretty_validation_errors: If True, uncaught pydantic validation
+            errors are printed as a readable summary instead of a
+            traceback. See `luxonis_ml.utils.validation`.
         **kwargs: Additional keyword arguments to pass to
             ``RichHandler``.
 
@@ -105,6 +109,11 @@ def setup_logging(
         logger.warning(text)
 
     warnings.showwarning = _custom_warning_handler
+
+    if pretty_validation_errors:
+        from .validation import install_excepthook
+
+        install_excepthook()
 
 
 def deprecated(

@@ -732,6 +732,17 @@ class BBoxAnnotation(Annotation):
     @model_validator(mode="before")
     @classmethod
     def _validate_values(cls, values: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return cls._clip_values(values)
+        except (KeyError, TypeError):
+            # A coordinate is missing or is not a number. Leave the
+            # values untouched so that pydantic reports the offending
+            # field, rather than this validator escaping with a bare
+            # KeyError or TypeError.
+            return values
+
+    @classmethod
+    def _clip_values(cls, values: dict[str, Any]) -> dict[str, Any]:
         warn = False
         for key in ["x", "y", "w", "h"]:
             if values[key] < -2 or values[key] > 2:
@@ -835,8 +846,23 @@ class KeypointAnnotation(Annotation):
         if "keypoints" not in values:
             return values
 
+        try:
+            return cls._clip_keypoints(values)
+        except (IndexError, TypeError):
+            # A keypoint is malformed or holds non-numeric coordinates.
+            # Leave the values untouched so that pydantic reports the
+            # offending keypoint instead of this validator escaping.
+            return values
+
+    @classmethod
+    def _clip_keypoints(cls, values: dict[str, Any]) -> dict[str, Any]:
+        # Materialize before inspecting anything: the keypoints may be an
+        # iterator, and bailing out half-way must not hand pydantic a
+        # partly consumed one.
+        keypoints = values["keypoints"] = list(values["keypoints"])
+
         warn = False
-        for i, keypoint in enumerate(values["keypoints"]):
+        for i, keypoint in enumerate(keypoints):
             if (keypoint[0] < -2 or keypoint[0] > 2) or (
                 keypoint[1] < -2 or keypoint[1] > 2
             ):
@@ -851,7 +877,7 @@ class KeypointAnnotation(Annotation):
             if not (0 <= keypoint[1] <= 1):
                 new_keypoint[1] = max(0, min(1, keypoint[1]))
                 warn = True
-            values["keypoints"][i] = tuple(new_keypoint)
+            keypoints[i] = tuple(new_keypoint)
 
         if warn:
             logger.warning(

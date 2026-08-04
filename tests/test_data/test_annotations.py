@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
@@ -722,3 +723,35 @@ def test_parquet_file_manager_adds_missing_metadata_column(
 
     df = pl.read_parquet(parquet_path)
     assert df["sample_metadata"].to_list() == [DEFAULT_METADATA, new_metadata]
+
+
+@pytest.mark.parametrize(
+    ("annotation", "malformed"),
+    [
+        ("boundingbox", {"x": 0.1, "y": 0.1, "w": 0.2}),
+        ("boundingbox", {}),
+        ("boundingbox", {"x": "a", "y": 0.1, "w": 0.2, "h": 0.2}),
+        ("keypoints", {"keypoints": [[0.1]]}),
+        ("keypoints", {"keypoints": "abc"}),
+        ("keypoints", {"keypoints": [["a", "b"]]}),
+    ],
+)
+def test_malformed_annotation_raises_validation_error(
+    annotation: str, malformed: dict
+):
+    """Clipping validators used to index their input unchecked, escaping
+    with a bare ``KeyError``, ``IndexError`` or ``TypeError`` instead of
+    letting pydantic report the offending field.
+    """
+    payload: dict[str, Any] = {annotation: malformed}
+    with pytest.raises(pydantic.ValidationError):
+        Detection(**payload)
+
+
+def test_keypoints_accept_an_iterator():
+    """Clipping used to assign back into the raw input, which fails for
+    an iterator once it has been consumed.
+    """
+    keypoints: Any = iter([(0.5, 1.5, 0), (0.2, 0.3, 1)])
+    ann = KeypointAnnotation(keypoints=keypoints)
+    assert ann.keypoints == [(0.5, 1.0, 0), (0.2, 0.3, 1)]
