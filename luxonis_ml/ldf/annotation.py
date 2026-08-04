@@ -1342,17 +1342,22 @@ class DatasetRecord(BaseModelExtraForbid):
     @model_validator(mode="before")
     @classmethod
     def validate_task_name(cls, values: Any) -> Any:
-        if not isinstance(values, Mapping):
+        if not isinstance(values, Mapping) or "task" not in values:
             return values
-        if "task" not in values:
-            return values
+
+        values = dict(values)
+        task = values.pop("task")
+        if values.get("task_name", task) != task:
+            raise ValueError(
+                "Conflicting values for 'task' and 'task_name'. "
+                "Use only 'task_name'."
+            )
 
         log_once(
             logger.warning,
             "The 'task' field is deprecated. Use 'task_name' instead.",
         )
-        values = dict(values)
-        values["task_name"] = values.pop("task")
+        values["task_name"] = task
         return values
 
     @model_validator(mode="before")
@@ -1369,10 +1374,15 @@ class DatasetRecord(BaseModelExtraForbid):
                 raise ValueError("Provide either 'file' or 'files', not both.")
             values["files"] = {"image": values.pop("file")}
         if "files" in values:
-            files_dict = values["files"]
-            values["files"] = {
-                k: Path(v).absolute() for k, v in files_dict.items()
-            }
+            files = values["files"]
+            # Anything else is left untouched for pydantic to report
+            # against `files` instead of failing on the paths below.
+            if isinstance(files, Mapping) and all(
+                isinstance(path, PathType) for path in files.values()
+            ):
+                values["files"] = {
+                    key: Path(path).absolute() for key, path in files.items()
+                }
         return values
 
     def to_parquet_rows(self) -> Iterable[ParquetRecord]:

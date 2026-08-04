@@ -190,6 +190,46 @@ def test_record_rejects_both_file_and_files(tempdir: Path):
         )
 
 
+@pytest.mark.parametrize(
+    ("record", "location"),
+    [
+        ({"files": [1, 2]}, ("files",)),
+        ({"files": "image.png"}, ("files",)),
+        ({"files": {"image": 5}}, ("files", "image")),
+        ({"file": 5}, ("files", "image")),
+    ],
+)
+def test_malformed_files_are_a_validation_error(
+    record: dict[str, Any], location: tuple[str, ...]
+):
+    """Normalizing the paths used to raise a bare `AttributeError`."""
+    with pytest.raises(pydantic.ValidationError) as info:
+        DatasetRecord(**record)
+    assert info.value.errors()[0]["loc"] == location
+
+
+def test_record_rejects_conflicting_task_and_task_name(tempdir: Path):
+    """The deprecated `task` used to silently win over `task_name`."""
+    (tempdir / "image.png").touch()
+    with pytest.raises(pydantic.ValidationError, match="Conflicting values"):
+        DatasetRecord(
+            file=tempdir / "image.png",  # type: ignore[call-arg]
+            task="detection",  # type: ignore[call-arg]
+            task_name="segmentation",
+        )
+
+
+def test_record_accepts_matching_task_and_task_name(tempdir: Path):
+    (tempdir / "image.png").touch()
+    record = DatasetRecord(
+        file=tempdir / "image.png",  # type: ignore[call-arg]
+        task="detection",  # type: ignore[call-arg]
+        task_name="detection",
+    )
+
+    assert record.task_name == "detection"
+
+
 def test_scale_to_boxes_error_names_the_actual_field():
     with pytest.raises(pydantic.ValidationError, match=r"`scale_to_boxes`"):
         Detection(
