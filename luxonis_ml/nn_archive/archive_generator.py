@@ -65,8 +65,7 @@ class ArchiveGenerator:
         )
 
         self.cfg = Config(  # pydantic config check
-            config_version=cfg_dict["config_version"],
-            model=cfg_dict["model"],
+            config_version=cfg_dict["config_version"], model=cfg_dict["model"]
         )
 
     def make_archive(self) -> Path:
