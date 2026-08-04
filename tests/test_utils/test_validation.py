@@ -63,16 +63,16 @@ def test_suggests_closest_field_name():
 
 
 def test_suggests_closest_nested_field_name():
-    error = catch(Cfg, name="a", resize={"height": 5})
+    error = catch(Cfg, name="a", resize={"heigth": 5})
     assert "did you mean 'height'?" in format_validation_error(
         error, model=Cfg
     )
 
 
 def test_suggests_through_a_list_field():
-    error = catch(Cfg, name="a", stages=[{"width": 5}])
+    error = catch(Cfg, name="a", stages=[{"widht": 5}])
     message = format_validation_error(error, model=Cfg)
-    assert "stages[0].width" in message
+    assert "stages[0].widht" in message
     assert "did you mean 'width'?" in message
 
 

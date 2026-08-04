@@ -11,9 +11,9 @@ from loguru import logger
 from pydantic import ValidationError
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
-from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.utils.enums import ParserIssue, ParserIssueMessage
 from luxonis_ml.enums.enums import DatasetType
+from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils.validation import record_validated_model
 

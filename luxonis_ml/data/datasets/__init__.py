@@ -6,9 +6,8 @@ and provides methods for adding records, defining splits, setting class order
 and keypoint skeletons, merging or cloning datasets, exporting datasets, and
 synchronizing remote media.
 
-The exact annotation payload schemas live in
-`luxonis_ml.data.datasets.annotation`. This package-level documentation focuses
-on dataset lifecycle and storage.
+The exact annotation payload schemas live in `luxonis_ml.ldf.annotation`.
+This package-level documentation focuses on dataset lifecycle and storage.
 
 .. contents:: Table of Contents
    :depth: 2
@@ -157,7 +156,7 @@ target.
 
 See:
     `DatasetRecord` for record validation, `Detection` for payload grouping,
-    and `luxonis_ml.data.datasets.annotation` for detailed annotation schemas.
+    and `luxonis_ml.ldf.annotation` for detailed annotation schemas.
 
 
 Storage Layout
@@ -256,7 +255,7 @@ order.
 
 """
 
-from .annotation import (
+from luxonis_ml.ldf import (
     Annotation,
     ArrayAnnotation,
     BBoxAnnotation,
@@ -269,6 +268,10 @@ from .annotation import (
     SegmentationAnnotation,
     load_annotation,
 )
+
+# Keeps `luxonis_ml.data.datasets.annotation` reachable as an attribute for
+# code that never imports the compatibility module directly.
+from . import annotation as annotation
 from .base_dataset import DATASETS_REGISTRY, BaseDataset, DatasetIterator
 from .luxonis_dataset import LuxonisDataset, UpdateMode
 from .metadata import Metadata
