@@ -4,10 +4,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Literal
 
-from pydantic import ValidationError
-
 from luxonis_ml.typing import PathType
-from luxonis_ml.utils.validation import record_validated_model
 
 from .config import Config
 
@@ -67,14 +64,10 @@ class ArchiveGenerator:
             else f"{archive_name}.tar.{self.compression}"
         )
 
-        try:
-            self.cfg = Config(  # pydantic config check
-                config_version=cfg_dict["config_version"],
-                model=cfg_dict["model"],
-            )
-        except ValidationError as e:
-            record_validated_model(e, Config)
-            raise
+        self.cfg = Config(  # pydantic config check
+            config_version=cfg_dict["config_version"],
+            model=cfg_dict["model"],
+        )
 
     def make_archive(self) -> Path:
         """Generate the NN Archive file.

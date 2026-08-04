@@ -8,14 +8,12 @@ from typing import TYPE_CHECKING, Any
 
 import polars as pl
 from loguru import logger
-from pydantic import ValidationError
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue, ParserIssueMessage
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.typing import PathType
-from luxonis_ml.utils.validation import record_validated_model
 
 if TYPE_CHECKING:
     from luxonis_ml.data import LuxonisDataset
@@ -642,11 +640,7 @@ class BaseParser(ABC):
         """
         for item in generator:
             if isinstance(item, dict):
-                try:
-                    item = DatasetRecord(**item)
-                except ValidationError as e:
-                    record_validated_model(e, DatasetRecord)
-                    raise
+                item = DatasetRecord(**item)
 
             if self._task_name is not None:
                 if item.annotation is None:

@@ -3,13 +3,11 @@ from pathlib import Path, PurePath
 from typing import Any, TypeVar
 
 import yaml
-from pydantic import ValidationError
 from typing_extensions import Self, deprecated
 
 from luxonis_ml.typing import BaseModelExtraForbid, Params, PathType
 
 from .filesystem import LuxonisFileSystem
-from .validation import record_validated_model
 
 T = TypeVar("T", bound="LuxonisConfig")
 
@@ -71,11 +69,7 @@ class LuxonisConfig(BaseModelExtraForbid):
             data = cfg
 
         cls._merge_overrides(data, overrides)
-        try:
-            return cls(**data)  # type: ignore
-        except ValidationError as e:
-            record_validated_model(e, cls)
-            raise
+        return cls(**data)  # type: ignore
 
     def __str__(self) -> str:
         return self.model_dump_json(indent=4)

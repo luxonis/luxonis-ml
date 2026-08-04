@@ -16,7 +16,6 @@ import polars as pl
 import rich.progress
 from filelock import FileLock
 from loguru import logger
-from pydantic import ValidationError
 from rich.progress import Progress
 from semver.version import Version
 from typing_extensions import Self, override
@@ -65,7 +64,6 @@ from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.ldf import Category, DatasetRecord, Detection
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import LuxonisFileSystem, deprecated, environ
-from luxonis_ml.utils.validation import record_validated_model
 
 from .base_dataset import BaseDataset, DatasetIterator
 from .metadata import Metadata
@@ -1344,11 +1342,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         with ParquetFileManager(annotations_path, batch_size) as pfm:
             for i, record in enumerate(generator, start=1):
                 if not isinstance(record, DatasetRecord):
-                    try:
-                        record = DatasetRecord(**record)
-                    except ValidationError as e:
-                        record_validated_model(e, DatasetRecord)
-                        raise
+                    record = DatasetRecord(**record)
                 sources.update(record.files.keys())
                 ann = record.annotation
                 if ann is not None:

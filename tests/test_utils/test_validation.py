@@ -2,9 +2,9 @@ import io
 import json
 import sys
 import tarfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 import pytest
@@ -23,7 +23,6 @@ from luxonis_ml.utils.validation import (
     format_validation_error,
     install_excepthook,
     iter_validation_problems,
-    record_validated_model,
     render_validation_error,
 )
 
@@ -49,6 +48,22 @@ def catch(model: type[BaseModel], **data) -> ValidationError:
     with pytest.raises(ValidationError) as info:
         model(**data)
     return info.value
+
+
+def catch_anonymous(model: type[BaseModel], **data) -> ValidationError:
+    """Catch an error the formatter cannot trace back to its model.
+
+    `TypeAdapter` validates from a frame of its own, so nothing in the
+    traceback names the model — the same position the formatter is in when
+    the error is handed to it by third-party code.
+    """
+    with pytest.raises(ValidationError) as info:
+        TypeAdapter(model).validate_python(data)
+    return info.value
+
+
+Catcher = Callable[..., ValidationError]
+CATCHERS: list[Catcher] = [catch, catch_anonymous]
 
 
 def missing_letter(word: str, index: int) -> str:
@@ -108,7 +123,7 @@ def test_suggests_literal_value():
 
 
 def test_no_suggestion_without_model():
-    message = format_validation_error(catch(Cfg, name="a", epocs=1))
+    message = format_validation_error(catch_anonymous(Cfg, name="a", epocs=1))
     assert "unexpected field 'epocs'" in message
     assert "did you mean" not in message
 
@@ -133,10 +148,46 @@ def test_long_values_are_truncated():
     assert max(map(len, message.splitlines())) < 120
 
 
-def test_record_validated_model_enables_suggestions():
+def test_model_is_recovered_from_the_traceback():
     error = catch(Cfg, name="a", epocs=1)
-    assert record_validated_model(error, Cfg) is error
     assert "did you mean 'epochs'?" in format_validation_error(error)
+
+
+def test_model_is_recovered_through_intervening_frames():
+    """The pydantic frame is the innermost one, however deep in the call
+    stack the validation happened.
+    """
+
+    def build(**data: Any) -> Cfg:
+        return Cfg(**data)
+
+    def call_build() -> Cfg:
+        return build(name="a", epocs=1)
+
+    with pytest.raises(ValidationError) as info:
+        call_build()
+
+    assert "did you mean 'epochs'?" in format_validation_error(info.value)
+
+
+def test_an_unrelated_model_in_the_caller_is_not_recovered():
+    """Only pydantic's own frames are searched. A caller that happens to be
+    a model would otherwise be mistaken for the one that failed, and would
+    answer the misspelling with a field name of its own.
+    """
+
+    class Bystander(BaseModel):
+        epoch: int = 0
+
+        def validate_something(self) -> None:
+            TypeAdapter(Cfg).validate_python({"name": "a", "epocs": 1})
+
+    with pytest.raises(ValidationError) as info:
+        Bystander().validate_something()
+
+    message = format_validation_error(info.value)
+    assert "unexpected field 'epocs'" in message
+    assert "did you mean" not in message
 
 
 class Sub(BaseModel):
@@ -174,10 +225,10 @@ class Siblings(BaseModel):
     q: int
 
 
-@pytest.mark.parametrize("model", [Siblings, None])
-def test_sibling_fields_are_not_collapsed(model: type[BaseModel] | None):
-    error = catch(Siblings, p="a", q="a")
-    problems = list(iter_validation_problems(error, model=model))
+@pytest.mark.parametrize("catcher", CATCHERS)
+def test_sibling_fields_are_not_collapsed(catcher: Catcher):
+    error = catcher(Siblings, p="a", q="a")
+    problems = list(iter_validation_problems(error))
     assert [problem.location for problem in problems] == ["p", "q"]
     assert all("allowed types" not in p.message for p in problems)
 
@@ -271,17 +322,17 @@ class Sources(BaseModel):
     files: dict[str, int]
 
 
-@pytest.mark.parametrize("model", [Sources, None])
-def test_mapping_entries_are_not_collapsed(model: type[BaseModel] | None):
-    error = catch(Sources, files={"CAM_A": "x", "CAM_B": "x"})
-    problems = list(iter_validation_problems(error, model=model))
+@pytest.mark.parametrize("catcher", CATCHERS)
+def test_mapping_entries_are_not_collapsed(catcher: Catcher):
+    error = catcher(Sources, files={"CAM_A": "x", "CAM_B": "x"})
+    problems = list(iter_validation_problems(error))
 
     assert [p.location for p in problems] == ["files.CAM_A", "files.CAM_B"]
     assert all("allowed types" not in p.message for p in problems)
 
 
 def test_mapping_keys_named_after_a_type_are_not_collapsed():
-    error = catch(Sources, files={"path": "x", "none": "y"})
+    error = catch_anonymous(Sources, files={"path": "x", "none": "y"})
     problems = list(iter_validation_problems(error))
 
     assert [p.location for p in problems] == ["files.path", "files.none"]
@@ -292,12 +343,10 @@ class Bracketed(BaseModel):
     files: dict[str, Resize]
 
 
-@pytest.mark.parametrize("model", [Bracketed, None])
-def test_mapping_keys_with_brackets_stay_in_the_location(
-    model: type[BaseModel] | None,
-):
-    error = catch(Bracketed, files={"img[1].png": {"height": "x"}})
-    (problem,) = iter_validation_problems(error, model=model)
+@pytest.mark.parametrize("catcher", CATCHERS)
+def test_mapping_keys_with_brackets_stay_in_the_location(catcher: Catcher):
+    error = catcher(Bracketed, files={"img[1].png": {"height": "x"}})
+    (problem,) = iter_validation_problems(error)
 
     assert problem.location == "files.img[1].png.height"
 

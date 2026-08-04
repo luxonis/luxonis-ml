@@ -17,12 +17,14 @@ Example:
         try:
             MyModel(**data)
         except ValidationError as e:
-            Console().print(render_validation_error(e, model=MyModel))
+            Console().print(render_validation_error(e))
 
-Passing ``model`` is optional but recommended: knowing the model lets the
-formatter tell a field name from a mapping key or from one of pydantic's
-internal union member tags, and suggest the closest valid field name for a
-misspelled key.
+The model that failed is recovered from the error's own traceback. Knowing
+it lets the formatter tell a field name from a mapping key or from one of
+pydantic's internal union member tags, and suggest the closest valid field
+name for a misspelled key. Pass ``model`` explicitly for an error that
+arrives without its traceback, or one raised by a `pydantic.TypeAdapter`,
+which validates something that need not be a model at all.
 
 .. _rich:
     https://rich.readthedocs.io/en/stable/
@@ -50,11 +52,9 @@ __all__ = [
     "format_validation_error",
     "install_excepthook",
     "iter_validation_problems",
-    "record_validated_model",
     "render_validation_error",
 ]
 
-_MODEL_ATTR = "_luxonis_validated_model"
 _HOOK_ATTR = "_luxonis_validation_hook"
 _MAX_VALUE_LENGTH = 70
 _SUGGESTION_CUTOFF = 0.75
@@ -129,37 +129,6 @@ class ValidationProblem:
     value: str | None = None
 
 
-def record_validated_model(
-    error: ValidationError, model: type[BaseModel]
-) -> ValidationError:
-    """Remember which model produced ``error`` and return it unchanged.
-
-    Call sites that catch a `ValidationError` only to re-raise it can use
-    this to pass the model along, so that a later `format_validation_error`
-    call, including the one made by the exception hook, can suggest valid
-    field names.
-
-    Args:
-        error: The caught validation error.
-        model: The model class that was being validated.
-
-    Returns:
-        The very same ``error`` object, so it can be re-raised directly.
-
-    Example:
-        .. code-block:: python
-
-            try:
-                record = DatasetRecord(**data)
-            except ValidationError as e:
-                record_validated_model(e, DatasetRecord)
-                raise
-
-    """
-    setattr(error, _MODEL_ATTR, model)
-    return error
-
-
 def format_validation_error(
     error: ValidationError,
     *,
@@ -172,7 +141,7 @@ def format_validation_error(
         error: The validation error to format.
         model: Model that was validated. Used to resolve error locations
             and to suggest valid field names for misspelled keys. Defaults
-            to the model recorded by `record_validated_model`, if any.
+            to the model recovered from the error's traceback.
         title: Headline for the message. Defaults to a line naming the
             model that failed to validate.
 
@@ -209,7 +178,7 @@ def render_validation_error(
         error: The validation error to render.
         model: Model that was validated. Used to resolve error locations
             and to suggest valid field names for misspelled keys. Defaults
-            to the model recorded by `record_validated_model`, if any.
+            to the model recovered from the error's traceback.
         title: Headline shown in the panel border. Defaults to a line
             naming the model that failed to validate.
 
@@ -268,13 +237,13 @@ def iter_validation_problems(
         error: The validation error to inspect.
         model: Model that was validated. Used to resolve error locations
             and to suggest valid field names for misspelled keys. Defaults
-            to the model recorded by `record_validated_model`, if any.
+            to the model recovered from the error's traceback.
 
     Yields:
         One problem per distinct validation failure.
 
     """
-    model = model or getattr(error, _MODEL_ATTR, None)
+    model = model or _validated_model(error)
     seen: set[tuple[str, str]] = set()
     for group in _group_union_errors(error.errors(), model):
         problem = _to_problem(group, model)
@@ -317,6 +286,33 @@ def install_excepthook(*, use_rich: bool = True) -> None:
 
     setattr(hook, _HOOK_ATTR, True)
     sys.excepthook = hook
+
+
+def _validated_model(error: ValidationError) -> type[BaseModel] | None:
+    """Recover the model that raised ``error`` from its traceback.
+
+    Pydantic enters its Rust validator from a single Python frame, and that
+    frame still holds the model — as ``cls`` for `BaseModel.model_validate`
+    and its siblings, as ``self`` for ``Model(**data)``. Only pydantic's own
+    frames are searched, so a model that merely happens to be the ``self``
+    of a calling method cannot be mistaken for the one being validated, and
+    the innermost match wins. A `pydantic.TypeAdapter` yields nothing, since
+    what it validates need not be a model at all.
+    """
+    found: type[BaseModel] | None = None
+    traceback = error.__traceback__
+    while traceback is not None:
+        frame = traceback.tb_frame
+        if frame.f_globals.get("__name__", "").startswith("pydantic"):
+            for name in ("cls", "self"):
+                owner = frame.f_locals.get(name)
+                if isinstance(owner, BaseModel):
+                    owner = type(owner)
+                if isinstance(owner, type) and issubclass(owner, BaseModel):
+                    found = owner
+                    break
+        traceback = traceback.tb_next
+    return found
 
 
 def _default_title(
