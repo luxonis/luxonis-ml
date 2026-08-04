@@ -16,7 +16,6 @@ import cv2
 import numpy as np
 import rich.box
 from cyclopts import App, Group, Parameter, validators
-from loguru import logger
 from rich import print
 from rich.console import Console
 from rich.prompt import Confirm
@@ -757,10 +756,6 @@ def inspect(
         Parameter(group=_VISUALIZATION_OPTIONS),
     ] = None,
     prefetch: Annotated[int, Parameter(group=_VIEWER_OPTIONS)] = 2,
-    list_augmentations: Annotated[
-        bool,
-        Parameter(negative="", group=_AUGMENTATION_OPTIONS),
-    ] = True,
     skeletons: Annotated[
         bool,
         Parameter(negative="", group=_KEYPOINT_OPTIONS),
@@ -897,8 +892,6 @@ def inspect(
         prefetch: Number of fully rendered samples to keep in a bounded
             background queue while the interactive viewer is open. Set to zero
             to disable render-ahead.
-        list_augmentations: Show the augmentations applied to each
-            displayed image. Requires '--aug-config' to be set.
         skeletons: Draw keypoint skeleton edges.
         keypoint_labels: Specify how to draw keypoint labels.
         legend: Draw a class or task color key on each image. Ignored in
@@ -972,12 +965,6 @@ def inspect(
 
     """
     check_exists(name, bucket_storage)
-    if list_augmentations and aug_config is None:
-        logger.warning(
-            "The '--list-augmentations' option requires "
-            "'--aug-config' to be set. No augmentations will be listed."
-        )
-        list_augmentations = False
 
     view = view or ["train"]
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
@@ -1308,9 +1295,7 @@ def inspect(
             if sample_metadata
             else {}
         )
-        if list_augmentations and tracked_augmentations:
-            # The name is the row; the parameters it sampled this sample are
-            # its hover detail, so the list stays as short as the names.
+        if tracked_augmentations:
             panel["augmentations"] = Hints(
                 tuple(tracked_augmentations.items())
             )
