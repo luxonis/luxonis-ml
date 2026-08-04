@@ -7,7 +7,7 @@ This module turns such an error into a short list of `ValidationProblem`
 entries and renders them either as plain text or as a `rich`_ panel.
 
 Example:
-    Render a failed validation as a panel::
+    .. python::
 
         from pydantic import ValidationError
         from rich.console import Console
