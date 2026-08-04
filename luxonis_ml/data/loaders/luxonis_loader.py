@@ -6,7 +6,7 @@ from collections import defaultdict, deque
 from collections.abc import Sequence
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
 import cv2
 import numpy as np
@@ -491,10 +491,9 @@ class LuxonisLoader(BaseLoader):
         labels_by_task: dict[str, list[Annotation]] = defaultdict(list)
         class_ids_by_task: dict[str, list[int]] = defaultdict(list)
         instance_ids_by_task: dict[str, list[int]] = defaultdict(list)
-        metadata_by_task: dict[str, list[str | int | float | Category]] = (
-            defaultdict(list)
-        )
-        metadata_instance_ids_by_task: dict[str, list[int]] = defaultdict(list)
+        metadata_by_task: dict[
+            str, list[tuple[str | int | float | Category, int]]
+        ] = defaultdict(list)
 
         for annotation_data in ann_rows:
             task_name: str = annotation_data[col["task_name"]]
@@ -513,10 +512,7 @@ class LuxonisLoader(BaseLoader):
                 data["path"] = self.dataset._arrays_path / data["path"]
 
             if task_type.startswith("metadata/"):
-                metadata_by_task[full_task_name].append(data)
-                metadata_instance_ids_by_task[full_task_name].append(
-                    instance_id
-                )
+                metadata_by_task[full_task_name].append((data, instance_id))
             else:  # pragma: no cover
                 # Conversion from LDF v1.0
                 if "points" in data and "width" not in data:
@@ -537,12 +533,13 @@ class LuxonisLoader(BaseLoader):
 
         labels: Labels = {}
         encodings = self.dataset.get_categorical_encodings()
-        for task, metadata in metadata_by_task.items():
+        for task, metadata_rows in metadata_by_task.items():
+            metadata = [value for value, _ in metadata_rows]
             if not self._keep_categorical_as_strings and task in encodings:
                 metadata = [encodings[task][m] for m in metadata]  # type: ignore
             labels[task] = _align_metadata_to_instances(
                 metadata,
-                metadata_instance_ids_by_task[task],
+                [instance_id for _, instance_id in metadata_rows],
                 _spatial_instance_order(task, instance_ids_by_task),
             )
 
@@ -550,12 +547,17 @@ class LuxonisLoader(BaseLoader):
             assert anns, f"No annotations found for task {task_name}"
             instance_ids = instance_ids_by_task[task]
 
-            # Class ids must follow the annotations they belong to, otherwise
-            # sorting the geometry alone hands each instance its neighbor's
-            # class.
-            order = sorted(range(len(anns)), key=lambda i: instance_ids[i])
-            anns = [anns[i] for i in order]
-            class_ids = [class_ids_by_task[task][i] for i in order]
+            rows = sorted(
+                zip(
+                    instance_ids,
+                    anns,
+                    class_ids_by_task[task],
+                    strict=True,
+                ),
+                key=lambda row: row[0],
+            )
+            anns = [ann for _, ann, _ in rows]
+            class_ids = [class_id for _, _, class_id in rows]
 
             task_name, task_type = split_task(task)
             array = anns[0].combine_to_numpy(
@@ -798,25 +800,12 @@ class LuxonisLoader(BaseLoader):
         return idx_to_img_paths
 
 
-_INSTANCE_ORDER_TASK_TYPES = (
-    "boundingbox",
-    "instance_segmentation",
-    "keypoints",
-)
-
-
 def _spatial_instance_order(
     metadata_task: str, instance_ids_by_task: dict[str, list[int]]
 ) -> list[int] | None:
-    """Return the row order of the spatial labels a metadata task aligns to.
-
-    Spatial labels are sorted by instance id, so their row order is simply the
-    sorted instance ids of whichever spatial task the parent has. Returns
-    ``None`` when the parent has none, which is a metadata-only task such as
-    OCR text.
-    """
+    """Return the spatial row order for a metadata task."""
     task_name = metadata_task[: -len(f"/{get_task_type(metadata_task)}")]
-    for task_type in _INSTANCE_ORDER_TASK_TYPES:
+    for task_type in ("boundingbox", "instance_segmentation", "keypoints"):
         instance_ids = instance_ids_by_task.get(f"{task_name}/{task_type}")
         if instance_ids:
             return sorted(instance_ids)
@@ -828,18 +817,7 @@ def _align_metadata_to_instances(
     value_instance_ids: list[int],
     instance_order: list[int] | None,
 ) -> np.ndarray:
-    """Row-align one metadata field with its task's spatial labels.
-
-    Each value goes to the row its instance occupies in the sorted spatial
-    labels, and instances that do not carry the field get ``None``. Without
-    this, a field present on only some instances -- or a record whose instance
-    ids are not in source order -- pairs values with the wrong instance
-    downstream. Repeated instance ids, including the default ``-1``, take rows
-    in source order.
-
-    Padding forces ``object`` dtype; a field every instance carries keeps its
-    natural one.
-    """
+    """Align metadata values with their instances' spatial rows."""
     if instance_order is None:
         order = sorted(range(len(values)), key=lambda i: value_instance_ids[i])
         return np.array([values[i] for i in order])
@@ -848,12 +826,13 @@ def _align_metadata_to_instances(
     for row, instance_id in enumerate(instance_order):
         free_rows[instance_id].append(row)
 
-    aligned: list[Any] = [None] * len(instance_order)
+    aligned: list[str | int | float | Category | None] = [None] * len(
+        instance_order
+    )
     for value, instance_id in zip(values, value_instance_ids, strict=True):
-        rows = free_rows[instance_id]
+        rows = free_rows.get(instance_id)
         if not rows:
-            # The value belongs to an instance with no spatial row, so no
-            # alignment exists. Keep the field dense rather than drop it.
+            # This field has no compatible spatial layout to align against.
             return np.array(values)
         aligned[rows.popleft()] = value
 

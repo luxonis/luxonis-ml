@@ -278,11 +278,8 @@ def _decode_metadata(
         for i, value in enumerate(values):
             item = value.item() if hasattr(value, "item") else value
             if item is None:
-                # A padded row: this instance does not carry the field.
                 continue
             if decoder is not None and isinstance(item, (int, float)):
-                # A loader built with ``keep_categorical_as_strings`` already
-                # hands back the name, so only encoded ids are decoded.
                 item = decoder.get(int(item), item)
             if isinstance(item, (str, int, float, Category)):
                 per_instance[i][key] = item

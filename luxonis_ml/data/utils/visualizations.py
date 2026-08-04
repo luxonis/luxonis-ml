@@ -754,7 +754,6 @@ def visualize(
         if len(values) == 0:
             continue
 
-        # Instances that do not carry the field are padded with ``None``.
         formatted_values = [
             format_metadata_value(task, value)
             for value in values

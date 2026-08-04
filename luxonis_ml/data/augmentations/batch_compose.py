@@ -252,8 +252,7 @@ class BatchCompose(A.Compose):
                 shape = (bbox_counts[i], *template.shape[1:])
 
             if template.dtype == object:
-                # Metadata padded for absent instances marks them with
-                # ``None``; a zero would read as a real value.
+                # Zero is valid metadata, so missing values need their own sentinel.
                 values[i] = np.full(shape, None, dtype=object)
             else:
                 values[i] = np.zeros(shape, dtype=template.dtype)
