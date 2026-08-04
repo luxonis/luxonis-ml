@@ -1273,11 +1273,8 @@ class DatasetRecord(BaseModelExtraForbid):
     Attributes:
         files: File paths keyed by source name.
         annotation: Optional detections associated with the dataset record.
-            Validation also accepts a single `Detection` and stores it as a
-            one-element list, so the model always carries ``list[Detection]``.
-            Reading the field therefore always yields a list, even for a
-            record constructed from a single `Detection` — reach for
-            ``record.annotation[0]`` where a single detection is expected.
+            A single `Detection` is accepted as well and stored as a
+            one-element list, so reading the field always yields a list.
         task_name: The name of the task to which the record belongs.
         sample_metadata: JSON-like metadata for the whole sample. Values
             should be JSON-serializable. Missing metadata defaults to an empty
@@ -1313,18 +1310,6 @@ class DatasetRecord(BaseModelExtraForbid):
     annotation: list[Detection] | None = None
     task_name: str = ""
     sample_metadata: Params = Field(default_factory=dict)
-
-    def _annotations(self) -> list[Detection]:
-        """Return this record's detections as a list.
-
-        ``annotation`` is ``None`` on an annotation-free record; this
-        normalizes it to an empty list for iteration.
-
-        Returns:
-            The record's detections (empty when there is no annotation).
-
-        """
-        return self.annotation or []
 
     @property
     def file(self) -> FilePath:
@@ -1405,7 +1390,6 @@ class DatasetRecord(BaseModelExtraForbid):
     @field_validator("annotation", mode="before")
     @classmethod
     def validate_annotation(cls, value: Any) -> Any:
-        # Tuples pass through: pydantic itself coerces them to a list.
         if value is None or isinstance(value, (list, tuple)):
             return value
         return [value]
@@ -1414,59 +1398,47 @@ class DatasetRecord(BaseModelExtraForbid):
         """Recursively convert the dataset record and all its
         annotations and sub-annotations to parquet rows.
 
-        Every detection in ``annotation`` is flattened into the same parquet
-        rows, so the on-disk format does not depend on how the record was
-        grouped. Each secondary media source still receives exactly one
-        null-annotation row (not one per detection).
+        All detections are flattened into the rows of the main source; each
+        secondary source gets a single row with no annotation.
 
         Yields:
             Annotation data rows.
 
         """
-        annotations = self._annotations()
+        annotations = self.annotation or []
         sample_metadata = json.dumps(self.sample_metadata)
 
         file_items = sorted(self.files.items(), key=lambda x: str(x[1]))
         for i, (source, file_path) in enumerate(file_items):
             is_main = i == 0
-            if not is_main or not annotations:
-                yield self._null_row(
-                    source, file_path, self.task_name, sample_metadata
-                )
+
+            if not annotations or not is_main:
+                yield {
+                    "file": str(file_path),
+                    "source_name": source,
+                    "task_name": self.task_name,
+                    "class_name": None,
+                    "instance_id": None,
+                    "task_type": None,
+                    "annotation": None,
+                    "sample_metadata": sample_metadata,
+                }
             else:
                 for annotation in annotations:
                     yield from self._detection_rows(
                         annotation,
+                        self.task_name,
                         source,
                         file_path,
-                        self.task_name,
                         sample_metadata,
                     )
-
-    @staticmethod
-    def _null_row(
-        source: str,
-        file_path: FilePath,
-        task_name: str,
-        sample_metadata: str,
-    ) -> ParquetRecord:
-        return {
-            "file": str(file_path),
-            "source_name": source,
-            "task_name": task_name,
-            "class_name": None,
-            "instance_id": None,
-            "task_type": None,
-            "annotation": None,
-            "sample_metadata": sample_metadata,
-        }
 
     def _detection_rows(
         self,
         annotation: Detection,
+        task_name: str,
         source: str,
         file_path: FilePath,
-        task_name: str,
         sample_metadata: str,
     ) -> Iterable[ParquetRecord]:
         def row(task_type: str, payload: str) -> ParquetRecord:
@@ -1492,9 +1464,9 @@ class DatasetRecord(BaseModelExtraForbid):
         for name, detection in annotation.sub_detections.items():
             yield from self._detection_rows(
                 detection,
+                f"{task_name}/{name}",
                 source,
                 file_path,
-                f"{task_name}/{name}",
                 sample_metadata,
             )
 

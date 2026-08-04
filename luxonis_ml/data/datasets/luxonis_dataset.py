@@ -1175,7 +1175,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         uuid_dict = {}
         for record in data_batch:
             self._progress.update(task, advance=1)
-            for detection in record._annotations():
+            for detection in record.annotation or []:
                 if detection.array is None:
                     continue
                 ann = detection.array
@@ -1316,9 +1316,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         Raises:
             ValueError: If the records yielded by the generator are not in the expected format.
             ValueError: If the dataset contains metadata annotations with conflicting types.
-            ValueError: If a record without a ``task_name`` holds annotations
-                whose classes belong to different existing tasks, so no single
-                task can be inferred.
+            ValueError: If a record without a task name has annotations from different tasks.
 
         """
         logger.info(f"Adding data to dataset '{self._dataset_name}'...")
@@ -1348,7 +1346,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 if not isinstance(record, DatasetRecord):
                     record = DatasetRecord(**record)
                 sources.update(record.files.keys())
-                anns = record._annotations()
+                anns = record.annotation
                 if anns:
                     if not record.task_name:
                         current_classes = self.get_classes()
@@ -1363,10 +1361,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                         }
                         if len(inferred) > 1:
                             raise ValueError(
-                                "Cannot infer a single task for a record "
-                                "whose annotation classes belong to "
-                                f"different tasks: {sorted(inferred)}. "
-                                "Pass an explicit `task_name` to the record."
+                                "Classes of the record's annotations belong "
+                                f"to different tasks: {sorted(inferred)}. "
+                                "Provide an explicit 'task_name'."
                             )
                         if inferred:
                             record.task_name = inferred.pop()

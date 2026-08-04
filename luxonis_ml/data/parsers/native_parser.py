@@ -59,8 +59,7 @@ class NativeParser(BaseParser):
     the resulting `DatasetRecord`. It is distinct from
     ``annotation["metadata"]``, which creates metadata label tasks.
 
-    ``annotation`` accepts either a single detection or a list of them, in
-    line with `DatasetRecord.annotation`.
+    ``annotation`` may be a single detection or a list of them.
 
     Example ``annotations.json`` entry:
 

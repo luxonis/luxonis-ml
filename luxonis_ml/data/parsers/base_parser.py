@@ -646,9 +646,8 @@ class BaseParser(ABC):
 
             if self._task_name is not None:
                 if not item.annotation:
-                    # A single task name is stored in a `defaultdict` that
-                    # only fills as annotated records look their classes up,
-                    # so its values cannot stand in for it here.
+                    # A single task name fills its `defaultdict` only as
+                    # annotated records look their classes up.
                     task_names = (
                         [self._default_task_name]
                         if self._default_task_name is not None
@@ -659,7 +658,7 @@ class BaseParser(ABC):
                             update={"task_name": task_name}, deep=True
                         )
                 else:
-                    grouped_annotations: dict[str, list[Detection]] = {}
+                    by_task: dict[str, list[Detection]] = defaultdict(list)
                     for annotation in item.annotation:
                         class_name = annotation.class_name
                         task_name = item.task_name
@@ -670,11 +669,9 @@ class BaseParser(ABC):
                                 raise ValueError(
                                     f"Class '{class_name}' not found in task names."
                                 ) from None
-                        grouped_annotations.setdefault(task_name, []).append(
-                            annotation
-                        )
+                        by_task[task_name].append(annotation)
 
-                    for task_name, annotations in grouped_annotations.items():
+                    for task_name, annotations in by_task.items():
                         yield item.model_copy(
                             update={
                                 "annotation": annotations,

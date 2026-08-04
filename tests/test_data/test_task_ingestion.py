@@ -275,9 +275,8 @@ def test_list_annotation_task_inference(
             ],
         }
 
-    # "cat" and "car" live in different tasks; inferring the record's task
-    # from the first detection alone would silently file the car under
-    # "animals" and pollute that task's classes.
+    # Inferring the task from the first detection alone would file the car
+    # under "animals" and pollute that task's classes.
     with pytest.raises(ValueError, match="different tasks"):
         dataset.add(mixed())
 

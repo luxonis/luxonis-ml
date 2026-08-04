@@ -21,11 +21,12 @@ def depth(tmp_path: Path) -> str:
     return str(path)
 
 
-def _car() -> Detection:
+def _car(**kwargs) -> Detection:
     return Detection(
         class_name="car",
         instance_id=0,
-        boundingbox={"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},  # type: ignore
+        boundingbox={"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},  # type: ignore[arg-type]
+        **kwargs,
     )
 
 
@@ -33,81 +34,81 @@ def _person() -> Detection:
     return Detection(
         class_name="person",
         instance_id=1,
-        boundingbox={"x": 0.5, "y": 0.5, "w": 0.2, "h": 0.2},  # type: ignore
-        keypoints={"keypoints": [(0.5, 0.5, 2)]},  # type: ignore
+        boundingbox={"x": 0.5, "y": 0.5, "w": 0.2, "h": 0.2},  # type: ignore[arg-type]
+        keypoints={"keypoints": [(0.5, 0.5, 2)]},  # type: ignore[arg-type]
     )
+
+
+def test_single_detection_is_stored_as_a_list(image: str):
+    car = _car()
+    record = DatasetRecord(file=image, annotation=car)  # type: ignore[call-arg]
+
+    assert record.annotation == [car]
 
 
 def test_single_detection_equals_singleton_list(image: str):
     """A single `Detection` and a length-1 list produce identical rows."""
-    single = DatasetRecord(file=image, annotation=_car(), task_name="t")  # type: ignore
-    listed = DatasetRecord(file=image, annotation=[_car()], task_name="t")  # type: ignore
+    single = DatasetRecord(file=image, annotation=_car(), task_name="t")  # type: ignore[call-arg]
+    listed = DatasetRecord(file=image, annotation=[_car()], task_name="t")  # type: ignore[call-arg]
+
     assert list(single.to_parquet_rows()) == list(listed.to_parquet_rows())
 
 
 def test_list_flattens_all_detections(image: str):
-    record = DatasetRecord(  # type: ignore
-        file=image,  # type: ignore
+    record = DatasetRecord(
+        file=image,  # type: ignore[call-arg]
         annotation=[_car(), _person()],
         task_name="t",
     )
-    rows = list(record.to_parquet_rows())
-    pairs = {(r["class_name"], r["task_type"]) for r in rows}
-    assert ("car", "boundingbox") in pairs
-    assert ("person", "boundingbox") in pairs
-    assert ("person", "keypoints") in pairs
+
+    rows = record.to_parquet_rows()
+    assert {(row["class_name"], row["task_type"]) for row in rows} == {
+        ("car", "boundingbox"),
+        ("car", "classification"),
+        ("person", "boundingbox"),
+        ("person", "keypoints"),
+        ("person", "classification"),
+    }
 
 
 def test_secondary_source_gets_one_null_row_per_source(image: str, depth: str):
-    """Each secondary source gets exactly one null row, not one per detection."""
+    """Each secondary source gets one null row, not one per detection."""
     record = DatasetRecord(
-        files={"image": image, "depth": depth},  # type: ignore
+        files={"image": image, "depth": depth},  # type: ignore[dict-item]
         annotation=[_car(), _person()],
         task_name="t",
     )
-    rows = list(record.to_parquet_rows())
+
     # `image` sorts before `depth`, so `image` is the main source.
-    null_rows = [r for r in rows if r["task_type"] is None]
+    null_rows = [
+        row for row in record.to_parquet_rows() if row["task_type"] is None
+    ]
+
     assert len(null_rows) == 1
     assert null_rows[0]["source_name"] == "depth"
-    assert not any(r["source_name"] == "image" for r in null_rows)
 
 
 def test_sub_detections_do_not_repeat_secondary_source_rows(
     image: str, depth: str
 ):
-    car = _car()
-    car.sub_detections = {
-        "occupant": Detection(
-            class_name="person",
-            boundingbox={"x": 0.2, "y": 0.2, "w": 0.1, "h": 0.1},  # type: ignore
-        )
-    }
+    car = _car(
+        sub_detections={
+            "occupant": Detection(
+                class_name="person",
+                boundingbox={"x": 0.2, "y": 0.2, "w": 0.1, "h": 0.1},  # type: ignore[arg-type]
+            )
+        }
+    )
     record = DatasetRecord(
-        files={"image": image, "depth": depth},  # type: ignore
+        files={"image": image, "depth": depth},  # type: ignore[dict-item]
         annotation=[car, _person()],
         task_name="t",
     )
 
     rows = list(record.to_parquet_rows())
     null_rows = [row for row in rows if row["task_type"] is None]
+    nested = [row for row in rows if row["task_name"] == "t/occupant"]
 
     assert len(null_rows) == 1
     assert null_rows[0]["source_name"] == "depth"
-    nested = [row for row in rows if row["task_name"] == "t/occupant"]
-    assert nested
     assert {row["source_name"] for row in nested} == {"image"}
-
-
-def test_annotations_helper_normalizes(image: str):
-    assert DatasetRecord(file=image)._annotations() == []  # type: ignore
-    car = _car()
-    assert DatasetRecord(file=image, annotation=car)._annotations() == [car]  # type: ignore
-    assert DatasetRecord(file=image, annotation=[car])._annotations() == [car]  # type: ignore
-
-
-def test_single_detection_is_stored_as_a_list(image: str):
-    """The field is list-only; validation upgrades a lone detection."""
-    car = _car()
-    record = DatasetRecord(file=image, annotation=car, task_name="t")  # type: ignore
-    assert record.annotation == [car]

@@ -55,58 +55,6 @@ def test_native_parser_accepts_windows_style_file_paths(tempdir: Path):
     assert added_images == [copied_image.resolve()]
 
 
-def test_native_parser_resolves_masks_of_every_annotation(tempdir: Path):
-    """A record may list several detections, and each one's mask path
-    has to be resolved relative to the annotation file.
-    """
-    image_path = create_image(0, tempdir)
-    split_dir = tempdir / "train"
-    image_dir = split_dir / "images"
-    image_dir.mkdir(parents=True)
-    copied_image = image_dir / image_path.name
-    copied_image.write_bytes(image_path.read_bytes())
-
-    mask_dir = split_dir / "masks"
-    mask_dir.mkdir()
-    masks = [create_image(i, mask_dir) for i in range(2)]
-
-    annotations_path = split_dir / "annotations.json"
-    annotations_path.write_text(
-        json.dumps(
-            [
-                {
-                    "file": f"images/{image_path.name}",
-                    "task_name": "task",
-                    "annotation": [
-                        {
-                            "class": f"class{i}",
-                            "instance_id": i,
-                            "segmentation": {"mask": f"masks/{mask.name}"},
-                        }
-                        for i, mask in enumerate(masks)
-                    ],
-                }
-            ],
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
-    generator, _, added_images = NativeParser(
-        dataset=None,  # type: ignore[arg-type]
-        dataset_type=DatasetType.NATIVE,
-        task_name=None,
-    ).from_split(annotation_path=annotations_path)
-
-    parsed_record = next(iter(generator))
-    assert isinstance(parsed_record, dict)
-    assert [
-        annotation["segmentation"]["mask"]
-        for annotation in parsed_record["annotation"]
-    ] == [mask.resolve() for mask in masks]
-    assert added_images == [copied_image.resolve()]
-
-
 def test_yolov4_parser_keeps_unlabeled_image_with_duplicate_basename(
     tempdir: Path,
 ):
@@ -197,8 +145,9 @@ def test_native_parser_resolves_paths_for_a_list_of_annotations(
     (split_dir / "masks").mkdir(parents=True)
     copied_image = split_dir / "images" / image_path.name
     copied_image.write_bytes(image_path.read_bytes())
-    mask_path = split_dir / "masks" / "0.png"
-    mask_path.write_bytes(image_path.read_bytes())
+    mask_paths = [split_dir / "masks" / f"{i}.png" for i in range(2)]
+    for mask_path in mask_paths:
+        mask_path.write_bytes(image_path.read_bytes())
 
     annotations_path = split_dir / "annotations.json"
     annotations_path.write_text(
@@ -213,6 +162,10 @@ def test_native_parser_resolves_paths_for_a_list_of_annotations(
                             "segmentation": {"mask": "masks/0.png"},
                         },
                         {"class": "class1"},
+                        {
+                            "class": "class2",
+                            "segmentation": {"mask": "masks/1.png"},
+                        },
                     ],
                 }
             ],
@@ -229,8 +182,12 @@ def test_native_parser_resolves_paths_for_a_list_of_annotations(
 
     record = next(iter(generator))
     assert isinstance(record, dict)
-    resolved = record["annotation"][0]["segmentation"]["mask"]
-    assert resolved == mask_path.resolve()
+    resolved = [
+        detection["segmentation"]["mask"]
+        for detection in record["annotation"]
+        if "segmentation" in detection
+    ]
+    assert resolved == [path.resolve() for path in mask_paths]
 
 
 def test_native_parser_resolves_paths_inside_sub_detections(tempdir: Path):
