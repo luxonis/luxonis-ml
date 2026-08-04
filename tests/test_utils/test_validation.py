@@ -2,7 +2,7 @@ import io
 import json
 import sys
 import tarfile
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
@@ -205,6 +205,9 @@ class Union_(BaseModel):
 
 def test_union_members_are_collapsed():
     error = catch(Union_, x={"n": 1}, y=3.5)
+    # Pinned on purpose: this module is an adapter over how pydantic shapes
+    # union errors, so a change in how many it reports should fail loudly
+    # here rather than quietly reshape the output.
     assert len(error.errors()) == 5
 
     problems = list(iter_validation_problems(error, model=Union_))
@@ -497,12 +500,10 @@ def test_acronyms_are_not_lowercased():
 
 
 @pytest.fixture
-def excepthook() -> Iterator[list[tuple]]:
-    previous = sys.excepthook
+def excepthook(monkeypatch: pytest.MonkeyPatch) -> list[tuple]:
     seen: list[tuple] = []
-    sys.excepthook = lambda *args: seen.append(args)
-    yield seen
-    sys.excepthook = previous
+    monkeypatch.setattr(sys, "excepthook", lambda *args: seen.append(args))
+    return seen
 
 
 def test_excepthook_keeps_the_previous_hook(
@@ -559,12 +560,12 @@ def test_augmentation_config_names_the_model_it_validated():
     wrong = missing_letter("params", 3)
     with pytest.raises(ValidationError) as info:
         AlbumentationsEngine(
-            32,
-            32,
-            {"task/boundingbox": "boundingbox"},
-            {"task/boundingbox": 1},
-            ["image"],
-            [{"name": "Flip", wrong: {"p": 1.0}}],
+            height=32,
+            width=32,
+            targets={"task/boundingbox": "boundingbox"},
+            n_classes={"task/boundingbox": 1},
+            source_names=["image"],
+            config=[{"name": "Flip", wrong: {"p": 1.0}}],
         )
 
     assert "did you mean 'params'?" in format_validation_error(info.value)
