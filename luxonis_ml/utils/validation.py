@@ -37,9 +37,9 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Union, get_args, get_origin
 
-from pydantic import AliasChoices, AliasPath, BaseModel
+from pydantic import AliasChoices, AliasPath, BaseModel, ValidationError
 from pydantic.fields import FieldInfo
-from pydantic_core import ErrorDetails, ValidationError
+from pydantic_core import ErrorDetails
 from rich.console import Console, Group, RenderableType
 from rich.padding import Padding
 from rich.panel import Panel
@@ -55,30 +55,15 @@ __all__ = [
 ]
 
 _MODEL_ATTR = "_luxonis_validated_model"
-"""Attribute used to remember which model a `ValidationError` came from."""
-
 _HOOK_ATTR = "_luxonis_validation_hook"
-"""Marker telling an already installed exception hook from any other."""
-
 _MAX_VALUE_LENGTH = 70
-"""Longest input value repr shown before it is truncated."""
-
 _SUGGESTION_CUTOFF = 0.75
-"""Minimum `difflib` similarity for a "did you mean" suggestion.
-
-A misspelling scores well above this: one transposed letter in a short
-name still matches it at 0.80, and a dropped one at 0.91. Merely related
-names do not — ``task_name`` matches ``class_name`` at only 0.74, and
-suggesting it would send the reader off to change the wrong thing.
-"""
-
 _QUOTED = re.compile(r"'([^']*)'")
 
 _WRAPPER_TAGS = (
     "is-instance",
     "is-subclass",
     "nullable",
-    "definition-ref",
     "json-or-python",
     "lax-or-strict",
     "default",
@@ -105,8 +90,6 @@ _TAG_HEADS = frozenset(
         "generator",
     }
 )
-"""Names that may precede the ``[`` of a union member tag."""
-
 _BUILTIN_TYPE_TAGS = frozenset(
     {
         "int",
@@ -114,26 +97,15 @@ _BUILTIN_TYPE_TAGS = frozenset(
         "str",
         "bytes",
         "bool",
-        "list",
-        "tuple",
-        "set",
-        "frozenset",
-        "dict",
-        "none",
-        "null",
         "date",
         "time",
         "datetime",
         "timedelta",
         "decimal",
         "uuid",
-        "path",
     }
 )
-"""Union member tags pydantic uses for non-model types."""
-
 _OWN_NAME_ERRORS = frozenset({"missing", "extra_forbidden"})
-"""Error types reported under a key of their own, never under a type tag."""
 
 
 @dataclass(frozen=True)
@@ -258,14 +230,14 @@ def render_validation_error(
         if problem.hint is not None:
             body.append(f"\n{problem.hint}", style="green")
 
+        if blocks:
+            blocks.append(Text())
         if not problem.location:
             blocks.append(body)
             continue
         blocks.append(
             Group(
                 Text(problem.location, style="bold cyan"),
-                # Indent as a renderable rather than with spaces, so that
-                # wrapped lines stay aligned under the first one.
                 Padding(body, (0, 0, 0, 2)),
             )
         )
@@ -273,12 +245,8 @@ def render_validation_error(
     if title is None:
         title = _default_title(error, problems)
 
-    # `fit` rather than the default: the border should hug the errors,
-    # not stretch to the width of the terminal. The title goes in as
-    # `Text`, so that a model name such as "list[int]" is not mistaken
-    # for console markup and swallowed.
     return Panel.fit(
-        Group(*_interleave(blocks, Text())),
+        Group(*blocks),
         title=Text(title),
         title_align="left",
         border_style="red",
@@ -359,38 +327,11 @@ def _default_title(
     return f"Invalid {error.title} — {count} {plural} found"
 
 
-def _interleave(
-    blocks: Sequence[RenderableType], separator: RenderableType
-) -> list[RenderableType]:
-    out: list[RenderableType] = []
-    for i, block in enumerate(blocks):
-        if i:
-            out.append(separator)
-        out.append(block)
-    return out
-
-
 def _group_union_errors(
     errors: Sequence[ErrorDetails],
     model: type[BaseModel] | None,
 ) -> list[list[ErrorDetails]]:
-    """Group the errors produced by the members of a failed union.
-
-    Every member of a union is validated against the same input at the
-    same location, and pydantic labels each failure with the member's type
-    rather than with a field name. Errors sharing such a parent location
-    therefore belong together — including the ones a container member
-    reports one level deeper, e.g. ``value.list[Marker][0]``.
-
-    Args:
-        errors: Raw error details, in the order pydantic reported them.
-        model: Model that was validated, if known.
-
-    Returns:
-        Groups of errors, each holding either a single unrelated error or
-        all the member failures of one union.
-
-    """
+    """Group failures reported for members of the same union."""
     by_parent: dict[tuple[Any, ...], list[ErrorDetails]] = {}
     for error in errors:
         by_parent.setdefault(tuple(error["loc"][:-1]), []).append(error)
@@ -420,18 +361,6 @@ def _union_parent(
     unions: set[tuple[Any, ...]],
     model: type[BaseModel] | None,
 ) -> tuple[Any, ...] | None:
-    """Find the failed union ``loc`` reports a member failure of.
-
-    Args:
-        loc: The error location, as reported by pydantic.
-        unions: Locations known to hold a failed union.
-        model: Model that was validated, if known.
-
-    Returns:
-        The location of the innermost union ``loc`` belongs to, or
-        ``None`` if it belongs to none.
-
-    """
     for length in range(len(loc) - 1, -1, -1):
         parent = loc[:length]
         if parent not in unions:
@@ -447,7 +376,6 @@ def _union_parent(
 def _is_member_tag(
     parent: Sequence[Any], tag: str, model: type[BaseModel] | None
 ) -> bool:
-    """Tell whether ``tag`` names a member of the union at ``parent``."""
     annotations, _ = _resolve_location(model, parent)
     members = _union_members(annotations)
     if members:
@@ -458,30 +386,15 @@ def _is_member_tag(
 def _is_union_group(
     group: Sequence[ErrorDetails], model: type[BaseModel] | None
 ) -> bool:
-    """Tell a failed union apart from siblings that all happen to fail.
-
-    A shared parent location is not enough on its own: the entries of a
-    mapping and the extra keys of a model share one too, and reporting
-    those as the members of a union would replace every real message with
-    a list of type names that are really the user's own keys.
-
-    Args:
-        group: Errors sharing a parent location.
-        model: Model that was validated, if known.
-
-    Returns:
-        ``True`` if the errors are the member failures of one union.
-
-    """
-    if any(not error["loc"] for error in group):
-        return False
-
-    # A missing or forbidden key is reported under the name of the key
-    # itself, so its last location component is never a member tag.
     if any(error["type"] in _OWN_NAME_ERRORS for error in group):
         return False
 
-    tags = [tag for error in group if isinstance(tag := error["loc"][-1], str)]
+    tags = [
+        tag
+        for error in group
+        for tag in error["loc"][-1:]
+        if isinstance(tag, str)
+    ]
     if len(tags) != len(group) or len(set(tags)) != len(tags):
         return False
 
@@ -493,51 +406,27 @@ def _is_union_group(
             for tag in tags
         )
     if annotations:
-        # The location resolved to something that is not a union.
         return False
 
-    # Nothing to resolve against, so go by the shape of the tags alone,
-    # and only when at least one of them could not be anything else.
     return all(_looks_like_type_tag(tag) for tag in tags) and any(
         _is_certain_type_tag(tag) for tag in tags
     )
 
 
 def _clean_type_name(tag: str) -> str:
-    """Strip pydantic's internal wrappers from a union member tag.
-
-    ``is-instance[Category]`` names the same type a user wrote as
-    ``Category``, so only the inner name is worth showing. Wrappers nest
-    and carry keyword-prefixed alternatives, as in
-    ``lax-or-strict[lax=…,strict=is-instance[Path]]``, so the last
-    alternative is unwrapped repeatedly. Genuine generics such as
-    ``list[int]`` are left alone.
-
-    Args:
-        tag: The union member tag as it appears in the error location.
-
-    Returns:
-        The type name to show.
-
-    """
     match = _WRAPPED_TYPE.fullmatch(tag)
     if match is not None:
-        # A wrapper may carry the validator name or the alternative it did
-        # not take first, as in "function-after[check(), Category]".
         inner = _split_top_level(match["inner"])[-1]
         return _clean_type_name(inner.partition("=")[2] or inner)
 
     head, bracket, rest = tag.partition("[")
     if bracket and head in _TAG_HEADS and rest.endswith("]"):
-        # A generic keeps its own name but not its arguments' wrappers,
-        # so "list[is-instance[Marker]]" reads as "list[Marker]".
         arguments = _split_top_level(rest[:-1])
         return f"{head}[{', '.join(map(_clean_type_name, arguments))}]"
     return tag
 
 
 def _split_top_level(tag: str) -> list[str]:
-    """Split a tag on the commas that are not inside brackets."""
     parts: list[str] = []
     depth = 0
     start = 0
@@ -554,20 +443,9 @@ def _split_top_level(tag: str) -> list[str]:
 
 
 def _is_certain_type_tag(tag: str) -> bool:
-    """Tell whether ``tag`` cannot be anything but a member tag.
-
-    Args:
-        tag: A location component.
-
-    Returns:
-        ``True`` for the tags pydantic spells in a way no user key does.
-
-    """
     if tag in _BUILTIN_TYPE_TAGS:
         return True
     head, bracket, _ = tag.partition("[")
-    # A hyphen rules out a Python name, so "is-instance[...]" and friends
-    # are unmistakable even though the list of them is open-ended.
     return bool(bracket) and (head in _TAG_HEADS or "-" in head)
 
 
@@ -597,9 +475,6 @@ def _to_problem(
 def _union_problem(
     group: Sequence[ErrorDetails], model: type[BaseModel] | None
 ) -> ValidationProblem:
-    # Members that failed inside a container of their own report one
-    # location component more than the rest; the shortest location is the
-    # one that ends on a member tag.
     outermost = min(group, key=lambda error: len(error["loc"]))
     depth = len(outermost["loc"]) - 1
 
@@ -613,7 +488,7 @@ def _union_problem(
         location=_format_location(tuple(outermost["loc"][:depth]), model),
         message="does not match any of the allowed types: "
         + ", ".join(alternatives),
-        value=_format_input(outermost, always=True),
+        value=_format_input(outermost),
     )
 
 
@@ -622,17 +497,7 @@ def _describe(
     loc: tuple[Any, ...],
     model: type[BaseModel] | None,
 ) -> tuple[str, str | None]:
-    """Phrase one error as a message and an optional hint.
-
-    Args:
-        error: The raw error details.
-        loc: The error location, as reported by pydantic.
-        model: Model that was validated, if known.
-
-    Returns:
-        A ``(message, hint)`` pair.
-
-    """
+    """Phrase one error as a message and an optional hint."""
     error_type = error["type"]
     ctx = error.get("ctx") or {}
 
@@ -640,7 +505,7 @@ def _describe(
         return "this field is required, but is missing", None
 
     if error_type == "extra_forbidden":
-        name = str(loc[-1]) if loc else "?"
+        name = str(loc[-1])
         return (
             f"unexpected field {name!r}",
             _suggest(name, _valid_field_names(model, loc[:-1])),
@@ -652,49 +517,21 @@ def _describe(
         return message, _suggest(error.get("input"), _QUOTED.findall(expected))
 
     if error_type in {"value_error", "assertion_error"}:
-        # A bare `assert x > 0` or `raise ValueError()` carries no message
-        # of its own, in which case pydantic's own text is all there is.
         detail = str(ctx.get("error", "")).strip()
         if detail:
             return detail, None
         return _lower_first(error["msg"].strip(", ")), None
 
-    # Pydantic's own message is already short and specific for the many
-    # remaining types, e.g. "Input should be a valid integer".
     return _lower_first(error["msg"]), None
 
 
 def _lower_first(message: str) -> str:
-    """Lowercase the first word of a message unless it is an acronym.
-
-    A second capital means the first one is not the start of an ordinary
-    sentence but of a name such as ``UUID`` or ``JSON``, which would read
-    as a typo if it were lowercased.
-
-    Args:
-        message: The message to adjust.
-
-    Returns:
-        The message, starting lowercase where that is safe.
-
-    """
     if message[1:2].isupper():
         return message
     return message[:1].lower() + message[1:]
 
 
 def _format_location(loc: Sequence[Any], model: type[BaseModel] | None) -> str:
-    """Render an error location as a path the user can act on.
-
-    Args:
-        loc: The error location, as reported by pydantic.
-        model: Model that was validated, if known.
-
-    Returns:
-        A dotted path with sequence indices as subscripts, leaving out
-        the union member tags pydantic puts in the middle of a location.
-
-    """
     _, is_tag = _resolve_location(model, loc)
     parts: list[str] = []
     for part, tag in zip(loc, is_tag, strict=True):
@@ -710,24 +547,12 @@ def _format_location(loc: Sequence[Any], model: type[BaseModel] | None) -> str:
     return ".".join(parts)
 
 
-def _format_input(error: ErrorDetails, *, always: bool = False) -> str | None:
-    """Return a short repr of the offending value, if it is informative.
-
-    Args:
-        error: The raw error details.
-        always: Show the value even for error types whose input is the
-            enclosing container rather than the offending value.
-
-    Returns:
-        A truncated repr, or ``None`` when the value adds nothing.
-
-    """
-    if not always and error["type"] in _OWN_NAME_ERRORS:
+def _format_input(error: ErrorDetails) -> str | None:
+    if error["type"] in _OWN_NAME_ERRORS:
         return None
 
     value = repr(error["input"])
     if len(value) > _MAX_VALUE_LENGTH:
-        # Keep both ends: what tells two long paths apart is their tail.
         head = (_MAX_VALUE_LENGTH - 1) // 2
         tail = _MAX_VALUE_LENGTH - 1 - head
         value = f"{value[:head]}…{value[-tail:]}"
@@ -748,56 +573,27 @@ def _suggest(value: Any, candidates: Sequence[str]) -> str | None:
 def _valid_field_names(
     model: type[BaseModel] | None, loc: Sequence[Any]
 ) -> list[str]:
-    """Return the keys accepted at ``loc`` inside ``model``.
-
-    Args:
-        model: The root model, or ``None`` if it is unknown.
-        loc: Location of the *enclosing* value, i.e. the error location
-            without its final component.
-
-    Returns:
-        Every key accepted at that location, using validation aliases
-        where a field has them. Empty if the location cannot be resolved.
-
-    """
     annotations, _ = _resolve_location(model, loc)
-    names: list[str] = []
+    keys: list[str] = []
     for annotation in annotations:
         for candidate in _models_in(annotation):
-            for name in _accepted_keys(candidate):
-                if name not in names:
-                    names.append(name)
-    return names
+            keys.extend(_accepted_fields(candidate))
+    return list(dict.fromkeys(keys))
 
 
-def _accepted_keys(model: type[BaseModel]) -> list[str]:
-    """Return the keys ``model`` accepts, aliases included.
-
-    A field with a validation alias is only reachable under that alias,
-    unless the model also allows population by field name, so suggesting
-    the field name would be suggesting a key that is still rejected.
-
-    Args:
-        model: The model to inspect.
-
-    Returns:
-        Every accepted key, in field declaration order.
-
-    """
+def _accepted_fields(model: type[BaseModel]) -> dict[str, FieldInfo]:
     by_name = model.model_config.get("populate_by_name", False)
-    keys: list[str] = []
+    fields: dict[str, FieldInfo] = {}
     for name, field in model.model_fields.items():
         aliases = _validation_aliases(field)
         for key in aliases or [name]:
-            if key not in keys:
-                keys.append(key)
-        if aliases and by_name and name not in keys:
-            keys.append(name)
-    return keys
+            fields.setdefault(key, field)
+        if aliases and by_name:
+            fields.setdefault(name, field)
+    return fields
 
 
 def _validation_aliases(field: FieldInfo) -> list[str]:
-    """Return the top-level keys ``field`` may be given under."""
     alias = field.validation_alias
     if alias is None:
         return []
@@ -816,23 +612,6 @@ def _validation_aliases(field: FieldInfo) -> list[str]:
 def _resolve_location(
     model: type[BaseModel] | None, loc: Sequence[Any]
 ) -> tuple[list[Any], list[bool]]:
-    """Walk ``loc`` through ``model``, classifying every component.
-
-    A location component is a field name, a sequence index, a mapping key
-    or one of pydantic's union member tags, and only the annotations along
-    the way can tell which. Resolution stops at the first component that
-    cannot be matched; from there on components are judged by their shape
-    alone.
-
-    Args:
-        model: The root model, or ``None`` if it is unknown.
-        loc: The location to walk.
-
-    Returns:
-        The annotations reachable at ``loc``, and one flag per component
-        saying whether it is a union member tag rather than user data.
-
-    """
     annotations: list[Any] = [model] if model is not None else []
     is_tag: list[bool] = []
     for part in loc:
@@ -845,14 +624,12 @@ def _resolve_location(
             continue
 
         members = _matching_members(annotations, part)
-        if members is not None:
+        if members:
             is_tag.append(True)
             annotations = members
             continue
 
         is_tag.append(False)
-        # A mapping key can be spelled like anything, including like a
-        # field of the mapping's own value model, so mappings win.
         annotations = _mapping_values(annotations) or _field_annotations(
             annotations, part
         )
@@ -860,7 +637,6 @@ def _resolve_location(
 
 
 def _union_members(annotations: Sequence[Any]) -> list[Any]:
-    """Return every member of every union among ``annotations``."""
     return [
         member
         for annotation in annotations
@@ -869,40 +645,25 @@ def _union_members(annotations: Sequence[Any]) -> list[Any]:
     ]
 
 
-def _matching_members(
-    annotations: Sequence[Any], tag: str
-) -> list[Any] | None:
-    """Return the union members ``tag`` names, or ``None`` if it names none."""
-    matched = [
+def _matching_members(annotations: Sequence[Any], tag: str) -> list[Any]:
+    return [
         member
         for member in _union_members(annotations)
         if _tag_matches(tag, member)
     ]
-    return matched or None
 
 
 def _field_annotations(annotations: Sequence[Any], key: str) -> list[Any]:
-    """Return the annotations of the field accepted under ``key``."""
     out: list[Any] = []
     for annotation in annotations:
         for model in _models_in(annotation):
-            field = _field_for_key(model, key)
+            field = _accepted_fields(model).get(key)
             if field is not None:
                 out.append(field.annotation)
     return out
 
 
-def _field_for_key(model: type[BaseModel], key: str) -> FieldInfo | None:
-    by_name = model.model_config.get("populate_by_name", False)
-    for name, field in model.model_fields.items():
-        aliases = _validation_aliases(field)
-        if key in aliases or (key == name and (not aliases or by_name)):
-            return field
-    return None
-
-
 def _mapping_values(annotations: Sequence[Any]) -> list[Any]:
-    """Return the value annotations of every mapping in ``annotations``."""
     out: list[Any] = []
     for annotation in annotations:
         for candidate in _flatten_union(annotation):
@@ -913,7 +674,6 @@ def _mapping_values(annotations: Sequence[Any]) -> list[Any]:
 
 
 def _element_annotations(annotations: Sequence[Any]) -> list[Any]:
-    """Return the element annotations of every sequence in ``annotations``."""
     out: list[Any] = []
     for annotation in annotations:
         for candidate in _flatten_union(annotation):
@@ -921,17 +681,15 @@ def _element_annotations(annotations: Sequence[Any]) -> list[Any]:
             if args and _origin_is(candidate, Sequence):
                 out.append(args[0])
             else:
-                # Not a sequence we can look into, e.g. a model that
-                # pydantic indexed for reasons of its own.
                 out.append(candidate)
     return out
 
 
-def _origin_is(annotation: Any, protocol: type) -> bool:
+def _origin_is(annotation: Any, base: type) -> bool:
     origin = get_origin(annotation)
     return (
         isinstance(origin, type)
-        and issubclass(origin, protocol)
+        and issubclass(origin, base)
         and not issubclass(origin, (str, bytes))
     )
 
@@ -947,7 +705,6 @@ def _flatten_union(annotation: Any) -> list[Any]:
 
 
 def _annotation_head(annotation: Any) -> str | None:
-    """Return the name pydantic would tag ``annotation`` with."""
     if annotation is None or annotation is type(None):
         return "none"
     origin = get_origin(annotation)
@@ -961,7 +718,6 @@ def _annotation_head(annotation: Any) -> str | None:
 
 
 def _tag_matches(tag: str, annotation: Any) -> bool:
-    """Tell whether ``tag`` is how pydantic would name ``annotation``."""
     head = _annotation_head(annotation)
     if head is None:
         return False
@@ -969,18 +725,6 @@ def _tag_matches(tag: str, annotation: Any) -> bool:
 
 
 def _models_in(annotation: Any) -> list[type[BaseModel]]:
-    """Collect the models reachable from a type annotation.
-
-    Containers and unions are unwrapped, so ``list[Input] | None`` yields
-    ``[Input]``.
-
-    Args:
-        annotation: The annotation to inspect.
-
-    Returns:
-        Every `pydantic.BaseModel` subclass found inside ``annotation``.
-
-    """
     if isinstance(annotation, type) and issubclass(annotation, BaseModel):
         return [annotation]
     if _is_union(annotation) or get_args(annotation):

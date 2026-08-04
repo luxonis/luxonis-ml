@@ -31,11 +31,8 @@ def setup_logging(
         file: Path to the log file. If provided, logs will be saved to
             this file.
         use_rich: If True, uses rich for logging.
-        pretty_validation_errors: If True, a readable summary of an
-            uncaught pydantic validation error is printed below its
-            traceback. See `luxonis_ml.utils.validation`. Can also be
-            turned off for a whole process by setting the environment
-            variable ``LUXONISML_DISABLE_PRETTY_VALIDATION_ERRORS``.
+        pretty_validation_errors: If True, print a readable summary after
+            uncaught pydantic validation errors.
         **kwargs: Additional keyword arguments to pass to
             ``RichHandler``.
 

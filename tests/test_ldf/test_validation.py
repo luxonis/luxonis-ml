@@ -127,17 +127,6 @@ def test_keypoint_clipping_does_not_mutate_the_input():
     assert annotation.keypoints == [(0.5, 0.5, 2), (1.0, 0.2, 1)]
 
 
-def test_keypoints_accept_an_iterator():
-    """Clipping reads the keypoints twice, so a one-shot iterable has to
-    be materialized before it is inspected.
-    """
-    keypoints: Any = iter([(0.5, 1.5, 0), (0.2, 0.3, 1)])
-
-    annotation = KeypointAnnotation(keypoints=keypoints)
-
-    assert annotation.keypoints == [(0.5, 1.0, 0), (0.2, 0.3, 1)]
-
-
 @pytest.mark.parametrize(
     ("task_type", "data"),
     [

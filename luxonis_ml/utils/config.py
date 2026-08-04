@@ -74,8 +74,6 @@ class LuxonisConfig(BaseModelExtraForbid):
         try:
             return cls(**data)  # type: ignore
         except ValidationError as e:
-            # Remember the model so that the error can name the fields it
-            # would have accepted, e.g. when a key is misspelled.
             record_validated_model(e, cls)
             raise
 

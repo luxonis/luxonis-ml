@@ -1,2 +1,0 @@
-[files]
-extend-exclude = ["tests/test_utils/test_validation.py"]

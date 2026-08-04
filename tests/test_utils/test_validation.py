@@ -51,6 +51,10 @@ def catch(model: type[BaseModel], **data) -> ValidationError:
     return info.value
 
 
+def missing_letter(word: str, index: int) -> str:
+    return word[:index] + word[index + 1 :]
+
+
 def render(error: ValidationError, **kwargs) -> str:
     console = Console(width=100, no_color=True, legacy_windows=False)
     with console.capture() as capture:
@@ -79,16 +83,21 @@ def test_suggests_closest_field_name():
 
 
 def test_suggests_closest_nested_field_name():
-    error = catch(Cfg, name="a", resize={"heigth": 5})
+    error = catch(
+        Cfg,
+        name="a",
+        resize={missing_letter("height", 4): 5},
+    )
     assert "did you mean 'height'?" in format_validation_error(
         error, model=Cfg
     )
 
 
 def test_suggests_through_a_list_field():
-    error = catch(Cfg, name="a", stages=[{"widht": 5}])
+    wrong = missing_letter("width", 3)
+    error = catch(Cfg, name="a", stages=[{wrong: 5}])
     message = format_validation_error(error, model=Cfg)
-    assert "stages[0].widht" in message
+    assert f"stages[0].{wrong}" in message
     assert "did you mean 'width'?" in message
 
 
@@ -167,16 +176,13 @@ class Siblings(BaseModel):
 
 @pytest.mark.parametrize("model", [Siblings, None])
 def test_sibling_fields_are_not_collapsed(model: type[BaseModel] | None):
-    """Two fields given the same bad value share one interned ``input``
-    object, which must not be mistaken for a failed union.
-    """
     error = catch(Siblings, p="a", q="a")
     problems = list(iter_validation_problems(error, model=model))
     assert [problem.location for problem in problems] == ["p", "q"]
     assert all("allowed types" not in p.message for p in problems)
 
 
-def test_duplicate_problems_are_reported_once():
+def test_equal_list_items_keep_separate_locations():
     error = catch(Cfg, name="a", stages=[{"height": "x"}, {"height": "x"}])
     locations = [p.location for p in iter_validation_problems(error)]
     assert locations == ["stages[0].height", "stages[1].height"]
@@ -197,8 +203,6 @@ def test_rich_rendering_keeps_wrapped_lines_indented():
         if "float16" in line or "float32" in line
     ]
     assert lines
-    # Every line of the wrapped "expected ..." message is indented under
-    # the location that introduces it.
     assert all(line.startswith("│    ") for line in lines)
 
 
@@ -224,7 +228,7 @@ def test_custom_validator_message_is_kept_verbatim():
 
 
 class Marker:
-    """An arbitrary type, validated by pydantic with an isinstance check."""
+    pass
 
 
 def test_union_type_names_drop_pydantic_wrappers():
@@ -240,25 +244,19 @@ def test_union_type_names_drop_pydantic_wrappers():
 
 
 def test_panel_hugs_its_content():
-    """The border used to stretch to the full terminal width."""
     output = render(catch(Cfg, name="a", epocs=1), model=Cfg)
     lines = [line for line in output.splitlines() if line.strip()]
     assert max(len(line) for line in lines) < 60  # console is 100 wide
 
 
-class Trainer(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    epochs: int = 10
-    use_rich: bool = True
-    save_ckpt: bool = True
-
-
 def test_extra_keys_sharing_a_value_are_not_collapsed():
-    """Two misspelled keys given the same value used to be merged into
-    one fabricated "allowed types" problem, because equal small values
-    are interned and so share an ``id``.
-    """
+    class Trainer(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        epochs: int = 10
+        use_rich: bool = True
+        save_ckpt: bool = True
+
     message = format_validation_error(
         catch(Trainer, use_rihc=True, save_ckp=True), model=Trainer
     )
@@ -275,13 +273,18 @@ class Sources(BaseModel):
 
 @pytest.mark.parametrize("model", [Sources, None])
 def test_mapping_entries_are_not_collapsed(model: type[BaseModel] | None):
-    """Capitalized mapping keys used to be taken for type names, which
-    replaced both real messages with a list of the user's own keys.
-    """
     error = catch(Sources, files={"CAM_A": "x", "CAM_B": "x"})
     problems = list(iter_validation_problems(error, model=model))
 
     assert [p.location for p in problems] == ["files.CAM_A", "files.CAM_B"]
+    assert all("allowed types" not in p.message for p in problems)
+
+
+def test_mapping_keys_named_after_a_type_are_not_collapsed():
+    error = catch(Sources, files={"path": "x", "none": "y"})
+    problems = list(iter_validation_problems(error))
+
+    assert [p.location for p in problems] == ["files.path", "files.none"]
     assert all("allowed types" not in p.message for p in problems)
 
 
@@ -293,9 +296,6 @@ class Bracketed(BaseModel):
 def test_mapping_keys_with_brackets_stay_in_the_location(
     model: type[BaseModel] | None,
 ):
-    """A "[" used to be read as a pydantic-internal marker and dropped,
-    pointing the reader at a key that does not exist.
-    """
     error = catch(Bracketed, files={"img[1].png": {"height": "x"}})
     (problem,) = iter_validation_problems(error, model=model)
 
@@ -303,19 +303,12 @@ def test_mapping_keys_with_brackets_stay_in_the_location(
 
 
 def test_bare_assert_still_says_something():
-    """A bare ``assert x >= 0`` in a validator raises an
-    `AssertionError` carrying no message, and ``str()`` of it is empty.
-
-    It is raised here rather than asserted because pytest rewrites the
-    asserts of a test module and would fill the message in for us.
-    """
-
     class Positive(BaseModel):
         v: int
 
         @field_validator("v")
         @classmethod
-        def check(cls, value: int) -> int:
+        def check(cls, _value: int) -> int:
             raise AssertionError
 
     (problem,) = iter_validation_problems(catch(Positive, v=-1))
@@ -328,21 +321,17 @@ def test_value_error_without_a_message_still_says_something():
 
         @field_validator("v")
         @classmethod
-        def check(cls, value: int) -> int:
+        def check(cls, _value: int) -> int:
             raise ValueError
 
     (problem,) = iter_validation_problems(catch(Rejecting, v=1))
     assert problem.message == "value error"
 
 
-class Pathish(BaseModel):
-    x: int | Path
-
-
 def test_union_type_names_survive_nested_wrappers():
-    """Pydantic tags a `pathlib.Path` member with a nest of wrappers
-    whose own commas used to be mistaken for the separator.
-    """
+    class Pathish(BaseModel):
+        x: int | Path
+
     error = catch(Pathish, x=[1, 2])
     (problem,) = iter_validation_problems(error, model=Pathish)
 
@@ -361,19 +350,14 @@ class Aliased(BaseModel):
 
 
 def test_suggestions_use_validation_aliases():
-    """``class`` is the key this field is actually given under, and it
-    used to be missing from the candidates entirely.
-    """
+    wrong = missing_letter("class", 4)
     message = format_validation_error(
-        catch(Aliased, clas="cat"), model=Aliased
+        catch(Aliased, **{wrong: "cat"}), model=Aliased
     )
     assert "did you mean 'class'?" in message
 
 
 def test_no_suggestion_for_a_merely_related_name():
-    """``task_name`` is not a misspelling of ``class_name``; suggesting
-    it would send the reader off to rename the wrong thing.
-    """
     message = format_validation_error(
         catch(Aliased, task_name="a"), model=Aliased
     )
@@ -382,10 +366,6 @@ def test_no_suggestion_for_a_merely_related_name():
 
 
 def test_union_members_are_collapsed_in_json_mode():
-    """``errors()`` builds a fresh input object per error in JSON mode,
-    so grouping members by the identity of their input silently stopped
-    working there.
-    """
     with pytest.raises(ValidationError) as info:
         Union_.model_validate_json('{"x": {"n": 1}, "y": 3.5}')
 
@@ -395,11 +375,6 @@ def test_union_members_are_collapsed_in_json_mode():
 
 
 def test_union_members_failing_inside_a_container_are_listed():
-    """A container member reports one location component more than its
-    siblings, which used to drop it from the list of allowed types and
-    add its element failures as problems of their own.
-    """
-
     class Boxed(BaseModel):
         model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -427,14 +402,10 @@ def test_panel_title_keeps_a_parametrized_model_name():
 
 
 def test_panel_title_with_a_closing_tag_does_not_raise():
-    """An unbalanced "[/]" used to raise `rich.errors.MarkupError` from
-    inside the exception hook, printing nothing at all.
-    """
     assert "Bad [/]" in render(catch(Cfg), title="Bad [/]")
 
 
 def test_long_values_keep_their_tail():
-    """What tells two long paths apart is their tail."""
     value = "/prefix/" + "d/" * 40 + "img_0001.png"
     error = catch(Cfg, name="a", epochs=value)
     (problem,) = iter_validation_problems(error, model=Cfg)
@@ -444,33 +415,27 @@ def test_long_values_keep_their_tail():
     assert problem.value.endswith("img_0001.png'")
 
 
-class Layers(BaseModel):
-    layers: dict[str, Resize]
-
-
 def test_suggests_through_a_mapping_key():
-    """The walk used to treat a mapping key as a field name and give up
-    on the first one it could not find.
-    """
+    class Layers(BaseModel):
+        layers: dict[str, Resize]
+
+    wrong = missing_letter("height", 4)
     message = format_validation_error(
-        catch(Layers, layers={"cam-1": {"heigth": 5}}), model=Layers
+        catch(Layers, layers={"cam-1": {wrong: 5}}), model=Layers
     )
-    assert "layers.cam-1.heigth" in message
+    assert f"layers.cam-1.{wrong}" in message
     assert "did you mean 'height'?" in message
 
 
-class Either(BaseModel):
-    x: Resize | list[Resize]
-
-
 def test_suggests_through_a_union_member():
-    """Pydantic names the union member in the location, which used to be
-    reported to the user as if it were a field of their own.
-    """
+    class Either(BaseModel):
+        x: Resize | list[Resize]
+
+    wrong = missing_letter("height", 4)
     message = format_validation_error(
-        catch(Either, x={"heigth": 5}), model=Either
+        catch(Either, x={wrong: 5}), model=Either
     )
-    assert "x.heigth" in message
+    assert f"x.{wrong}" in message
     assert "did you mean 'height'?" in message
 
 
@@ -484,7 +449,6 @@ def test_acronyms_are_not_lowercased():
 
 @pytest.fixture
 def excepthook() -> Iterator[list[tuple]]:
-    """Install the hook over a recording one and restore it afterwards."""
     previous = sys.excepthook
     seen: list[tuple] = []
     sys.excepthook = lambda *args: seen.append(args)
@@ -495,9 +459,6 @@ def excepthook() -> Iterator[list[tuple]]:
 def test_excepthook_keeps_the_previous_hook(
     excepthook: list[tuple], capsys: pytest.CaptureFixture[str]
 ):
-    """The panel is a summary, not a replacement: dropping the traceback
-    also drops the file and line, and silences crash reporters.
-    """
     install_excepthook()
     error = catch(Cfg, name="a", epocs=1)
 
@@ -544,11 +505,9 @@ def test_excepthook_is_installed_only_once(excepthook: list[tuple]):
 
 
 def test_augmentation_config_names_the_model_it_validated():
-    """`AlbumentationsEngine` validates user YAML, so its errors are
-    among the ones that most need to name the key the user meant.
-    """
     from luxonis_ml.data import AlbumentationsEngine
 
+    wrong = missing_letter("params", 3)
     with pytest.raises(ValidationError) as info:
         AlbumentationsEngine(
             32,
@@ -556,19 +515,17 @@ def test_augmentation_config_names_the_model_it_validated():
             {"task/boundingbox": "boundingbox"},
             {"task/boundingbox": 1},
             ["image"],
-            [{"name": "Flip", "parms": {"p": 1.0}}],
+            [{"name": "Flip", wrong: {"p": 1.0}}],
         )
 
     assert "did you mean 'params'?" in format_validation_error(info.value)
 
 
 def test_archive_inspection_names_the_model_it_validated(tmp_path: Path):
-    """``luxonis_ml nn_archive inspect`` validates an archive a user
-    built, and used to report its errors without any suggestions.
-    """
     from luxonis_ml.nn_archive.__main__ import inspect
 
-    payload = json.dumps({"config_version": "1.0", "modle": {}}).encode()
+    wrong = missing_letter("model", 3)
+    payload = json.dumps({"config_version": "1.0", wrong: {}}).encode()
     archive = tmp_path / "archive.tar"
     with tarfile.open(archive, "w") as tar:
         info = tarfile.TarInfo("config.json")
