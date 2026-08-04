@@ -2,7 +2,7 @@ import json
 import math
 import shutil
 from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from functools import cached_property
@@ -75,6 +75,15 @@ from .utils import (
     get_dir,
     get_file,
 )
+
+
+def _walk_detections(detections: Iterable[Detection]) -> Iterator[Detection]:
+    """Yield the detections and their sub-detections, which carry
+    annotations of their own.
+    """
+    for detection in detections:
+        yield detection
+        yield from _walk_detections(detection.sub_detections.values())
 
 
 class LuxonisDataset(BaseDataset):  # noqa: PLW1641
@@ -1175,15 +1184,16 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         uuid_dict = {}
         for record in data_batch:
             self._progress.update(task, advance=1)
-            if record.annotation is None or record.annotation.array is None:
-                continue
-            ann = record.annotation.array
-            if self.is_remote:
-                uuid = self._fs.get_file_uuid(ann.path, local=True)
-                uuid_dict[str(ann.path)] = uuid
-                ann.path = Path(uuid).with_suffix(ann.path.suffix)
-            else:
-                ann.path = ann.path.absolute().resolve()
+            for detection in _walk_detections(record.annotation or []):
+                if detection.array is None:
+                    continue
+                ann = detection.array
+                if self.is_remote:
+                    uuid = self._fs.get_file_uuid(ann.path, local=True)
+                    uuid_dict[str(ann.path)] = uuid
+                    ann.path = Path(uuid).with_suffix(ann.path.suffix)
+                else:
+                    ann.path = ann.path.absolute().resolve()
         self._progress.stop()
         self._progress.remove_task(task)
         if self.is_remote:
@@ -1315,6 +1325,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         Raises:
             ValueError: If the records yielded by the generator are not in the expected format.
             ValueError: If the dataset contains metadata annotations with conflicting types.
+            ValueError: If a record without a task name has annotations from different tasks.
 
         """
         logger.info(f"Adding data to dataset '{self._dataset_name}'...")
@@ -1344,14 +1355,27 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 if not isinstance(record, DatasetRecord):
                     record = DatasetRecord(**record)
                 sources.update(record.files.keys())
-                ann = record.annotation
-                if ann is not None:
+                anns = record.annotation
+                if anns:
                     if not record.task_name:
-                        record.task_name = infer_task(
-                            record.task_name,
-                            ann.class_name,
-                            self.get_classes(),
-                        )
+                        current_classes = self.get_classes()
+                        inferred = {
+                            infer_task(
+                                record.task_name,
+                                ann.class_name,
+                                current_classes,
+                            )
+                            for ann in anns
+                            if ann.class_name is not None
+                        }
+                        if len(inferred) > 1:
+                            raise ValueError(
+                                "Classes of the record's annotations belong "
+                                f"to different tasks: {sorted(inferred)}. "
+                                "Provide an explicit 'task_name'."
+                            )
+                        if inferred:
+                            record.task_name = inferred.pop()
 
                     def update_state(task_name: str, ann: Detection) -> None:
                         if ann.class_name is not None:
@@ -1393,7 +1417,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                         for name, sub_detection in ann.sub_detections.items():
                             update_state(f"{task_name}/{name}", sub_detection)
 
-                    update_state(record.task_name, ann)
+                    for ann in anns:
+                        update_state(record.task_name, ann)
 
                 data_batch.append(record)
                 if i % batch_size == 0:
