@@ -23,5 +23,13 @@ export_requirements() {
 }
 
 export_requirements requirements.txt --no-default-groups
-export_requirements requirements-all.txt --no-default-groups --all-extras
-export_requirements requirements-dev.txt --no-default-groups --group dev
+
+# The exports that pull in the `data` extra cannot carry hashes. `albucore`
+# requires `opencv-python-headless`, which the `[tool.uv]` override drops from
+# the resolution. pip does not honour that override, so it resolves the
+# dependency itself and then rejects the whole file, because `--require-hashes`
+# mode demands that every requirement be pinned in it. Version pins without
+# hashes keep these files installable, and pip users end up with the same
+# `opencv-python-headless` that `pip install 'luxonis-ml[all]'` gives them.
+export_requirements requirements-all.txt --no-hashes --no-default-groups --all-extras
+export_requirements requirements-dev.txt --no-hashes --no-default-groups --group dev

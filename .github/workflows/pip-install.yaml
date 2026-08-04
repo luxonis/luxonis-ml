@@ -1,0 +1,63 @@
+name: Pip Install
+
+# Nothing else in CI installs from the `requirements*.txt` exports,
+# so this workflow checks that path stays usable for pip users.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".python-version"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "requirements*.txt"
+      - "tools/export_requirements.sh"
+      - ".github/workflows/pip-install.yaml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pip-install:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The base export carries no extras, so only `luxonis_ml.utils` is
+          # importable from it.
+          - requirements: requirements.txt
+            submodule: utils
+          - requirements: requirements-all.txt
+            submodule: data
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
+
+      # `requirements.txt` is hash pinned, which puts pip into
+      # `--require-hashes` mode: nothing unpinned may be installed in the same
+      # command. The package itself therefore goes in as a separate `--no-deps`
+      # step, which also keeps both matrix legs identical.
+      - name: Install from the exported requirements
+        run: pip install --no-cache-dir -r ${{ matrix.requirements }}
+
+      - name: Install LuxonisML without dependencies
+        run: pip install --no-cache-dir --no-deps .
+
+      - name: Import LuxonisML
+        run: >-
+          python -c 'from luxonis_ml.${{ matrix.submodule }} import *;
+          import luxonis_ml; print(luxonis_ml.__version__)'

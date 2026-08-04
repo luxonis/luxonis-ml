@@ -42,6 +42,12 @@ A pre-commit hook runs it for you whenever the dependency files change, so
 usually you only need to review and stage the refreshed `uv.lock` and
 `requirements*.txt` before committing again.
 
+Only `requirements.txt` is hash pinned. The exports that include the `data`
+extra are version pinned but unhashed, because `albucore` requires
+`opencv-python-headless` and `[tool.uv] override-dependencies` drops it from
+the resolution — an override pip does not honour. See the comment in
+`tools/export_requirements.sh`.
+
 ## Repository Map
 
 | Path                           | Purpose                                                                          |
@@ -188,6 +194,11 @@ Package publishing and documentation deployment are handled by GitHub Actions:
   dispatch.
 - `docs-pages.yaml` publishes GitHub Pages docs on `main`, release publication,
   or manual dispatch.
+- `pip-install.yaml` installs from the `requirements*.txt` exports whenever they
+  or their inputs change. Nothing else in CI uses those files, so this is what
+  keeps the pip path working for users who do not have `uv`.
+- `dependencies_autoupdate.yaml` runs `uv lock --upgrade` monthly and opens a PR
+  with the refreshed lock and exports.
 
 Do not change release or dependency behavior without checking the relevant
 workflow and package metadata in `pyproject.toml`.
