@@ -10,9 +10,9 @@ import polars as pl
 from loguru import logger
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
-from luxonis_ml.data.datasets.annotation import DatasetRecord, Detection
 from luxonis_ml.data.utils.enums import ParserIssue, ParserIssueMessage
 from luxonis_ml.enums.enums import DatasetType
+from luxonis_ml.ldf import DatasetRecord, Detection
 from luxonis_ml.typing import PathType
 
 if TYPE_CHECKING:
@@ -50,7 +50,9 @@ class BaseParser(ABC):
         """
         self._dataset = dataset
         self._dataset_type = dataset_type
+        self._default_task_name: str | None = None
         if isinstance(task_name, str):
+            self._default_task_name = task_name
             self._task_name = defaultdict(lambda: task_name)
         else:
             self._task_name = task_name
@@ -644,12 +646,19 @@ class BaseParser(ABC):
 
             if self._task_name is not None:
                 if not item.annotation:
-                    for task_name in dict.fromkeys(self._task_name.values()):
+                    # A single task name fills its `defaultdict` only as
+                    # annotated records look their classes up.
+                    task_names = (
+                        [self._default_task_name]
+                        if self._default_task_name is not None
+                        else dict.fromkeys(self._task_name.values())
+                    )
+                    for task_name in task_names:
                         yield item.model_copy(
                             update={"task_name": task_name}, deep=True
                         )
                 else:
-                    grouped_annotations: dict[str, list[Detection]] = {}
+                    by_task: dict[str, list[Detection]] = defaultdict(list)
                     for annotation in item.annotation:
                         class_name = annotation.class_name
                         task_name = item.task_name
@@ -660,11 +669,9 @@ class BaseParser(ABC):
                                 raise ValueError(
                                     f"Class '{class_name}' not found in task names."
                                 ) from None
-                        grouped_annotations.setdefault(task_name, []).append(
-                            annotation
-                        )
+                        by_task[task_name].append(annotation)
 
-                    for task_name, annotations in grouped_annotations.items():
+                    for task_name, annotations in by_task.items():
                         yield item.model_copy(
                             update={
                                 "annotation": annotations,

@@ -561,7 +561,7 @@ def test_wrap_generator_groups_list_annotations_by_task(
     tmp_path: Path,
     task_names: dict[str, str],
     expected: dict[str, list[str]],
-) -> None:
+):
     image = tmp_path / "image.jpg"
     image.write_bytes(b"x")
     record = DatasetRecord(
@@ -573,16 +573,17 @@ def test_wrap_generator_groups_list_annotations_by_task(
     )
     parser = _WarningParser(0, task_name=task_names)
 
-    wrapped = list(parser._wrap_generator(iter([record])))
-    records = [cast(DatasetRecord, item) for item in wrapped]
+    wrapped = [
+        cast(DatasetRecord, item)
+        for item in parser._wrap_generator(iter([record]))
+    ]
 
     assert {
-        item.task_name: [
-            annotation.class_name for annotation in item._annotations()
-        ]
-        for item in records
+        item.task_name: [ann.class_name for ann in item.annotation or []]
+        for item in wrapped
     } == expected
-    assert [annotation.class_name for annotation in record._annotations()] == [
+    # The records are copies; the source record keeps all its detections.
+    assert [ann.class_name for ann in record.annotation or []] == [
         "cat",
         "dog",
     ]
@@ -590,7 +591,7 @@ def test_wrap_generator_groups_list_annotations_by_task(
 
 def test_wrap_generator_keeps_empty_list_for_each_mapped_task(
     tmp_path: Path,
-) -> None:
+):
     image = tmp_path / "negative.jpg"
     image.write_bytes(b"x")
     record = DatasetRecord(file=image, annotation=[])  # type: ignore[call-arg]
@@ -603,6 +604,26 @@ def test_wrap_generator_keeps_empty_list_for_each_mapped_task(
 
     assert [item.task_name for item in wrapped] == ["felines", "canines"]
     assert [item.annotation for item in wrapped] == [[], []]
+
+
+def test_wrap_generator_keeps_annotation_free_record_for_a_single_task(
+    tmp_path: Path,
+):
+    """A single task name fills its `defaultdict` only as annotated
+    records look their classes up, so an unlabeled record used to be
+    dropped unless an annotated one happened to come first.
+    """
+    image = tmp_path / "negative.jpg"
+    image.write_bytes(b"x")
+    record = DatasetRecord(file=image)  # type: ignore[call-arg]
+    parser = _WarningParser(0, task_name="mytask")
+
+    wrapped = [
+        cast(DatasetRecord, item)
+        for item in parser._wrap_generator(iter([record]))
+    ]
+
+    assert [item.task_name for item in wrapped] == ["mytask"]
 
 
 def test_skipped_annotation_warnings_are_capped():

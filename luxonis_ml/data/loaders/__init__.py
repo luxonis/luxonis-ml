@@ -165,8 +165,8 @@ slots. Prefer the per-channel form for anything whose channels have meanings wor
 — segmentation scores especially, where the names are the class names.
 
 See:
-    `luxonis_ml.data.datasets.annotation` for the ingestion schemas that are
-    converted into these loader outputs.
+    `luxonis_ml.ldf.annotation` for the ingestion schemas that are converted
+    into these loader outputs.
 
 
 Sample Metadata
@@ -192,6 +192,24 @@ Pass ``autopopulate_metadata=False`` to return only stored metadata:
 
     loader = LuxonisLoader(dataset, autopopulate_metadata=False)
     metadata = loader[0].metadata
+
+Augmented outputs additionally carry an ``"augmentations"`` mapping from
+configured augmentation paths to the runtime parameters the engine selected.
+Unlike ``"filenames"``, it is added regardless of ``autopopulate_metadata``,
+as it describes the returned arrays rather than the dataset record:
+
+.. python::
+
+    {
+        "record_id": 123,
+        "augmentations": {
+            "HorizontalFlip": {},
+            "OneOf/RandomBrightnessContrast": {"alpha": 1.02, "beta": -0.03},
+        },
+    }
+
+Both keys are reserved. A record defining one of them keeps its own value,
+and the loader warns rather than overwriting it.
 
 When a batch augmentation combines several samples, metadata from the input
 samples is preserved in ``"batch_augmentation_metadata"``:
