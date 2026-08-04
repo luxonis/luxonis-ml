@@ -26,7 +26,6 @@ from luxonis_ml.data.datasets import (
     UpdateMode,
     load_annotation,
 )
-from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.loaders.base_loader import BaseLoader
 from luxonis_ml.data.utils import (
     get_task_name,
@@ -35,6 +34,7 @@ from luxonis_ml.data.utils import (
     task_type_iterator,
 )
 from luxonis_ml.data.utils.task_utils import task_is_metadata
+from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.typing import (
     Labels,
     LoaderOutput,

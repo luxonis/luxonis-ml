@@ -166,8 +166,8 @@ the per-channel form for anything whose channels have meanings worth recording
 — segmentation scores especially, where the names are the class names.
 
 See:
-    `luxonis_ml.data.datasets.annotation` for the ingestion schemas that are
-    converted into these loader outputs.
+    `luxonis_ml.ldf.annotation` for the ingestion schemas that are converted
+    into these loader outputs.
 
 
 Sample Metadata

@@ -140,8 +140,8 @@ Supported Formats
      - Existing Luxonis native exports, including ``sample_metadata`` records.
 
 See:
-    `luxonis_ml.data.datasets.annotation` for the LDF annotation schemas
-    produced by these parsers.
+    `luxonis_ml.ldf.annotation` for the LDF annotation schemas produced by
+    these parsers.
 
 
 Format Layout Notes

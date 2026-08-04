@@ -8,5 +8,6 @@ def test_ldf_extra_declares_segmentation_decoders() -> None:
         Path(__file__).parents[2] / "luxonis_ml" / "ldf" / "requirements.txt"
     ).read_text()
 
-    assert "opencv-python" in requirements
     assert "pillow" in requirements
+    # Masks decode through Pillow, which keeps opencv out of the extra.
+    assert "opencv-python" not in requirements
