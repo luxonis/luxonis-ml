@@ -134,8 +134,8 @@ Output Layouts
      - Values keyed by metadata field name.
 
 See:
-    `luxonis_ml.data.datasets.annotation` for the ingestion schemas that are
-    converted into these loader outputs.
+    `luxonis_ml.ldf.annotation` for the ingestion schemas that are converted
+    into these loader outputs.
 
 
 Sample Metadata

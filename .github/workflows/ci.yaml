@@ -314,7 +314,7 @@ jobs:
 
     strategy:
       matrix:
-        submodule: ["data", "nn_archive", "utils"]
+        submodule: ["ldf", "data", "nn_archive", "utils"]
 
     steps:
       - name: Checkout

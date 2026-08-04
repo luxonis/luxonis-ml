@@ -6,13 +6,13 @@ from typing import Any
 
 import polars as pl
 
-from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
     split_of_group,
 )
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.utils.path import path_to_posix
 
 
