@@ -11,6 +11,8 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - "requirements*.txt"
+      - "**/requirements.txt"
+      - "extra_requirements/*.txt"
       - "tools/export_requirements.sh"
       - ".github/workflows/pip-install.yaml"
 
@@ -29,12 +31,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The base export carries no extras, so only `luxonis_ml.utils` is
-          # importable from it.
           - requirements: requirements.txt
-            submodule: utils
+            module: luxonis_ml.utils
           - requirements: requirements-all.txt
-            submodule: data
+            module: luxonis_ml.data
 
     steps:
       - name: Checkout
@@ -58,6 +58,4 @@ jobs:
         run: pip install --no-cache-dir --no-deps .
 
       - name: Import LuxonisML
-        run: >-
-          python -c 'from luxonis_ml.${{ matrix.submodule }} import *;
-          import luxonis_ml; print(luxonis_ml.__version__)'
+        run: python -c 'import ${{ matrix.module }}'

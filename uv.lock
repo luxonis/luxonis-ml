@@ -2007,8 +2007,6 @@ all = [
     { name = "posthog" },
     { name = "pyarrow" },
     { name = "pycocotools" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
     { name = "requests" },
     { name = "roboflow" },
     { name = "s3fs" },
@@ -2036,10 +2034,6 @@ gcs = [
 ]
 mlflow = [
     { name = "mlflow" },
-]
-nn-archive = [
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
 ]
 roboflow = [
     { name = "roboflow" },
@@ -2101,10 +2095,8 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'data'", specifier = "~=23.0" },
     { name = "pycocotools", marker = "extra == 'data'", specifier = "~=2.0" },
     { name = "pydantic", specifier = "~=2.7" },
-    { name = "pydantic", marker = "extra == 'nn-archive'", specifier = "~=2.7" },
     { name = "pydantic-extra-types", specifier = "~=2.10" },
     { name = "pydantic-settings", specifier = "~=2.1" },
-    { name = "pydantic-settings", marker = "extra == 'nn-archive'", specifier = "~=2.1" },
     { name = "pyyaml", specifier = "~=6.0" },
     { name = "requests", marker = "extra == 'data'", specifier = "~=2.32" },
     { name = "rich", specifier = "~=15.0" },
@@ -2114,7 +2106,7 @@ requires-dist = [
     { name = "typeguard", specifier = "~=4.1" },
     { name = "unique-names-generator", marker = "extra == 'tracker'", specifier = "~=1.0" },
 ]
-provides-extras = ["data", "nn-archive", "telemetry", "tracker", "utils", "gcs", "mlflow", "roboflow", "s3", "all"]
+provides-extras = ["data", "telemetry", "tracker", "nn-archive", "utils", "gcs", "mlflow", "roboflow", "s3", "all"]
 
 [package.metadata.requires-dev]
 dev = [

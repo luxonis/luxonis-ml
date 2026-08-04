@@ -30,9 +30,9 @@ as a git checkout of a dependency.
 interpreter to 3.10, which is what CI runs, and `uv` downloads it for you if it
 is missing.
 
-The `requirements*.txt` files are generated pip compatibility exports, not
-inputs. Do not edit them by hand. Change dependencies in `pyproject.toml` (or
-with `uv add`), then run:
+The repository's requirements files are generated pip compatibility exports,
+not inputs. Do not edit them by hand. Change dependencies in `pyproject.toml`
+(or with `uv add`), then run:
 
 ```bash
 tools/export_requirements.sh
@@ -40,12 +40,11 @@ tools/export_requirements.sh
 
 A pre-commit hook runs it for you whenever the dependency files change, so
 usually you only need to review and stage the refreshed `uv.lock` and
-`requirements*.txt` before committing again.
+requirements files before committing again.
 
-Only `requirements.txt` is hash pinned. The exports that include the `data`
-extra are version pinned but unhashed, because `albucore` requires
-`opencv-python-headless` and `[tool.uv] override-dependencies` drops it from
-the resolution — an override pip does not honour. See the comment in
+Only `requirements.txt` is hash pinned. The other exports retain their legacy
+unhashed format; this is also required for `data`, because pip does not honour
+the uv override that removes `opencv-python-headless`. See the comment in
 `tools/export_requirements.sh`.
 
 ## Repository Map
@@ -87,7 +86,7 @@ Pre-commit runs:
 | `prettier`             | YAML formatting.                                                                          |
 | `taplo-format`         | TOML formatting.                                                                          |
 | `pre-commit-hooks`     | File endings, JSON/YAML/TOML validity, private key detection, and main branch protection. |
-| `export-requirements`  | Keeps `uv.lock` and the `requirements*.txt` exports in sync with `pyproject.toml`.        |
+| `export-requirements`  | Keeps `uv.lock` and the pip requirements exports in sync with `pyproject.toml`.           |
 
 **Do not commit directly to `main`.** The pre-commit hook blocks it, and PRs
 are the expected review path.

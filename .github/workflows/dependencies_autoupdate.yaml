@@ -39,6 +39,5 @@ jobs:
           delete-branch: true
           commit-message: "chore: update Python dependencies"
           title: "chore: update Python dependencies"
-          body: |
-            Automated update of `uv.lock` and the exported `requirements*.txt` files.
+          body: Automated update of `uv.lock` and the pip requirements exports.
           labels: automated

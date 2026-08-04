@@ -45,12 +45,10 @@ data = [
   "pycocotools~=2.0",
   "requests~=2.32",
 ]
-nn_archive = ["pydantic-settings~=2.1", "pydantic~=2.7"]
 telemetry = ["posthog~=7.29"]
 tracker = ["numpy~=2.2", "unique-names-generator~=1.0"]
-# The dependencies of `luxonis_ml.utils` are the package's base requirements,
-# so this extra installs nothing on top of them. It is kept because
-# `luxonis-ml[utils]` is a documented install target used by downstream repos.
+# Public install targets whose dependencies are already in the base package.
+nn_archive = []
 utils = []
 
 gcs = ["gcsfs==2024.6.1"]
