@@ -524,6 +524,54 @@ def test_deep_nested_labels(
     }
 
 
+def test_arrays_of_sub_detections_are_processed(
+    bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
+):
+    """Arrays nested in sub-detections used to keep their original path."""
+    # The `..` through a real directory keeps an unprocessed path
+    # distinguishable from a resolved one.
+    detour = tempdir / "detour"
+    detour.mkdir()
+    root_array = detour / ".." / "root.npy"
+    nested_array = detour / ".." / "nested.npy"
+    np.save(root_array, np.zeros((2, 2)))
+    np.save(nested_array, np.ones((2, 2)))
+
+    def generator() -> DatasetIterator:
+        yield {
+            "file": create_image(0, tempdir),
+            "task_name": "vehicle",
+            "annotation": {
+                "class": "car",
+                "array": {"path": root_array},
+                "sub_detections": {
+                    "plate": {
+                        "class": "CO",
+                        "array": {"path": nested_array},
+                    }
+                },
+            },
+        }
+
+    dataset = create_dataset(dataset_name, generator(), bucket_storage)
+
+    df = dataset._load_df_offline(raise_when_empty=True)
+    stored = {
+        row["task_name"]: json.loads(row["annotation"])["path"]
+        for row in df.iter_rows(named=True)
+        if row["task_type"] == "array"
+    }
+    root, nested = stored["vehicle"], stored["vehicle/plate"]
+
+    if dataset.is_remote:
+        # Uploaded arrays are renamed to their UUID.
+        assert root == Path(root).name
+        assert nested == Path(nested).name
+    else:
+        assert root == str(root_array.resolve())
+        assert nested == str(nested_array.resolve())
+
+
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_partial_labels(dataset_name: str, tempdir: Path):
     def generator() -> DatasetIterator:

@@ -2,7 +2,7 @@ import json
 import math
 import shutil
 from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from functools import cached_property
@@ -75,6 +75,15 @@ from .utils import (
     get_dir,
     get_file,
 )
+
+
+def _walk_detections(detections: Iterable[Detection]) -> Iterator[Detection]:
+    """Yield the detections and their sub-detections, which carry
+    annotations of their own.
+    """
+    for detection in detections:
+        yield detection
+        yield from _walk_detections(detection.sub_detections.values())
 
 
 class LuxonisDataset(BaseDataset):  # noqa: PLW1641
@@ -1175,7 +1184,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         uuid_dict = {}
         for record in data_batch:
             self._progress.update(task, advance=1)
-            for detection in record.annotation or []:
+            for detection in _walk_detections(record.annotation or []):
                 if detection.array is None:
                     continue
                 ann = detection.array
