@@ -564,9 +564,10 @@ def test_arrays_of_sub_detections_are_processed(
     root, nested = stored["vehicle"], stored["vehicle/plate"]
 
     if dataset.is_remote:
-        # Uploaded arrays are renamed to their UUID.
-        assert root == Path(root).name
-        assert nested == Path(nested).name
+        # Uploaded arrays are renamed to the UUID of their contents.
+        get_uuid = dataset._fs.get_file_uuid
+        assert root == f"{get_uuid(root_array, local=True)}.npy"
+        assert nested == f"{get_uuid(nested_array, local=True)}.npy"
     else:
         assert root == str(root_array.resolve())
         assert nested == str(nested_array.resolve())
