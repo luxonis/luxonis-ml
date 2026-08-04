@@ -290,7 +290,7 @@ categorical metadata rather than free-form text:
 
 .. python::
 
-    from luxonis_ml.data import Category
+    from luxonis_ml.ldf import Category
 
     {
         "metadata": {
@@ -339,14 +339,13 @@ import json
 import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
-from copy import deepcopy
-from numbers import Real
 from pathlib import Path
 from typing import Annotated, Any, Literal, Optional, TypeAlias, TypedDict
 
 import numpy as np
 import pycocotools.mask
 from loguru import logger
+from PIL import Image, ImageDraw
 from pydantic import (
     AliasChoices,
     Field,
@@ -741,15 +740,21 @@ class BBoxAnnotation(Annotation):
 
     @model_validator(mode="before")
     @classmethod
-    def _validate_values(cls, values: dict[str, Any]) -> dict[str, Any]:
-        # `Real` so numpy scalars are clipped as well. Anything else is left
-        # for pydantic to report instead of failing on the clipping below.
-        if not isinstance(values, Mapping) or not all(
-            isinstance(values.get(key), Real) for key in ["x", "y", "w", "h"]
-        ):
+    def _validate_values(cls, values: Any) -> Any:
+        if not isinstance(values, Mapping):
             return values
 
-        values = dict(values)
+        # Coerce up front so everything pydantic accepts -- numpy scalars,
+        # `Decimal`s, numeric strings -- gets clipped. Anything that is not
+        # a number is left for pydantic to report instead of failing below.
+        try:
+            coordinates = {
+                key: float(values[key]) for key in ["x", "y", "w", "h"]
+            }
+        except (LookupError, TypeError, ValueError):
+            return values
+
+        values = {**values, **coordinates}
         warn = False
         for key in ["x", "y", "w", "h"]:
             if values[key] < -2 or values[key] > 2:
@@ -849,34 +854,42 @@ class KeypointAnnotation(Annotation):
 
     @model_validator(mode="before")
     @classmethod
-    def _validate_values(cls, values: dict[str, Any]) -> dict[str, Any]:
-        if "keypoints" not in values:
+    def _validate_values(cls, values: Any) -> Any:
+        if not isinstance(values, Mapping) or "keypoints" not in values:
             return values
 
-        values = {**values, "keypoints": list(values["keypoints"])}
+        # Coerced up front for the same reason as in `BBoxAnnotation`.
+        try:
+            keypoints = [
+                [float(keypoint[0]), float(keypoint[1]), *list(keypoint)[2:]]
+                for keypoint in values["keypoints"]
+            ]
+        except (LookupError, TypeError, ValueError):
+            return values
+
         warn = False
-        for i, keypoint in enumerate(values["keypoints"]):
-            if (keypoint[0] < -2 or keypoint[0] > 2) or (
-                keypoint[1] < -2 or keypoint[1] > 2
-            ):
+        for keypoint in keypoints:
+            x, y = keypoint[0], keypoint[1]
+            if (x < -2 or x > 2) or (y < -2 or y > 2):
                 raise ValueError(
                     "Keypoint annotation has value outside of automatic clipping range ([-2, 2]). "
                     "Values should be normalized based on image size to range [0, 1]."
                 )
-            new_keypoint = list(keypoint)
-            if not (0 <= keypoint[0] <= 1):
-                new_keypoint[0] = max(0, min(1, keypoint[0]))
+            if not (0 <= x <= 1):
+                keypoint[0] = max(0.0, min(1.0, x))
                 warn = True
-            if not (0 <= keypoint[1] <= 1):
-                new_keypoint[1] = max(0, min(1, keypoint[1]))
+            if not (0 <= y <= 1):
+                keypoint[1] = max(0.0, min(1.0, y))
                 warn = True
-            values["keypoints"][i] = tuple(new_keypoint)
 
         if warn:
             logger.warning(
                 "Keypoint annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
             )
-        return values
+        return {
+            **values,
+            "keypoints": [tuple(keypoint) for keypoint in keypoints],
+        }
 
 
 class SegmentationAnnotation(Annotation):
@@ -981,7 +994,9 @@ class SegmentationAnnotation(Annotation):
 
     @model_validator(mode="before")
     @classmethod
-    def _validate_rle(cls, values: dict[str, Any]) -> dict[str, Any]:
+    def _validate_rle(cls, values: Any) -> Any:
+        if not isinstance(values, Mapping):
+            return values
         if {"counts", "width", "height"} - set(values.keys()):
             return values
 
@@ -991,6 +1006,7 @@ class SegmentationAnnotation(Annotation):
         if not check_type(height, int) or not check_type(width, int):
             raise ValueError("Height and width must be integers")
 
+        values = dict(values)
         counts = values["counts"]
         if isinstance(counts, str):
             values["counts"] = counts.encode("utf-8")
@@ -1027,10 +1043,10 @@ class SegmentationAnnotation(Annotation):
 
     @model_validator(mode="before")
     @classmethod
-    def _validate_mask(cls, values: dict[str, Any]) -> dict[str, Any]:
-        if "mask" not in values:
+    def _validate_mask(cls, values: Any) -> Any:
+        if not isinstance(values, Mapping) or "mask" not in values:
             return values
-        values = deepcopy(values)
+        values = dict(values)
 
         mask = values.pop("mask")
         if isinstance(mask, PathType):
@@ -1043,13 +1059,13 @@ class SegmentationAnnotation(Annotation):
                         f"Failed to load mask from array at '{mask_path}'"
                     ) from e
             elif mask_path.suffix == ".png":
-                import cv2
-
-                mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
-                if mask is None:
+                try:
+                    with Image.open(mask_path) as image:
+                        mask = np.array(image.convert("L"))
+                except Exception as e:
                     raise ValueError(
                         f"Failed to load mask from image at '{mask_path}'"
-                    )
+                    ) from e
                 mask = mask.astype(bool).astype(np.uint8)
             else:
                 raise ValueError(
@@ -1071,11 +1087,13 @@ class SegmentationAnnotation(Annotation):
 
     @model_validator(mode="before")
     @classmethod
-    def _validate_polyline(cls, values: dict[str, Any]) -> dict[str, Any]:
+    def _validate_polyline(cls, values: Any) -> Any:
+        if not isinstance(values, Mapping):
+            return values
         if {"points", "width", "height"} - set(values.keys()):
             return values
 
-        values = deepcopy(values)
+        values = dict(values)
 
         width = values.pop("width")
         height = values.pop("height")
@@ -1089,9 +1107,10 @@ class SegmentationAnnotation(Annotation):
         if len(points) < 3:
             raise ValueError("Polyline must contain at least 3 points")
 
+        # `_clip_points` rewrites the list in place, so never hand it the
+        # caller's own one.
+        points = list(points)
         cls._clip_points(points)
-
-        from PIL import Image, ImageDraw
 
         polyline = [(round(x * width), round(y * height)) for x, y in points]
         mask = Image.new("L", (width, height), 0)
@@ -1224,11 +1243,17 @@ class ArrayAnnotation(Annotation):
                 f"Array annotation file must be a .npy file. Got {path}"
             )
         try:
+            # Memory mapping keeps the check from reading the whole array.
             np.load(path, mmap_mode="r")
-        except Exception as e:
-            raise ValueError(
-                f"Failed to load array annotation from {path}."
-            ) from e
+        except Exception:
+            # Not every filesystem supports mmap, so a plain read decides
+            # whether the file is really unusable.
+            try:
+                np.load(path)
+            except Exception as e:
+                raise ValueError(
+                    f"Failed to load array annotation from {path}."
+                ) from e
         return path
 
 
@@ -1237,7 +1262,8 @@ class DatasetRecord(BaseModelExtraForbid):
 
     A record is the unit of ingestion for `LuxonisDataset.add`. It may point
     to one media source through ``file`` or to multiple synchronized sources
-    through ``files``.
+    through ``files``, but never both -- passing both is an error, where
+    ``files`` used to be silently discarded in favor of ``file``.
 
     ``sample_metadata`` stores **record-level metadata**. It is preserved by
     native import/export and returned by `LuxonisLoader` as
@@ -1315,19 +1341,29 @@ class DatasetRecord(BaseModelExtraForbid):
 
     @model_validator(mode="before")
     @classmethod
-    def validate_task_name(cls, values: dict[str, Any]) -> dict[str, Any]:
-        if "task" in values:
-            log_once(
-                logger.warning,
-                "The 'task' field is deprecated. Use 'task_name' instead.",
-            )
-            values["task_name"] = values.pop("task")
+    def validate_task_name(cls, values: Any) -> Any:
+        if not isinstance(values, Mapping):
+            return values
+        if "task" not in values:
+            return values
+
+        log_once(
+            logger.warning,
+            "The 'task' field is deprecated. Use 'task_name' instead.",
+        )
+        values = dict(values)
+        values["task_name"] = values.pop("task")
         return values
 
     @model_validator(mode="before")
     @classmethod
-    def validate_files(cls, values: dict[str, Any]) -> dict[str, Any]:
-        values = deepcopy(values)
+    def validate_files(cls, values: Any) -> Any:
+        if not isinstance(values, Mapping):
+            return values
+
+        # A shallow copy is enough: nothing below mutates a nested value,
+        # and deep-copying would duplicate any mask the payload carries.
+        values = dict(values)
         if "file" in values:
             if "files" in values:
                 raise ValueError("Provide either 'file' or 'files', not both.")
@@ -1347,12 +1383,16 @@ class DatasetRecord(BaseModelExtraForbid):
             Annotation data rows.
 
         """
-        yield from self._to_parquet_rows(self.annotation, self.task_name)
+        yield from self._to_parquet_rows(
+            self.annotation, self.task_name, json.dumps(self.sample_metadata)
+        )
 
     def _to_parquet_rows(
-        self, annotation: Detection | None, task_name: str
+        self,
+        annotation: Detection | None,
+        task_name: str,
+        sample_metadata: str,
     ) -> Iterable[ParquetRecord]:
-        sample_metadata = json.dumps(self.sample_metadata)
         file_items = sorted(self.files.items(), key=lambda x: str(x[1]))
         for i, (source, file_path) in enumerate(file_items):
             is_main = i == 0
@@ -1407,7 +1447,7 @@ class DatasetRecord(BaseModelExtraForbid):
                     }
                 for name, detection in annotation.sub_detections.items():
                     yield from self._to_parquet_rows(
-                        detection, f"{task_name}/{name}"
+                        detection, f"{task_name}/{name}", sample_metadata
                     )
 
     @staticmethod
@@ -1465,3 +1505,22 @@ def load_annotation(
     if task_type not in classes:
         raise ValueError(f"Unknown label type: {task_type}")
     return classes[task_type].model_validate(data)
+
+
+# Also keeps the API docs rooted here: pydoctor moves a re-exported name to
+# the re-exporting module unless the module defining it lists it in `__all__`.
+__all__ = [
+    "Annotation",
+    "ArrayAnnotation",
+    "BBoxAnnotation",
+    "Category",
+    "ClassificationAnnotation",
+    "DatasetRecord",
+    "Detection",
+    "InstanceSegmentationAnnotation",
+    "KeypointAnnotation",
+    "KeypointVisibility",
+    "NormalizedFloat",
+    "SegmentationAnnotation",
+    "load_annotation",
+]

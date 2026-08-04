@@ -6,6 +6,8 @@ written. `luxonis_ml.data.utils.parquet.ParquetFileManager` does the writing.
 
 from typing import TypedDict
 
+__all__ = ["ParquetRecord"]
+
 
 class ParquetRecord(TypedDict):
     """Single annotation row written to parquet.

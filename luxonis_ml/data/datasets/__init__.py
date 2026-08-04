@@ -269,6 +269,9 @@ from luxonis_ml.ldf import (
     load_annotation,
 )
 
+# Keeps `luxonis_ml.data.datasets.annotation` reachable as an attribute for
+# code that never imports the compatibility module directly.
+from . import annotation as annotation
 from .base_dataset import DATASETS_REGISTRY, BaseDataset, DatasetIterator
 from .luxonis_dataset import LuxonisDataset, UpdateMode
 from .metadata import Metadata

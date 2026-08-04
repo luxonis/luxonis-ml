@@ -7,7 +7,9 @@ a `DatasetRecord` with its `Detection`, the annotation payloads
 `ClassificationAnnotation`), and the `ParquetRecord` row they are stored as.
 
 Example:
-    Build a record with a single bounding box annotation.
+    Build a record with a single bounding box annotation. The referenced
+    file has to exist -- `DatasetRecord` validates it and stores it as an
+    absolute path.
 
     .. code-block:: python
 
