@@ -20,9 +20,10 @@ so the strategy lives in exactly one place and callers only ever touch
   golden-ratio hue spacing does *not* guarantee, since two hues far apart on the
   wheel can collapse onto each other under simulation. Each set is short, so
   `CVDDistinctColors` takes over past its last color.
-- `CVDDistinctColors` on its own: an unbounded generator that picks each color to
-  maximize its distance from every color already handed out, measured under
-  normal vision *and* all three dichromacies (see `luxonis_ml.utils.color.cvd`).
+- `CVDDistinctColors` on its own (``Palette(generator="cvd")``): an unbounded
+  generator that picks each color to maximize its distance from every color
+  already handed out, measured under normal vision *and* all three dichromacies
+  (see `luxonis_ml.utils.color.cvd`).
 - `Palette.from_colormap`, which samples a categorical palette out of a
   continuous colormap from :data:`luxonis_ml.utils.color.gradient.GRADIENTS`.
 
@@ -464,18 +465,27 @@ def _radical_inverse_position(index: int) -> float:
     return _radical_inverse(index - 1)
 
 
+#: The name that selects `CVDDistinctColors` with nothing in front of it. Not a
+#: :data:`PALETTES` entry because it is not a fixed list of colors — it is the
+#: search those lists are extended with, run from the first color.
+CVD_PALETTE = "cvd"
+
+
 @cache
 def _named_generator(name: str) -> ColorGenerator:
-    """Build (once) the generator behind a :data:`PALETTES` name.
+    """Build (once) the generator behind a palette name.
 
     Cached so every caller of a given name shares one generator, and therefore
-    one memoized overflow sequence: the farthest-point search past the anchors
-    is paid for at most once per name per process.
+    one memoized sequence: the farthest-point search — past the anchors of a
+    :data:`PALETTES` set, or from the first color for :data:`CVD_PALETTE` — is
+    paid for at most once per name per process.
     """
+    if name == CVD_PALETTE:
+        return CVDDistinctColors()
     try:
         anchors = PALETTES[name]
     except KeyError:
-        names = ", ".join(sorted(PALETTES))
+        names = ", ".join(sorted([*PALETTES, CVD_PALETTE]))
         raise KeyError(
             f"unknown palette {name!r}; choose one of: {names}, "
             "or pass a color generator"
@@ -491,12 +501,13 @@ def resolve_generator(generator: "ColorGenerator | str") -> ColorGenerator:
     is accepted.
 
     Args:
-        generator: A ``int -> Color`` callable, or the name of a palette in
-            :data:`PALETTES`.
+        generator: A ``int -> Color`` callable, the name of a palette in
+            :data:`PALETTES`, or :data:`CVD_PALETTE` for the unbounded
+            `CVDDistinctColors` search on its own.
 
     Returns:
-        The `ColorGenerator`. For a name, one that hands out the named colors in
-        order and then continues with `CVDDistinctColors`.
+        The `ColorGenerator`. For a :data:`PALETTES` name, one that hands out
+        the named colors in order and then continues with `CVDDistinctColors`.
 
     Raises:
         KeyError: If a name is given that is not a registered palette.
@@ -504,6 +515,8 @@ def resolve_generator(generator: "ColorGenerator | str") -> ColorGenerator:
     Examples:
         >>> resolve_generator("okabe-ito")(0)
         Color(r=230, g=159, b=0, a=255)
+        >>> resolve_generator("cvd")(0) == CVDDistinctColors()(0)
+        True
         >>> resolve_generator("nope")  # doctest: +IGNORE_EXCEPTION_DETAIL
         Traceback (most recent call last):
             ...
@@ -649,6 +662,26 @@ class Palette:
     def __len__(self) -> int:
         """Return the number of classes assigned a color so far."""
         return len(self._colors)
+
+    @property
+    def generator(self) -> ColorGenerator:
+        """The ``int -> Color`` strategy this palette assigns colors from.
+
+        Readable so a *fresh* palette can be built on an existing color scheme
+        — which is what a caller that pins class order
+        (``Palette(classes, generator=...)``) needs when the scheme itself
+        comes from somewhere else, such as a theme. Cloning the palette
+        instead would carry over its already-assigned colors, and with them
+        whatever order those classes happened to be seen in.
+
+        Examples:
+            >>> palette = Palette(generator="okabe-ito")
+            >>> pinned = Palette(["car", "bus"], generator=palette.generator)
+            >>> pinned.color_for("car") == palette.at(0)
+            True
+
+        """
+        return self._generator
 
     def at(self, index: int) -> Color:
         """Return the color for sequence position ``index`` (without registering it).

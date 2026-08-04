@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from pathlib import Path
 from threading import Event, get_ident
 from types import SimpleNamespace
+from typing import Literal
 
 import numpy as np
 import pytest
@@ -165,6 +166,37 @@ def test_label_type_flags_live_in_their_own_panel(
     panels = _help_panels(_command_help(command))
     assert flag in panels[group]
     assert flag not in panels["Visualization options"]
+
+
+def test_palette_choices_are_the_registered_schemes() -> None:
+    """The spelled-out CLI choices track the registry they stand in for.
+
+    ``__main__`` cannot import the palettes at module scope (it has to load
+    without the ``viz`` extra), so the names are duplicated into a Literal;
+    this is what notices when a palette is added or renamed.
+    """
+    from typing import get_args
+
+    from luxonis_ml.utils.color import CVD_PALETTE, PALETTES
+
+    assert set(get_args(data_main._PaletteName)) == {
+        "default",
+        CVD_PALETTE,
+        *PALETTES,
+    }
+
+
+@pytest.mark.parametrize("command", ["inspect", "compare", "health"])
+def test_palette_is_offered_beside_the_theme(command: str) -> None:
+    # Two independent choices, so they belong side by side rather than folded
+    # into one another: --theme picks the surfaces, --palette the class colors.
+    help_text = _command_help(command)
+    assert "--palette" in help_text
+    assert "--theme" in help_text
+    if command != "health":  # health's options are one unnamed panel
+        panel = _help_panels(help_text)["Visualization options"]
+        assert "--palette" in panel
+        assert "--theme" in panel
 
 
 def test_every_array_flag_lives_in_the_array_panel() -> None:
@@ -346,6 +378,205 @@ def test_present_sample_metadata_labels_empty_inputs() -> None:
         "sample 1": {"record_id": 1},
         "sample 2": "(no metadata)",
     }
+
+
+def _patch_two_class_sample(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point the CLI at one headless sample holding a car and a bus."""
+    image = np.zeros((32, 48, 3), dtype=np.uint8)
+    record = DatasetRecord.model_construct(
+        files={},
+        annotation=[
+            Detection(
+                class_name="car",
+                instance_id=1,
+                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.4),
+            ),
+            Detection(
+                class_name="bus",
+                instance_id=2,
+                boundingbox=BBoxAnnotation(x=0.55, y=0.1, w=0.3, h=0.4),
+            ),
+        ],
+        task_name="objects",
+    )
+
+    class _Dataset:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return 1
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"objects": {"car": 0, "bus": 1}}
+
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"objects": ["car", "bus"]}
+
+        def get_task_names(self) -> list[str]:
+            return ["objects"]
+
+        def get_categorical_encodings(self) -> dict[str, object]:
+            return {}
+
+        def get_skeletons(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self._augmentations = None
+
+        def __iter__(self) -> Iterator[SimpleNamespace]:
+            yield SimpleNamespace(
+                images={"image": image}, labels={}, metadata={}
+            )
+
+    from luxonis_ml.data.loaders import label_converter
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    monkeypatch.setattr(data_main, "check_exists", _ignore_exists)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    monkeypatch.setattr(
+        viewer_module,
+        "Viewer",
+        lambda **_k: RealViewer(_FakeBackend(keys=[ord("x")])),
+    )
+    monkeypatch.setattr(
+        label_converter,
+        "loader_output_to_records",
+        lambda *_args, **_kwargs: {"objects": record},
+    )
+
+
+@pytest.mark.parametrize(
+    ("theme", "palette"),
+    [
+        ("dark", "okabe-ito"),
+        ("dark", "cvd"),
+        # `default` is the one value that follows the theme, which is how the
+        # light theme keeps its darker, punchier take on the class colors.
+        ("dark", "default"),
+        ("light", "default"),
+    ],
+)
+def test_inspect_picks_class_colors_independently_of_the_theme(
+    monkeypatch: pytest.MonkeyPatch,
+    theme: Literal["dark", "light"],
+    palette: "data_main._PaletteName",
+) -> None:
+    from luxonis_ml.vizlab import (
+        DARK_THEME,
+        LIGHT_THEME,
+        PALETTES,
+        CVDDistinctColors,
+        Frame,
+        RenderOptions,
+        Style,
+        Swatches,
+        current_options,
+        set_default_options,
+    )
+    from luxonis_ml.vizlab.color import ColorLike
+    from luxonis_ml.vizlab.layout.panel import PanelData
+
+    expected = {
+        "okabe-ito": list(PALETTES["okabe-ito"][:2]),
+        "cvd": [CVDDistinctColors()(i) for i in (0, 1)],
+        "default": [
+            (LIGHT_THEME if theme == "light" else DARK_THEME).palette.at(i)
+            for i in (0, 1)
+        ],
+    }[palette]
+
+    panels: list[PanelData] = []
+
+    def capture_panel(
+        self: Frame,
+        data: PanelData,
+        *,
+        side: str = "right",
+        width: float | None = None,
+        title: str | None = None,
+        style: Style | None = None,
+        bg: ColorLike | None = None,
+    ) -> Frame:
+        panels.append(data)
+        return self
+
+    _patch_two_class_sample(monkeypatch)
+    monkeypatch.setattr(Frame, "with_panel", capture_panel)
+
+    try:
+        data_main.inspect("dataset", theme=theme, palette=palette, legend=True)
+        # What every annotation is colored from: the scope's render options.
+        scope_palette = current_options().theme.palette
+    finally:
+        set_default_options(RenderOptions())
+
+    assert scope_palette.color_for("car") == expected[0]
+    assert scope_palette.color_for("bus") == expected[1]
+    # And what the reader matches those colors against.
+    assert len(panels) == 1
+    panel = panels[0]
+    assert isinstance(panel, dict)
+    legend = panel["classes"]
+    assert isinstance(legend, Swatches)
+    assert {name: color for color, name in legend.items} == {
+        "car": expected[0],
+        "bus": expected[1],
+    }
+
+
+def test_inspect_colors_instances_from_the_chosen_palette(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Instance coloring keeps its own sequence, but not its own scheme.
+
+    ``--color-by instance`` numbers the objects in a sample rather than naming
+    their classes, so it starts the sequence over — from the same generator,
+    because ``--palette`` is a statement about how colors are picked.
+    """
+    import luxonis_ml.vizlab.adapters.instances as instances_module
+    from luxonis_ml.vizlab import (
+        PALETTES,
+        Annotation,
+        Palette,
+        RenderOptions,
+        set_default_options,
+    )
+    from luxonis_ml.vizlab.adapters.instances import ColorBy
+
+    seen: list[Palette] = []
+    real_colored = instances_module.records_to_colored_annotations
+
+    def capture_coloring(
+        selected_records: Sequence[DatasetRecord],
+        *,
+        color_by: ColorBy,
+        options: RenderOptions,
+        identity_palette: Palette,
+    ) -> list[Annotation]:
+        seen.append(identity_palette)
+        return real_colored(
+            selected_records,
+            color_by=color_by,
+            options=options,
+            identity_palette=identity_palette,
+        )
+
+    _patch_two_class_sample(monkeypatch)
+    monkeypatch.setattr(
+        instances_module, "records_to_colored_annotations", capture_coloring
+    )
+
+    try:
+        data_main.inspect("dataset", palette="okabe-ito", per_instance=True)
+    finally:
+        set_default_options(RenderOptions())
+
+    assert seen
+    assert seen[0].at(0) == PALETTES["okabe-ito"][0]
 
 
 def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(

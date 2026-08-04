@@ -17,8 +17,10 @@ from luxonis_ml.utils.color.cvd import (
     to_lab,
 )
 from luxonis_ml.vizlab import (
+    CVD_PALETTE,
     DARK_THEME,
     DEFAULT_PALETTE,
+    LIGHT_THEME,
     PALETTES,
     ColormapColors,
     CVDDistinctColors,
@@ -26,6 +28,7 @@ from luxonis_ml.vizlab import (
     Gradient,
     Palette,
     RenderOptions,
+    resolve_generator,
 )
 
 #: The separation every shipped palette must keep between all of its colors,
@@ -223,6 +226,41 @@ def test_cvd_generator_steers_clear_of_the_colors_it_avoids():
     assert min_separation([*anchors, *naive]) < min_separation(
         [*anchors, *generated]
     )
+
+
+def test_cvd_search_is_selectable_by_name():
+    """``cvd`` picks the unbounded search itself, not a published set."""
+    expected = [CVDDistinctColors()(i) for i in range(6)]
+    assert [Palette(generator=CVD_PALETTE).at(i) for i in range(6)] == expected
+
+    theme = DARK_THEME.with_palette(CVD_PALETTE)
+    assert theme.palette.color_for("car") == expected[0]
+    # Every name resolves through the one entry point, and one process shares
+    # one generator per name (so the farthest-point search is paid for once).
+    assert resolve_generator(CVD_PALETTE) is resolve_generator(CVD_PALETTE)
+    # It is not one of the fixed sets, so a typo has to name it explicitly.
+    assert CVD_PALETTE not in PALETTES
+    with pytest.raises(KeyError, match=CVD_PALETTE):
+        Palette(generator="cvd-distinct")
+
+
+def test_palette_generator_is_readable_to_rebuild_a_scheme():
+    """A caller pinning class order can keep someone else's color scheme.
+
+    Cloning the palette instead would carry its assigned colors over, and the
+    point of pinning is to choose the order those are assigned in.
+    """
+    theme = DARK_THEME.with_palette("tol-muted")
+    theme.palette.color_for("bus")  # takes the first color of the scheme
+
+    pinned = Palette(["car", "bus"], generator=theme.palette.generator)
+    assert pinned.color_for("car") == PALETTES["tol-muted"][0]
+    assert pinned.color_for("bus") == PALETTES["tol-muted"][1]
+    # The light theme's scheme is a tuned generator rather than a named set,
+    # and survives the same round trip.
+    assert Palette(["car"], generator=LIGHT_THEME.palette.generator).color_for(
+        "car"
+    ) == LIGHT_THEME.palette.at(0)
 
 
 def test_colormap_palette_reuses_the_gradient_registry():

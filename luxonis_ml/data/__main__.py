@@ -97,6 +97,20 @@ _ArrayKindName: TypeAlias = Literal[
     "confidence",
     "class_confidence",
 ]
+#: The class-color schemes ``--palette`` offers: the colorblind-safe sets in
+#: `luxonis_ml.utils.color.PALETTES`, the unbounded ``cvd`` search behind them,
+#: and ``default`` for whichever scheme the chosen theme already carries.
+#: Spelled out (rather than read off the registry) because this module must
+#: import without the ``viz`` extra installed; a test keeps the two in step.
+_PaletteName: TypeAlias = Literal[
+    "default",
+    "cvd",
+    "okabe-ito",
+    "tol-bright",
+    "tol-high-contrast",
+    "tol-muted",
+    "tol-vibrant",
+]
 _ClassMappings: TypeAlias = dict[str, dict[str, int]]
 _NO_SAMPLE_FILTERS = SampleFilterConfig()
 _DATASET_OPTIONS = Group("Dataset options", sort_key=10)
@@ -826,6 +840,10 @@ def inspect(
         Literal["dark", "light"],
         Parameter(alias="-t", group=_VISUALIZATION_OPTIONS),
     ] = "dark",
+    palette: Annotated[
+        _PaletteName,
+        Parameter(alias="-pl", group=_VISUALIZATION_OPTIONS),
+    ] = "default",
     plain: Annotated[
         bool | None,
         Parameter(alias="-p", group=_VISUALIZATION_OPTIONS),
@@ -945,6 +963,17 @@ def inspect(
             scenes are drawn instead of hidden (equivalent to pressing ``d`` up
             front). Toggle it back on any time with the ``d`` key.
         theme: Visual theme of the visualization: ``dark`` or ``light``.
+        palette: Which colors the classes are drawn in, picked independently of
+            ``--theme``. ``default`` keeps the theme's own distinct-hue scheme,
+            which spreads hues as widely as it can but promises nothing about
+            how they look to a colorblind viewer. Every other value does:
+            ``okabe-ito``, ``tol-bright``, ``tol-high-contrast``,
+            ``tol-vibrant``, and ``tol-muted`` are published qualitative sets,
+            short by nature (three to nine colors) and continued past their last
+            color by the search that ``cvd`` runs from the first one — which
+            picks every color to stay as far as it can from the ones already
+            given out, under normal vision and all three dichromacies. Reach for
+            a named set with a handful of classes, and for ``cvd`` with dozens.
         plain: Render just the image, without the side panel (controls, class
             legend, and sample metadata) or the rounded surface it is mounted
             on. Defaults to off, except when ``--save`` names a clip: a clip has
@@ -1073,6 +1102,7 @@ def inspect(
             Swatches,
             combine,
             order_by_position,
+            resolve_generator,
             resolve_gradient,
             set_default_options,
             visualize_record,
@@ -1110,11 +1140,19 @@ def inspect(
         viz_theme = viz_theme.with_style(
             viz_theme.style.merge(mask_outline=MaskOutline.NONE, shadow=False)
         )
+    # The color scheme is chosen independently of the theme: a named --palette
+    # wins, and `default` keeps whichever scheme the theme carries (the light
+    # theme's is tuned darker to hold up against a light background).
+    generator = (
+        viz_theme.palette.generator
+        if palette == "default"
+        else resolve_generator(palette)
+    )
     # The palette is pinned to the dataset's class order for stable colors; it
     # lives on the theme, and the whole bundle is the render options.
-    palette = Palette(class_names)
+    class_palette = Palette(class_names, generator=generator)
     options = RenderOptions(
-        theme=viz_theme.with_palette(palette),
+        theme=viz_theme.with_palette(class_palette),
         skeletons=keypoint_skeletons,
         keypoint_label_mode=keypoint_labels,
         draw_skeletons=skeletons,
@@ -1138,8 +1176,9 @@ def inspect(
     set_default_options(options)
     # Identity coloring deliberately has its own sequence: the first instance or
     # task should receive the first generated color regardless of how many class
-    # names were registered in the dataset palette above.
-    identity_palette = Palette()
+    # names were registered in the dataset palette above. Same scheme, though —
+    # --palette is about how the colors are chosen, not about what they name.
+    identity_palette = Palette(generator=generator)
 
     # The legend reserves width for the dataset's longest class name (capped, so
     # one very long outlier does not blow the panel out), keeping the panel a
@@ -1180,7 +1219,7 @@ def inspect(
         names = layers.classes
         if legend and effective_color_by == "class" and names:
             out["classes"] = Swatches(
-                tuple((palette.color_for(name), name) for name in names),
+                tuple((class_palette.color_for(name), name) for name in names),
                 disabled=frozenset(layers.hidden),
                 # Hold the legend (and panel) width to the dataset's longest class
                 # name so it stays put as the per-sample class set changes.
@@ -1273,7 +1312,7 @@ def inspect(
             options=options,
             identity_palette=identity_palette,
         )
-        for annotation in layers.apply_layers(detections, palette):
+        for annotation in layers.apply_layers(detections, class_palette):
             viz.add(annotation)
         if color_by != "instance":
             for overlay in metadata_annotations(
@@ -1417,7 +1456,7 @@ def inspect(
             # whose annotations the layer toggles filter.
             if isinstance(tile, Image):
                 tile.annotations[:] = layers.apply_layers(
-                    tile.annotations, palette
+                    tile.annotations, class_palette
                 )
             tiles.append(tile)
         return tiles, [f"{source_name} · {task}" for task in records]
@@ -1785,6 +1824,10 @@ def compare(
         Literal["dark", "light"],
         Parameter(alias="-t", group=_VISUALIZATION_OPTIONS),
     ] = "dark",
+    palette: Annotated[
+        _PaletteName,
+        Parameter(alias="-pl", group=_VISUALIZATION_OPTIONS),
+    ] = "default",
     plain: Annotated[
         bool | None,
         Parameter(alias="-p", group=_VISUALIZATION_OPTIONS),
@@ -1849,6 +1892,14 @@ def compare(
         legend: Draw a class-color legend on each frame.
         show_background: Render the semantic-segmentation background class.
         theme: Visual theme: ``dark`` or ``light``.
+        palette: Which colors the class legend is drawn in, picked
+            independently of ``--theme``: ``default`` keeps the theme's own
+            distinct-hue scheme, while ``okabe-ito``, ``tol-bright``,
+            ``tol-high-contrast``, ``tol-vibrant``, ``tol-muted``, and ``cvd``
+            are colorblind-safe (see ``luxonis_ml data inspect --help``). It
+            colors classes, not outcomes: the verdict colors mean one thing
+            each, and ``dual`` layout keys its two panels to per-match identity
+            colors, so neither follows this.
         plain: Render just the verdict frame, without the metrics side panel or
             the rounded surface it is mounted on. Defaults to off, except when
             ``--save`` names a clip, whose single fixed canvas the panel would
@@ -1937,6 +1988,7 @@ def compare(
             combine,
             confusion_matrix_figure,
             match_detections,
+            resolve_generator,
             set_default_options,
         )
         from luxonis_ml.vizlab import (
@@ -1955,16 +2007,25 @@ def compare(
         gt_dataset, show_background=show_background
     )
     viz_theme = LIGHT_THEME if theme == "light" else DARK_THEME
-    palette = Palette(class_names)
+    # As in `inspect`: the color scheme is picked independently of the theme,
+    # and `default` keeps whichever scheme the theme itself carries.
+    class_palette = Palette(
+        class_names,
+        generator=(
+            viz_theme.palette.generator
+            if palette == "default"
+            else resolve_generator(palette)
+        ),
+    )
     options = RenderOptions(
-        theme=viz_theme.with_palette(palette),
+        theme=viz_theme.with_palette(class_palette),
         skeletons=gt_dataset.get_skeletons(),
         keypoint_label_mode=keypoint_labels,
         draw_skeletons=skeletons,
     )
     set_default_options(options)
     class_legend = (
-        Legend(entries=class_names, palette=palette, title="classes")
+        Legend(entries=class_names, palette=class_palette, title="classes")
         if legend and class_names
         else None
     )
@@ -2483,6 +2544,10 @@ def health(
         Literal["dark", "light"],
         Parameter(alias="-t"),
     ] = "dark",
+    palette: Annotated[
+        _PaletteName,
+        Parameter(alias="-pl"),
+    ] = "default",
     gradient: Annotated[
         str,
         Parameter(alias="-g"),
@@ -2518,6 +2583,13 @@ def health(
             will be saved. If not provided, the plots are shown in
             interactive OpenCV windows instead.
         theme: Visual theme of the plots: ``dark`` or ``light``.
+        palette: Which colors the class bars, chips, and per-class heatmaps are
+            drawn in, picked independently of ``--theme``: ``default`` keeps the
+            theme's own distinct-hue scheme, while ``okabe-ito``,
+            ``tol-bright``, ``tol-high-contrast``, ``tol-vibrant``,
+            ``tol-muted``, and ``cvd`` are colorblind-safe (see
+            ``luxonis_ml data inspect --help``). Distinct from ``--gradient``,
+            which colors the heatmaps' *values*.
         gradient: Name of the heatmap colormap (e.g. ``viridis``,
             ``turbo``, ``magma``, ``inferno``, ``jet``).
         distribution: How class counts are drawn: ``bars``, ``chips``,
@@ -2653,6 +2725,10 @@ def health(
         return
 
     plot_theme = LIGHT_THEME if theme == "light" else DARK_THEME
+    if palette != "default":
+        # A named scheme replaces the theme's; class colors are then assigned in
+        # the order the plots first ask for them, as they are by default.
+        plot_theme = plot_theme.with_palette(palette)
     # The viewer's cv2 backend also provides the best-effort screen size.
     screen = Cv2Backend().screen_size() if not save_dir else None
 

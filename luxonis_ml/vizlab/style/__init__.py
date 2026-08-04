@@ -10,6 +10,7 @@ over its parent, then the active theme, then the library default.
 from .derive import derive_child_color, derive_child_style
 from .palette import (
     BRAND_COLORS,
+    CVD_PALETTE,
     DEFAULT_PALETTE,
     PALETTES,
     ColorGenerator,
@@ -39,6 +40,7 @@ from .theme import (
 
 __all__ = [
     "BRAND_COLORS",
+    "CVD_PALETTE",
     "DARK_THEME",
     "DEFAULT_PALETTE",
     "DEFAULT_STYLE",

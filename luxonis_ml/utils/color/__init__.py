@@ -17,6 +17,7 @@ from . import brand, cvd
 from .base import RGB, RGBA, Color, ColorLike
 from .palette import (
     BRAND_COLORS,
+    CVD_PALETTE,
     DEFAULT_PALETTE,
     PALETTES,
     ColorGenerator,
@@ -30,6 +31,7 @@ from .palette import (
 
 __all__ = [
     "BRAND_COLORS",
+    "CVD_PALETTE",
     "DEFAULT_PALETTE",
     "PALETTES",
     "RGB",

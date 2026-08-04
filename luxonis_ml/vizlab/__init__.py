@@ -290,6 +290,7 @@ with guard_missing_extra("viz"):
     from .render.markup import escape
     from .scene import Composite, Image, Renderable
     from .style import (
+        CVD_PALETTE,
         DARK_THEME,
         DEFAULT_PALETTE,
         LIGHT_THEME,
@@ -314,6 +315,7 @@ with guard_missing_extra("viz"):
 
 __all__ = [
     "COCO_CLASSES",
+    "CVD_PALETTE",
     "DARK_THEME",
     "DEFAULT_GRADIENT",
     "DEFAULT_PALETTE",

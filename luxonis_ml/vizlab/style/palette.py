@@ -7,6 +7,7 @@ style package uses internally.
 
 from luxonis_ml.utils.color.palette import (
     BRAND_COLORS,
+    CVD_PALETTE,
     DEFAULT_PALETTE,
     PALETTES,
     ColorGenerator,
@@ -20,6 +21,7 @@ from luxonis_ml.utils.color.palette import (
 
 __all__ = [
     "BRAND_COLORS",
+    "CVD_PALETTE",
     "DEFAULT_PALETTE",
     "PALETTES",
     "CVDDistinctColors",

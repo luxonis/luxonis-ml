@@ -18,7 +18,8 @@ how a render opts into one::
 
     RenderOptions(theme=DARK_THEME.with_palette("okabe-ito"))
 
-See :data:`luxonis_ml.utils.color.PALETTES` for the registered names.
+See :data:`luxonis_ml.utils.color.PALETTES` for the registered names, plus
+:data:`luxonis_ml.utils.color.CVD_PALETTE` for the unbounded search behind them.
 """
 
 from collections.abc import Mapping
@@ -69,8 +70,9 @@ class Theme:
         """Return a copy of this theme using ``palette`` for class colors.
 
         Args:
-            palette: A `Palette`, or the name of a colorblind-safe preset in
-                :data:`luxonis_ml.utils.color.PALETTES` — the same
+            palette: A `Palette`, the name of a colorblind-safe preset in
+                :data:`luxonis_ml.utils.color.PALETTES`, or
+                :data:`luxonis_ml.utils.color.CVD_PALETTE` — the same
                 name-or-object selection `RenderOptions.gradient` uses for
                 colormaps. A name builds a fresh palette, so class colors are
                 assigned in first-seen order from that set.
