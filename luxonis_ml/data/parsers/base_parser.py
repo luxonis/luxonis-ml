@@ -50,7 +50,9 @@ class BaseParser(ABC):
         """
         self._dataset = dataset
         self._dataset_type = dataset_type
+        self._default_task_name: str | None = None
         if isinstance(task_name, str):
+            self._default_task_name = task_name
             self._task_name = defaultdict(lambda: task_name)
         else:
             self._task_name = task_name
@@ -644,7 +646,15 @@ class BaseParser(ABC):
 
             if self._task_name is not None:
                 if not item.annotation:
-                    for task_name in dict.fromkeys(self._task_name.values()):
+                    # A single task name is stored in a `defaultdict` that
+                    # only fills as annotated records look their classes up,
+                    # so its values cannot stand in for it here.
+                    task_names = (
+                        [self._default_task_name]
+                        if self._default_task_name is not None
+                        else dict.fromkeys(self._task_name.values())
+                    )
+                    for task_name in task_names:
                         yield item.model_copy(
                             update={"task_name": task_name}, deep=True
                         )

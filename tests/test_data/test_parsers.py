@@ -605,6 +605,26 @@ def test_wrap_generator_keeps_empty_list_for_each_mapped_task(
     assert [item.annotation for item in wrapped] == [[], []]
 
 
+def test_wrap_generator_keeps_annotation_free_record_for_a_single_task(
+    tmp_path: Path,
+) -> None:
+    """A single task name is held in a `defaultdict` that only fills as
+    annotated records look their classes up, so an unlabeled record was
+    dropped unless an annotated one happened to come first.
+    """
+    image = tmp_path / "negative.jpg"
+    image.write_bytes(b"x")
+    record = DatasetRecord(file=image)  # type: ignore[call-arg]
+    parser = _WarningParser(0, task_name="mytask")
+
+    wrapped = [
+        cast(DatasetRecord, item)
+        for item in parser._wrap_generator(iter([record]))
+    ]
+
+    assert [item.task_name for item in wrapped] == ["mytask"]
+
+
 def test_skipped_annotation_warnings_are_capped():
     warning_count = BaseParser._SKIPPED_WARNING_LIMIT + 5
     parser = _WarningParser(warning_count)

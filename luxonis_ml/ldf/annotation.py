@@ -1423,24 +1423,15 @@ class DatasetRecord(BaseModelExtraForbid):
             Annotation data rows.
 
         """
-        yield from self._rows_for_task(
-            self._annotations(),
-            self.task_name,
-            json.dumps(self.sample_metadata),
-        )
+        annotations = self._annotations()
+        sample_metadata = json.dumps(self.sample_metadata)
 
-    def _rows_for_task(
-        self,
-        annotations: list[Detection],
-        task_name: str,
-        sample_metadata: str,
-    ) -> Iterable[ParquetRecord]:
         file_items = sorted(self.files.items(), key=lambda x: str(x[1]))
         for i, (source, file_path) in enumerate(file_items):
             is_main = i == 0
             if not is_main or not annotations:
                 yield self._null_row(
-                    source, file_path, task_name, sample_metadata
+                    source, file_path, self.task_name, sample_metadata
                 )
             else:
                 for annotation in annotations:
@@ -1448,7 +1439,7 @@ class DatasetRecord(BaseModelExtraForbid):
                         annotation,
                         source,
                         file_path,
-                        task_name,
+                        self.task_name,
                         sample_metadata,
                     )
 
