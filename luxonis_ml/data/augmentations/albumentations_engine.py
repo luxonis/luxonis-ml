@@ -8,12 +8,13 @@ import albumentations as A
 import numpy as np
 from albumentations.core.composition import TransformsSeqType
 from loguru import logger
-from pydantic import Field
+from pydantic import Field, ValidationError
 from typing_extensions import override
 
 from luxonis_ml.data.utils.task_utils import get_task_type, task_is_metadata
 from luxonis_ml.typing import ConfigItem, LoaderMultiOutput, Params
 from luxonis_ml.utils import deprecated
+from luxonis_ml.utils.validation import record_validated_model
 
 from .base_engine import AugmentationEngine
 from .batch_compose import BatchCompose
@@ -520,14 +521,19 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             pipeline_stage=pipeline_stage,
             is_validation_pipeline=is_validation_pipeline,
         )
-        validated_config = [
-            cfg
-            for cfg in (
-                AlbumentationConfigItem.model_validate(config_item)
-                for config_item in config
-            )
-            if cfg.name == "Normalize" or pipeline_stage in cfg.apply_on_stages
-        ]
+        try:
+            validated_config = [
+                cfg
+                for cfg in (
+                    AlbumentationConfigItem.model_validate(config_item)
+                    for config_item in config
+                )
+                if cfg.name == "Normalize"
+                or pipeline_stage in cfg.apply_on_stages
+            ]
+        except ValidationError as e:
+            record_validated_model(e, AlbumentationConfigItem)
+            raise
 
         available_target_types = set(self._targets.values())
 

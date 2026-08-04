@@ -42,6 +42,11 @@ class Environ(BaseSettings):
         LUXONISML_TEAM_ID: Team identifier used by dataset storage.
         LUXONISML_DISABLE_SETUP_LOGGING: Whether automatic logging setup
             is disabled.
+        LUXONISML_DISABLE_PRETTY_VALIDATION_ERRORS: Whether the summary
+            `setup_logging` prints below the traceback of an uncaught
+            pydantic validation error is disabled. Since logging is set
+            up on import, this is the only way to opt out of it from a
+            process that never calls `setup_logging` itself.
         ROBOFLOW_API_KEY: Optional Roboflow API key used by
             `LuxonisParser`.
         GOOGLE_APPLICATION_CREDENTIALS: Optional Google credentials path.
@@ -77,6 +82,7 @@ class Environ(BaseSettings):
     LUXONISML_BASE_PATH: Path = Path.home() / "luxonis_ml"
     LUXONISML_TEAM_ID: str = "offline"
     LUXONISML_DISABLE_SETUP_LOGGING: bool = False
+    LUXONISML_DISABLE_PRETTY_VALIDATION_ERRORS: bool = False
 
     LUXONIS_TELEMETRY_ENABLED: bool = True
     LUXONIS_TELEMETRY_BACKEND: str | None = None

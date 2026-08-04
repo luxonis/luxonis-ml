@@ -4,11 +4,13 @@ from pathlib import Path
 from typing import Annotated
 
 from cyclopts import App, Parameter, validators
+from pydantic import ValidationError
 from rich import print
 from rich.panel import Panel
 from rich.pretty import Pretty
 
 from luxonis_ml.nn_archive import Config
+from luxonis_ml.utils.validation import record_validated_model
 
 app = App(help="NN Archive utilities.", help_flags="--help")
 
@@ -75,7 +77,11 @@ def inspect(
         if extracted_cfg is None:
             raise RuntimeError("Config JSON not found in the archive.")
 
-        cfg = Config.model_validate_json(extracted_cfg.read())
+        try:
+            cfg = Config.model_validate_json(extracted_cfg.read())
+        except ValidationError as e:
+            record_validated_model(e, Config)
+            raise
 
     if metadata:
         print(Panel.fit(Pretty(cfg.model.metadata), title="Metadata"))
