@@ -74,6 +74,16 @@ def label_candidates(
 
     """
     cx = region.center[0]
+    if region.width < 1.0 and region.height < 1.0:
+        # A point rather than a box — an arrow's midpoint, a ruler's centre.
+        # A point has no left edge to align to, so the edge-aligned candidates
+        # below would hang the whole chip off to one side of it; centred is the
+        # only placement that means anything here.
+        return [
+            (cx - width / 2, region.top - height),
+            (cx - width / 2, region.bottom),
+            (region.left, region.top - height),
+        ]
     above = [
         (region.left, region.top - height),
         (region.right - width, region.top - height),

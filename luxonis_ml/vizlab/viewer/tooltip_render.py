@@ -357,6 +357,10 @@ class TooltipCard:
         )
 
 
+#: Blur sigma behind a tooltip card, as a fraction of its type size.
+_FROST = 0.3
+
+
 def prepare_tooltip(frame: np.ndarray, tooltip: Tooltip) -> TooltipCard | None:
     """Render ``tooltip`` for a ``frame``-sized window, ready to draw repeatedly.
 
@@ -378,8 +382,10 @@ def prepare_tooltip(frame: np.ndarray, tooltip: Tooltip) -> TooltipCard | None:
     ch, cw = rgba.shape[:2]
     if cw >= width or ch >= height:
         return None
-    # A frosted-glass backdrop behind the translucent card, scaled with the type.
-    return TooltipCard(tooltip, rgba, blur=size * 0.7)
+    # A frosted-glass backdrop behind the translucent card, scaled with the
+    # type. Enough to settle a busy scene under the text without erasing it:
+    # the point is that the frame still reads through the card.
+    return TooltipCard(tooltip, rgba, blur=size * _FROST)
 
 
 def draw_tooltip(

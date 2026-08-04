@@ -748,19 +748,27 @@ def test_unknown_panel_action_is_ignored() -> None:
         (0x100000 | ord("c"), "c"),  # GTK/Qt: modifier bits above the low byte
         (-1, ""),  # no key
         (65379, ""),  # Insert  (X11 keysym 0xFF63 -> would alias to 'c')
-        (65361, ""),  # Left    (0xFF51 -> 'Q')
-        (65362, ""),  # Up      (0xFF52 -> 'R')
-        (65363, ""),  # Right   (0xFF53 -> 'S')
-        (65364, ""),  # Down    (0xFF54 -> 'T')
-        (65360, ""),  # Home    (0xFF50 -> 'P')
+        (65472, ""),  # F1      (0xFFBE -> would alias to a control byte)
+        (65361, "left"),  # 0xFF51, whose low byte would alias to 'Q'
+        (65362, "up"),  # 0xFF52 -> 'R'
+        (65363, "right"),  # 0xFF53 -> 'S'
+        (65364, "down"),  # 0xFF54 -> 'T'
+        (65360, "home"),  # 0xFF50 -> 'P'
+        (65367, "end"),  # 0xFF57 -> 'W'
+        (65365, "pageup"),  # 0xFF55 -> 'U'
+        (65366, "pagedown"),  # 0xFF56 -> 'V'
     ],
 )
-def test_key_char_ignores_special_keysyms(code: int, expected: str) -> None:
-    """Special keys must not alias onto a letter that drives a layer control.
+def test_key_char_names_special_keysyms(code: int, expected: str) -> None:
+    """Special keys must never alias onto a letter that drives a control.
 
     OpenCV's GTK/Qt builds return characters with state bits set above the low
     byte, so the low byte identifies the key — but special keys arrive as X11
     keysyms in 0xFF00-0xFFFF, whose low byte is an unrelated letter.
+
+    The navigation cluster reports its *name*, which a caller can bind exactly
+    as it binds a letter and which can never collide with one; everything else
+    special still reports no character at all.
     """
     assert _key_char(code) == expected
 
@@ -779,3 +787,63 @@ def test_special_keys_do_not_toggle_layers() -> None:
     backend.key_handler(65379)  # Insert: used to read as 'c' and isolate
     backend.key_handler(65362)  # Up: used to read as 'R'
     assert viewer.layers.is_default()
+
+
+class _SequenceBackend(FakeBackend):
+    """A backend that delivers keys as a queued byte stream.
+
+    Some OpenCV builds report the arrows as terminal escape sequences —
+    ``ESC [ D`` for Left — one byte per `poll_key`.
+    """
+
+    def __init__(self, codes: list[int]) -> None:
+        super().__init__()
+        self.codes = list(codes)
+
+    def poll_key(self, timeout_ms: int) -> int:
+        return self.codes.pop(0) if self.codes else -1
+
+
+def _sequence(*text: str) -> list[int]:
+    return [ord(character) for character in "".join(text)]
+
+
+@pytest.mark.parametrize(
+    ("codes", "expected"),
+    [
+        (_sequence("\x1b[D"), "left"),
+        (_sequence("\x1b[C"), "right"),
+        (_sequence("\x1b[A"), "up"),
+        (_sequence("\x1b[B"), "down"),
+        (_sequence("\x1b[H"), "home"),
+        (_sequence("\x1b[F"), "end"),
+        (_sequence("\x1b[5~"), "pageup"),
+        (_sequence("\x1b[6~"), "pagedown"),
+    ],
+)
+def test_escape_sequences_decode_to_navigation_keys(
+    codes: list[int], expected: str
+) -> None:
+    """An arrow sent as a CSI sequence must not read as the Escape key.
+
+    Regression: ``wait`` saw only the leading ``ESC`` and reported it as the
+    Escape key, so pressing Left quit any caller whose quit key is Escape.
+    """
+    viewer = Viewer(_SequenceBackend(codes))
+
+    assert viewer.wait() == expected
+
+
+def test_a_bare_escape_is_still_escape() -> None:
+    """Nothing follows a real Escape, so it must survive the sequence scan."""
+    viewer = Viewer(_SequenceBackend(_sequence("\x1b")))
+
+    assert viewer.wait() == "\x1b"
+
+
+def test_a_key_typed_straight_after_escape_is_not_swallowed() -> None:
+    """The byte read ahead is pushed back when it is not part of a sequence."""
+    viewer = Viewer(_SequenceBackend(_sequence("\x1bq")))
+
+    assert viewer.wait() == "\x1b"
+    assert viewer.wait() == "q"

@@ -54,6 +54,20 @@ class Tooltip:
     tint: Color | None = None
     data: "ParamValue | None" = None
 
+    def __post_init__(self) -> None:
+        """Normalize ``rows`` to tuples, whatever sequence was handed in.
+
+        A list of rows is the obvious thing to write and nothing rejects it —
+        this is a plain dataclass, so the annotation is not enforced — but it
+        used to fail much later and somewhere else: `resolved_rows` concatenates
+        with a tuple, which raises ``TypeError`` only once something actually
+        draws the tooltip. Coercing here keeps the field's declared type honest
+        and keeps `Tooltip` hashable.
+        """
+        object.__setattr__(
+            self, "rows", tuple((str(k), str(v)) for k, v in self.rows)
+        )
+
     @property
     def is_empty(self) -> bool:
         """Whether there is nothing to show (no title, rows, or data)."""

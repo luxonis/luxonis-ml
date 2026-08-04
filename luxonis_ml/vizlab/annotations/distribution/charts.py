@@ -108,7 +108,16 @@ def _draw_bars(
         )
         track_top = y + (ll.row_h - ll.bar_h) / 2
         track = Rect(bar_x, track_top, bar_x + ll.bar_w, track_top + ll.bar_h)
-        cv.rounded_rect(track, radius=ll.bar_h / 2, fill=color.with_alpha(0.2))
+        # The track is neutral, not a tint of the row's own color: a colored
+        # track makes every row's colored extent the full width, so saturation
+        # ends up carrying the value and length — the one thing a bar chart
+        # encodes — stops meaning anything. A 9% bar on a tinted track reads
+        # as a long pale bar; on a neutral one it reads as 9%.
+        cv.rounded_rect(
+            track,
+            radius=ll.bar_h / 2,
+            fill=chrome.card_text.with_alpha(0.14),
+        )
         fill_w = ll.bar_w * _clamp01(value / ll.scale)
         if fill_w > 0:
             cv.rounded_rect(

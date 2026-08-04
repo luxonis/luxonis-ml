@@ -330,26 +330,76 @@ class Color:
         return Color.from_hls(hue + turns, lightness, saturation, self.a)
 
     @property
-    def is_light(self) -> bool:
-        """Whether this color is bright enough to need dark text on top.
+    def relative_luminance(self) -> float:
+        """WCAG relative luminance in ``[0, 1]``, channels linearized first.
 
-        Weights the channels the way WCAG relative luminance does, but leaves
-        them gamma-encoded rather than linearizing first — an approximation of
-        perceived brightness, which is all a light/dark decision needs.
+        Examples:
+            >>> Color(255, 255, 255).relative_luminance
+            1.0
+            >>> Color(0, 0, 0).relative_luminance
+            0.0
+
         """
-        r, g, b = self.r / 255, self.g / 255, self.b / 255
-        return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55
 
-    def readable_text_color(self) -> "Color":
-        """Return near-black or white, whichever is more readable on this color.
+        def channel(value: int) -> float:
+            v = value / 255.0
+            return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
+
+        return (
+            0.2126 * channel(self.r)
+            + 0.7152 * channel(self.g)
+            + 0.0722 * channel(self.b)
+        )
+
+    def contrast_ratio(self, other: "Color") -> float:
+        """Return the WCAG contrast ratio against ``other``, from 1 to 21.
+
+        Args:
+            other: The color to compare against.
 
         Returns:
-            Opaque `Color`: a soft near-black on light colors, white on dark
-            ones, so label text on a chip of this color stays legible.
+            The ratio; 4.5 is the AA threshold for body text.
+
+        Examples:
+            >>> round(Color(255, 255, 255).contrast_ratio(Color(0, 0, 0)), 1)
+            21.0
 
         """
-        return Color(17, 17, 17) if self.is_light else Color(255, 255, 255)
+        pair = sorted((self.relative_luminance, other.relative_luminance))
+        return (pair[1] + 0.05) / (pair[0] + 0.05)
 
+    @property
+    def is_light(self) -> bool:
+        """Whether dark text contrasts better on this color than white does."""
+        return self.contrast_ratio(_INK) >= self.contrast_ratio(_PAPER)
+
+    def readable_text_color(self) -> "Color":
+        """Return near-black or white, whichever contrasts more on this color.
+
+        The winner is chosen by *measuring* both, not by testing brightness
+        against a threshold. A threshold mispicks the middle of the range —
+        a mid-tone orange or magenta is dark enough to pass a brightness test
+        yet still contrasts nearly twice as well with black as with white — so
+        exactly the saturated chip colors a palette generates were the ones
+        getting unreadable text.
+
+        Returns:
+            Opaque `Color`: a soft near-black or white, whichever wins.
+
+        Examples:
+            A mid-tone orange, where a brightness threshold picks white:
+
+            >>> Color(216, 132, 46).readable_text_color()
+            Color(r=17, g=17, b=17, a=255)
+
+        """
+        return _INK if self.is_light else _PAPER
+
+
+#: The two candidates `Color.readable_text_color` chooses between: a soft
+#: near-black rather than pure black, which reads less harshly on a chip.
+_INK = Color(17, 17, 17)
+_PAPER = Color(255, 255, 255)
 
 ColorLike: TypeAlias = str | int | tuple[int, ...] | Color
 """Anything `Color.parse` accepts: a hex string or color name, a grayscale int,

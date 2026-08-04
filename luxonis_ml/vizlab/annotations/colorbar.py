@@ -43,9 +43,39 @@ _RAMP = 256
 _MIN_STRIP = 9.0
 
 
-def _tick_label(value: float, unit: str | None) -> str:
-    """Format a tick value compactly, matching the panel's scalar style."""
-    text = f"{value:.4g}"
+def _tick_label(
+    value: float, unit: str | None, span: float = 0.0, digits: int = 4
+) -> str:
+    """Format a tick value compactly, matching the panel's scalar style.
+
+    A tick is read against the strip's own range, so ``span`` decides what
+    counts as noise: a value many orders of magnitude below the range is the
+    tail of a float rather than a quantity, and rendering it as ``1.313e-10``
+    tells a reader nothing except that the axis is unconsidered. Anything under
+    a millionth of the span is labelled ``0``. A span of ``0`` — an unknown or
+    degenerate range — formats the value as given.
+
+    Args:
+        value: The value the tick stands for.
+        unit: Appended to the number, or ``None``.
+        span: The strip's full range, used to recognize float noise.
+        digits: Significant figures to keep.
+
+    Returns:
+        The tick's text.
+
+    Examples:
+        >>> _tick_label(1.3130042e-10, None, span=1.0)
+        '0'
+        >>> _tick_label(1.3130042e-10, None, span=4e-10)
+        '1.313e-10'
+        >>> _tick_label(0.5, "px", span=1.0)
+        '0.5 px'
+
+    """
+    if span > 0.0 and abs(value) < span * 1e-6:
+        value = 0.0
+    text = f"{value:.{digits}g}"
     return f"{text} {unit}" if unit else text
 
 
@@ -170,7 +200,9 @@ class ColorBar(CornerStack):
             if self.title
             else None
         )
-        labels = [_tick_label(v, self.unit) for v in self._tick_values()]
+        values = self._tick_values()
+        span = max(values) - min(values) if values else 0.0
+        labels = [_tick_label(v, self.unit, span) for v in values]
         label_ms = [
             canvas.measure_markup(text, size, mono=True) for text in labels
         ]
@@ -329,7 +361,9 @@ class FlowWheel(CornerStack):
             if self.title
             else None
         )
-        label = _tick_label(self.max_magnitude, self.unit)
+        label = _tick_label(
+            self.max_magnitude, self.unit, self.max_magnitude, digits=2
+        )
         label_m = canvas.measure_markup(label, size, mono=True)
         inner = max(disc, label_m.width, title_m.width if title_m else 0.0)
         card_w = inner + 2 * _PAD

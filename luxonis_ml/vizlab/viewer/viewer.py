@@ -131,17 +131,84 @@ class _HoverState:
         self.dirty = False
 
 
+#: Qt's key codes for the same cluster. The Qt OpenCV build reports these
+#: instead of X11 keysyms, and their low byte is a control character rather
+#: than a letter — harmless, but equally useless as a binding.
+_QT_KEYS = {
+    0x01000010: "home",
+    0x01000011: "end",
+    0x01000012: "left",
+    0x01000013: "up",
+    0x01000014: "right",
+    0x01000015: "down",
+    0x01000016: "pageup",
+    0x01000017: "pagedown",
+}
+
+#: Final bytes of the CSI escape sequences a terminal-style backend sends for
+#: the same keys: ``ESC [ D`` is Left, ``ESC [ 5 ~`` is Page Up.
+_CSI_KEYS = {
+    "A": "up",
+    "B": "down",
+    "C": "right",
+    "D": "left",
+    "H": "home",
+    "F": "end",
+}
+_CSI_TILDE_KEYS = {"5": "pageup", "6": "pagedown"}
+
+#: How long to wait for the rest of an escape sequence before concluding the
+#: Escape key itself was pressed. The remaining bytes are already queued when
+#: the ``ESC`` arrives, so this only has to cover the trip through the backend.
+_ESCAPE_TAIL_MS = 15
+
+#: The navigation keysyms worth naming. Everything else in the special range
+#: still reports nothing, so an unbound function key cannot alias onto a
+#: letter's binding.
+_NAMED_KEYS = {
+    0xFF50: "home",
+    0xFF51: "left",
+    0xFF52: "up",
+    0xFF53: "right",
+    0xFF54: "down",
+    0xFF55: "pageup",
+    0xFF56: "pagedown",
+    0xFF57: "end",
+}
+
+
 def _key_char(key: int) -> str:
-    """Map a backend key code to a single character (``""`` when none).
+    """Map a backend key code to a character, or to a named key.
 
     The low byte is what identifies a character key: the GTK/Qt OpenCV builds
     return it with modifier and state bits set above it. Special keys, though,
     arrive as X11 keysyms (``0xFF00``-``0xFFFF``: arrows, Insert, Home, the
     function keys), whose low byte would otherwise alias onto an unrelated
-    letter and trigger that letter's binding — those report no character.
+    letter and trigger that letter's binding.
+
+    The arrows and the page/home/end cluster come back as their names — a
+    caller can bind ``"left"`` the way it binds ``"p"``, and a name can never
+    collide with a single-character binding. Every other special key still
+    reports nothing.
+
+    Examples:
+        >>> _key_char(ord("q"))
+        'q'
+        >>> _key_char(0xFF51)
+        'left'
+        >>> _key_char(0xFFC0)  # F3, unbound
+        ''
+        >>> _key_char(-1)
+        ''
+
     """
-    if key == -1 or 0xFF00 <= key & 0xFFFF <= 0xFFFF:
+    if key == -1:
         return ""
+    if key in _QT_KEYS:
+        return _QT_KEYS[key]
+    keysym = key & 0xFFFF
+    if 0xFF00 <= keysym <= 0xFFFF:
+        return _NAMED_KEYS.get(keysym, "")
     return chr(key & 0xFF)
 
 
@@ -185,6 +252,9 @@ class Viewer:
         self._hud = hud
         self._save_dir = Path.cwd() if save_dir is None else Path(save_dir)
         self._screen = self._backend.screen_size()
+        #: One key read ahead while scanning an escape sequence and
+        #: found not to belong to it, returned by the next `_poll`.
+        self._pushback: int | None = None
         self._windows: dict[str, _HoverState] = {}
         self._live: set[str] = set()
         # Push (event-driven) backends redraw hover inline instead of in a loop.
@@ -405,7 +475,7 @@ class Viewer:
         """
         poll = _IDLE_POLL_MS
         while True:
-            key_result = self._handle_polled_key(self._backend.poll_key(poll))
+            key_result = self._handle_polled_key(self._poll(poll))
             if key_result is not None:
                 handled, char = key_result
                 if not handled:
@@ -415,11 +485,47 @@ class Viewer:
                 continue
             poll = _ACTIVE_POLL_MS if self._flush_hover() else _IDLE_POLL_MS
 
+    def _poll(self, timeout_ms: int) -> int:
+        """Poll for a key, returning any byte an escape scan put back first."""
+        if self._pushback is not None:
+            key, self._pushback = self._pushback, None
+            return key
+        return self._backend.poll_key(timeout_ms)
+
+    def _read_escape_sequence(self) -> str | None:
+        """Name the navigation key an ``ESC [ ...`` sequence stands for.
+
+        Some builds deliver the arrows as terminal escape sequences rather than
+        as key codes. Read one byte at a time, the leading ``ESC`` is
+        indistinguishable from the Escape key — which is how pressing Left came
+        to quit a presentation whose quit key is Escape. Peeking at the next
+        byte or two tells them apart; a byte that turns out not to belong to a
+        sequence is pushed back rather than swallowed.
+
+        Returns:
+            The key's name, or ``None`` when this really was a bare Escape.
+
+        """
+        following = self._poll(_ESCAPE_TAIL_MS)
+        if _key_char(following) != "[":
+            if following != -1:
+                self._pushback = following
+            return None
+        final = _key_char(self._poll(_ESCAPE_TAIL_MS))
+        if final in _CSI_KEYS:
+            return _CSI_KEYS[final]
+        if final in _CSI_TILDE_KEYS:
+            self._poll(_ESCAPE_TAIL_MS)  # the sequence's trailing "~"
+            return _CSI_TILDE_KEYS[final]
+        return None
+
     def _handle_polled_key(self, key: int) -> tuple[bool, str] | None:
         """Return ``(handled, char)`` for a key, or ``None`` when none arrived."""
         if key == -1:
             return None
         char = _key_char(key)
+        if char == "\x1b":
+            char = self._read_escape_sequence() or "\x1b"
         return self._handle_control_key(char), char
 
     def _consume_pending_action(self) -> bool:
