@@ -1134,23 +1134,17 @@ def inspect(
 
     viz_theme = LIGHT_THEME if theme == "light" else DARK_THEME
     if fast:
-        # Lighter rendering for big/dense datasets via the theme's default style:
-        # fill-only masks (contour tracing is the biggest per-mask cost) and no
-        # soft drop shadows. Shape anti-aliasing is dropped below, on the options.
         viz_theme = viz_theme.with_style(
             viz_theme.style.merge(mask_outline=MaskOutline.NONE, shadow=False)
         )
-    # The color scheme is chosen independently of the theme: a named --palette
-    # wins, and `default` keeps whichever scheme the theme carries (the light
-    # theme's is tuned darker to hold up against a light background).
-    generator = (
+    color_generator = (
         viz_theme.palette.generator
         if palette == "default"
         else resolve_generator(palette)
     )
     # The palette is pinned to the dataset's class order for stable colors; it
     # lives on the theme, and the whole bundle is the render options.
-    class_palette = Palette(class_names, generator=generator)
+    class_palette = Palette(class_names, generator=color_generator)
     options = RenderOptions(
         theme=viz_theme.with_palette(class_palette),
         skeletons=keypoint_skeletons,
@@ -1178,7 +1172,7 @@ def inspect(
     # task should receive the first generated color regardless of how many class
     # names were registered in the dataset palette above. Same scheme, though —
     # --palette is about how the colors are chosen, not about what they name.
-    identity_palette = Palette(generator=generator)
+    identity_palette = Palette(generator=color_generator)
 
     # The legend reserves width for the dataset's longest class name (capped, so
     # one very long outlier does not blow the panel out), keeping the panel a
@@ -1322,14 +1316,9 @@ def inspect(
                 viz.add(overlay)
         return viz
 
-    def build_panel(
-        sample_labels: "Labels", sample_metadata: "Params"
-    ) -> "dict[str, PanelData]":
+    def build_panel(sample_metadata: "Params") -> "dict[str, PanelData]":
         tracked_augmentations = get_tracked_augmentations(sample_metadata)
         if tracked_augmentations is not None:
-            # The runtime parameters of every transformation would bury the
-            # record metadata the panel exists to show, so they are dropped
-            # here and re-added below as names with hover detail.
             sample_metadata = {
                 key: value
                 for key, value in sample_metadata.items()
@@ -1377,7 +1366,7 @@ def inspect(
             # Build this before advancing the loader again: augmentation
             # provenance belongs to the current output and may be replaced by
             # the next augmentation call on the prefetch thread.
-            panel = build_panel(data.labels, data.metadata)
+            panel = build_panel(data.metadata)
             yield data, records, panel
 
     def sample_color_mode(
