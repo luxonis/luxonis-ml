@@ -63,9 +63,6 @@ all = [
 ]
 
 [dependency-groups]
-# Kept separate from `dev` so that CI can run the hooks with
-# `--only-group lint`, which installs a single binary instead of the whole
-# dependency tree that `dev` pulls in through `luxonis-ml[all]`.
 lint = ["prek~=0.4"]
 docs = ["pydoctor~=25.10"]
 dev = [
@@ -91,14 +88,10 @@ repository = "https://github.com/luxonis/luxonis-ml"
 issues = "https://github.com/luxonis/luxonis-ml/issues"
 
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.uv]
-# `albumentations`, `albucore` and `roboflow` require `opencv-python-headless`,
-# while `luxonis_ml.data` requires `opencv-python`. Both ship the same top-level
-# `cv2`, so installing both leaves `cv2` a mix of the two decided by install
-# order. Drop the headless one; `opencv-python` satisfies every consumer.
 override-dependencies = ["opencv-python-headless; sys_platform == 'never'"]
 
 [tool.setuptools.packages.find]
@@ -212,9 +205,6 @@ wrap-descriptions = 72
 
 [tool.pyright]
 pythonVersion = "3.10"
-# Setting `exclude` replaces pyright's defaults, so the default patterns are
-# repeated here. Without them pyright walks into the `.venv` that `uv sync`
-# creates in the project root and tries to check every installed dependency.
 exclude = [
   "**/node_modules",
   "**/__pycache__",
