@@ -9,10 +9,10 @@ from loguru import logger
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.utils.path import resolve_manifest_path
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import ParsedDataset, SplitParserPlugin
 
 
-class SOLOParser(BaseParser):
+class SOLOParser(SplitParserPlugin):
     """Parse a directory with SOLO annotations into LDF.
 
     Expected format::
@@ -32,6 +32,8 @@ class SOLOParser(BaseParser):
 
     This is the default format returned by Unity simulation engine.
     """
+
+    dataset_types = ("solo",)
 
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
@@ -72,25 +74,7 @@ class SOLOParser(BaseParser):
             )
         return {"split_path": split_path}
 
-    def from_dir(
-        self, dataset_dir: Path
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        """Parse all SOLO data in a source dataset directory.
-
-        Args:
-            dataset_dir: Source dataset directory.
-
-        Returns:
-            Added images for the train, validation, and test splits.
-
-        """
-        added_train_imgs = self._parse_split(split_path=dataset_dir / "train")
-        added_valid_imgs = self._parse_split(split_path=dataset_dir / "valid")
-        added_test_imgs = self._parse_split(split_path=dataset_dir / "test")
-
-        return added_train_imgs, added_valid_imgs, added_test_imgs
-
-    def from_split(self, split_path: Path) -> ParserOutput:
+    def _parse_split(self, split_path: Path) -> ParsedDataset:
         """Parse one SOLO split into LDF records.
 
         Args:
@@ -138,7 +122,7 @@ class SOLOParser(BaseParser):
             for class_name in bbox_class_names
         }
 
-        def generator() -> DatasetIterator:
+        def generator(load_masks: bool = True) -> DatasetIterator:
             for sequence_path in split_path.glob("sequence*"):
                 processed_annotations_per_step: dict[
                     str, set
@@ -186,25 +170,19 @@ class SOLOParser(BaseParser):
                                     raise FileNotFoundError(
                                         f"{mask_path} not existent."
                                     )
-                                mask = cv2.imread(str(mask_path))
-                                if mask is None:
-                                    raise ValueError(
-                                        f"Failed to read mask image from {mask_path}."
-                                    )
-
                                 mask_int = (
-                                    (mask[..., 0].astype(np.uint32) << 16)
-                                    | (mask[..., 1].astype(np.uint32) << 8)
-                                    | mask[..., 2].astype(np.uint32)
+                                    self._read_mask_int(mask_path)
+                                    if load_masks
+                                    else self._verify_mask_readable(mask_path)
                                 )
 
                                 for instance in anno.get("instances", []):
                                     class_name = instance["labelName"]
                                     r, g, b, _ = instance["pixelValue"]
                                     target_int = (b << 16) | (g << 8) | r
-                                    curr_mask = (
-                                        mask_int == target_int
-                                    ).astype(np.uint8)
+                                    curr_mask = self._instance_mask(
+                                        mask_int, target_int
+                                    )
                                     yield {
                                         "file": img_path,
                                         "annotation": {
@@ -272,24 +250,18 @@ class SOLOParser(BaseParser):
                                     raise FileNotFoundError(
                                         f"{mask_path} not existent."
                                     )
-                                mask = cv2.imread(str(mask_path))
-                                if mask is None:
-                                    raise ValueError(
-                                        f"Failed to read mask image from {mask_path}."
-                                    )
-
                                 mask_int = (
-                                    (mask[..., 0].astype(np.uint32) << 16)
-                                    | (mask[..., 1].astype(np.uint32) << 8)
-                                    | mask[..., 2].astype(np.uint32)
+                                    self._read_mask_int(mask_path)
+                                    if load_masks
+                                    else self._verify_mask_readable(mask_path)
                                 )
 
                                 for instance in anno.get("instances", []):
                                     r, g, b, _ = instance["color"]
                                     target_int = (b << 16) | (g << 8) | r
-                                    curr_mask = (
-                                        mask_int == target_int
-                                    ).astype(np.uint8)
+                                    curr_mask = self._instance_mask(
+                                        mask_int, target_int
+                                    )
                                     instance_id = instance["instanceId"]
 
                                     instance_segmentations[instance_id] = {
@@ -391,7 +363,47 @@ class SOLOParser(BaseParser):
                                 "annotation": annotation_entry,
                             }
 
-        return generator(), skeletons, []
+        # Enumerating the files runs the generator a second time, so skip mask
+        # decoding there — it is by far the most expensive part of the walk.
+        added_images = self._get_added_images(generator(load_masks=False))
+        return ParsedDataset(generator(), skeletons, added_images)
+
+    @staticmethod
+    def _read_mask_int(mask_path: Path) -> np.ndarray:
+        """Read a mask image and pack its BGR channels into one integer."""
+        mask = cv2.imread(str(mask_path))
+        if mask is None:
+            raise ValueError(f"Failed to read mask image from {mask_path}.")
+        return (
+            (mask[..., 0].astype(np.uint32) << 16)
+            | (mask[..., 1].astype(np.uint32) << 8)
+            | mask[..., 2].astype(np.uint32)
+        )
+
+    @staticmethod
+    def _verify_mask_readable(mask_path: Path) -> None:
+        """Check a mask is decodable without paying for the decode.
+
+        The file-enumeration pass skips mask decoding, but an undecodable mask
+        must still fail the import up front instead of part-way through
+        ``dataset.add``.
+        """
+        if not cv2.haveImageReader(str(mask_path)):
+            raise ValueError(f"Failed to read mask image from {mask_path}.")
+
+    @staticmethod
+    def _instance_mask(
+        mask_int: np.ndarray | None, target_int: int
+    ) -> np.ndarray:
+        """Extract the binary mask of one instance colour.
+
+        ``mask_int`` is ``None`` when masks were deliberately not decoded, in
+        which case a placeholder is returned. Such records are only used to
+        enumerate image files and never reach a dataset.
+        """
+        if mask_int is None:
+            return np.zeros((1, 1), dtype=np.uint8)
+        return (mask_int == target_int).astype(np.uint8)
 
     def _get_solo_annotation_types(
         self, annotation_definitions_dict: dict[str, Any]

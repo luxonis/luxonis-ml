@@ -1,6 +1,6 @@
 import warnings
 from abc import ABCMeta
-from collections.abc import Callable
+from collections.abc import Callable, ValuesView
 from typing import Generic, TypeVar, overload
 
 from typing_extensions import deprecated
@@ -43,6 +43,10 @@ class Registry(Generic[T]):
 
     def __contains__(self, key: str) -> bool:
         return key in self._module_dict
+
+    def values(self) -> ValuesView[T]:
+        """Return registered modules."""
+        return self._module_dict.values()
 
     @property
     def name(self) -> str:

@@ -3,10 +3,10 @@ from typing import Any
 
 from luxonis_ml.data import DatasetIterator
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import ParsedDataset, SplitParserPlugin
 
 
-class DarknetParser(BaseParser):
+class DarknetParser(SplitParserPlugin):
     """Parse a directory with Darknet annotations into LDF.
 
     Expected format::
@@ -23,37 +23,24 @@ class DarknetParser(BaseParser):
     This is one of the formats that Roboflow can generate.
     """
 
+    dataset_types = ("darknet",)
+
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
         if not (split_path / "_darknet.labels").exists():
             return None
-        if not BaseParser._list_images(split_path):
+        if not DarknetParser._list_images(split_path):
             return None
         return {
             "image_dir": split_path,
             "classes_path": split_path / "_darknet.labels",
         }
 
-    def from_dir(
-        self, dataset_dir: Path
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        added_train_imgs = self._parse_split(
-            image_dir=dataset_dir / "train",
-            classes_path=dataset_dir / "train" / "_darknet.labels",
-        )
-        added_val_imgs = self._parse_split(
-            image_dir=dataset_dir / "valid",
-            classes_path=dataset_dir / "valid" / "_darknet.labels",
-        )
-        added_test_imgs = self._parse_split(
-            image_dir=dataset_dir / "test",
-            classes_path=dataset_dir / "test" / "_darknet.labels",
-        )
-        return added_train_imgs, added_val_imgs, added_test_imgs
-
-    def from_split(self, image_dir: Path, classes_path: Path) -> ParserOutput:
+    def _parse_split(
+        self, image_dir: Path, classes_path: Path
+    ) -> ParsedDataset:
         """Parse Darknet annotations into LDF records.
 
         Annotations include classification and object detection.
@@ -107,4 +94,4 @@ class DarknetParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), {}, added_images
+        return ParsedDataset(generator(), {}, added_images)

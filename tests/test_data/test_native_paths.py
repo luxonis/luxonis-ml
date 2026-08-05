@@ -1,9 +1,9 @@
 import json
 from pathlib import Path
 
+from luxonis_ml.data import ParseIssueCollector
 from luxonis_ml.data.parsers.native_parser import NativeParser
 from luxonis_ml.data.parsers.yolov4_parser import YoloV4Parser
-from luxonis_ml.enums import DatasetType
 
 from .utils import create_image
 
@@ -39,20 +39,19 @@ def test_native_parser_accepts_windows_style_file_paths(tempdir: Path):
         encoding="utf-8",
     )
 
-    generator, _, added_images = NativeParser(
-        dataset=None,  # type: ignore[arg-type]
-        dataset_type=DatasetType.NATIVE,
-        task_name=None,
-    ).from_split(annotation_path=annotations_path)
+    parsed = NativeParser(ParseIssueCollector()).parse(
+        split_dir,
+        dataset_type="native",
+    )
 
-    parsed_record = next(iter(generator))
+    parsed_record = next(iter(parsed.records))
     parsed_file = (
         parsed_record["file"]
         if isinstance(parsed_record, dict)
         else parsed_record.file
     )
     assert parsed_file == copied_image.resolve()
-    assert added_images == [copied_image.resolve()]
+    assert parsed.files == [copied_image.resolve()]
 
 
 def test_yolov4_parser_keeps_unlabeled_image_with_duplicate_basename(
@@ -73,17 +72,12 @@ def test_yolov4_parser_keeps_unlabeled_image_with_duplicate_basename(
     classes_path = split_dir / "_classes.txt"
     classes_path.write_text("class0\n", encoding="utf-8")
 
-    generator, _, _ = YoloV4Parser(
-        dataset=None,  # type: ignore[arg-type]
-        dataset_type=DatasetType.YOLOV4,
-        task_name=None,
-    ).from_split(
-        image_dir=split_dir,
-        annotation_path=annotations_path,
-        classes_path=classes_path,
+    parsed = YoloV4Parser(ParseIssueCollector()).parse(
+        split_dir,
+        dataset_type="yolov4",
     )
 
-    records = list(generator)
+    records = list(parsed.records)
     files = {
         Path(
             record["file"] if isinstance(record, dict) else record.file
@@ -125,13 +119,12 @@ def test_native_parser_resolves_array_annotation_paths(tempdir: Path):
         encoding="utf-8",
     )
 
-    generator, _, _ = NativeParser(
-        dataset=None,  # type: ignore[arg-type]
-        dataset_type=DatasetType.NATIVE,
-        task_name=None,
-    ).from_split(annotation_path=annotations_path)
+    parsed = NativeParser(ParseIssueCollector()).parse(
+        split_dir,
+        dataset_type="native",
+    )
 
-    record = next(iter(generator))
+    record = next(iter(parsed.records))
     assert isinstance(record, dict)
     assert record["annotation"]["array"]["path"] == array_path.resolve()
 
@@ -169,13 +162,12 @@ def test_native_parser_resolves_paths_for_a_list_of_annotations(
         encoding="utf-8",
     )
 
-    generator, _, _ = NativeParser(
-        dataset=None,  # type: ignore[arg-type]
-        dataset_type=DatasetType.NATIVE,
-        task_name=None,
-    ).from_split(annotation_path=annotations_path)
+    parsed = NativeParser(ParseIssueCollector()).parse(
+        split_dir,
+        dataset_type="native",
+    )
 
-    record = next(iter(generator))
+    record = next(iter(parsed.records))
     assert isinstance(record, dict)
     resolved = record["annotation"][0]["segmentation"]["mask"]
     assert resolved == mask_path.resolve()
@@ -216,13 +208,12 @@ def test_native_parser_resolves_paths_inside_sub_detections(tempdir: Path):
         encoding="utf-8",
     )
 
-    generator, _, _ = NativeParser(
-        dataset=None,  # type: ignore[arg-type]
-        dataset_type=DatasetType.NATIVE,
-        task_name=None,
-    ).from_split(annotation_path=annotations_path)
+    parsed = NativeParser(ParseIssueCollector()).parse(
+        split_dir,
+        dataset_type="native",
+    )
 
-    record = next(iter(generator))
+    record = next(iter(parsed.records))
     assert isinstance(record, dict)
     nested = record["annotation"]["sub_detections"]["head"]
     assert nested["instance_segmentation"]["mask"] == mask_path.resolve()

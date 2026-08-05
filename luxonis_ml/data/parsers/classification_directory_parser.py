@@ -3,10 +3,10 @@ from typing import Any
 
 from luxonis_ml.data import DatasetIterator
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import ParsedDataset, SplitParserPlugin
 
 
-class ClassificationDirectoryParser(BaseParser):
+class ClassificationDirectoryParser(SplitParserPlugin):
     """Parse a directory with classification annotations into LDF.
 
     Supports two directory structures:
@@ -38,25 +38,37 @@ class ClassificationDirectoryParser(BaseParser):
     The split structure is one of the formats that Roboflow can generate.
     """
 
+    dataset_types = ("clsdir",)
+
+    #: Directory names that belong to other layouts and are never classes.
+    _RESERVED_DIR_NAMES = frozenset(
+        {
+            "train",
+            "valid",
+            "test",
+            "val",
+            "validation",
+            "images",
+            "labels",
+            "data",
+            "raw",
+            "masks",
+        }
+    )
+
+    @classmethod
+    def _list_class_dirs(cls, split_path: Path) -> list[Path]:
+        return [
+            path
+            for path in split_path.iterdir()
+            if path.is_dir() and path.name not in cls._RESERVED_DIR_NAMES
+        ]
+
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
-        classes = [
-            d
-            for d in split_path.iterdir()
-            if d.is_dir()
-            and d.name
-            not in {
-                "train",
-                "valid",
-                "test",
-                "val",
-                "validation",
-                "images",
-                "labels",
-            }
-        ]
+        classes = ClassificationDirectoryParser._list_class_dirs(split_path)
         if not classes:
             return None
         # For now allow info.json, can be extended to other metadata files
@@ -69,15 +81,7 @@ class ClassificationDirectoryParser(BaseParser):
             return None
         return {"class_dir": split_path}
 
-    def from_dir(
-        self, dataset_dir: Path
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        added_train_imgs = self._parse_split(class_dir=dataset_dir / "train")
-        added_val_imgs = self._parse_split(class_dir=dataset_dir / "valid")
-        added_test_imgs = self._parse_split(class_dir=dataset_dir / "test")
-        return added_train_imgs, added_val_imgs, added_test_imgs
-
-    def from_split(self, class_dir: Path) -> ParserOutput:
+    def _parse_split(self, class_dir: Path) -> ParsedDataset:
         """Parse classification-directory annotations into LDF records.
 
         Annotations include classification labels.
@@ -90,11 +94,12 @@ class ClassificationDirectoryParser(BaseParser):
             and added images.
 
         """
-        class_names = [d.name for d in class_dir.iterdir() if d.is_dir()]
+        class_dirs = self._list_class_dirs(class_dir)
 
         def generator() -> DatasetIterator:
-            for class_name in class_names:
-                for img_path in self._list_images(class_dir / class_name):
+            for class_path in class_dirs:
+                class_name = class_path.name
+                for img_path in self._list_images(class_path):
                     yield {
                         "file": str(img_path.absolute().resolve()),
                         "annotation": {"class": class_name},
@@ -102,4 +107,4 @@ class ClassificationDirectoryParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), {}, added_images
+        return ParsedDataset(generator(), {}, added_images)

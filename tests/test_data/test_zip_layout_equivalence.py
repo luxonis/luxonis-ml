@@ -8,6 +8,8 @@ from luxonis_ml.data import LDFEquivalence, LuxonisDataset
 from luxonis_ml.data.parsers import LuxonisParser
 from luxonis_ml.utils import LuxonisFileSystem
 
+from .utils import create_image
+
 
 def _resolve_extracted_root(unzip_dir: Path) -> Path:
     ignored_entries = {"__MACOSX", "Thumbs.db", "desktop.ini"}
@@ -33,6 +35,35 @@ def _make_wrapped_zip(dataset_root: Path, wrapped_zip_path: Path) -> None:
         for path in dataset_root.rglob("*"):
             arcname = Path(wrapper_dir_name) / path.relative_to(dataset_root)
             zf.write(path, arcname)
+
+
+def test_import_dataset_resolves_wrapped_zip(
+    dataset_name: str,
+    tempdir: Path,
+):
+    dataset_root = tempdir / "source" / "dataset"
+    image_dir = dataset_root / "train" / "budgie"
+    image_dir.mkdir(parents=True)
+    create_image(0, image_dir)
+    archive = tempdir / "source" / "wrapped.zip"
+    _make_wrapped_zip(dataset_root, archive)
+    save_dir = tempdir / "download"
+    save_dir.mkdir()
+
+    dataset = LuxonisDataset.import_dataset(
+        archive,
+        dataset_name=dataset_name,
+        dataset_type="clsdir",
+        save_dir=save_dir,
+        delete_local=True,
+    )
+    try:
+        assert len(dataset) == 1
+        splits = dataset.get_splits()
+        assert splits is not None
+        assert len(splits["train"]) == 1
+    finally:
+        dataset.delete_dataset(delete_local=True)
 
 
 @pytest.mark.parametrize(

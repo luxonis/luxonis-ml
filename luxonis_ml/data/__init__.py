@@ -14,8 +14,8 @@ owns them:
       splits, cloning, merging, remote synchronization, and dataset plugins.
     - `luxonis_ml.ldf.annotation` documents `DatasetRecord`, `Detection`,
       `Category`, and all annotation payload schemas.
-    - `luxonis_ml.data.parsers` documents `LuxonisParser`, supported external
-      formats, split-ratio modes, and parser-specific caveats.
+    - `luxonis_ml.data.parsers` documents dataset imports, parser plugins,
+      supported external formats, split-ratio modes, and format caveats.
     - `luxonis_ml.data.loaders` documents `LuxonisLoader`, loader outputs,
       label key conventions, color spaces, filtering, and preprocessing.
     - `luxonis_ml.data.augmentations` documents `AlbumentationsEngine`,
@@ -31,8 +31,8 @@ Core Workflow
 Most data pipelines follow the same sequence:
 
     1. Create or open a `LuxonisDataset`.
-    2. Add records from an iterable or parse an external dataset with
-       `LuxonisParser`.
+    2. Add records from an iterable or import an external dataset with
+       `LuxonisDataset.import_dataset`.
     3. Define dataset splits.
     4. Load one or more splits with `LuxonisLoader`.
     5. Optionally apply augmentations through `AlbumentationsEngine`.
@@ -49,8 +49,8 @@ Most data pipelines follow the same sequence:
      - Create, mutate, split, clone, merge, export, synchronize, or delete LDF
        datasets.
      - `luxonis_ml.data.datasets`
-   * - `LuxonisParser`
-     - Convert a supported external dataset layout into LDF.
+   * - `BaseDataset.import_dataset`
+     - Import a supported external dataset layout into a concrete dataset.
      - `luxonis_ml.data.parsers`
    * - `LuxonisLoader`
      - Iterate image-like inputs, labels, and sample metadata from one or
@@ -198,18 +198,22 @@ See:
 Extension Points
 ================
 
-Datasets and loaders are registry-backed. Third-party packages can expose
-entry points in the ``dataset_plugins`` and ``loader_plugins`` groups. This
-module loads those plugins at import time and registers them in
-`DATASETS_REGISTRY` and `LOADERS_REGISTRY`.
+Datasets, loaders, and parsers are registry-backed. Third-party packages can
+expose entry points in the ``dataset_plugins``, ``loader_plugins``, and
+``parser_plugins`` groups. This module loads those plugins at import time and
+registers them in `DATASETS_REGISTRY`, `LOADERS_REGISTRY`, and
+`PARSERS_REGISTRY`.
 
 See:
     `BaseDataset`, `BaseLoader`, `DatasetIterator`,
-    `DATASETS_REGISTRY`, and `LOADERS_REGISTRY`.
+    `DATASETS_REGISTRY`, `LOADERS_REGISTRY`, `ParserPlugin`,
+    `register_parser_plugin`, and `PARSERS_REGISTRY`.
 
 """
 
 from importlib.metadata import entry_points
+
+from loguru import logger
 
 from luxonis_ml.guard_extras import guard_missing_extra
 
@@ -227,7 +231,14 @@ with guard_missing_extra("data"):
         UpdateMode,
     )
     from .loaders import LOADERS_REGISTRY, BaseLoader, LuxonisLoader
-    from .parsers import LuxonisParser
+    from .parsers import (
+        PARSERS_REGISTRY,
+        LuxonisParser,
+        ParsedDataset,
+        ParseIssueCollector,
+        ParserPlugin,
+        register_parser_plugin,
+    )
     from .utils.enums import (
         BucketStorage,
         BucketType,
@@ -253,22 +264,40 @@ def _load_loader_plugins() -> None:  # pragma: no cover
         LOADERS_REGISTRY.register(module=plugin_class)
 
 
+def _load_parser_plugins() -> None:
+    """Register external parser plugins.
+
+    A plugin that cannot be registered is skipped with a warning so that a
+    single broken or colliding third-party package cannot break importing
+    this module.
+    """
+    for entry_point in _get_entry_points_subset("parser_plugins"):
+        try:
+            register_parser_plugin(entry_point.load())
+        except (KeyError, ValueError) as error:
+            logger.warning(
+                f"Skipping parser plugin '{entry_point.name}': {error}"
+            )
+
+
 def _get_entry_points_subset(key: str) -> list:
     entry_points_obj = entry_points()
-    if isinstance(entry_points_obj, dict):
+    if hasattr(entry_points_obj, "select"):
+        selected_entry_points = entry_points_obj.select(group=key)
+    else:
         # py3.8 specific
         selected_entry_points = entry_points_obj.get(key, [])
-    else:
-        selected_entry_points = entry_points_obj.select(group=key)
-    return selected_entry_points
+    return list(selected_entry_points)
 
 
 _load_dataset_plugins()
 _load_loader_plugins()
+_load_parser_plugins()
 
 __all__ = [
     "DATASETS_REGISTRY",
     "LOADERS_REGISTRY",
+    "PARSERS_REGISTRY",
     "AlbumentationsEngine",
     "BaseDataset",
     "BaseLoader",
@@ -285,8 +314,12 @@ __all__ = [
     "LuxonisSource",
     "MediaType",
     "Metadata",
+    "ParseIssueCollector",
+    "ParsedDataset",
     "ParserIssue",
     "ParserIssueMessage",
+    "ParserPlugin",
     "UpdateMode",
     "ldf_equivalent",
+    "register_parser_plugin",
 ]

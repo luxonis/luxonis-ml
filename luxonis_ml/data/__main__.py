@@ -17,7 +17,6 @@ from rich.table import Table
 from luxonis_ml.data import (
     LuxonisDataset,
     LuxonisLoader,
-    LuxonisParser,
     UpdateMode,
 )
 from luxonis_ml.data.utils.cli_utils import (
@@ -547,7 +546,7 @@ def parse(
             to the test set.
 
     """
-    parser = LuxonisParser(
+    imported_dataset = LuxonisDataset.import_dataset(
         dataset,
         dataset_name=name,
         dataset_type=dataset_type,
@@ -556,16 +555,13 @@ def parse(
         task_name=task_name,
         full_warnings=log_all_warnings,
         bucket_storage=bucket_storage,
+        split_ratios=parse_split_ratio(split_ratio, train, val, test),
     )
 
     print()
     print(Rule())
     print()
-    print_info(
-        parser.parse(
-            split_ratios=parse_split_ratio(split_ratio, train, val, test)
-        )
-    )
+    print_info(imported_dataset)
 
 
 @app.command

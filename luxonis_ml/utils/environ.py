@@ -43,7 +43,7 @@ class Environ(BaseSettings):
         LUXONISML_DISABLE_SETUP_LOGGING: Whether automatic logging setup
             is disabled.
         ROBOFLOW_API_KEY: Optional Roboflow API key used by
-            `LuxonisParser`.
+            `BaseDataset.import_dataset`.
         GOOGLE_APPLICATION_CREDENTIALS: Optional Google credentials path.
         LOG_LEVEL: Logging level. One of ``"DEBUG"``, ``"INFO"``,
             ``"WARNING"``, ``"ERROR"``, or ``"CRITICAL"``.

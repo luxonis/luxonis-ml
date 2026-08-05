@@ -13,10 +13,14 @@ from luxonis_ml.data.utils import COCOFormat
 from luxonis_ml.data.utils.enums import ParserIssue
 from luxonis_ml.utils.path import resolve_manifest_path
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import (
+    ParsedDataset,
+    SplitParserPlugin,
+    combine_split_outputs,
+)
 
 
-class COCOParser(BaseParser):
+class COCOParser(SplitParserPlugin):
     """Parse a directory with COCO annotations into LDF.
 
     Expected formats::
@@ -51,11 +55,16 @@ class COCOParser(BaseParser):
         This is one of the formats that Roboflow can generate.
     """
 
+    dataset_types = ("coco",)
+
     @staticmethod
     def _detect_dataset_dir_format(
         dataset_dir: Path,
     ) -> tuple[COCOFormat | None, list[str]]:
         """Detect whether a dataset uses FiftyOne or Roboflow layout."""
+        if not dataset_dir.is_dir():
+            return None, []
+
         fiftyone_splits = ["train", "validation", "test"]
         roboflow_splits = ["train", "valid", "test"]
 
@@ -144,18 +153,8 @@ class COCOParser(BaseParser):
         return {"image_dir": image_dir, "annotation_path": json_path}
 
     @classmethod
-    def validate(cls, dataset_dir: Path) -> bool:
-        dir_format, splits = cls._detect_dataset_dir_format(dataset_dir)
-        if dir_format is None:
-            return False
-
-        return all(cls.validate_split(dataset_dir / split) for split in splits)
-
-    @classmethod
     @override
-    def discover_dir_splits(
-        cls, dataset_dir: Path
-    ) -> dict[str, dict[str, Any]]:
+    def discover_splits(cls, dataset_dir: Path) -> dict[str, dict[str, Any]]:
         dir_format, splits = cls._detect_dataset_dir_format(dataset_dir)
         if dir_format is None:
             return {}
@@ -167,47 +166,6 @@ class COCOParser(BaseParser):
                 continue
             discovered[cls._canonicalize_split_name(split_name)] = split_kwargs
         return discovered
-
-    def from_dir(
-        self,
-        dataset_dir: Path,
-        use_keypoint_ann: bool = False,
-        keypoint_ann_paths: dict[str, str] | None = None,
-        split_val_to_test: bool = True,
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        """Parse all COCO splits in a source dataset directory.
-
-        Args:
-            dataset_dir: Source dataset directory.
-            use_keypoint_ann: Whether to use separate COCO keypoint
-                annotation files for FiftyOne-style datasets.
-            keypoint_ann_paths: Optional paths to keypoint annotation files,
-                relative to ``dataset_dir`` and keyed by ``"train"``,
-                ``"val"``, and ``"test"``.
-            split_val_to_test: Whether to split validation images
-                :math:`50/50` into validation and test when no test
-                annotations are available.
-
-        Returns:
-            Added images for the train, validation, and test splits.
-
-        Raises:
-            ValueError: If the dataset directory, train split, validation
-                split, or present test split is not in a recognized COCO
-                layout.
-
-        """
-        split_definitions = self._parse_available_splits(
-            dataset_dir,
-            use_keypoint_ann=use_keypoint_ann,
-            keypoint_ann_paths=keypoint_ann_paths,
-            split_val_to_test=split_val_to_test,
-        )
-        return (
-            split_definitions.get("train", []),
-            split_definitions.get("val", []),
-            split_definitions.get("test", []),
-        )
 
     def _resolve_dir_format_and_keypoint_paths(
         self,
@@ -261,9 +219,9 @@ class COCOParser(BaseParser):
             )
         return split_definitions
 
-    def from_split(
+    def _parse_split(
         self, image_dir: Path, annotation_path: Path
-    ) -> ParserOutput:
+    ) -> ParsedDataset:
         """Parse COCO annotations into LDF records.
 
         Annotations include classification, segmentation, object detection,
@@ -432,16 +390,43 @@ class COCOParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), skeletons, added_images
+        return ParsedDataset(generator(), skeletons, added_images)
 
     @override
-    def _parse_available_splits(
+    def parse(
         self,
         dataset_dir: Path,
+        *,
+        dataset_type: str,
         use_keypoint_ann: bool = False,
         keypoint_ann_paths: dict[str, str] | None = None,
         split_val_to_test: bool = True,
-    ) -> dict[str, list[Path]]:
+        **kwargs: Any,
+    ) -> ParsedDataset:
+        del dataset_type
+        if not self.discover_splits(dataset_dir):
+            # `split_val_to_test` is meaningless for a single split, but the
+            # keypoint options would be silently ignored, so reject them.
+            unsupported = [
+                name
+                for name, value in (
+                    ("use_keypoint_ann", use_keypoint_ann),
+                    ("keypoint_ann_paths", keypoint_ann_paths),
+                )
+                if value
+            ]
+            if unsupported:
+                raise ValueError(
+                    f"COCO options {unsupported} are only supported for "
+                    "sources containing split directories, not for the "
+                    f"single split '{dataset_dir}'."
+                )
+            return super().parse(
+                dataset_dir,
+                dataset_type="coco",
+                **kwargs,
+            )
+
         dir_format, splits, keypoint_ann_paths = (
             self._resolve_dir_format_and_keypoint_paths(
                 dataset_dir,
@@ -450,7 +435,7 @@ class COCOParser(BaseParser):
             )
         )
 
-        split_definitions: dict[str, list[Path]] = {}
+        outputs: dict[str, ParsedDataset] = {}
 
         for split_name in splits:
             split_kwargs = COCOParser.validate_split(dataset_dir / split_name)
@@ -476,7 +461,7 @@ class COCOParser(BaseParser):
                             f"Keypoint annotation file not found: {kp_path}. "
                             "Skipping test split."
                         )
-                        split_definitions["test"] = []
+                        outputs["test"] = ParsedDataset(iter(()), {}, [])
                         continue
                 else:
                     annotation_path = (
@@ -486,14 +471,18 @@ class COCOParser(BaseParser):
             if canonical_name == "train":
                 annotation_path = clean_annotations(annotation_path)
 
-            split_definitions[canonical_name] = self._parse_split(
+            outputs[canonical_name] = self._parse_split(
                 image_dir=split_kwargs["image_dir"],
                 annotation_path=annotation_path,
             )
 
-        return self._finalize_split_definitions(
-            split_definitions, split_val_to_test
+        parsed = combine_split_outputs(outputs)
+        assert parsed.splits is not None
+        parsed.splits = self._finalize_split_definitions(
+            parsed.splits,
+            split_val_to_test,
         )
+        return parsed
 
 
 def clean_annotations(annotation_path: Path) -> Path:

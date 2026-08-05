@@ -7,7 +7,7 @@ from luxonis_ml.data import DatasetIterator
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils.path import resolve_manifest_path
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import ParsedDataset, SplitParserPlugin
 
 #: Annotation fields holding a path to a companion file, as ``(field, key)``.
 #: These are written relative to ``annotations.json`` so a dataset directory
@@ -40,7 +40,7 @@ def _resolve_annotation_paths(
                 _resolve_annotation_paths(sub_detection, base_dir)
 
 
-class NativeParser(BaseParser):
+class NativeParser(SplitParserPlugin):
     """Parse a directory with native LDF annotations.
 
     Expected format::
@@ -86,7 +86,8 @@ class NativeParser(BaseParser):
 
     """
 
-    _SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
+    dataset_types = ("native",)
+    split_names = ("train", "val", "test")
 
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
@@ -95,21 +96,7 @@ class NativeParser(BaseParser):
             return None
         return {"annotation_path": annotation_path}
 
-    def from_dir(
-        self, dataset_dir: Path
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        added_train_imgs = self._parse_split(
-            annotation_path=dataset_dir / "train" / "annotations.json",
-        )
-        added_val_imgs = self._parse_split(
-            annotation_path=dataset_dir / "val" / "annotations.json",
-        )
-        added_test_imgs = self._parse_split(
-            annotation_path=dataset_dir / "test" / "annotations.json",
-        )
-        return added_train_imgs, added_val_imgs, added_test_imgs
-
-    def from_split(self, annotation_path: Path) -> ParserOutput:
+    def _parse_split(self, annotation_path: Path) -> ParsedDataset:
         """Parse native LDF annotations.
 
         Args:
@@ -149,4 +136,4 @@ class NativeParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), {}, added_images
+        return ParsedDataset(generator(), {}, added_images)

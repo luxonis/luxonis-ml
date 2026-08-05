@@ -7,10 +7,10 @@ import polars as pl
 
 from luxonis_ml.data import DatasetIterator
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import ParsedDataset, SplitParserPlugin
 
 
-class SegmentationMaskDirectoryParser(BaseParser):
+class SegmentationMaskDirectoryParser(SplitParserPlugin):
     """Parse a directory with segmentation mask annotations into LDF.
 
     Expected format::
@@ -29,6 +29,8 @@ class SegmentationMaskDirectoryParser(BaseParser):
     This is one of the formats that Roboflow can generate.
     """
 
+    dataset_types = ("segmask",)
+
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
@@ -46,29 +48,9 @@ class SegmentationMaskDirectoryParser(BaseParser):
             "classes_path": split_path / "_classes.csv",
         }
 
-    def from_dir(
-        self, dataset_dir: Path
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        added_train_imgs = self._parse_split(
-            image_dir=dataset_dir / "train",
-            seg_dir=dataset_dir / "train",
-            classes_path=dataset_dir / "train" / "_classes.csv",
-        )
-        added_val_imgs = self._parse_split(
-            image_dir=dataset_dir / "valid",
-            seg_dir=dataset_dir / "valid",
-            classes_path=dataset_dir / "valid" / "_classes.csv",
-        )
-        added_test_imgs = self._parse_split(
-            image_dir=dataset_dir / "test",
-            seg_dir=dataset_dir / "test",
-            classes_path=dataset_dir / "test" / "_classes.csv",
-        )
-        return added_train_imgs, added_val_imgs, added_test_imgs
-
-    def from_split(
+    def _parse_split(
         self, image_dir: Path, seg_dir: Path, classes_path: Path
-    ) -> ParserOutput:
+    ) -> ParsedDataset:
         """Parse segmentation mask annotations into LDF records.
 
         Annotations include classification and segmentation.
@@ -112,4 +94,4 @@ class SegmentationMaskDirectoryParser(BaseParser):
                     }
 
         added_images = self._get_added_images(generator())
-        return generator(), {}, added_images
+        return ParsedDataset(generator(), {}, added_images)
