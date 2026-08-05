@@ -39,6 +39,7 @@ unhashed=(--no-hashes --no-default-groups)
 export_requirements requirements-all.txt "${unhashed[@]}" --all-extras
 export_requirements requirements-dev.txt "${unhashed[@]}" --group dev
 export_requirements luxonis_ml/data/requirements.txt "${unhashed[@]}" --extra data
+export_requirements luxonis_ml/ldf/requirements.txt "${unhashed[@]}" --extra ldf
 export_requirements luxonis_ml/nn_archive/requirements.txt "${unhashed[@]}" --extra nn_archive
 export_requirements luxonis_ml/tracker/requirements.txt "${unhashed[@]}" --extra tracker
 export_requirements luxonis_ml/utils/requirements.txt "${unhashed[@]}" --extra utils

@@ -30,7 +30,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ldf = ["numpy~=2.2", "pillow>=10.0", "pycocotools~=2.0"]
 data = [
+  "luxonis-ml[ldf]",
   "albumentations>=2.0.0",
   "bidict~=0.21",
   "defusedxml~=0.7",
@@ -57,7 +59,7 @@ roboflow = ["roboflow~=1.4"]
 s3 = ["s3fs==2024.6.1"]
 
 all = [
-  "luxonis-ml[data,gcs,mlflow,nn_archive,roboflow,s3,telemetry,tracker,utils]",
+  "luxonis-ml[data,gcs,ldf,mlflow,nn_archive,roboflow,s3,telemetry,tracker,utils]",
 ]
 
 [dependency-groups]

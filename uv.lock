@@ -2002,6 +2002,7 @@ all = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "opencv-python" },
+    { name = "pillow" },
     { name = "pillow-heif" },
     { name = "polars", extra = ["timezone"] },
     { name = "posthog" },
@@ -2023,6 +2024,7 @@ data = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "opencv-python" },
+    { name = "pillow" },
     { name = "pillow-heif" },
     { name = "polars", extra = ["timezone"] },
     { name = "pyarrow" },
@@ -2031,6 +2033,12 @@ data = [
 ]
 gcs = [
     { name = "gcsfs" },
+]
+ldf = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pillow" },
+    { name = "pycocotools" },
 ]
 mlflow = [
     { name = "mlflow" },
@@ -2083,17 +2091,21 @@ requires-dist = [
     { name = "gcsfs", marker = "extra == 'gcs'", specifier = "==2024.6.1" },
     { name = "gdown", marker = "extra == 'data'", specifier = "~=6.1" },
     { name = "loguru", specifier = "~=0.7" },
-    { name = "luxonis-ml", extras = ["data", "gcs", "mlflow", "nn-archive", "roboflow", "s3", "telemetry", "tracker", "utils"], marker = "extra == 'all'" },
+    { name = "luxonis-ml", extras = ["data", "gcs", "ldf", "mlflow", "nn-archive", "roboflow", "s3", "telemetry", "tracker", "utils"], marker = "extra == 'all'" },
+    { name = "luxonis-ml", extras = ["ldf"], marker = "extra == 'data'" },
     { name = "matplotlib", marker = "extra == 'data'", specifier = "~=3.10" },
     { name = "mlflow", marker = "extra == 'mlflow'", specifier = "~=3.1" },
     { name = "numpy", marker = "extra == 'data'", specifier = "~=2.2" },
+    { name = "numpy", marker = "extra == 'ldf'", specifier = "~=2.2" },
     { name = "numpy", marker = "extra == 'tracker'", specifier = "~=2.2" },
     { name = "opencv-python", marker = "extra == 'data'", specifier = "~=4.10" },
+    { name = "pillow", marker = "extra == 'ldf'", specifier = ">=10.0" },
     { name = "pillow-heif", marker = "extra == 'data'", specifier = "~=1.5" },
     { name = "polars", extras = ["timezone"], marker = "extra == 'data'", specifier = "~=1.43" },
     { name = "posthog", marker = "extra == 'telemetry'", specifier = "~=7.29" },
     { name = "pyarrow", marker = "extra == 'data'", specifier = "~=23.0" },
     { name = "pycocotools", marker = "extra == 'data'", specifier = "~=2.0" },
+    { name = "pycocotools", marker = "extra == 'ldf'", specifier = "~=2.0" },
     { name = "pydantic", specifier = "~=2.7" },
     { name = "pydantic-extra-types", specifier = "~=2.10" },
     { name = "pydantic-settings", specifier = "~=2.1" },
@@ -2106,7 +2118,7 @@ requires-dist = [
     { name = "typeguard", specifier = "~=4.1" },
     { name = "unique-names-generator", marker = "extra == 'tracker'", specifier = "~=1.0" },
 ]
-provides-extras = ["data", "telemetry", "tracker", "nn-archive", "utils", "gcs", "mlflow", "roboflow", "s3", "all"]
+provides-extras = ["ldf", "data", "telemetry", "tracker", "nn-archive", "utils", "gcs", "mlflow", "roboflow", "s3", "all"]
 
 [package.metadata.requires-dev]
 dev = [

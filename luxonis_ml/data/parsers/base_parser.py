@@ -10,9 +10,9 @@ import polars as pl
 from loguru import logger
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
-from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.utils.enums import ParserIssue, ParserIssueMessage
 from luxonis_ml.enums.enums import DatasetType
+from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.typing import PathType
 
 if TYPE_CHECKING:
