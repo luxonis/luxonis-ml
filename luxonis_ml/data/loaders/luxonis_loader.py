@@ -34,7 +34,7 @@ from luxonis_ml.data.utils import (
     task_type_iterator,
 )
 from luxonis_ml.data.utils.task_utils import task_is_metadata
-from luxonis_ml.ldf import DatasetRecord
+from luxonis_ml.ldf import DatasetRecord, Skeleton
 from luxonis_ml.typing import (
     Labels,
     LoaderOutput,
@@ -236,6 +236,10 @@ class LuxonisLoader(BaseLoader):
         self._df = self.dataset._load_df_offline(raise_when_empty=True)
         self._classes = self.dataset.get_classes()
 
+        # Cached because both are read for every loaded sample.
+        self._skeletons = self.dataset.get_skeletons()
+        self._n_keypoints = self.dataset.get_n_keypoints()
+
         if self._filter_task_names is not None:
             if self.dataset.metadata.tasks:
                 df_task_names = set(self.dataset.metadata.tasks)
@@ -339,6 +343,20 @@ class LuxonisLoader(BaseLoader):
         """
         return len(self._instances)
 
+    def get_skeletons(self) -> dict[str, Skeleton]:
+        """Return the keypoint skeleton of each task.
+
+        Skeletons describe the dataset rather than any one sample, so they
+        are not part of the loader output. They carry the keypoint names,
+        the edges between them, the pairs swapped by a horizontal flip, and
+        the OKS sigmas.
+
+        Returns:
+            Keypoint skeletons keyed by task name.
+
+        """
+        return dict(self._skeletons)
+
     @override
     def __getitem__(self, idx: int) -> LoaderOutput:
         """Load a sample and its annotations.
@@ -399,7 +417,10 @@ class LuxonisLoader(BaseLoader):
                     if task_type == "boundingbox":
                         labels[task] = np.zeros((0, 5))
                     elif task_type == "keypoints":
-                        n_keypoints = self.dataset.get_n_keypoints()[task_name]
+                        # A keypoint task can lack a skeleton entirely, and
+                        # this runs inside `__getitem__`, where a `KeyError`
+                        # would surface as a broken sample.
+                        n_keypoints = self._n_keypoints.get(task_name, 0)
                         labels[task] = np.zeros((0, n_keypoints * 3))
                     elif task_type == "instance_segmentation":
                         labels[task] = np.zeros((0, image_height, image_width))
@@ -519,7 +540,12 @@ class LuxonisLoader(BaseLoader):
                     data["height"] = sample_img.shape[0]
                     data["points"] = [tuple(p) for p in data["points"]]
 
-                annotation = load_annotation(task_type, data)  # type: ignore
+                skeleton = self._skeletons.get(task_name)
+                annotation = load_annotation(
+                    task_type,  # type: ignore[arg-type]
+                    data,
+                    keypoint_labels=skeleton.labels if skeleton else None,
+                )
                 labels_by_task[full_task_name].append(annotation)
                 if class_name is not None:
                     class_ids_by_task[full_task_name].append(

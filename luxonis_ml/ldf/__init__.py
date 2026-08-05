@@ -45,10 +45,12 @@ with guard_missing_extra("ldf"):
         DatasetRecord,
         Detection,
         InstanceSegmentationAnnotation,
+        Keypoint,
         KeypointAnnotation,
         KeypointVisibility,
         NormalizedFloat,
         SegmentationAnnotation,
+        Skeleton,
         load_annotation,
     )
     from .parquet import ParquetRecord
@@ -62,10 +64,12 @@ __all__ = [
     "DatasetRecord",
     "Detection",
     "InstanceSegmentationAnnotation",
+    "Keypoint",
     "KeypointAnnotation",
     "KeypointVisibility",
     "NormalizedFloat",
     "ParquetRecord",
     "SegmentationAnnotation",
+    "Skeleton",
     "load_annotation",
 ]

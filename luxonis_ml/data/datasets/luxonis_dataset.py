@@ -61,11 +61,11 @@ from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.ldf_equivalence import ldf_equivalent
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.enums.enums import DatasetType
-from luxonis_ml.ldf import Category, DatasetRecord, Detection
+from luxonis_ml.ldf import Category, DatasetRecord, Detection, Skeleton
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import LuxonisFileSystem, deprecated, environ
 
-from .base_dataset import BaseDataset, DatasetIterator
+from .base_dataset import BaseDataset, DatasetIterator, SkeletonEdge
 from .metadata import Metadata
 from .migration import migrate_dataframe, migrate_metadata
 from .source import LuxonisComponent, LuxonisSource
@@ -888,40 +888,172 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     def set_skeletons(
         self,
         labels: list[str] | None = None,
-        edges: list[tuple[int, int]] | None = None,
+        edges: list[SkeletonEdge] | None = None,
         task: str | None = None,
+        *,
+        flip_pairs: list[SkeletonEdge] | None = None,
+        sigmas: list[float] | None = None,
+        infer_flip_pairs: bool = True,
+        rewrite_metadata: bool = True,
     ) -> None:
         """Set keypoint skeleton metadata.
 
+        Only the fields that are provided are replaced, so a skeleton can
+        be built up over several calls.
+
         Args:
             labels: Optional keypoint names.
-            edges: Optional keypoint edges as :math:`0`-based index pairs.
+            edges: Optional keypoint edges, as :math:`0`-based index pairs
+                or as pairs of keypoint names.
             task: Optional task to update. If omitted, all tasks are
                 updated.
+            flip_pairs: Optional pairs of keypoints swapped by a horizontal
+                flip. Inferred from ``left``/``right`` names when omitted.
+            sigmas: Optional per-keypoint OKS standard deviations.
+            infer_flip_pairs: Whether to infer flip pairs from the keypoint
+                names when none are known.
+            rewrite_metadata: Whether to persist the change immediately.
 
         Raises:
-            ValueError: If neither ``labels`` nor ``edges`` is provided.
+            ValueError: If none of the skeleton fields is provided.
 
         """
-        if labels is None and edges is None:
-            raise ValueError("Must provide either keypoint names or edges")
+        updates = {
+            "labels": labels,
+            "edges": edges,
+            "flip_pairs": flip_pairs,
+            "sigmas": sigmas,
+        }
+        if all(value is None for value in updates.values()):
+            raise ValueError(
+                "Must provide either keypoint names, edges, flip pairs, "
+                "or sigmas"
+            )
 
         tasks = self.get_task_names() if task is None else [task]
         for t in tasks:
-            self._metadata.skeletons[t] = {
-                "labels": labels or [],
-                "edges": sorted(edges or []),
-            }
-        self._write_metadata()
+            current = self._metadata.skeletons.get(t) or Skeleton()
+            skeleton = Skeleton.model_validate(
+                {
+                    **current.model_dump(),
+                    **{
+                        field: value
+                        for field, value in updates.items()
+                        if value is not None
+                    },
+                }
+            )
+            self._metadata.skeletons[t] = self._fill_in_flip_pairs(
+                skeleton, infer=infer_flip_pairs
+            )
+
+        if rewrite_metadata:
+            self._write_metadata()
+
+    @staticmethod
+    def _fill_in_flip_pairs(skeleton: Skeleton, *, infer: bool) -> Skeleton:
+        """Infer flip pairs from the keypoint names when none are known.
+
+        Inference deliberately happens only where a skeleton is written,
+        never while one is being read back: materializing flip pairs on
+        load would persist them for datasets that never asked for the
+        feature, and older versions of `luxonis-ml` cannot read a skeleton
+        that has them.
+        """
+        if not infer or skeleton.flip_pairs or not skeleton.labels:
+            return skeleton
+        flip_pairs = Skeleton.infer_flip_pairs(skeleton.labels)
+        if not flip_pairs:
+            return skeleton
+        return skeleton.model_copy(update={"flip_pairs": flip_pairs})
 
     @override
-    def get_skeletons(
+    def get_skeletons(self) -> dict[str, Skeleton]:
+        return dict(self._metadata.skeletons)
+
+    def _update_skeletons(
         self,
-    ) -> dict[str, tuple[list[str], list[tuple[int, int]]]]:
-        return {
-            task: (skel["labels"], skel["edges"])
-            for task, skel in self._metadata.skeletons.items()
-        }
+        num_kpts_per_task: dict[str, set[int]],
+        declared: dict[str, Skeleton],
+    ) -> None:
+        """Promote the skeletons described by the annotations.
+
+        Placeholder names and chain edges are generated only for keypoint
+        tasks that have no skeleton at all, so a skeleton that was set
+        explicitly beforehand survives being added to.
+        """
+        if not num_kpts_per_task:
+            return
+
+        for task, sizes in num_kpts_per_task.items():
+            n_keypoints = max(sizes)
+            if len(sizes) > 1:
+                logger.warning(
+                    f"Task '{task}' mixes annotations with different numbers "
+                    f"of keypoints ({sorted(sizes)}). Storing a skeleton for "
+                    f"{n_keypoints} keypoints."
+                )
+            stored = self._metadata.skeletons.get(task)
+            skeleton = declared.get(task)
+            if skeleton is not None:
+                skeleton.validate_for(n_keypoints, f"task '{task}'")
+                skeleton = self._merge_into_stored(
+                    skeleton, stored, task, n_keypoints
+                )
+            elif stored is not None:
+                continue
+            else:
+                skeleton = Skeleton(
+                    labels=[str(i) for i in range(n_keypoints)],
+                    edges=[(i, i + 1) for i in range(n_keypoints - 1)],
+                )
+            self._metadata.skeletons[task] = self._fill_in_flip_pairs(
+                skeleton, infer=True
+            )
+        self._write_metadata()
+
+    @classmethod
+    def _merge_into_stored(
+        cls,
+        declared: Skeleton,
+        stored: Skeleton | None,
+        task: str,
+        n_keypoints: int,
+    ) -> Skeleton:
+        """Combine a described skeleton with the one already stored.
+
+        Described values win, but whatever they leave empty is kept from
+        the stored skeleton, so adding to a dataset never discards what it
+        already knows.
+        """
+        if stored is None:
+            return declared
+
+        merged = declared.model_copy(deep=True)
+        for field in ("labels", "edges", "flip_pairs", "sigmas"):
+            new, old = getattr(merged, field), getattr(stored, field)
+            if not new:
+                setattr(merged, field, old)
+            elif (
+                old
+                and old != new
+                and not cls._is_placeholder(field, old, n_keypoints)
+            ):
+                logger.warning(
+                    f"The annotations of task '{task}' describe a different "
+                    f"`{field}` than the one already stored. Using the "
+                    f"described one. Stored: {old}, described: {new}."
+                )
+        return merged
+
+    @staticmethod
+    def _is_placeholder(field: str, value: Any, n_keypoints: int) -> bool:
+        """Whether a stored value is one that `add` generated itself."""
+        if field == "labels":
+            return value == [str(i) for i in range(n_keypoints)]
+        if field == "edges":
+            return value == [(i, i + 1) for i in range(n_keypoints - 1)]
+        return False
 
     @override
     def get_tasks(self) -> dict[str, list[str]]:
@@ -1199,6 +1331,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         data_batch: list[DatasetRecord],
         pfm: ParquetFileManager,
         index: pl.DataFrame | None,
+        skeletons: dict[str, Skeleton],
     ) -> None:
         paths = {path for data in data_batch for path in data.all_file_paths}
         logger.info("Generating UUIDs...")
@@ -1245,7 +1378,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                     if len(uuid_list) > 1
                     else str(uuid_list[0])
                 )
-                for row in record.to_parquet_rows():
+                for row in record.to_parquet_rows(skeletons):
                     pfm.write(uuid_dict[row["file"]], row, group_id)
                 self._progress.update(task, advance=1)
         self._progress.remove_task(task)
@@ -1325,7 +1458,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         tasks: dict[str, set[str]] = defaultdict(set)
         categorical_encodings = defaultdict(dict)
         metadata_types = {}
-        num_kpts_per_task: dict[str, int] = {}
+        num_kpts_per_task: dict[str, set[int]] = defaultdict(set)
+        declared_skeletons: dict[str, Skeleton] = {}
         sources: set[str] = set()
 
         annotations_path = get_dir(
@@ -1362,9 +1496,19 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                         tasks[task_name] |= ann.get_task_types()
 
                         if ann.keypoints is not None:
-                            num_kpts_per_task[task_name] = len(
-                                ann.keypoints.keypoints
+                            num_kpts_per_task[task_name].add(
+                                len(ann.keypoints.keypoints)
                             )
+                            declared = ann.keypoints.declared_skeleton()
+                            if declared is not None:
+                                current = declared_skeletons.get(task_name)
+                                declared_skeletons[task_name] = (
+                                    declared
+                                    if current is None
+                                    else current.merge_with(
+                                        declared, f"task '{task_name}'"
+                                    )
+                                )
                         for name, value in ann.metadata.items():
                             task = f"{task_name}/metadata/{name}"
                             typ = type(value).__name__
@@ -1397,10 +1541,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
                 data_batch.append(record)
                 if i % batch_size == 0:
-                    self._add_process_batch(data_batch, pfm, index)
+                    self._add_process_batch(
+                        data_batch, pfm, index, declared_skeletons
+                    )
                     data_batch = []
 
-            self._add_process_batch(data_batch, pfm, index)
+            self._add_process_batch(data_batch, pfm, index, declared_skeletons)
 
         with suppress(shutil.SameFileError):
             self._fs.put_dir(annotations_path, "")
@@ -1416,12 +1562,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
                 self.set_classes(list(classes | old_classes), task=task)
 
-        for task, num_kpts in num_kpts_per_task.items():
-            self.set_skeletons(
-                labels=[str(i) for i in range(num_kpts)],
-                edges=[(i, i + 1) for i in range(num_kpts - 1)],
-                task=task,
-            )
+        self._update_skeletons(num_kpts_per_task, declared_skeletons)
 
         self._metadata.categorical_encodings = dict(categorical_encodings)
         self._metadata.metadata_types = metadata_types
@@ -1774,7 +1915,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         """
         EXPORTER_MAP: dict[DatasetType, ExporterSpec] = {
-            DatasetType.NATIVE: ExporterSpec(NativeExporter, {}),
+            DatasetType.NATIVE: ExporterSpec(
+                NativeExporter,
+                {"skeletons": getattr(self.metadata, "skeletons", None)},
+            ),
             DatasetType.COCO: ExporterSpec(
                 CocoExporter,
                 {

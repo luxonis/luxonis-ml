@@ -12,7 +12,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
     split_of_group,
 )
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.ldf import DatasetRecord
+from luxonis_ml.ldf import DatasetRecord, Skeleton
 from luxonis_ml.utils.path import path_to_posix
 
 
@@ -52,6 +52,20 @@ class NativeExporter(BaseExporter):
             }
 
     """
+
+    def __init__(
+        self,
+        dataset_identifier: str,
+        output_path: Path,
+        max_partition_size_gb: float | None,
+        *,
+        skeletons: dict[str, Skeleton] | None = None,
+    ):
+        super().__init__(
+            dataset_identifier, output_path, max_partition_size_gb
+        )
+        self.skeletons = skeletons or {}
+        self._exported_skeletons: set[tuple[int | None, str, str]] = set()
 
     @staticmethod
     def get_split_names() -> dict[str, str]:
@@ -104,9 +118,38 @@ class NativeExporter(BaseExporter):
                     shutil.copy(p, data_path / f"{idx}{p.suffix}")
                     self.current_size += p.stat().st_size
 
-            annotation_splits[split].extend(records)
+            annotation_splits[split].extend(
+                self._with_skeletons(records, split)
+            )
 
         self._dump_annotations(annotation_splits, self.output_path, self.part)
+
+    def _with_skeletons(
+        self, records: list[dict[str, Any]], split: str
+    ) -> list[dict[str, Any]]:
+        """Attach the task skeleton to the first keypoint record of a task.
+
+        A skeleton describes the task rather than the instance, so it is
+        written once per task and split instead of on every record.
+        `NativeParser` passes it back through `LuxonisDataset.add`, which
+        hoists it into the metadata of the imported dataset.
+        """
+        if not self.skeletons:
+            return records
+        for record in records:
+            keypoints = record.get("annotation", {}).get("keypoints")
+            if keypoints is None:
+                continue
+            task_name = record["task_name"]
+            skeleton = self.skeletons.get(task_name)
+            # Keyed on the partition as well: rolling over starts a fresh
+            # `annotations.json`, which has to carry the skeleton again.
+            key = (self.part, split, task_name)
+            if skeleton is None or key in self._exported_skeletons:
+                continue
+            self._exported_skeletons.add(key)
+            keypoints["skeleton"] = skeleton.model_dump()
+        return records
 
     def _maybe_roll_partition(
         self,

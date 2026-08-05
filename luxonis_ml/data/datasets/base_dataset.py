@@ -5,7 +5,7 @@ from typing import TypeAlias
 from semver.version import Version
 
 from luxonis_ml.data.datasets.source import LuxonisSource
-from luxonis_ml.ldf import DatasetRecord
+from luxonis_ml.ldf import DatasetRecord, Skeleton
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
@@ -13,6 +13,9 @@ DATASETS_REGISTRY: Registry[type["BaseDataset"]] = Registry(name="datasets")
 
 
 DatasetIterator: TypeAlias = Iterator[dict | DatasetRecord]
+
+SkeletonEdge: TypeAlias = tuple[int, int] | tuple[str, str]
+"""A pair of keypoints, given either by index or by name."""
 
 
 class BaseDataset(
@@ -112,10 +115,17 @@ class BaseDataset(
     def set_skeletons(
         self,
         labels: list[str] | None = None,
-        edges: list[tuple[int, int]] | None = None,
+        edges: list[SkeletonEdge] | None = None,
         task: str | None = None,
+        *,
+        flip_pairs: list[SkeletonEdge] | None = None,
+        sigmas: list[float] | None = None,
+        infer_flip_pairs: bool = True,
     ) -> None:
         """Set keypoint skeleton semantics for tasks that use keypoints.
+
+        Only the fields that are provided are replaced, so a skeleton can
+        be built up over several calls.
 
         For example:
 
@@ -126,26 +136,38 @@ class BaseDataset(
                 edges=[[0, 1], [4, 5], ...]
             )
 
+        Edges and flip pairs may also refer to keypoints by name:
+
+        .. python::
+
+            dataset.set_skeletons(
+                labels=["nose", "left_eye", "right_eye"],
+                edges=[("nose", "left_eye"), ("nose", "right_eye")],
+            )
+
         Args:
             labels: Optional keypoint names.
             edges: Optional edges between keypoints.
             task: Optional task to update. If omitted, all keypoint tasks
                 are updated.
+            flip_pairs: Optional pairs of keypoints swapped by a horizontal
+                flip. Inferred from ``left``/``right`` names when omitted.
+            sigmas: Optional per-keypoint OKS standard deviations.
+            infer_flip_pairs: Whether to infer flip pairs from the keypoint
+                names when none are known.
 
         Raises:
-            ValueError: If neither ``labels`` nor ``edges`` are provided.
+            ValueError: If none of the skeleton fields are provided.
 
         """
         ...
 
     @abstractmethod
-    def get_skeletons(
-        self,
-    ) -> dict[str, tuple[list[str], list[tuple[int, int]]]]:
+    def get_skeletons(self) -> dict[str, Skeleton]:
         """Return keypoint skeletons for each task.
 
         Returns:
-            Keypoint labels and edges keyed by task name.
+            Keypoint skeletons keyed by task name.
 
         """
         ...
@@ -261,5 +283,9 @@ class BaseDataset(
             Number of keypoints keyed by task name.
 
         """
-        skeletons = self.get_skeletons()
-        return {task: len(skeletons[task][0]) for task in skeletons}
+        return {
+            task: len(skeleton.labels)
+            # A skeleton set from edges alone has no labels to count.
+            or max((max(edge) for edge in skeleton.edges), default=-1) + 1
+            for task, skeleton in self.get_skeletons().items()
+        }

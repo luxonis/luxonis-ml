@@ -22,6 +22,7 @@ from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.ldf import Skeleton
 from luxonis_ml.typing import Params
 
 from .utils import create_dataset, create_image, get_loader_output
@@ -53,8 +54,8 @@ def test_dataset(
         assert set(dataset.get_task_names()) == {"coco"}
         assert dataset.get_classes().get("coco") == {"person": 0}
         assert dataset.get_skeletons() == {
-            "coco": (
-                [
+            "coco": Skeleton(
+                labels=[
                     "nose",
                     "left_eye",
                     "right_eye",
@@ -73,7 +74,7 @@ def test_dataset(
                     "left_ankle",
                     "right_ankle",
                 ],
-                sorted(
+                edges=sorted(
                     [
                         (15, 13),
                         (13, 11),
@@ -96,6 +97,18 @@ def test_dataset(
                         (4, 6),
                     ]
                 ),
+                # Inferred from the `left_`/`right_` names, with the
+                # midline `nose` correctly left unpaired.
+                flip_pairs=[
+                    (1, 2),
+                    (3, 4),
+                    (5, 6),
+                    (7, 8),
+                    (9, 10),
+                    (11, 12),
+                    (13, 14),
+                    (15, 16),
+                ],
             ),
         }
         assert dataset.get_n_keypoints() == {"coco": 17}

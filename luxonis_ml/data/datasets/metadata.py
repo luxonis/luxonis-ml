@@ -1,25 +1,20 @@
 from collections.abc import Iterable
-from typing import Literal
+from typing import Literal, TypeAlias
 
-from typing_extensions import TypedDict
+from loguru import logger
 
 from luxonis_ml.data.utils.constants import LDF_VERSION
+from luxonis_ml.ldf import Skeleton
 from luxonis_ml.typing import BaseModelExtraForbid
 
 from .source import LuxonisSource
 
+Skeletons: TypeAlias = Skeleton
+"""Keypoint skeleton metadata.
 
-class Skeletons(TypedDict):
-    """Keypoint skeleton metadata.
-
-    Attributes:
-        labels: Keypoint names in index order.
-        edges: Keypoint graph edges as :math:`0`-based index pairs.
-
-    """
-
-    labels: list[str]
-    edges: list[tuple[int, int]]
+.. deprecated:: 0.10.0
+    Use `luxonis_ml.ldf.Skeleton`.
+"""
 
 
 class Metadata(BaseModelExtraForbid):
@@ -42,7 +37,7 @@ class Metadata(BaseModelExtraForbid):
     ldf_version: str = str(LDF_VERSION)
     classes: dict[str, dict[str, int]] = {}
     tasks: dict[str, list[str]] = {}
-    skeletons: dict[str, Skeletons] = {}
+    skeletons: dict[str, Skeleton] = {}
     categorical_encodings: dict[str, dict[str, int]] = {}
     metadata_types: dict[str, Literal["float", "int", "str", "Category"]] = {}
     parent_dataset: str | None = None
@@ -104,6 +99,13 @@ class Metadata(BaseModelExtraForbid):
             else:
                 merged_tasks[key] = other.tasks[key]
 
+        for task in set(self.skeletons) & set(other.skeletons):
+            if self.skeletons[task] != other.skeletons[task]:
+                logger.warning(
+                    f"Task '{task}' has different keypoint skeletons in the "
+                    "two datasets being merged. Keeping the one from the "
+                    "dataset being merged in."
+                )
         merged_skeletons = {**self.skeletons, **other.skeletons}
 
         merged_categorical_encodings = {}

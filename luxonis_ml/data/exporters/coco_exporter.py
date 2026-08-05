@@ -208,12 +208,14 @@ class CocoExporter(BaseExporter):
             cat_entry = {"id": cid, "name": cname}
 
             if self.allow_keypoints:
-                kp_labels, kp_skeleton = get_single_skeleton(
+                kp_labels, kp_skeleton, kp_sigmas = get_single_skeleton(
                     self.allow_keypoints, self.skeletons
                 )
                 if kp_labels:
                     cat_entry["keypoints"] = kp_labels
                     cat_entry["skeleton"] = kp_skeleton
+                if kp_sigmas:
+                    cat_entry["sigmas"] = kp_sigmas
 
             annotation_splits[split]["categories"].append(cat_entry)
             self.class_name_to_category_id[split][cname] = cid

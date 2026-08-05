@@ -16,6 +16,7 @@ from luxonis_ml.data.utils.visualizations import (
     str_to_rgb,
     visualize,
 )
+from luxonis_ml.ldf import Skeleton
 
 
 def _labels_panel(output: np.ndarray, image: np.ndarray) -> np.ndarray:
@@ -273,7 +274,7 @@ def test_visualize_keypoint_label_modes(monkeypatch: pytest.MonkeyPatch):
         )
     }
     classes = {"pose": {"person": 0}}
-    skeletons = {"pose": (["nose", "eye"], [])}
+    skeletons = {"pose": Skeleton(labels=["nose", "eye"])}
     calls: list[str] = []
 
     def fake_draw_keypoint_label(
@@ -331,7 +332,7 @@ def test_visualize_keypoint_skeletons_respect_visibility():
         )
     }
     classes = {"pose": {"person": 0}}
-    skeletons = {"pose": ([], [(0, 1), (1, 2)])}
+    skeletons = {"pose": Skeleton(edges=[(0, 1), (1, 2)])}
 
     without_skeletons = visualize(
         image.copy(),
