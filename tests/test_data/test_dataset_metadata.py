@@ -2,6 +2,7 @@ import pytest
 
 from luxonis_ml.data import Metadata
 from luxonis_ml.data.datasets.source import LuxonisSource
+from luxonis_ml.ldf import Skeleton
 
 
 @pytest.fixture
@@ -11,7 +12,7 @@ def basic_metadata() -> Metadata:
         ldf_version="2.0.0",
         classes={"task1": {"class1": 0, "class2": 1}},
         tasks={"task1": ["subtask1", "subtask2"]},
-        skeletons={"task1": {"labels": ["head", "tail"], "edges": [(0, 1)]}},
+        skeletons={"task1": Skeleton(labels=["head", "tail"], edges=[(0, 1)])},
         categorical_encodings={"cat1": {"a": 0, "b": 1}},
         metadata_types={"field1": "str", "field2": "int"},
     )

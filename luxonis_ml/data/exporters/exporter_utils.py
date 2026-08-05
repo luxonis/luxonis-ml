@@ -9,6 +9,8 @@ import polars as pl
 from loguru import logger
 from pycocotools import mask as maskUtils
 
+from luxonis_ml.ldf import Skeleton
+
 if TYPE_CHECKING:
     from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
     from luxonis_ml.data.exporters.base_exporter import BaseExporter
@@ -190,22 +192,24 @@ def create_zip_output(
 
 def get_single_skeleton(
     allow_keypoints: bool, skeletons: dict[str, Any] | None = None
-) -> tuple[list[str], list[list[int]]]:
-    """Return labels and COCO-style edges for the single skeleton.
+) -> tuple[list[str], list[list[int]], list[float]]:
+    """Return labels, COCO-style edges and sigmas for the single skeleton.
 
     Edges are converted to 1-based indices per COCO spec.
     """
     if not allow_keypoints or skeletons is None:
-        return [], []
+        return [], [], []
     if isinstance(skeletons, dict):
         sk = next(iter(skeletons.values()))
     else:  # list
         sk = skeletons[0]
+    if isinstance(sk, Skeleton):
+        sk = sk.model_dump()
     labels = list(sk.get("labels", []))
     edges = sk.get("edges", [])
     # COCO expects 1-based indices in skeleton
     skeleton_1_based = [[a + 1, b + 1] for a, b in edges]
-    return labels, skeleton_1_based
+    return labels, skeleton_1_based, list(sk.get("sigmas", []))
 
 
 def decode_rle_with_pycoco(ann: dict[str, Any]) -> np.ndarray:

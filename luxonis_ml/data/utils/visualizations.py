@@ -15,6 +15,7 @@ from luxonis_ml.data.utils import (
     get_task_type,
     task_type_iterator,
 )
+from luxonis_ml.ldf import Skeleton
 from luxonis_ml.typing import HSV, RGB, Color, Labels
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
@@ -573,8 +574,7 @@ def visualize(
     blend_all: bool = False,
     categorical_encodings: dict[str, dict[str, int]] | None = None,
     *,
-    skeletons: dict[str, tuple[list[str], list[tuple[int, int]]]]
-    | None = None,
+    skeletons: dict[str, Skeleton] | None = None,
     draw_skeletons: bool = False,
     keypoint_label_mode: Literal[
         "none", "numbers", "names", "full"
@@ -769,7 +769,8 @@ def visualize(
         keypoint_names: list[str] = []
         edges: list[tuple[int, int]] = []
         if skeletons is not None and task_name in skeletons:
-            keypoint_names, edges = skeletons[task_name]
+            skeleton = skeletons[task_name]
+            keypoint_names, edges = skeleton.labels, skeleton.edges
 
         for i, kp in enumerate(arr):
             kp = kp.reshape(-1, 3)
