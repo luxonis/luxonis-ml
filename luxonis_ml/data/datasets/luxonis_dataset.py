@@ -86,6 +86,27 @@ def _walk_detections(detections: Iterable[Detection]) -> Iterator[Detection]:
         yield from _walk_detections(detection.sub_detections.values())
 
 
+def _reject_in_memory_data(record: DatasetRecord) -> None:
+    """Reject a record whose media or arrays exist only in memory.
+
+    `DatasetRecord` accepts both so that loader output can be converted back
+    into records, but storing them would mean writing new media and ``.npy``
+    files, which the dataset does not do yet.
+
+    Raises:
+        NotImplementedError: If the record holds an in-memory image or array.
+
+    """
+    record.file_paths  # noqa: B018  # Raises for in-memory images.
+    for detection in _walk_detections(record.annotation or []):
+        if detection.array is not None and detection.array.array is not None:
+            raise NotImplementedError(
+                "Array annotations holding an in-memory array are not stored "
+                "yet. Save the array as a .npy file and pass its 'path' "
+                "instead."
+            )
+
+
 class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     """Luxonis Dataset Format (LDF) dataset handle.
 
@@ -1188,6 +1209,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 if detection.array is None:
                     continue
                 ann = detection.array
+                # In-memory arrays never get here; `add` rejects them.
+                assert ann.path is not None
                 if self.is_remote:
                     uuid = self._fs.get_file_uuid(ann.path, local=True)
                     uuid_dict[str(ann.path)] = uuid
@@ -1210,7 +1233,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         pfm: ParquetFileManager,
         index: pl.DataFrame | None,
     ) -> None:
-        paths = {path for data in data_batch for path in data.all_file_paths}
+        paths = {
+            path for data in data_batch for path in data.file_paths.values()
+        }
         logger.info("Generating UUIDs...")
         uuid_dict = self._fs.get_file_uuids(paths, local=True)
 
@@ -1246,9 +1271,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         logger.info("Saving annotations...")
         with self._progress:
             for record in data_batch:
-                file_paths = record.all_file_paths
                 uuid_list = [
-                    uuid_dict[str(file_path)] for file_path in file_paths
+                    uuid_dict[str(file_path)]
+                    for file_path in record.file_paths.values()
                 ]
                 group_id = (
                     str(merge_uuids(uuid_list))
@@ -1354,6 +1379,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             for i, record in enumerate(generator, start=1):
                 if not isinstance(record, DatasetRecord):
                     record = DatasetRecord(**record)
+                _reject_in_memory_data(record)
                 sources.update(record.files.keys())
                 anns = record.annotation
                 if anns:

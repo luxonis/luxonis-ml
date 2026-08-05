@@ -382,7 +382,13 @@ class LuxonisLoader(BaseLoader):
             img_dict[source_name] = cv2.cvtColor(
                 img_dict[source_name], cv2.COLOR_RGB2BGR
             )
-        return LoaderOutput(img_dict, labels, metadata)
+        return LoaderOutput(
+            img_dict,
+            labels,
+            metadata,
+            classes=self._classes,
+            categorical_encodings=self.dataset.get_categorical_encodings(),
+        )
 
     def _add_empty_annotations(
         self, img_dict: dict[str, np.ndarray], labels: Labels

@@ -6,9 +6,12 @@ the canonical Luxonis Data Format: this module rebuilds `Detection` objects
 (pairing boxes, keypoints, and instance masks by row index) and groups them into
 one `DatasetRecord` per task name.
 
-The reconstructed records are meant for rendering: the base image is supplied
-separately, so the records are built with a placeholder ``files`` entry via
-``DatasetRecord.model_construct`` and never written back to disk.
+The reconstructed records carry the sample's images and arrays in memory rather
+than as paths, since nothing was read from disk. They are meant for rendering,
+not for storage -- `LuxonisDataset.add` rejects them.
+
+This module is the implementation behind `LoaderOutput.to_ldf`, which is the
+supported way to reach it.
 """
 
 from collections import defaultdict
@@ -18,6 +21,7 @@ import numpy as np
 
 from luxonis_ml.data.utils.task_utils import get_task_name, get_task_type
 from luxonis_ml.ldf import (
+    ArrayAnnotation,
     BBoxAnnotation,
     Category,
     DatasetRecord,
@@ -40,22 +44,30 @@ def _split_loader_key(key: str) -> tuple[str, str]:
     return get_task_name(key), task_type
 
 
-def loader_output_to_records(
+def labels_to_records(
     labels: Labels,
     *,
     classes: dict[str, dict[str, int]],
+    images: dict[str, np.ndarray] | None = None,
     categorical_encodings: dict[str, dict[str, int]] | None = None,
     render_background: bool = False,
 ) -> dict[str, DatasetRecord]:
     """Convert `LuxonisLoader` label arrays into canonical LDF records.
 
+    Prefer `LoaderOutput.to_ldf`, which supplies ``classes``, ``images``, and
+    ``categorical_encodings`` from the loader that produced the sample.
+
     Args:
         labels: The loader's ``LoaderOutput.labels`` — a mapping of
             ``"task_name/task_type"`` to numpy arrays (bbox ``(N, 5)``,
             keypoints ``(N, 3K)``, semantic segmentation ``(C, H, W)``, instance
-            segmentation ``(N, H, W)``, classification ``(C,)``).
+            segmentation ``(N, H, W)``, classification ``(C,)``, array
+            ``(N, C, ...)``).
         classes: ``LuxonisDataset.get_classes()`` — a mapping of task name to a
             ``{class_name: id}`` dict, used to recover class names from ids.
+        images: The loader's ``LoaderOutput.images``, attached to every record
+            as its ``files``. Records built without them get a placeholder
+            path instead.
         categorical_encodings: ``LuxonisDataset.get_categorical_encodings()``,
             used to decode categorical metadata ids back to their string values.
         render_background: Keep the semantic-segmentation background class as a
@@ -65,13 +77,13 @@ def loader_output_to_records(
 
     Returns:
         One `DatasetRecord` per task name, each holding a list of `Detection`
-        objects. The image is not attached; pass it separately to the renderer.
+        objects and the sample's images.
 
     Example:
         >>> import numpy as np
         >>> labels = {"det/boundingbox": np.array([[0, 0.1, 0.2, 0.3, 0.4]])}
         >>> classes = {"det": {"car": 0}}
-        >>> records = loader_output_to_records(labels, classes=classes)
+        >>> records = labels_to_records(labels, classes=classes)
         >>> record = records["det"]
         >>> det = (record.annotation or [])[0]
         >>> det.class_name, det.boundingbox.w
@@ -82,6 +94,10 @@ def loader_output_to_records(
     for key, array in labels.items():
         task_name, task_type = _split_loader_key(key)
         grouped[task_name][task_type] = array
+
+    files: dict[str, np.ndarray | Path] = (
+        dict(images) if images else {"image": Path("<loader>")}
+    )
 
     records: dict[str, DatasetRecord] = {}
     for task_name, task_types in grouped.items():
@@ -98,8 +114,10 @@ def loader_output_to_records(
             categorical_encodings or {},
             render_background,
         )
+        # Nested loader task names ("det/face") are not valid identifiers, so
+        # the record is built unvalidated rather than rejected.
         records[task_name] = DatasetRecord.model_construct(
-            files={"image": Path("<loader>")},
+            files=files,
             annotation=detections,
             task_name=task_name,
             sample_metadata={},
@@ -141,6 +159,7 @@ def _instance_detections(
     boxes = task_types.get("boundingbox")
     keypoints = task_types.get("keypoints")
     instance_masks = task_types.get("instance_segmentation")
+    arrays = task_types.get("array")
 
     # Metadata arrays are per-instance too, so a metadata-only task (e.g. OCR
     # with just ``metadata/text``) still yields one detection per entry.
@@ -151,7 +170,7 @@ def _instance_detections(
     ]
     spatial_lengths = [
         len(arr)
-        for arr in (boxes, keypoints, instance_masks)
+        for arr in (boxes, keypoints, instance_masks, arrays)
         if arr is not None
     ]
     n_instances = max([*spatial_lengths, *metadata_lengths], default=0)
@@ -161,10 +180,12 @@ def _instance_detections(
 
     detections: list[Detection] = []
     for i in range(n_instances):
+        class_id: int | None = None
         class_name: str | None = None
         boundingbox: BBoxAnnotation | None = None
         keypoint_annotation: KeypointAnnotation | None = None
         instance_segmentation: InstanceSegmentationAnnotation | None = None
+        array: ArrayAnnotation | None = None
         if boxes is not None and i < len(boxes):
             row = boxes[i]
             class_id = int(row[0])
@@ -192,6 +213,12 @@ def _instance_detections(
                     {"mask": np.asarray(instance_masks[i]).astype(np.uint8)}
                 )
             )
+        if arrays is not None and i < len(arrays):
+            data, slot_id = _unpad_class_slot(np.asarray(arrays[i]), class_id)
+            array = ArrayAnnotation(array=data)
+            if class_name is None and slot_id is not None:
+                name = id_to_name.get(slot_id)
+                class_name = None if name == _BACKGROUND else name
         detections.append(
             Detection(
                 instance_id=i,
@@ -199,10 +226,35 @@ def _instance_detections(
                 boundingbox=boundingbox,
                 keypoints=keypoint_annotation,
                 instance_segmentation=instance_segmentation,
+                array=array,
                 metadata=metadata.get(i, {}),
             )
         )
     return detections
+
+
+def _unpad_class_slot(
+    row: np.ndarray, class_id: int | None
+) -> tuple[np.ndarray, int | None]:
+    """Recover one instance's stored array from its padded class slot.
+
+    `ArrayAnnotation.combine_to_numpy` writes each instance's array into the
+    slot of its class and leaves the other slots zero, so a known class id
+    points straight at the data. Without one, the single populated slot is both
+    the array and the only record of which class it belonged to.
+
+    Returns:
+        The stored array and the class slot it came from, if identifiable. An
+        all-zero row names no class -- but it was an all-zero array too, so the
+        first slot has the shape and the values that were stored.
+
+    """
+    if class_id is not None and class_id < len(row):
+        return row[class_id], class_id
+    for slot_id, slot in enumerate(row):
+        if np.any(slot):
+            return slot, slot_id
+    return row[0], None
 
 
 def _semantic_detections(

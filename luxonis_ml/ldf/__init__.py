@@ -48,6 +48,8 @@ with guard_missing_extra("ldf"):
         KeypointAnnotation,
         KeypointVisibility,
         NormalizedFloat,
+        NumpyArray,
+        RecordFile,
         SegmentationAnnotation,
         load_annotation,
     )
@@ -65,7 +67,9 @@ __all__ = [
     "KeypointAnnotation",
     "KeypointVisibility",
     "NormalizedFloat",
+    "NumpyArray",
     "ParquetRecord",
+    "RecordFile",
     "SegmentationAnnotation",
     "load_annotation",
 ]

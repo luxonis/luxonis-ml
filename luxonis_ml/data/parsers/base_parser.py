@@ -494,7 +494,7 @@ class BaseParser(ABC):
                     if isinstance(item, dict) and "file" in item
                     else item["files"].values()
                     if isinstance(item, dict) and "files" in item
-                    else [item.file]
+                    else item.file_paths.values()
                     if isinstance(item, DatasetRecord)
                     else []
                 )
