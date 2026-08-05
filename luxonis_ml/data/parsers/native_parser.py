@@ -9,6 +9,36 @@ from luxonis_ml.utils.path import resolve_manifest_path
 
 from .parser_plugin import ParsedDataset, SplitParserPlugin
 
+#: Annotation fields holding a path to a companion file, as ``(field, key)``.
+#: These are written relative to ``annotations.json`` so a dataset directory
+#: stays portable, and have to be resolved before the record is validated.
+_ANNOTATION_PATHS: tuple[tuple[str, str], ...] = (
+    ("segmentation", "mask"),
+    ("instance_segmentation", "mask"),
+    ("array", "path"),
+)
+
+
+def _resolve_annotation_paths(
+    annotation: dict[str, Any], base_dir: Path
+) -> None:
+    """Rewrite one detection's companion-file paths in place.
+
+    Args:
+        annotation: A detection, as read from the manifest.
+        base_dir: Directory that relative paths are resolved against.
+
+    """
+    for field, key in _ANNOTATION_PATHS:
+        value = annotation.get(field)
+        if isinstance(value, dict) and isinstance(value.get(key), PathType):
+            value[key] = resolve_manifest_path(base_dir, value[key])
+    sub_detections = annotation.get("sub_detections")
+    if isinstance(sub_detections, dict):
+        for sub_detection in sub_detections.values():
+            if isinstance(sub_detection, dict):
+                _resolve_annotation_paths(sub_detection, base_dir)
+
 
 class NativeParser(SplitParserPlugin):
     """Parse a directory with native LDF annotations.
@@ -93,19 +123,15 @@ class NativeParser(SplitParserPlugin):
                                     annotation_path.parent, value
                                 )
                 annotation = record.get("annotation")
-                if isinstance(annotation, dict):
-                    for mask_type in [
-                        "segmentation",
-                        "instance_segmentation",
-                    ]:
-                        with suppress(KeyError):
-                            mask = annotation[mask_type]["mask"]
-                            if isinstance(mask, PathType):
-                                annotation[mask_type]["mask"] = (
-                                    resolve_manifest_path(
-                                        annotation_path.parent, mask
-                                    )
-                                )
+                for detection in (
+                    annotation
+                    if isinstance(annotation, list)
+                    else [annotation]
+                ):
+                    if isinstance(detection, dict):
+                        _resolve_annotation_paths(
+                            detection, annotation_path.parent
+                        )
                 yield record
 
         added_images = self._get_added_images(generator())

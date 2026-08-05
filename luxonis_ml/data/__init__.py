@@ -12,8 +12,8 @@ owns them:
 
     - `luxonis_ml.data.datasets` documents dataset lifecycle, storage layout,
       splits, cloning, merging, remote synchronization, and dataset plugins.
-    - `luxonis_ml.data.datasets.annotation` documents `DatasetRecord`,
-      `Detection`, `Category`, and all annotation payload schemas.
+    - `luxonis_ml.ldf.annotation` documents `DatasetRecord`, `Detection`,
+      `Category`, and all annotation payload schemas.
     - `luxonis_ml.data.parsers` documents dataset imports, parser plugins,
       supported external formats, split-ratio modes, and format caveats.
     - `luxonis_ml.data.loaders` documents `LuxonisLoader`, loader outputs,
@@ -135,9 +135,9 @@ Example:
     '/segmentation'
 
 See:
-    `luxonis_ml.data.datasets.annotation` for the exact record model,
-    annotation payload schemas, normalized coordinate conventions, metadata
-    categories, and instance-association rules.
+    `luxonis_ml.ldf.annotation` for the exact record model, annotation
+    payload schemas, normalized coordinate conventions, metadata categories,
+    and instance-association rules.
 
 
 Annotation Payloads
@@ -161,8 +161,8 @@ records describe the same physical object, use the same ``instance_id`` so
 boxes, keypoints, and instance masks can be associated reliably.
 
 See:
-    `luxonis_ml.data.datasets.annotation` for examples, exact field names,
-    mask encoding details, metadata categories, and loader output shapes.
+    `luxonis_ml.ldf.annotation` for examples, exact field names, mask
+    encoding details, metadata categories, and loader output shapes.
 
 
 Command Line Interface

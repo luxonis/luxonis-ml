@@ -24,7 +24,7 @@ optional stage filtering through ``apply_on_stages``. When
 The engine groups transforms by behavior rather than preserving the exact
 input order:
 
-    1. Batch transforms, such as `MixUp` and `Mosaic4`.
+    1. Batch transforms, such as `MixUp` or `Mosaic4`.
     2. Spatial transforms, such as Albumentations dual transforms.
     3. Custom basic transforms.
     4. Pixel-only transforms.
@@ -97,6 +97,9 @@ A custom engine should subclass `AugmentationEngine` and implement:
       transformed values;
     - ``batch_size`` to tell `LuxonisLoader` how many source samples are
       needed per augmented output.
+
+Engines may also override `AugmentationEngine.applied_augmentations` to
+report the configured paths and runtime parameters of their latest call.
 """
 
 from .albumentations_engine import AlbumentationsEngine

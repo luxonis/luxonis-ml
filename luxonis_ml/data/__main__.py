@@ -19,12 +19,10 @@ from luxonis_ml.data import (
     LuxonisLoader,
     UpdateMode,
 )
-from luxonis_ml.data.utils.augmentations_collector import (
-    AugmentationsCollector,
-)
 from luxonis_ml.data.utils.cli_utils import (
     check_exists,
     get_dataset_info,
+    get_tracked_augmentations,
     parse_split_ratio,
     print_info,
 )
@@ -264,6 +262,12 @@ def inspect(
 
     """
     check_exists(name, bucket_storage)
+    if list_augmentations and aug_config is None:
+        logger.warning(
+            "The '--list-augmentations' option requires "
+            "'--aug-config' to be set. No augmentations will be listed."
+        )
+        list_augmentations = False
 
     view = view or ["train"]
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
@@ -295,24 +299,6 @@ def inspect(
             seed=42 if deterministic else None,
         )
 
-    if list_augmentations:
-        if aug_config is None:
-            logger.warning(
-                "--list-augmentations was set but --aug-config was not "
-                "provided. No augmentations will be shown."
-            )
-            get_applied_augmentations = list
-        elif loader._augmentations is not None:
-            collector = AugmentationsCollector(
-                loader._augmentations,  # type: ignore
-                aug_config,
-            )
-            get_applied_augmentations = collector.get_applied_augmentations
-        else:
-            get_applied_augmentations = list
-    else:
-        get_applied_augmentations = list
-
     classes = dataset.get_classes()
     categorical_encodings = dataset.get_categorical_encodings()
     keypoint_skeletons = (
@@ -325,9 +311,17 @@ def inspect(
     for data in loader:
         images_dict = data.images
         labels = data.labels
+        tracked_augmentations = get_tracked_augmentations(data.metadata)
 
         if print_sample_metadata:
-            print("Sample metadata:", data.metadata)
+            metadata = data.metadata
+            if not list_augmentations and tracked_augmentations is not None:
+                # The runtime parameters of every transformation would bury
+                # the record metadata this flag exists to show.
+                metadata = {
+                    k: v for k, v in metadata.items() if k != "augmentations"
+                }
+            print("Sample metadata:", metadata)
 
         current_windows = set(images_dict.keys())
         for stale_window in prev_windows - current_windows:
@@ -378,7 +372,7 @@ def inspect(
                     )
                     if list_augmentations:
                         instance_image = add_augmentation_footer(
-                            instance_image, get_applied_augmentations()
+                            instance_image, list(tracked_augmentations or {})
                         )
                     cv2.resizeWindow(
                         source_name,
@@ -407,7 +401,7 @@ def inspect(
                 )
                 if list_augmentations:
                     labeled_image = add_augmentation_footer(
-                        labeled_image, get_applied_augmentations()
+                        labeled_image, list(tracked_augmentations or {})
                     )
                 cv2.resizeWindow(
                     source_name, labeled_image.shape[1], labeled_image.shape[0]

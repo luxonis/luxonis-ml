@@ -93,6 +93,17 @@ class AugmentationEngine(
         ...
 
     @property
+    def applied_augmentations(self) -> dict[str, Params]:
+        """Runtime parameters keyed by configured augmentation path.
+
+        Describes the latest `apply` call; engines without provenance
+        tracking return an empty dictionary. Callers keep the mapping
+        alongside the sample it describes, so it must not be reused
+        across calls.
+        """
+        return {}
+
+    @property
     @abstractmethod
     def batch_size(self) -> int:
         r"""The batch size required by the augmentation pipeline.

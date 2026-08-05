@@ -9,10 +9,10 @@ from loguru import logger
 from semver.version import Version
 from typing_extensions import Self
 
-from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.datasets.source import LuxonisSource
 from luxonis_ml.data.utils.enums import ParserIssueMessage
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
