@@ -1,18 +1,4 @@
-"""Reconstruct canonical LDF records from `LuxonisLoader` output.
-
-`LuxonisLoader` returns per-task numpy arrays keyed by ``"task_name/task_type"``.
-For visualization it is convenient to turn that runtime representation back into
-the canonical Luxonis Data Format: this module rebuilds `Detection` objects
-(pairing boxes, keypoints, and instance masks by row index) and groups them into
-one `DatasetRecord` per task name.
-
-The reconstructed records carry the sample's images and arrays in memory rather
-than as paths, since nothing was read from disk. They are meant for rendering,
-not for storage -- `LuxonisDataset.add` rejects them.
-
-This module is the implementation behind `LoaderOutput.to_ldf`, which is the
-supported way to reach it.
-"""
+"""Rebuild LDF records from the arrays returned by `LuxonisLoader`."""
 
 from collections import defaultdict
 from pathlib import Path
@@ -54,40 +40,17 @@ def labels_to_records(
 ) -> dict[str, DatasetRecord]:
     """Convert `LuxonisLoader` label arrays into canonical LDF records.
 
-    Prefer `LoaderOutput.to_ldf`, which supplies ``classes``, ``images``, and
-    ``categorical_encodings`` from the loader that produced the sample.
-
     Args:
-        labels: The loader's ``LoaderOutput.labels`` — a mapping of
-            ``"task_name/task_type"`` to numpy arrays (bbox ``(N, 5)``,
-            keypoints ``(N, 3K)``, semantic segmentation ``(C, H, W)``, instance
-            segmentation ``(N, H, W)``, classification ``(C,)``, array
-            ``(N, C, ...)``).
-        classes: ``LuxonisDataset.get_classes()`` — a mapping of task name to a
-            ``{class_name: id}`` dict, used to recover class names from ids.
-        images: The loader's ``LoaderOutput.images``, attached to every record
-            as its ``files``. Records built without them get a placeholder
-            path instead.
-        categorical_encodings: ``LuxonisDataset.get_categorical_encodings()``,
-            used to decode categorical metadata ids back to their string values.
+        labels: Arrays keyed by ``"task_name/task_type"``.
+        classes: Class names and ids grouped by task name.
+        images: Images to attach to each record. A placeholder path is used
+            when omitted.
+        categorical_encodings: Encodings used to restore categorical metadata.
         render_background: Keep the semantic-segmentation background class as a
-            drawable mask (named ``"background"``). When ``False`` (the default)
-            the background channel is dropped, mirroring how detection and
-            classification treat it as a bookkeeping non-label.
+            drawable mask instead of dropping it.
 
     Returns:
-        One `DatasetRecord` per task name, each holding a list of `Detection`
-        objects and the sample's images.
-
-    Example:
-        >>> import numpy as np
-        >>> labels = {"det/boundingbox": np.array([[0, 0.1, 0.2, 0.3, 0.4]])}
-        >>> classes = {"det": {"car": 0}}
-        >>> records = labels_to_records(labels, classes=classes)
-        >>> record = records["det"]
-        >>> det = (record.annotation or [])[0]
-        >>> det.class_name, det.boundingbox.w
-        ('car', 0.3)
+        One `DatasetRecord` per task name.
 
     """
     grouped: dict[str, dict[str, np.ndarray]] = defaultdict(dict)
@@ -236,24 +199,13 @@ def _instance_detections(
 def _unpad_class_slot(
     row: np.ndarray, class_id: int | None
 ) -> tuple[np.ndarray, int | None]:
-    """Recover one instance's stored array from its padded class slot.
-
-    `ArrayAnnotation.combine_to_numpy` writes each instance's array into the
-    slot of its class and leaves the other slots zero, so a known class id
-    points straight at the data. Without one, the single populated slot is both
-    the array and the only record of which class it belonged to.
-
-    Returns:
-        The stored array and the class slot it came from, if identifiable. An
-        all-zero row names no class -- but it was an all-zero array too, so the
-        first slot has the shape and the values that were stored.
-
-    """
+    """Return the stored array and its identifiable class slot."""
     if class_id is not None and class_id < len(row):
         return row[class_id], class_id
     for slot_id, slot in enumerate(row):
         if np.any(slot):
             return slot, slot_id
+    # An all-zero array has no identifiable class slot.
     return row[0], None
 
 

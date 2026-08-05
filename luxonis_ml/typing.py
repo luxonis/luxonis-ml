@@ -167,17 +167,9 @@ class LoaderOutput(
     ) -> dict[str, "DatasetRecord"]:
         """Convert the label arrays back into canonical LDF records.
 
-        The loader's runtime representation -- per-task numpy arrays keyed by
-        ``"task_name/task_type"`` -- is rebuilt into `Detection` objects
-        (pairing boxes, keypoints, instance masks, and arrays by row index)
-        grouped into one `DatasetRecord` per task name. This is the inverse of
-        what the loader does to a record, and is mainly useful for
-        visualization.
-
-        The records hold data that only exists in memory: `images` becomes
-        their ``files`` and array labels become `ArrayAnnotation` objects
-        without a path. `LuxonisDataset.add` rejects such records rather than
-        storing them.
+        Arrays that describe the same instance are paired by row index. The
+        returned records hold images and array annotations in memory, so they
+        can be rendered but not added to a dataset.
 
         Args:
             classes: A mapping of task name to a ``{class_name: id}`` dict,
@@ -187,27 +179,14 @@ class LoaderOutput(
                 metadata ids back to their string values. Defaults to the
                 `categorical_encodings` attached by the loader.
             render_background: Keep the semantic-segmentation background class
-                as a drawable mask (named ``"background"``). When ``False``
-                (the default) the background channel is dropped, mirroring how
-                detection and classification treat it as a bookkeeping
-                non-label.
+                as a drawable mask instead of dropping it.
 
         Returns:
-            One `DatasetRecord` per task name, each holding a list of
-            `Detection` objects and this sample's images.
+            One `DatasetRecord` per task name.
 
         Raises:
             ValueError: If no class mapping is given and none was attached by
                 the loader.
-
-        Example:
-            .. python::
-
-                records = loader[0].to_ldf()
-
-                for task_name, record in records.items():
-                    for detection in record.annotation or []:
-                        print(task_name, detection.class_name)
 
         """
         from luxonis_ml.data.loaders.label_converter import labels_to_records

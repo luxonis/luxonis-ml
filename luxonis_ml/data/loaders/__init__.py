@@ -162,10 +162,7 @@ Back to LDF Records
 ===================
 
 `LoaderOutput.to_ldf` reverses the conversion, rebuilding the label arrays into
-one `DatasetRecord` per task name -- with boxes, keypoints, instance masks, and
-per-instance metadata paired back into `Detection` objects. This is mainly
-useful for visualization, where the canonical format is easier to draw than
-parallel arrays:
+one `DatasetRecord` per task name for visualization:
 
 .. python::
 
@@ -175,14 +172,9 @@ parallel arrays:
         for detection in record.annotation or []:
             print(task_name, detection.class_name, detection.boundingbox)
 
-Class ids are resolved through the class mapping `LuxonisLoader` attaches to
-every sample, so the call takes no arguments. Loaders that build a
-`LoaderOutput` themselves have to pass ``classes`` explicitly.
-
-The sample's images become the records' ``files`` and ``array`` labels become
-`ArrayAnnotation` objects, both held in memory rather than referenced by path.
-Such a record cannot be stored: `LuxonisDataset.add` rejects it until writing
-new media files is supported.
+The loader attaches the class and categorical metadata mappings needed for the
+conversion. Images and array annotations remain in memory, so the records
+cannot be added to a dataset.
 
 
 Sample Metadata

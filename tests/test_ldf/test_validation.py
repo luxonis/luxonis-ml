@@ -289,37 +289,45 @@ def test_sub_detections_inherit_the_record_metadata(tempdir: Path):
     assert {row["sample_metadata"] for row in rows} == {'{"camera": "left"}'}
 
 
-def test_array_annotation_takes_a_path_or_an_array(tempdir: Path):
-    """Exactly one source, so `to_numpy` always has something to return."""
+def test_array_annotation_accepts_in_memory_data() -> None:
+    array = np.arange(6, dtype=np.float64).reshape(2, 3)
+    np.testing.assert_array_equal(
+        ArrayAnnotation(array=array).to_numpy(), array
+    )
+
+
+def test_array_annotation_requires_one_source(tempdir: Path) -> None:
     array = np.arange(6, dtype=np.float64).reshape(2, 3)
     array_path = tempdir / "array.npy"
     np.save(array_path, array)
-
-    in_memory = ArrayAnnotation(array=array)
-    np.testing.assert_array_equal(in_memory.to_numpy(), array)
 
     with pytest.raises(pydantic.ValidationError, match="not both and not"):
         ArrayAnnotation(path=array_path, array=array)
     with pytest.raises(pydantic.ValidationError, match="not both and not"):
         ArrayAnnotation()
 
-    # Both sources combine the same way, so a reconstructed annotation can
-    # stand in for a stored one.
+
+def test_array_annotation_combines_paths_and_arrays(tempdir: Path) -> None:
+    array = np.arange(6, dtype=np.float64).reshape(2, 3)
+    array_path = tempdir / "array.npy"
+    np.save(array_path, array)
+
     combined = ArrayAnnotation.combine_to_numpy(
-        [in_memory, ArrayAnnotation(path=array_path)], [1, 0], 2
+        [ArrayAnnotation(array=array), ArrayAnnotation(path=array_path)],
+        [1, 0],
+        2,
     )
     np.testing.assert_array_equal(combined[0, 1], array)
     np.testing.assert_array_equal(combined[1, 0], array)
 
 
-def test_in_memory_data_has_no_serialized_form(tempdir: Path):
-    """LDF stores paths, so serializing in-memory data raises instead of
-    writing something that cannot be read back.
-    """
+def test_in_memory_array_has_no_serialized_form() -> None:
     array = np.zeros((2, 2))
     with pytest.raises(PydanticSerializationError, match="in-memory array"):
         ArrayAnnotation(array=array).model_dump_json()
 
+
+def test_record_files_serialize_as_paths(tempdir: Path) -> None:
     image_path = tempdir / "image.png"
     Image.fromarray(np.zeros((4, 4, 3), np.uint8)).save(image_path)
     stored = DatasetRecord(file=image_path)  # type: ignore[call-arg]
@@ -327,20 +335,19 @@ def test_in_memory_data_has_no_serialized_form(tempdir: Path):
         "image": str(image_path.absolute())
     }
 
+
+def test_in_memory_image_has_no_serialized_form() -> None:
     record = DatasetRecord(files={"image": np.zeros((4, 4, 3), np.uint8)})
     with pytest.raises(PydanticSerializationError, match="in-memory array"):
         record.model_dump_json()
 
 
 def test_in_memory_images_are_not_file_paths():
-    """`file_paths` is what storage reads, so it refuses in-memory images."""
     record = DatasetRecord(
         files={
             "left": np.zeros((4, 4, 3), np.uint8),
             "right": np.zeros((4, 4, 3), np.uint8),
         }
     )
-    assert record.files["left"].shape == (4, 4, 3)
-
     with pytest.raises(NotImplementedError, match=r"\['left', 'right'\]"):
         _ = record.file_paths

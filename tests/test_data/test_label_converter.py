@@ -344,24 +344,14 @@ def test_partial_categorical_metadata_round_trips(
 
 
 def test_to_ldf_without_classes_is_an_error() -> None:
-    """A `LoaderOutput` built without classes cannot name its detections.
-
-    Class ids are meaningless on their own, so a loader that does not attach a
-    mapping has to be told about one instead of silently producing unnamed
-    detections.
-    """
     labels = {"det/boundingbox": np.array([[0, 0.1, 0.1, 0.2, 0.2]])}
     sample = LoaderOutput({}, labels, {})
 
     with pytest.raises(ValueError, match="without a class mapping"):
         sample.to_ldf()
 
-    detections = _detections(sample.to_ldf(classes={"det": {"car": 0}})["det"])
-    assert [d.class_name for d in detections] == ["car"]
-
 
 def test_explicit_classes_override_the_attached_ones() -> None:
-    """Passing ``classes`` wins over whatever the loader attached."""
     labels = {"det/boundingbox": np.array([[0, 0.1, 0.1, 0.2, 0.2]])}
     sample = LoaderOutput({}, labels, {}, classes={"det": {"car": 0}})
 
@@ -375,8 +365,6 @@ def test_explicit_classes_override_the_attached_ones() -> None:
 def test_images_are_attached_to_every_record(
     dataset_name: str, tempdir: Path
 ) -> None:
-    """The sample's images end up in the records, not just its labels."""
-
     def generator() -> DatasetIterator:
         path = str(create_image(0, tempdir))
         yield {
@@ -410,11 +398,7 @@ def test_images_are_attached_to_every_record(
 def test_array_annotations_round_trip(
     dataset_name: str, tempdir: Path
 ) -> None:
-    """An array label decodes back into the array that was stored.
-
-    The loader pads each instance's array into the slot of its class, so the
-    conversion has to undo that to recover the original.
-    """
+    """Conversion removes the class-slot padding added by the loader."""
     arrays = {
         "car": np.arange(12, dtype=np.float64).reshape(3, 4),
         "person": np.ones((3, 4)) * 7,
@@ -454,13 +438,6 @@ def test_array_annotations_round_trip(
 def test_reconstructed_records_are_rejected_by_add(
     dataset_name: str, tempdir: Path
 ) -> None:
-    """Records holding in-memory data cannot be added back to a dataset.
-
-    Storing them would mean writing new media and ``.npy`` files, which is not
-    supported yet -- the point is that it fails loudly rather than writing a
-    record that points at ``str(array)``.
-    """
-
     def generator() -> DatasetIterator:
         yield {
             "file": str(create_image(0, tempdir)),

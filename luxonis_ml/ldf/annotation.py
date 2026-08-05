@@ -285,16 +285,9 @@ be stored with the dataset but does not fit standard spatial schemas.
 In-Memory Records
 =================
 
-The schemas accept data that is not on disk: an `ArrayAnnotation` may hold its
-``array`` instead of a ``path``, and a `DatasetRecord` source may hold the
-image itself instead of a file path. `LoaderOutput.to_ldf` builds records this
-way, so a loaded sample can be turned back into the canonical format without
-first being written out.
-
-Nothing stores such a record. `LuxonisDataset.add` rejects it, and both
-`DatasetRecord.file_paths` and JSON serialization raise rather than emit a
-reference no reader could resolve. Storing in-memory data is not supported
-yet -- write the image or array to a file and reference its path.
+`LoaderOutput.to_ldf` produces records whose images and array annotations are
+held in memory. They can be rendered but not serialized or added to a dataset;
+persist the data first when storage is required.
 
 
 Metadata and Categories
@@ -363,6 +356,7 @@ from typing import (
     Optional,
     TypeAlias,
     TypedDict,
+    cast,
 )
 
 import numpy as np
@@ -373,6 +367,7 @@ from pydantic import (
     AliasChoices,
     Field,
     GetCoreSchemaHandler,
+    InstanceOf,
     PlainSerializer,
     field_serializer,
     field_validator,
@@ -427,41 +422,21 @@ class Category(str):
 
 
 def _reject_array_serialization(array: np.ndarray) -> NoReturn:
-    """LDF stores paths and JSON payloads, so an in-memory array has no
-    serialized form. Raise rather than invent one the format cannot read
-    back.
-    """
+    """Reject data that LDF can only represent by path."""
     raise ValueError(
         f"Cannot serialize an in-memory array of shape {array.shape}. "
         "Save it to a file and reference that path instead."
     )
 
 
-def _serialize_record_file(file: Any) -> str:
-    """Serialize a record's file, which is a path unless it is an image."""
+def _serialize_record_file(file: FilePath | np.ndarray) -> str:
     if isinstance(file, np.ndarray):
         _reject_array_serialization(file)
     return str(file)
 
 
-class _InMemoryArray:
-    """Pydantic schema for fields holding a raw `numpy.ndarray`."""
-
-    @classmethod
-    def __get_pydantic_core_schema__(
-        cls, source_type: Any, handler: GetCoreSchemaHandler
-    ) -> core_schema.CoreSchema:
-        return core_schema.is_instance_schema(np.ndarray)
-
-
-class _PathOrInMemoryImage:
-    """Pydantic schema for a record's file: a path, or the image itself.
-
-    A plain union would work, but pydantic reports a failed union by naming
-    every branch it tried, turning "not a valid path" into a page of schema
-    tags. Taking the array case first and deferring to the path schema keeps
-    the error the one the caller needs to read.
-    """
+class _RecordFileSchema:
+    """Accept an image array without exposing union internals in errors."""
 
     @classmethod
     def __get_pydantic_core_schema__(
@@ -479,27 +454,19 @@ class _PathOrInMemoryImage:
 
 
 NumpyArray: TypeAlias = Annotated[
-    np.ndarray,
-    _InMemoryArray,
-    # `return_type` is the type the field would have serialized to had it been
-    # storable; the serializer itself only ever raises.
+    InstanceOf[np.ndarray],
     PlainSerializer(
         _reject_array_serialization, return_type=str, when_used="json"
     ),
 ]
-"""An array held in memory rather than in a file.
-
-Annotations reconstructed from loader output -- see `LoaderOutput.to_ldf` --
-carry their data this way. `LuxonisDataset.add` does not store them yet.
-"""
+"""An array held in memory rather than in a file."""
 
 RecordFile: TypeAlias = Annotated[
     FilePath | np.ndarray,
-    _PathOrInMemoryImage,
+    _RecordFileSchema,
     PlainSerializer(_serialize_record_file, when_used="json"),
 ]
-"""One media source of a `DatasetRecord`: a path to a file, or the image
-itself as an array for records that were never on disk."""
+"""A media path or an image held in memory."""
 
 
 #: The `Detection` fields holding a single `Annotation`, in parquet row order.
@@ -1321,7 +1288,6 @@ class ArrayAnnotation(Annotation):
         """Return the array, loading it from the file path if needed."""
         if self.array is not None:
             return self.array
-        # Guaranteed by `_validate_exactly_one_source`.
         assert self.path is not None
         return np.load(self.path)
 
@@ -1475,9 +1441,7 @@ class DatasetRecord(BaseModelExtraForbid):
                 "image to a file and reference that path instead."
             )
         return {
-            source: file
-            for source, file in self.files.items()
-            if isinstance(file, Path)
+            source: cast(FilePath, file) for source, file in self.files.items()
         }
 
     @property

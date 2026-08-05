@@ -87,17 +87,8 @@ def _walk_detections(detections: Iterable[Detection]) -> Iterator[Detection]:
 
 
 def _reject_in_memory_data(record: DatasetRecord) -> None:
-    """Reject a record whose media or arrays exist only in memory.
-
-    `DatasetRecord` accepts both so that loader output can be converted back
-    into records, but storing them would mean writing new media and ``.npy``
-    files, which the dataset does not do yet.
-
-    Raises:
-        NotImplementedError: If the record holds an in-memory image or array.
-
-    """
-    record.file_paths  # noqa: B018  # Raises for in-memory images.
+    """Reject loader records that cannot be persisted yet."""
+    _ = record.file_paths
     for detection in _walk_detections(record.annotation or []):
         if detection.array is not None and detection.array.array is not None:
             raise NotImplementedError(
@@ -1209,7 +1200,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 if detection.array is None:
                     continue
                 ann = detection.array
-                # In-memory arrays never get here; `add` rejects them.
                 assert ann.path is not None
                 if self.is_remote:
                     uuid = self._fs.get_file_uuid(ann.path, local=True)
