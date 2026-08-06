@@ -1,34 +1,14 @@
-"""The demo's content: one `Slide` per thing worth showing.
+"""Slide definitions and shared setup for the vizlab demo.
 
-Hand-written, not lifted from anywhere. Each slide is a sentence or two of
-explanation and a snippet short enough to read in one glance — where the
-notebook's version of an example is too long for that, the example here is a
-smaller one that makes the same point.
-
-`SETUP` runs once before the first slide and is never shown: it holds the
-imports and the synthetic imagery every slide draws on, so no slide has to
-spend its lines on scaffolding. Every snippet is executed by
-`vizlab_examples.demo.show`, and whatever its last expression evaluates to
-becomes the picture beside it — so the code on a slide is always the code that
-drew the picture on it.
-
-Two rules the content follows, both learned from looking at the rendered deck:
-
-- **Annotate something.** A box around empty gradient demonstrates a rectangle.
-  Boxes here land on the car and the pedestrian that `demo.scene` draws, via
-  the `CAR` and `PERSON` constants, so the annotation is always around a thing.
-- **Show the claim.** If the prose says a feature does something, the picture
-  has to show it doing that — a `curvature` that bows around nothing, or a
-  colourblind-safe palette next to no simulation, is an assertion rather than a
-  demonstration.
+Each snippet runs in the same namespace. Its final expression becomes the
+illustration beside it.
 """
 
 from dataclasses import dataclass
 
 from luxonis_ml.vizlab import Tooltip
 
-#: Run once, shown to nobody: imports and the synthetic imagery every slide
-#: draws on, so a slide's own snippet is only ever about the annotation.
+# Shared imports, fixtures, and dimensions keep the visible snippets focused.
 SETUP = '''
 import numpy as np
 
@@ -39,7 +19,7 @@ from luxonis_ml.vizlab import (
     Classification, ColorBar, Corner, FlowField, FlowWheel, Heatmap,
     InfoCard, Image, Keypoints, Legend, Mask, Palette, Polyline,
     RenderOptions, Ruler, ScalarField, ScaleBar, SemanticMask, Tooltip,
-    compare, grid, hstack, visualize_record, vstack, with_panel,
+    compare, escape, grid, hstack, visualize_record, vstack, with_panel,
 )
 from luxonis_ml.vizlab.comparison.match import (
     CLASS_ERROR_COLOR, FN_COLOR, FP_COLOR, TP_COLOR,
@@ -49,58 +29,44 @@ from vizlab_examples.demo.scene import (
 )
 from vizlab_examples.gallery import gradient
 
-#: The verdict colours `compare` paints with, so a slide can key them.
+# The verdict colours used by the comparison slide's legend.
 VERDICTS = [("hit", TP_COLOR), ("miss", FN_COLOR),
             ("false alarm", FP_COLOR), ("wrong class", CLASS_ERROR_COLOR)]
 
-# The slide's picture frame, so a scene is authored at the size it is shown
-# at: nothing is scaled to fit, and the deck keeps one picture footprint.
+# Author scenes at their display size.
 SCENE_W = min(FRAME_W, FRAME_H * 4 // 3)
 SCENE_H = SCENE_W * 3 // 4
-# Named scene sizes, so a snippet stays short: a wide snippet steals width
-# from the picture frame it is sizing, which is a loop worth breaking.
+# Common layouts used by the examples.
 SCENE = (SCENE_W, SCENE_H)                      # fills the frame
 STRIP = (FRAME_W, FRAME_H // 2 - 52)            # one of two, stacked
-THIRD = (FRAME_W // 3 - 12, FRAME_H * 2 // 3)   # one of three, across
 SIXTH = (FRAME_W // 4, FRAME_H // 3 - 16)       # one of six, 3 x 2
 PANE = (FRAME_W // 2 - 30, FRAME_H // 2 - 46)   # one of a 2x2
 COL = (FRAME_W // 3, FRAME_H * 3 // 4)          # a column in a composite
 
 
 def street(width=None, height=None):
-    """The traffic frame — a car, a pedestrian, and a sign to annotate."""
     return Image(traffic(width or SCENE_W, height or SCENE_H))
 
 
 def cell(hue=0.58, width=None, height=None):
-    """An empty scene on a gradient backdrop, for the layout examples."""
     return Image(
         gradient(width or PANE[0], height or PANE[1], hue=hue)
     )
 
 
 def dusk(hue):
-    """The deck's usual dark backdrop, at pane size."""
     return gradient(*PANE, hue=hue)
 
 
 def pale(hue):
-    """The same backdrop lightened — a light theme wants a light frame."""
     return np.clip(dusk(hue).astype(np.int16) + 168, 0, 255).astype(np.uint8)
 
 
 def plate(width, height):
-    """A flat, near-black backdrop.
-
-    A gradient is scenery, and scenery is dead weight behind a widget that
-    carries its own card: the chart is the subject here, so the backdrop gets
-    out of its way and the space goes to more of them.
-    """
     return np.full((height, width, 3), 20, np.uint8)
 
 
 def blobs(width, height, spots):
-    """A scalar field: a sum of soft gaussian blobs in [0, 1]."""
     ys = np.linspace(0.0, 1.0, height)[:, None]
     xs = np.linspace(0.0, 1.0, width)[None, :]
     field = np.zeros((height, width))
@@ -110,12 +76,7 @@ def blobs(width, height, spots):
 
 
 def disparity(width, height):
-    """A stereo disparity map: large up close, small far away.
-
-    Near is the *bottom* of a forward-facing frame, so the ramp runs that way;
-    an inverted depth map is the first thing a CV reader notices. The car and
-    the pedestrian stand out of the ground plane at their own distances.
-    """
+    """Build a synthetic disparity map with nearer objects at larger values."""
     ground = np.linspace(0.0, 1.0, height)[:, None] ** 1.6 * 58.0
     field = np.tile(ground, (1, width))
     field[
@@ -130,12 +91,7 @@ def disparity(width, height):
 
 
 def flow(width, height):
-    """Optical flow: the scene streaming past, the car crossing it.
-
-    Forward motion streams outward from the vanishing point, so every
-    direction is present at a magnitude worth colouring. A field near zero
-    everywhere is technically motion and renders as a white hole.
-    """
+    """Build radial forward flow with the car moving across it."""
     ys, xs = np.mgrid[0:height, 0:width]
     field = np.stack(
         [(xs / width - 0.52) * 13.0, (ys / height - 0.44) * 13.0], axis=-1
@@ -154,21 +110,15 @@ def _term(
     signature: str | None = None,
     data: object = None,
 ) -> Tooltip:
-    """One glossary entry: what a name is, how it is called, what it holds.
-
-    ``signature`` leads, because the first question about a name in a snippet
-    is how to call it; ``data`` rides in the tooltip's JSON block, so a
-    constant that *is* a dict is shown as the dict rather than described.
-    """
     lead = (("signature", signature),) if signature else ()
     return Tooltip(title=summary, rows=lead + rows, data=data)
 
 
-#: The names a snippet leans on that are never defined on screen — they live in
-#: `SETUP`, which no slide shows — and the API the prose names. Each is painted
-#: as a gradient term wherever it appears and explains itself under the cursor,
-#: so the code stays short without becoming a code with no key.
+# API and setup names shown as hoverable terms in prose and code.
 GLOSSARY: dict[str, Tooltip] = {
+    "highlighted text": Tooltip(
+        title="Glossary terms provide more information"
+    ),
     "CAR": _term(
         "the car's box in the scene",
         ("units", "normalized to the frame"),
@@ -218,10 +168,6 @@ GLOSSARY: dict[str, Tooltip] = {
     ),
     "STRIP": _term(
         "one of two strips stacked down the frame",
-        signature="tuple[int, int]",
-    ),
-    "THIRD": _term(
-        "one of three cells across the frame",
         signature="tuple[int, int]",
     ),
     "PANE": _term(
@@ -420,8 +366,6 @@ GLOSSARY: dict[str, Tooltip] = {
 
 @dataclass(frozen=True)
 class Slide:
-    """One screen of the demo: what it says, and the code that draws it."""
-
     title: str
     body: str
     source: str
@@ -429,13 +373,11 @@ class Slide:
 
 SLIDES: list[Slide] = [
     Slide(
-        title="Data in, picture out",
+        title="Render an LDF record",
         body=(
-            "A whole LDF record renders in one call. `visualize_record` reads "
-            "what the data carries — boxes, keypoints, masks, tags — and "
-            "decides what to draw, so nothing here builds a vizlab object by "
-            "hand. `hover_metadata` turns each detection's metadata into "
-            "hover content: **try the cursor on a box**."
+            "`visualize_record` reads boxes, keypoints, masks, and tags from an "
+            "LDF record. `hover_metadata` exposes detection metadata. Hover "
+            "over a box or the `highlighted text` to inspect them."
         ),
         source="""
 record = DatasetRecord.model_validate({
@@ -463,12 +405,10 @@ visualize_record(
 """,
     ),
     Slide(
-        title="Boxes",
+        title="Bounding boxes",
         body=(
-            "`BBox` covers four cases with the *same four numbers*: plain, "
-            "**oriented** through `angle`, carrying a **payload** of free text "
-            "the way OCR does, and **nested**, where a detection holds its own "
-            "parts."
+            "`BBox` handles plain and oriented boxes, OCR payloads, and nested "
+            "parts. All four examples use the same normalized coordinates."
         ),
         source="""
 box = {"x": .16, "y": .2,
@@ -494,12 +434,11 @@ grid([cell(.58).add(flat),
 """,
     ),
     Slide(
-        title="Points and polygons",
+        title="Keypoints and masks",
         body=(
-            "`Keypoints` takes normalized points and the `edges` that join "
-            "them into a skeleton; the third number in each point is COCO "
-            "visibility, and an occluded joint is drawn hollow. `Mask` takes "
-            "either a polygon or a binary array."
+            "`Keypoints` joins normalized points with `edges`; the third value "
+            "is COCO visibility, with occluded joints drawn hollow. `Mask` "
+            "accepts polygons or binary arrays."
         ),
         source="""
 w, h = STRIP
@@ -528,16 +467,11 @@ vstack([pose, crack],
 """,
     ),
     Slide(
-        title="Joints nothing places",
+        title="Missing keypoints",
         body=(
-            "A dataset writes `(0, 0, 0)` for a joint it never labelled, and a "
-            "model for one it did not predict — here an elbow and the far "
-            "wrist. Dropping them would amputate the skeleton: the limb stops, "
-            "and **the hand past the missing elbow would float free**, so the "
-            "pose reads as a different pose rather than an incomplete one. "
-            "Each is crossed where the skeleton implies it is and dashed back "
-            "to its neighbours instead — whole, and not claiming a joint is "
-            "there. No flag: a gap you cannot see is never the better default."
+            "`(0, 0, 0)` represents an unlabelled or unpredicted joint. Vizlab "
+            "infers its position from the skeleton, marks it with a cross, and "
+            "uses dashed edges to retain the limb's structure."
         ),
         source="""
 missing = {3, 6}  # an elbow, a wrist
@@ -556,12 +490,11 @@ hstack([figure(POSE), figure(gaps)],
 """,
     ),
     Slide(
-        title="Whole-frame labels",
+        title="Semantic masks",
         body=(
-            "`SemanticMask` takes a label map and the names that decode it, "
-            "and colours every class from the same palette the boxes use. "
-            "`ignore_index` drops a class out — here the unlabelled verge, "
-            "which stays the frame underneath."
+            "`SemanticMask` colours a label map using its class names. "
+            "`ignore_index=0` leaves the unlabelled verge transparent over the "
+            "source frame."
         ),
         source="""
 (
@@ -579,12 +512,10 @@ hstack([figure(POSE), figure(gaps)],
 """,
     ),
     Slide(
-        title="Overlays",
+        title="Frame overlays",
         body=(
-            "Things drawn *over* the frame rather than at a location: a "
-            "`Classification` tag stack, an `InfoCard`, a `Caption`, and a "
-            "`Legend` keyed to the same palette the boxes use. Each claims a "
-            "corner of its own."
+            "`Classification`, `InfoCard`, `Caption`, and `Legend` add "
+            "frame-level information in separate corners."
         ),
         source="""
 (
@@ -612,12 +543,11 @@ hstack([figure(POSE), figure(gaps)],
 """,
     ),
     Slide(
-        title="What the cursor finds",
+        title="Tooltips",
         body=(
-            "You have been hovering these since the first slide. A `Tooltip` "
-            "is plain data — a title, rows, a JSON-ish blob — that an "
-            "annotation carries; the renderer records where it landed and the "
-            "viewer draws it. Nothing here knows about windows."
+            "`Tooltip` stores a title, rows, and structured data on an "
+            "annotation. The renderer records its hit region and the viewer "
+            "draws the tooltip."
         ),
         source="""
 def seen(box, name, score, track, speed):
@@ -644,12 +574,10 @@ def seen(box, name, score, track, speed):
 """,
     ),
     Slide(
-        title="A prediction is a distribution",
+        title="Class distributions",
         body=(
-            "`ClassDistribution` shows the whole vector, not just the winner, "
-            "and `mode` picks how to say it — all six here, from the same four "
-            "numbers. Naming the `ground_truth` marks whether the model got it "
-            "right; here it did not."
+            "`ClassDistribution` renders the full probability vector in six "
+            'modes. `ground_truth="malamute"` marks this incorrect prediction.'
         ),
         source="""
 scores = {"husky": .58,
@@ -671,12 +599,10 @@ grid([
 """,
     ),
     Slide(
-        title="Dense fields",
+        title="Heatmaps",
         body=(
-            "`Heatmap` lays a scalar field over the frame under a named "
-            "gradient, and `ColorBar` says which value a colour stands for — "
-            "the continuous counterpart of the class legend. Pinning `vmin` "
-            "and `vmax` keeps two frames comparable."
+            "`Heatmap` overlays a scalar field; `ColorBar` maps colours back "
+            "to values. Fixed `vmin` and `vmax` make frames comparable."
         ),
         source="""
 field = Heatmap(
@@ -695,12 +621,11 @@ street().add(field).add(
 """,
     ),
     Slide(
-        title="Arrays are pictures too",
+        title="Array fields",
         body=(
-            "An LDF `array` label is read by what it means: `ScalarField` for "
-            "a depth or disparity map, `FlowField` for two-channel motion. "
-            "Each brings its own key, so a reader can tell a value from a "
-            "colour."
+            "`ScalarField` displays depth or disparity arrays, while "
+            "`FlowField` displays two-channel motion. Each example includes "
+            "the corresponding colour key."
         ),
         source="""
 depth = ScalarField(
@@ -723,12 +648,11 @@ vstack([
 """,
     ),
     Slide(
-        title="Polyline",
+        title="Polylines",
         body=(
-            "An open or closed run of points — a lane edge, a trajectory — "
-            "the shape a mask models badly. Give it `values` and a `gradient` "
-            "to colour it along its length, and `arrows` to say which way it "
-            "runs."
+            "`Polyline` draws open or closed paths such as lane edges and "
+            "trajectories. `values` and `gradient` colour the path; `arrows` "
+            "show direction."
         ),
         source="""
 street().add(Polyline(
@@ -745,12 +669,11 @@ street().add(Polyline(
 """,
     ),
     Slide(
-        title="Arrow",
+        title="Arrows",
         body=(
-            "An `Arrow` relates two things in the scene. Its ends may be "
-            "*other annotations* rather than coordinates, so they resolve to "
-            "the edges of a box that moves, and `curvature` bows it clear of "
-            "whatever is in between — the sign, here."
+            "`Arrow` can connect coordinates or annotations. Here its endpoints "
+            "follow the pedestrian and car boxes, while `curvature` routes it "
+            "around the sign."
         ),
         source="""
 car = BBox(**CAR, label="car")
@@ -768,12 +691,11 @@ walker = BBox(**PERSON, label="person")
 """,
     ),
     Slide(
-        title="Scale",
+        title="Measurement",
         body=(
-            "`ScaleBar` picks a round length that fits, and `Ruler` measures a "
-            "span — here the gap the pedestrian has to cross. Both take a "
-            "caller-supplied `pixels_per_unit`; give them `reference_width` "
-            "too, so the bar stays honest at another render size."
+            "`ScaleBar` chooses a round display length and `Ruler` measures a "
+            "span. `pixels_per_unit` defines the scale; `reference_width` "
+            "preserves it across render sizes."
         ),
         source="""
 (
@@ -796,10 +718,9 @@ walker = BBox(**PERSON, label="person")
     Slide(
         title="Themes",
         body=(
-            "A `Theme` bundles the default style, the palette, and the "
-            "background compositing uses. `RenderOptions` carries it, and "
-            "every annotation inherits from it unless it says otherwise — so "
-            "one scene, two themes, changes the colours and the ground both."
+            "`RenderOptions` applies a `Theme` to every annotation unless "
+            "locally overridden. The same scene uses different palettes and "
+            "backgrounds under the dark and light themes."
         ),
         source="""
 def board(theme, backdrop):
@@ -821,13 +742,11 @@ vstack([board(DARK_THEME, dusk),
 """,
     ),
     Slide(
-        title="Palettes that everyone can read",
+        title="Colourblind-safe palettes",
         body=(
-            "A class keeps its colour from its name. The default generator "
-            "spaces hues evenly, which crowds them for a colourblind viewer "
-            "— the right column simulates one. A colourblind-safe palette is "
-            "picked so the closest pair stays further apart, and "
-            "`min_separation` measures it rather than asserting it."
+            "`Palette` assigns stable colours by class name. The right column "
+            "simulates deuteranopia; `min_separation` reports the closest pair "
+            "for the default and Okabe-Ito palettes."
         ),
         source="""
 NAMES = ["car", "person", "bus",
@@ -860,12 +779,11 @@ grid([key(flat, None), key(flat, "deuteranopia"),
 """,
     ),
     Slide(
-        title="Every string is markup",
+        title="Markup",
         body=(
-            "Labels, captions, titles, panel rows and tooltips all take the "
-            "same Pango-style tags — `<b>`, `<i>`, `<code>`, and `<span "
-            "color=… size=…>`. Pass anything you did not author through "
-            "`escape` first."
+            "Labels, captions, titles, panel rows, and tooltips accept "
+            "Pango-style markup. Use `escape` for text that is not authored "
+            "markup."
         ),
         source="""
 rows = [
@@ -873,6 +791,7 @@ rows = [
     "<code>mono</code>",
     "<span color='#7e7'>green</span>",
     "<span size='140%'>bigger</span>",
+    escape("<untrusted>"),
 ]
 
 (
@@ -888,10 +807,8 @@ rows = [
     Slide(
         title="Composition",
         body=(
-            "`grid`, `hstack`, `blend` and `with_panel` return a new scene and "
-            "leave their inputs alone. Nothing is flattened, so a composed "
-            "scene still renders to vector SVG and still knows where its "
-            "annotations are."
+            "`hstack` combines the two scenes and `with_panel` adds metadata. "
+            "The result retains its annotations and hover regions."
         ),
         source="""
 left = Image(traffic(*COL)).add(
@@ -912,13 +829,11 @@ with_panel(
 """,
     ),
     Slide(
-        title="Truth against prediction",
+        title="Compare predictions",
         body=(
-            "`compare` matches predictions to ground truth and colours the "
-            "result by verdict — hit, miss, false alarm, wrong class — so each "
-            "object carries its own answer rather than leaving you to diff two "
-            "sets of boxes. All four verdicts are on this frame; `panel=True` "
-            "adds the counts, as on the composition slide."
+            "`compare` matches predictions with ground truth and colours hits, "
+            "misses, false alarms, and class errors. This frame includes all "
+            "four verdicts; `panel=True` can add summary counts."
         ),
         source="""
 truth = [BBox(**CAR, label="car"),
@@ -943,13 +858,11 @@ graded.add(Legend(
 """,
     ),
     Slide(
-        title="This slide is a vizlab render",
+        title="Built with vizlab",
         body=(
-            "Every screen in this demo — the prose, the syntax-coloured "
-            "snippet, the frame around them, the street itself — was drawn "
-            "with the same `Canvas`, fonts and markup the examples use, then "
-            "shown through the same `Viewer` that `luxonis_ml data inspect` "
-            "opens."
+            "The prose, highlighted code, page frame, and illustration are all "
+            "drawn with vizlab. The deck uses the same `Viewer` as "
+            "`luxonis_ml data inspect`."
         ),
         source="""
 rows = [

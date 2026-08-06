@@ -9,7 +9,22 @@ from typing_extensions import Self
 import luxonis_ml.vizlab.viewer as viewer_module
 from luxonis_ml.vizlab import HitMap
 from vizlab_examples.demo import show
-from vizlab_examples.demo.slides import Slide
+from vizlab_examples.demo.slides import GLOSSARY, SLIDES, Slide
+
+
+def test_first_slide_introduces_glossary_tooltips() -> None:
+    first = SLIDES[0]
+    column_w = show.build([first]).column_w
+    _, hits = show.page.compose_slide(
+        first.title,
+        [first.body],
+        "",
+        None,
+        column_w=column_w,
+        glossary=GLOSSARY,
+    )
+    tooltip = GLOSSARY["highlighted text"]
+    assert sum(tip is tooltip for _, tip in hits.items) == 1
 
 
 def test_build_defers_slide_evaluation_and_composition(
