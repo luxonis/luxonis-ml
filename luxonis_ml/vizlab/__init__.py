@@ -219,7 +219,7 @@ Notes:
 from luxonis_ml.guard_extras import guard_missing_extra
 
 with guard_missing_extra("viz"):
-    from .adapters import visualize_record
+    from .adapters import SampleComposer, visualize_record
     from .annotations import (
         Annotation,
         ArrayField,
@@ -249,6 +249,7 @@ with guard_missing_extra("viz"):
     )
     from .color import Color
     from .comparison import (
+        ComparisonComposer,
         ComparisonReport,
         ComparisonResult,
         Match,
@@ -336,6 +337,7 @@ __all__ = [
     "Color",
     "ColorBar",
     "ColormapColors",
+    "ComparisonComposer",
     "ComparisonReport",
     "ComparisonResult",
     "Composite",
@@ -366,6 +368,7 @@ __all__ = [
     "RenderOptions",
     "Renderable",
     "Ruler",
+    "SampleComposer",
     "ScalarField",
     "ScaleBar",
     "SegmentationScores",

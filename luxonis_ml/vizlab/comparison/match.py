@@ -26,19 +26,11 @@ if TYPE_CHECKING:
     #: A matchable detection: a vizlab box or a full LDF detection tree.
     Detectionish = BBox | Detection
 
-#: Verdict colors, tuned for the dark composite background. Themeable later.
-
+# Verdict colors, tuned for the dark composite background. Themeable later.
 TP_COLOR = Color.parse("#35d6a6")
-
-
 FP_COLOR = Color.parse("#ff6b6b")
-
-
 FN_COLOR = Color.parse("#ffc24b")
-
-
 CLASS_ERROR_COLOR = Color.parse("#ff9142")
-
 
 ComparisonKeypoint = tuple[float, float, int]
 

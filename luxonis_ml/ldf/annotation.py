@@ -1316,10 +1316,6 @@ class DatasetRecord(BaseModelExtraForbid):
 
         ``annotation`` is ``None`` on an annotation-free record; this
         normalizes it to an empty list for iteration.
-
-        Returns:
-            The record's detections (empty when there is no annotation).
-
         """
         return self.annotation or []
 

@@ -1,13 +1,15 @@
 """Detection matching, comparison views, and dataset-level reports.
 
-Four layers, each usable on its own:
+Five layers, each usable on its own:
 
 - `match` — pure matching and scoring; no image, no canvas.
 - `render` — turns a `ComparisonResult` into a picture where colour is the verdict.
+- `compose` — matches and draws whole paired samples, panel and all.
 - `report` — folds many results into dataset-wide metrics.
 - `figure` — draws a report's confusion matrix.
 """
 
+from .compose import ComparisonComposer
 from .figure import confusion_matrix_figure
 from .match import (
     CLASS_ERROR_COLOR,
@@ -29,6 +31,7 @@ __all__ = [
     "FP_COLOR",
     "NONE_LABEL",
     "TP_COLOR",
+    "ComparisonComposer",
     "ComparisonReport",
     "ComparisonResult",
     "Match",

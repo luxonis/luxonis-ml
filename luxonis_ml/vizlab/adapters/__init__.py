@@ -26,12 +26,14 @@ from .ldf import (
     to_render_annotations,
     visualize_record,
 )
+from .samples import SampleComposer
 
 __all__ = [
     "ArrayDrawing",
     "ArrayPayload",
     "ColorBy",
     "InstanceDetection",
+    "SampleComposer",
     "array_annotation",
     "array_annotations",
     "array_field",

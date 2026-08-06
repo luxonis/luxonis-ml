@@ -10,7 +10,7 @@ calling `frame()` on a grid or panel works the same way as on one `Image`.
 
 import json
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -30,6 +30,7 @@ from .backend import MouseHandler, WindowBackend
 from .cv2_backend import Cv2Backend
 from .hud import render_controls_card
 from .layers import LayerState
+from .prefetch import PrefetchIterator
 from .tooltip_render import TooltipCard, blit_rgba_on_bgr, prepare_tooltip
 
 #: A per-window callback that re-renders the window's `Frame` for a `LayerState`.
@@ -147,6 +148,34 @@ class PreparedFrame:
     hitmap: HitMap
     clickmap: ClickMap
     pickmap: PickMap = field(default_factory=PickMap.empty)
+
+
+@dataclass(frozen=True)
+class ViewerSample:
+    """One sample of a `Viewer.present` stream: how to draw it, and for whom.
+
+    ``render`` is bound to the sample's own data, so a layer toggle re-renders
+    the window it happened in even after the stream has moved on. Every image
+    source of a sample should be tiled into that one frame rather than getting
+    a window of its own, so a stereo pair reads as a pair instead of as two
+    windows the viewer would stack on the same screen point.
+
+    Attributes:
+        render: Rebuilds this sample's `Frame` for a `LayerState`.
+        classes: Class names present in the sample, for the ``c`` class cycle.
+        has_arrays: Whether the sample carries array labels (content state the
+            layer controls reflect).
+        save_as: What the ``s`` key names this sample's file.
+        wait: Whether to hold the window for a key press. Off for a sample
+            with nothing to show, so the stream rolls past it.
+
+    """
+
+    render: "RenderFn"
+    classes: Sequence[str] = ()
+    has_arrays: bool = False
+    save_as: "str | None" = None
+    wait: bool = True
 
 
 @dataclass
@@ -479,6 +508,76 @@ class Viewer:
         self._windows[name] = state
         self._backend.set_mouse_handler(name, self._handler(name, state))
         self._backend.show(name, bgr)
+
+    def present(
+        self,
+        name: str,
+        samples: "Iterable[ViewerSample]",
+        *,
+        prefetch: int = 0,
+    ) -> int:
+        """Show a stream of samples one key press at a time.
+
+        Each sample is rendered against a snapshot of the current layer state
+        — on a background thread, up to ``prefetch`` samples ahead — and the
+        snapshot is compared against the live state at show time, so a layer
+        toggled while a frame rendered ahead triggers one re-render instead of
+        showing stale layers.
+
+        Args:
+            name: The window identifier every sample is shown in.
+            samples: The samples, in presentation order.
+            prefetch: How many samples may render ahead; ``0`` renders each
+                sample only when it is reached.
+
+        Returns:
+            How many samples were actually held on screen (their ``wait``).
+
+        """
+
+        def rendered(
+            stream: "Iterable[ViewerSample]",
+        ) -> "Iterator[tuple[ViewerSample, LayerState, PreparedFrame]]":
+            for sample in stream:
+                layers = self.layers.copy()
+                layers.update_classes(sample.classes)
+                layers.has_arrays = sample.has_arrays
+                yield sample, layers, self.prepare(sample.render(layers))
+
+        if prefetch:
+            with PrefetchIterator(
+                rendered(samples), capacity=prefetch
+            ) as stream:
+                return self._present(name, stream)
+        return self._present(name, rendered(samples))
+
+    def _present(
+        self,
+        name: str,
+        stream: "Iterable[tuple[ViewerSample, LayerState, PreparedFrame]]",
+    ) -> int:
+        """Show pre-rendered samples until exhaustion or user exit."""
+        shown = 0
+        for sample, snapshot, ahead in stream:
+            self.layers.update_classes(snapshot.classes)
+            # Content state, not a toggle: without syncing it the live and
+            # snapshot states never compare equal for a sample that has arrays,
+            # and every frame would be re-rendered instead of using the
+            # render-ahead.
+            self.layers.has_arrays = snapshot.has_arrays
+            prepared = (
+                ahead
+                if self.layers == snapshot
+                else self.prepare(sample.render(self.layers))
+            )
+            self.show_prepared(
+                name, prepared, render=sample.render, save_as=sample.save_as
+            )
+            if sample.wait:
+                shown += 1
+                if self.wait() == "q":
+                    break
+        return shown
 
     def _draw_hud(self, frame: np.ndarray) -> None:
         """Draw the controls HUD (current `LayerState`) at the frame's lower-left.

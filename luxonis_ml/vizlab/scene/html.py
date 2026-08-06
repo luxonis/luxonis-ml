@@ -377,6 +377,24 @@ def _responsive_svg(svg: bytes, size: tuple[int, int], layer: str) -> str:
     )
 
 
+def _document(title: str, styles: str, body: str) -> str:
+    """Wrap ``body`` in the page shell every exported document shares."""
+    return (
+        "<!DOCTYPE html>\n"
+        '<html lang="en">\n'
+        "<head>\n"
+        '<meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
+        f"<title>{escape_html(title)}</title>\n"
+        f"<style>{styles}</style>\n"
+        "</head>\n"
+        "<body>\n"
+        f"{body}"
+        "</body>\n"
+        "</html>\n"
+    )
+
+
 def html_document(
     svg: bytes,
     hits: HitMap,
@@ -407,23 +425,13 @@ def html_document(
 
     """
     layer, cards, rules = _hover_regions(hits, size)
-    return (
-        "<!DOCTYPE html>\n"
-        '<html lang="en">\n'
-        "<head>\n"
-        '<meta charset="utf-8">\n'
-        '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
-        f"<title>{escape_html(title)}</title>\n"
-        f"<style>{_page_variables(theme, size)}{_STYLE}"
-        f"{_NAV_STYLE}{rules}</style>\n"
-        "</head>\n"
-        "<body>\n"
+    return _document(
+        title,
+        f"{_page_variables(theme, size)}{_STYLE}{_NAV_STYLE}{rules}",
         f"{_nav_html(nav)}"
         f'<div class="vl-figure">{_responsive_svg(svg, size, layer)}'
         f"{''.join(cards)}</div>\n"
-        f"<script>{_SCRIPT}</script>\n"
-        "</body>\n"
-        "</html>\n"
+        f"<script>{_SCRIPT}</script>\n",
     )
 
 
@@ -676,23 +684,14 @@ def layered_document(
     keys = slugs if slugs is not None else class_slugs(classes)
     controls = _control_html(kinds, classes, swatches or {}, keys)
     figure = layered_svg(base, fragments, size, hover)
-    return (
-        "<!DOCTYPE html>\n"
-        '<html lang="en">\n'
-        "<head>\n"
-        '<meta charset="utf-8">\n'
-        '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
-        f"<title>{escape_html(title)}</title>\n"
-        f"<style>{_page_variables(theme, size)}{_STYLE}"
-        f"{_control_css(kinds, classes, keys)}{_NAV_STYLE}{rules}</style>\n"
-        "</head>\n"
-        "<body>\n"
+    return _document(
+        title,
+        f"{_page_variables(theme, size)}{_STYLE}"
+        f"{_control_css(kinds, classes, keys)}{_NAV_STYLE}{rules}",
         f"{_nav_html(nav)}"
         f"{controls}"
         f'<div class="vl-figure">{figure}{"".join(cards)}</div>\n'
-        f"<script>{_SCRIPT}</script>\n"
-        "</body>\n"
-        "</html>\n"
+        f"<script>{_SCRIPT}</script>\n",
     )
 
 
@@ -741,20 +740,14 @@ def index_document(
     )
     count = len(entries)
     plural = "" if count == 1 else "s"
-    return (
-        "<!DOCTYPE html>\n"
-        '<html lang="en">\n'
-        "<head>\n"
-        '<meta charset="utf-8">\n'
-        '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
-        f"<title>{escape_html(title)}</title>\n"
-        f"<style>{_page_variables(theme, (960, 540))}{_INDEX_STYLE}</style>\n"
-        "</head>\n"
-        "<body>\n<main>\n"
+    return _document(
+        title,
+        f"{_page_variables(theme, (960, 540))}{_INDEX_STYLE}",
+        "<main>\n"
         f"<h1>{escape_html(title)}</h1>\n"
         f'<p class="count">{count} render{plural}</p>\n'
         f"<ol>{items}</ol>\n"
-        "</main>\n</body>\n</html>\n"
+        "</main>\n",
     )
 
 
