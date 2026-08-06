@@ -221,7 +221,9 @@ def test_make_splits(
 
     assert len(dataset) == 15
     assert dataset.get_splits() is None
-    dataset.make_splits(definitions)
+    dataset.make_splits(
+        {split: tuple(filepaths) for split, filepaths in definitions.items()}
+    )
     splits = dataset.get_splits()
     assert splits is not None
     assert set(splits.keys()) == {"train", "val", "test"}
@@ -272,6 +274,9 @@ def test_make_splits(
 
     with pytest.raises(ValueError, match=r"Ratios must sum to 1.0"):
         dataset.make_splits({"train": 1.5})
+
+    with pytest.raises(ValueError, match=r"between 0\.0 and 1\.0"):
+        dataset.make_splits({"train": -0.1, "val": 1.1})
 
     with pytest.raises(TypeError, match="ratios or filepath lists"):
         dataset.make_splits({"train": "invalid"})  # type: ignore[arg-type]

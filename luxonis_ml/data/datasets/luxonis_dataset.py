@@ -1499,7 +1499,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         Raises:
             ValueError: If ``splits`` is provided but is empty.
-            ValueError: If split ratios do not sum to 1.
+            ValueError: If split ratios are outside the range from 0 to 1 or
+                do not sum to 1.
             ValueError: If explicit split definitions are provided but all of them
                 are already included in old splits, resulting in no new
                 files to add to splits while ``replace_old_splits`` is ``False``.
@@ -1525,7 +1526,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             raise ValueError("Splits cannot be empty")
         elif all(isinstance(value, (int, float)) for value in splits.values()):
             ratios = cast("Mapping[str, float]", splits)
-        elif all(isinstance(value, list) for value in splits.values()):
+        elif all(
+            isinstance(value, Sequence) and not isinstance(value, (str, bytes))
+            for value in splits.values()
+        ):
             ratios = None
         else:
             raise TypeError(
@@ -1536,6 +1540,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             sum_ = sum(ratios.values())
             if not math.isclose(sum_, 1.0):
                 raise ValueError(f"Ratios must sum to 1.0, got {sum_:0.4f}")
+            if any(not 0.0 <= ratio <= 1.0 for ratio in ratios.values()):
+                raise ValueError(
+                    "Ratios must be between 0.0 and 1.0 (inclusive)"
+                )
 
         if ratios is None:
             definitions = cast("Mapping[str, Sequence[PathType]]", splits)
