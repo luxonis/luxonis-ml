@@ -12,6 +12,8 @@ from pydantic import BaseModel, ConfigDict
 if TYPE_CHECKING:  # pragma: no cover
     import numpy as np
 
+    from luxonis_ml.ldf import DatasetRecord
+
 
 PathType: TypeAlias = str | Path
 """A string or a `pathlib.Path`_ object.
@@ -99,6 +101,12 @@ class LoaderOutput(
             metadata such as ``"filenames"`` when enabled. Augmented outputs
             also include an ``"augmentations"`` mapping from configured paths
             to the runtime parameters that were selected.
+        classes: The source dataset's ``{task_name: {class_name: id}}``
+            mapping, attached by `LuxonisLoader` so `to_ldf` can recover class
+            names from the ids in `labels`. ``None`` for loaders that do not
+            provide it.
+        categorical_encodings: The source dataset's categorical metadata
+            encodings, attached alongside `classes` for the same reason.
 
     Example:
         .. python::
@@ -109,11 +117,15 @@ class LoaderOutput(
             labels = sample.labels
             metadata = sample.metadata
 
+            record = sample.to_ldf()  # Back to a canonical LDF record.
+
     """
 
     images: dict[str, "np.ndarray"]
     labels: dict[str, "np.ndarray"]
     metadata: Params
+    classes: dict[str, dict[str, int]] | None = None
+    categorical_encodings: dict[str, dict[str, int]] | None = None
 
     def __iter__(self) -> Iterator["np.ndarray | dict[str, np.ndarray]"]:
         """Yield the legacy ``(image_or_images, labels)`` tuple shape.
@@ -145,6 +157,58 @@ class LoaderOutput(
     def image(self) -> "np.ndarray":
         """Returns the first image in the images dictionary."""
         return next(iter(self.images.values()))
+
+    def to_ldf(
+        self,
+        *,
+        classes: dict[str, dict[str, int]] | None = None,
+        categorical_encodings: dict[str, dict[str, int]] | None = None,
+        render_background: bool = False,
+    ) -> "DatasetRecord":
+        """Convert the label arrays back into one canonical LDF record.
+
+        Arrays that describe the same instance are paired by row index. The
+        returned record holds images and array annotations in memory, so it
+        can be rendered but not added to a dataset.
+
+        Args:
+            classes: A mapping of task name to a ``{class_name: id}`` dict,
+                used to recover class names from ids. Defaults to the
+                `classes` attached by the loader.
+            categorical_encodings: A mapping used to decode categorical
+                metadata ids back to their string values. Defaults to the
+                `categorical_encodings` attached by the loader.
+            render_background: Keep the semantic-segmentation background class
+                as a drawable mask instead of dropping it.
+
+        Returns:
+            One task-keyed `DatasetRecord`.
+
+        Raises:
+            ValueError: If no class mapping is given and none was attached by
+                the loader.
+
+        """
+        from luxonis_ml.ldf.conversion import labels_to_record
+
+        if classes is None:
+            classes = self.classes
+        if categorical_encodings is None:
+            categorical_encodings = self.categorical_encodings
+        if classes is None:
+            raise ValueError(
+                "Cannot convert loader output to LDF records without a class "
+                "mapping. Pass `classes=dataset.get_classes()` explicitly; "
+                "only outputs produced by `LuxonisLoader` carry it already."
+            )
+        return labels_to_record(
+            self.labels,
+            classes=classes,
+            images=self.images,
+            sample_metadata=self.metadata,
+            categorical_encodings=categorical_encodings,
+            render_background=render_background,
+        )
 
 
 RGB: TypeAlias = tuple[int, int, int]

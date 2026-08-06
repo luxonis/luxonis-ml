@@ -251,7 +251,11 @@ class BatchCompose(A.Compose):
             else:
                 shape = (bbox_counts[i], *template.shape[1:])
 
-            values[i] = np.zeros(shape, dtype=template.dtype)
+            if template.dtype == object:
+                # Zero is valid metadata, so missing values need their own sentinel.
+                values[i] = np.full(shape, None, dtype=object)
+            else:
+                values[i] = np.zeros(shape, dtype=template.dtype)
 
     def _reindex_bboxes(self, data: dict[str, np.ndarray]) -> dict[str, int]:
         """Give each bbox field contiguous indices and return its size.

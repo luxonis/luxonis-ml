@@ -60,7 +60,8 @@ state. Common options include:
     - ``color_space`` to request ``"RGB"``, ``"BGR"``, or ``"GRAY"`` output
       globally or per source name.
     - ``seed`` for reproducible random augmentations.
-    - ``exclude_empty_annotations`` to omit empty labels.
+    - ``exclude_empty_annotations`` is deprecated; empty labels are always
+      represented by zero-filled or empty arrays.
     - ``keep_categorical_as_strings`` to preserve categorical metadata values.
     - ``update_mode`` to control media synchronization for remote datasets.
     - ``filter_task_names`` to load only selected task groups.
@@ -130,12 +131,69 @@ Output Layouts
      - :math:`\left(N, 3K\right)`
      - Flattened :math:`\left(x, y, v\right)` keypoint triplets.
    * - ``metadata``
-     - Original value structure.
-     - Values keyed by metadata field name.
+     - :math:`\left(N\right)`
+     - One value per instance, in the same row order as the task's spatial
+       labels. Instances that do not carry the field hold ``None``.
+   * - ``array``
+     - :math:`\left(N, C, \ldots\right)`
+     - Whatever each ``.npy`` held, wrapped in an instance and a class axis.
+
+Array labels
+------------
+
+``array`` is the only layout whose trailing shape is not fixed: it is whatever
+the ``.npy`` files held. The two leading axes come from
+`ArrayAnnotation.combine_to_numpy`, which stacks one row per annotation and puts
+each row's data in its own class slot, leaving the rest of that row zero.
+
+This makes the storage layout matter. A :math:`\left(2, H, W\right)` array
+written as one ``.npy`` under a single class arrives as
+:math:`\left(1, 1, 2, H, W\right)`, with nothing naming its channels. Written as
+two annotations with class names ``u`` and ``v``, it arrives as
+:math:`\left(2, 2, H, W\right)` populated down the diagonal, and summing away
+the instance axis recovers :math:`\left(2, H, W\right)` in class order. Use the
+per-channel form when the channels have names worth keeping.
 
 See:
     `luxonis_ml.ldf.annotation` for the ingestion schemas that are converted
     into these loader outputs.
+
+
+Back to LDF Records
+===================
+
+`LoaderOutput.to_ldf` reverses the conversion, rebuilding the label arrays into
+one task-keyed `DatasetRecord` for visualization:
+
+.. python::
+
+    sample = loader[0]
+
+    record = sample.to_ldf()
+    for task_name, detections in record.annotation.items():
+        for detection in detections:
+            print(task_name, detection.class_name, detection.boundingbox)
+
+The loader attaches the class and categorical metadata mappings needed for the
+conversion. Images and array annotations remain in memory, so the records
+cannot be added to a dataset.
+
+`DatasetRecord.to_loader_output` performs the forward conversion. Records with
+only empty task lists need the dataset-level task schema because no annotation
+is available from which to infer the task types:
+
+.. python::
+
+    sample = record.to_loader_output(
+        tasks=dataset.get_tasks(),
+        classes=dataset.get_classes(),
+        n_keypoints=dataset.get_n_keypoints(),
+    )
+
+Every declared task type is present in ``sample.labels``. A true-negative task
+therefore uses its normal empty shape, such as :math:`(0, 5)` for bounding
+boxes or :math:`(0,)` for custom arrays, instead of disappearing from the
+mapping.
 
 
 Sample Metadata
@@ -218,7 +276,7 @@ dataset storage:
     - augmentation engine construction through ``augmentation_engine`` and
       ``augmentation_config``;
     - remote media synchronization through ``update_mode``;
-    - empty-annotation filtering through ``exclude_empty_annotations``;
+    - complete zero-filled or empty labels for tasks without annotations;
     - metadata category encoding through ``keep_categorical_as_strings``;
     - task filtering through ``filter_task_names``.
 
@@ -232,7 +290,6 @@ dataset storage:
         keep_aspect_ratio=True,
         color_space="RGB",
         filter_task_names=["detection"],
-        exclude_empty_annotations=True,
     )
 
 Important:
@@ -248,4 +305,8 @@ See:
 from .base_loader import LOADERS_REGISTRY, BaseLoader
 from .luxonis_loader import LuxonisLoader
 
-__all__ = ["LOADERS_REGISTRY", "BaseLoader", "LuxonisLoader"]
+__all__ = [
+    "LOADERS_REGISTRY",
+    "BaseLoader",
+    "LuxonisLoader",
+]

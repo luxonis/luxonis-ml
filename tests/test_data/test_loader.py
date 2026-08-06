@@ -224,35 +224,52 @@ def _create_filter_task_names_dataset(
 ) -> LuxonisDataset:
     def generator() -> DatasetIterator:
         img = create_image(0, tempdir)
+        depth = create_image(10, tempdir)
         yield {
-            "file": img,
-            "task_name": "animals",
-            "annotation": {"class": "cat"},
-        }
-        yield {
-            "file": img,
-            "task_name": "vehicles",
+            "files": {"image": img, "depth": depth},
             "annotation": {
-                "class": "car",
-                "boundingbox": {"x": 0.2, "y": 0.2, "w": 0.3, "h": 0.3},
+                "animals": [{"class": "cat"}],
+                "vehicles": [
+                    {
+                        "class": "car",
+                        "boundingbox": {
+                            "x": 0.2,
+                            "y": 0.2,
+                            "w": 0.3,
+                            "h": 0.3,
+                        },
+                    }
+                ],
             },
         }
 
         img = create_image(1, tempdir)
+        depth = create_image(11, tempdir)
         yield {
-            "file": img,
-            "task_name": "animals",
+            "files": {"image": img, "depth": depth},
             "annotation": {
-                "class": "dog",
-                "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
-            },
-        }
-        yield {
-            "file": img,
-            "task_name": "vehicles",
-            "annotation": {
-                "class": "truck",
-                "boundingbox": {"x": 0.4, "y": 0.4, "w": 0.2, "h": 0.2},
+                "animals": [
+                    {
+                        "class": "dog",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.2,
+                            "h": 0.2,
+                        },
+                    }
+                ],
+                "vehicles": [
+                    {
+                        "class": "truck",
+                        "boundingbox": {
+                            "x": 0.4,
+                            "y": 0.4,
+                            "w": 0.2,
+                            "h": 0.2,
+                        },
+                    }
+                ],
             },
         }
 
@@ -269,9 +286,11 @@ def test_filter_task_names(randint: int, tempdir: Path):
     assert len(loader) == 2
     assert loader._classes == {"animals": {"cat": 0, "dog": 1}}
 
-    labels_by_sample = [labels for _, labels in loader]
-    for labels in labels_by_sample:
-        assert set(labels) == {
+    samples = list(loader)
+    labels_by_sample = [sample.labels for sample in samples]
+    for sample in samples:
+        assert set(sample.images) == {"image", "depth"}
+        assert set(sample.labels) == {
             "animals/classification",
             "animals/boundingbox",
         }
@@ -293,6 +312,41 @@ def test_filter_task_names_rejects_unknown_task(randint: int, tempdir: Path):
 
     with pytest.raises(ValueError, match="not in the dataset"):
         LuxonisLoader(dataset, filter_task_names=["missing"])
+
+
+def test_instance_sorting_keeps_class_and_metadata_rows_aligned(
+    dataset_name: str, tempdir: Path
+):
+    def generator() -> DatasetIterator:
+        path = str(create_image(0, tempdir))
+        yield {
+            "file": path,
+            "task_name": "traffic",
+            "annotation": {
+                "class": "person",
+                "instance_id": 1,
+                "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.2, "h": 0.2},
+            },
+        }
+        yield {
+            "file": path,
+            "task_name": "traffic",
+            "annotation": {
+                "class": "car",
+                "instance_id": 0,
+                "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
+                "metadata": {"tag": "zero"},
+            },
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    assert dataset.get_classes() == {"traffic": {"car": 0, "person": 1}}
+
+    labels = next(iter(LuxonisLoader(dataset, view="train"))).labels
+
+    boxes = labels["traffic/boundingbox"]
+    assert boxes[:, :2].tolist() == [[0.0, 0.1], [1.0, 0.5]]
+    assert labels["traffic/metadata/tag"].tolist() == ["zero", None]
 
 
 def test_loader_passes_is_validation_pipeline_to_legacy_engines(

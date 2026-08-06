@@ -494,7 +494,7 @@ class BaseParser(ABC):
                     if isinstance(item, dict) and "file" in item
                     else item["files"].values()
                     if isinstance(item, dict) and "files" in item
-                    else [item.file]
+                    else item.file_paths.values()
                     if isinstance(item, DatasetRecord)
                     else []
                 )
@@ -645,7 +645,7 @@ class BaseParser(ABC):
                 item = DatasetRecord(**item)
 
             if self._task_name is not None:
-                if not item.annotation:
+                if not any(item.annotation.values()):
                     # A single task name fills its `defaultdict` only as
                     # annotated records look their classes up.
                     task_names = (
@@ -653,31 +653,32 @@ class BaseParser(ABC):
                         if self._default_task_name is not None
                         else dict.fromkeys(self._task_name.values())
                     )
-                    for task_name in task_names:
-                        yield item.model_copy(
-                            update={"task_name": task_name}, deep=True
-                        )
+                    yield item.model_copy(
+                        update={
+                            "annotation": {
+                                task_name: [] for task_name in task_names
+                            }
+                        },
+                        deep=True,
+                    )
                 else:
                     by_task: dict[str, list[Detection]] = defaultdict(list)
-                    for annotation in item.annotation:
-                        class_name = annotation.class_name
-                        task_name = item.task_name
-                        if class_name is not None:
-                            try:
-                                task_name = self._task_name[class_name]
-                            except KeyError:
-                                raise ValueError(
-                                    f"Class '{class_name}' not found in task names."
-                                ) from None
-                        by_task[task_name].append(annotation)
+                    for source_task, annotations in item.annotation.items():
+                        for annotation in annotations:
+                            class_name = annotation.class_name
+                            task_name = source_task
+                            if class_name is not None:
+                                try:
+                                    task_name = self._task_name[class_name]
+                                except KeyError:
+                                    raise ValueError(
+                                        f"Class '{class_name}' not found in "
+                                        "task names."
+                                    ) from None
+                            by_task[task_name].append(annotation)
 
-                    for task_name, annotations in by_task.items():
-                        yield item.model_copy(
-                            update={
-                                "annotation": annotations,
-                                "task_name": task_name,
-                            },
-                            deep=True,
-                        )
+                    yield item.model_copy(
+                        update={"annotation": dict(by_task)}, deep=True
+                    )
             else:
                 yield item

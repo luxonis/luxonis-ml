@@ -84,12 +84,11 @@ def test_yolov4_parser_keeps_unlabeled_image_with_duplicate_basename(
     )
 
     records = list(generator)
-    files = {
-        Path(
-            record["file"] if isinstance(record, dict) else record.file
-        ).resolve()
-        for record in records
-    }
+    files = set()
+    for record in records:
+        file = record["file"] if isinstance(record, dict) else record.file
+        assert isinstance(file, (str, Path))
+        files.add(Path(file).resolve())
 
     assert annotated_image.resolve() in files
     assert unlabeled_image.resolve() in files

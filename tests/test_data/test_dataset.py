@@ -425,13 +425,15 @@ def test_no_labels(dataset_name: str, tempdir: Path, subtests: SubTests):
 
         if total is False:
             with subtests.test("test_almost_empty_exclude_empty"):
-                for i, (_, labels) in enumerate(
-                    LuxonisLoader(dataset, exclude_empty_annotations=True)
+                with pytest.warns(
+                    DeprecationWarning,
+                    match="label keys are always included",
                 ):
-                    if i == 0:
-                        assert set(labels.keys()) == expected_tasks
-                    else:
-                        assert not labels
+                    loader = LuxonisLoader(
+                        dataset, exclude_empty_annotations=True
+                    )
+                for _, labels in loader:
+                    assert set(labels.keys()) == expected_tasks
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")

@@ -18,8 +18,17 @@ Example:
         record = DatasetRecord(
             file="images/frame_001.jpg",
             annotation={
-                "class": "person",
-                "boundingbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+                "detection": [
+                    {
+                        "class": "person",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.2,
+                            "w": 0.3,
+                            "h": 0.4,
+                        },
+                    }
+                ],
             },
         )
 
@@ -48,6 +57,8 @@ with guard_missing_extra("ldf"):
         KeypointAnnotation,
         KeypointVisibility,
         NormalizedFloat,
+        NumpyArray,
+        RecordFile,
         SegmentationAnnotation,
         load_annotation,
     )
@@ -65,7 +76,9 @@ __all__ = [
     "KeypointAnnotation",
     "KeypointVisibility",
     "NormalizedFloat",
+    "NumpyArray",
     "ParquetRecord",
+    "RecordFile",
     "SegmentationAnnotation",
     "load_annotation",
 ]

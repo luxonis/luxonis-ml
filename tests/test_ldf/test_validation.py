@@ -10,6 +10,7 @@ import numpy as np
 import pydantic
 import pytest
 from PIL import Image
+from pydantic_core import PydanticSerializationError
 
 from luxonis_ml.ldf import (
     ArrayAnnotation,
@@ -215,7 +216,7 @@ def test_record_rejects_conflicting_task_and_task_name(tempdir: Path):
         DatasetRecord(
             file=tempdir / "image.png",  # type: ignore[call-arg]
             task="detection",  # type: ignore[call-arg]
-            task_name="segmentation",
+            task_name="segmentation",  # type: ignore[call-arg]
         )
 
 
@@ -224,7 +225,7 @@ def test_record_accepts_matching_task_and_task_name(tempdir: Path):
     record = DatasetRecord(
         file=tempdir / "image.png",  # type: ignore[call-arg]
         task="detection",  # type: ignore[call-arg]
-        task_name="detection",
+        task_name="detection",  # type: ignore[call-arg]
     )
 
     assert record.task_name == "detection"
@@ -264,7 +265,9 @@ def test_array_path_falls_back_when_mmap_is_unavailable(
 
     monkeypatch.setattr(np, "load", no_mmap)
 
-    assert ArrayAnnotation(path=tempdir / "array.npy").path.name == "array.npy"
+    annotation = ArrayAnnotation(path=tempdir / "array.npy")
+    assert annotation.path is not None
+    assert annotation.path.name == "array.npy"
 
 
 def test_sub_detections_inherit_the_record_metadata(tempdir: Path):
@@ -286,3 +289,67 @@ def test_sub_detections_inherit_the_record_metadata(tempdir: Path):
         "classification",
     ]
     assert {row["sample_metadata"] for row in rows} == {'{"camera": "left"}'}
+
+
+def test_array_annotation_accepts_in_memory_data() -> None:
+    array = np.arange(6, dtype=np.float64).reshape(2, 3)
+    np.testing.assert_array_equal(
+        ArrayAnnotation(array=array).to_numpy(), array
+    )
+
+
+def test_array_annotation_requires_one_source(tempdir: Path) -> None:
+    array = np.arange(6, dtype=np.float64).reshape(2, 3)
+    array_path = tempdir / "array.npy"
+    np.save(array_path, array)
+
+    with pytest.raises(pydantic.ValidationError, match="not both and not"):
+        ArrayAnnotation(path=array_path, array=array)
+    with pytest.raises(pydantic.ValidationError, match="not both and not"):
+        ArrayAnnotation()
+
+
+def test_array_annotation_combines_paths_and_arrays(tempdir: Path) -> None:
+    array = np.arange(6, dtype=np.float64).reshape(2, 3)
+    array_path = tempdir / "array.npy"
+    np.save(array_path, array)
+
+    combined = ArrayAnnotation.combine_to_numpy(
+        [ArrayAnnotation(array=array), ArrayAnnotation(path=array_path)],
+        [1, 0],
+        2,
+    )
+    np.testing.assert_array_equal(combined[0, 1], array)
+    np.testing.assert_array_equal(combined[1, 0], array)
+
+
+def test_in_memory_array_has_no_serialized_form() -> None:
+    array = np.zeros((2, 2))
+    with pytest.raises(PydanticSerializationError, match="in-memory array"):
+        ArrayAnnotation(array=array).model_dump_json()
+
+
+def test_record_files_serialize_as_paths(tempdir: Path) -> None:
+    image_path = tempdir / "image.png"
+    Image.fromarray(np.zeros((4, 4, 3), np.uint8)).save(image_path)
+    stored = DatasetRecord(file=image_path)  # type: ignore[call-arg]
+    assert json.loads(stored.model_dump_json())["files"] == {
+        "image": str(image_path.absolute())
+    }
+
+
+def test_in_memory_image_has_no_serialized_form() -> None:
+    record = DatasetRecord(files={"image": np.zeros((4, 4, 3), np.uint8)})
+    with pytest.raises(PydanticSerializationError, match="in-memory array"):
+        record.model_dump_json()
+
+
+def test_in_memory_images_are_not_file_paths():
+    record = DatasetRecord(
+        files={
+            "left": np.zeros((4, 4, 3), np.uint8),
+            "right": np.zeros((4, 4, 3), np.uint8),
+        }
+    )
+    with pytest.raises(NotImplementedError, match=r"\['left', 'right'\]"):
+        _ = record.file_paths

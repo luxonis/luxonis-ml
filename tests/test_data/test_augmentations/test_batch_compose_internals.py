@@ -271,6 +271,17 @@ def test_samples_without_a_label_get_one_empty_instance_per_box() -> None:
     assert output["label"][:2].tolist() == [0.0, 1.0]
 
 
+def test_missing_object_labels_are_padded_with_none() -> None:
+    values = [
+        np.array(["kept"], dtype=object),
+        np.array([], dtype=object),
+    ]
+
+    BatchCompose._fill_empty_entries(values, "metadata", [1, 2], [], 0)
+
+    assert values[1].tolist() == [None, None]
+
+
 def test_indices_are_restamped_without_a_bbox_processor() -> None:
     """Nothing filters the boxes, but they still need distinct indices.
 

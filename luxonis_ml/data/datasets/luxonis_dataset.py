@@ -86,6 +86,23 @@ def _walk_detections(detections: Iterable[Detection]) -> Iterator[Detection]:
         yield from _walk_detections(detection.sub_detections.values())
 
 
+def _record_detections(record: DatasetRecord) -> Iterator[Detection]:
+    for detections in record.annotation.values():
+        yield from _walk_detections(detections)
+
+
+def _reject_in_memory_data(record: DatasetRecord) -> None:
+    """Reject loader records that cannot be persisted yet."""
+    _ = record.file_paths
+    for detection in _record_detections(record):
+        if detection.array is not None and detection.array.array is not None:
+            raise NotImplementedError(
+                "Array annotations holding an in-memory array are not stored "
+                "yet. Save the array as a .npy file and pass its 'path' "
+                "instead."
+            )
+
+
 class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     """Luxonis Dataset Format (LDF) dataset handle.
 
@@ -1184,10 +1201,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         uuid_dict = {}
         for record in data_batch:
             self._progress.update(task, advance=1)
-            for detection in _walk_detections(record.annotation or []):
+            for detection in _record_detections(record):
                 if detection.array is None:
                     continue
                 ann = detection.array
+                assert ann.path is not None
                 if self.is_remote:
                     uuid = self._fs.get_file_uuid(ann.path, local=True)
                     uuid_dict[str(ann.path)] = uuid
@@ -1210,7 +1228,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         pfm: ParquetFileManager,
         index: pl.DataFrame | None,
     ) -> None:
-        paths = {path for data in data_batch for path in data.all_file_paths}
+        paths = {
+            path for data in data_batch for path in data.file_paths.values()
+        }
         logger.info("Generating UUIDs...")
         uuid_dict = self._fs.get_file_uuids(paths, local=True)
 
@@ -1246,9 +1266,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         logger.info("Saving annotations...")
         with self._progress:
             for record in data_batch:
-                file_paths = record.all_file_paths
                 uuid_list = [
-                    uuid_dict[str(file_path)] for file_path in file_paths
+                    uuid_dict[str(file_path)]
+                    for file_path in record.file_paths.values()
                 ]
                 group_id = (
                     str(merge_uuids(uuid_list))
@@ -1333,11 +1353,50 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         data_batch: list[DatasetRecord] = []
 
         classes_per_task: dict[str, set[str]] = defaultdict(set)
-        tasks: dict[str, set[str]] = defaultdict(set)
+        tasks: dict[str, set[str]] = defaultdict(
+            set,
+            {
+                task_name: set(task_types)
+                for task_name, task_types in self.get_tasks().items()
+            },
+        )
         categorical_encodings = defaultdict(dict)
         metadata_types = {}
         num_kpts_per_task: dict[str, int] = {}
         sources: set[str] = set()
+
+        def register_detection(task_name: str, detection: Detection) -> None:
+            task_classes = classes_per_task[task_name]
+            if detection.class_name is not None:
+                task_classes.add(detection.class_name)
+
+            tasks[task_name].update(detection.get_task_types())
+
+            if detection.keypoints is not None:
+                num_kpts_per_task[task_name] = len(
+                    detection.keypoints.keypoints
+                )
+            for name, value in detection.metadata.items():
+                metadata_task = f"{task_name}/metadata/{name}"
+                metadata_type = type(value).__name__
+                previous_type = metadata_types.get(metadata_task)
+                if previous_type is None:
+                    metadata_types[metadata_task] = metadata_type
+                elif previous_type != metadata_type:
+                    if {previous_type, metadata_type} == {"int", "float"}:
+                        metadata_types[metadata_task] = "float"
+                    else:
+                        raise ValueError(
+                            f"Metadata type mismatch for {metadata_task}: "
+                            f"{previous_type} and {metadata_type}"
+                        )
+
+                if isinstance(value, Category):
+                    encoding = categorical_encodings[metadata_task]
+                    encoding.setdefault(value, len(encoding))
+
+            for name, sub_detection in detection.sub_detections.items():
+                register_detection(f"{task_name}/{name}", sub_detection)
 
         annotations_path = get_dir(
             self._fs,
@@ -1354,71 +1413,39 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             for i, record in enumerate(generator, start=1):
                 if not isinstance(record, DatasetRecord):
                     record = DatasetRecord(**record)
+                _reject_in_memory_data(record)
                 sources.update(record.files.keys())
-                anns = record.annotation
-                if anns:
-                    if not record.task_name:
+                annotations_by_task = dict(record.annotation)
+                unnamed = annotations_by_task.pop("", None)
+                if unnamed is not None:
+                    if unnamed:
                         current_classes = self.get_classes()
                         inferred = {
                             infer_task(
-                                record.task_name,
+                                "",
                                 ann.class_name,
                                 current_classes,
                             )
-                            for ann in anns
+                            for ann in unnamed
                             if ann.class_name is not None
                         }
                         if len(inferred) > 1:
                             raise ValueError(
                                 "Classes of the record's annotations belong "
                                 f"to different tasks: {sorted(inferred)}. "
-                                "Provide an explicit 'task_name'."
+                                "Provide explicit task keys in 'annotation'."
                             )
-                        if inferred:
-                            record.task_name = inferred.pop()
+                        inferred_task = inferred.pop() if inferred else ""
+                        annotations_by_task.setdefault(
+                            inferred_task, []
+                        ).extend(unnamed)
+                    else:
+                        annotations_by_task[""] = []
+                    record.annotation = annotations_by_task
 
-                    def update_state(task_name: str, ann: Detection) -> None:
-                        if ann.class_name is not None:
-                            classes_per_task[task_name].add(ann.class_name)
-                        elif not classes_per_task[task_name]:
-                            classes_per_task[task_name] = set()
-
-                        tasks[task_name] |= ann.get_task_types()
-
-                        if ann.keypoints is not None:
-                            num_kpts_per_task[task_name] = len(
-                                ann.keypoints.keypoints
-                            )
-                        for name, value in ann.metadata.items():
-                            task = f"{task_name}/metadata/{name}"
-                            typ = type(value).__name__
-                            if (
-                                task in metadata_types
-                                and metadata_types[task] != typ
-                            ):
-                                if {typ, metadata_types[task]} == {
-                                    "int",
-                                    "float",
-                                }:
-                                    metadata_types[task] = "float"
-                                else:
-                                    raise ValueError(
-                                        f"Metadata type mismatch for {task}: {metadata_types[task]} and {typ}"
-                                    )
-                            else:
-                                metadata_types[task] = typ
-
-                            if not isinstance(value, Category):
-                                continue
-                            if value not in categorical_encodings[task]:
-                                categorical_encodings[task][value] = len(
-                                    categorical_encodings[task]
-                                )
-                        for name, sub_detection in ann.sub_detections.items():
-                            update_state(f"{task_name}/{name}", sub_detection)
-
-                    for ann in anns:
-                        update_state(record.task_name, ann)
+                for task_name, annotations in annotations_by_task.items():
+                    for annotation in annotations:
+                        register_detection(task_name, annotation)
 
                 data_batch.append(record)
                 if i % batch_size == 0:
