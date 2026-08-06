@@ -111,20 +111,21 @@ Records, Tasks, and Labels
 ==========================
 
 Dataset ingestion is record-based. A record points to one file or to multiple
-synchronized files, optionally assigns a task name, and optionally provides an
-annotation payload.
+synchronized files and groups its detections by task name in the
+``annotation`` mapping.
 
 Example:
     The two supported media-key styles are easy to distinguish.
 
-    >>> single_source = {"file": "image.jpg", "annotation": None}
+    >>> single_source = {"file": "image.jpg", "annotation": {"det": []}}
     >>> multi_source = {"files": {"rgb": "rgb.png", "depth": "depth.png"}}
     >>> "file" in single_source, "files" in multi_source
     (True, True)
 
 Task names group annotations that should be consumed together by a model or
-loader. Loader label keys use ``"task_name/task_type"``. If no task name is
-provided, the task name is the empty string and keys start with ``"/"``.
+loader. Empty lists explicitly represent true negatives. Loader label keys use
+``"task_name/task_type"``; the legacy flat annotation form uses the empty task
+name, so its keys start with ``"/"``.
 
 Example:
     >>> task_name = "detection"

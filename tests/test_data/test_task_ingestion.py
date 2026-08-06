@@ -19,9 +19,7 @@ STEP = 10
 
 def compute_histogram(dataset: LuxonisDataset) -> dict[str, int]:
     classes = defaultdict(int)
-    loader = LuxonisLoader(
-        dataset, exclude_empty_annotations=True, update_mode=UpdateMode.ALL
-    )
+    loader = LuxonisLoader(dataset, update_mode=UpdateMode.ALL)
     for _, record in loader:
         for task in record:
             if get_task_type(task) != "classification":
@@ -124,7 +122,7 @@ def test_task_ingestion(
 
     assert compute_histogram(dataset) == {
         "animals": 2 * STEP,
-        "landmass": STEP,
+        "landmass": 2 * STEP,
     }
 
     def generator3() -> DatasetIterator:
@@ -162,7 +160,7 @@ def test_task_ingestion(
 
     assert compute_histogram(dataset) == {
         "animals": 3 * STEP,
-        "landmass": 2 * STEP,
+        "landmass": 3 * STEP,
     }
 
     def generator4() -> DatasetIterator:
@@ -221,11 +219,11 @@ def test_task_ingestion(
     assert set(classes["segmentation"]) == {"body"}
 
     assert compute_histogram(dataset) == {
-        "animals": 3 * STEP,
-        "landmass": 2 * STEP,
-        "landmass-2": STEP,
-        "detection": STEP,
-        "segmentation": STEP,
+        "animals": 4 * STEP,
+        "landmass": 4 * STEP,
+        "landmass-2": 4 * STEP,
+        "detection": 4 * STEP,
+        "segmentation": 4 * STEP,
     }
 
 

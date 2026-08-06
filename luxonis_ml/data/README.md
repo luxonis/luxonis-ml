@@ -116,8 +116,7 @@ Each data entry should be a dictionary with one of the following structures, dep
 ```python
 {
     "file": str,  # path to the image file
-    "task_name": Optional[str],  # task for this annotation
-    "annotation": Optional[dict]  # annotation of the instance in the file
+    "annotation": dict[str, list[dict]]  # detections grouped by task
 }
 ```
 
@@ -126,8 +125,7 @@ Each data entry should be a dictionary with one of the following structures, dep
 ```python
 {
     "files": dict[str, str],  # mapping from input source name to file path
-    "task_name": Optional[str],  # task for this annotation
-    "annotation": Optional[dict]  # annotation of the instance in the files
+    "annotation": dict[str, list[dict]]  # detections grouped by task
 }
 ```
 
@@ -139,33 +137,38 @@ In the multi-input format, the keys in the `files` dictionary are arbitrary stri
         "img_rgb": "path/to/rgb_image.png",
         "img_ir": "path/to/infrared_image.png"
     },
-    "task_name": "detection",
     "annotation": {
-        "class": "person",
-        "boundingbox": {
-            "x": 0.1,
-            "y": 0.1,
-            "w": 0.3,
-            "h": 0.4
-        }
+        "detection": [{
+            "class": "person",
+            "boundingbox": {
+                "x": 0.1,
+                "y": 0.1,
+                "w": 0.3,
+                "h": 0.4
+            }
+        }]
     }
 }
 ```
 
-Luxonis Data Format supports **annotations optionally structured into different tasks** for improved organization. Tasks can be explicitly named or left unset - if none are specified, all annotations will be grouped under a single `task_name` set by default to `""` . The [example below](#adding-data-with-a-generator-function) demonstrates this with instance keypoints and segmentation tasks.
+Luxonis Data Format groups annotations by task. Keep an empty list for a task
+when an image is a true negative for it; this preserves the task name even
+though the record has no detections. The legacy `task_name` plus flat
+`annotation` form remains accepted for backward compatibility, but new code
+should use the task-keyed mapping.
 
 The content of the `"annotation"` field depends on the task type and follows the [Annotation Format](#annotation-format) described later in this document.
 
 #### Task Names
 
-The `task_name` field is used to group specific annotations together. This can be used to effectively store different datasets within a single Luxonis dataset, allowing for better organization and management of annotations.
+The keys of the `annotation` mapping group specific annotations together. This can be used to effectively store different datasets within a single Luxonis dataset, allowing for better organization and management of annotations.
 
-Typical usage of `task_name` includes:
+Typical uses of separate task names include:
 
 - Dataset containing `keypoint` task with multiple classes, where each class contain different number of keypoints. In this case, each class must belong to its own task group, e.g. `instance_keypoints_car`, `instance_keypoints_motorbike`. This is necessary in order for `LuxonisLoader` to be able to stack the keypoints from different classes together to transform them into a single numpy array.
 - Dataset containing `segmentation` task together with other tasks, such as `instance_keypoints` or `boundingbox`. In this case, the `segmentation` task should have its own task group, e.g. `segmentation`. This is necessary because the `LuxonisLoader` automatically adds a special `background` class to the semantic segmentation task, which is not applicable to other tasks.
 
-If not `task_name` is specified, a default task name of `""` (empty string) will be used, which means that all annotations will be grouped together.
+For legacy flat annotations without `task_name`, the default task name is `""` (empty string), which groups all annotations together.
 
 #### Adding Data with a Generator Function
 
@@ -173,7 +176,9 @@ The recommended approach for adding data is to create a generator function that 
 
 The following example demonstrates how to load **bounding box annotations** along with their corresponding **keypoints annotations**, which are linked via `"instance_id"`.
 
-Additionally, we yield **segmentation masks** while ensuring a clear separation between task groups. To achieve this, we use the `"task_name"` field—assigning `"instance_keypoints_car"` and `"instance_keypoints_motorbike"` for instance-keypoint-related annotations, and `"segmentation"` for the semantic segmentation task.
+Additionally, we add **segmentation masks** under a separate task key. The
+record keeps `"instance_keypoints_car"` and `"instance_keypoints_motorbike"`
+separate from the semantic `"segmentation"` task.
 
 ```python
 import json
@@ -195,22 +200,22 @@ def generator():
 
         W, H = data.get("dimensions", {}).get("width", 1), data.get("dimensions", {}).get("height", 1)
         image_path = str(annotation_dir / data.get("filename", ""))
+        annotations = {}
 
         # Process Bounding Box Annotations
         for instance_id, bbox in data.get("BoundingBoxAnnotation", {}).items():
             x, y = bbox["origin"]
             w, h = bbox["dimension"]
-            yield {
-                "file": image_path,
-                "task_name": "instance_keypoints" + "_" + bbox["labelName"],
-                "annotation": {
+            task = "instance_keypoints" + "_" + bbox["labelName"]
+            annotations.setdefault(task, []).append(
+                {
                     "class": bbox["labelName"],
                     "instance_id": instance_id,
                     "boundingbox": {
                         "x": x / W, "y": y / H, "w": w / W, "h": h / H
-                    }
-                },
-            }
+                    },
+                }
+            )
 
         # Process Keypoints Annotations
         for instance_id, keypoints_data in data.get("KeypointsAnnotation", {}).items():
@@ -218,14 +223,13 @@ def generator():
                 (kp["location"][0] / W, kp["location"][1] / H, kp["visibility"])
                 for kp in keypoints_data["keypoints"]
             ]
-            yield {
-                "file": image_path,
-                "task_name": "instance_keypoints" + "_" + keypoints_data["labelName"],
-                "annotation": {
+            task = "instance_keypoints" + "_" + keypoints_data["labelName"]
+            annotations.setdefault(task, []).append(
+                {
                     "instance_id": instance_id,
                     "keypoints": {"keypoints": keypoints},
-                },
-            }
+                }
+            )
 
         # Process Segmentation Annotations
         segmentation_data = data.get("VehicleTypeSegmentation", {})
@@ -237,14 +241,14 @@ def generator():
                     label = instance["labelName"]
                     color = np.array(instance["pixelValue"], dtype=np.uint8)
                     binary_mask = (mask_rgb == color).all(axis=-1).astype(np.uint8)
-                    yield {
-                        "file": image_path,
-                        "task_name": "segmentation",
-                        "annotation": {
+                    annotations.setdefault("segmentation", []).append(
+                        {
                             "class": label,
                             "segmentation": {"mask": binary_mask},
-                        },
-                    }
+                        }
+                    )
+
+        yield {"file": image_path, "annotation": annotations}
 ```
 
 The generator is then passed to the `add` method of the dataset.

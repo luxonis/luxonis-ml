@@ -18,8 +18,17 @@ Example:
         record = DatasetRecord(
             file="images/frame_001.jpg",
             annotation={
-                "class": "person",
-                "boundingbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+                "detection": [
+                    {
+                        "class": "person",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.2,
+                            "w": 0.3,
+                            "h": 0.4,
+                        },
+                    }
+                ],
             },
         )
 

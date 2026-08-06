@@ -224,35 +224,52 @@ def _create_filter_task_names_dataset(
 ) -> LuxonisDataset:
     def generator() -> DatasetIterator:
         img = create_image(0, tempdir)
+        depth = create_image(10, tempdir)
         yield {
-            "file": img,
-            "task_name": "animals",
-            "annotation": {"class": "cat"},
-        }
-        yield {
-            "file": img,
-            "task_name": "vehicles",
+            "files": {"image": img, "depth": depth},
             "annotation": {
-                "class": "car",
-                "boundingbox": {"x": 0.2, "y": 0.2, "w": 0.3, "h": 0.3},
+                "animals": [{"class": "cat"}],
+                "vehicles": [
+                    {
+                        "class": "car",
+                        "boundingbox": {
+                            "x": 0.2,
+                            "y": 0.2,
+                            "w": 0.3,
+                            "h": 0.3,
+                        },
+                    }
+                ],
             },
         }
 
         img = create_image(1, tempdir)
+        depth = create_image(11, tempdir)
         yield {
-            "file": img,
-            "task_name": "animals",
+            "files": {"image": img, "depth": depth},
             "annotation": {
-                "class": "dog",
-                "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
-            },
-        }
-        yield {
-            "file": img,
-            "task_name": "vehicles",
-            "annotation": {
-                "class": "truck",
-                "boundingbox": {"x": 0.4, "y": 0.4, "w": 0.2, "h": 0.2},
+                "animals": [
+                    {
+                        "class": "dog",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.2,
+                            "h": 0.2,
+                        },
+                    }
+                ],
+                "vehicles": [
+                    {
+                        "class": "truck",
+                        "boundingbox": {
+                            "x": 0.4,
+                            "y": 0.4,
+                            "w": 0.2,
+                            "h": 0.2,
+                        },
+                    }
+                ],
             },
         }
 
@@ -269,9 +286,11 @@ def test_filter_task_names(randint: int, tempdir: Path):
     assert len(loader) == 2
     assert loader._classes == {"animals": {"cat": 0, "dog": 1}}
 
-    labels_by_sample = [labels for _, labels in loader]
-    for labels in labels_by_sample:
-        assert set(labels) == {
+    samples = list(loader)
+    labels_by_sample = [sample.labels for sample in samples]
+    for sample in samples:
+        assert set(sample.images) == {"image", "depth"}
+        assert set(sample.labels) == {
             "animals/classification",
             "animals/boundingbox",
         }

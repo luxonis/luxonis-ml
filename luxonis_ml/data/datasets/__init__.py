@@ -42,15 +42,16 @@ Typical mutation flow:
     def records():
         yield {
             "file": "path/to/image.jpg",
-            "task_name": "detection",
             "annotation": {
-                "class": "car",
-                "boundingbox": {
-                    "x": 0.1,
-                    "y": 0.2,
-                    "w": 0.3,
-                    "h": 0.4,
-                },
+                "detection": [{
+                    "class": "car",
+                    "boundingbox": {
+                        "x": 0.1,
+                        "y": 0.2,
+                        "w": 0.3,
+                        "h": 0.4,
+                    },
+                }],
             },
         }
 
@@ -114,13 +115,11 @@ multiple synchronized sources.
      - Path to a single media source.
    * - ``files``
      - Mapping from source names to synchronized media paths.
-   * - ``task_name``
-     - Optional group name used by loaders and metadata.
    * - ``sample_metadata``
      - Optional **record-level metadata** preserved with the sample and
        returned by `LuxonisLoader` as `LoaderOutput.metadata`.
    * - ``annotation``
-     - Optional annotation payload validated by `Detection`.
+     - Mapping from task names to lists of `Detection` payloads.
 
 Multi-source records preserve source names for `LuxonisLoader`, allowing
 training code to receive dictionaries such as ``{"rgb": ..., "depth": ...}``.
@@ -132,7 +131,6 @@ tasks.
 
     {
       "file": "images/frame_001.jpg",
-      "task_name": "detection",
 
       "sample_metadata": {
         "record_id": 123,
@@ -141,15 +139,23 @@ tasks.
       },
 
       "annotation": {
-        "class": "person",
-        "boundingbox": {
-          "x": 0.1,
-          "y": 0.2,
-          "w": 0.3,
-          "h": 0.4
-        }
+        "detection": [{
+          "class": "person",
+          "boundingbox": {
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          }
+        }],
+        "segmentation": []
       }
     }
+
+For backward compatibility, a flat annotation or annotation list can still
+be paired with ``task_name``. New code should use the task-keyed mapping. An
+empty list is meaningful: it declares that the sample is a true negative for
+that task.
 
 **Frontend note:** ``sample_metadata`` is sample data, not an annotation
 target.

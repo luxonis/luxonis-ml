@@ -578,12 +578,13 @@ def test_wrap_generator_groups_list_annotations_by_task(
         for item in parser._wrap_generator(iter([record]))
     ]
 
+    assert len(wrapped) == 1
     assert {
-        item.task_name: [ann.class_name for ann in item.annotation or []]
-        for item in wrapped
+        task_name: [ann.class_name for ann in annotations]
+        for task_name, annotations in wrapped[0].annotation.items()
     } == expected
     # The records are copies; the source record keeps all its detections.
-    assert [ann.class_name for ann in record.annotation or []] == [
+    assert [ann.class_name for ann in record.annotation[""]] == [
         "cat",
         "dog",
     ]
@@ -602,8 +603,32 @@ def test_wrap_generator_keeps_empty_list_for_each_mapped_task(
         for item in parser._wrap_generator(iter([record]))
     ]
 
-    assert [item.task_name for item in wrapped] == ["felines", "canines"]
-    assert [item.annotation for item in wrapped] == [[], []]
+    assert len(wrapped) == 1
+    assert wrapped[0].annotation == {"felines": [], "canines": []}
+
+
+def test_wrap_generator_keeps_task_for_classless_annotation(
+    tmp_path: Path,
+):
+    image = tmp_path / "image.jpg"
+    image.write_bytes(b"x")
+    detection = Detection(
+        boundingbox={
+            "x": 0.1,
+            "y": 0.1,
+            "w": 0.2,
+            "h": 0.2,
+        },  # type: ignore[arg-type]
+    )
+    record = DatasetRecord(
+        file=image,  # type: ignore[call-arg]
+        annotation={"regions": [detection]},
+    )
+    parser = _WarningParser(0, task_name={"cat": "felines"})
+
+    [wrapped] = list(parser._wrap_generator(iter([record])))
+
+    assert cast(DatasetRecord, wrapped).annotation == {"regions": [detection]}
 
 
 def test_wrap_generator_keeps_annotation_free_record_for_a_single_task(
@@ -623,7 +648,8 @@ def test_wrap_generator_keeps_annotation_free_record_for_a_single_task(
         for item in parser._wrap_generator(iter([record]))
     ]
 
-    assert [item.task_name for item in wrapped] == ["mytask"]
+    assert len(wrapped) == 1
+    assert wrapped[0].annotation == {"mytask": []}
 
 
 def test_skipped_annotation_warnings_are_capped():

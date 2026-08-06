@@ -621,7 +621,7 @@ def test_record(tempdir: Path):
     record = DatasetRecord(
         file=filename,  # type: ignore
         annotation=detection,
-        task_name="test",
+        task_name="test",  # type: ignore[call-arg]
     )
     common = {
         "file": filename,

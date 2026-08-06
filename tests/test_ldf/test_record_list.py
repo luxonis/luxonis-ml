@@ -39,11 +39,11 @@ def _person() -> Detection:
     )
 
 
-def test_single_detection_is_stored_as_a_list(image: str):
+def test_single_detection_is_stored_under_the_default_task(image: str):
     car = _car()
     record = DatasetRecord(file=image, annotation=car)  # type: ignore[call-arg]
 
-    assert record.annotation == [car]
+    assert record.annotation == {"": [car]}
 
 
 def test_single_detection_equals_singleton_list(image: str):
@@ -58,7 +58,7 @@ def test_list_flattens_all_detections(image: str):
     record = DatasetRecord(
         file=image,  # type: ignore[call-arg]
         annotation=[_car(), _person()],
-        task_name="t",
+        task_name="t",  # type: ignore[call-arg]
     )
 
     rows = record.to_parquet_rows()
@@ -71,12 +71,46 @@ def test_list_flattens_all_detections(image: str):
     }
 
 
+def test_task_mapping_flattens_each_task(image: str):
+    record = DatasetRecord(
+        file=image,  # type: ignore[call-arg]
+        annotation={"vehicles": [_car()], "people": [_person()]},
+    )
+
+    rows = list(record.to_parquet_rows())
+
+    assert {row["task_name"] for row in rows} == {"vehicles", "people"}
+    dumped = record.model_dump()
+    assert "task_name" not in dumped
+    assert dumped["annotation"].keys() == {
+        "vehicles",
+        "people",
+    }
+    with (
+        pytest.warns(DeprecationWarning, match="keys of `record.annotation`"),
+        pytest.raises(ValueError, match="no single task name"),
+    ):
+        _ = record.task_name
+
+
+def test_empty_task_is_preserved_as_a_null_row(image: str):
+    record = DatasetRecord(
+        file=image,  # type: ignore[call-arg]
+        annotation={"vehicles": []},
+    )
+
+    [row] = list(record.to_parquet_rows())
+
+    assert row["task_name"] == "vehicles"
+    assert row["annotation"] is None
+
+
 def test_secondary_source_gets_one_null_row_per_source(image: str, depth: str):
     """Each secondary source gets one null row, not one per detection."""
     record = DatasetRecord(
         files={"image": image, "depth": depth},  # type: ignore[dict-item]
         annotation=[_car(), _person()],
-        task_name="t",
+        task_name="t",  # type: ignore[call-arg]
     )
 
     # `image` sorts before `depth`, so `image` is the main source.
@@ -102,7 +136,7 @@ def test_sub_detections_do_not_repeat_secondary_source_rows(
     record = DatasetRecord(
         files={"image": image, "depth": depth},  # type: ignore[dict-item]
         annotation=[car, _person()],
-        task_name="t",
+        task_name="t",  # type: ignore[call-arg]
     )
 
     rows = list(record.to_parquet_rows())

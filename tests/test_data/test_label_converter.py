@@ -14,14 +14,165 @@ from luxonis_ml.typing import Labels, LoaderOutput
 from .utils import create_dataset, create_image
 
 
-def _detections(record: DatasetRecord) -> list[Detection]:
-    assert record.annotation is not None
-    return record.annotation
+def _detections(record: DatasetRecord, task_name: str) -> list[Detection]:
+    return record.annotation[task_name]
 
 
-def _records(labels: Labels, **kwargs) -> dict[str, DatasetRecord]:
+def _record(labels: Labels, **kwargs) -> DatasetRecord:
     """Convert raw label arrays through the same path a loader sample takes."""
     return LoaderOutput({}, labels, {}).to_ldf(**kwargs)
+
+
+def test_record_to_loader_output_round_trip() -> None:
+    image = np.zeros((8, 12, 3), dtype=np.uint8)
+    record = DatasetRecord(
+        files={"image": image},
+        annotation={
+            "detection": [
+                Detection(
+                    class_name="car",
+                    instance_id=7,
+                    boundingbox={"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},  # type: ignore[arg-type]
+                    metadata={"score": 0.9},
+                )
+            ]
+        },
+        sample_metadata={"frame": 12},
+    )
+
+    output = record.to_loader_output()
+    restored = output.to_ldf()
+    round_trip = restored.to_loader_output(
+        tasks={
+            "detection": [
+                "boundingbox",
+                "classification",
+                "metadata/score",
+            ]
+        },
+        classes=output.classes,
+        images=output.images,
+    )
+
+    assert output.metadata == round_trip.metadata == {"frame": 12}
+    assert output.labels.keys() == round_trip.labels.keys()
+    for task, labels in output.labels.items():
+        np.testing.assert_array_equal(labels, round_trip.labels[task])
+
+
+def test_empty_record_tasks_have_empty_loader_labels() -> None:
+    record = DatasetRecord(
+        files={"image": np.zeros((6, 10, 3), dtype=np.uint8)},
+        annotation={"detection": [], "embeddings": []},
+    )
+
+    output = record.to_loader_output(
+        tasks={
+            "detection": [
+                "boundingbox",
+                "classification",
+                "instance_segmentation",
+                "keypoints",
+                "metadata/id",
+                "segmentation",
+            ],
+            "embeddings": ["array"],
+        },
+        classes={"detection": {"car": 0}, "embeddings": {"feature": 0}},
+        n_keypoints={"detection": 2},
+    )
+
+    assert output.labels["detection/boundingbox"].shape == (0, 5)
+    assert output.labels["detection/classification"].shape == (1,)
+    assert output.labels["detection/instance_segmentation"].shape == (0, 6, 10)
+    assert output.labels["detection/keypoints"].shape == (0, 6)
+    assert output.labels["detection/metadata/id"].shape == (0,)
+    assert output.labels["detection/segmentation"].shape == (1, 6, 10)
+    assert output.labels["embeddings/array"].shape == (0,)
+    assert output.to_ldf().annotation == {
+        "detection": [],
+        "embeddings": [],
+    }
+
+
+def test_empty_standalone_task_requires_its_task_schema() -> None:
+    record = DatasetRecord(
+        files={"image": np.zeros((4, 4, 3), dtype=np.uint8)},
+        annotation={"detection": []},
+    )
+
+    with pytest.raises(ValueError, match="Cannot infer task types"):
+        record.to_loader_output()
+
+    with pytest.raises(ValueError, match="without its class mapping"):
+        record.to_loader_output(tasks={"detection": ["classification"]})
+
+
+def test_loader_preserves_true_negative_tasks(
+    dataset_name: str, tempdir: Path
+) -> None:
+    array_path = tempdir / "embedding.npy"
+    np.save(array_path, np.arange(4))
+    records = [
+        DatasetRecord(
+            file=create_image(0, tempdir),  # type: ignore[call-arg]
+            annotation={
+                "detection": [
+                    Detection(
+                        class_name="car",
+                        boundingbox={
+                            "x": 0.1,
+                            "y": 0.2,
+                            "w": 0.3,
+                            "h": 0.4,
+                        },  # type: ignore[arg-type]
+                    )
+                ],
+                "embeddings": [],
+            },
+            sample_metadata={"sample": "detection"},
+        ),
+        DatasetRecord(
+            file=create_image(1, tempdir),  # type: ignore[call-arg]
+            annotation={
+                "detection": [],
+                "embeddings": [
+                    Detection(
+                        class_name="feature",
+                        array={"path": array_path},  # type: ignore[arg-type]
+                    )
+                ],
+            },
+            sample_metadata={"sample": "embedding"},
+        ),
+    ]
+    dataset = create_dataset(
+        dataset_name, iter(records), BucketStorage.LOCAL, splits={"train": 1.0}
+    )
+
+    samples = {
+        sample.metadata["sample"]: sample
+        for sample in LuxonisLoader(dataset, view="train")
+    }
+    expected_keys = {
+        "detection/boundingbox",
+        "detection/classification",
+        "embeddings/array",
+        "embeddings/classification",
+    }
+    assert all(
+        set(sample.labels) == expected_keys for sample in samples.values()
+    )
+
+    detection_negative = samples["embedding"]
+    assert detection_negative.labels["detection/boundingbox"].shape == (0, 5)
+    assert not detection_negative.labels["detection/classification"].any()
+    assert detection_negative.to_ldf().annotation["detection"] == []
+
+    array_negative = samples["detection"]
+    assert array_negative.labels["embeddings/array"].shape == (0,)
+    assert not array_negative.labels["embeddings/classification"].any()
+    assert array_negative.to_ldf().annotation["embeddings"] == []
 
 
 def test_to_ldf_roundtrip(dataset_name: str, tempdir: Path):
@@ -59,10 +210,10 @@ def test_to_ldf_roundtrip(dataset_name: str, tempdir: Path):
     # The loader attaches the dataset's classes, so no argument is needed.
     assert sample.classes == dataset.get_classes()
 
-    records = sample.to_ldf()
-    assert "detection" in records
+    record = sample.to_ldf()
+    assert "detection" in record.annotation
 
-    detections = _detections(records["detection"])
+    detections = _detections(record, "detection")
     assert len(detections) == 2
 
     names = {d.class_name for d in detections}
@@ -137,9 +288,9 @@ def test_absent_metadata_does_not_create_phantom_boxless(
 
     boxless_with_metadata = []
     for sample in loader:
-        records = sample.to_ldf()
-        for record in records.values():
-            for det in _detections(record):
+        record = sample.to_ldf()
+        for detections in record.annotation.values():
+            for det in detections:
                 if det.boundingbox is None and det.metadata:
                     boxless_with_metadata.append(det.metadata)
     assert boxless_with_metadata == []
@@ -152,9 +303,9 @@ def test_metadata_only_task_yields_detections() -> None:
     spatial annotations, so box-less metadata is not dropped.
     """
     labels = {"text/metadata/text": np.array(["HELLO", "WORLD"], dtype=object)}
-    records = _records(labels, classes={"text": {}})
+    record = _record(labels, classes={"text": {}})
 
-    detections = _detections(records["text"])
+    detections = _detections(record, "text")
     assert len(detections) == 2
     assert [d.boundingbox for d in detections] == [None, None]
     assert [d.metadata["text"] for d in detections] == ["HELLO", "WORLD"]
@@ -169,7 +320,7 @@ def test_conversion_preserves_prediction_scores() -> None:
     }
 
     detections = _detections(
-        _records(labels, classes={"det": {"car": 0}})["det"]
+        _record(labels, classes={"det": {"car": 0}}), "det"
     )
 
     assert [detection.metadata["score"] for detection in detections] == [
@@ -189,18 +340,19 @@ def test_background_class_is_not_labeled() -> None:
         )
     }
     dets = _detections(
-        _records(boxes, classes={"det": {" background ": 0, "  car ": 1}})[
-            "det"
-        ]
+        _record(boxes, classes={"det": {" background ": 0, "  car ": 1}}),
+        "det",
     )
     assert [d.class_name for d in dets] == [None, "car"]
 
     # A set background classification bit produces no chip.
     cls = {"cls/classification": np.array([1, 1, 0])}
     dets2 = _detections(
-        _records(cls, classes={"cls": {"background": 0, " cat": 1, "dog": 2}})[
-            "cls"
-        ]
+        _record(
+            cls,
+            classes={"cls": {"background": 0, " cat": 1, "dog": 2}},
+        ),
+        "cls",
     )
     assert [d.class_name for d in dets2] == ["cat"]
 
@@ -215,12 +367,12 @@ def test_render_background_keeps_segmentation_background() -> None:
     classes = {"seg": {" background": 0, " road": 1}}
 
     # By default the background channel is dropped, mirroring detection.
-    default = _detections(_records(labels, classes=classes)["seg"])
+    default = _detections(_record(labels, classes=classes), "seg")
     assert [d.class_name for d in default] == ["road"]
 
     # With render_background it becomes a drawable, stripped-name mask.
     shown = _detections(
-        _records(labels, classes=classes, render_background=True)["seg"]
+        _record(labels, classes=classes, render_background=True), "seg"
     )
     assert [d.class_name for d in shown] == ["background", "road"]
     assert all(d.segmentation is not None for d in shown)
@@ -239,19 +391,19 @@ def test_nested_loader_task_paths_remain_distinct() -> None:
         "det/face": {"face": 0},
     }
 
-    records = _records(labels, classes=classes)
+    record = _record(labels, classes=classes)
 
-    assert set(records) == {"/driver", "/passenger", "det/face"}
+    assert set(record.annotation) == {"/driver", "/passenger", "det/face"}
     assert {
-        task: _detections(record)[0].class_name
-        for task, record in records.items()
+        task: detections[0].class_name
+        for task, detections in record.annotation.items()
     } == {
         "/driver": "driver",
         "/passenger": "passenger",
         "det/face": "face",
     }
-    driver_box = _detections(records["/driver"])[0].boundingbox
-    passenger_box = _detections(records["/passenger"])[0].boundingbox
+    driver_box = _detections(record, "/driver")[0].boundingbox
+    passenger_box = _detections(record, "/passenger")[0].boundingbox
     assert driver_box is not None
     assert passenger_box is not None
     assert driver_box.x == 0.1
@@ -271,13 +423,13 @@ def test_boxless_spatial_tasks_keep_classification_tags() -> None:
         "objects": {"vehicle": 0},
     }
 
-    records = _records(labels, classes=classes)
+    record = _record(labels, classes=classes)
 
-    pose = _detections(records["pose"])
+    pose = _detections(record, "pose")
     assert any(detection.keypoints is not None for detection in pose)
     assert any(detection.class_name == "person" for detection in pose)
 
-    objects = _detections(records["objects"])
+    objects = _detections(record, "objects")
     assert any(
         detection.instance_segmentation is not None for detection in objects
     )
@@ -292,7 +444,7 @@ def test_padded_metadata_rows_are_not_labels() -> None:
         "det/metadata/tag": np.array(["kept", None], dtype=object),
     }
     detections = _detections(
-        _records(labels, classes={"det": {"car": 0}})["det"]
+        _record(labels, classes={"det": {"car": 0}}), "det"
     )
     assert [d.metadata for d in detections] == [{"tag": "kept"}, {}]
 
@@ -335,8 +487,8 @@ def test_partial_categorical_metadata_round_trips(
     sample = next(iter(loader))
     assert sample.categorical_encodings == encodings
 
-    records = sample.to_ldf()
-    assert [d.metadata for d in _detections(records["detection"])] == [
+    record = sample.to_ldf()
+    assert [d.metadata for d in _detections(record, "detection")] == [
         {"weather": "sunny"},
         {},
         {"weather": "rainy"},
@@ -356,15 +508,13 @@ def test_explicit_classes_override_the_attached_ones() -> None:
     sample = LoaderOutput({}, labels, {}, classes={"det": {"car": 0}})
 
     renamed = sample.to_ldf(classes={"det": {"truck": 0}})
-    assert [d.class_name for d in _detections(renamed["det"])] == ["truck"]
-    assert [d.class_name for d in _detections(sample.to_ldf()["det"])] == [
+    assert [d.class_name for d in _detections(renamed, "det")] == ["truck"]
+    assert [d.class_name for d in _detections(sample.to_ldf(), "det")] == [
         "car"
     ]
 
 
-def test_images_are_attached_to_every_record(
-    dataset_name: str, tempdir: Path
-) -> None:
+def test_to_ldf_attaches_images(dataset_name: str, tempdir: Path) -> None:
     def generator() -> DatasetIterator:
         path = str(create_image(0, tempdir))
         yield {
@@ -388,13 +538,12 @@ def test_images_are_attached_to_every_record(
         dataset_name, generator(), BucketStorage.LOCAL, splits={"train": 1.0}
     )
     sample = next(iter(LuxonisLoader(dataset, view="train")))
-    records = sample.to_ldf()
+    record = sample.to_ldf()
 
-    assert set(records) == {"detection", "segmentation"}
-    for record in records.values():
-        image = record.files["image"]
-        assert isinstance(image, np.ndarray)
-        assert np.array_equal(image, sample.image)
+    assert set(record.annotation) == {"detection", "segmentation"}
+    image = record.files["image"]
+    assert isinstance(image, np.ndarray)
+    assert np.array_equal(image, sample.image)
 
 
 def test_array_annotations_round_trip(
@@ -425,7 +574,7 @@ def test_array_annotations_round_trip(
         dataset_name, generator(), BucketStorage.LOCAL, splits={"train": 1.0}
     )
     sample = next(iter(LuxonisLoader(dataset, view="train")))
-    detections = _detections(sample.to_ldf()["embeddings"])
+    detections = _detections(sample.to_ldf(), "embeddings")
 
     recovered = {
         detection.class_name: detection.array.to_numpy()
@@ -453,9 +602,7 @@ def test_reconstructed_records_are_rejected_by_add(
     dataset = create_dataset(
         dataset_name, generator(), BucketStorage.LOCAL, splits={"train": 1.0}
     )
-    record = next(iter(LuxonisLoader(dataset, view="train"))).to_ldf()[
-        "detection"
-    ]
+    record = next(iter(LuxonisLoader(dataset, view="train"))).to_ldf()
 
     with pytest.raises(NotImplementedError, match="in-memory image"):
         dataset.add(iter([record]))

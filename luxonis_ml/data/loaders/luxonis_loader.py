@@ -2,8 +2,7 @@ import inspect
 import json
 import random
 import warnings
-from collections import defaultdict, deque
-from collections.abc import Sequence
+from collections import defaultdict
 from copy import deepcopy
 from pathlib import Path
 from typing import Literal, cast
@@ -21,8 +20,6 @@ from luxonis_ml.data.augmentations import (
     AugmentationEngine,
 )
 from luxonis_ml.data.datasets import (
-    Annotation,
-    Category,
     LuxonisDataset,
     UpdateMode,
     load_annotation,
@@ -31,11 +28,9 @@ from luxonis_ml.data.loaders.base_loader import BaseLoader
 from luxonis_ml.data.utils import (
     get_task_name,
     get_task_type,
-    split_task,
     task_type_iterator,
 )
-from luxonis_ml.data.utils.task_utils import task_is_metadata
-from luxonis_ml.ldf import DatasetRecord
+from luxonis_ml.ldf import DatasetRecord, Detection
 from luxonis_ml.typing import (
     Labels,
     LoaderOutput,
@@ -93,7 +88,8 @@ class LuxonisLoader(BaseLoader):
         width: Optional output image width.
         augmentations: Optional augmentation engine. Its applied configured
             paths are added to augmented output metadata.
-        exclude_empty_annotations: Whether empty annotations are omitted.
+        exclude_empty_annotations: Deprecated compatibility argument. Empty
+            annotations are always included as zero-filled or empty arrays.
         sync_mode: Whether the dataset is remote and pulled before loading.
         keep_categorical_as_strings: Whether categorical metadata remains
             as strings.
@@ -144,8 +140,9 @@ class LuxonisLoader(BaseLoader):
                 are enabled.
             keep_aspect_ratio: Whether resizing should preserve image aspect
                 ratio.
-            exclude_empty_annotations: Whether to omit empty annotations
-                from the returned label dictionary.
+            exclude_empty_annotations: Deprecated compatibility argument.
+                Empty annotations are always included in the returned label
+                dictionary.
             color_space: Optional color space for each source. A single
                 value applies to all sources; if omitted, all sources use
                 ``"RGB"``.
@@ -219,7 +216,13 @@ class LuxonisLoader(BaseLoader):
         self._view = [view] if isinstance(view, str) else view
 
         self._autopopulate_metadata = autopopulate_metadata
-        self._exclude_empty_annotations = exclude_empty_annotations
+        if exclude_empty_annotations:
+            warnings.warn(
+                "`exclude_empty_annotations` is deprecated and no longer "
+                "changes loader output. Empty label keys are always included.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         self._keep_categorical_as_strings = keep_categorical_as_strings
         self._filter_task_names = filter_task_names
 
@@ -249,6 +252,7 @@ class LuxonisLoader(BaseLoader):
                 )
             self._df = self._df.filter(
                 pl.col("task_name").is_in(self._filter_task_names)
+                | pl.col("annotation").is_null()
             )
             self._classes = {
                 task_name: self._classes[task_name]
@@ -373,9 +377,6 @@ class LuxonisLoader(BaseLoader):
         else:
             img_dict, labels, metadata = self._load_with_augmentations(idx)
 
-        if not self._exclude_empty_annotations:
-            img_dict, labels = self._add_empty_annotations(img_dict, labels)
-
         # Albumentations needs RGB
         bgr_sources = [k for k, v in self._color_space.items() if v == "BGR"]
         for source_name in bgr_sources:
@@ -389,44 +390,6 @@ class LuxonisLoader(BaseLoader):
             classes=self._classes,
             categorical_encodings=self.dataset.get_categorical_encodings(),
         )
-
-    def _add_empty_annotations(
-        self, img_dict: dict[str, np.ndarray], labels: Labels
-    ) -> tuple[dict[str, np.ndarray], Labels]:
-        image_height, image_width = next(iter(img_dict.values())).shape[:2]
-        for task_name, task_types in self.dataset.get_tasks().items():
-            if (
-                self._filter_task_names is not None
-                and task_name not in self._filter_task_names
-            ):
-                continue
-            for task_type in task_types:
-                task = f"{task_name}/{task_type}"
-                if task not in labels:
-                    if task_type == "boundingbox":
-                        labels[task] = np.zeros((0, 5))
-                    elif task_type == "keypoints":
-                        n_keypoints = self.dataset.get_n_keypoints()[task_name]
-                        labels[task] = np.zeros((0, n_keypoints * 3))
-                    elif task_type == "instance_segmentation":
-                        labels[task] = np.zeros((0, image_height, image_width))
-                    elif task_type == "segmentation":
-                        labels[task] = np.zeros(
-                            (
-                                len(self._classes[task_name]),
-                                image_height,
-                                image_width,
-                            )
-                        )
-                    elif task_type == "classification":
-                        labels[task] = np.zeros(
-                            (len(self._classes[task_name]),)
-                        )
-                    elif task_is_metadata(task):
-                        # Per-instance, so an absent task has no rows at all.
-                        labels[task] = np.zeros((0,))
-
-        return img_dict, labels
 
     def _load_data(
         self, idx: int
@@ -494,12 +457,15 @@ class LuxonisLoader(BaseLoader):
             else:
                 img_dict[source_name] = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        labels_by_task: dict[str, list[Annotation]] = defaultdict(list)
-        class_ids_by_task: dict[str, list[int]] = defaultdict(list)
-        instance_ids_by_task: dict[str, list[int]] = defaultdict(list)
-        metadata_by_task: dict[
-            str, list[tuple[str | int | float | Category, int]]
-        ] = defaultdict(list)
+        record_tasks = {
+            task_name: set(task_types)
+            for task_name, task_types in self.dataset.get_tasks().items()
+            if self._filter_task_names is None
+            or task_name in self._filter_task_names
+        }
+        annotations_by_task: dict[str, list[Detection]] = {
+            task_name: [] for task_name in record_tasks
+        }
 
         for annotation_data in ann_rows:
             task_name: str = annotation_data[col["task_name"]]
@@ -514,11 +480,26 @@ class LuxonisLoader(BaseLoader):
             data = json.loads(ann_str)
             full_task_name = f"{task_name}/{task_type}"
             task_type = get_task_type(full_task_name)
+            record_tasks.setdefault(task_name, set()).add(task_type)
+            task_annotations = annotations_by_task.setdefault(task_name, [])
             if task_type == "array" and self.dataset.is_remote:
                 data["path"] = self.dataset._arrays_path / data["path"]
 
             if task_type.startswith("metadata/"):
-                metadata_by_task[full_task_name].append((data, instance_id))
+                task_annotations.append(
+                    Detection(
+                        class_name=class_name,
+                        instance_id=instance_id,
+                        metadata={task_type[len("metadata/") :]: data},
+                    )
+                )
+            elif task_type == "classification":
+                task_annotations.append(
+                    Detection(
+                        class_name=class_name,
+                        instance_id=instance_id,
+                    )
+                )
             else:  # pragma: no cover
                 # Conversion from LDF v1.0
                 if "points" in data and "width" not in data:
@@ -528,57 +509,42 @@ class LuxonisLoader(BaseLoader):
                     data["points"] = [tuple(p) for p in data["points"]]
 
                 annotation = load_annotation(task_type, data)  # type: ignore
-                labels_by_task[full_task_name].append(annotation)
-                if class_name is not None:
-                    class_ids_by_task[full_task_name].append(
-                        self._classes[task_name][class_name]
+                task_annotations.append(
+                    Detection.model_validate(
+                        {
+                            "class_name": class_name,
+                            "instance_id": instance_id,
+                            task_type: annotation,
+                        }
                     )
-                else:
-                    class_ids_by_task[full_task_name].append(0)
-                instance_ids_by_task[full_task_name].append(instance_id)
+                )
 
-        labels: Labels = {}
-        encodings = self.dataset.get_categorical_encodings()
-        for task, metadata_rows in metadata_by_task.items():
-            metadata = [value for value, _ in metadata_rows]
-            if not self._keep_categorical_as_strings and task in encodings:
-                metadata = [encodings[task][m] for m in metadata]  # type: ignore
-            labels[task] = _align_metadata_to_instances(
-                metadata,
-                [instance_id for _, instance_id in metadata_rows],
-                _spatial_instance_order(task, instance_ids_by_task),
-            )
+        # Paths and detections above are already normalized. Revalidating the
+        # record here would repeat that work for every loaded sample.
+        record = DatasetRecord.model_construct(
+            files=source_to_path,
+            annotation=dict(annotations_by_task),
+            sample_metadata=sample_metadata,
+        )
+        output = record.to_loader_output(
+            tasks={
+                task_name: sorted(task_types)
+                for task_name, task_types in record_tasks.items()
+            },
+            classes=self._classes,
+            categorical_encodings=self.dataset.get_categorical_encodings(),
+            n_keypoints=self.dataset.get_n_keypoints(),
+            keep_categorical_as_strings=self._keep_categorical_as_strings,
+            images=img_dict,
+        )
+        for task in self._tasks_without_background:
+            array = output.labels[task]
+            unassigned_pixels = ~np.any(array, axis=0)
+            task_name = get_task_name(task)
+            background_idx = self._classes[task_name]["background"]
+            array[background_idx, unassigned_pixels] = 1
 
-        for task, anns in labels_by_task.items():
-            assert anns, f"No annotations found for task {task_name}"
-            instance_ids = instance_ids_by_task[task]
-
-            rows = sorted(
-                zip(
-                    instance_ids,
-                    anns,
-                    class_ids_by_task[task],
-                    strict=True,
-                ),
-                key=lambda row: row[0],
-            )
-            anns = [ann for _, ann, _ in rows]
-            class_ids = [class_id for _, _, class_id in rows]
-
-            task_name, task_type = split_task(task)
-            array = anns[0].combine_to_numpy(
-                anns,
-                class_ids,
-                len(self._classes[task_name]),
-            )
-            if task in self._tasks_without_background:
-                unassigned_pixels = ~np.any(array, axis=0)
-                background_idx = self._classes[task_name]["background"]
-                array[background_idx, unassigned_pixels] = 1
-
-            labels[task] = array
-
-        return img_dict, labels, sample_metadata
+        return output.images, output.labels, output.metadata
 
     def _load_with_augmentations(
         self, idx: int
@@ -804,44 +770,3 @@ class LuxonisLoader(BaseLoader):
             idx_to_img_paths[idx] = dict(sorted(source_to_path.items()))
 
         return idx_to_img_paths
-
-
-def _spatial_instance_order(
-    metadata_task: str, instance_ids_by_task: dict[str, list[int]]
-) -> list[int] | None:
-    """Return the spatial row order for a metadata task."""
-    task_name = metadata_task[: -len(f"/{get_task_type(metadata_task)}")]
-    for task_type in ("boundingbox", "instance_segmentation", "keypoints"):
-        instance_ids = instance_ids_by_task.get(f"{task_name}/{task_type}")
-        if instance_ids:
-            return sorted(instance_ids)
-    return None
-
-
-def _align_metadata_to_instances(
-    values: Sequence[str | int | float | Category],
-    value_instance_ids: list[int],
-    instance_order: list[int] | None,
-) -> np.ndarray:
-    """Align metadata values with their instances' spatial rows."""
-    if instance_order is None:
-        order = sorted(range(len(values)), key=lambda i: value_instance_ids[i])
-        return np.array([values[i] for i in order])
-
-    free_rows: dict[int, deque[int]] = defaultdict(deque)
-    for row, instance_id in enumerate(instance_order):
-        free_rows[instance_id].append(row)
-
-    aligned: list[str | int | float | Category | None] = [None] * len(
-        instance_order
-    )
-    for value, instance_id in zip(values, value_instance_ids, strict=True):
-        rows = free_rows.get(instance_id)
-        if not rows:
-            # This field has no compatible spatial layout to align against.
-            return np.array(values)
-        aligned[rows.popleft()] = value
-
-    if any(value is None for value in aligned):
-        return np.array(aligned, dtype=object)
-    return np.array(aligned)

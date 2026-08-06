@@ -117,7 +117,7 @@ class LoaderOutput(
             labels = sample.labels
             metadata = sample.metadata
 
-            records = sample.to_ldf()  # Back to canonical LDF records.
+            record = sample.to_ldf()  # Back to a canonical LDF record.
 
     """
 
@@ -164,11 +164,11 @@ class LoaderOutput(
         classes: dict[str, dict[str, int]] | None = None,
         categorical_encodings: dict[str, dict[str, int]] | None = None,
         render_background: bool = False,
-    ) -> dict[str, "DatasetRecord"]:
-        """Convert the label arrays back into canonical LDF records.
+    ) -> "DatasetRecord":
+        """Convert the label arrays back into one canonical LDF record.
 
         Arrays that describe the same instance are paired by row index. The
-        returned records hold images and array annotations in memory, so they
+        returned record holds images and array annotations in memory, so it
         can be rendered but not added to a dataset.
 
         Args:
@@ -182,14 +182,14 @@ class LoaderOutput(
                 as a drawable mask instead of dropping it.
 
         Returns:
-            One `DatasetRecord` per task name.
+            One task-keyed `DatasetRecord`.
 
         Raises:
             ValueError: If no class mapping is given and none was attached by
                 the loader.
 
         """
-        from luxonis_ml.data.loaders.label_converter import labels_to_records
+        from luxonis_ml.ldf.conversion import labels_to_record
 
         if classes is None:
             classes = self.classes
@@ -201,10 +201,11 @@ class LoaderOutput(
                 "mapping. Pass `classes=dataset.get_classes()` explicitly; "
                 "only outputs produced by `LuxonisLoader` carry it already."
             )
-        return labels_to_records(
+        return labels_to_record(
             self.labels,
             classes=classes,
             images=self.images,
+            sample_metadata=self.metadata,
             categorical_encodings=categorical_encodings,
             render_background=render_background,
         )

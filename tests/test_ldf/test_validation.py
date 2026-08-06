@@ -216,7 +216,7 @@ def test_record_rejects_conflicting_task_and_task_name(tempdir: Path):
         DatasetRecord(
             file=tempdir / "image.png",  # type: ignore[call-arg]
             task="detection",  # type: ignore[call-arg]
-            task_name="segmentation",
+            task_name="segmentation",  # type: ignore[call-arg]
         )
 
 
@@ -225,7 +225,7 @@ def test_record_accepts_matching_task_and_task_name(tempdir: Path):
     record = DatasetRecord(
         file=tempdir / "image.png",  # type: ignore[call-arg]
         task="detection",  # type: ignore[call-arg]
-        task_name="detection",
+        task_name="detection",  # type: ignore[call-arg]
     )
 
     assert record.task_name == "detection"
