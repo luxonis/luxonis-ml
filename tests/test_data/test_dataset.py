@@ -230,6 +230,9 @@ def test_make_splits(
             f"Split {split} has {len(split_data)} samples"
         )
 
+    with pytest.raises(ValueError, match="No new files"):
+        dataset.make_splits(definitions)
+
     dataset.add(generator())
     splits = dataset.get_splits()
     assert splits is not None
@@ -270,8 +273,11 @@ def test_make_splits(
     with pytest.raises(ValueError, match=r"Ratios must sum to 1.0"):
         dataset.make_splits({"train": 1.5})
 
+    with pytest.raises(TypeError, match="ratios or filepath lists"):
+        dataset.make_splits({"train": "invalid"})  # type: ignore[arg-type]
+
     dataset.add(generator(10))
-    dataset.make_splits({"custom_split": 1.0})
+    dataset.make_splits({"custom_split": 1})
     splits = dataset.get_splits()
     assert splits is not None
     assert set(splits.keys()) == {"train", "val", "test", "custom_split"}
@@ -281,11 +287,12 @@ def test_make_splits(
             f"Split {split} has {len(split_data)} samples"
         )
 
+    dataset.add(generator(5))
     dataset.make_splits(replace_old_splits=True)
     splits = dataset.get_splits()
     assert splits is not None
     for split, split_data in splits.items():
-        expected_length = {"train": 44, "val": 6, "test": 5}
+        expected_length = {"train": 48, "val": 6, "test": 6}
         assert len(split_data) == expected_length[split], (
             f"Split {split} has {len(split_data)} samples"
         )
