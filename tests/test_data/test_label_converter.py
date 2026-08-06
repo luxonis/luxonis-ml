@@ -392,7 +392,9 @@ def test_images_are_attached_to_every_record(
 
     assert set(records) == {"detection", "segmentation"}
     for record in records.values():
-        assert np.array_equal(record.files["image"], sample.image)
+        image = record.files["image"]
+        assert isinstance(image, np.ndarray)
+        assert np.array_equal(image, sample.image)
 
 
 def test_array_annotations_round_trip(
@@ -456,6 +458,6 @@ def test_reconstructed_records_are_rejected_by_add(
     ]
 
     with pytest.raises(NotImplementedError, match="in-memory image"):
-        dataset.add([record])
+        dataset.add(iter([record]))
     with pytest.raises(NotImplementedError, match="in-memory image"):
         list(record.to_parquet_rows())

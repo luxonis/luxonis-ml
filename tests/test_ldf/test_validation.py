@@ -265,7 +265,9 @@ def test_array_path_falls_back_when_mmap_is_unavailable(
 
     monkeypatch.setattr(np, "load", no_mmap)
 
-    assert ArrayAnnotation(path=tempdir / "array.npy").path.name == "array.npy"
+    annotation = ArrayAnnotation(path=tempdir / "array.npy")
+    assert annotation.path is not None
+    assert annotation.path.name == "array.npy"
 
 
 def test_sub_detections_inherit_the_record_metadata(tempdir: Path):
