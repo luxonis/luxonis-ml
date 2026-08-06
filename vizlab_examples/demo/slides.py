@@ -205,10 +205,10 @@ GLOSSARY: dict[str, Tooltip] = {
         ("from", "vizlab.comparison.match"),
         signature="list[tuple[str, Color]]",
         data={
-            "hit": "#009e73",
-            "miss": "#f0e442",
-            "false alarm": "#d55e00",
-            "wrong class": "#cc79a7",
+            "hit": "#35d6a6",
+            "miss": "#ffc24b",
+            "false alarm": "#ff6b6b",
+            "wrong class": "#ff9142",
         },
     ),
     "SCENE": _term(

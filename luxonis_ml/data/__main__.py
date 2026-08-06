@@ -2066,13 +2066,11 @@ def compare(
             ),
         )
 
-    def sample_identity(data: "LoaderOutput") -> _SampleIdentity:
-        """Stable sample identity from the loader's source-name/filename map."""
-        metadata = getattr(data, "metadata", None)
-        filenames = (
-            metadata.get("filenames") if isinstance(metadata, dict) else None
-        )
-        if not isinstance(filenames, dict) or not filenames:
+    def sample_identity(
+        filenames: "Mapping[str, str]",
+    ) -> _SampleIdentity:
+        """Stable sample identity from a source-name/filename map."""
+        if not filenames:
             raise ValueError(
                 "Dataset comparison requires loader filename metadata to match "
                 "samples by identity."
@@ -2096,8 +2094,8 @@ def compare(
         """Map unique identities to loader indices and filter decisions."""
         indexed: dict[_SampleIdentity, int] = {}
         selected: dict[_SampleIdentity, bool] = {}
-        for index, data in enumerate(loader):
-            identity = sample_identity(data)
+        for index in range(len(loader)):
+            identity = sample_identity(loader.get_filenames(index))
             if identity in indexed:
                 shown = ", ".join(
                     f"{source}={filename}" for source, filename in identity
@@ -2107,7 +2105,11 @@ def compare(
                     f"identity: {shown}."
                 )
             indexed[identity] = index
-            selected[identity] = sample_matches(data, classes, categorical)
+            selected[identity] = (
+                sample_matches(loader[index], classes, categorical)
+                if query.active
+                else True
+            )
         return indexed, selected
 
     def identity_label(identity: _SampleIdentity) -> str:

@@ -16,7 +16,7 @@ from luxonis_ml.vizlab import (
     match_detections,
 )
 from luxonis_ml.vizlab.annotations import Annotation
-from luxonis_ml.vizlab.color import ColorLike
+from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.comparison.match import (
     CLASS_ERROR_COLOR,
     FN_COLOR,
@@ -51,6 +51,13 @@ def _box(
 
 def _verdicts(result: ComparisonResult) -> list[Verdict]:
     return [m.verdict for m in result.matches]
+
+
+def test_verdict_colors_preserve_failure_semantics() -> None:
+    assert Color.parse("#35d6a6") == TP_COLOR
+    assert Color.parse("#ff6b6b") == FP_COLOR
+    assert Color.parse("#ffc24b") == FN_COLOR
+    assert Color.parse("#ff9142") == CLASS_ERROR_COLOR
 
 
 # --------------------------------------------------------------------------- #

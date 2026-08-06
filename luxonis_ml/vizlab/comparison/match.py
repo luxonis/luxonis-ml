@@ -28,16 +28,16 @@ if TYPE_CHECKING:
 
 #: Verdict colors, tuned for the dark composite background. Themeable later.
 
-TP_COLOR = Color.parse("#009e73")
+TP_COLOR = Color.parse("#35d6a6")
 
 
-FP_COLOR = Color.parse("#d55e00")
+FP_COLOR = Color.parse("#ff6b6b")
 
 
-FN_COLOR = Color.parse("#f0e442")
+FN_COLOR = Color.parse("#ffc24b")
 
 
-CLASS_ERROR_COLOR = Color.parse("#cc79a7")
+CLASS_ERROR_COLOR = Color.parse("#ff9142")
 
 
 ComparisonKeypoint = tuple[float, float, int]

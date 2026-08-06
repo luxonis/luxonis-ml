@@ -1716,6 +1716,9 @@ def _compare_mocks(
     monkeypatch: pytest.MonkeyPatch,
     image: np.ndarray,
     real_viewer: Callable[..., object] | None = None,
+    *,
+    sample_count: int = 1,
+    on_load: Callable[[int], None] | None = None,
 ) -> "tuple[_FakeBackend, list]":
     """Wire the ``compare`` command onto a fake dataset/loader/viewer.
 
@@ -1743,7 +1746,7 @@ def _compare_mocks(
             pass
 
         def __len__(self) -> int:
-            return 1
+            return sample_count
 
         def get_classes(self) -> dict[str, dict[str, int]]:
             return {"objects": {"car": 0}}
@@ -1760,19 +1763,37 @@ def _compare_mocks(
     class _Loader:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
             self._augmentations = None
-            self._sample = SimpleNamespace(
-                images={"image": image},
-                labels={},
-                metadata={"filenames": {"image": "frame.jpg"}},
-            )
+            self._samples = [
+                SimpleNamespace(
+                    images={"image": image},
+                    labels={},
+                    metadata={
+                        "filenames": {
+                            "image": (
+                                "frame.jpg"
+                                if sample_count == 1
+                                else f"frame-{index}.jpg"
+                            )
+                        }
+                    },
+                )
+                for index in range(sample_count)
+            ]
+
+        def __len__(self) -> int:
+            return len(self._samples)
+
+        def get_filenames(self, index: int) -> dict[str, str]:
+            return self._samples[index].metadata["filenames"]
 
         def __iter__(self) -> Iterator[SimpleNamespace]:
-            yield self._sample
+            raise AssertionError("compare must not eagerly decode the loader")
+            yield from self._samples  # pragma: no cover
 
         def __getitem__(self, index: int) -> SimpleNamespace:
-            if index != 0:
-                raise IndexError(index)
-            return self._sample
+            if on_load is not None:
+                on_load(index)
+            return self._samples[index]
 
     from luxonis_ml.data.loaders import label_converter
     from luxonis_ml.vizlab import Image
@@ -1827,6 +1848,26 @@ def test_compare_command_renders_verdict_frame(
     assert isinstance(metrics, dict)
     assert metrics["TP"] == 1
     assert metrics["FP"] == 0
+
+
+def test_compare_does_not_load_later_samples_before_first_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loaded: list[int] = []
+    _compare_mocks(
+        monkeypatch,
+        np.zeros((40, 60, 3), dtype=np.uint8),
+        sample_count=3,
+        on_load=loaded.append,
+    )
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    try:
+        data_main.compare("gt", "preds")
+    finally:
+        set_default_options(RenderOptions())
+
+    assert loaded == [0, 0]
 
 
 def test_compare_save_writes_a_clip_without_opening_a_viewer(
@@ -2026,6 +2067,12 @@ def test_compare_matches_by_filename_and_reports_unpaired_samples(
     class _Loader:
         def __init__(self, dataset: _Dataset, **_kwargs: object) -> None:
             self._samples = samples[dataset.name]
+
+        def __len__(self) -> int:
+            return len(self._samples)
+
+        def get_filenames(self, index: int) -> dict[str, str]:
+            return self._samples[index].metadata["filenames"]
 
         def __iter__(self) -> Iterator[SimpleNamespace]:
             yield from self._samples

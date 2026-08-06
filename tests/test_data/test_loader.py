@@ -355,6 +355,27 @@ def test_loader_records_augmentations_in_sample_metadata(
     }
 
 
+def test_loader_gets_filenames_without_loading_sample(
+    dataset_name: str,
+    tempdir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    image = create_image(0, tempdir)
+    dataset = create_dataset(
+        dataset_name,
+        iter(({"file": image, "annotation": {"class": "person"}},)),
+    )
+    loader = LuxonisLoader(dataset)
+    expected = loader[0].metadata["filenames"]
+
+    def fail(_index: int) -> None:
+        pytest.fail("get_filenames loaded the sample")
+
+    monkeypatch.setattr(loader, "_load_data", fail)
+
+    assert loader.get_filenames(0) == expected
+
+
 def test_loader_keeps_stored_metadata_over_the_reserved_augmentations_key(
     dataset_name: str, tempdir: Path
 ):
