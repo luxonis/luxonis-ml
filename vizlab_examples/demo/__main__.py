@@ -18,10 +18,10 @@ from pathlib import Path
 
 from rich import print
 
-from .show import build, present
+from .show import Deck, build, present
 
 
-def save(deck: list, directory: Path) -> None:
+def save(deck: Deck, directory: Path) -> None:
     """Write the deck to ``directory`` as numbered PNG files."""
     from luxonis_ml.vizlab import Image
 
