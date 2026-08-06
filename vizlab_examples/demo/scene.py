@@ -34,6 +34,30 @@ PERSON = {"x": 0.16, "y": 0.45, "w": 0.09, "h": 0.31}
 #: from one to the other has something real to bow around.
 SIGN = {"x": 0.30, "y": 0.36, "w": 0.05, "h": 0.26}
 
+#: A stock 13-joint pose and the limbs joining it, for the slides about
+#: keypoints. Deliberately a real skeleton rather than a shape: the arms and
+#: legs are *chains* (shoulder-elbow-wrist), which is what lets a slide show a
+#: gap in the middle of one and a gap off the end of another.
+POSE = [
+    (0.50, 0.10, 2),  # 0 head
+    (0.40, 0.26, 2),  # 1 left shoulder
+    (0.60, 0.26, 2),  # 2 right shoulder
+    (0.30, 0.46, 2),  # 3 left elbow
+    (0.70, 0.46, 2),  # 4 right elbow
+    (0.26, 0.66, 2),  # 5 left wrist
+    (0.74, 0.66, 2),  # 6 right wrist
+    (0.44, 0.58, 2),  # 7 left hip
+    (0.56, 0.58, 2),  # 8 right hip
+    (0.42, 0.78, 2),  # 9 left knee
+    (0.58, 0.78, 2),  # 10 right knee
+    (0.41, 0.95, 2),  # 11 left ankle
+    (0.59, 0.95, 2),  # 12 right ankle
+]
+POSE_EDGES = [
+    (0, 1), (0, 2), (1, 2), (1, 3), (3, 5), (2, 4), (4, 6),
+    (1, 7), (2, 8), (7, 8), (7, 9), (9, 11), (8, 10), (10, 12),
+]
+
 #: Class ids the label map paints, and the names that decode them. 0 is left
 #: unlabelled — the verges either side of the road — so `ignore_index` has
 #: something to visibly drop out.

@@ -338,6 +338,102 @@ def test_keypoints_gradient_limb_between_two_colors() -> None:
     assert not np.array_equal(solid.render(), two_tone.render())
 
 
+# --- Keypoints: joints the data does not place ------------------------------
+#
+# A chain of four: 0 - 1 - 2 - 3, so index 1 is a gap *in* the chain and index 3
+# hangs off its *end*.
+_CHAIN_EDGES = [(0, 1), (1, 2), (2, 3)]
+_CHAIN: list = [(0.2, 0.5, 2), (0.4, 0.5, 2), (0.6, 0.5, 2), (0.8, 0.5, 2)]
+
+
+def _drop(points: list, *indices: int) -> list:
+    return [(0.0, 0.0, 0) if i in indices else p for i, p in enumerate(points)]
+
+
+def _placed(
+    points: list, edges: list[tuple[int, int]], w: int = 100, h: int = 100
+) -> dict:
+    kp = Keypoints(keypoints=points, edges=edges)
+    xy, visibility = kp._resolve(w, h)
+    return kp._absent_positions(xy, visibility > kp.visibility_threshold)
+
+
+def test_absent_joint_in_a_chain_goes_to_the_midpoint() -> None:
+    # Index 1 sits between two present neighbors, so it is interpolated.
+    assert _placed(_drop(_CHAIN, 1), _CHAIN_EDGES) == {1: (40.0, 50.0)}
+
+
+def test_absent_joint_at_a_chain_end_continues_the_chain() -> None:
+    # Index 3 hangs off the end: the chain runs on by one more equal limb,
+    # 2 + (2 - 1) = 60 + (60 - 40) = 80.
+    assert _placed(_drop(_CHAIN, 3), _CHAIN_EDGES) == {3: (80.0, 50.0)}
+
+
+def test_absent_run_is_placed_only_where_present_joints_reach() -> None:
+    # 2 and 3 are both gone. 2 still hangs off the *present* chain 0-1, so it
+    # is placed; 3 has no present neighbor at all and is left alone rather than
+    # extrapolated from the estimate for 2, which would stack a guess on a guess.
+    assert _placed(_drop(_CHAIN, 2, 3), _CHAIN_EDGES) == {2: (60.0, 50.0)}
+
+
+def test_absent_joint_at_a_fork_is_not_placed() -> None:
+    # A star: 0 at the center with three present arms. Nothing says which way
+    # an absent fourth arm would point, so it is left alone.
+    star: list = [
+        (0.5, 0.5, 2),
+        (0.2, 0.5, 2),
+        (0.8, 0.5, 2),
+        (0.5, 0.2, 2),
+        (0.5, 0.8, 2),
+    ]
+    edges = [(0, 1), (0, 2), (0, 3), (0, 4)]
+    assert _placed(_drop(star, 4), edges) == {}
+
+
+def test_absent_joint_between_joined_neighbors_is_not_placed() -> None:
+    # A triangle, not a chain: 1 and 2 are joined to each other, so the
+    # midpoint of the absent 0 would land on the limb already drawn there.
+    triangle: list = [(0.5, 0.2, 2), (0.3, 0.6, 2), (0.7, 0.6, 2)]
+    assert _placed(_drop(triangle, 0), [(0, 1), (0, 2), (1, 2)]) == {}
+    # Break the 1-2 edge and the same gap becomes an ordinary chain gap.
+    assert _placed(_drop(triangle, 0), [(0, 1), (0, 2)]) == {0: (50.0, 60.0)}
+
+
+def test_absent_joints_need_a_skeleton() -> None:
+    # With no edges there is no structure to place anything from.
+    assert _placed(_drop(_CHAIN, 1), []) == {}
+
+
+def test_a_complete_pose_places_nothing() -> None:
+    # Nothing is absent, so there is nothing to mark.
+    assert _placed(_CHAIN, _CHAIN_EDGES) == {}
+
+
+def test_the_mark_reaches_the_canvas_only_with_a_skeleton() -> None:
+    # Dropping the last joint of the chain puts its mark at (80, 50) — the
+    # chain continued by one limb — where no limb or joint of the pose itself
+    # draws. With no edges the gap cannot be placed, so that pixel is untouched.
+    points = _drop(_CHAIN, 3)
+
+    def at_the_mark(edges: list) -> np.ndarray:
+        return (
+            _canvas(100, 100)
+            .add(Keypoints(keypoints=points, edges=edges))
+            .render()[50, 80]
+        )
+
+    bare = _canvas(100, 100).render()[50, 80]
+    assert np.array_equal(at_the_mark([]), bare)
+    assert not np.array_equal(at_the_mark(_CHAIN_EDGES), bare)
+
+
+def test_the_marks_leave_the_hover_region_on_the_real_joints() -> None:
+    # The marks are chrome over positions the data does not carry, so they must
+    # not stretch the region used for hit-testing.
+    kp = Keypoints(keypoints=_drop(_CHAIN, 3), edges=_CHAIN_EDGES)
+    assert kp.region_at(100, 100) == Rect(20.0, 50.0, 60.0, 50.0)
+
+
 def test_keypoints_point_labels_numbers_render_without_skeleton() -> None:
     # "numbers" mode labels each joint by index and needs no skeleton.
     plain = _canvas().render()

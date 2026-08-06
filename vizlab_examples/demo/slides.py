@@ -45,7 +45,7 @@ from luxonis_ml.vizlab.comparison.match import (
     CLASS_ERROR_COLOR, FN_COLOR, FP_COLOR, TP_COLOR,
 )
 from vizlab_examples.demo.scene import (
-    CAR, CLASSES, PERSON, SIGN, label_map, traffic,
+    CAR, CLASSES, PERSON, POSE, POSE_EDGES, SIGN, label_map, traffic,
 )
 from vizlab_examples.gallery import gradient
 
@@ -525,6 +525,34 @@ crack = cell(.44, w, h).add(Mask(
 vstack([pose, crack],
        titles=["Keypoints",
                "Mask(points=)"])
+""",
+    ),
+    Slide(
+        title="Joints nothing places",
+        body=(
+            "A dataset writes `(0, 0, 0)` for a joint it never labelled, and a "
+            "model for one it did not predict — here an elbow and the far "
+            "wrist. Dropping them would amputate the skeleton: the limb stops, "
+            "and **the hand past the missing elbow would float free**, so the "
+            "pose reads as a different pose rather than an incomplete one. "
+            "Each is crossed where the skeleton implies it is and dashed back "
+            "to its neighbours instead — whole, and not claiming a joint is "
+            "there. No flag: a gap you cannot see is never the better default."
+        ),
+        source="""
+missing = {3, 6}  # an elbow, a wrist
+gaps = [(0., 0., 0) if i in missing
+        else p
+        for i, p in enumerate(POSE)]
+
+def figure(points):
+    return cell(.68, *COL).add(
+        Keypoints(keypoints=points,
+                  edges=POSE_EDGES))
+
+hstack([figure(POSE), figure(gaps)],
+       titles=["labelled",
+               "predicted"])
 """,
     ),
     Slide(

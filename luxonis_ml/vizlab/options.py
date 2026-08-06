@@ -83,7 +83,9 @@ class RenderOptions:
         skeletons: Keypoint skeletons keyed by task name, in LDF's ``(labels,
             edges)`` shape (pass ``LuxonisDataset.get_skeletons()`` directly).
         keypoint_label_mode: How to label keypoints.
-        draw_skeletons: Whether to draw skeleton limbs between keypoints.
+        draw_skeletons: Whether to draw skeleton limbs between keypoints. The
+            skeleton is also what lets a joint the data never placed be marked
+            rather than silently dropped — see `Keypoints`.
         hover_metadata: When ``True``, a boxed detection's metadata is attached as
             a hover `Tooltip` instead of crowding the frame.
         antialias: Whether shape fills and strokes are anti-aliased. ``False`` is a
