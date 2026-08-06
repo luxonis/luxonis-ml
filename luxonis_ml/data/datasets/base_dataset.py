@@ -173,8 +173,6 @@ class BaseDataset(
         | tuple[float, float, float]
         | None = None,
         *,
-        ratios: dict[str, float] | tuple[float, float, float] | None = None,
-        definitions: dict[str, list[PathType]] | None = None,
         replace_old_splits: bool = False,
     ) -> None:
         """Generate dataset splits.
@@ -182,11 +180,8 @@ class BaseDataset(
         Args:
             splits: Split definitions or ratios. Accepts explicit
                 filepath lists, split ratios keyed by split name, or a
-                ``(train, val, test)`` ratio tuple.
-            ratios: Optional deprecated split ratios. Use ``splits``
-                instead.
-            definitions: Optional deprecated filepath split definitions.
-                Use ``splits`` instead.
+                ``(train, val, test)`` ratio tuple. Omit to create
+                default train, validation, and test splits.
             replace_old_splits: Whether to replace existing split
                 assignments instead of adding only new files.
 

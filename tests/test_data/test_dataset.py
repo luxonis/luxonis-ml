@@ -221,7 +221,9 @@ def test_make_splits(
 
     assert len(dataset) == 15
     assert dataset.get_splits() is None
-    dataset.make_splits(definitions)
+    dataset.make_splits(
+        {split: tuple(filepaths) for split, filepaths in definitions.items()}
+    )
     splits = dataset.get_splits()
     assert splits is not None
     assert set(splits.keys()) == {"train", "val", "test"}
@@ -229,6 +231,9 @@ def test_make_splits(
         assert len(split_data) == 5, (
             f"Split {split} has {len(split_data)} samples"
         )
+
+    with pytest.raises(ValueError, match="No new files"):
+        dataset.make_splits(definitions)
 
     dataset.add(generator())
     splits = dataset.get_splits()
@@ -267,14 +272,17 @@ def test_make_splits(
     with pytest.raises(ValueError, match="must be a tuple of 3 floats"):
         dataset.make_splits((0.7, 0.1, 0.1, 0.1))  # type: ignore
 
-    with pytest.raises(ValueError, match="Cannot provide both splits and"):
-        dataset.make_splits((0.7, 0.1, 0.2), definitions=definitions)
-
     with pytest.raises(ValueError, match=r"Ratios must sum to 1.0"):
         dataset.make_splits({"train": 1.5})
 
+    with pytest.raises(ValueError, match=r"between 0\.0 and 1\.0"):
+        dataset.make_splits({"train": -0.1, "val": 1.1})
+
+    with pytest.raises(TypeError, match="ratios or filepath lists"):
+        dataset.make_splits({"train": "invalid"})  # type: ignore[arg-type]
+
     dataset.add(generator(10))
-    dataset.make_splits({"custom_split": 1.0})
+    dataset.make_splits({"custom_split": 1})
     splits = dataset.get_splits()
     assert splits is not None
     assert set(splits.keys()) == {"train", "val", "test", "custom_split"}
@@ -284,11 +292,12 @@ def test_make_splits(
             f"Split {split} has {len(split_data)} samples"
         )
 
+    dataset.add(generator(5))
     dataset.make_splits(replace_old_splits=True)
     splits = dataset.get_splits()
     assert splits is not None
     for split, split_data in splits.items():
-        expected_length = {"train": 44, "val": 6, "test": 5}
+        expected_length = {"train": 48, "val": 6, "test": 6}
         assert len(split_data) == expected_length[split], (
             f"Split {split} has {len(split_data)} samples"
         )
@@ -1272,7 +1281,7 @@ def create_test_dataset_with_classes(
     for task_name, classes in task_classes.items():
         dataset.set_classes(classes, task=task_name)
 
-    dataset.make_splits(ratios=(1, 0, 0))
+    dataset.make_splits((1, 0, 0))
     return dataset
 
 
@@ -1334,7 +1343,7 @@ def test_class_order_per_task_multiple_tasks(tempdir: Path):
     for task_name, classes in original_classes.items():
         dataset.set_classes(classes, task=task_name)
 
-    dataset.make_splits(ratios=(1, 0, 0))
+    dataset.make_splits((1, 0, 0))
 
     # Define new class orders for both tasks
     class_order_per_task = {
