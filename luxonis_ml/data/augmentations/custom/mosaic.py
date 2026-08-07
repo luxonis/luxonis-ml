@@ -33,7 +33,7 @@ class Mosaic4(BatchTransform):
     needed with the specified fill values.
 
     .. figure::
-       https://github.com/luxonis/luxonis-ml/blob/58fb10adc38a393640b9dc889fdefd1db81f9900/luxonis_ml/data/augmentations/media/mosaic4.png
+       https://raw.githubusercontent.com/luxonis/luxonis-ml/58fb10adc38a393640b9dc889fdefd1db81f9900/luxonis_ml/data/augmentations/media/mosaic4.png
        :height: 300px
        :width: 400px
        :loading: embed
