@@ -3,7 +3,11 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+from semver.version import Version
+
 from luxonis_ml.data import DatasetIterator
+from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils.path import resolve_manifest_path
 
@@ -40,16 +44,41 @@ def _resolve_annotation_paths(
                 _resolve_annotation_paths(sub_detection, base_dir)
 
 
+def _warn_on_newer_export(annotation_path: Path) -> None:
+    """Warn when the export was written by a newer LDF version.
+
+    An older export is a strict subset of what this version accepts, so
+    only a newer one is worth reporting. The stamp is best-effort: exports
+    predating it have none, and a damaged one must not break the parse.
+    """
+    stamp = annotation_path.parent.parent / "metadata.json"
+    with suppress(OSError, ValueError, TypeError, KeyError):
+        version = Version.parse(
+            json.loads(stamp.read_text())["ldf_version"],
+            optional_minor_and_patch=True,
+        )
+        if version.major > LDF_VERSION.major:
+            logger.warning(
+                f"'{stamp}' declares LDF {version}, but this luxonis-ml "
+                f"reads LDF {LDF_VERSION}. Upgrade it if parsing fails."
+            )
+
+
 class NativeParser(BaseParser):
     """Parse a directory with native LDF annotations.
 
     Expected format::
 
         dataset_dir/
+        ├── metadata.json  (optional; names the LDF version written)
         ├── train/
         │   └── annotations.json
         ├── val/
         └── test/
+
+    ``metadata.json`` is a version stamp written by `NativeExporter`. It is
+    never required, and is read only to warn about exports from a *newer*
+    LDF version.
 
     The annotations are stored in a single JSON file as a list of dictionaries
     in the same format as the output of the generator function used by
@@ -120,6 +149,7 @@ class NativeParser(BaseParser):
             and added images.
 
         """
+        _warn_on_newer_export(annotation_path)
         data = json.loads(annotation_path.read_text())
 
         def generator() -> DatasetIterator:
