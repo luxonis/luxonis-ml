@@ -13,55 +13,14 @@ from luxonis_ml.utils.path import resolve_manifest_path
 
 from .base_parser import BaseParser, ParserOutput
 
-#: Annotation fields holding a path to a companion file, as ``(field, key)``.
-#: These are written relative to ``annotations.json`` so a dataset directory
-#: stays portable, and have to be resolved before the record is validated.
+# Annotation fields holding a path to a companion file, as ``(field, key)``.
+# These are written relative to ``annotations.json`` so a dataset directory
+# stays portable, and have to be resolved before the record is validated.
 _ANNOTATION_PATHS: tuple[tuple[str, str], ...] = (
     ("segmentation", "mask"),
     ("instance_segmentation", "mask"),
     ("array", "path"),
 )
-
-
-def _resolve_annotation_paths(
-    annotation: dict[str, Any], base_dir: Path
-) -> None:
-    """Rewrite one detection's companion-file paths in place.
-
-    Args:
-        annotation: A detection, as read from the manifest.
-        base_dir: Directory that relative paths are resolved against.
-
-    """
-    for field, key in _ANNOTATION_PATHS:
-        value = annotation.get(field)
-        if isinstance(value, dict) and isinstance(value.get(key), PathType):
-            value[key] = resolve_manifest_path(base_dir, value[key])
-    sub_detections = annotation.get("sub_detections")
-    if isinstance(sub_detections, dict):
-        for sub_detection in sub_detections.values():
-            if isinstance(sub_detection, dict):
-                _resolve_annotation_paths(sub_detection, base_dir)
-
-
-def _warn_on_newer_export(annotation_path: Path) -> None:
-    """Warn when the export was written by a newer LDF version.
-
-    An older export is a strict subset of what this version accepts, so
-    only a newer one is worth reporting. The stamp is best-effort: exports
-    predating it have none, and a damaged one must not break the parse.
-    """
-    stamp = annotation_path.parent.parent / "metadata.json"
-    with suppress(OSError, ValueError, TypeError, KeyError):
-        version = Version.parse(
-            json.loads(stamp.read_text())["ldf_version"],
-            optional_minor_and_patch=True,
-        )
-        if version.major > LDF_VERSION.major:
-            logger.warning(
-                f"'{stamp}' declares LDF {version}, but this luxonis-ml "
-                f"reads LDF {LDF_VERSION}. Upgrade it if parsing fails."
-            )
 
 
 class NativeParser(BaseParser):
@@ -117,6 +76,10 @@ class NativeParser(BaseParser):
 
     _SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._checked_stamps: set[Path] = set()
+
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         annotation_path = split_path / "annotations.json"
@@ -149,7 +112,7 @@ class NativeParser(BaseParser):
             and added images.
 
         """
-        _warn_on_newer_export(annotation_path)
+        self._warn_on_newer_export(annotation_path)
         data = json.loads(annotation_path.read_text())
 
         def generator() -> DatasetIterator:
@@ -180,3 +143,50 @@ class NativeParser(BaseParser):
         added_images = self._get_added_images(generator())
 
         return generator(), {}, added_images
+
+    def _warn_on_newer_export(self, annotation_path: Path) -> None:
+        """Warn when the export was written by a newer LDF version.
+
+        An older export is a strict subset of what this version accepts,
+        so only a newer one is worth reporting. Comparing the whole
+        version matters: ``sample_metadata`` arrived in a minor bump, so
+        a same-major export can be just as unreadable.
+
+        The stamp is best-effort: exports predating it have none, and a
+        damaged one must not break the parse.
+        """
+        stamp = annotation_path.parent.parent / "metadata.json"
+        if stamp in self._checked_stamps:
+            return
+        self._checked_stamps.add(stamp)
+        with suppress(OSError, ValueError, TypeError, KeyError):
+            version = Version.parse(
+                json.loads(stamp.read_text())["ldf_version"],
+                optional_minor_and_patch=True,
+            )
+            if version > LDF_VERSION:
+                logger.warning(
+                    f"'{stamp}' declares LDF {version}, but this luxonis-ml "
+                    f"reads LDF {LDF_VERSION}. Upgrade it if parsing fails."
+                )
+
+
+def _resolve_annotation_paths(
+    annotation: dict[str, Any], base_dir: Path
+) -> None:
+    """Rewrite one detection's companion-file paths in place.
+
+    Args:
+        annotation: A detection, as read from the manifest.
+        base_dir: Directory that relative paths are resolved against.
+
+    """
+    for field, key in _ANNOTATION_PATHS:
+        value = annotation.get(field)
+        if isinstance(value, dict) and isinstance(value.get(key), PathType):
+            value[key] = resolve_manifest_path(base_dir, value[key])
+    sub_detections = annotation.get("sub_detections")
+    if isinstance(sub_detections, dict):
+        for sub_detection in sub_detections.values():
+            if isinstance(sub_detection, dict):
+                _resolve_annotation_paths(sub_detection, base_dir)

@@ -227,6 +227,104 @@ def test_export_2_0_stamps_every_partition(dataset_name: str, tempdir: Path):
         assert "sample_metadata" not in record
 
 
+def _stamp(export_root: Path, version: str) -> None:
+    """Overwrite an export's version stamp, faking another install."""
+    (export_root / "metadata.json").write_text(
+        json.dumps({"ldf_version": version})
+    )
+
+
+def _import(export_root: Path, dataset_name: str, tempdir: Path) -> None:
+    LuxonisParser(
+        str(export_root),
+        dataset_type=DatasetType.NATIVE,
+        dataset_name=dataset_name,
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+
+def _newer_export(dataset_name: str, tempdir: Path, version: str) -> Path:
+    """Export a dataset and restamp it as written by a newer install."""
+    dataset = create_dataset(
+        dataset_name, _generator(tempdir), splits=(1, 0, 0)
+    )
+    root = _export(dataset, tempdir, f"from_{version}")
+    _stamp(root, version)
+    return root
+
+
+@pytest.mark.parametrize(
+    "version",
+    [
+        # A newer major, and -- the case a `.major`-only comparison
+        # misses -- a newer minor. `sample_metadata` arrived in exactly
+        # such a bump, so a same-major export is just as unreadable.
+        f"{LDF_VERSION.major + 1}.0.0",
+        str(LDF_VERSION.bump_minor()),
+        str(LDF_VERSION.bump_patch()),
+    ],
+)
+def test_import_warns_once_on_newer_export(
+    dataset_name: str, tempdir: Path, warnings_log: list[str], version: str
+):
+    """A newer stamp warns exactly once, not once per split.
+
+    `NativeParser.from_dir` parses train, val and test, and the stamp sits
+    above all three.
+    """
+    root = _newer_export(dataset_name, tempdir, version)
+    _import(root, f"{dataset_name}_imported", tempdir)
+
+    warned = [msg for msg in warnings_log if "declares LDF" in msg]
+    assert len(warned) == 1
+    assert version in warned[0]
+
+
+@pytest.mark.parametrize("version", ["2.0.0", None])
+def test_import_is_quiet_for_current_or_older_exports(
+    dataset_name: str,
+    tempdir: Path,
+    warnings_log: list[str],
+    version: str | None,
+):
+    """An older export is a strict subset of what this version accepts."""
+    dataset = create_dataset(
+        dataset_name, _generator(tempdir), splits=(1, 0, 0)
+    )
+    root = _export(dataset, tempdir, "quiet", ldf_version=version)
+    _import(root, f"{dataset_name}_imported", tempdir)
+
+    assert not [msg for msg in warnings_log if "declares LDF" in msg]
+
+
+# ``None`` removes the stamp altogether, standing for an export made
+# before the stamp existed.
+@pytest.mark.parametrize(
+    "stamp", ['{"ldf_version": "banana"}', "{}", "{", None]
+)
+def test_damaged_or_missing_stamp_does_not_break_the_import(
+    dataset_name: str,
+    tempdir: Path,
+    warnings_log: list[str],
+    stamp: str | None,
+):
+    """The stamp is best-effort, so neither case may fail the parse."""
+    dataset = create_dataset(
+        dataset_name, _generator(tempdir), splits=(1, 0, 0)
+    )
+    root = _export(dataset, tempdir, "damaged")
+    if stamp is None:
+        (root / "metadata.json").unlink()
+    else:
+        (root / "metadata.json").write_text(stamp)
+
+    _import(root, f"{dataset_name}_imported", tempdir)
+
+    # Nothing readable says the export is newer, so nothing to report.
+    assert not [msg for msg in warnings_log if "declares LDF" in msg]
+
+
 # `DatasetType` mixes in `str`, so the bare string is a real calling
 # convention and must reach the same error as the enum.
 @pytest.mark.parametrize("dataset_type", [DatasetType.COCO, "coco"])
