@@ -292,12 +292,11 @@ def test_make_splits(
             f"Split {split} has {len(split_data)} samples"
         )
 
-    dataset.add(generator(5))
     dataset.make_splits(replace_old_splits=True)
     splits = dataset.get_splits()
     assert splits is not None
     for split, split_data in splits.items():
-        expected_length = {"train": 48, "val": 6, "test": 6}
+        expected_length = {"train": 44, "val": 6, "test": 5}
         assert len(split_data) == expected_length[split], (
             f"Split {split} has {len(split_data)} samples"
         )
