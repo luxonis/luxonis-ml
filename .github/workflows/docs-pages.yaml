@@ -25,17 +25,15 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
-          python-version: "3.10"
-          cache: pip
-
-      - name: Install pydoctor
-        run: python -m pip install 'pydoctor~=25.10'
+          version: "0.11.32"
+          enable-cache: true
 
       - name: Build docs
         run: >
+          uv run --locked --only-group docs
           python tools/build_pydoctor_docs.py
           --mode site
           --output apidocs
