@@ -131,15 +131,21 @@ uv run pydoctor luxonis_ml
 ```
 
 Open `apidocs/index.html` to inspect the result. CI runs the same command. The
-`[tool.pydoctor]` section of `pyproject.toml` sets the Google docstring format,
-which pydoctor reads on its own.
+`[tool.pydoctor]` section of `pyproject.toml` sets the Google docstring format
+and `warnings-as-errors`, which pydoctor reads on its own.
 
 > [!IMPORTANT]
-> A malformed docstring is a syntax error. pydoctor reports it and exits
-> non-zero, so the CI job fails on broken markup. pydoctor exits 0 for
-> unresolved-reference and annotation warnings, and the build reports some of
-> those today. Read the command output after you change a docstring, because
-> those warnings do not stop the build.
+> A warning fails the build. pydoctor exits non-zero on broken markup, on a
+> reference it cannot resolve, and on an annotation it cannot parse.
+
+Single backticks ask pydoctor for a link. Put a name it cannot resolve, such
+as a class from another library, in double backticks instead. For a real link
+to external documentation, use the reST hyperlink form with an explicit target.
+
+pydoctor also parses each string inside an annotation as a forward reference,
+`Annotated[...]` metadata included. Write `Parameter(negative=())`, not
+`Parameter(negative="")`. Keep a value such as a file extension in a module
+constant that the annotation names.
 
 The published reference lives on the Luxonis documentation portal. The
 `Export pydoctor reference` workflow builds it from these docstrings with the
@@ -195,7 +201,7 @@ PR CI runs:
 | Check        | Notes                                                  |
 | ------------ | ------------------------------------------------------ |
 | `pre-commit` | Must pass before docs, type check, and tests proceed.  |
-| `docs`       | Builds the pydoctor docs to check that they parse.     |
+| `docs`       | Builds the pydoctor docs. A warning fails the job.     |
 | `type-check` | Runs Pyright on Python 3.10.                           |
 | `semgrep`    | Runs security and secret scanning.                     |
 | `tests`      | Runs pytest on Ubuntu and Windows in six split groups. |
