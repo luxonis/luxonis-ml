@@ -278,6 +278,10 @@ dataset.make_splits({
 
 This will split the dataset across `"train"`, `"val"`, and `"test"` sets with the specified ratios.
 
+> [!IMPORTANT]
+> A ratio must be a float. Write `1.0`, not `1`. A parser reads an integer as an
+> absolute file count, so an integer here would have two meanings.
+
 For more refined control over the splits, you can pass a dictionary with the split names as keys and lists of file names as values:
 
 ```python
