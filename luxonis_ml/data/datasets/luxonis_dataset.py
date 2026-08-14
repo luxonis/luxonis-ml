@@ -1596,12 +1596,19 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 )
 
             np.random.shuffle(ids)
-            n_groups = len(ids)
             lower_bound = 0
-            for split, ratio in ratios.items():
-                upper_bound = lower_bound + math.ceil(n_groups * ratio)
+            for split, size in _split_sizes(len(ids), ratios).items():
+                upper_bound = lower_bound + size
                 new_splits[split] = ids[lower_bound:upper_bound]
                 lower_bound = upper_bound
+
+            for split, group_ids in new_splits.items():
+                if not group_ids and ratios[split] > 0:
+                    logger.warning(
+                        f"Split '{split}' got no data. The dataset has "
+                        f"{len(ids)} new groups, which is too few for "
+                        f"the ratio {ratios[split]}."
+                    )
 
         elif definitions is not None:
             n_files = sum(map(len, definitions.values()))
@@ -2004,6 +2011,37 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                     task=task_name,
                     rewrite_metadata=False,
                 )
+
+
+def _split_sizes(n_groups: int, ratios: Mapping[str, float]) -> dict[str, int]:
+    """Divide the groups between the splits.
+
+    The function uses the largest remainder method. Each split first
+    gets the whole part of its exact share. The leftover groups then go
+    to the splits with the largest fractional parts.
+
+    A ``ceil`` of each share gives every split more than its part in
+    turn, so the last split absorbs all the error. With the default
+    80/10/10 ratios, each dataset below 15 groups lost its test split.
+
+    Args:
+        n_groups: The number of groups to divide.
+        ratios: A mapping of split names to ratios. The ratios sum to 1.
+
+    Returns:
+        A mapping of split names to group counts. The counts sum to
+        ``n_groups``.
+
+    """
+    shares = {split: n_groups * ratio for split, ratio in ratios.items()}
+    sizes = {split: int(share) for split, share in shares.items()}
+    leftover = max(0, n_groups - sum(sizes.values()))
+    by_remainder = sorted(
+        shares, key=lambda split: shares[split] - sizes[split], reverse=True
+    )
+    for split in by_remainder[:leftover]:
+        sizes[split] += 1
+    return sizes
 
 
 def _are_ratios(

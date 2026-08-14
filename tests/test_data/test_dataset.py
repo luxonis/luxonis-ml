@@ -20,6 +20,7 @@ from luxonis_ml.data import (
     UpdateMode,
 )
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
+from luxonis_ml.data.datasets.luxonis_dataset import _split_sizes
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
@@ -192,6 +193,65 @@ def test_loader_iterator(storage_url: str, tempdir: Path):
     loader._load_data = _raise  # type: ignore
     with pytest.raises(IndexError):
         _ = loader[0]
+
+
+def test_split_sizes():
+    """A ``ceil`` of each share starved the last split.
+
+    Every split rounded up in turn, so the last one absorbed all the
+    error. With the default 80/10/10 ratios, each dataset below 15
+    groups lost its test split.
+    """
+    default = {"train": 0.8, "val": 0.1, "test": 0.1}
+
+    # These counts gave an empty test split before the fix.
+    assert _split_sizes(7, default) == {"train": 5, "val": 1, "test": 1}
+    assert _split_sizes(9, default) == {"train": 7, "val": 1, "test": 1}
+    assert _split_sizes(14, default) == {"train": 11, "val": 2, "test": 1}
+
+    for n_groups in range(1, 200):
+        sizes = _split_sizes(n_groups, default)
+        # No group is lost and no group is counted two times.
+        assert sum(sizes.values()) == n_groups, (n_groups, sizes)
+        if n_groups >= 10:
+            # Each split gets data as soon as the dataset is big enough.
+            assert all(size > 0 for size in sizes.values()), (n_groups, sizes)
+
+    # A zero ratio still gets nothing.
+    assert _split_sizes(10, {"train": 1.0, "val": 0.0, "test": 0.0}) == {
+        "train": 10,
+        "val": 0,
+        "test": 0,
+    }
+
+    # Three equal splits divide three groups evenly.
+    thirds = {"a": 1 / 3, "b": 1 / 3, "c": 1 / 3}
+    assert _split_sizes(3, thirds) == {"a": 1, "b": 1, "c": 1}
+
+
+def test_small_dataset_keeps_every_split(
+    bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
+):
+    """A small dataset keeps a test split with the default ratios."""
+
+    def generator() -> DatasetIterator:
+        for i in range(7):
+            yield {
+                "file": str(create_image(i, tempdir)),
+                "annotation": {"class": "dog"},
+            }
+
+    dataset = create_dataset(
+        dataset_name, generator(), bucket_storage, splits=False
+    )
+    dataset.make_splits()
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert {split: len(data) for split, data in splits.items()} == {
+        "train": 5,
+        "val": 1,
+        "test": 1,
+    }
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
