@@ -67,11 +67,7 @@ jobs:
           enable-cache: true
 
       - name: Build docs
-        run: >
-          uv run --locked --only-group docs
-          python tools/build_pydoctor_docs.py
-          --mode current
-          --output /tmp/luxonis-ml-apidocs
+        run: uv run --locked --only-group docs pydoctor luxonis_ml
 
   type-check:
     needs: pre-commit

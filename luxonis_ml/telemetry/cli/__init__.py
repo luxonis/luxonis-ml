@@ -1,3 +1,37 @@
+"""CLI instrumentation adapters for telemetry.
+
+This package wraps the commands of a command-line application so each
+run emits one ``cli_command`` event. Use `instrument_typer` for a Typer
+app and `instrument_cyclopts` for a Cyclopts app. Both walk the app
+recursively, so they cover the commands of every sub-app.
+
+An instrumented command reports only its name, a success flag, and its
+duration in milliseconds. Argument values stay local unless the caller
+names them in an ``allowlist``.
+
+Example:
+    Instrument a Typer app and keep every argument value local.
+
+    .. code-block:: python
+
+        import typer
+        from luxonis_ml.telemetry import Telemetry
+        from luxonis_ml.telemetry.cli import instrument_typer
+
+        app = typer.Typer()
+        telemetry = Telemetry("luxonis_ml")
+
+        instrument_typer(app, telemetry)
+
+Note:
+    The adapters import their CLI framework lazily, so Typer and
+    Cyclopts stay optional dependencies of this package.
+
+See:
+    `skip_telemetry` to exclude one command callback.
+
+"""
+
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 

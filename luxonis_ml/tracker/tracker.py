@@ -249,7 +249,24 @@ class LuxonisTracker:
             logger.warning(f"Failed to re-log stored logs to MLflow: {e}")
 
     def save_logs_locally(self) -> None:
-        """Save metrics, parameters, images, artifacts, and matrices locally."""
+        """Save metrics, parameters, images, artifacts, and matrices locally.
+
+        The tracker buffers MLflow logs when a remote call fails. This
+        method writes the buffer under the run directory, which is
+        ``<save_directory>/<run_name>``:
+
+            - ``local_logs.json`` holds the metrics, the parameters, the
+              matrices, and the index of the saved images and artifacts;
+            - ``images/`` holds the buffered images as ``<index>.png``;
+            - ``artifacts/`` holds a copy of each buffered artifact.
+
+        The image and artifact entries in ``local_logs.json`` hold the new
+        local paths, not the original data.
+
+        `LuxonisTracker.close` calls this method when MLflow is enabled and
+        the buffer is not empty.
+
+        """
         image_dir = self.run_directory / "images"
         artifact_dir = self.run_directory / "artifacts"
 

@@ -147,7 +147,25 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
     """Clean known ImageNet issues in FiftyOne labels.
 
     The cleanup fixes duplicate class names and known label-index errors in
-    ImageNet FiftyOne exports.
+    ImageNet FiftyOne exports:
+
+        - the first ``"crane"`` (the bird, index 141) becomes
+          ``"crane bird"``, which separates it from the crane machine at
+          index 524;
+        - the second ``"maillot"`` (index 646) becomes
+          ``"maillot swim suit"``;
+        - image ``006742`` moves from index 517 to index 134;
+        - image ``031933`` moves from index 639 to index 638.
+
+    The function writes the result to ``labels_fixed.json`` next to the
+    original file, and it returns the original path when it changes
+    nothing.
+
+    Note:
+        `FiftyOneClassificationParser` runs this cleanup only for the
+        flat layout. It treats a split as flat when the directory name is
+        not ``train``, ``validation``, or ``test``, so a split-based
+        dataset keeps its labels unchanged.
 
     Args:
         labels_path: Path to ``labels.json``.

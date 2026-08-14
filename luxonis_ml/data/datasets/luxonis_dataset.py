@@ -984,6 +984,20 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         Annotations and metadata are always pulled. Media files are pulled
         either when missing locally or always, depending on ``update_mode``.
 
+        The pull overwrites the local ``annotations/`` and ``metadata/``
+        folders with the remote copies on every call, so local-only edits
+        to those folders are lost.
+
+        With ``UpdateMode.MISSING``, a media file counts as missing only
+        when both locations are absent:
+
+            - the path in the ``file`` column of the Parquet shard;
+            - ``media/<uuid><suffix>``, where the UUID comes from the
+              ``uuid`` column of the same shard.
+
+        With ``UpdateMode.ALL``, every media file is downloaded again and
+        overwrites the local copy.
+
         Args:
             update_mode: Media synchronization mode.
 
@@ -1501,6 +1515,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 - A mapping of split names to float ratios.
                 - A tuple of three float ratios for train, val, and test splits.
 
+                If you give no ``splits``, no ``ratios``, and no
+                ``definitions``, the method uses the default ratios
+                ``{"train": 0.8, "val": 0.1, "test": 0.1}``.
+
             ratios: A mapping of split names to float ratios
                 or a tuple of three float ratios for train, val, and test splits.
 
@@ -1515,19 +1533,25 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             replace_old_splits: Whether to replace old splits with new ones. If ``False`
                 (default), new splits will be added to old splits, and duplicate group IDs will be filtered out. If ``True``, old splits will be replaced with new splits.
 
+                A split from ratios uses only the records that no split
+                holds yet. Set this to ``True`` to drop the old splits
+                and to split every record again.
+
         Raises:
             ValueError: If both ``ratios`` and ``definitions`` are provided.
-            ValueError: If neither ``splits``, ``ratios``, nor ``definitions`` is provided.
             ValueError: If both ``splits`` and ``ratios``/``definitions`` are provided.
             ValueError: If ``splits`` is provided but is empty.
             ValueError: If ``ratios`` is provided but does not sum to 1.
-            ValueError: If ``definitions`` is provided but the total number of files in definitions exceeds
-                the dataset size.
-            ValueError: If ``definitions`` are provided but all of them
-                are already included in old splits, resulting in no new
-                files to add to splits while ``replace_old_splits`` is ``False``.
+            ValueError: If the splits come from ratios, every record
+                already belongs to a split, and ``replace_old_splits``
+                is ``False``.
             FileNotFoundError: If the dataset is empty.
             TypeError: If the splits definitions are not in the expected format.
+
+        Note:
+            If ``definitions`` hold more files than the dataset, the
+            method does not raise. It logs a warning, removes the
+            duplicates, and ignores the extra files.
 
         """
         if ratios is not None and definitions is not None:
