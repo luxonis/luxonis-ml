@@ -274,8 +274,13 @@ def test_make_splits(
     with pytest.raises(TypeCheckError, match=r'argument "splits"'):
         dataset.make_splits((0.7, 0.1, 0.1, 0.1))  # type: ignore
 
-    with pytest.raises(ValueError, match=r"Ratios must sum to 1.0"):
+    # An out-of-range ratio reports the range, not a misleading sum.
+    with pytest.raises(ValueError, match=r"between 0\.0 and 1\.0"):
         dataset.make_splits({"train": 1.5})
+
+    # A ratio that is in range but sums wrong still reports the sum.
+    with pytest.raises(ValueError, match=r"Ratios must sum to 1.0"):
+        dataset.make_splits({"train": 0.5, "val": 0.2})
 
     with pytest.raises(ValueError, match=r"between 0\.0 and 1\.0"):
         dataset.make_splits({"train": -0.1, "val": 1.1})

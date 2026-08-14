@@ -1540,13 +1540,15 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             )
 
         if ratios is not None:
-            sum_ = sum(ratios.values())
-            if not math.isclose(sum_, 1.0):
-                raise ValueError(f"Ratios must sum to 1.0, got {sum_:0.4f}")
+            # The range check comes first. An out-of-range ratio also
+            # breaks the sum, and the sum error hides the real mistake.
             if any(not 0.0 <= ratio <= 1.0 for ratio in ratios.values()):
                 raise ValueError(
                     "Ratios must be between 0.0 and 1.0 (inclusive)"
                 )
+            sum_ = sum(ratios.values())
+            if not math.isclose(sum_, 1.0):
+                raise ValueError(f"Ratios must sum to 1.0, got {sum_:0.4f}")
 
         new_splits: dict[str, list[str]] = {}
         old_splits: dict[str, list[str]] = defaultdict(list)
