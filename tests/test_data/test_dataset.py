@@ -8,7 +8,6 @@ import numpy as np
 import pytest
 from loguru import logger
 from pytest_subtests.plugin import SubTests
-from typeguard import TypeCheckError
 
 from luxonis_ml.data import (
     BucketStorage,
@@ -344,7 +343,7 @@ def test_make_splits_is_atomic(
 def test_definitions_skip_a_non_filepath(
     bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
 ):
-    """``typeguard`` samples a mapping, so elements arrive unchecked.
+    """The method does not check the elements of a file list.
 
     Before the fix, an ``int`` in a definition list reached ``Path()``
     and raised a TypeError far away from the caller.
@@ -461,7 +460,7 @@ def test_make_splits(
     with pytest.raises(ValueError, match=r"Ratios must sum to 1.0"):
         dataset.make_splits((0.7, 0.1, 1))
 
-    with pytest.raises(TypeCheckError, match=r'argument "splits"'):
+    with pytest.raises(TypeError, match="exactly 3 values"):
         dataset.make_splits((0.7, 0.1, 0.1, 0.1))  # type: ignore
 
     # An out-of-range ratio reports the range, not a misleading sum.
@@ -478,8 +477,18 @@ def test_make_splits(
     with pytest.raises(TypeError, match="ratios or filepath lists"):
         dataset.make_splits({"train": "invalid"})
 
-    with pytest.raises(TypeCheckError, match=r'argument "splits"'):
+    with pytest.raises(TypeError, match="mapping, a tuple of 3 ratios"):
         dataset.make_splits([0.8, 0.1, 0.1])  # type: ignore
+
+    # The checks below replace the ones `typeguard` used to make.
+    with pytest.raises(TypeError, match="must hold numbers"):
+        dataset.make_splits(("a", "b", "c"))  # type: ignore
+
+    with pytest.raises(TypeError, match="split name must be a string"):
+        dataset.make_splits({1: 1.0})  # type: ignore
+
+    with pytest.raises(TypeError, match="must be a bool"):
+        dataset.make_splits((1.0, 0.0, 0.0), replace_old_splits="yes")  # type: ignore
 
     with pytest.raises(TypeError, match="ratios or filepath lists"):
         dataset.make_splits({"train": 0.5, "val": ["a.jpg"]})  # type: ignore

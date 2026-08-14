@@ -18,7 +18,6 @@ from filelock import FileLock
 from loguru import logger
 from rich.progress import Progress
 from semver.version import Version
-from typeguard import typechecked
 from typing_extensions import Self, override
 
 from luxonis_ml.data.exporters import (
@@ -1467,7 +1466,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             return json.load(file)
 
     @override
-    @typechecked
     def make_splits(
         self,
         splits: (
@@ -1510,17 +1508,16 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 splits. If ``True``, the existing splits are discarded first.
 
         Raises:
-            TypeCheckError: If ``splits`` does not match the annotated
-                type. The check samples a mapping, so it does not see
-                every value. The method warns and skips each definition
+            TypeError: If ``splits`` is not a mapping, a tuple of 3
+                ratios, or ``None``. Also if the mapping values are
+                neither ratios nor file lists. The method does not check
+                the elements of a file list. It warns and skips each
                 element that is not a filepath.
             ValueError: If ``splits`` is provided but is empty.
             ValueError: If the ratios are outside the range from 0 to 1 or
                 do not sum to 1.
             ValueError: If split ratios are used but all the data already
                 belongs to a split while ``replace_old_splits`` is ``False``.
-            TypeError: If the mapping values are neither ratios nor file
-                lists.
             FileNotFoundError: If the dataset is empty.
 
         """
@@ -1530,18 +1527,41 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         ratios: Mapping[str, float] | None = None
         definitions: Mapping[str, Sequence[PathType]] | None = None
 
+        if not isinstance(replace_old_splits, bool):
+            raise TypeError(
+                "`replace_old_splits` must be a bool, not a "
+                f"{type(replace_old_splits).__name__}."
+            )
+
         if isinstance(splits, tuple):
-            # `bool` is a subclass of `int`, so `typeguard` lets it pass
-            # as a float. It is never a meaningful ratio.
-            if any(isinstance(ratio, bool) for ratio in splits):
-                raise TypeError("A bool is not a ratio. Use 1.0 and 0.0.")
+            if len(splits) != 3:
+                raise TypeError(
+                    "A tuple of ratios must hold exactly 3 values, for "
+                    f"train, val, and test. Got {len(splits)}."
+                )
+            # `bool` is a subclass of `int`, but it is never a ratio.
+            if any(
+                isinstance(ratio, bool) or not isinstance(ratio, (int, float))
+                for ratio in splits
+            ):
+                raise TypeError(
+                    "A tuple of ratios must hold numbers. A bool is not a "
+                    "ratio; use 1.0 and 0.0."
+                )
             ratios = {
                 "train": splits[0],
                 "val": splits[1],
                 "test": splits[2],
             }
+        elif not isinstance(splits, Mapping):
+            raise TypeError(
+                "Splits must be a mapping, a tuple of 3 ratios, or None. "
+                f"Got a {type(splits).__name__}."
+            )
         elif not splits:
             raise ValueError("Splits cannot be empty")
+        elif not all(isinstance(split, str) for split in splits):
+            raise TypeError("Every split name must be a string.")
         elif _are_ratios(splits):
             ratios = splits
         elif _are_definitions(splits):
@@ -1641,8 +1661,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             for split, filepaths in definitions.items():
                 ids: list[str] = []
                 for filepath in filepaths:
-                    # `typeguard` samples only the first value of a
-                    # mapping, so the elements arrive unchecked.
+                    # The validation above checks the container, not the
+                    # elements, so a bad element arrives here.
                     if not isinstance(filepath, (str, Path)):
                         logger.warning(
                             f"Split '{split}' contains {filepath!r}, "
