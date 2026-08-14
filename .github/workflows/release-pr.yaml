@@ -15,4 +15,5 @@ jobs:
       version: ${{ inputs.version }}
       version-file: luxonis_ml/__init__.py
       project-name: LuxonisML
-    secrets: inherit
+    secrets:
+      WORKFLOW_SECRET: ${{ secrets.WORKFLOW_SECRET }}

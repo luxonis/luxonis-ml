@@ -225,7 +225,8 @@ jobs:
       version: ${{ inputs.version }}
       version-file: luxonis_train/__init__.py
       project-name: LuxonisTrain
-    secrets: inherit
+    secrets:
+      WORKFLOW_SECRET: ${{ secrets.WORKFLOW_SECRET }}
 ```
 
 and a `Release Tag` caller with the same `version-file`. The repository needs
