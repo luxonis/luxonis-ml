@@ -255,6 +255,52 @@ def test_small_dataset_keeps_every_split(
     }
 
 
+def test_remove_duplicates_skips_a_clean_dataset(
+    bucket_storage: BucketStorage,
+    dataset_name: str,
+    tempdir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A clean dataset must not pay for a full rewrite.
+
+    make_splits calls remove_duplicates before it knows the result. The
+    method rewrote every parquet file and re-uploaded the annotations,
+    even when it removed nothing.
+    """
+    paths = [str(create_image(i, tempdir)) for i in range(3)]
+
+    def generator(duplicate: bool) -> DatasetIterator:
+        for path in paths:
+            yield {"file": path, "annotation": {"class": "dog"}}
+        if duplicate:
+            yield {"file": paths[0], "annotation": {"class": "dog"}}
+
+    saved: list[object] = []
+
+    def record(_: LuxonisDataset, df: object) -> None:
+        saved.append(df)
+
+    clean = create_dataset(
+        dataset_name, generator(duplicate=False), bucket_storage, splits=False
+    )
+    monkeypatch.setattr(LuxonisDataset, "_save_df_offline", record)
+    clean.remove_duplicates()
+    monkeypatch.undo()
+    assert not saved
+
+    # The positive control. A real duplicate still triggers the rewrite.
+    duplicated = create_dataset(
+        f"{dataset_name}_duplicated",
+        generator(duplicate=True),
+        bucket_storage,
+        splits=False,
+    )
+    monkeypatch.setattr(LuxonisDataset, "_save_df_offline", record)
+    duplicated.remove_duplicates()
+    monkeypatch.undo()
+    assert len(saved) == 1
+
+
 def test_make_splits_is_atomic(
     bucket_storage: BucketStorage,
     dataset_name: str,

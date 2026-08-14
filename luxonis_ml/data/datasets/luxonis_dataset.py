@@ -1970,11 +1970,21 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             for duplicates in duplicate_info["duplicate_uuids"]
             for file in duplicates["files"][1:]
         ]
+        n_rows = df.select(pl.len()).collect().item()
         df = df.filter(~pl.col("file").is_in(duplicate_files_to_remove))
 
-        df = df.unique(subset=["file", "annotation"], maintain_order=True)
+        deduplicated = df.unique(
+            subset=["file", "annotation"], maintain_order=True
+        ).collect()
 
-        self._save_df_offline(df.collect())
+        # Both steps above only drop rows. An equal row count thus means
+        # the data did not change, so the rewrite and the upload below
+        # would only repeat the current contents.
+        if deduplicated.height == n_rows:
+            logger.info("The dataset has no duplicates.")
+            return
+
+        self._save_df_offline(deduplicated)
 
         if self.is_remote:
             self._fs.put_dir(
