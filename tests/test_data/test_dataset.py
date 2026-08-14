@@ -271,7 +271,7 @@ def test_make_splits(
     with pytest.raises(ValueError, match=r"Ratios must sum to 1.0"):
         dataset.make_splits((0.7, 0.1, 1))
 
-    with pytest.raises(TypeCheckError):
+    with pytest.raises(TypeCheckError, match=r'argument "splits"'):
         dataset.make_splits((0.7, 0.1, 0.1, 0.1))  # type: ignore
 
     with pytest.raises(ValueError, match=r"Ratios must sum to 1.0"):
@@ -283,7 +283,7 @@ def test_make_splits(
     with pytest.raises(TypeError, match="ratios or filepath lists"):
         dataset.make_splits({"train": "invalid"})
 
-    with pytest.raises(TypeCheckError):
+    with pytest.raises(TypeCheckError, match=r'argument "splits"'):
         dataset.make_splits([0.8, 0.1, 0.1])  # type: ignore
 
     with pytest.raises(TypeError, match="ratios or filepath lists"):

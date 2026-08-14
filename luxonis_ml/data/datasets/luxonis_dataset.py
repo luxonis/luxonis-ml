@@ -2009,7 +2009,10 @@ def _are_ratios(
 def _are_definitions(
     splits: Mapping[str, object],
 ) -> TypeGuard[Mapping[str, Sequence[PathType]]]:
+    # `str` and the binary types are sequences too, but none of them is
+    # a list of filepaths.
     return all(
-        isinstance(value, Sequence) and not isinstance(value, (str, bytes))
+        isinstance(value, Sequence)
+        and not isinstance(value, (str, bytes, bytearray, memoryview))
         for value in splits.values()
     )

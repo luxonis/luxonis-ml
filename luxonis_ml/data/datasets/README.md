@@ -56,10 +56,10 @@ The `make_splits()` method divides the dataset into separate splits (train/val/t
 
 #### Parameters
 
-| Parameter            | Type                                                                                          | Default | Description                                   |
-| -------------------- | --------------------------------------------------------------------------------------------- | ------- | --------------------------------------------- |
-| `splits`             | `Mapping[str, float]` or<br>`Tuple[float, float, float]` or<br>`Mapping[str, List[PathType]]` | `None`  | Proportions or explicit file paths for splits |
-| `replace_old_splits` | `bool`                                                                                        | `False` | Whether to replace existing splits            |
+| Parameter            | Type                                                                                          | Default | Description                                                                                                          |
+| -------------------- | --------------------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------- |
+| `splits`             | `Mapping[str, float]` or<br>`Tuple[float, float, float]` or<br>`Mapping[str, List[PathType]]` | `None`  | Proportions or explicit file paths for splits                                                                        |
+| `replace_old_splits` | `bool`                                                                                        | `False` | Whether to discard the existing splits first. If `False`, the method adds only the files that are not in a split yet |
 
 ### Merging Datasets
 
