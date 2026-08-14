@@ -494,8 +494,6 @@ class LuxonisParser(Generic[T]):
                 "Expected `ultralytics://username/datasets/slug`."
             )
 
-        # The API addresses a dataset by owner and name. It matches both
-        # exactly, so the name doubles as the local file stem.
         name = path_parts[1]
         export_response = requests.get(
             f"{ultralytics_api_base_url}/datasets"
