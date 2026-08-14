@@ -255,6 +255,46 @@ def test_small_dataset_keeps_every_split(
     }
 
 
+def test_make_splits_is_atomic(
+    bucket_storage: BucketStorage,
+    dataset_name: str,
+    tempdir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A failed write must not destroy the existing splits.
+
+    The method wrote straight to ``splits.json``. A failure in the
+    middle of the write left a truncated file that no longer parses,
+    and the old splits were gone.
+    """
+
+    def generator() -> DatasetIterator:
+        for i in range(10):
+            yield {
+                "file": str(create_image(i, tempdir)),
+                "annotation": {"class": "dog"},
+            }
+
+    dataset = create_dataset(dataset_name, generator(), bucket_storage)
+    old_splits = dataset.get_splits()
+    assert old_splits is not None
+
+    write_text = Path.write_text
+
+    def failing_write_text(self: Path, data: str, *args, **kwargs) -> int:
+        if self.name.startswith("splits.json"):
+            write_text(self, "truncated")
+            raise RuntimeError("the disk is full")
+        return write_text(self, data, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", failing_write_text)
+    with pytest.raises(RuntimeError, match="the disk is full"):
+        dataset.make_splits((0.5, 0.5, 0.0), replace_old_splits=True)
+    monkeypatch.undo()
+
+    assert dataset.get_splits() == old_splits
+
+
 def test_definitions_skip_a_non_filepath(
     bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
 ):

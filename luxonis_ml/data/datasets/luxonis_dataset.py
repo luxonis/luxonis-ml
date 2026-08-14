@@ -1572,14 +1572,17 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             with open(splits_path) as file:
                 old_splits = defaultdict(list, json.load(file))
 
-        if replace_old_splits:
-            old_splits.clear()
-
-        defined_group_ids = {
-            group_id
-            for group_ids in old_splits.values()
-            for group_id in group_ids
-        }
+        # The old splits stay in memory until the write. A failure in
+        # between must not discard them.
+        defined_group_ids: set[str] = (
+            set()
+            if replace_old_splits
+            else {
+                group_id
+                for group_ids in old_splits.values()
+                for group_id in group_ids
+            }
+        )
 
         if ratios is not None:
             df = self._load_df_offline(raise_when_empty=True)
@@ -1666,10 +1669,13 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                     "The new splits are empty."
                 )
 
+        if replace_old_splits:
+            old_splits.clear()
+
         for split, group_ids in new_splits.items():
             old_splits[split].extend(group_ids)
 
-        splits_path.write_text(json.dumps(old_splits, indent=4))
+        _write_json(splits_path, old_splits)
 
         with suppress(shutil.SameFileError):
             self._fs.put_file(splits_path, "metadata/splits.json")
@@ -2024,6 +2030,23 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                     task=task_name,
                     rewrite_metadata=False,
                 )
+
+
+def _write_json(path: Path, data: Mapping[str, list[str]]) -> None:
+    """Write JSON to a temporary file, then rename the file.
+
+    ``Path.replace`` is atomic on one filesystem. A failure during the
+    write thus leaves the previous file unchanged, instead of a
+    truncated file that no longer parses.
+
+    Args:
+        path: The destination file.
+        data: The data to write.
+
+    """
+    tmp_path = path.with_name(f"{path.name}.tmp")
+    tmp_path.write_text(json.dumps(data, indent=4))
+    tmp_path.replace(path)
 
 
 def _split_sizes(n_groups: int, ratios: Mapping[str, float]) -> dict[str, int]:
