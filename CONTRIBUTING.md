@@ -59,6 +59,7 @@ the uv override that removes `opencv-python-headless`. See the comment in
 | `tests`                        | Pytest suite, fixtures, integration tests, and data workflow coverage.           |
 | `tools/build_pydoctor_docs.py` | The local and CI entrypoint for generated API docs.                              |
 | `tools/export_requirements.sh` | Regenerates `uv.lock` and the `requirements*.txt` exports.                       |
+| `tools/version.py`             | Reports the package version, or changes it for a release.                        |
 
 Package dependencies are defined entirely in `pyproject.toml`: runtime
 requirements in `[project.dependencies]`, the per-module and cloud extras in
@@ -187,8 +188,29 @@ selected extras.
 
 ## Releases
 
+A release needs two manual steps: start the workflow, then merge the pull
+request it opens.
+
+1. Run the `Release PR` workflow from the Actions tab. Give it `major`,
+   `minor`, `patch`, or an explicit version such as `1.2.3`.
+1. The workflow changes `__version__` in `luxonis_ml/__init__.py` and opens a
+   `release/vX.Y.Z` pull request that lists the changes after the last tag.
+1. Review the pull request, wait for CI, and merge it.
+1. The `Release Tag` workflow then tags `vX.Y.Z-beta` on the merge commit and
+   creates the GitHub release with generated notes.
+1. The release publication starts the PyPI upload and the docs deployment.
+
+Use `tools/version.py` for the same version change on your machine:
+
+```bash
+python3 tools/version.py            # report the current version
+python3 tools/version.py --set minor
+```
+
 Package publishing and documentation deployment are handled by GitHub Actions:
 
+- `release-pr.yaml` opens the version bump pull request on manual dispatch.
+- `release-tag.yaml` tags and releases a merged `release/*` pull request.
 - `python-publish.yml` builds and publishes on release publication or manual
   dispatch.
 - `docs-pages.yaml` publishes GitHub Pages docs on `main`, release publication,

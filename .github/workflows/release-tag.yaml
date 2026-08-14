@@ -1,0 +1,44 @@
+name: Release Tag
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  # Every tag after v0.3.0 carries this suffix. Empty it for a stable release.
+  TAG_SUFFIX: "-beta"
+
+jobs:
+  release:
+    if: >-
+      github.event.pull_request.merged &&
+      startsWith(github.event.pull_request.head.ref, 'release/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          persist-credentials: false
+
+      - name: Read the version
+        id: version
+        run: echo "version=$(python3 tools/version.py)" >> "$GITHUB_OUTPUT"
+
+      - name: Create the release
+        env:
+          # The default token cannot start another workflow. The personal
+          # token makes the release event start the PyPI upload and the
+          # documentation deployment.
+          GH_TOKEN: ${{ secrets.WORKFLOW_SECRET }}
+          TAG: v${{ steps.version.outputs.version }}${{ env.TAG_SUFFIX }}
+          TARGET: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          gh release create "$TAG" \
+            --target "$TARGET" \
+            --title "$TAG" \
+            --generate-notes
