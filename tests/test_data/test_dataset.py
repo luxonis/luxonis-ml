@@ -294,8 +294,20 @@ def test_make_splits(
     with pytest.raises(TypeError, match="ratios or filepath lists"):
         dataset.make_splits({"train": 0.5, "val": ["a.jpg"]})  # type: ignore
 
+    # An integer is not a ratio. `BaseParser` reads the same mapping as
+    # absolute file counts, so `make_splits` must not guess.
+    with pytest.raises(TypeError, match="An integer is not a ratio"):
+        dataset.make_splits({"train": 8, "val": 1, "test": 1})  # type: ignore
+
+    with pytest.raises(TypeError, match="An integer is not a ratio"):
+        dataset.make_splits({"custom_split": 1})  # type: ignore
+
+    # A `bool` is a subclass of `int`, so it is not a ratio either.
+    with pytest.raises(TypeError, match="An integer is not a ratio"):
+        dataset.make_splits({"train": True})  # type: ignore
+
     dataset.add(generator(10))
-    dataset.make_splits({"custom_split": 1})
+    dataset.make_splits({"custom_split": 1.0})
     splits = dataset.get_splits()
     assert splits is not None
     assert set(splits.keys()) == {"train", "val", "test", "custom_split"}
@@ -316,17 +328,14 @@ def test_make_splits(
 
     n_groups = sum(len(split_data) for split_data in splits.values())
 
-    # A `bool` value works as a ratio, because `bool` is a subclass of `int`.
-    for bool_splits in [
-        {"train": True, "val": False, "test": False},
-        (True, False, False),
-    ]:
-        dataset.make_splits(bool_splits, replace_old_splits=True)
-        splits = dataset.get_splits()
-        assert splits is not None
-        assert len(splits["train"]) == n_groups
-        assert not splits["val"]
-        assert not splits["test"]
+    # A tuple stays permissive, because a tuple is positional and no
+    # parser sends one. Only a mapping needs a real float.
+    dataset.make_splits((True, False, False), replace_old_splits=True)
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert len(splits["train"]) == n_groups
+    assert not splits["val"]
+    assert not splits["test"]
 
     # `replace_old_splits=True` discards the old splits, even when every
     # file in the definitions already belongs to a split.

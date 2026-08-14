@@ -1500,6 +1500,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 - A mapping of split names to float ratios.
                 - A tuple of three float ratios for train, val, and test splits.
 
+                A ratio in a mapping must be a float. Write ``1.0``, not
+                ``1``. A parser reads an integer as an absolute file
+                count, so an integer here would have two meanings.
+
             replace_old_splits: Whether to replace old splits with new ones.
                 If ``False`` (default), new splits are added to the existing
                 splits. If ``True``, the existing splits are discarded first.
@@ -1536,7 +1540,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             definitions = splits
         else:
             raise TypeError(
-                "Splits must map names to either ratios or filepath lists"
+                "Splits must map names to either ratios or filepath lists. "
+                "A ratio must be a float. An integer is not a ratio, "
+                "because a parser reads an integer as a file count."
             )
 
         if ratios is not None:
@@ -2003,9 +2009,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 def _are_ratios(
     splits: Mapping[str, object],
 ) -> TypeGuard[Mapping[str, float]]:
-    # A `bool` value also counts as a ratio, because `bool` is a subclass
-    # of `int`.
-    return all(isinstance(value, (int, float)) for value in splits.values())
+    # An `int` is not a ratio. `BaseParser` reads an integer value as an
+    # absolute file count, so `{"train": 8}` would have two meanings.
+    return all(isinstance(value, float) for value in splits.values())
 
 
 def _are_definitions(
