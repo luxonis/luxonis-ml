@@ -1,6 +1,6 @@
 import shutil
 from pathlib import Path
-from typing import Annotated, TypeAlias
+from typing import Annotated, Literal, TypeAlias
 
 import cv2
 import matplotlib.pyplot as plt
@@ -20,12 +20,10 @@ from luxonis_ml.data import (
     LuxonisParser,
     UpdateMode,
 )
-from luxonis_ml.data.utils.augmentations_collector import (
-    AugmentationsCollector,
-)
 from luxonis_ml.data.utils.cli_utils import (
     check_exists,
     get_dataset_info,
+    get_tracked_augmentations,
     parse_split_ratio,
     print_info,
 )
@@ -229,6 +227,14 @@ def inspect(
         bool,
         Parameter(negative=""),
     ] = True,
+    skeletons: Annotated[
+        bool,
+        Parameter(negative=""),
+    ] = False,
+    keypoint_labels: Annotated[
+        Literal["none", "numbers", "names", "full"],
+        Parameter(),
+    ] = "numbers",
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
     """Inspect images and annotations in a dataset.
@@ -251,10 +257,18 @@ def inspect(
         list_augmentations: Show the augmentations applied to each
             displayed image. Requires '--aug-config' to be set.
         print_sample_metadata: Print sample metadata for each displayed sample.
+        skeletons: Draw keypoint skeleton edges.
+        keypoint_labels: Specify how to draw keypoint labels.
         bucket_storage: Storage type of the dataset.
 
     """
     check_exists(name, bucket_storage)
+    if list_augmentations and aug_config is None:
+        logger.warning(
+            "The '--list-augmentations' option requires "
+            "'--aug-config' to be set. No augmentations will be listed."
+        )
+        list_augmentations = False
 
     view = view or ["train"]
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
@@ -286,34 +300,29 @@ def inspect(
             seed=42 if deterministic else None,
         )
 
-    if list_augmentations:
-        if aug_config is None:
-            logger.warning(
-                "--list-augmentations was set but --aug-config was not "
-                "provided. No augmentations will be shown."
-            )
-            get_applied_augmentations = list
-        elif loader._augmentations is not None:
-            collector = AugmentationsCollector(
-                loader._augmentations,  # type: ignore
-                aug_config,
-            )
-            get_applied_augmentations = collector.get_applied_augmentations
-        else:
-            get_applied_augmentations = list
-    else:
-        get_applied_augmentations = list
-
     classes = dataset.get_classes()
     categorical_encodings = dataset.get_categorical_encodings()
+    keypoint_skeletons = (
+        dataset.get_skeletons()
+        if skeletons or keypoint_labels in ("names", "full")
+        else None
+    )
     prev_windows = set()
 
     for data in loader:
         images_dict = data.images
         labels = data.labels
+        tracked_augmentations = get_tracked_augmentations(data.metadata)
 
         if print_sample_metadata:
-            print("Sample metadata:", data.metadata)
+            metadata = data.metadata
+            if not list_augmentations and tracked_augmentations is not None:
+                # The runtime parameters of every transformation would bury
+                # the record metadata this flag exists to show.
+                metadata = {
+                    k: v for k, v in metadata.items() if k != "augmentations"
+                }
+            print("Sample metadata:", metadata)
 
         current_windows = set(images_dict.keys())
         for stale_window in prev_windows - current_windows:
@@ -358,10 +367,13 @@ def inspect(
                         classes,
                         blend_all=blend_all,
                         categorical_encodings=categorical_encodings,
+                        skeletons=keypoint_skeletons,
+                        draw_skeletons=skeletons,
+                        keypoint_label_mode=keypoint_labels,
                     )
                     if list_augmentations:
                         instance_image = add_augmentation_footer(
-                            instance_image, get_applied_augmentations()
+                            instance_image, list(tracked_augmentations or {})
                         )
                     cv2.resizeWindow(
                         source_name,
@@ -384,10 +396,13 @@ def inspect(
                     classes,
                     blend_all=blend_all,
                     categorical_encodings=categorical_encodings,
+                    skeletons=keypoint_skeletons,
+                    draw_skeletons=skeletons,
+                    keypoint_label_mode=keypoint_labels,
                 )
                 if list_augmentations:
                     labeled_image = add_augmentation_footer(
-                        labeled_image, get_applied_augmentations()
+                        labeled_image, list(tracked_augmentations or {})
                     )
                 cv2.resizeWindow(
                     source_name, labeled_image.shape[1], labeled_image.shape[0]
@@ -428,6 +443,7 @@ def export(
         Parameter(alias="-m"),
     ] = None,
     zip: bool = True,
+    ldf_version: str | None = None,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
     """Export a Luxonis dataset to disk.
@@ -445,6 +461,10 @@ def export(
         zip: If ``True``, the exported dataset will be zipped into a
             single archive. If ``False``, the dataset will be exported as a
             directory with the specified structure.
+        ldf_version: LDF version to write, such as ``2.0``, so the export
+            can be read by an older luxonis-ml. Only valid with
+            ``--type native``. Downgrading is lossy and warns about what
+            it drops.
         bucket_storage: Storage type of the dataset.
 
     """
@@ -452,7 +472,13 @@ def export(
     if delete_existing and Path(save_dir).exists():
         shutil.rmtree(save_dir)
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
-    dataset.export(save_dir, dataset_type, max_partition_size_gb, zip)
+    dataset.export(
+        save_dir,
+        dataset_type=dataset_type,
+        max_partition_size_gb=max_partition_size_gb,
+        zip_output=zip,
+        ldf_version=ldf_version,
+    )
 
 
 @app.command

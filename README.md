@@ -38,12 +38,15 @@ The `luxonis_ml` package is hosted on PyPI, so you can install it with `pip`.
 
 We offer several versions of the package:
 
+- `luxonis-ml[ldf]`: installs necessary dependencies for using `luxonis_ml.ldf` module
 - `luxonis-ml[data]`: installs necessary dependencies for using `luxonis_ml.data` module
 - `luxonis-ml[utils]`: installs necessary dependencies for using `luxonis_ml.utils` module
 - `luxonis-ml[tracker]`: installs necessary dependencies for using `luxonis_ml.tracker` module
 - `luxonis-ml[telemetry]`: installs necessary dependencies for using `luxonis_ml.telemetry` module
 - `luxonis-ml[all]`: installs all dependencies
-- `luxonis-ml[dev]`: installs all dependencies, including development dependencies
+
+For a development environment, see [CONTRIBUTING.md](CONTRIBUTING.md); the development
+tooling lives in `uv` dependency groups rather than in a published extra.
 
 ### Additional dependencies
 
@@ -80,10 +83,10 @@ The latest API documentation is published with GitHub Pages:
 
 Versioned release docs are published under `releases/<tag>/` for releases created after `v0.8.6-beta`.
 
-To build the docs locally, install the development dependencies and run:
+To build the docs locally, run:
 
 ```bash
-python tools/build_pydoctor_docs.py --mode current --output apidocs
+uv run python tools/build_pydoctor_docs.py --mode current --output apidocs
 ```
 
 The local site will be written to `apidocs/latest/index.html`.

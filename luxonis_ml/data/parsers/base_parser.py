@@ -10,9 +10,9 @@ import polars as pl
 from loguru import logger
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
-from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.utils.enums import ParserIssue, ParserIssueMessage
 from luxonis_ml.enums.enums import DatasetType
+from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.typing import PathType
 
 if TYPE_CHECKING:
@@ -566,10 +566,14 @@ class BaseParser(ABC):
         """Compare sets of files by stem.
 
         Example:
-            >>> BaseParser._compare_stem_files([Path("a.jpg"), Path("b.jpg")],
-            ...                                [Path("a.xml"), Path("b.xml")])
+            >>> BaseParser._compare_stem_files(
+            ...     [Path("a.jpg"), Path("b.jpg")],
+            ...     [Path("a.xml"), Path("b.xml")],
+            ... )
             True
-            >>> BaseParser._compare_stem_files([Path("a.jpg")], [Path("b.txt")])
+            >>> BaseParser._compare_stem_files(
+            ...     [Path("a.jpg")], [Path("b.txt")]
+            ... )
             False
 
         Args:

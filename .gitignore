@@ -77,8 +77,8 @@ target/
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# pyenv
-.python-version
+# pyenv / uv
+!.python-version
 
 # celery beat schedule file
 celerybeat-schedule
@@ -118,3 +118,6 @@ tests/data
 *.zip
 .idea/*
 apidocs/
+
+AGENTS.md
+CLAUDE.md

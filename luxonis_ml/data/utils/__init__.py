@@ -26,9 +26,8 @@ the part of the data workflow they support:
    * - Visualization
      - `visualize`, color-map helpers, image concatenation, augmentation
        footers, and dataset-statistic plots.
-   * - Equivalence and augmentation inspection
-     - LDF equivalence checks and `AugmentationsCollector` summaries for
-       configured augmentation pipelines.
+   * - Equivalence
+     - LDF equivalence checks.
 
 The task-key helpers follow the same convention as `LuxonisLoader`: labels are
 addressed by ``"task_name/task_type"`` and metadata labels use
@@ -36,7 +35,6 @@ addressed by ``"task_name/task_type"`` and metadata labels use
 present.
 """
 
-from .augmentations_collector import AugmentationsCollector
 from .data_utils import (
     find_duplicates,
     get_class_distributions,
@@ -81,7 +79,6 @@ from .visualizations import (
 )
 
 __all__ = [
-    "AugmentationsCollector",
     "BucketStorage",
     "BucketType",
     "COCOFormat",

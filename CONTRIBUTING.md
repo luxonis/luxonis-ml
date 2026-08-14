@@ -1,123 +1,203 @@
 # Contributing to LuxonisML
 
-**This guide is intended for our internal development team.**
-It outlines our workflow and standards for contributing to this project.
+This guide is the starting point for local development and pull requests.
+For API usage details, use the generated docs at
+<https://luxonis.github.io/luxonis-ml/latest/>.
 
-## Table of Contents
+## Preparation
 
-- [Pre-requisites](#pre-requisites)
-- [Pre-commit Hooks](#pre-commit-hooks)
-- [Documentation](#documentation)
-  - [Editor Support](#editor-support)
-- [Tests](#tests)
-- [GitHub Actions](#github-actions)
-- [Making and Reviewing Changes](#making-and-reviewing-changes)
-- [Notes](#notes)
-
-## Pre-requisites
-
-Clone the repository and navigate to the root directory:
+Install [uv](https://docs.astral.sh/uv/), then:
 
 ```bash
 git clone git@github.com:luxonis/luxonis-ml.git
-cd luxonis-train
+cd luxonis-ml
+
+uv sync
+
+uv run prek install
+uv run luxonis_ml checkhealth
 ```
 
-Install the development dependencies by running `pip install -r requirements-dev.txt` or install the package with the `dev` extra flag:
+`uv sync` creates `.venv` and installs the package in editable mode together
+with the `dev` dependency group. That group depends on `luxonis-ml[all]`, so a
+plain `uv sync` pulls in every extra as well — you do not need `--all-extras`.
+There is no `source .venv/bin/activate` step: `uv run <cmd>` syncs the
+environment and runs the command inside it. Use `uv run --no-sync <cmd>` when
+you have hand-installed something into `.venv` that a sync would revert, such
+as a git checkout of a dependency.
+
+**The project targets Python 3.10 or newer.** `.python-version` pins the local
+interpreter to 3.10, which is what CI runs, and `uv` downloads it for you if it
+is missing.
+
+The repository's requirements files are generated pip compatibility exports,
+not inputs. Do not edit them by hand. Change dependencies in `pyproject.toml`
+(or with `uv add`), then run:
 
 ```bash
-pip install -e .[dev]
+tools/export_requirements.sh
 ```
 
-> [!NOTE]
-> This will install the package in editable mode (`-e`),
-> so you can make changes to the code and run them immediately.
+A pre-commit hook runs it for you whenever the dependency files change, so
+usually you only need to review and stage the refreshed `uv.lock` and
+requirements files before committing again.
 
-## Pre-commit Hooks
+Only `requirements.txt` is hash pinned. The other exports retain their legacy
+unhashed format; this is also required for `data`, because pip does not honour
+the uv override that removes `opencv-python-headless`. See the comment in
+`tools/export_requirements.sh`.
 
-We use pre-commit hooks to ensure code quality and consistency:
+## Repository Map
 
-1. Install pre-commit (see [pre-commit.com](https://pre-commit.com/#install)).
-1. Clone the repository and run `pre-commit install` in the root directory.
-1. The pre-commit hook will now run automatically on `git commit`.
-   - If the hook fails, it will print an error message and abort the commit.
-   - It will also modify the files in-place to fix any issues it can.
+| Path                           | Purpose                                                                          |
+| ------------------------------ | -------------------------------------------------------------------------------- |
+| `luxonis_ml/data`              | Dataset creation, parsers, exporters, loaders, augmentations, and LDF utilities. |
+| `luxonis_ml/utils`             | Shared config, filesystem, path, logging, graph, and registry helpers.           |
+| `luxonis_ml/nn_archive`        | Model archive metadata and archive generation utilities.                         |
+| `luxonis_ml/tracker`           | Experiment tracking integrations.                                                |
+| `luxonis_ml/telemetry`         | Lightweight telemetry client, events, redaction, and backends.                   |
+| `tests`                        | Pytest suite, fixtures, integration tests, and data workflow coverage.           |
+| `tools/build_pydoctor_docs.py` | The local and CI entrypoint for generated API docs.                              |
+| `tools/export_requirements.sh` | Regenerates `uv.lock` and the `requirements*.txt` exports.                       |
 
-## Documentation
+Package dependencies are defined entirely in `pyproject.toml`: runtime
+requirements in `[project.dependencies]`, the per-module and cloud extras in
+`[project.optional-dependencies]`, and the `dev` and `docs` tooling in
+`[dependency-groups]`.
 
-We use the [Epytext](https://epydoc.sourceforge.net/epytext.html) markup language for documentation.
-To verify that your documentation is formatted correctly, run the following command:
+## Pre-commit checks
+
+Run the same formatting and static checks before pushing:
 
 ```bash
-pydoctor --docformat=epytext luxonis_ml
+uv run prek run --all-files
 ```
 
-### Editor Support
+The hooks are executed by [`prek`](https://github.com/j178/prek), a drop-in
+replacement for `pre-commit` that reads the same `.pre-commit-config.yaml`.
 
-- **PyCharm** - built in support for generating `epytext` docstrings
-- **Visual Studie Code** - [AI Docify](https://marketplace.visualstudio.com/items?itemName=AIC.docify) extension offers support for `epytext`
-- **NeoVim** - [vim-python-docstring](https://github.com/pixelneo/vim-python-docstring) supports `epytext` style
+Pre-commit runs:
+
+| Tool                   | What it enforces                                                                          |
+| ---------------------- | ----------------------------------------------------------------------------------------- |
+| `ruff` / `ruff-format` | Python linting, import sorting, and formatting.                                           |
+| `typos`                | Common spelling mistakes.                                                                 |
+| `mdformat`             | Markdown formatting.                                                                      |
+| `prettier`             | YAML formatting.                                                                          |
+| `taplo-format`         | TOML formatting.                                                                          |
+| `pre-commit-hooks`     | File endings, JSON/YAML/TOML validity, private key detection, and main branch protection. |
+| `export-requirements`  | Keeps `uv.lock` and the pip requirements exports in sync with `pyproject.toml`.           |
+
+**Do not commit directly to `main`.** The pre-commit hook blocks it, and PRs
+are the expected review path.
 
 ## Tests
 
-All tests and their files are located in the `tests` directory.
-
-We use [pytest](https://docs.pytest.org/en/stable/) for testing with the `x-dist` and `coverage` plugins for parallel execution and coverage reporting.
-
-The tests define multiple useful fixtures that make it easier
-to achieve fully independent tests that can be run in parallel.
-
-- `tempdir` - an empty temporary directory
-- `dataset_name` - a unique name that can be used for instantiation of `LuxonisDataset`
-- `randint` - a random integer between 0 and 100,000
-- `python_version` - the version of Python running the tests
-- `platform_name` - the name of the platform running the tests
-
-For the full list, see the `tests/conftest.py`.
-
-PyTest fixtures can be used by simply adding them to the signature of the test function:
-
-```python
-def test_foo(tempdir: Path, dataset_name: str):
-    ...
-```
-
-You can run the tests locally with:
+Run focused tests while developing, then broaden the run before opening a PR.
 
 ```bash
-pytest tests --cov=luxonis_ml --cov-report=html -n auto
+uv run pytest tests/test_utils/test_config.py -q
+uv run pytest tests/test_data/test_loader.py --only-local -q
+uv run pytest tests --only-local -n auto
 ```
 
-This command will run all tests in parallel (`-n auto`) and will generate an HTML coverage report.
+Use `--only-local` for data tests that are parametrized over local and cloud
+storage. Some tests still need credentials or downloaded fixtures because they
+exercise explicit remote integrations.
 
-> [!TIP]
-> The coverage report will be saved to `htmlcov` directory.
-> If you want to inspect the coverage in more detail, open `htmlcov/index.html` in a browser.
+Common fixtures live in `tests/conftest.py`:
+
+| Fixture           | Use                                                       |
+| ----------------- | --------------------------------------------------------- |
+| `tempdir`         | Isolated temporary directory under the test workspace.    |
+| `dataset_name`    | Unique `LuxonisDataset` name with cleanup.                |
+| `randint`         | Fresh random integer for unique names.                    |
+| `height`, `width` | Shared image dimensions.                                  |
+| `bucket_storage`  | Parametrized storage backend; affected by `--only-local`. |
+
+CI splits the full suite across Ubuntu and Windows and runs with `-n auto`.
+When a change touches shared data loading, parsing, exporting, storage, or
+annotation behavior, add or update tests near the affected workflow.
+
+## Documentation
+
+Public API docs are generated from docstrings with pydoctor using the
+**Google** docstring format.
+
+Build the current checkout locally:
+
+```bash
+uv run python tools/build_pydoctor_docs.py --mode current --output apidocs
+```
+
+Open `apidocs/latest/index.html` to inspect the result.
+
+For docs changes, prefer updating package and object docstrings that feed the
+generated site. Several submodule `README.md` files are deprecated and point to
+GitHub Pages; avoid expanding them unless the task specifically asks for it.
+
+Good doc changes should:
+
+- explain public behavior, accepted inputs, outputs, and failure modes;
+- include compact examples for non-obvious data shapes;
+- use readable spacing in JSON and Python snippets;
+- avoid restating implementation details that users do not need.
 
 > [!IMPORTANT]
-> If a new feature is added, a new test should be added to cover it.
-> There is no minimum coverage requirement for now, but minimal coverage will be enforced in the future.
+> Use direct names in docstrings rather than Sphinx cross-reference roles (`:func:`, `:mod:`, `:attr:`, *etc.*);
+> pydoctor resolves supported references automatically.
 
-> [!IMPORTANT]
-> All tests must be passing using the `-n auto` flag before merging a PR.
+## Type Checking and Security
 
-## GitHub Actions
+CI runs Pyright in warning mode against `pyproject.toml`. Pyright is pinned in
+the `dev` dependency group, so the local run matches CI:
 
-Our GitHub Actions workflow is run when a new PR is opened.
+```bash
+uv run pyright --warnings --level warning --project pyproject.toml
+```
 
-1. First, the [pre-commit](#pre-commit-hooks) hooks must pass and the [documentation](#documentation) must be built successfully.
-1. If all previous checks pass, the [tests](#tests) are run.
+CI also runs Semgrep with automatic rules and secret scanning. Treat those
+findings as required review items unless the team explicitly accepts the risk.
 
-> [!TIP]
-> Review the GitHub Actions output if your PR fails.
+## Pull Requests
 
-> [!IMPORTANT]
-> Successful completion of all the workflow checks is required for merging a PR.
+1. Create a branch with a descriptive prefix such as `feature/`, `fix/`,
+   `bugfix/`, `docs/`, or `ci/`.
+1. Keep changes scoped. Update tests and generated-doc docstrings with behavior
+   changes.
+1. Run focused tests, then `uv run prek run --all-files`.
+1. Build docs if public APIs, docstrings, or examples changed.
+1. Open a PR and include the problem, solution, and verification commands.
 
-## Making and Reviewing Changes
+Every file is owned by `@luxonis/ML-Reviewers` through CODEOWNERS. Labels are
+applied automatically from branch names and changed paths.
 
-1. Make changes in a new branch.
-1. Test your changes locally.
-1. Commit your changes (pre-commit hooks will run).
-1. Push your branch and create a pull request.
-1. The team will review and merge your PR.
+PR CI runs:
+
+| Check        | Notes                                                     |
+| ------------ | --------------------------------------------------------- |
+| `pre-commit` | Must pass before docs, type check, and tests proceed.     |
+| `docs`       | Builds pydoctor docs with `tools/build_pydoctor_docs.py`. |
+| `type-check` | Runs Pyright on Python 3.10.                              |
+| `semgrep`    | Runs security and secret scanning.                        |
+| `tests`      | Runs pytest on Ubuntu and Windows in six split groups.    |
+
+Release branches named `release/*` also run extra package-install checks for
+selected extras.
+
+## Releases
+
+Package publishing and documentation deployment are handled by GitHub Actions:
+
+- `python-publish.yml` builds and publishes on release publication or manual
+  dispatch.
+- `docs-pages.yaml` publishes GitHub Pages docs on `main`, release publication,
+  or manual dispatch.
+- `pip-install.yaml` installs from the `requirements*.txt` exports whenever they
+  or their inputs change. Nothing else in CI uses those files, so this is what
+  keeps the pip path working for users who do not have `uv`.
+- `dependencies_autoupdate.yaml` runs `uv lock --upgrade` monthly and opens a PR
+  with the refreshed lock and exports.
+
+Do not change release or dependency behavior without checking the relevant
+workflow and package metadata in `pyproject.toml`.

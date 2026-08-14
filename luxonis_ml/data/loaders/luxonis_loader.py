@@ -26,7 +26,6 @@ from luxonis_ml.data.datasets import (
     UpdateMode,
     load_annotation,
 )
-from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.loaders.base_loader import BaseLoader
 from luxonis_ml.data.utils import (
     get_task_name,
@@ -35,11 +34,13 @@ from luxonis_ml.data.utils import (
     task_type_iterator,
 )
 from luxonis_ml.data.utils.task_utils import task_is_metadata
+from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.typing import (
     Labels,
     LoaderOutput,
     Params,
     PathType,
+    TrackedAugmentations,
 )
 
 
@@ -69,7 +70,10 @@ class LuxonisLoader(BaseLoader):
     ``sample.metadata`` contains **record-level metadata** from
     `DatasetRecord.sample_metadata`. When ``autopopulate_metadata`` is enabled,
     the loader also adds a ``"filenames"`` mapping from source name to file
-    basename.
+    basename. Augmented outputs additionally include an ``"augmentations"``
+    mapping from configured transformation paths to the runtime parameters
+    that were selected. Both are reserved keys that never overwrite metadata
+    stored on the record.
 
     Label keys use ``"task_name/task_type"``. If a dataset was created
     without a task name, the default task name is empty and keys look like
@@ -86,7 +90,8 @@ class LuxonisLoader(BaseLoader):
         color_space: Output color space per source.
         height: Optional output image height.
         width: Optional output image width.
-        augmentations: Optional augmentation engine.
+        augmentations: Optional augmentation engine. Its applied configured
+            paths are added to augmented output metadata.
         exclude_empty_annotations: Whether empty annotations are omitted.
         sync_mode: Whether the dataset is remote and pulled before loading.
         keep_categorical_as_strings: Whether categorical metadata remains
@@ -160,7 +165,9 @@ class LuxonisLoader(BaseLoader):
                 such as source filenames. When enabled, returned metadata
                 includes a ``"filenames"`` dictionary keyed by source name.
                 Set to ``False`` to return only metadata stored in
-                `DatasetRecord.sample_metadata`.
+                `DatasetRecord.sample_metadata`. Augmentation provenance
+                is reported either way, as it describes the returned
+                arrays rather than the record.
 
         Raises:
             ValueError: If `color_space` is neither a string nor a
@@ -444,7 +451,9 @@ class LuxonisLoader(BaseLoader):
 
         source_to_path = self._idx_to_img_paths[idx]
 
-        if self._autopopulate_metadata:
+        if self._autopopulate_metadata and self._reserve_key(
+            sample_metadata, "filenames"
+        ):
             sample_metadata = {
                 "filenames": {
                     source_name: path.name
@@ -584,22 +593,49 @@ class LuxonisLoader(BaseLoader):
         loaded_anns: list[tuple[dict[str, np.ndarray], Labels]] = []
         sample_metadata_list: list[Params] = []
         for i in indices:
-            img_dict, labels, sample_etadata = self._load_data(i)
+            img_dict, labels, sample_metadata = self._load_data(i)
             loaded_anns.append((img_dict, labels))
-            sample_metadata_list.append(sample_etadata)
+            sample_metadata_list.append(sample_metadata)
 
         img_dict, labels = self._augmentations.apply(loaded_anns)
-        sample_etadata = self._merge_sample_metadata(sample_metadata_list)
-        return img_dict, labels, sample_etadata
+        metadata_indices = self._augmentations.batch_augmentation_indices
+        if len(metadata_indices) > 1:
+            sample_metadata = self._merge_sample_metadata(
+                [sample_metadata_list[i] for i in metadata_indices],
+                metadata_indices,
+            )
+        else:
+            sample_metadata = sample_metadata_list[metadata_indices[0]]
+
+        if self._reserve_key(sample_metadata, "augmentations"):
+            sample_metadata["augmentations"] = TrackedAugmentations(
+                self._augmentations.applied_augmentations
+            )
+        return img_dict, labels, sample_metadata
 
     @staticmethod
-    def _merge_sample_metadata(metadata_batch: list[Params]) -> Params:
+    def _reserve_key(metadata: Params, key: str) -> bool:
+        """Whether the loader may fill in one of its reserved keys."""
+        if key not in metadata:
+            return True
+        warnings.warn(
+            f"Record metadata already defines the reserved '{key}' key. "
+            "Keeping the stored value.",
+            stacklevel=3,
+        )
+        return False
+
+    @staticmethod
+    def _merge_sample_metadata(
+        metadata_batch: list[Params], input_indices: list[int] | None = None
+    ) -> Params:
         """Merge metadata from samples used by a batch augmentation.
 
         The first sample's metadata remains at the top level. Metadata from
-        every input sample is also preserved in
+        every contributing input sample is also preserved in
         ``"batch_augmentation_metadata"`` so consumers can inspect which
-        records contributed to the augmented output.
+        records contributed to the augmented output. ``input_index`` is the
+        source sample's position in the original augmentation batch.
 
         Example:
             .. python::
@@ -623,6 +659,9 @@ class LuxonisLoader(BaseLoader):
         if not metadata_batch:
             return {}
 
+        if input_indices is None:
+            input_indices = list(range(len(metadata_batch)))
+
         metadata = deepcopy(metadata_batch[0])
 
         metadata["batch_augmentation_metadata"] = [  # type: ignore
@@ -630,7 +669,7 @@ class LuxonisLoader(BaseLoader):
                 "input_index": i,
                 "sample_metadata": deepcopy(m),
             }
-            for i, m in enumerate(metadata_batch)
+            for i, m in zip(input_indices, metadata_batch, strict=True)
         ]
         return metadata
 

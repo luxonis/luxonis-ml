@@ -10,7 +10,22 @@ from rich.table import Table
 
 from luxonis_ml.data import LuxonisDataset
 from luxonis_ml.data.utils.enums import BucketStorage
-from luxonis_ml.typing import check_type
+from luxonis_ml.typing import Params, TrackedAugmentations, check_type
+
+
+def get_tracked_augmentations(
+    metadata: Params,
+) -> TrackedAugmentations | None:
+    """Read the augmentation provenance the loader added to a sample.
+
+    A record can store its own ``"augmentations"`` metadata, which the
+    loader keeps instead. The marker type tells the two apart; the shape
+    alone does not.
+    """
+    augmentations = metadata.get("augmentations")
+    if isinstance(augmentations, TrackedAugmentations):
+        return augmentations
+    return None
 
 
 def parse_split_ratio(

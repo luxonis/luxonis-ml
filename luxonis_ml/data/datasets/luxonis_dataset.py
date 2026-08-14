@@ -44,6 +44,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
     ExporterSpec,
     create_zip_output,
 )
+from luxonis_ml.data.exporters.ldf_downgrade import resolve_export_version
 from luxonis_ml.data.utils import (
     BucketStorage,
     BucketType,
@@ -62,10 +63,10 @@ from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.ldf_equivalence import ldf_equivalent
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.enums.enums import DatasetType
+from luxonis_ml.ldf import Category, DatasetRecord, Detection
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import LuxonisFileSystem, environ
 
-from .annotation import Category, DatasetRecord, Detection
 from .base_dataset import BaseDataset, DatasetIterator
 from .metadata import Metadata
 from .migration import migrate_dataframe, migrate_metadata
@@ -1776,6 +1777,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         dataset_type: DatasetType = DatasetType.NATIVE,
         max_partition_size_gb: float | None = None,
         zip_output: bool = False,
+        ldf_version: str | None = None,
     ) -> Path | list[Path]:
         """Export the dataset into one of the supported formats.
 
@@ -1787,6 +1789,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 ``{dataset_name}_part{partition_number}``.
             zip_output: Whether to zip the exported dataset or each
                 partition after export.
+            ldf_version: LDF version to write, for example ``"2.0"``, so
+                the export can be read by an older luxonis-ml. Native
+                format only. Defaults to the version this installation
+                writes. Downgrading is lossy and warns about what it drops.
 
         Returns:
             Export directory, or ZIP archive paths when ``zip_output`` is
@@ -1794,11 +1800,22 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         Raises:
             NotImplementedError: If the specified export format is not supported.
-            ValueError: If the output path already exists.
+            ValueError: If the output path already exists, or if
+                ``ldf_version`` is set for a non-native format or names a
+                version this installation cannot write.
 
         """
+        if ldf_version is not None and dataset_type != DatasetType.NATIVE:
+            raise ValueError(
+                f"'ldf_version' only applies to the native format, "
+                f"not '{dataset_type}'."
+            )
+        target_version = resolve_export_version(ldf_version)
+
         EXPORTER_MAP: dict[DatasetType, ExporterSpec] = {
-            DatasetType.NATIVE: ExporterSpec(NativeExporter, {}),
+            DatasetType.NATIVE: ExporterSpec(
+                NativeExporter, {"ldf_version": target_version}
+            ),
             DatasetType.COCO: ExporterSpec(
                 CocoExporter,
                 {

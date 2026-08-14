@@ -205,7 +205,7 @@ class AutoRegisterMeta(ABCMeta):
         >>> class Base(
         ...     metaclass=AutoRegisterMeta,
         ...     registry=REGISTRY,
-        ...     register=False
+        ...     register=False,
         ... ):
         ...     pass
         >>> class Foo(Base):

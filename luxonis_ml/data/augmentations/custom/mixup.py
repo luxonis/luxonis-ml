@@ -1,13 +1,16 @@
 import random
 from typing import Any, Literal
 
-import albumentations as A
 import cv2
 import numpy as np
 from typing_extensions import override
 
 from luxonis_ml.data.augmentations.batch_transform import BatchTransform
-from luxonis_ml.data.augmentations.custom import LetterboxResize
+from luxonis_ml.data.augmentations.custom.letterbox_resize import (
+    LetterboxResize,
+    create_letterbox_or_resize,
+)
+from luxonis_ml.data.augmentations.utils import pad_empty_entries
 
 
 class MixUp(BatchTransform):
@@ -51,10 +54,9 @@ class MixUp(BatchTransform):
         self._alpha = (
             alpha if isinstance(alpha, list | tuple) else (alpha, alpha)
         )
-        if keep_aspect_ratio:
-            self._resize_transform = LetterboxResize(1, 1)
-        else:
-            self._resize_transform = A.Resize(1, 1)
+        self._resize_transform = create_letterbox_or_resize(
+            keep_aspect_ratio, 1, 1
+        )
 
         if not 0 <= self._alpha[0] <= 1 or not 0 <= self._alpha[1] <= 1:
             raise ValueError("Alpha must be in range [0, 1].")
@@ -187,10 +189,7 @@ class MixUp(BatchTransform):
             Transformed bounding boxes.
 
         """
-        for i in range(len(bboxes_batch)):
-            bbox = bboxes_batch[i]
-            if bbox.size == 0:  # pragma: no cover
-                bboxes_batch[i] = np.zeros((0, 6), dtype=bbox.dtype)
+        bboxes_batch = pad_empty_entries(bboxes_batch)
 
         bboxes_batch[1] = self._resize(
             bboxes_batch[1],
@@ -219,11 +218,7 @@ class MixUp(BatchTransform):
             Transformed keypoints.
 
         """
-        for i in range(len(keypoints_batch)):
-            if keypoints_batch[i].size == 0:  # pragma: no cover
-                keypoints_batch[i] = np.zeros(
-                    (0, 5), dtype=keypoints_batch[i].dtype
-                )
+        keypoints_batch = pad_empty_entries(keypoints_batch)
 
         keypoints_batch[1] = self._resize(
             keypoints_batch[1],
@@ -282,7 +277,6 @@ class MixUp(BatchTransform):
             return self._resize_transform.apply_to_bboxes(
                 data, *padding, **kwargs
             )
-        if target_type == "keypoints":
-            return self._resize_transform.apply_to_keypoints(
-                data, *padding, **kwargs
-            )
+        return self._resize_transform.apply_to_keypoints(
+            data, *padding, **kwargs
+        )
