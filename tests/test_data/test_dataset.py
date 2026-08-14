@@ -326,13 +326,11 @@ def test_make_splits_is_atomic(
 
     write_text = Path.write_text
 
-    def failing_write_text(self: Path, data: str, *args, **kwargs) -> int:
-        if self.name.startswith("splits.json"):
-            write_text(self, "truncated")
-            raise RuntimeError("the disk is full")
-        return write_text(self, data, *args, **kwargs)
+    def truncating_write_text(self: Path, **_) -> int:
+        write_text(self, "truncated")
+        raise RuntimeError("the disk is full")
 
-    monkeypatch.setattr(Path, "write_text", failing_write_text)
+    monkeypatch.setattr(Path, "write_text", truncating_write_text)
     with pytest.raises(RuntimeError, match="the disk is full"):
         dataset.make_splits((0.5, 0.5, 0.0), replace_old_splits=True)
     monkeypatch.undo()
