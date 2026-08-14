@@ -9,7 +9,9 @@ permissions:
   contents: read
 
 env:
-  # Every tag after v0.3.0 carries this suffix. Empty it for a stable release.
+  # A tag-name convention that every release since v0.3.0 keeps. It does not
+  # mark the GitHub release as a prerelease, and the PyPI version stays
+  # `X.Y.Z`. Change both deliberately, not through this constant alone.
   TAG_SUFFIX: "-beta"
 
 jobs:
