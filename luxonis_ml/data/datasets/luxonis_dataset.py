@@ -9,7 +9,7 @@ from functools import cached_property
 from os import PathLike
 from pathlib import Path, PurePosixPath
 from types import NotImplementedType
-from typing import Any, Literal, cast, overload
+from typing import Any, Literal, TypeGuard, overload
 
 import numpy as np
 import polars as pl
@@ -18,6 +18,7 @@ from filelock import FileLock
 from loguru import logger
 from rich.progress import Progress
 from semver.version import Version
+from typeguard import typechecked
 from typing_extensions import Self, override
 
 from luxonis_ml.data.exporters import (
@@ -1465,6 +1466,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             return json.load(file)
 
     @override
+    @typechecked
     def make_splits(
         self,
         splits: (
@@ -1486,6 +1488,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             sources (``"train_real"``, ``"train_synth"``) or for
             creating fully custom splits.
 
+        Note:
+            The method skips each file that is already in a split. Thus
+            you can give the same filepath definitions more than one
+            time. If no file is new, the existing splits do not change.
+
         Args:
             splits: A mapping defining the splits. Can be one of the following:
 
@@ -1498,25 +1505,24 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 splits. If ``True``, the existing splits are discarded first.
 
         Raises:
+            TypeCheckError: If ``splits`` does not match the annotated type.
             ValueError: If ``splits`` is provided but is empty.
-            ValueError: If split ratios are outside the range from 0 to 1 or
+            ValueError: If the ratios are outside the range from 0 to 1 or
                 do not sum to 1.
-            ValueError: If explicit split definitions are provided but all of them
-                are already included in old splits, resulting in no new
-                files to add to splits while ``replace_old_splits`` is ``False``.
+            ValueError: If split ratios are used but all the data already
+                belongs to a split while ``replace_old_splits`` is ``False``.
+            TypeError: If the mapping values are neither ratios nor file
+                lists.
             FileNotFoundError: If the dataset is empty.
-            TypeError: If the splits definitions are not in the expected format.
 
         """
         if splits is None:
             splits = {"train": 0.8, "val": 0.1, "test": 0.1}
 
+        ratios: Mapping[str, float] | None = None
+        definitions: Mapping[str, Sequence[PathType]] | None = None
+
         if isinstance(splits, tuple):
-            if len(splits) != 3:
-                raise ValueError(
-                    "Ratios must be a tuple of 3 floats for "
-                    "train, val, and test splits"
-                )
             ratios = {
                 "train": splits[0],
                 "val": splits[1],
@@ -1524,13 +1530,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             }
         elif not splits:
             raise ValueError("Splits cannot be empty")
-        elif all(isinstance(value, (int, float)) for value in splits.values()):
-            ratios = cast("Mapping[str, float]", splits)
-        elif all(
-            isinstance(value, Sequence) and not isinstance(value, (str, bytes))
-            for value in splits.values()
-        ):
-            ratios = None
+        elif _are_ratios(splits):
+            ratios = splits
+        elif _are_definitions(splits):
+            definitions = splits
         else:
             raise TypeError(
                 "Splits must map names to either ratios or filepath lists"
@@ -1544,17 +1547,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 raise ValueError(
                     "Ratios must be between 0.0 and 1.0 (inclusive)"
                 )
-
-        if ratios is None:
-            definitions = cast("Mapping[str, Sequence[PathType]]", splits)
-            n_files = sum(map(len, definitions.values()))
-            if n_files > len(self):
-                logger.warning(
-                    "Dataset size is smaller than the total number of files in the definitions. "
-                    f"Dataset size: {len(self)}, Definitions: {n_files}. "
-                    "Duplicate files will be filtered out and extra files in definitions will be ignored."
-                )
-                self.remove_duplicates()
 
         new_splits: dict[str, list[str]] = {}
         old_splits: dict[str, list[str]] = defaultdict(list)
@@ -1603,7 +1595,17 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 new_splits[split] = ids[lower_bound:upper_bound]
                 lower_bound = upper_bound
 
-        else:
+        elif definitions is not None:
+            n_files = sum(map(len, definitions.values()))
+            dataset_size = len(self)
+            if n_files > dataset_size:
+                logger.warning(
+                    "Dataset size is smaller than the total number of files in the definitions. "
+                    f"Dataset size: {dataset_size}, Definitions: {n_files}. "
+                    "Duplicate files will be filtered out and extra files in definitions will be ignored."
+                )
+                self.remove_duplicates()
+
             index = self._get_index(raise_when_empty=True)
             for split, filepaths in definitions.items():
                 ids: list[str] = []
@@ -1625,11 +1627,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 new_splits[split] = ids
 
             if not any(new_splits.values()):
-                raise ValueError(
+                logger.warning(
                     "No new files to add to splits. "
-                    "If you want to generate new splits, set "
-                    "`replace_old_splits=True`"
+                    "The existing splits are left unchanged."
                 )
+                return
 
         for split, group_ids in new_splits.items():
             old_splits[split].extend(group_ids)
@@ -1989,3 +1991,20 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                     task=task_name,
                     rewrite_metadata=False,
                 )
+
+
+def _are_ratios(
+    splits: Mapping[str, object],
+) -> TypeGuard[Mapping[str, float]]:
+    # A `bool` value also counts as a ratio, because `bool` is a subclass
+    # of `int`.
+    return all(isinstance(value, (int, float)) for value in splits.values())
+
+
+def _are_definitions(
+    splits: Mapping[str, object],
+) -> TypeGuard[Mapping[str, Sequence[PathType]]]:
+    return all(
+        isinstance(value, Sequence) and not isinstance(value, (str, bytes))
+        for value in splits.values()
+    )

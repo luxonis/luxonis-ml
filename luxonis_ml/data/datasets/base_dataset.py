@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from typing import TypeAlias
 
 from semver.version import Version
@@ -168,8 +168,8 @@ class BaseDataset(
     @abstractmethod
     def make_splits(
         self,
-        splits: dict[str, Sequence[PathType]]
-        | dict[str, float]
+        splits: Mapping[str, Sequence[PathType]]
+        | Mapping[str, float]
         | tuple[float, float, float]
         | None = None,
         *,

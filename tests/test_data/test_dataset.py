@@ -7,6 +7,7 @@ from typing import NoReturn, cast
 import numpy as np
 import pytest
 from pytest_subtests.plugin import SubTests
+from typeguard import TypeCheckError
 
 from luxonis_ml.data import (
     BucketStorage,
@@ -221,6 +222,7 @@ def test_make_splits(
 
     assert len(dataset) == 15
     assert dataset.get_splits() is None
+    # The method accepts any `Sequence` of filepaths, not only a `list`.
     dataset.make_splits(
         {split: tuple(filepaths) for split, filepaths in definitions.items()}
     )
@@ -232,8 +234,8 @@ def test_make_splits(
             f"Split {split} has {len(split_data)} samples"
         )
 
-    with pytest.raises(ValueError, match="No new files"):
-        dataset.make_splits(definitions)
+    dataset.make_splits(definitions)
+    assert dataset.get_splits() == splits
 
     dataset.add(generator())
     splits = dataset.get_splits()
@@ -242,7 +244,7 @@ def test_make_splits(
         assert len(split_data) == 5, (
             f"Split {split} has {len(split_data)} samples"
         )
-    dataset.make_splits(definitions)  # type: ignore
+    dataset.make_splits(definitions)
     splits = dataset.get_splits()
     assert splits is not None
     for split, split_data in splits.items():
@@ -269,7 +271,7 @@ def test_make_splits(
     with pytest.raises(ValueError, match=r"Ratios must sum to 1.0"):
         dataset.make_splits((0.7, 0.1, 1))
 
-    with pytest.raises(ValueError, match="must be a tuple of 3 floats"):
+    with pytest.raises(TypeCheckError):
         dataset.make_splits((0.7, 0.1, 0.1, 0.1))  # type: ignore
 
     with pytest.raises(ValueError, match=r"Ratios must sum to 1.0"):
@@ -279,7 +281,13 @@ def test_make_splits(
         dataset.make_splits({"train": -0.1, "val": 1.1})
 
     with pytest.raises(TypeError, match="ratios or filepath lists"):
-        dataset.make_splits({"train": "invalid"})  # type: ignore[arg-type]
+        dataset.make_splits({"train": "invalid"})
+
+    with pytest.raises(TypeCheckError):
+        dataset.make_splits([0.8, 0.1, 0.1])  # type: ignore
+
+    with pytest.raises(TypeError, match="ratios or filepath lists"):
+        dataset.make_splits({"train": 0.5, "val": ["a.jpg"]})  # type: ignore
 
     dataset.add(generator(10))
     dataset.make_splits({"custom_split": 1})
@@ -300,6 +308,20 @@ def test_make_splits(
         assert len(split_data) == expected_length[split], (
             f"Split {split} has {len(split_data)} samples"
         )
+
+    n_groups = sum(len(split_data) for split_data in splits.values())
+
+    # A `bool` value works as a ratio, because `bool` is a subclass of `int`.
+    for bool_splits in [
+        {"train": True, "val": False, "test": False},
+        (True, False, False),
+    ]:
+        dataset.make_splits(bool_splits, replace_old_splits=True)
+        splits = dataset.get_splits()
+        assert splits is not None
+        assert len(splits["train"]) == n_groups
+        assert not splits["val"]
+        assert not splits["test"]
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")

@@ -291,7 +291,9 @@ dataset.make_splits({
 
 Calling `make_splits` with no arguments will default to an 80/10/10 split.
 
-In order for splits to be created, there must be some new data in the dataset. If no new data were added, calling `make_splits` will raise an error.
+In order for splits to be created, there must be some new data in the dataset.
+If no new data were added, calling `make_splits` with ratios will raise an error.
+If you give explicit file lists, the method only logs a warning and keeps the existing splits. Thus you can parse the same data twice.
 If you wish to delete old splits and create new ones using all the data, pass `replace_old_splits=True` to the method call.
 
 > [!NOTE]
