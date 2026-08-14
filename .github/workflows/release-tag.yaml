@@ -5,42 +5,12 @@ on:
     types: [closed]
     branches: [main]
 
-permissions:
-  contents: read
-
-env:
-  # A tag-name convention that every release since v0.3.0 keeps. It does not
-  # mark the GitHub release as a prerelease, and the PyPI version stays
-  # `X.Y.Z`. Change both deliberately, not through this constant alone.
-  TAG_SUFFIX: "-beta"
-
 jobs:
   release:
     if: >-
       github.event.pull_request.merged &&
       startsWith(github.event.pull_request.head.ref, 'release/')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
-          persist-credentials: false
-
-      - name: Read the version
-        id: version
-        run: echo "version=$(python3 tools/version.py)" >> "$GITHUB_OUTPUT"
-
-      - name: Create the release
-        env:
-          # The default token cannot start another workflow. The personal
-          # token makes the release event start the PyPI upload and the
-          # documentation deployment.
-          GH_TOKEN: ${{ secrets.WORKFLOW_SECRET }}
-          TAG: v${{ steps.version.outputs.version }}${{ env.TAG_SUFFIX }}
-          TARGET: ${{ github.event.pull_request.merge_commit_sha }}
-        run: |
-          gh release create "$TAG" \
-            --target "$TARGET" \
-            --title "$TAG" \
-            --generate-notes
+    uses: ./.github/workflows/reusable-release-tag.yaml
+    with:
+      version-file: luxonis_ml/__init__.py
+    secrets: inherit

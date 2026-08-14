@@ -203,15 +203,40 @@ request it opens.
 Use `tools/version.py` for the same version change on your machine:
 
 ```bash
-python3 tools/version.py            # report the current version
-python3 tools/version.py --set minor
+python3 tools/version.py --path luxonis_ml/__init__.py            # report
+python3 tools/version.py --path luxonis_ml/__init__.py --set minor
 ```
 
 `.github/release.yaml` groups the generated notes into categories from the pull
 request labels. GitHub reads that file; the name is not ours to choose.
 
+### Shared with the other repositories
+
+The release logic lives in two reusable workflows, and every Luxonis
+repository calls them. Only the two thin caller workflows and the label
+configuration are per repository. To adopt them elsewhere, add a
+`Release PR` caller:
+
+```yaml
+jobs:
+  release-pr:
+    uses: luxonis/luxonis-ml/.github/workflows/reusable-release-pr.yaml@main
+    with:
+      version: ${{ inputs.version }}
+      version-file: luxonis_train/__init__.py
+      project-name: LuxonisTrain
+    secrets: inherit
+```
+
+and a `Release Tag` caller with the same `version-file`. The repository needs
+the `WORKFLOW_SECRET` secret and a `release` label. The reusable workflows
+check out `tools/version.py` from this repository, so the caller does not copy
+it.
+
 Package publishing and documentation deployment are handled by GitHub Actions:
 
+- `reusable-release-pr.yaml` and `reusable-release-tag.yaml` hold the shared
+  release logic.
 - `release-pr.yaml` opens the version bump pull request on manual dispatch.
 - `release-tag.yaml` tags and releases a merged `release/*` pull request.
 - `python-publish.yml` builds and publishes on release publication or manual
