@@ -187,7 +187,12 @@ def records():
         "task_name": "detection",
         "annotation": {
             "class": "car",
-            "boundingbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+            "boundingbox": {
+                "x": 0.1,
+                "y": 0.2,
+                "w": 0.3,
+                "h": 0.4,
+            },
         },
     }
 
@@ -199,7 +204,7 @@ dataset.make_splits({"train": 0.8, "val": 0.1, "test": 0.1})
 LDF also supports keypoints, semantic and instance segmentation,
 classification, arrays, and free-form metadata. See
 [`luxonis_ml.data.datasets`](https://docs.luxonis.com/software-v3/ai-inference/model-source/training/luxonis-ml/luxonis-ml-api-reference/data/datasets)
-for the dataset contract, and the `luxonis_ml.ldf` module for every annotation
+for the dataset contract, and the [`luxonis_ml.ldf`](TODO) module for every annotation
 schema.
 
 <a name="converting-a-dataset"></a>
