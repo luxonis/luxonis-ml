@@ -6,6 +6,7 @@ from typing import NoReturn, cast
 
 import numpy as np
 import pytest
+from loguru import logger
 from pytest_subtests.plugin import SubTests
 from typeguard import TypeCheckError
 
@@ -252,6 +253,49 @@ def test_small_dataset_keeps_every_split(
         "val": 1,
         "test": 1,
     }
+
+
+def test_definitions_skip_a_non_filepath(
+    bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
+):
+    """``typeguard`` samples a mapping, so elements arrive unchecked.
+
+    Before the fix, an ``int`` in a definition list reached ``Path()``
+    and raised a TypeError far away from the caller.
+    """
+    paths = [str(create_image(i, tempdir)) for i in range(4)]
+
+    def generator() -> DatasetIterator:
+        for path in paths:
+            yield {"file": path, "annotation": {"class": "dog"}}
+
+    dataset = create_dataset(
+        dataset_name, generator(), bucket_storage, splits=False
+    )
+
+    messages: list[str] = []
+    sink_id = logger.add(
+        lambda message: messages.append(str(message).strip()),
+        format="{message}",
+        level="WARNING",
+    )
+    try:
+        dataset.make_splits(
+            {
+                "train": paths[:2],
+                "val": [1, None],  # type: ignore
+                "test": paths[2:],
+            }
+        )
+    finally:
+        logger.remove(sink_id)
+
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert len(splits["train"]) == 2
+    assert len(splits["test"]) == 2
+    assert not splits["val"]
+    assert sum("not a filepath; skipping" in m for m in messages) == 2
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")

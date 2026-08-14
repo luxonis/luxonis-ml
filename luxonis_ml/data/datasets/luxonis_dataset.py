@@ -1509,7 +1509,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 splits. If ``True``, the existing splits are discarded first.
 
         Raises:
-            TypeCheckError: If ``splits`` does not match the annotated type.
+            TypeCheckError: If ``splits`` does not match the annotated
+                type. The check samples a mapping, so it does not see
+                every value. The method warns and skips each definition
+                element that is not a filepath.
             ValueError: If ``splits`` is provided but is empty.
             ValueError: If the ratios are outside the range from 0 to 1 or
                 do not sum to 1.
@@ -1625,6 +1628,16 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             for split, filepaths in definitions.items():
                 ids: list[str] = []
                 for filepath in filepaths:
+                    # `typeguard` samples only the first value of a
+                    # mapping, so the elements arrive unchecked.
+                    if not isinstance(filepath, (str, Path)):
+                        logger.warning(
+                            f"Split '{split}' contains {filepath!r}, "
+                            f"which is a {type(filepath).__name__} and "
+                            "not a filepath; skipping."
+                        )
+                        continue
+
                     group_id = find_filepath_group_id(
                         filepath, index, raise_on_missing=False
                     )
