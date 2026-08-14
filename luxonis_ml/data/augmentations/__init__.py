@@ -59,7 +59,13 @@ Custom transforms follow Albumentations conventions. Subclass an appropriate
 base class such as ``DualTransform`` or ``ImageOnlyTransform``, implement the
 target methods needed by your labels, register the class in
 `luxonis_ml.data.augmentations.custom.TRANSFORMATIONS`, and reference the
-class name in loader configuration.
+class name in loader configuration. The `Albumentations guide
+<https://albumentations.ai/docs/4-advanced-guides/creating-custom-transforms/>`__
+explains the base classes and the target methods.
+
+To combine several samples into one, subclass `BatchTransform` instead of an
+Albumentations base class. `CutMix`, `MixUp`, and `Mosaic4` are the built-in
+examples. Registration and configuration work the same way.
 
 .. python::
 

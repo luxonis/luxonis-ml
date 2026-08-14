@@ -177,8 +177,9 @@ LUXONISML_TEAM_ID / datasets / dataset_name``. The default base path is
        names, instance IDs, task types, serialized annotation payloads,
        serialized ``sample_metadata`` JSON, and UUIDs.
    * - ``media/``
-     - Local copies of remote media. Local-only datasets may keep this
-       directory empty and continue referencing the original files.
+     - Local copies of remote media, named ``<uuid><suffix>``. Local-only
+       datasets may keep this directory empty and continue referencing the
+       original files.
    * - ``metadata/metadata.json``
      - Dataset metadata, source descriptors, class mappings, task metadata,
        categorical encodings, skeleton definitions, and LDF version metadata.
@@ -186,13 +187,26 @@ LUXONISML_TEAM_ID / datasets / dataset_name``. The default base path is
      - Mapping from split names to dataset sample identifiers.
 
 Remote datasets use the same local metadata structure and synchronize media
-and annotation state with the configured object store.
+and annotation state with the configured object store. In the bucket, the
+dataset lives at
+``<bucket_storage>://<bucket>/<team_id>/datasets/<dataset_name>/`` and keeps
+the same ``annotations/``, ``media/``, and ``metadata/`` subfolders.
+
+A remote dataset renames its media objects. Each file becomes
+``<uuid><original suffix>``, where the UUID comes from the content of the
+file. The original file names stay in the ``file`` column of the Parquet
+shards.
 
 Warning:
     Deletion flags control local and remote state independently. To recreate a
     remote dataset completely, pass ``delete_local=True`` and
     ``delete_remote=True``. To rebuild a damaged local copy from an existing
     remote dataset, pass ``delete_local=True`` and ``delete_remote=False``.
+
+Warning:
+    The local path holds no bucket-storage component. A local dataset and a
+    remote dataset with the same name therefore share one local directory. Use
+    distinct names, or expect the two to overwrite each other's local state.
 
 
 Cloning, Merging, and Synchronization

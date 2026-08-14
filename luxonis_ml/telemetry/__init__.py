@@ -26,10 +26,37 @@ Note:
     backend cannot be initialized or capture fails, the telemetry layer falls
     back or suppresses the error rather than interrupting the caller.
 
+
+Environment Variables
+=====================
+
+The package reads these variables. `TelemetryConfig.from_environ` resolves
+them first, then the values of `TelemetryDefaults`, then the base
+`TelemetryConfig` defaults.
+
+    - ``LUXONIS_TELEMETRY_ENABLED``: enables telemetry. It is enabled by
+      default. Set a falsy value to turn telemetry off.
+    - ``LUXONIS_TELEMETRY_BACKEND``: the backend name, such as ``posthog``,
+      ``stdout``, or a custom registered name.
+    - ``LUXONIS_TELEMETRY_API_KEY``: the API key of the backend.
+    - ``LUXONIS_TELEMETRY_ENDPOINT``: the backend host URL.
+    - ``LUXONIS_TELEMETRY_DEBUG``: when truthy, the backend falls back to
+      ``stdout`` instead of ``posthog``.
+
+`luxonis_ml.telemetry.context` reads one more variable,
+``LUXONIS_TELEMETRY_IS_LUXONIS_CLOUD``. It marks events that a Luxonis cloud
+job emits.
+
+To turn telemetry off for one block of code instead, use
+`suppress_telemetry`.
+
 See:
     `luxonis_ml.telemetry.client` for the capture client,
-    `luxonis_ml.telemetry.config` for configuration, and
-    `luxonis_ml.telemetry.backends` for backend implementations.
+    `luxonis_ml.telemetry.config` for configuration,
+    `luxonis_ml.telemetry.context` for the exact context keys that each
+    event carries, `luxonis_ml.telemetry.cli` for command-line
+    instrumentation, and `luxonis_ml.telemetry.backends` for backend
+    implementations.
 
 """
 

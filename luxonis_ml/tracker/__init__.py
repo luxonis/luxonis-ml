@@ -5,6 +5,9 @@ interface for TensorBoard, Weights & Biases, and MLflow. Training and
 evaluation code can log metrics, hyperparameters, images, matrices, and
 artifacts through one API while choosing the enabled backends at runtime.
 
+Pass ``rank`` in distributed training. Every logging method checks the rank,
+so only rank 0 writes.
+
 Example:
     Start a TensorBoard-backed run and log a scalar metric.
 
@@ -21,8 +24,17 @@ Example:
         tracker.close()
 
 Note:
-    The tracker uses optional dependencies. Install ``luxonis-ml[tracker]``
-    and the backend SDKs required by the integrations you enable.
+    The ``tracker`` extra installs no backend SDK. Install the SDK of each
+    backend you enable:
+
+        - TensorBoard needs ``torch``, because the writer comes from
+          ``torch.utils.tensorboard``;
+        - Weights & Biases needs ``wandb``;
+        - MLflow needs ``mlflow``, which the ``luxonis-ml[mlflow]`` extra
+          also provides.
+
+    The tracker imports each SDK only when you enable that backend, so an
+    absent SDK matters only for the backends you turn on.
 
 See:
     `luxonis_ml.tracker.tracker` for the logging implementation and

@@ -66,59 +66,66 @@ Supported Formats
      - Dataset type
      - Parser
      - Typical annotations
-   * - COCO JSON
+   * - `COCO JSON <https://roboflow.com/formats/coco-json>`__
      - ``DatasetType.COCO``
      - `COCOParser`
      - Bounding boxes, segmentation, instance segmentation, keypoints.
-   * - Pascal VOC XML
+   * - `Pascal VOC XML <https://roboflow.com/formats/pascal-voc-xml>`__
      - ``DatasetType.VOC``
      - `VOCParser`
      - Bounding boxes.
-   * - YOLO Darknet TXT
+   * - `YOLO Darknet TXT <https://roboflow.com/formats/yolo-darknet-txt>`__
      - ``DatasetType.DARKNET``
      - `DarknetParser`
      - Bounding boxes.
-   * - YOLOv4 PyTorch TXT
+   * - `YOLOv4 PyTorch TXT <https://roboflow.com/formats/yolov4-pytorch-txt>`__
      - ``DatasetType.YOLOV4``
      - `YoloV4Parser`
      - Bounding boxes.
-   * - MT YOLOv6
+   * - `MT YOLOv6 <https://roboflow.com/formats/mt-yolov6>`__
      - ``DatasetType.YOLOV6``
      - `YoloV6Parser`
      - Bounding boxes.
-   * - YOLOv8 bounding boxes
+   * - `YOLOv8 bounding boxes
+       <https://roboflow.com/formats/yolov8-pytorch-txt>`__
      - ``DatasetType.YOLOV8BOUNDINGBOX``
      - `YOLOv8Parser`
      - Bounding boxes.
-   * - YOLOv8 instance segmentation
+   * - `YOLOv8 instance segmentation
+       <https://roboflow.com/formats/yolov8-pytorch-txt>`__
      - ``DatasetType.YOLOV8INSTANCESEGMENTATION``
      - `YOLOv8Parser`
      - Instance segmentation.
-   * - YOLOv8 keypoints
+   * - `YOLOv8 keypoints
+       <https://roboflow.com/formats/yolov8-pytorch-txt>`__
      - ``DatasetType.YOLOV8KEYPOINTS``
      - `YOLOv8Parser`
      - Keypoints.
-   * - Ultralytics NDJSON detection
+   * - `Ultralytics NDJSON detection
+       <https://docs.ultralytics.com/datasets/detect/#ultralytics-ndjson-format>`__
      - ``DatasetType.ULTRALYTICSNDJSON``
      - `UltralyticsNDJSONParser`
      - Detection records, including local paths or remote image URLs.
-   * - Ultralytics NDJSON instance segmentation
+   * - `Ultralytics NDJSON instance segmentation
+       <https://docs.ultralytics.com/datasets/detect/#ultralytics-ndjson-format>`__
      - ``DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION``
      - `UltralyticsNDJSONParser`
      - Segmentation records.
-   * - Ultralytics NDJSON keypoints
+   * - `Ultralytics NDJSON keypoints
+       <https://docs.ultralytics.com/datasets/detect/#ultralytics-ndjson-format>`__
      - ``DatasetType.ULTRALYTICSNDJSONKEYPOINTS``
      - `UltralyticsNDJSONParser`
      - Pose records.
-   * - CreateML JSON
+   * - `CreateML JSON <https://roboflow.com/formats/createml-json>`__
      - ``DatasetType.CREATEML``
      - `CreateMLParser`
      - Bounding boxes.
-   * - TensorFlow Object Detection CSV
+   * - `TensorFlow Object Detection CSV
+       <https://roboflow.com/formats/tensorflow-object-detection-csv>`__
      - ``DatasetType.TFCSV``
      - `TensorflowCSVParser`
      - Bounding boxes.
-   * - SOLO
+   * - `SOLO <https://docs.unity3d.com/Packages/com.unity.perception@1.0/manual/Schema/SoloSchema.html>`__
      - ``DatasetType.SOLO``
      - `SOLOParser`
      - Synthetic data with boxes, masks, keypoints, and segmentation.
@@ -126,7 +133,8 @@ Supported Formats
      - ``DatasetType.CLSDIR``
      - `ClassificationDirectoryParser`
      - Class labels encoded by directory names.
-   * - FiftyOne classification
+   * - `FiftyOne classification
+       <https://docs.voxel51.com/user_guide/export_datasets.html>`__
      - ``DatasetType.FIFTYONECLS``
      - `FiftyOneClassificationParser`
      - Class labels from ``labels.json``.
@@ -160,7 +168,8 @@ Common layout markers:
       ``labels.json`` and Roboflow-style splits with images beside
       ``_annotations.coco.json``.
     - YOLOv8-v12 Roboflow layouts use split directories containing
-      ``images/`` and ``labels/``; Ultralytics layouts use top-level
+      ``images/`` and ``labels/``; `Ultralytics layouts
+      <https://docs.ultralytics.com/datasets/>`__ use top-level
       ``images/<split>``, ``labels/<split>``, and a YAML file.
     - Ultralytics NDJSON uses a single ``.ndjson`` manifest. Records may
       reference local image paths or remote image URLs.
@@ -209,8 +218,17 @@ Example:
 .. code-block:: bash
 
     luxonis_ml data parse ./dataset --name parking_lot --type coco
-    luxonis_ml data parse ./dataset --split-ratio 0.8,0.1,0.1
-    luxonis_ml data parse ./dataset --split-ratio 1000,100,50
+    luxonis_ml data parse ./dataset --train 0.8 --val 0.1 --test 0.1
+    luxonis_ml data parse ./dataset --train 1000 --val 100 --test 50
+
+Give ``--train``, ``--val``, and ``--test`` each their own value. If you set
+only some of them, the remaining splits share the leftover records equally.
+This applies to ratios only, not to counts.
+
+The older ``--split-ratio`` option takes one Python list literal of three
+values, such as ``--split-ratio "[0.8, 0.1, 0.1]"``. A comma-separated value
+without brackets raises ``ValueError``. The option is deprecated. Use
+``--train``, ``--val``, and ``--test`` instead.
 
 
 COCO Keypoints
@@ -239,6 +257,15 @@ Evaluation Dataset Notes
 COCO-2017
 ---------
 
+The FiftyOne layout is what the ``fiftyone`` package writes. Install it, then
+download one split at a time:
+
+.. code-block:: bash
+
+    fiftyone zoo datasets load coco-2017 \
+        --split validation \
+        --kwargs max_samples=1000
+
 COCO parsing handles both FiftyOne and Roboflow layouts. Bounding boxes are
 normalized relative to image dimensions; polygon or RLE segmentations are
 stored as RLE; instance segmentation is emitted from the same segmentation
@@ -259,11 +286,17 @@ write cleaned annotation files when source metadata requires repair.
 ImageNet Sample
 ---------------
 
+The ImageNet-sample dataset holds 1,000 images across the 1,000 ImageNet
+classes, for image classification. Download it with the ``fiftyone`` package:
+
+.. code-block:: bash
+
+    fiftyone zoo datasets load imagenet-sample
+
 The ImageNet-sample parser handles FiftyOne image classification exports in
 flat ``data/`` plus ``labels.json`` form or in split-based
-``train/validation/test`` directories. Flat layouts are split randomly at parse
-time. ``labels.json`` contains ``classes`` and ``labels`` keys, where
-``labels`` maps image stems to class indices.
+``train/validation/test`` directories. The command above writes the flat form.
+The parser splits a flat layout randomly at parse time.
 
 Known ImageNet-sample label issues are cleaned automatically: duplicate
 ``"crane"`` and ``"maillot"`` class names are disambiguated, and known

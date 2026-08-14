@@ -12,7 +12,39 @@ def instrument_typer(
     include_system_metadata: bool | None = None,
     exclude_commands: set[str] | None = None,
 ) -> None:
-    """Wrap Typer commands to emit telemetry events."""
+    """Wrap Typer commands to emit telemetry events.
+
+    The wrapper walks the app recursively, so it also instruments the
+    commands of every registered sub-app.
+
+    Args:
+        app: The Typer application to instrument.
+        telemetry: The telemetry client that captures the events.
+        allowlist: Names of the command arguments you allow in the
+            event. If omitted, no argument value is sent. The wrapper
+            always drops ``self``, ``ctx``, and ``context``, and it
+            drops any Click or Typer context object.
+        include_system_metadata: Whether to attach system metadata to
+            the events. If omitted, the telemetry configuration
+            decides.
+        exclude_commands: Full command names to leave uninstrumented,
+            such as ``{"data parse"}``. Nested names use a space
+            between the parts.
+
+    Example:
+        Log only the command names, and add the dataset name for one
+        command.
+
+        .. code-block:: python
+
+            instrument_typer(app, telemetry, allowlist={"name"})
+
+    Note:
+        Use `luxonis_ml.telemetry.cli.skip_telemetry` on a single
+        callback to exclude that command, as an alternative to
+        ``exclude_commands``.
+
+    """
     _wrap_typer(
         app,
         telemetry,

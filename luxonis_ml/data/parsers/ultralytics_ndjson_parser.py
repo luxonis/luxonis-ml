@@ -27,6 +27,19 @@ class UltralyticsNDJSONParser(BaseParser):
     NDJSON records may carry their own split names. When no split is
     present on an image record, the image is assigned to ``"train"``.
     ``"valid"`` and ``"validation"`` are normalized to ``"val"``.
+
+    An image record locates its image through two fields:
+
+        - ``file`` names a local image. A relative path resolves against
+          the directory that holds the ``.ndjson`` manifest. An absolute
+          path is used as it is.
+        - ``url`` names a remote image. The parser downloads it, and
+          ``file`` then supplies only the cached file name. The parser
+          appends a hash of the URL to that name and writes the image to
+          a per-split cache directory.
+
+    A record that holds a ``url`` therefore never reads a local ``file``
+    path. One manifest can describe a fully remote dataset.
     """
 
     _remote_file_downloader = RemoteFileDownloader()

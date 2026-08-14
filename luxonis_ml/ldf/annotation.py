@@ -923,6 +923,10 @@ class SegmentationAnnotation(Annotation):
         make sure the counts follow FORTRAN (column-major)
         order as expected by the COCO RLE format.
 
+        The counts alternate between background runs and foreground runs,
+        and the first count is always a background run. If the mask starts
+        with a foreground pixel, the first count is 0.
+
     Attributes:
         height: The height of the segmentation mask.
         width: The width of the segmentation mask.

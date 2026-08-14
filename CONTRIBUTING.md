@@ -2,7 +2,7 @@
 
 This guide is the starting point for local development and pull requests.
 For API usage details, use the generated docs at
-<https://luxonis.github.io/luxonis-ml/latest/>.
+<https://docs.luxonis.com/software-v3/ai-inference/model-source/training/luxonis-ml/luxonis-ml-api-reference/>.
 
 ## Preparation
 
@@ -57,7 +57,6 @@ the uv override that removes `opencv-python-headless`. See the comment in
 | `luxonis_ml/tracker`           | Experiment tracking integrations.                                                |
 | `luxonis_ml/telemetry`         | Lightweight telemetry client, events, redaction, and backends.                   |
 | `tests`                        | Pytest suite, fixtures, integration tests, and data workflow coverage.           |
-| `tools/build_pydoctor_docs.py` | The local and CI entrypoint for generated API docs.                              |
 | `tools/export_requirements.sh` | Regenerates `uv.lock` and the `requirements*.txt` exports.                       |
 | `tools/version.py`             | Reports the package version, or changes it for a release.                        |
 
@@ -128,14 +127,32 @@ Public API docs are generated from docstrings with pydoctor using the
 Build the current checkout locally:
 
 ```bash
-uv run python tools/build_pydoctor_docs.py --mode current --output apidocs
+uv run pydoctor luxonis_ml
 ```
 
-Open `apidocs/latest/index.html` to inspect the result.
+Open `apidocs/index.html` to inspect the result. CI runs the same command. The
+`[tool.pydoctor]` section of `pyproject.toml` sets the Google docstring format,
+which pydoctor reads on its own.
 
-For docs changes, prefer updating package and object docstrings that feed the
-generated site. Several submodule `README.md` files are deprecated and point to
-GitHub Pages; avoid expanding them unless the task specifically asks for it.
+> [!IMPORTANT]
+> A malformed docstring is a syntax error. pydoctor reports it and exits
+> non-zero, so the CI job fails on broken markup. pydoctor exits 0 for
+> unresolved-reference and annotation warnings, and the build reports some of
+> those today. Read the command output after you change a docstring, because
+> those warnings do not stop the build.
+
+The published reference lives on the Luxonis documentation portal. The
+`Export pydoctor reference` workflow builds it from these docstrings with the
+exporter that the `luxonis/docs-content` repository provides. The workflow
+uploads the result as the `luxonis-ml-api-reference` artifact. It runs on
+`release/*` pull requests and on manual dispatch, so a docstring change reaches
+the portal with the next release.
+
+For docs changes, update the package and object docstrings that feed the
+generated site. The submodule `README.md` files were removed, so the docstrings
+are the only home for API documentation. Keep the root `README.md` short: it
+introduces the library and links to the generated site. Document a new
+behavior next to the code that implements it.
 
 Good doc changes should:
 
@@ -175,13 +192,13 @@ applied automatically from branch names and changed paths.
 
 PR CI runs:
 
-| Check        | Notes                                                     |
-| ------------ | --------------------------------------------------------- |
-| `pre-commit` | Must pass before docs, type check, and tests proceed.     |
-| `docs`       | Builds pydoctor docs with `tools/build_pydoctor_docs.py`. |
-| `type-check` | Runs Pyright on Python 3.10.                              |
-| `semgrep`    | Runs security and secret scanning.                        |
-| `tests`      | Runs pytest on Ubuntu and Windows in six split groups.    |
+| Check        | Notes                                                  |
+| ------------ | ------------------------------------------------------ |
+| `pre-commit` | Must pass before docs, type check, and tests proceed.  |
+| `docs`       | Builds the pydoctor docs to check that they parse.     |
+| `type-check` | Runs Pyright on Python 3.10.                           |
+| `semgrep`    | Runs security and secret scanning.                     |
+| `tests`      | Runs pytest on Ubuntu and Windows in six split groups. |
 
 Release branches named `release/*` also run extra package-install checks for
 selected extras.
