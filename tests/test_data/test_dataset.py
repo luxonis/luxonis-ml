@@ -323,6 +323,20 @@ def test_make_splits(
         assert not splits["val"]
         assert not splits["test"]
 
+    # `replace_old_splits=True` discards the old splits, even when every
+    # file in the definitions already belongs to a split.
+    dataset.make_splits(definitions, replace_old_splits=True)
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert {split: len(data) for split, data in splits.items()} == {
+        split: len(filepaths) for split, filepaths in definitions.items()
+    }
+
+    # The definitions match no file, but `replace_old_splits=True` still
+    # discards the old splits.
+    dataset.make_splits({"train": ["missing.jpg"]}, replace_old_splits=True)
+    assert dataset.get_splits() == {"train": []}
+
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_metadata(

@@ -1627,11 +1627,16 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 new_splits[split] = ids
 
             if not any(new_splits.values()):
+                if not replace_old_splits:
+                    logger.warning(
+                        "No new files to add to splits. "
+                        "The existing splits are left unchanged."
+                    )
+                    return
                 logger.warning(
-                    "No new files to add to splits. "
-                    "The existing splits are left unchanged."
+                    "No file from the definitions is in the dataset. "
+                    "The new splits are empty."
                 )
-                return
 
         for split, group_ids in new_splits.items():
             old_splits[split].extend(group_ids)
