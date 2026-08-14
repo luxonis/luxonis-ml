@@ -1616,7 +1616,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                         f"the ratio {ratios[split]}."
                     )
 
-        elif definitions is not None:
+        else:
+            # The chain above sets exactly one of the two, or it raises.
+            # An `elif definitions is not None` here would let a later
+            # edit fall through and re-save the old splits in silence.
+            assert definitions is not None
+
             n_files = sum(map(len, definitions.values()))
             dataset_size = len(self)
             if n_files > dataset_size:
