@@ -207,6 +207,9 @@ python3 tools/version.py            # report the current version
 python3 tools/version.py --set minor
 ```
 
+`.github/release.yaml` groups the generated notes into categories from the pull
+request labels. GitHub reads that file; the name is not ours to choose.
+
 Package publishing and documentation deployment are handled by GitHub Actions:
 
 - `release-pr.yaml` opens the version bump pull request on manual dispatch.
