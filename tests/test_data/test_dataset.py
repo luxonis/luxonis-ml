@@ -518,9 +518,13 @@ def test_make_splits(
 
     n_groups = sum(len(split_data) for split_data in splits.values())
 
-    # A tuple stays permissive, because a tuple is positional and no
-    # parser sends one. Only a mapping needs a real float.
-    dataset.make_splits((True, False, False), replace_old_splits=True)
+    # A `bool` is not a ratio, not even inside a tuple.
+    with pytest.raises(TypeError, match="A bool is not a ratio"):
+        dataset.make_splits((True, False, False))  # type: ignore
+
+    # A tuple stays permissive for an `int`, because a tuple is
+    # positional and no parser sends one. Only a mapping needs a float.
+    dataset.make_splits((1, 0, 0), replace_old_splits=True)
     splits = dataset.get_splits()
     assert splits is not None
     assert len(splits["train"]) == n_groups

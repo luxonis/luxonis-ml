@@ -1531,6 +1531,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         definitions: Mapping[str, Sequence[PathType]] | None = None
 
         if isinstance(splits, tuple):
+            # `bool` is a subclass of `int`, so `typeguard` lets it pass
+            # as a float. It is never a meaningful ratio.
+            if any(isinstance(ratio, bool) for ratio in splits):
+                raise TypeError("A bool is not a ratio. Use 1.0 and 0.0.")
             ratios = {
                 "train": splits[0],
                 "val": splits[1],
