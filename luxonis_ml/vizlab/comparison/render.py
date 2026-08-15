@@ -1,12 +1,12 @@
 """Draw a `ComparisonResult` — the view where colour *is* the verdict.
 
-Green for a hit, red for a false alarm, dashed amber for a miss, and orange for a
-box that landed on the right object with the wrong label. A `Detection`'s whole
-annotation tree (box, keypoints, instance mask, sub-detections) is drawn in its
-verdict colour, so masks and keypoints inherit the outcome.
+Green for a hit, red for a miss, dashed amber for a false alarm, and orange for
+a box that landed on the right object with the wrong label. A `Detection`'s
+whole annotation tree (box, keypoints, instance mask, sub-detections) is drawn
+in its verdict colour, so masks and keypoints inherit the outcome.
 
 When a matched pair carries keypoints they are graded per joint — green within
-`KEYPOINT_TOLERANCE` of the ground-truth joint, red when off, amber when missed —
+`KEYPOINT_TOLERANCE` of the ground-truth joint, amber when off, red when missed —
 so a partly-correct pose reads at a glance, and a skeleton limb between two
 differently graded joints fades from one colour to the other.
 """
@@ -213,8 +213,8 @@ def _grade_keypoints(
 
     Returns the points to draw and an index-aligned color per joint: a predicted
     joint is green within `KEYPOINT_TOLERANCE` of its ground-truth counterpart,
-    red when off, amber (relocated to the ground-truth spot) when the prediction
-    omits a joint the ground truth has, and red when it invents one the ground
+    amber when off, red (relocated to the ground-truth spot) when the prediction
+    omits a joint the ground truth has, and amber when it invents one the ground
     truth lacks.
     """
     tolerance = KEYPOINT_TOLERANCE * (
@@ -253,7 +253,7 @@ def _with_keypoint_verdicts(
     """Grade a matched detection's joints per keypoint instead of all one color.
 
     When both sides carry keypoints, the single `Keypoints` keeps its skeleton
-    edges but gets per-joint colors (green correct / red wrong / amber missed);
+    edges but gets per-joint colors (green correct / amber wrong / red missed);
     the box keeps its verdict color. A limb between two differently graded joints
     renders as a gradient. Detections without paired keypoints are unchanged.
     """
@@ -289,15 +289,12 @@ def _render_match(match: Match, options: RenderOptions) -> list[Annotation]:
         painted = _recolor(match.pred, options, TP_COLOR, tooltip=tooltip)
         return [*_ghost(match.gt), *_with_keypoint_verdicts(painted, match)]
     if v is Verdict.FP and match.pred is not None:
-        return _recolor(match.pred, options, FP_COLOR, tooltip=tooltip)
+        return _recolor(
+            match.pred, options, FP_COLOR, tooltip=tooltip, dash=(7.0, 5.0)
+        )
     if v is Verdict.FN and match.gt is not None:
         return _recolor(
-            match.gt,
-            options,
-            FN_COLOR,
-            tooltip=tooltip,
-            dash=(7.0, 5.0),
-            keep_score=False,
+            match.gt, options, FN_COLOR, tooltip=tooltip, keep_score=False
         )
     if v is Verdict.CLASS_ERROR and match.pred is not None:
         painted = _recolor(

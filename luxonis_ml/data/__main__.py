@@ -1412,7 +1412,7 @@ def compare(
     Treats ``predictions`` as a model's outputs and ``name`` as the ground truth,
     matches them sample by sample (COCO-style: greedy by confidence, class-aware,
     at ``--iou-threshold``), and draws each frame colored by outcome — green hit,
-    red false alarm, dashed-amber miss, orange class error — with a metrics side
+    red miss, dashed-amber false alarm, orange class error — with a metrics side
     panel. Matched poses are graded per keypoint. Samples are paired by their
     source filenames, and missing/extra samples are reported. Press any key to
     advance, 'q' to quit.

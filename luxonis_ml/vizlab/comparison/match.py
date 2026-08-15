@@ -28,8 +28,10 @@ if TYPE_CHECKING:
 
 # Verdict colors, tuned for the dark composite background. Themeable later.
 TP_COLOR = Color.parse("#35d6a6")
-FP_COLOR = Color.parse("#ff6b6b")
-FN_COLOR = Color.parse("#ffc24b")
+# A miss outranks a false alarm: a missed object can never be recovered
+# downstream, while a false alarm is at least visible. So red marks the miss.
+FN_COLOR = Color.parse("#ff6b6b")
+FP_COLOR = Color.parse("#ffc24b")
 CLASS_ERROR_COLOR = Color.parse("#ff9142")
 
 ComparisonKeypoint = tuple[float, float, int]

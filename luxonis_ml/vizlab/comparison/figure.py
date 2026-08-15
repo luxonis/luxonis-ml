@@ -9,7 +9,13 @@ from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import XY
 from luxonis_ml.vizlab.options import RenderOptions
 
-from .match import FP_COLOR, NONE_LABEL, TP_COLOR
+from .match import (
+    CLASS_ERROR_COLOR,
+    FN_COLOR,
+    FP_COLOR,
+    NONE_LABEL,
+    TP_COLOR,
+)
 from .report import ComparisonReport
 
 if TYPE_CHECKING:
@@ -54,13 +60,28 @@ def _draw_text(
     canvas.markup((tx, ty), text, size=size, color=color, weight=weight)
 
 
+def _cell_color(gt_label: str, pred_label: str) -> Color:
+    """Return the verdict color one confusion-matrix cell stands for.
+
+    The ``∅`` column is a miss and the ``∅`` row a false alarm; of the rest, the
+    diagonal is a hit and every other cell a class error.
+    """
+    if pred_label == NONE_LABEL:
+        return FN_COLOR
+    if gt_label == NONE_LABEL:
+        return FP_COLOR
+    if gt_label == pred_label:
+        return TP_COLOR
+    return CLASS_ERROR_COLOR
+
+
 def _draw_confusion_cell(
     canvas: "Canvas",
     *,
     row: int,
     column: int,
     count: int,
-    correct: bool,
+    color: Color,
     peak: int,
     left: int,
     top: int,
@@ -71,13 +92,7 @@ def _draw_confusion_cell(
     x0, y0 = float(left + column * cell), float(top + row * cell)
     x1, y1 = x0 + cell, y0 + cell
     corners: list[XY] = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
-    fill = (
-        (TP_COLOR if correct else FP_COLOR).with_alpha(
-            0.18 + 0.72 * (count / peak)
-        )
-        if count
-        else None
-    )
+    fill = color.with_alpha(0.18 + 0.72 * (count / peak)) if count else None
     canvas.polygon(corners, fill=fill, stroke=grid, stroke_width=1.0)
     if not count:
         return
@@ -102,8 +117,10 @@ def confusion_matrix_figure(
 
     Rows are the ground-truth class, columns the predicted class, with a trailing
     ``∅`` row/column for false negatives (missed) and false positives (invented).
-    A cell on the diagonal is green (correct), off-diagonal red (a confusion),
-    each shaded by how many detections land in it, with the count printed inside.
+    Every cell carries its verdict color — green on the diagonal (correct), red
+    in the ``∅`` column (missed), amber in the ``∅`` row (invented), and orange
+    anywhere else (a confusion) — each shaded by how many detections land in it,
+    with the count printed inside.
 
     Args:
         report: The accumulated `ComparisonReport`.
@@ -141,7 +158,7 @@ def confusion_matrix_figure(
                 row=i,
                 column=j,
                 count=count,
-                correct=i == j and labels[i] != NONE_LABEL,
+                color=_cell_color(labels[i], labels[j]),
                 peak=peak,
                 left=left,
                 top=top,

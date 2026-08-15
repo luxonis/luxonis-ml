@@ -35,7 +35,7 @@ vizlab feature figures — each a self-contained group that drops into the docs:
   instance mask), each inheriting its verdict color, as a triptych (ground truth
   | prediction | diff).
 - ``compare_keypoints.png`` — keypoint comparison graded per joint (green
-  correct, red off, amber missed): no match, partial keypoints, full match.
+  correct, amber off, red missed): no match, partial keypoints, full match.
 - ``confusion_matrix.png`` — a dataset-level confusion matrix accumulated with
   ``ComparisonReport`` (truth by prediction, with a ``∅`` miss/false-alarm row).
 - ``heatmaps.png`` — one field under several gradient themes.
@@ -630,8 +630,9 @@ def render_compare() -> Path:
 
     - **green** — a true positive; the faint dashed ghost behind it is where the
       ground truth actually was, so localization drift is visible.
-    - **red** — a false positive (a prediction with no matching ground truth).
-    - **dashed amber** — a false negative (ground truth the model missed).
+    - **red** — a false negative (ground truth the model missed).
+    - **dashed amber** — a false positive (a prediction with no matching ground
+      truth).
     - **orange** — a class error (right box, wrong label, chip ``gt → pred``);
       scored as a false positive plus a false negative, the orange is just so the
       mistake is easy to spot.
@@ -691,11 +692,11 @@ def render_compare_verdicts() -> Path:
     """Show the four match results in isolation — the verdict color key.
 
     One cell per outcome of `compare`, each a minimal one-box scene so the color
-    (and, for a miss, the dashed outline) reads cleanly:
+    (and, for a false alarm, the dashed outline) reads cleanly:
 
     - **true positive** — green, over its faint dashed ground-truth ghost.
-    - **false positive** — red; a prediction with no ground truth.
-    - **false negative** — dashed amber; ground truth with no prediction.
+    - **false negative** — red; ground truth with no prediction.
+    - **false positive** — dashed amber; a prediction with no ground truth.
     - **class error** — orange, chip ``gt → pred``; scored as a false positive
       plus a false negative, colored apart only so the mistake shows.
     """
@@ -731,8 +732,8 @@ def render_compare_detection_tree() -> Path:
     - a boxed object matched cleanly — a green true positive;
     - a boxed **instance mask** predicted with the wrong label — a class error, so
       the box *and* its mask turn orange;
-    - a boxed object the model missed — a dashed-amber false negative;
-    - a prediction with nothing under it — a red false positive.
+    - a boxed object the model missed — a red false negative;
+    - a prediction with nothing under it — a dashed-amber false positive.
     """
     from luxonis_ml.ldf import Detection
 
@@ -782,17 +783,17 @@ def render_compare_keypoints() -> Path:
     """Keypoint comparison graded per joint, at three levels of agreement.
 
     When a matched detection carries keypoints, `compare` scores each joint on its
-    own — green within tolerance of the ground-truth joint, red when off — rather
-    than coloring the whole pose one color. A skeleton limb between two
+    own — green within tolerance of the ground-truth joint, amber when off —
+    rather than coloring the whole pose one color. A skeleton limb between two
     differently graded joints is drawn as a gradient between their colors. Three
     cells, left to right:
 
     - **no match** — the predicted pose lands nowhere near the ground-truth one, so
-      the boxes never match: the ground truth is a dashed-amber miss and the
-      prediction a red false alarm (no per-joint grading without a pair);
+      the boxes never match: the ground truth is a red miss and the prediction
+      a dashed-amber false alarm (no per-joint grading without a pair);
     - **box + partial keypoints** — the boxes match (a true positive), but a few
-      predicted joints are misplaced, so those turn red while the rest stay green
-      and the limbs joining green to red fade between the two;
+      predicted joints are misplaced, so those turn amber while the rest stay
+      green and the limbs joining green to amber fade between the two;
     - **full match** — every joint lands on target, so the whole pose is green.
     """
     from luxonis_ml.ldf import Detection
@@ -876,8 +877,9 @@ def render_confusion_matrix() -> Path:
     Feeding several images' `compare` matches into a `ComparisonReport` and
     calling `confusion_matrix_figure` gives the classic model-debugging view:
     rows are the ground-truth class, columns the prediction, with a trailing
-    ``∅`` for misses (false negatives) and false alarms (false positives). The
-    diagonal is green (correct), off-diagonal red (a confusion), shaded by count.
+    ``∅`` for misses (false negatives) and false alarms (false positives). Each
+    cell takes its verdict color — green on the diagonal, red for a miss, amber
+    for a false alarm, orange for a confusion — shaded by count.
     """
 
     def det(

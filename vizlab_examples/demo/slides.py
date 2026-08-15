@@ -156,8 +156,8 @@ GLOSSARY: dict[str, Tooltip] = {
         signature="list[tuple[str, Color]]",
         data={
             "hit": "#35d6a6",
-            "miss": "#ffc24b",
-            "false alarm": "#ff6b6b",
+            "miss": "#ff6b6b",
+            "false alarm": "#ffc24b",
             "wrong class": "#ff9142",
         },
     ),

@@ -55,8 +55,9 @@ def _verdicts(result: ComparisonResult) -> list[Verdict]:
 
 def test_verdict_colors_preserve_failure_semantics() -> None:
     assert Color.parse("#35d6a6") == TP_COLOR
-    assert Color.parse("#ff6b6b") == FP_COLOR
-    assert Color.parse("#ffc24b") == FN_COLOR
+    # A miss is the worse failure: it takes red, a false alarm takes amber.
+    assert Color.parse("#ff6b6b") == FN_COLOR
+    assert Color.parse("#ffc24b") == FP_COLOR
     assert Color.parse("#ff9142") == CLASS_ERROR_COLOR
 
 
@@ -648,7 +649,7 @@ def test_keypoints_full_match_are_all_green() -> None:
     assert all(c == TP_COLOR for c in colors)
 
 
-def test_partly_misplaced_keypoints_go_red() -> None:
+def test_partly_misplaced_keypoints_go_amber() -> None:
     box = {"x": 0.2, "y": 0.2, "w": 0.4, "h": 0.6}
     gt_j = [(0.3, 0.3, 2), (0.5, 0.3, 2), (0.4, 0.7, 2)]
     pred_j = [(0.3, 0.3, 2), (0.5, 0.3, 2), (0.9, 0.1, 2)]  # 3rd far off
@@ -660,7 +661,7 @@ def test_partly_misplaced_keypoints_go_red() -> None:
     assert FP_COLOR in colors  # the displaced one
 
 
-def test_missed_keypoint_is_amber() -> None:
+def test_missed_keypoint_is_red() -> None:
     box = {"x": 0.2, "y": 0.2, "w": 0.4, "h": 0.6}
     gt_j = [(0.3, 0.3, 2), (0.5, 0.3, 2), (0.4, 0.7, 2)]
     pred_j = [(0.3, 0.3, 2), (0.5, 0.3, 2), (0.4, 0.7, 0)]  # 3rd not predicted
@@ -671,7 +672,7 @@ def test_missed_keypoint_is_amber() -> None:
 
 
 def test_unmatched_pose_keeps_one_verdict_color() -> None:
-    # No pair -> no per-joint grading; the whole miss stays one amber pose.
+    # No pair -> no per-joint grading; the whole miss stays one red pose.
     box = {"x": 0.6, "y": 0.6, "w": 0.3, "h": 0.3}
     joints = [(0.7, 0.7, 2), (0.8, 0.8, 2)]
     img = compare(_blank(), gt=[_pose(box, joints)], pred=[], panel=False)
@@ -735,6 +736,18 @@ def test_grade_keypoints_skips_joints_absent_on_both_sides() -> None:
 def test_render_match_ignores_incomplete_match() -> None:
     incomplete = Match(Verdict.TP, None, None)
     assert _render_match(incomplete, RenderOptions()) == []
+
+
+def test_the_false_alarm_is_dashed_and_the_miss_is_solid() -> None:
+    # The dash belongs to the box that should not be there, so a miss keeps the
+    # solid outline its severity deserves.
+    options = RenderOptions()
+    false_alarm = _render_match(
+        Match(Verdict.FP, None, _box(0.1, 0.1)), options
+    )
+    miss = _render_match(Match(Verdict.FN, _box(0.5, 0.5), None), options)
+    assert false_alarm[0].style_overrides == {"dash": (7.0, 5.0)}
+    assert miss[0].style_overrides == {}
 
 
 def test_empty_comparison_report_per_class_is_empty() -> None:

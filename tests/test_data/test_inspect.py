@@ -538,6 +538,7 @@ def test_inspect_colors_instances_from_the_chosen_palette(
     because ``--palette`` is a statement about how colors are picked.
     """
     import luxonis_ml.vizlab.adapters.instances as instances_module
+    import luxonis_ml.vizlab.adapters.samples as samples_module
     from luxonis_ml.vizlab import (
         PALETTES,
         Annotation,
@@ -567,7 +568,7 @@ def test_inspect_colors_instances_from_the_chosen_palette(
 
     _patch_two_class_sample(monkeypatch)
     monkeypatch.setattr(
-        instances_module, "records_to_colored_annotations", capture_coloring
+        samples_module, "records_to_colored_annotations", capture_coloring
     )
 
     try:
@@ -971,6 +972,7 @@ def test_inspect_grid_renders_real_frames(
             )
 
     import luxonis_ml.vizlab.adapters.instances as instances_module
+    import luxonis_ml.vizlab.adapters.samples as samples_module
     from luxonis_ml.data.loaders import label_converter
     from luxonis_ml.vizlab import Annotation, Palette, RenderOptions
     from luxonis_ml.vizlab.adapters import ColorBy
@@ -1022,7 +1024,7 @@ def test_inspect_grid_renders_real_frames(
         capture_blend,
     )
     monkeypatch.setattr(
-        instances_module,
+        samples_module,
         "records_to_colored_annotations",
         capture_coloring,
     )
@@ -1248,6 +1250,7 @@ def test_inspect_sample_filters_select_whole_matching_sample(
             yield from samples
 
     import luxonis_ml.vizlab.adapters.instances as instances_module
+    import luxonis_ml.vizlab.adapters.samples as samples_module
     from luxonis_ml.data.loaders import label_converter
     from luxonis_ml.vizlab import (
         Annotation,
@@ -1305,7 +1308,7 @@ def test_inspect_sample_filters_select_whole_matching_sample(
         convert_labels,
     )
     monkeypatch.setattr(
-        instances_module,
+        samples_module,
         "records_to_colored_annotations",
         capture_coloring,
     )
@@ -2735,6 +2738,7 @@ def test_inspect_array_kind_pins_how_a_task_is_read(
     # Pinning it to `signed` has to win, and has to reach the built annotation.
     from luxonis_ml.vizlab import RenderOptions, set_default_options
     from luxonis_ml.vizlab.adapters import arrays as arrays_adapter
+    from luxonis_ml.vizlab.adapters import samples as samples_module
 
     built: list[object] = []
     real = arrays_adapter.array_annotations
@@ -2744,7 +2748,7 @@ def test_inspect_array_kind_pins_how_a_task_is_read(
         built.extend(drawing.kind for drawing in result)
         return result
 
-    monkeypatch.setattr(arrays_adapter, "array_annotations", capture)
+    monkeypatch.setattr(samples_module, "array_annotations", capture)
     _save_mocks(monkeypatch, labels=_stereo_array())
     try:
         data_main.inspect(
@@ -2767,6 +2771,7 @@ def test_inspect_array_flags_reach_the_heatmap(
     # they arrive rather than only that something was drawn.
     from luxonis_ml.vizlab import RenderOptions, set_default_options
     from luxonis_ml.vizlab.adapters import arrays as arrays_adapter
+    from luxonis_ml.vizlab.adapters import samples as samples_module
 
     built: list[object] = []
     real = arrays_adapter.array_annotations
@@ -2778,7 +2783,7 @@ def test_inspect_array_flags_reach_the_heatmap(
 
     # The command imports the bridge inside its body, so the patch has to land
     # on the source module rather than on a name in __main__.
-    monkeypatch.setattr(arrays_adapter, "array_annotations", capture)
+    monkeypatch.setattr(samples_module, "array_annotations", capture)
     _save_mocks(monkeypatch, labels=_stereo_array())
     try:
         data_main.inspect(
