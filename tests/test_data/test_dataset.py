@@ -199,8 +199,8 @@ def test_split_sizes():
     """A ``ceil`` of each share starved the last split.
 
     Every split rounded up in turn, so the last one absorbed all the
-    error. With the default 80/10/10 ratios, each dataset below 15
-    groups lost its test split.
+    error. With the default 80/10/10 ratios, the test split was empty
+    for 9 groups or fewer, and again for 11 to 14 groups.
     """
     default = {"train": 0.8, "val": 0.1, "test": 0.1}
 
@@ -209,12 +209,15 @@ def test_split_sizes():
     assert _split_sizes(9, default) == {"train": 7, "val": 1, "test": 1}
     assert _split_sizes(14, default) == {"train": 11, "val": 2, "test": 1}
 
+    # Seven groups is the smallest count that fills all three splits.
+    # Below it the test split cannot get a whole group.
+    assert _split_sizes(6, default) == {"train": 5, "val": 1, "test": 0}
+
     for n_groups in range(1, 200):
         sizes = _split_sizes(n_groups, default)
         # No group is lost and no group is counted two times.
         assert sum(sizes.values()) == n_groups, (n_groups, sizes)
-        if n_groups >= 10:
-            # Each split gets data as soon as the dataset is big enough.
+        if n_groups >= 7:
             assert all(size > 0 for size in sizes.values()), (n_groups, sizes)
 
     # A zero ratio still gets nothing.

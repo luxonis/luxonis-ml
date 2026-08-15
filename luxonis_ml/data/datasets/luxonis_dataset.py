@@ -2119,7 +2119,9 @@ def _split_sizes(n_groups: int, ratios: Mapping[str, float]) -> dict[str, int]:
 
     A ``ceil`` of each share gives every split more than its part in
     turn, so the last split absorbs all the error. With the default
-    80/10/10 ratios, each dataset below 15 groups lost its test split.
+    80/10/10 ratios, the test split was empty for 9 groups or fewer,
+    and again for 11 to 14 groups. Above that the test split survived,
+    but the train split still took more than its share.
 
     Args:
         n_groups: The number of groups to divide.
