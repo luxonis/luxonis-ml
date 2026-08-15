@@ -1530,14 +1530,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 .. deprecated:: 0.4.0
                     Use ``splits`` instead.
 
-            replace_old_splits: Whether to drop the old splits first. The
-                flag applies only to splits from ratios. A split from
-                ratios uses only the records that no split holds yet. It
-                adds those records to the old splits. If every record
-                already belongs to a split, ``True`` drops the old splits
-                and splits every record again. ``False`` then raises a
-                ``ValueError``. Splits from definitions always extend the
-                old splits, so they ignore the flag.
+            replace_old_splits: Whether to replace old splits with new ones. If ``False`
+                (default), new splits will be added to old splits, and duplicate group IDs will be filtered out. If ``True``, old splits will be replaced with new splits.
+
+                A split from ratios uses only the records that no split
+                holds yet. Set this to ``True`` to drop the old splits
+                and to split every record again.
 
         Raises:
             ValueError: If both ``ratios`` and ``definitions`` are provided.
