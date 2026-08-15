@@ -2101,8 +2101,13 @@ def _write_json(path: Path, data: Mapping[str, list[str]]) -> None:
 
     """
     tmp_path = path.with_name(f"{path.name}.tmp")
-    tmp_path.write_text(json.dumps(data, indent=4))
-    tmp_path.replace(path)
+    try:
+        tmp_path.write_text(json.dumps(data, indent=4))
+        tmp_path.replace(path)
+    finally:
+        # `put_dir` uploads the whole metadata directory, so a partial
+        # file left here would reach the remote on the next push.
+        tmp_path.unlink(missing_ok=True)
 
 
 def _split_sizes(n_groups: int, ratios: Mapping[str, float]) -> dict[str, int]:

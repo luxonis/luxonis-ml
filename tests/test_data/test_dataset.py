@@ -336,6 +336,9 @@ def test_make_splits_is_atomic(
     monkeypatch.undo()
 
     assert dataset.get_splits() == old_splits
+    # `put_dir` uploads the whole metadata directory, so the partial
+    # file must not outlive the failure.
+    assert not list(dataset._metadata_path.glob("*.tmp"))
 
 
 def test_definitions_skip_a_non_filepath(
