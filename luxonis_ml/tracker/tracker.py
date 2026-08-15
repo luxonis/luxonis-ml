@@ -258,10 +258,13 @@ class LuxonisTracker:
             - ``local_logs.json`` holds the metrics, the parameters, the
               matrices, and the index of the saved images and artifacts;
             - ``images/`` holds the buffered images as ``<index>.png``;
-            - ``artifacts/`` holds a copy of each buffered artifact.
+            - ``artifacts/`` holds a copy of each buffered artifact whose
+              source file still exists.
 
-        The image and artifact entries in ``local_logs.json`` hold the new
-        local paths, not the original data.
+        The image entries in ``local_logs.json`` hold the new local paths,
+        not the original data. An artifact entry holds the new local path
+        only after a successful copy. A missing source keeps its original
+        path.
 
         `LuxonisTracker.close` calls this method when MLflow is enabled and
         the buffer is not empty.

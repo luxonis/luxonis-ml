@@ -5,8 +5,9 @@ interface for TensorBoard, Weights & Biases, and MLflow. Training and
 evaluation code can log metrics, hyperparameters, images, matrices, and
 artifacts through one API while choosing the enabled backends at runtime.
 
-Pass ``rank`` in distributed training. Every logging method checks the rank,
-so only rank 0 writes.
+Pass ``rank`` in distributed training. The rank-gated logging methods, such
+as `LuxonisTracker.log_metric`, write only on rank 0. The helpers that save
+or replay the local buffer do not check the rank.
 
 Example:
     Start a TensorBoard-backed run and log a scalar metric.
