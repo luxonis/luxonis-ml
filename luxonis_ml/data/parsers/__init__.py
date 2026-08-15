@@ -263,7 +263,7 @@ download one split at a time:
 .. code-block:: bash
 
     fiftyone zoo datasets load coco-2017 \
-        --split validation \
+        --splits validation \
         --kwargs max_samples=1000
 
 COCO parsing handles both FiftyOne and Roboflow layouts. Bounding boxes are
