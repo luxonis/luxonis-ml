@@ -72,6 +72,7 @@ def _keypoint_generator(tempdir: Path) -> DatasetIterator:
         yield {
             "file": create_image(i, tempdir),
             "task_name": "pose",
+            "sample_metadata": {"record_id": i, "origin": "test"},
             "annotation": {
                 "class": "person",
                 "keypoints": {
@@ -108,9 +109,12 @@ def _export(
     return tempdir / name / dataset.identifier
 
 
-@pytest.mark.parametrize("version", ["2.0", "2.0.0"])
-def test_resolve_accepts_short_and_full_versions(version: str):
-    assert resolve_export_version(version) == Version.parse("2.0.0")
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [("2.0", "2.0.0"), ("2.0.0", "2.0.0"), ("2.1", "2.1.0")],
+)
+def test_resolve_accepts_short_and_full_versions(version: str, expected: str):
+    assert resolve_export_version(version) == Version.parse(expected)
 
 
 def test_resolve_defaults_to_current_version():
@@ -221,6 +225,53 @@ def test_export_2_0_drops_the_keypoint_skeleton(
     assert keypoints
     assert all("skeleton" not in k for k in keypoints)
     assert [msg for msg in warnings_log if "keypoints.skeleton" in msg]
+
+
+def test_export_2_1_keeps_sample_metadata_but_drops_the_skeleton(
+    dataset_name: str, tempdir: Path
+):
+    """LDF 2.1 knows ``sample_metadata``. Only the skeleton is newer."""
+    dataset = create_dataset(
+        dataset_name, _keypoint_generator(tempdir), splits=(1, 0, 0)
+    )
+    root = _export(dataset, tempdir, "keypoints21", ldf_version="2.1")
+
+    records = _read_records(root)
+    assert records
+    assert all("sample_metadata" in record for record in records)
+    assert not [
+        record
+        for record in records
+        if "skeleton" in record.get("annotation", {}).get("keypoints", {})
+    ]
+    assert _read_stamp(root) == "2.1.0"
+
+
+def test_export_without_a_skeleton_still_imports(
+    dataset_name: str, tempdir: Path
+):
+    """A dropped skeleton must not make the export unusable.
+
+    The stored keypoints keep the skeleton order, so the import names
+    them by position.
+    """
+    dataset = create_dataset(
+        dataset_name, _keypoint_generator(tempdir), splits=(1, 0, 0)
+    )
+    root = _export(dataset, tempdir, "keypoints20_import", ldf_version="2.0")
+
+    imported = LuxonisParser(
+        str(root),
+        dataset_type=DatasetType.NATIVE,
+        dataset_name=f"{dataset_name}_imported",
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+    imported.make_splits((1, 0, 0), replace_old_splits=True)
+
+    _, labels = LuxonisLoader(imported)[0]
+    assert labels["pose/keypoints"].shape == (1, 9)
+    assert imported.get_skeletons()["pose"].labels == ["0", "1", "2"]
 
 
 def test_export_defaults_to_current_version(dataset_name: str, tempdir: Path):
