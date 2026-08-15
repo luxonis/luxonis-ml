@@ -1,22 +1,17 @@
-"""Typed sample-selection rules shared by dataset visualization commands."""
+"""Sample-selection rules shared by the dataset visualization commands."""
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
 from luxonis_ml.ldf import DatasetRecord, Detection
-from luxonis_ml.typing import Params, ParamValue
+from luxonis_ml.typing import Params, ParamValue, TaskType
 
-InspectionAnnotationType: TypeAlias = Literal[
-    "array",
-    "boundingbox",
-    "classification",
-    "instance_segmentation",
-    "keypoints",
-    "metadata",
-    "segmentation",
-]
-"""Annotation families accepted by the inspector's type filter."""
+InspectionAnnotationType: TypeAlias = TaskType | Literal["metadata"]
+"""Annotation families accepted by the inspector's type filter.
+
+Every `TaskType`, plus ``"metadata"`` for the whole ``metadata/<key>`` family.
+"""
 
 NameFilterMode: TypeAlias = Literal["include", "exclude"]
 """Whether named tasks or classes are required or rejected."""
@@ -70,8 +65,7 @@ class SampleFilterConfig:
         The set alone does not say whether the named tasks are wanted or
         rejected. Use `accepts_task` to apply ``task_name_mode``.
         """
-        names = tuple(dict.fromkeys(self.task_name or []))
-        return frozenset(names) if names else None
+        return frozenset(self.task_name) if self.task_name else None
 
     def accepts_task(self, task_name: str) -> bool:
         """Whether one task passes the include or exclude task filter."""
@@ -86,30 +80,15 @@ class SampleFilterConfig:
         available_tasks: Iterable[str] = (),
         available_classes: Iterable[str] = (),
     ) -> None:
-        """Reject requested task or class names absent from the supplied scope."""
-        tasks = tuple(dict.fromkeys(available_tasks))
-        requested_tasks = tuple(dict.fromkeys(self.task_name or []))
-        unknown_tasks = [task for task in requested_tasks if task not in tasks]
-        if unknown_tasks:
-            unknown = ", ".join(repr(task) for task in unknown_tasks)
-            available = ", ".join(repr(task) for task in tasks)
-            raise ValueError(
-                f"Unknown task name(s): {unknown}. "
-                f"Available task names: {available or '(none)'}."
-            )
-
-        classes = frozenset(name.strip() for name in available_classes)
-        requested_classes = self._requested_classes()
-        unknown_classes = [
-            name for name in requested_classes if name not in classes
-        ]
-        if unknown_classes:
-            unknown = ", ".join(repr(name) for name in unknown_classes)
-            available = ", ".join(repr(name) for name in sorted(classes))
-            raise ValueError(
-                f"Unknown class name(s): {unknown}. "
-                f"Available class names: {available or '(none)'}."
-            )
+        """Reject requested task or class names outside the given scope."""
+        _reject_unknown_names(
+            "task name", self.task_name or (), available_tasks
+        )
+        _reject_unknown_names(
+            "class name",
+            self._requested_classes(),
+            (name.strip() for name in available_classes),
+        )
 
     def query(self) -> "InspectionQuery":
         """Build the immutable matcher consumed by inspect and compare."""
@@ -130,10 +109,8 @@ class SampleFilterConfig:
         )
 
     def _requested_classes(self) -> tuple[str, ...]:
-        """Deduplicated class names, trimmed the way stored names are."""
-        return tuple(
-            dict.fromkeys(name.strip() for name in self.class_name or [])
-        )
+        """Class names trimmed the way stored class names are."""
+        return tuple(name.strip() for name in self.class_name or [])
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,11 +161,9 @@ class InspectionQuery:
     so the visual context stays complete.
     """
 
-    class_names: frozenset[str] = field(default_factory=frozenset)
+    class_names: frozenset[str] = frozenset()
     class_name_mode: NameFilterMode = "include"
-    annotation_types: frozenset[InspectionAnnotationType] = field(
-        default_factory=frozenset
-    )
+    annotation_types: frozenset[InspectionAnnotationType] = frozenset()
     metadata: tuple[MetadataPredicate, ...] = ()
     min_confidence: float | None = None
     min_instances: int | None = None
@@ -202,12 +177,10 @@ class InspectionQuery:
             0.0 <= self.min_confidence <= 1.0
         ):
             raise ValueError("--min-confidence must be between 0 and 1.")
-        for name, value in (
-            ("--min-instances", self.min_instances),
-            ("--max-instances", self.max_instances),
-        ):
-            if value is not None and value < 0:
-                raise ValueError(f"{name} must be non-negative.")
+        if self.min_instances is not None and self.min_instances < 0:
+            raise ValueError("--min-instances must be non-negative.")
+        if self.max_instances is not None and self.max_instances < 0:
+            raise ValueError("--max-instances must be non-negative.")
         if (
             self.min_instances is not None
             and self.max_instances is not None
@@ -285,31 +258,43 @@ class InspectionQuery:
         )
 
 
+def _reject_unknown_names(
+    kind: str, requested: Iterable[str], available: Iterable[str]
+) -> None:
+    known = frozenset(available)
+    unknown = [name for name in dict.fromkeys(requested) if name not in known]
+    if not unknown:
+        return
+    missing = ", ".join(repr(name) for name in unknown)
+    scope = ", ".join(repr(name) for name in sorted(known)) or "(none)"
+    raise ValueError(
+        f"Unknown {kind}(s): {missing}. Available {kind}s: {scope}."
+    )
+
+
 def _record_detections(
     records: Iterable[DatasetRecord],
 ) -> Iterator[Detection]:
-    """Yield every top-level and nested detection from a record collection."""
+    """Yield every top-level and nested detection of a record collection."""
     for record in records:
         if record.annotation is not None:
             yield from _detection_tree(record.annotation)
 
 
 def _detection_tree(detection: Detection) -> Iterator[Detection]:
-    """Yield a detection followed by all nested sub-detections."""
+    """Yield a detection followed by all of its nested sub-detections."""
     yield detection
     for child in detection.sub_detections.values():
         yield from _detection_tree(child)
 
 
 def _has_annotations(detections: Sequence[Detection]) -> bool:
-    """Whether any detection carries a label, array, or metadata value."""
     return any(detection.get_task_types() for detection in detections)
 
 
 def _matches_classes(
     detections: Sequence[Detection], requested: frozenset[str]
 ) -> bool:
-    """Whether any detection belongs to a requested class."""
     return any(
         detection.class_name is not None
         and detection.class_name.strip() in requested
@@ -322,20 +307,21 @@ def _matches_annotation_types(
     requested: frozenset[InspectionAnnotationType],
     extra: frozenset[InspectionAnnotationType],
 ) -> bool:
-    """Whether any detection carries a requested annotation family."""
+    """Whether any detection carries a requested annotation family.
+
+    ``"metadata"`` stands for the whole family, because
+    `Detection.get_task_types` reports one ``metadata/<key>`` type per key.
+    """
     present = {
         task_type
         for detection in detections
         for task_type in detection.get_task_types()
     }
     present.update(extra)
-    return any(
-        (
-            any(task_type.startswith("metadata/") for task_type in present)
-            if requested_type == "metadata"
-            else requested_type in present
-        )
-        for requested_type in requested
+    if present & (requested - {"metadata"}):
+        return True
+    return "metadata" in requested and any(
+        task_type.startswith("metadata/") for task_type in present
     )
 
 
@@ -344,7 +330,6 @@ def _matches_instance_bounds(
     minimum: int | None,
     maximum: int | None,
 ) -> bool:
-    """Whether the number of spatial instances falls within both bounds."""
     count = sum(
         detection.boundingbox is not None
         or detection.keypoints is not None
@@ -359,20 +344,15 @@ def _matches_instance_bounds(
 def _matches_confidence(
     detections: Sequence[Detection], minimum: float
 ) -> bool:
-    """Whether any detection has ``score``/``confidence`` metadata above cutoff."""
-    for detection in detections:
-        confidence = _detection_confidence(detection)
-        if confidence is not None and confidence >= minimum:
-            return True
-    return False
+    scores = (_detection_confidence(detection) for detection in detections)
+    return any(score is not None and score >= minimum for score in scores)
 
 
 def _detection_confidence(detection: Detection) -> float | None:
-    """Read a numeric confidence from conventional detection metadata keys."""
     for key in ("score", "confidence"):
-        value = detection.metadata.get(key)
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            return float(value)
+        score = _as_number(detection.metadata.get(key))
+        if score is not None:
+            return score
     return None
 
 
@@ -382,19 +362,27 @@ def _matches_search(
     detections: Sequence[Detection],
     sample_metadata: Params,
 ) -> bool:
-    """Case-insensitive substring search over identity, labels, and metadata."""
     needle = query.casefold()
-    values = [*records]
-    values.extend(
-        detection.class_name
-        for detection in detections
-        if detection.class_name is not None
+    return any(
+        needle in text.casefold()
+        for text in _searchable_text(records, detections, sample_metadata)
     )
-    values.extend(_metadata_strings(sample_metadata))
+
+
+def _searchable_text(
+    records: Mapping[str, DatasetRecord],
+    detections: Sequence[Detection],
+    sample_metadata: Params,
+) -> Iterator[str]:
+    """Yield the task names, class names, and metadata the search covers."""
+    yield from records
+    yield from _metadata_strings(sample_metadata)
     for detection in detections:
-        values.extend(str(key) for key in detection.metadata)
-        values.extend(str(value) for value in detection.metadata.values())
-    return any(needle in value.casefold() for value in values)
+        if detection.class_name is not None:
+            yield detection.class_name
+        for key, value in detection.metadata.items():
+            yield key
+            yield str(value)
 
 
 def _metadata_strings(value: ParamValue) -> Iterator[str]:
@@ -429,12 +417,24 @@ def _metadata_equal(value: ParamValue, expected: str) -> bool:
         isinstance(value, Sequence) and not isinstance(value, str)
     ):
         return False
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        # Numbers must compare numerically, not by repr: a stored 0.5 has to
-        # match ``--metadata-filter score 0.50``, and a stored 1.0 has to match
-        # ``... count 1``.
-        try:
-            return float(value) == float(expected)
-        except ValueError:
-            return False
-    return str(value).casefold() == expected.casefold()
+    number = _as_number(value)
+    if number is None:
+        return str(value).casefold() == expected.casefold()
+    # Numbers must compare numerically, not by repr: a stored 0.5 has to match
+    # ``--metadata-filter score 0.50``, and a stored 1.0 has to match
+    # ``... count 1``.
+    try:
+        return number == float(expected)
+    except ValueError:
+        return False
+
+
+def _as_number(value: ParamValue) -> float | None:
+    """Read a metadata value as a number, refusing ``bool``.
+
+    ``bool`` subclasses ``int``, but a filter compares ``True`` to the word
+    "true", never to the number 1.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
