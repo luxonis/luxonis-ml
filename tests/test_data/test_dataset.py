@@ -481,6 +481,12 @@ def test_make_splits(
     with pytest.raises(TypeError, match="ratios or filepath lists"):
         dataset.make_splits({"train": "invalid"})
 
+    # A `str` and the binary types all register as a `Sequence`, but a
+    # buffer is a sequence of ints, not a list of filepaths.
+    for buffer in (b"a.jpg", bytearray(b"a.jpg"), memoryview(b"a.jpg")):
+        with pytest.raises(TypeError, match="ratios or filepath lists"):
+            dataset.make_splits({"train": buffer})  # type: ignore
+
     with pytest.raises(TypeError, match="mapping, a tuple of 3 ratios"):
         dataset.make_splits([0.8, 0.1, 0.1])  # type: ignore
 
