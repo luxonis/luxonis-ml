@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Literal, TypeAlias
 
 from luxonis_ml.ldf import DatasetRecord, Detection
-from luxonis_ml.typing import Params, ParamValue, PrimitiveType
+from luxonis_ml.typing import Params, ParamValue
 
 InspectionAnnotationType: TypeAlias = Literal[
     "array",
@@ -179,9 +179,9 @@ class InspectionQuery:
     """Conjunctive sample filters for dataset inspection and comparison.
 
     Repeated class names and annotation types are alternatives within their
-    category; different categories are combined with ``and``. Filters select
-    whole samples rather than pruning matching detections from a selected
-    sample, preserving visual context.
+    category; different categories are combined with ``and``. A filter selects
+    a whole sample. It does not remove the other detections from that sample,
+    so the visual context stays complete.
     """
 
     class_names: frozenset[str] = field(default_factory=frozenset)
@@ -360,11 +360,11 @@ def _matches_confidence(
     detections: Sequence[Detection], minimum: float
 ) -> bool:
     """Whether any detection has ``score``/``confidence`` metadata above cutoff."""
-    return any(
-        confidence is not None and confidence >= minimum
-        for detection in detections
-        for confidence in (_detection_confidence(detection),)
-    )
+    for detection in detections:
+        confidence = _detection_confidence(detection)
+        if confidence is not None and confidence >= minimum:
+            return True
+    return False
 
 
 def _detection_confidence(detection: Detection) -> float | None:
@@ -390,18 +390,11 @@ def _matches_search(
         for detection in detections
         if detection.class_name is not None
     )
-    values.extend(_params_strings(sample_metadata))
+    values.extend(_metadata_strings(sample_metadata))
     for detection in detections:
         values.extend(str(key) for key in detection.metadata)
         values.extend(str(value) for value in detection.metadata.values())
     return any(needle in value.casefold() for value in values)
-
-
-def _params_strings(params: Params) -> Iterator[str]:
-    """Flatten a top-level metadata mapping into searchable text."""
-    for key, value in params.items():
-        yield key
-        yield from _metadata_strings(value)
 
 
 def _metadata_strings(value: ParamValue) -> Iterator[str]:
@@ -422,20 +415,12 @@ def _metadata_path(
     metadata: Params, path: tuple[str, ...]
 ) -> tuple[bool, ParamValue]:
     """Resolve a dotted path without conflating a missing value with ``None``."""
-    current: Mapping[str, ParamValue] | Mapping[PrimitiveType, ParamValue] = (
-        metadata
-    )
-    value: ParamValue = None
-    for index, part in enumerate(path):
+    current: ParamValue = metadata
+    for part in path:
         if not isinstance(current, Mapping) or part not in current:
             return False, None
-        value = current[part]
-        if index == len(path) - 1:
-            return True, value
-        if not isinstance(value, Mapping):
-            return False, None
-        current = value
-    return False, None
+        current = current[part]
+    return True, current
 
 
 def _metadata_equal(value: ParamValue, expected: str) -> bool:
