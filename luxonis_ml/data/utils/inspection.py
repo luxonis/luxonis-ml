@@ -65,9 +65,20 @@ class SampleFilterConfig:
 
     @property
     def task_filter(self) -> frozenset[str] | None:
-        """Deduplicated task scope, or ``None`` when every task is selected."""
+        """Deduplicated task scope, or ``None`` when every task is selected.
+
+        The set alone does not say whether the named tasks are wanted or
+        rejected. Use `accepts_task` to apply ``task_name_mode``.
+        """
         names = tuple(dict.fromkeys(self.task_name or []))
         return frozenset(names) if names else None
+
+    def accepts_task(self, task_name: str) -> bool:
+        """Whether one task passes the include or exclude task filter."""
+        names = self.task_filter
+        if names is None:
+            return True
+        return (task_name in names) == (self.task_name_mode == "include")
 
     def validate(
         self,
@@ -88,7 +99,7 @@ class SampleFilterConfig:
             )
 
         classes = frozenset(name.strip() for name in available_classes)
-        requested_classes = tuple(dict.fromkeys(self.class_name or []))
+        requested_classes = self._requested_classes()
         unknown_classes = [
             name for name in requested_classes if name not in classes
         ]
@@ -104,7 +115,7 @@ class SampleFilterConfig:
         """Build the immutable matcher consumed by inspect and compare."""
         search = self.search.strip() if self.search else ""
         return InspectionQuery(
-            class_names=frozenset(dict.fromkeys(self.class_name or [])),
+            class_names=frozenset(self._requested_classes()),
             class_name_mode=self.class_name_mode,
             annotation_types=frozenset(self.annotation_type or []),
             metadata=tuple(
@@ -116,6 +127,12 @@ class SampleFilterConfig:
             max_instances=self.max_instances,
             unlabeled_only=self.unlabeled_only,
             search=search or None,
+        )
+
+    def _requested_classes(self) -> tuple[str, ...]:
+        """Deduplicated class names, trimmed the way stored names are."""
+        return tuple(
+            dict.fromkeys(name.strip() for name in self.class_name or [])
         )
 
 

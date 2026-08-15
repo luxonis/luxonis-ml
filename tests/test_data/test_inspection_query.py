@@ -8,6 +8,7 @@ from luxonis_ml.data.utils.inspection import (
     InspectionAnnotationType,
     InspectionQuery,
     MetadataPredicate,
+    NameFilterMode,
     SampleFilterConfig,
     _metadata_equal,
 )
@@ -58,6 +59,32 @@ def test_sample_filter_config_validates_and_builds_query() -> None:
             "camera": {"side": "left"},
         },
     )
+
+
+@pytest.mark.parametrize(
+    ("mode", "accepted", "rejected"),
+    [("include", "objects", "other"), ("exclude", "other", "objects")],
+)
+def test_task_name_mode_decides_which_tasks_pass(
+    mode: NameFilterMode, accepted: str, rejected: str
+) -> None:
+    """`task_filter` alone loses the mode, so `accepts_task` applies it."""
+    config = SampleFilterConfig(task_name=["objects"], task_name_mode=mode)
+    assert config.accepts_task(accepted)
+    assert not config.accepts_task(rejected)
+
+
+def test_task_filter_accepts_everything_when_unset() -> None:
+    config = SampleFilterConfig()
+    assert config.task_filter is None
+    assert config.accepts_task("anything")
+
+
+def test_requested_class_names_are_trimmed() -> None:
+    """Available and stored class names are trimmed, so requests must be too."""
+    config = SampleFilterConfig(class_name=["  car  "])
+    config.validate(available_classes=["car"])
+    assert config.query().class_names == frozenset({"car"})
 
 
 @pytest.mark.parametrize(
