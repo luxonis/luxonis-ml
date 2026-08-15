@@ -37,6 +37,7 @@ _ADDED_ANNOTATION_FIELDS: Final[dict[tuple[str, str], Version]] = {
 #: LDF versions the native exporter can write, newest first.
 SUPPORTED_EXPORT_VERSIONS: Final[tuple[Version, ...]] = (
     LDF_VERSION,
+    _parse("2.1"),
     _parse("2.0"),
 )
 
