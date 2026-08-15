@@ -21,9 +21,10 @@ def instrument_typer(
         app: The Typer application to instrument.
         telemetry: The telemetry client that captures the events.
         allowlist: Names of the command arguments you allow in the
-            event. If omitted, no argument value is sent. The wrapper
-            always drops ``self``, ``ctx``, and ``context``, and it
-            drops any Click or Typer context object.
+            event. One allowlist covers every instrumented command. If
+            omitted, no argument value is sent. The wrapper always drops
+            ``self``, ``ctx``, and ``context``, and it drops any Click
+            or Typer context object.
         include_system_metadata: Whether to attach system metadata to
             the events. If omitted, the telemetry configuration
             decides.
@@ -32,8 +33,8 @@ def instrument_typer(
             between the parts.
 
     Example:
-        Log only the command names, and add the dataset name for one
-        command.
+        Log the command names, and add the ``name`` argument of every
+        command that takes it.
 
         .. code-block:: python
 

@@ -37,7 +37,9 @@ def is_luxonis_cloud() -> bool:
 def normalized_processor() -> str:
     """Return a coarse processor family for telemetry.
 
-    The exact processor string never leaves the machine.
+    The raw ``platform.processor`` string never leaves the machine.
+    `host_context` still sends the ``platform.machine`` value as
+    ``arch``.
 
     Returns:
         One of ``"arm64"``, ``"arm"``, ``"x86_64"``, ``"x86"``,

@@ -24,9 +24,10 @@ def instrument_cyclopts(
         app: The Cyclopts application to instrument.
         telemetry: The telemetry client that captures the events.
         allowlist: Names of the command arguments you allow in the
-            event. If omitted, no argument value is sent. The wrapper
-            always drops ``self``, ``ctx``, and ``context``, and it
-            drops any Click or Typer context object.
+            event. One allowlist covers every instrumented command. If
+            omitted, no argument value is sent. The wrapper always drops
+            ``self``, ``ctx``, and ``context``, and it drops any Click
+            or Typer context object.
         include_system_metadata: Whether to attach system metadata to
             the events. If omitted, the telemetry configuration
             decides.

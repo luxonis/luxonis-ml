@@ -1,13 +1,17 @@
 """CLI instrumentation adapters for telemetry.
 
-This package wraps the commands of a command-line application so each
-run emits one ``cli_command`` event. Use `instrument_typer` for a Typer
-app and `instrument_cyclopts` for a Cyclopts app. Both walk the app
-recursively, so they cover the commands of every sub-app.
+This package wraps the commands of a command-line application. An
+instrumented command emits one ``cli_command`` event per run, if
+telemetry stays enabled. Use `instrument_typer` for a Typer app and
+`instrument_cyclopts` for a Cyclopts app. Both walk the app recursively,
+so they cover the commands of every sub-app. The Cyclopts adapter skips
+the generated help and version callbacks. ``exclude_commands`` and
+`skip_telemetry` leave more commands uninstrumented.
 
-An instrumented command reports only its name, a success flag, and its
-duration in milliseconds. Argument values stay local unless the caller
-names them in an ``allowlist``.
+By default, an instrumented command reports its name, a success flag,
+and its duration in milliseconds. ``include_system_metadata`` adds the
+system fields. Argument values stay local unless the caller names them
+in an ``allowlist``.
 
 Example:
     Instrument a Typer app and keep every argument value local.
