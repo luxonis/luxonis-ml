@@ -4,6 +4,9 @@
 luxonis-ml fails to validate on an older install -- LDF 2.1 added
 ``sample_metadata``, which nothing older accepts. Exporting to an older
 version therefore drops every field introduced above it.
+
+Annotations forbid extra fields as well, so the same holds one level
+down: LDF 2.2 added the keypoint ``skeleton``.
 """
 
 from collections import Counter
@@ -23,6 +26,12 @@ def _parse(version: str) -> Version:
 #: entry when a new version adds a field to `DatasetRecord`.
 _ADDED_FIELDS: Final[dict[str, Version]] = {
     "sample_metadata": _parse("2.1"),
+}
+
+#: The same for fields of a single annotation, keyed by the task type
+#: that holds them and the field name.
+_ADDED_ANNOTATION_FIELDS: Final[dict[tuple[str, str], Version]] = {
+    ("keypoints", "skeleton"): _parse("2.2"),
 }
 
 #: LDF versions the native exporter can write, newest first.
@@ -91,6 +100,11 @@ class LDFDowngrader:
             for field, added_in in _ADDED_FIELDS.items()
             if added_in > target_version
         ]
+        self._to_drop_from_annotation = [
+            path
+            for path, added_in in _ADDED_ANNOTATION_FIELDS.items()
+            if added_in > target_version
+        ]
         self._dropped: Counter[str] = Counter()
         self._n_records = 0
 
@@ -101,6 +115,13 @@ class LDFDowngrader:
             # An empty value is no loss, so drop it but do not report it.
             if record.pop(field, None):
                 self._dropped[field] += 1
+
+        annotation = record.get("annotation")
+        if isinstance(annotation, dict):
+            for task_type, field in self._to_drop_from_annotation:
+                task = annotation.get(task_type)
+                if isinstance(task, dict) and task.pop(field, None):
+                    self._dropped[f"{task_type}.{field}"] += 1
         return record
 
     def log_summary(self) -> None:
