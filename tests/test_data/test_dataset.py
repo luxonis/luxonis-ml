@@ -326,7 +326,7 @@ def test_make_splits_is_atomic(
 
     write_text = Path.write_text
 
-    def truncating_write_text(self: Path, **_) -> int:
+    def truncating_write_text(self: Path, *_) -> NoReturn:
         write_text(self, "truncated")
         raise RuntimeError("the disk is full")
 
