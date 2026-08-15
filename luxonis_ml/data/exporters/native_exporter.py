@@ -30,12 +30,12 @@ class NativeExporter(BaseExporter):
     ``files``. It is **record-level metadata**, not an annotation label.
 
     The export root also holds a ``metadata.json`` version stamp, such as
-    ``{"ldf_version": "2.1.0"}``. It is not the full `Metadata` model a
+    ``{"ldf_version": "2.2.0"}``. It is not the full `Metadata` model a
     dataset keeps in its own storage.
 
     Passing an older ``ldf_version`` strips the fields that version does
-    not know -- exporting LDF 2.0 omits ``sample_metadata``. See
-    `LDFDowngrader`.
+    not know -- exporting LDF 2.0 omits ``sample_metadata`` and the
+    keypoint ``skeleton``. See `LDFDowngrader`.
 
     Example:
         .. code-block:: json
@@ -132,8 +132,10 @@ class NativeExporter(BaseExporter):
                     shutil.copy(p, data_path / f"{idx}{p.suffix}")
                     self.current_size += p.stat().st_size
 
+            # The downgrade runs last: the skeleton attached here is
+            # itself a field an older LDF version does not know.
             annotation_splits[split].extend(
-                self._with_skeletons(records, split)
+                map(self._downgrade, self._with_skeletons(records, split))
             )
 
         self._dump_annotations(annotation_splits, self.output_path, self.part)
@@ -234,7 +236,7 @@ class NativeExporter(BaseExporter):
                 ann["metadata"] = {task_type[9:]: data}
             record["annotation"] = ann
 
-        return self._downgrade(record)
+        return record
 
     def _dump_annotations(
         self,

@@ -1,7 +1,8 @@
 """Exporting the native format at an older LDF version.
 
 `DatasetRecord` forbids extra fields, so LDF 2.1 adding ``sample_metadata``
-made every 2.1 export unreadable by an older luxonis-ml.
+made every 2.1 export unreadable by an older luxonis-ml. An annotation
+forbids them too, and LDF 2.2 added the keypoint ``skeleton``.
 """
 
 import json
@@ -15,19 +16,30 @@ from semver.version import Version
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.exporters.ldf_downgrade import (
+    _ADDED_ANNOTATION_FIELDS,
     _ADDED_FIELDS,
     LDFDowngrader,
     resolve_export_version,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.enums.enums import DatasetType
-from luxonis_ml.ldf import DatasetRecord
+from luxonis_ml.ldf import DatasetRecord, KeypointAnnotation
 
 from .utils import create_dataset, create_image
 
 #: Fields a pre-2.1 `DatasetRecord` accepts. Anything else trips
 #: ``extra="forbid"`` on an older install.
 LDF_2_0_RECORD_FIELDS = {"file", "files", "task_name", "annotation"}
+
+#: The same for a keypoint annotation, which gained ``skeleton`` in 2.2.
+LDF_2_0_KEYPOINT_FIELDS = {"keypoints"}
+
+SKELETON = {
+    "labels": ["nose", "left_eye", "right_eye"],
+    "edges": [[0, 1], [0, 2]],
+    "flip_pairs": [[1, 2]],
+    "sigmas": [0.026, 0.025, 0.025],
+}
 
 
 @pytest.fixture
@@ -52,6 +64,25 @@ def _generator(tempdir: Path, with_metadata: bool = True) -> DatasetIterator:
         if with_metadata:
             record["sample_metadata"] = {"record_id": i, "origin": "test"}
         yield record
+
+
+def _keypoint_generator(tempdir: Path) -> DatasetIterator:
+    """Yield named keypoints, which `add` promotes to a task skeleton."""
+    for i in range(2):
+        yield {
+            "file": create_image(i, tempdir),
+            "task_name": "pose",
+            "annotation": {
+                "class": "person",
+                "keypoints": {
+                    "keypoints": {
+                        "nose": (0.5, 0.3, 2),
+                        "left_eye": (0.4, 0.2, 2),
+                        "right_eye": (0.6, 0.2, 1),
+                    }
+                },
+            },
+        }
 
 
 def _read_records(export_root: Path) -> list[dict]:
@@ -114,6 +145,16 @@ def test_every_record_field_has_a_known_ldf_version():
     assert set(DatasetRecord.model_fields) <= known
 
 
+def test_every_keypoint_field_has_a_known_ldf_version():
+    """An annotation forbids extra fields just as a record does."""
+    known = LDF_2_0_KEYPOINT_FIELDS | {
+        field
+        for task_type, field in _ADDED_ANNOTATION_FIELDS
+        if task_type == "keypoints"
+    }
+    assert set(KeypointAnnotation.model_fields) <= known
+
+
 def test_downgrade_removes_the_key_rather_than_emptying_it():
     """``sample_metadata: {}`` still fails ``extra="forbid"``."""
     downgraded = LDFDowngrader(Version.parse("2.0.0"))(
@@ -125,6 +166,18 @@ def test_downgrade_removes_the_key_rather_than_emptying_it():
 def test_downgrade_to_current_version_is_a_passthrough():
     record = {"file": "a.jpg", "sample_metadata": {"x": 1}}
     assert LDFDowngrader(LDF_VERSION)(dict(record)) == record
+
+
+def test_downgrade_removes_the_keypoint_skeleton():
+    """The skeleton sits inside the annotation, not on the record."""
+    keypoints = {"keypoints": [[0.5, 0.3, 2]], "skeleton": SKELETON}
+    downgraded = LDFDowngrader(Version.parse("2.0.0"))(
+        {"file": "a.jpg", "annotation": {"keypoints": keypoints}}
+    )
+
+    assert downgraded["annotation"]["keypoints"] == {
+        "keypoints": [[0.5, 0.3, 2]]
+    }
 
 
 def test_export_2_0_omits_sample_metadata(dataset_name: str, tempdir: Path):
@@ -144,6 +197,30 @@ def test_export_2_0_omits_sample_metadata(dataset_name: str, tempdir: Path):
     for record in records:
         assert set(record) <= LDF_2_0_RECORD_FIELDS
     assert _read_stamp(root) == "2.0.0"
+
+
+def test_export_2_0_drops_the_keypoint_skeleton(
+    dataset_name: str, tempdir: Path, warnings_log: list[str]
+):
+    """The keypoint ``skeleton`` arrived in LDF 2.2.
+
+    `test_keypoint_skeletons` covers the export writing one at the
+    current version, so this only has to show that 2.0 does not.
+    """
+    dataset = create_dataset(
+        dataset_name, _keypoint_generator(tempdir), splits=(1, 0, 0)
+    )
+    root = _export(dataset, tempdir, "keypoints20", ldf_version="2.0")
+
+    keypoints = [
+        record["annotation"]["keypoints"]
+        for record in _read_records(root)
+        # Every keypoint detection also emits a classification record.
+        if "keypoints" in record.get("annotation", {})
+    ]
+    assert keypoints
+    assert all("skeleton" not in k for k in keypoints)
+    assert [msg for msg in warnings_log if "keypoints.skeleton" in msg]
 
 
 def test_export_defaults_to_current_version(dataset_name: str, tempdir: Path):
