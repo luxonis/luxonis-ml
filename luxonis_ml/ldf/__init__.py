@@ -28,8 +28,10 @@ Note:
     the data stack. The extra is a subset of ``luxonis-ml[data]``.
 
 See:
-    `luxonis_ml.ldf.annotation` for the record and annotation schemas and
-    `luxonis_ml.ldf.parquet` for the row they are serialized to.
+    `luxonis_ml.ldf.annotation` for the record and annotation schemas,
+    `luxonis_ml.ldf.parquet` for the row they are serialized to, and
+    `luxonis_ml.ldf.schema` for the dataset-level schema a conversion
+    needs.
 
 """
 
@@ -54,14 +56,17 @@ with guard_missing_extra("ldf"):
         load_annotation,
     )
     from .parquet import ParquetRecord
+    from .schema import SCHEMA_METADATA_KEY, DatasetSchema
 
 __all__ = [
+    "SCHEMA_METADATA_KEY",
     "Annotation",
     "ArrayAnnotation",
     "BBoxAnnotation",
     "Category",
     "ClassificationAnnotation",
     "DatasetRecord",
+    "DatasetSchema",
     "Detection",
     "InstanceSegmentationAnnotation",
     "Keypoint",
