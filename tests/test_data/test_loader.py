@@ -225,12 +225,12 @@ def _create_filter_task_names_dataset(
     def generator() -> DatasetIterator:
         img = create_image(0, tempdir)
         yield {
-            "file": img,
+            "media": img,
             "task_name": "animals",
             "annotation": {"class": "cat"},
         }
         yield {
-            "file": img,
+            "media": img,
             "task_name": "vehicles",
             "annotation": {
                 "class": "car",
@@ -240,7 +240,7 @@ def _create_filter_task_names_dataset(
 
         img = create_image(1, tempdir)
         yield {
-            "file": img,
+            "media": img,
             "task_name": "animals",
             "annotation": {
                 "class": "dog",
@@ -248,7 +248,7 @@ def _create_filter_task_names_dataset(
             },
         }
         yield {
-            "file": img,
+            "media": img,
             "task_name": "vehicles",
             "annotation": {
                 "class": "truck",
@@ -332,7 +332,7 @@ def test_loader_records_augmentations_in_sample_metadata(
     def generator() -> DatasetIterator:
         img = create_image(0, tempdir)
         yield {
-            "file": img,
+            "media": img,
             "sample_metadata": {"record_id": "sample-1"},
             "annotation": {"class": "person"},
         }
@@ -367,7 +367,7 @@ def test_loader_keeps_stored_metadata_over_the_reserved_augmentations_key(
     def generator() -> DatasetIterator:
         img = create_image(0, tempdir)
         yield {
-            "file": img,
+            "media": img,
             "sample_metadata": {
                 "augmentations": {"user_pipeline": {"run_id": 42}},
                 "record_id": "sample-1",
@@ -405,7 +405,7 @@ def test_loader_warns_when_stored_metadata_hides_the_filenames_key(
     def generator() -> DatasetIterator:
         img = create_image(0, tempdir)
         yield {
-            "file": img,
+            "media": img,
             "sample_metadata": {"filenames": "stored-value"},
             "annotation": {"class": "person"},
         }
@@ -425,7 +425,7 @@ def test_loader_preserves_metadata_for_custom_batch_engines(
     def generator() -> DatasetIterator:
         for i in range(2):
             yield {
-                "file": create_image(i, tempdir),
+                "media": create_image(i, tempdir),
                 "sample_metadata": {"record_id": i},
             }
 
@@ -461,7 +461,7 @@ def test_loader_uses_metadata_from_custom_engine_single_contributor(
     def generator() -> DatasetIterator:
         for i in range(2):
             yield {
-                "file": create_image(i, tempdir),
+                "media": create_image(i, tempdir),
                 "sample_metadata": {"record_id": i},
             }
 
@@ -511,7 +511,7 @@ def test_loader_merges_metadata_only_for_applied_batch_augmentations(
     def generator() -> DatasetIterator:
         for i in range(2):
             yield {
-                "file": create_image(i, tempdir),
+                "media": create_image(i, tempdir),
                 "sample_metadata": {"record_id": i},
             }
 
@@ -574,7 +574,7 @@ def test_loader_tracks_metadata_through_multiple_batch_augmentations(
     def generator() -> DatasetIterator:
         for i in range(8):
             yield {
-                "file": create_image(i, tempdir),
+                "media": create_image(i, tempdir),
                 "sample_metadata": {"record_id": i},
             }
 
@@ -822,7 +822,7 @@ def test_edge_cases(tempdir: Path):
             ]
 
             yield {
-                "file": img,
+                "media": img,
                 "annotation": {
                     "class": "dog",
                     "boundingbox": {

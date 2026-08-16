@@ -111,7 +111,7 @@ def test_native_export_import_preserves_record_metadata(
     def generator() -> DatasetIterator:
         for i in range(2):
             yield {
-                "file": create_image(i, tempdir),
+                "media": create_image(i, tempdir),
                 "annotation": {
                     "class": "person",
                     "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},

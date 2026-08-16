@@ -18,6 +18,7 @@ from luxonis_ml.ldf.annotation import (
     KeypointMetadata,
     KeypointVisibility,
     NormalizedFloat,
+    PathOrArray,
     SegmentationAnnotation,
     load_annotation,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "KeypointVisibility",
     "NormalizedFloat",
     "ParquetRecord",
+    "PathOrArray",
     "SegmentationAnnotation",
     "load_annotation",
 ]
