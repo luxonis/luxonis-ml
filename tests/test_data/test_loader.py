@@ -399,6 +399,157 @@ def test_metadata_leaves_a_gap_for_an_instance_without_a_value(
     assert labels["vehicles/metadata/color"].tolist() == [None, "blue"]
 
 
+def test_metadata_finds_its_instance_across_separate_records(
+    dataset_name: str, tempdir: Path
+):
+    """One sample is often written as one record per detection.
+
+    No record sets an instance ID, so the rows of one detection are found
+    again by the number the write path gives them. Numbering each record on
+    its own would give every detection the number zero, and the sample would
+    come back as a single instance.
+    """
+
+    def generator() -> DatasetIterator:
+        img = create_image(0, tempdir)
+        for x, metadata in zip(
+            (0.1, 0.4, 0.7), [{}, {"color": "red"}, {}], strict=True
+        ):
+            yield {
+                "media": img,
+                "task_name": "vehicles",
+                "annotation": {
+                    "class": "car",
+                    "boundingbox": {"x": x, "y": 0.1, "w": 0.1, "h": 0.1},
+                    "metadata": metadata,
+                },
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+
+    labels = LuxonisLoader(dataset, view="train")[0].labels
+
+    assert labels["vehicles/boundingbox"].shape == (3, 5)
+    assert [round(row[1], 2) for row in labels["vehicles/boundingbox"]] == [
+        0.1,
+        0.4,
+        0.7,
+    ]
+    assert labels["vehicles/metadata/color"].tolist() == [None, "red", None]
+
+
+def test_an_empty_label_survives_augmentation(
+    dataset_name: str, tempdir: Path
+):
+    """A negative sample keeps a key for every task of the dataset.
+
+    The augmentation engine drops a label that has no rows, and puts back
+    only the ones grouped with a bounding box. A keypoints-only task has
+    none, so its key vanished and the two loading paths disagreed.
+    """
+
+    def generator() -> DatasetIterator:
+        yield {
+            "media": create_image(0, tempdir),
+            "task_name": "pose",
+            "annotation": {
+                "class": "person",
+                "keypoints": {"keypoints": [(0.2, 0.2, 2), (0.3, 0.3, 1)]},
+            },
+        }
+        yield {"media": create_image(1, tempdir), "task_name": "pose"}
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+
+    plain = LuxonisLoader(dataset, view="train")
+    augmented = LuxonisLoader(dataset, view="train", height=64, width=64)
+
+    for i in range(len(plain)):
+        assert sorted(augmented[i].labels) == sorted(plain[i].labels)
+        assert "pose/keypoints" in augmented[i].labels
+
+    # The split decides the order, so the negative is found by its own shape
+    # rather than by an index.
+    assert sorted(
+        augmented[i].labels["pose/keypoints"].shape[0]
+        for i in range(len(augmented))
+    ) == [0, 1]
+
+
+def test_a_declared_background_class_survives_a_round_trip(
+    dataset_name: str, tempdir: Path
+):
+    """A dataset may annotate a class it calls ``background``.
+
+    The loader synthesizes a class of that name for the pixels no class
+    claims, and rebuilding a record drops it again. Only the synthesized one
+    may be dropped, or an annotated background is deleted.
+    """
+    road = np.zeros((512, 512), dtype=np.uint8)
+    road[:256] = 1
+    background = np.zeros((512, 512), dtype=np.uint8)
+    background[256:] = 1
+
+    def generator() -> DatasetIterator:
+        image = create_image(0, tempdir)
+        for class_name, mask in [("road", road), ("background", background)]:
+            yield {
+                "media": image,
+                "task_name": "scene",
+                "annotation": {
+                    "class": class_name,
+                    "segmentation": {"mask": mask},
+                },
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+
+    sample = LuxonisLoader(dataset, view="train")[0]
+
+    assert sorted(
+        detection.class_name
+        for detection in sample.to_ldf().annotation["scene"]
+        if detection.segmentation is not None
+        and detection.class_name is not None
+    ) == ["background", "road"]
+
+
+def test_a_synthesized_background_class_is_dropped(
+    dataset_name: str, tempdir: Path
+):
+    """The loader fills the pixels no class claims.
+
+    That class is the loader's own, so a rebuilt record must not carry it.
+    """
+    road = np.zeros((512, 512), dtype=np.uint8)
+    road[:256] = 1
+    sky = np.zeros((512, 512), dtype=np.uint8)
+    sky[256:400] = 1
+
+    def generator() -> DatasetIterator:
+        image = create_image(0, tempdir)
+        for class_name, mask in [("road", road), ("sky", sky)]:
+            yield {
+                "media": image,
+                "task_name": "scene",
+                "annotation": {
+                    "class": class_name,
+                    "segmentation": {"mask": mask},
+                },
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+
+    sample = LuxonisLoader(dataset, view="train")[0]
+
+    assert sorted(
+        detection.class_name
+        for detection in sample.to_ldf().annotation["scene"]
+        if detection.segmentation is not None
+        and detection.class_name is not None
+    ) == ["road", "sky"]
+
+
 def test_an_absent_metadata_label_has_no_rows(
     dataset_name: str, tempdir: Path
 ):
