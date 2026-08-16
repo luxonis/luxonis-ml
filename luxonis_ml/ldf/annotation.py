@@ -1391,11 +1391,7 @@ class KeypointAnnotation(Annotation):
         pydantic, which names the value that does not belong.
         """
         if isinstance(keypoint, Mapping):
-            keypoint = [
-                keypoint[field]
-                for field in Keypoint._fields
-                if field in keypoint
-            ]
+            keypoint = Keypoint(**keypoint)
         x, y, *rest = keypoint
         return [float(x), float(y), *rest]
 
