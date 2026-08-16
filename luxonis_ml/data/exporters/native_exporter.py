@@ -149,8 +149,10 @@ class NativeExporter(BaseExporter):
         task, not the instance. Each task and split thus carries them once,
         and not on every record. `NativeParser` passes them to
         `LuxonisDataset.add`, which moves them into the keypoint metadata
-        of the imported dataset. Every later record stays positional, and
-        the import aligns it against the names of the first one.
+        of the imported dataset. Every later record of the same length
+        stays positional, and the import aligns it against the names of
+        the first one. A record with fewer keypoints carries nothing,
+        because the task fields do not describe it.
         """
         for record in records:
             keypoints = record.get("annotation", {}).get("keypoints")
@@ -158,10 +160,18 @@ class NativeExporter(BaseExporter):
                 continue
             task_name = record["task_name"]
             task_keypoints = self.keypoint_metadata.get(task_name)
+            if task_keypoints is None:
+                continue
+            values = keypoints["keypoints"]
+            if len(values) < len(task_keypoints.labels):
+                # A task can hold records with fewer keypoints. The task
+                # fields describe the full set, so such a record must not
+                # carry them. The import checks each record on its own.
+                continue
             # Keyed on the partition as well: rolling over starts a fresh
             # `annotations.json`, which has to carry the fields again.
             key = (self.part, split, task_name)
-            if task_keypoints is None or key in self._metadata_attached:
+            if key in self._metadata_attached:
                 continue
             self._metadata_attached.add(key)
             keypoints.update(
@@ -175,7 +185,6 @@ class NativeExporter(BaseExporter):
             )
             # The names are the keys of the payload, so this one record
             # carries them as a mapping instead of a positional list.
-            values = keypoints["keypoints"]
             if len(task_keypoints.labels) == len(values):
                 keypoints["keypoints"] = dict(
                     zip(task_keypoints.labels, values, strict=True)
