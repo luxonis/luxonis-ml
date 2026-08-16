@@ -38,12 +38,12 @@ class ClassificationDirectoryExporter(BaseExporter):
 
             split = split_of_group(prepared_ldf, group_id)
 
+            # The directory names the class of the whole image, so every
+            # classification row of the image counts. The instance number
+            # cannot narrow that: every detection carries one.
             class_names: set[str] = set()
             for row in entry.iter_rows(named=True):
-                if (
-                    row["task_type"] == "classification"
-                    and row["instance_id"] == -1
-                ):
+                if row["task_type"] == "classification":
                     cname = row["class_name"]
                     if cname:
                         class_names.add(str(cname))

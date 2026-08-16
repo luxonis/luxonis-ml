@@ -1433,6 +1433,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         pfm: ParquetFileManager,
         index: pl.DataFrame | None,
         declared_keypoint_metadata: dict[str, KeypointMetadata],
+        instance_counters: dict[str, dict[str, int]],
     ) -> set[tuple[str, str, str]]:
         """Write the rows of a batch.
 
@@ -1484,7 +1485,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 )
                 rows.extend(
                     (uuid_dict[row["file"]], row, group_id)
-                    for row in record.to_parquet_rows(keypoint_metadata)
+                    for row in record.to_parquet_rows(
+                        keypoint_metadata, instance_counters[group_id]
+                    )
                 )
                 self._progress.update(task, advance=1)
         self._progress.remove_task(task)
@@ -1691,6 +1694,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             for name, sub_detection in ann.sub_detections.items():
                 update_state(f"{task_name}/{name}", sub_detection)
 
+        # One sample is often built from several records, each holding one
+        # detection, so the instance numbers have to run across them. The
+        # counter is keyed by sample, and every record of that sample
+        # continues it.
+        instance_counters: dict[str, dict[str, int]] = defaultdict(dict)
         with ParquetFileManager(annotations_path, batch_size) as pfm:
             for record in generator:
                 if not isinstance(record, DatasetRecord):
@@ -1715,7 +1723,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                         row_widths,
                     )
                     unnamed_keypoint_rows |= self._add_process_batch(
-                        data_batch, pfm, index, declared_keypoint_metadata
+                        data_batch,
+                        pfm,
+                        index,
+                        declared_keypoint_metadata,
+                        instance_counters,
                     )
                     data_batch = []
                 data_batch.append(record)
@@ -1729,7 +1741,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 row_widths,
             )
             self._add_process_batch(
-                data_batch, pfm, index, declared_keypoint_metadata
+                data_batch,
+                pfm,
+                index,
+                declared_keypoint_metadata,
+                instance_counters,
             )
 
         # A record can name the keypoints of a task after an earlier batch
@@ -1761,7 +1777,17 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         self._metadata.categorical_encodings = dict(categorical_encodings)
         self._metadata.metadata_types = metadata_types
-        self.set_tasks(tasks)
+        # An `add` sees only the records it is given. A later one that
+        # carries a negative declares the task with no task type, so the
+        # stored types have to survive it.
+        stored_tasks = self.get_tasks()
+        merged_tasks = {
+            task_name: set(stored_tasks.get(task_name, [])) | set(task_types)
+            for task_name, task_types in tasks.items()
+        }
+        for task_name, task_types in stored_tasks.items():
+            merged_tasks.setdefault(task_name, set(task_types))
+        self.set_tasks(merged_tasks)
         if sources:
             components = {
                 source_name: LuxonisComponent(

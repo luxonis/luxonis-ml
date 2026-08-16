@@ -2,11 +2,64 @@ import json
 import zipfile
 from pathlib import Path
 
+import numpy as np
 import pytest
 
-from luxonis_ml.data import LuxonisDataset, LuxonisParser, ldf_equivalent
+from luxonis_ml.data import (
+    LDFEquivalence,
+    LuxonisDataset,
+    LuxonisParser,
+    ldf_equivalent,
+)
+from luxonis_ml.data.datasets.base_dataset import DatasetIterator
+from luxonis_ml.data.exporters.exporter_utils import PreparedLDF
 from luxonis_ml.data.parsers.coco_parser import COCOParser
 from luxonis_ml.utils import LuxonisFileSystem
+
+from .utils import create_dataset, create_image
+
+
+def _whole_image_generator(tempdir: Path, class_name: str) -> DatasetIterator:
+    """Yield one class and one semantic mask for each image."""
+    for i in range(3):
+        mask = np.zeros((512, 512), dtype=np.uint8)
+        mask[: 256 + i] = 1
+        yield {
+            "media": create_image(i, tempdir),
+            "annotation": {
+                "class": class_name,
+                "segmentation": {"mask": mask},
+            },
+        }
+
+
+def test_a_changed_class_breaks_equivalence(dataset_name: str, tempdir: Path):
+    """A collector that returns nothing makes every comparison pass.
+
+    The classification and the segmentation collectors selected a row by an
+    instance ID of :math:`-1`, which meant that nobody had numbered the
+    detection. Every detection now carries a number, so both collectors
+    returned an empty multiset. Two datasets that share their images then
+    compared equal, whatever their labels said.
+    """
+    first = create_dataset(
+        f"{dataset_name}_a",
+        _whole_image_generator(tempdir, "road"),
+        splits=(1, 0, 0),
+    )
+    second = create_dataset(
+        f"{dataset_name}_b",
+        _whole_image_generator(tempdir, "river"),
+        splits=(1, 0, 0),
+    )
+
+    prepared = PreparedLDF.from_dataset(first)
+    assert LDFEquivalence.collect_classification_multiset(prepared)
+    assert LDFEquivalence.collect_segmentation_multiset(prepared)
+    assert LDFEquivalence.collect_segmentation_mask_overlap_multiset(prepared)
+
+    assert ldf_equivalent(first, first)
+    assert not ldf_equivalent(first, second)
 
 
 def _parse_dataset(
