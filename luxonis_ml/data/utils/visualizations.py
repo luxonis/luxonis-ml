@@ -595,9 +595,11 @@ def visualize(
             encoded integers.
         keypoint_metadata: Optional keypoint definitions keyed by task name.
         draw_skeletons: Whether to draw keypoint skeleton edges.
-        keypoint_label_mode: Keypoint label mode. ``"none"`` hides keypoint
-            labels, ``"numbers"`` draws numeric indices, and ``"full"`` draws
-            the keypoint names when available.
+        keypoint_label_mode: Keypoint label mode. ``"none"`` draws no
+            label. ``"numbers"`` draws the keypoint index. ``"names"``
+            draws the keypoint name. ``"full"`` draws the index and the
+            name. The two name modes draw no label for a keypoint that
+            `keypoint_metadata` does not name.
 
     Returns:
         The visualized image.
