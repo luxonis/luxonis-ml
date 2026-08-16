@@ -55,6 +55,59 @@ def test_native_parser_accepts_windows_style_file_paths(tempdir: Path):
     assert added_images == [copied_image.resolve()]
 
 
+def test_native_parser_resolves_paths_in_a_task_keyed_manifest(
+    tempdir: Path,
+):
+    """A manifest groups its detections by task name.
+
+    That is the shape an export writes, so the companion mask path inside
+    it has to be resolved. Only the deprecated flat shapes were, and the
+    record then failed to validate against the process directory.
+    """
+    image_path = create_image(0, tempdir)
+    split_dir = tempdir / "train"
+    image_dir = split_dir / "images"
+    mask_dir = split_dir / "masks"
+    image_dir.mkdir(parents=True)
+    mask_dir.mkdir(parents=True)
+    copied_image = image_dir / image_path.name
+    copied_image.write_bytes(image_path.read_bytes())
+    mask_path = mask_dir / "0.png"
+    mask_path.write_bytes(image_path.read_bytes())
+
+    annotations_path = split_dir / "annotations.json"
+    annotations_path.write_text(
+        json.dumps(
+            [
+                {
+                    "media": f"images/{image_path.name}",
+                    "annotation": {
+                        "seg": [
+                            {
+                                "class": "class0",
+                                "segmentation": {"mask": "masks/0.png"},
+                            }
+                        ]
+                    },
+                }
+            ],
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    generator, _, _ = NativeParser(
+        dataset=None,  # type: ignore[arg-type]
+        dataset_type=DatasetType.NATIVE,
+        task_name=None,
+    ).from_split(annotation_path=annotations_path)
+
+    parsed_record = next(iter(generator))
+    assert isinstance(parsed_record, dict)
+    resolved = parsed_record["annotation"]["seg"][0]["segmentation"]["mask"]
+    assert Path(resolved) == mask_path.resolve()
+
+
 def test_yolov4_parser_keeps_unlabeled_image_with_duplicate_basename(
     tempdir: Path,
 ):
