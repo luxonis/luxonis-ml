@@ -35,6 +35,11 @@ class DatasetSchema(BaseModelExtraForbid):
         categorical_encodings: Integer encodings of categorical metadata,
             keyed by the full metadata task.
         n_keypoints: Number of keypoints grouped by task name.
+        synthesized_background: Names of the tasks whose ``background`` class
+            the loader added to fill the pixels no class claimed. Only such a
+            class is dropped when a record is rebuilt. A dataset that
+            declares a ``background`` class of its own annotated it, so it is
+            data and it stays.
 
     Example:
         >>> schema = DatasetSchema(
@@ -53,6 +58,7 @@ class DatasetSchema(BaseModelExtraForbid):
     keypoint_metadata: dict[str, KeypointMetadata] = {}
     categorical_encodings: dict[str, dict[str, int]] = {}
     n_keypoints: dict[str, int] = {}
+    synthesized_background: set[str] = set()
 
     @cached_property
     def as_metadata(self) -> Params:
@@ -61,8 +67,13 @@ class DatasetSchema(BaseModelExtraForbid):
         Every sample of one dataset shares this dictionary rather than a copy
         of it, so attaching the schema costs nothing per sample. Treat it as
         read-only.
+
+        The dump is in JSON mode, because this dictionary travels in
+        `LoaderOutput.metadata` beside the record's own metadata, and a
+        consumer that writes a sample out needs plain data. Reading it back
+        with `model_validate` restores the field types.
         """
-        return self.model_dump()
+        return self.model_dump(mode="json")
 
     def class_id(self, task_name: str, class_name: str) -> int:
         """Return the ID a task assigns to a class name.
