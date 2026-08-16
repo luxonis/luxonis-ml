@@ -346,10 +346,10 @@ class LuxonisLoader(BaseLoader):
     def get_skeletons(self) -> dict[str, Skeleton]:
         """Return the keypoint skeleton of each task.
 
-        Skeletons describe the dataset rather than any one sample, so they
-        are not part of the loader output. They carry the keypoint names,
-        the edges between them, the pairs swapped by a horizontal flip, and
-        the OKS sigmas.
+        A skeleton describes the dataset, not one sample. It is thus not
+        part of the loader output. It carries the keypoint names, the
+        edges between the keypoints, the pairs that a horizontal flip
+        swaps, and the OKS sigmas.
 
         Returns:
             Keypoint skeletons keyed by task name.

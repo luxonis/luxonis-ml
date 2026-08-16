@@ -173,20 +173,18 @@ convention:
         },
     }
 
-An annotation may describe only the keypoints it actually has; the rest are
-filled in as :math:`\left(0, 0, 0\right)`. A plain list of triplets is also
-accepted, in which case the keypoints are keyed by position as ``"0"``,
-``"1"``, ....
+An annotation can name only the keypoints it has. The other keypoints get
+:math:`\left(0, 0, 0\right)`. A plain list of triplets is also accepted. The
+keypoints are then keyed by position as ``"0"``, ``"1"``, ....
 
-Each keypoint is a `Keypoint`, a named tuple that compares and unpacks
-exactly like the triplet it holds, so ``keypoint.visibility`` and
-``keypoint[2]`` are the same thing. Visibility defaults to
-:math:`2` when it is left out.
+Each keypoint is a `Keypoint`. It is a named tuple, so ``keypoint[2]`` and
+``keypoint.visibility`` give the same value. Visibility defaults to
+:math:`2`.
 
-Alongside the keypoints, an annotation may carry a `Skeleton` describing the
-task as a whole -- the keypoint names, the edges between them, the pairs
-swapped by a horizontal flip, and the OKS sigmas. Edges and flip pairs may
-refer to keypoints by name:
+An annotation can also carry a `Skeleton`. A skeleton describes the whole
+task with four fields: the keypoint names, the edges between the keypoints,
+the pairs that a horizontal flip swaps, and the OKS sigmas. Edges and flip
+pairs can refer to keypoints by name:
 
 .. python::
 
@@ -206,11 +204,11 @@ refer to keypoints by name:
         },
     }
 
-The skeleton describes the task rather than the instance, so
-`LuxonisDataset.add` promotes it into the dataset metadata and stores it once
-per task instead of on every annotation. Flip pairs left unset are inferred
-from ``left``/``right`` names. Stored annotations are therefore positional,
-in the order the task skeleton defines.
+A skeleton describes the task, not the instance. `LuxonisDataset.add` thus
+moves it into the dataset metadata and keeps one skeleton for each task. If
+you give no flip pairs, `LuxonisDataset.add` infers them from ``left`` and
+``right`` names. The dataset stores the keypoints of a task in skeleton
+order.
 
 For :math:`K` keypoints and :math:`N` instances, loader output uses shape
 :math:`\left(N, 3 \cdot K\right)`.
@@ -436,10 +434,9 @@ NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
 class Keypoint(NamedTuple):
     r"""A single keypoint.
 
-    A named tuple rather than a model: it compares equal to, unpacks like,
-    and converts to `numpy` exactly as the plain
-    :math:`\left(x, y, \text{visibility}\right)` triplet it replaces, so it
-    stays usable wherever a triplet was, while reading better.
+    It is a named tuple, not a model. It compares, unpacks and converts to
+    NumPy as a plain :math:`\left(x, y, \text{visibility}\right)` triplet
+    does.
 
     Example:
         >>> keypoint = Keypoint(0.1, 0.2)
@@ -475,16 +472,15 @@ _SIDE_MARKERS: Final = {
 class Skeleton(BaseModelExtraForbid):
     r"""Task-level description of a set of keypoints.
 
-    A skeleton describes the keypoints of an entire task rather than those
-    of a single instance. It can be declared inline on a
-    `KeypointAnnotation`, in which case `LuxonisDataset.add` promotes it
-    into the dataset metadata and stores it once per task.
+    A skeleton describes the keypoints of a whole task, not those of one
+    instance. You can declare it on a `KeypointAnnotation`.
+    `LuxonisDataset.add` then moves it into the dataset metadata and keeps
+    one skeleton for each task.
 
-    Edges and flip pairs may be given as keypoint names, which are resolved
-    against `labels` during validation and always *stored* as indices, so
-    everything reading them can index straight into a keypoint array.
-    Because the resolution happens while validating, names have to be
-    passed as data rather than to the constructor:
+    Edges and flip pairs accept keypoint names. A skeleton resolves the
+    names against `labels` and stores indices, which index into a keypoint
+    array. The resolution is part of the validation, so give the names as
+    data and not to the constructor:
 
     Example:
         >>> Skeleton.model_validate(
@@ -589,13 +585,12 @@ class Skeleton(BaseModelExtraForbid):
     def merge_with(self, other: "Skeleton", context: str = "") -> "Skeleton":
         """Merge two skeleton declarations into one.
 
-        A field left empty by one declaration is taken from the other; two
-        non-empty values for the same field must agree.
+        A field that one declaration leaves empty comes from the other one.
+        Two values for the same field must agree.
 
         Args:
             other: Skeleton to merge into this one.
-            context: Description of what is being merged, used in the error
-                message.
+            context: Description of the merge, used in the error message.
 
         Returns:
             The merged skeleton.
@@ -609,9 +604,9 @@ class Skeleton(BaseModelExtraForbid):
             mine, theirs = getattr(self, field), getattr(other, field)
             if not mine or not theirs or mine == theirs:
                 continue
-            # Names are what identify keypoints, so two records naming the
-            # same ones agree even when they happen to list them in a
-            # different order. The first declaration sets the order.
+            # A name identifies a keypoint. Two records that give the same
+            # names thus agree, even in a different order. The first
+            # declaration sets the order.
             if field == "labels" and set(mine) == set(theirs):
                 continue
             conflicts.append(field)
@@ -684,10 +679,10 @@ class Skeleton(BaseModelExtraForbid):
     def align(self, keypoints: Mapping[str, Keypoint]) -> dict[str, Keypoint]:
         r"""Order keypoints to match the skeleton, padding missing ones.
 
-        Keypoints the skeleton defines but the annotation omits are filled
-        in as :math:`\left(0, 0, 0\right)`, following the COCO convention
-        for keypoints that are not labeled. This is what lets an annotation
-        describe only the keypoints it actually has.
+        A keypoint that the skeleton defines but the annotation omits gets
+        :math:`\left(0, 0, 0\right)`. This is the COCO value for a keypoint
+        that is not labeled. An annotation can thus name only the keypoints
+        it has.
 
         Args:
             keypoints: Keypoints keyed by name.
@@ -701,9 +696,9 @@ class Skeleton(BaseModelExtraForbid):
         """
         if not self.labels:
             return dict(keypoints)
-        # Positional keys say nothing beyond the order they are in, so they
-        # are taken to already be in skeleton order. That is what lets a
-        # record written without names sit alongside ones that have them.
+        # Positional keys carry only their order, so they count as already
+        # in skeleton order. A record without names can thus sit next to
+        # records that have them.
         if len(keypoints) == len(self.labels) and _is_positional(keypoints):
             return dict(zip(self.labels, keypoints.values(), strict=True))
         unknown = sorted(set(keypoints) - set(self.labels))
@@ -721,12 +716,12 @@ class Skeleton(BaseModelExtraForbid):
     def infer_flip_pairs(labels: Iterable[str]) -> list[tuple[int, int]]:
         """Infer horizontal flip pairs from ``left``/``right`` names.
 
-        Names are matched on separator-delimited ``left``/``right`` or
-        ``l``/``r`` markers, either leading or trailing, and the rest of the
-        name must match exactly. Keypoints on the midline, such as ``nose``,
-        are left unpaired, as are keypoints whose partner is missing.
-        Matching is deliberately narrow: an incorrect flip pair silently
-        mirrors the wrong keypoints instead of failing.
+        A name must carry a ``left``/``right`` or ``l``/``r`` marker at the
+        start or at the end, and a separator must delimit it. The rest of
+        the two names must match exactly. A keypoint on the midline, such
+        as ``nose``, stays unpaired. So does a keypoint with no partner.
+        The match is narrow on purpose. A wrong flip pair mirrors the wrong
+        keypoints and never fails.
 
         Args:
             labels: Keypoint names in index order.
@@ -765,10 +760,9 @@ class Skeleton(BaseModelExtraForbid):
 
     @model_serializer(mode="plain")
     def _serialize(self) -> dict[str, Any]:
-        # `labels` and `edges` are always written because older versions of
-        # `luxonis-ml` validate the stored skeleton as a total `TypedDict`.
-        # The newer fields are omitted when unused, so that datasets which
-        # do not use them stay readable by those versions.
+        # An older ``luxonis-ml`` validates a stored skeleton as a total
+        # `TypedDict`, so always write `labels` and `edges`. Skip the newer
+        # fields when unused. A dataset that ignores them stays readable.
         data: dict[str, Any] = {"labels": self.labels, "edges": self.edges}
         if self.flip_pairs:
             data["flip_pairs"] = self.flip_pairs
@@ -1001,10 +995,9 @@ class Detection(BaseModelExtraForbid):
         )
 
         if self.keypoints is not None:
-            # Rebuilt through the constructor so that coordinates pushed
-            # outside of the image by the rescaling are clipped rather than
-            # rejected. `Keypoint` itself does not validate, so building one
-            # out of range here is fine.
+            # The constructor clips the coordinates that the rescale pushes
+            # out of the image. It does not reject them. `Keypoint` does
+            # not validate, so a value out of range is safe here.
             self.keypoints = KeypointAnnotation(
                 keypoints={
                     label: Keypoint(
@@ -1036,10 +1029,9 @@ class Annotation(ABC, BaseModelExtraForbid):
         """Serialize the annotation into its stored parquet payload.
 
         Args:
-            skeleton: Skeleton of the task the annotation belongs to, when
-                known. Only keypoint annotations make use of it, as they
-                are stored positionally and so depend on the order the
-                skeleton defines.
+            skeleton: Skeleton of the task of the annotation, when known.
+                Only a keypoint annotation uses it. Its payload is
+                positional, so the skeleton sets the order.
 
         Returns:
             The serialized annotation.
@@ -1300,11 +1292,10 @@ class KeypointAnnotation(Annotation):
     def declared_skeleton(self) -> Skeleton | None:
         """Return the task-level skeleton this annotation describes.
 
-        Keypoint names count as a declaration only when they are more than
-        the positional fallback: an annotation built from a plain list of
-        triplets is keyed ``"0"``, ``"1"``, ..., which says no more than how
-        many keypoints there are and must not conflict with real names set
-        elsewhere.
+        Keypoint names count as a declaration only if they are more than
+        the positional fallback. An annotation built from a plain list is
+        keyed ``"0"``, ``"1"``, .... Those keys give only the number of
+        keypoints, so they must not conflict with real names.
 
         Returns:
             The declared skeleton, or ``None`` if nothing was declared.
@@ -1322,18 +1313,17 @@ class KeypointAnnotation(Annotation):
         annotation = self
         if skeleton is not None:
             aligned = skeleton.align(self.keypoints)
-            # Compared as items rather than as mappings: dict equality
-            # ignores order, and order is the whole of what the stored
-            # positional payload encodes.
+            # Compared as items, not as mappings. Dict equality ignores
+            # order, and the stored payload encodes only the order.
             if list(aligned.items()) != list(self.keypoints.items()):
                 annotation = self.model_copy(update={"keypoints": aligned})
         return annotation.model_dump_json()
 
     @model_serializer(mode="plain", when_used="json")
     def _serialize(self) -> dict[str, Any]:
-        # Stored positionally: names and the skeleton describe the task, not
-        # the instance, so `LuxonisDataset.add` hoists them into the dataset
-        # metadata rather than repeating them on every row.
+        # The payload is positional. The names and the skeleton describe
+        # the task, not the instance. `LuxonisDataset.add` thus keeps them
+        # in the dataset metadata and not on every row.
         return {
             "keypoints": [
                 list(keypoint) for keypoint in self.keypoints.values()
@@ -1346,8 +1336,8 @@ class KeypointAnnotation(Annotation):
         if not isinstance(values, Mapping) or "keypoints" not in values:
             return values
 
-        # Supplied by the loader for stored annotations, and by the
-        # annotation's own skeleton when it lists the keypoints itself.
+        # The loader gives the labels for a stored annotation. The skeleton
+        # of the annotation gives them when it lists the keypoints.
         labels = (info.context or {}).get("keypoint_labels") or (
             cls._skeleton_labels(values.get("skeleton"))
         )
@@ -1398,10 +1388,10 @@ class KeypointAnnotation(Annotation):
     ) -> dict[str, list[Any]]:
         """Normalize keypoints into a mapping of name to ``[x, y, v]``.
 
-        Accepts a mapping keyed by name, or a sequence of ``(x, y)`` or
-        ``(x, y, visibility)`` triplets. A sequence is keyed by ``labels``
-        when they are known, and by position otherwise. The input is never
-        mutated.
+        The keypoints can be a mapping keyed by name. They can also be a
+        sequence of ``(x, y)`` or ``(x, y, visibility)`` triplets. A
+        sequence takes its keys from ``labels``, or from the position when
+        no labels are known. The input stays unchanged.
         """
         if isinstance(keypoints, Mapping):
             items = list(keypoints.items())
@@ -1430,9 +1420,10 @@ class KeypointAnnotation(Annotation):
 
     @staticmethod
     def _as_triplet(keypoint: Any) -> list[Any]:
-        """Coordinates as a mutable list, so they can be clipped in place.
+        """Return the coordinates as a list, which the caller can clip.
 
-        Visibility is left to `Keypoint` to default when it is omitted.
+        `Keypoint` supplies the default visibility when the keypoint
+        omits it.
         """
         if isinstance(keypoint, Mapping):
             keypoint = [
@@ -1449,8 +1440,8 @@ class KeypointAnnotation(Annotation):
     def _name_skeleton(skeleton: Any, labels: list[str]) -> Any:
         """Give a skeleton the keypoint names it does not declare itself.
 
-        This is what lets a skeleton refer to its edges and flip pairs by
-        name without restating the names the keypoints already carry.
+        A skeleton can thus refer to its edges and flip pairs by name. It
+        does not have to repeat the names of the keypoints.
         """
         if isinstance(skeleton, Skeleton):
             if skeleton.labels:
@@ -1464,9 +1455,8 @@ class KeypointAnnotation(Annotation):
     def _validate_skeleton(self) -> Self:
         if self.skeleton is None:
             return self
-        # Named keypoints are checked against the skeleton rather than
-        # against how many this annotation happens to carry, since it is
-        # free to describe only some of them.
+        # The check uses the skeleton, not the number of keypoints in this
+        # annotation. An annotation can name only some of them.
         self.skeleton.validate_for(
             len(self.skeleton.labels) or len(self.keypoints)
         )
@@ -1975,10 +1965,9 @@ class DatasetRecord(BaseModelExtraForbid):
         annotations and sub-annotations to parquet rows.
 
         Args:
-            skeletons: Skeletons of the tasks being written, keyed by task
-                name. Keypoint annotations are stored positionally, so the
-                skeleton of their task determines the order they are
-                written in and pads the keypoints they omit.
+            skeletons: Skeletons of the written tasks, keyed by task name.
+                A keypoint payload is positional. The skeleton of the task
+                thus sets the order and pads the omitted keypoints.
 
         Yields:
             Annotation data rows.
@@ -2099,8 +2088,8 @@ def load_annotation(
         task_type: The type of the annotation task.
         data: Serialized annotation data.
         keypoint_labels: Names of the keypoints of the task, when known.
-            Keypoint annotations are stored positionally; supplying the
-            names keys them by name instead of by position.
+            A stored keypoint payload is positional. The names key the
+            keypoints by name instead of by position.
 
     Returns:
         An instance of the appropriate `Annotation` subclass based on the task type.
@@ -2131,9 +2120,9 @@ def _where(context: str) -> str:
 def _is_positional(labels: Iterable[str]) -> bool:
     """Whether keypoint names are the ``"0"``, ``"1"``, ... fallback.
 
-    Keypoints built from a plain list of triplets are keyed by position.
-    Those names carry no more information than the number of keypoints, so
-    they must never be mistaken for labels the user actually chose.
+    A plain list of triplets gives its keypoints keys by position. Those
+    keys give only the number of keypoints. They are never labels that a
+    user chose.
     """
     labels = list(labels)
     return labels == [str(i) for i in range(len(labels))]
@@ -2142,8 +2131,8 @@ def _is_positional(labels: Iterable[str]) -> bool:
 def _split_side(label: str) -> tuple[str, str] | None:
     """Split a keypoint name into its side marker and the remainder.
 
-    Only separator-delimited markers count, so ``bright_spot`` is not
-    mistaken for a right-side keypoint.
+    A separator must delimit the marker. Thus ``bright_spot`` is not a
+    right-side keypoint.
 
     Returns:
         The side and the remaining name, or ``None`` if the name carries no

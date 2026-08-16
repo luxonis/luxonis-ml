@@ -145,10 +145,10 @@ class NativeExporter(BaseExporter):
     ) -> None:
         """Attach the task skeleton to the first keypoint record of a task.
 
-        A skeleton describes the task rather than the instance, so it is
-        written once per task and split instead of on every record.
-        `NativeParser` passes it back through `LuxonisDataset.add`, which
-        hoists it into the metadata of the imported dataset.
+        A skeleton describes the task, not the instance. Each task and
+        split thus carries it once, and not on every record. `NativeParser`
+        passes it to `LuxonisDataset.add`, which moves it into the
+        metadata of the imported dataset.
         """
         for record in records:
             keypoints = record.get("annotation", {}).get("keypoints")
