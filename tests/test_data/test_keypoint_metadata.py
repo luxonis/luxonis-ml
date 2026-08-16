@@ -365,6 +365,21 @@ def test_set_keypoint_metadata_accepts_names(dataset_name: str, tempdir: Path):
     assert task_keypoints.flip_pairs == [(1, 2)]
 
 
+def test_the_deprecated_skeleton_aliases_still_forward(
+    dataset_name: str, tempdir: Path
+):
+    """Nothing else calls them, so they need a test of their own."""
+    dataset = named_dataset(dataset_name, tempdir)
+
+    with pytest.deprecated_call():
+        dataset.set_skeletons(sigmas=[0.1, 0.2, 0.3], task="pose")
+    with pytest.deprecated_call():
+        skeletons = dataset.get_skeletons()
+
+    assert skeletons == dataset.get_keypoint_metadata()
+    assert skeletons["pose"].sigmas == [0.1, 0.2, 0.3]
+
+
 def test_flip_pair_inference_can_be_turned_off(
     dataset_name: str, tempdir: Path
 ):
