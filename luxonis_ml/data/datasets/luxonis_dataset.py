@@ -1496,12 +1496,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             splits: A mapping defining the splits. Can be one of the following:
 
                 - A mapping of split names to lists of file paths.
-                - A mapping of split names to float ratios.
-                - A tuple of three float ratios for train, val, and test splits.
+                - A mapping of split names to ratios.
+                - A tuple of three ratios for train, val, and test splits.
 
-                A ratio in a mapping must be a float. Write ``1.0``, not
-                ``1``. A parser reads an integer as an absolute file
-                count, so an integer here would have two meanings.
+                A ratio is a number from 0 to 1, and the ratios sum to
+                1. ``1`` and ``1.0`` both work.
 
             replace_old_splits: Whether to replace old splits with new ones.
                 If ``False`` (default), new splits are added to the existing
@@ -1569,8 +1568,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         else:
             raise TypeError(
                 "Splits must map names to either ratios or filepath lists. "
-                "A ratio must be a float. An integer is not a ratio, "
-                "because a parser reads an integer as a file count."
+                "A ratio is a number from 0 to 1. A bool is not a ratio; "
+                "use 1.0 and 0.0."
             )
 
         if ratios is not None:
@@ -2146,9 +2145,11 @@ def _split_sizes(n_groups: int, ratios: Mapping[str, float]) -> dict[str, int]:
 def _are_ratios(
     splits: Mapping[str, object],
 ) -> TypeGuard[Mapping[str, float]]:
-    # An `int` is not a ratio. `BaseParser` reads an integer value as an
-    # absolute file count, so `{"train": 8}` would have two meanings.
-    return all(isinstance(value, float) for value in splits.values())
+    # `bool` is a subclass of `int`, but it is never a ratio.
+    return all(
+        not isinstance(value, bool) and isinstance(value, (int, float))
+        for value in splits.values()
+    )
 
 
 def _are_definitions(

@@ -503,20 +503,18 @@ def test_make_splits(
     with pytest.raises(TypeError, match="ratios or filepath lists"):
         dataset.make_splits({"train": 0.5, "val": ["a.jpg"]})  # type: ignore
 
-    # An integer is not a ratio. `BaseParser` reads the same mapping as
-    # absolute file counts, so `make_splits` must not guess.
-    with pytest.raises(TypeError, match="An integer is not a ratio"):
-        dataset.make_splits({"train": 8, "val": 1, "test": 1})  # type: ignore
+    # A mapping of counts needs no special case. No ratio can exceed 1,
+    # so the range check already rejects it.
+    with pytest.raises(ValueError, match=r"between 0\.0 and 1\.0"):
+        dataset.make_splits({"train": 8, "val": 1, "test": 1})
 
-    with pytest.raises(TypeError, match="An integer is not a ratio"):
-        dataset.make_splits({"custom_split": 1})  # type: ignore
-
-    # A `bool` is a subclass of `int`, so it is not a ratio either.
-    with pytest.raises(TypeError, match="An integer is not a ratio"):
+    # A `bool` is a subclass of `int`, but it is not a ratio.
+    with pytest.raises(TypeError, match="A bool is not a ratio"):
         dataset.make_splits({"train": True})  # type: ignore
 
     dataset.add(generator(10))
-    dataset.make_splits({"custom_split": 1.0})
+    # An `int` ratio means the same as the `float` one.
+    dataset.make_splits({"custom_split": 1})
     splits = dataset.get_splits()
     assert splits is not None
     assert set(splits.keys()) == {"train", "val", "test", "custom_split"}
@@ -541,14 +539,23 @@ def test_make_splits(
     with pytest.raises(TypeError, match="A bool is not a ratio"):
         dataset.make_splits((True, False, False))  # type: ignore
 
-    # A tuple stays permissive for an `int`, because a tuple is
-    # positional and no parser sends one. Only a mapping needs a float.
+    # An `int` ratio works in a tuple too.
     dataset.make_splits((1, 0, 0), replace_old_splits=True)
     splits = dataset.get_splits()
     assert splits is not None
     assert len(splits["train"]) == n_groups
     assert not splits["val"]
     assert not splits["test"]
+
+    # A mapping may mix an `int` with a `float`. A zero ratio is a
+    # common reason to write one.
+    dataset.make_splits(
+        {"train": 0.8, "val": 0.2, "test": 0}, replace_old_splits=True
+    )
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert not splits["test"]
+    assert len(splits["train"]) + len(splits["val"]) == n_groups
 
     # `replace_old_splits=True` discards the old splits, even when every
     # file in the definitions already belongs to a split.
