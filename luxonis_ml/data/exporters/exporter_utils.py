@@ -9,7 +9,7 @@ import polars as pl
 from loguru import logger
 from pycocotools import mask as maskUtils
 
-from luxonis_ml.ldf import Skeleton
+from luxonis_ml.ldf import KeypointMetadata
 
 if TYPE_CHECKING:
     from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
@@ -191,20 +191,20 @@ def create_zip_output(
 
 
 def get_single_skeleton(
-    allow_keypoints: bool, skeletons: dict[str, Skeleton] | None = None
+    keypoint_metadata: dict[str, KeypointMetadata] | None = None,
 ) -> tuple[list[str], list[list[int]], list[float]]:
-    """Return labels, COCO-style edges and sigmas for the single skeleton.
+    """Return labels, COCO-style edges and sigmas for the single task.
 
     Edges are converted to 1-based indices per COCO spec.
     """
-    if not allow_keypoints or not skeletons:
+    if not keypoint_metadata:
         return [], [], []
-    skeleton = next(iter(skeletons.values()))
+    task_keypoints = next(iter(keypoint_metadata.values()))
     return (
-        list(skeleton.labels),
+        list(task_keypoints.labels),
         # COCO expects 1-based indices in skeleton
-        [[a + 1, b + 1] for a, b in skeleton.edges],
-        list(skeleton.sigmas),
+        [[a + 1, b + 1] for a, b in task_keypoints.edges],
+        list(task_keypoints.sigmas),
     )
 
 

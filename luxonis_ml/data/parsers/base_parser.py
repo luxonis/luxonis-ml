@@ -197,13 +197,13 @@ class BaseParser(ABC):
             Added images.
 
         """
-        generator, skeletons, added_images = self.from_split(**kwargs)
+        generator, keypoints, added_images = self.from_split(**kwargs)
         self._dataset.add(self._wrap_generator(generator))
-        if skeletons:
-            for skeleton in skeletons.values():
-                self._dataset.set_skeletons(
-                    skeleton.get("labels"),
-                    skeleton.get("edges"),
+        if keypoints:
+            for metadata in keypoints.values():
+                self._dataset.set_keypoint_metadata(
+                    metadata.get("labels"),
+                    metadata.get("edges"),
                 )
         return added_images
 

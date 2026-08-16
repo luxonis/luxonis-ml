@@ -2,7 +2,7 @@
 
 `DatasetRecord` forbids extra fields, so LDF 2.1 adding ``sample_metadata``
 made every 2.1 export unreadable by an older luxonis-ml. An annotation
-forbids them too, and LDF 2.2 added the keypoint ``skeleton``.
+forbids them too, and LDF 2.2 added the keypoint task fields.
 """
 
 import json
@@ -31,15 +31,9 @@ from .utils import create_dataset, create_image
 #: ``extra="forbid"`` on an older install.
 LDF_2_0_RECORD_FIELDS = {"file", "files", "task_name", "annotation"}
 
-#: The same for a keypoint annotation, which gained ``skeleton`` in 2.2.
+#: The same for a keypoint annotation, which gained the task fields
+#: in 2.2.
 LDF_2_0_KEYPOINT_FIELDS = {"keypoints"}
-
-SKELETON = {
-    "labels": ["nose", "left_eye", "right_eye"],
-    "edges": [[0, 1], [0, 2]],
-    "flip_pairs": [[1, 2]],
-    "sigmas": [0.026, 0.025, 0.025],
-}
 
 
 @pytest.fixture
@@ -67,7 +61,7 @@ def _generator(tempdir: Path, with_metadata: bool = True) -> DatasetIterator:
 
 
 def _keypoint_generator(tempdir: Path) -> DatasetIterator:
-    """Yield named keypoints, which `add` promotes to a task skeleton."""
+    """Yield named keypoints, which `add` promotes to the keypoint metadata."""
     for i in range(2):
         yield {
             "file": create_image(i, tempdir),
@@ -172,15 +166,24 @@ def test_downgrade_to_current_version_is_a_passthrough():
     assert LDFDowngrader(LDF_VERSION)(dict(record)) == record
 
 
-def test_downgrade_removes_the_keypoint_skeleton():
-    """The skeleton sits inside the annotation, not on the record."""
-    keypoints = {"keypoints": [[0.5, 0.3, 2]], "skeleton": SKELETON}
+def test_downgrade_removes_the_keypoint_task_fields():
+    """They sit inside the annotation, not on the record.
+
+    The names are the keys of the payload, so the downgrade also has to
+    turn a named mapping back into a positional list.
+    """
+    keypoints = {
+        "keypoints": {"nose": [0.5, 0.3, 2], "left_eye": [0.4, 0.2, 2]},
+        "edges": [[0, 1]],
+        "flip_pairs": [[0, 1]],
+        "sigmas": [0.026, 0.025],
+    }
     downgraded = LDFDowngrader(Version.parse("2.0.0"))(
         {"file": "a.jpg", "annotation": {"keypoints": keypoints}}
     )
 
     assert downgraded["annotation"]["keypoints"] == {
-        "keypoints": [[0.5, 0.3, 2]]
+        "keypoints": [[0.5, 0.3, 2], [0.4, 0.2, 2]]
     }
 
 
@@ -203,13 +206,13 @@ def test_export_2_0_omits_sample_metadata(dataset_name: str, tempdir: Path):
     assert _read_stamp(root) == "2.0.0"
 
 
-def test_export_2_0_drops_the_keypoint_skeleton(
+def test_export_2_0_drops_the_keypoint_task_fields(
     dataset_name: str, tempdir: Path, warnings_log: list[str]
 ):
-    """The keypoint ``skeleton`` arrived in LDF 2.2.
+    """The keypoint task fields arrived in LDF 2.2.
 
-    `test_keypoint_skeletons` covers the export writing one at the
-    current version, so this only has to show that 2.0 does not.
+    `test_keypoint_metadata` covers the export writing them at the current
+    version, so this only has to show that 2.0 does not.
     """
     dataset = create_dataset(
         dataset_name, _keypoint_generator(tempdir), splits=(1, 0, 0)
@@ -223,14 +226,15 @@ def test_export_2_0_drops_the_keypoint_skeleton(
         if "keypoints" in record.get("annotation", {})
     ]
     assert keypoints
-    assert all("skeleton" not in k for k in keypoints)
-    assert [msg for msg in warnings_log if "keypoints.skeleton" in msg]
+    assert all(isinstance(k["keypoints"], list) for k in keypoints)
+    assert all("edges" not in k for k in keypoints)
+    assert [msg for msg in warnings_log if "keypoints.names" in msg]
 
 
-def test_export_2_1_keeps_sample_metadata_but_drops_the_skeleton(
+def test_export_2_1_keeps_sample_metadata_but_drops_the_task_fields(
     dataset_name: str, tempdir: Path
 ):
-    """LDF 2.1 knows ``sample_metadata``. Only the skeleton is newer."""
+    """LDF 2.1 knows ``sample_metadata``. Only the rest is newer."""
     dataset = create_dataset(
         dataset_name, _keypoint_generator(tempdir), splits=(1, 0, 0)
     )
@@ -242,18 +246,18 @@ def test_export_2_1_keeps_sample_metadata_but_drops_the_skeleton(
     assert not [
         record
         for record in records
-        if "skeleton" in record.get("annotation", {}).get("keypoints", {})
+        if "edges" in record.get("annotation", {}).get("keypoints", {})
     ]
     assert _read_stamp(root) == "2.1.0"
 
 
-def test_export_without_a_skeleton_still_imports(
+def test_an_export_without_the_task_fields_still_imports(
     dataset_name: str, tempdir: Path
 ):
-    """A dropped skeleton must not make the export unusable.
+    """A dropped field must not make the export unusable.
 
-    The stored keypoints keep the skeleton order, so the import names
-    them by position.
+    The stored keypoints keep the task order, so the import names them by
+    position.
     """
     dataset = create_dataset(
         dataset_name, _keypoint_generator(tempdir), splits=(1, 0, 0)
@@ -271,7 +275,7 @@ def test_export_without_a_skeleton_still_imports(
 
     _, labels = LuxonisLoader(imported)[0]
     assert labels["pose/keypoints"].shape == (1, 9)
-    assert imported.get_skeletons()["pose"].labels == ["0", "1", "2"]
+    assert imported.get_keypoint_metadata()["pose"].labels == ["0", "1", "2"]
 
 
 def test_export_defaults_to_current_version(dataset_name: str, tempdir: Path):
@@ -287,7 +291,7 @@ def test_export_defaults_to_current_version(dataset_name: str, tempdir: Path):
 
 
 def test_export_2_0_round_trips(dataset_name: str, tempdir: Path):
-    """A 2.0 export re-imports cleanly, minus the dropped metadata."""
+    """A 2.0 export re-imports cleanly, minus the dropped sample metadata."""
     dataset = create_dataset(
         dataset_name, _generator(tempdir), splits=(1, 0, 0)
     )
@@ -311,7 +315,7 @@ def test_export_2_0_round_trips(dataset_name: str, tempdir: Path):
         assert "origin" not in output.metadata
 
 
-def test_export_2_0_warns_about_dropped_metadata(
+def test_export_2_0_warns_about_dropped_sample_metadata(
     dataset_name: str, tempdir: Path, warnings_log: list[str]
 ):
     dataset = create_dataset(

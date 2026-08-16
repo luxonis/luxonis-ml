@@ -1,8 +1,8 @@
-"""Dataset-level tests for keypoint skeletons.
+"""Dataset-level tests for keypoint metadata.
 
-`LuxonisDataset.add` moves the skeleton of an annotation into the dataset
-metadata. These tests cover that move and the compatibility that it must
-keep.
+`LuxonisDataset.add` moves the task fields of an annotation into the
+dataset metadata. These tests cover that move and the compatibility that
+it must keep.
 """
 
 import json
@@ -14,7 +14,7 @@ import pytest
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.ldf import Skeleton
+from luxonis_ml.ldf import KeypointMetadata
 
 from .utils import create_dataset, create_image
 
@@ -24,13 +24,12 @@ LABELS = ["nose", "left_eye", "right_eye"]
 def keypoint_generator(
     tempdir: Path,
     keypoints: Any,
-    skeleton: dict[str, Any] | None = None,
+    fields: dict[str, Any] | None = None,
     n: int = 4,
 ) -> DatasetIterator:
     for i in range(n):
         annotation: dict[str, Any] = {"keypoints": keypoints}
-        if skeleton is not None:
-            annotation["skeleton"] = skeleton
+        annotation.update(fields or {})
         yield {
             "file": str(create_image(i, tempdir)),
             "task_name": "pose",
@@ -60,24 +59,24 @@ def keypoint_payloads(dataset: LuxonisDataset) -> list[str]:
     return df.filter(df["task_type"] == "keypoints")["annotation"].to_list()
 
 
-def read_metadata(dataset: LuxonisDataset) -> dict[str, Any]:
+def read_dataset_metadata(dataset: LuxonisDataset) -> dict[str, Any]:
     return json.loads((dataset._metadata_path / "metadata.json").read_text())
 
 
-def test_names_are_promoted_to_the_task_skeleton(
+def test_names_are_promoted_to_the_task_metadata(
     dataset_name: str, tempdir: Path
 ):
     dataset = named_dataset(
         dataset_name,
         tempdir,
-        skeleton={
+        fields={
             "edges": [("nose", "left_eye"), ("nose", "right_eye")],
             "sigmas": [0.026, 0.025, 0.025],
         },
     )
 
-    assert dataset.get_skeletons() == {
-        "pose": Skeleton(
+    assert dataset.get_keypoint_metadata() == {
+        "pose": KeypointMetadata(
             labels=LABELS,
             edges=[(0, 1), (0, 2)],
             flip_pairs=[(1, 2)],
@@ -90,13 +89,13 @@ def test_names_are_promoted_to_the_task_skeleton(
 def test_flip_pairs_are_inferred_from_the_names(
     dataset_name: str, tempdir: Path
 ):
-    """No skeleton declared at all; the names alone are enough."""
+    """No task fields declared at all; the names alone are enough."""
     dataset = named_dataset(dataset_name, tempdir)
 
-    assert dataset.get_skeletons()["pose"].flip_pairs == [(1, 2)]
+    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == [(1, 2)]
 
 
-def test_sub_detections_get_their_own_skeleton(
+def test_sub_detections_get_their_own_metadata(
     dataset_name: str, tempdir: Path
 ):
     def generator() -> DatasetIterator:
@@ -122,9 +121,9 @@ def test_sub_detections_get_their_own_skeleton(
 
     dataset = create_dataset(dataset_name, generator())
 
-    skeleton = dataset.get_skeletons()["person/face"]
-    assert skeleton.labels == ["left_eye", "right_eye"]
-    assert skeleton.flip_pairs == [(0, 1)]
+    task_keypoints = dataset.get_keypoint_metadata()["person/face"]
+    assert task_keypoints.labels == ["left_eye", "right_eye"]
+    assert task_keypoints.flip_pairs == [(0, 1)]
 
 
 def test_disagreeing_records_are_rejected(dataset_name: str, tempdir: Path):
@@ -136,35 +135,34 @@ def test_disagreeing_records_are_rejected(dataset_name: str, tempdir: Path):
             tempdir, {"nose": (0.5, 0.3, 2), "right_eye": (0.6, 0.2, 2)}, n=1
         )
 
-    with pytest.raises(ValueError, match="Conflicting keypoint skeletons"):
+    with pytest.raises(ValueError, match="Conflicting keypoint metadata"):
         create_dataset(dataset_name, generator())
 
 
 def test_an_unknown_keypoint_name_is_rejected(
     dataset_name: str, tempdir: Path
 ):
-    with pytest.raises(ValueError, match="not part of the skeleton"):
-        create_dataset(
-            dataset_name,
-            keypoint_generator(
-                tempdir,
-                {"noze": (0.5, 0.3, 2)},
-                skeleton={"labels": LABELS},
-            ),
-        )
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    dataset.set_tasks({"pose": ["keypoints"]})
+    dataset.set_keypoint_metadata(labels=LABELS, task="pose")
+
+    with pytest.raises(ValueError, match="not part of the task"):
+        dataset.add(keypoint_generator(tempdir, {"noze": (0.5, 0.3, 2)}))
 
 
-def test_add_does_not_clobber_explicit_skeletons(
+def test_add_does_not_clobber_explicit_metadata(
     dataset_name: str, tempdir: Path
 ):
-    """`add` used to overwrite every skeleton with ``"0"``, ``"1"``, ...
+    """`add` used to overwrite every entry with ``"0"``, ``"1"``, ...
 
-    Adding unnamed keypoints to a dataset whose skeleton was set by hand
-    has to leave that skeleton alone.
+    Adding unnamed keypoints to a dataset whose names were set by hand has
+    to leave those names alone.
     """
     dataset = LuxonisDataset(dataset_name, delete_local=True)
     dataset.set_tasks({"pose": ["keypoints"]})
-    dataset.set_skeletons(labels=LABELS, edges=[(0, 1), (0, 2)], task="pose")
+    dataset.set_keypoint_metadata(
+        labels=LABELS, edges=[(0, 1), (0, 2)], task="pose"
+    )
 
     dataset.add(
         keypoint_generator(
@@ -172,9 +170,9 @@ def test_add_does_not_clobber_explicit_skeletons(
         )
     )
 
-    skeleton = dataset.get_skeletons()["pose"]
-    assert skeleton.labels == LABELS
-    assert skeleton.edges == [(0, 1), (0, 2)]
+    task_keypoints = dataset.get_keypoint_metadata()["pose"]
+    assert task_keypoints.labels == LABELS
+    assert task_keypoints.edges == [(0, 1), (0, 2)]
 
 
 def test_positional_names_do_not_clash_with_real_ones(
@@ -187,16 +185,16 @@ def test_positional_names_do_not_clash_with_real_ones(
             tempdir, [(0.5, 0.3, 2), (0.4, 0.2, 2), (0.6, 0.2, 1)]
         ),
     )
-    assert dataset.get_skeletons()["pose"].labels == ["0", "1", "2"]
+    assert dataset.get_keypoint_metadata()["pose"].labels == ["0", "1", "2"]
 
-    dataset.set_skeletons(labels=LABELS, task="pose")
+    dataset.set_keypoint_metadata(labels=LABELS, task="pose")
     dataset.add(
         keypoint_generator(
             tempdir, [(0.1, 0.1, 2), (0.2, 0.2, 2), (0.3, 0.3, 2)]
         )
     )
 
-    assert dataset.get_skeletons()["pose"].labels == LABELS
+    assert dataset.get_keypoint_metadata()["pose"].labels == LABELS
 
 
 def test_placeholders_are_still_generated(dataset_name: str, tempdir: Path):
@@ -205,18 +203,18 @@ def test_placeholders_are_still_generated(dataset_name: str, tempdir: Path):
         keypoint_generator(tempdir, [(0.5, 0.3, 2), (0.4, 0.2, 2)]),
     )
 
-    assert dataset.get_skeletons() == {
-        "pose": Skeleton(labels=["0", "1"], edges=[(0, 1)])
+    assert dataset.get_keypoint_metadata() == {
+        "pose": KeypointMetadata(labels=["0", "1"], edges=[(0, 1)])
     }
 
 
-def test_the_skeleton_is_not_repeated_on_every_row(
+def test_the_task_fields_are_not_repeated_on_every_row(
     dataset_name: str, tempdir: Path
 ):
     dataset = named_dataset(
         dataset_name,
         tempdir,
-        skeleton={"edges": [("nose", "left_eye")], "sigmas": [0.1, 0.2, 0.3]},
+        fields={"edges": [("nose", "left_eye")], "sigmas": [0.1, 0.2, 0.3]},
     )
 
     payloads = keypoint_payloads(dataset)
@@ -226,20 +224,18 @@ def test_the_skeleton_is_not_repeated_on_every_row(
         assert json.loads(payload) == {
             "keypoints": [[0.5, 0.3, 2], [0.4, 0.2, 2], [0.6, 0.2, 1]]
         }
-        assert "skeleton" not in payload
+        assert "edges" not in payload
+        assert "sigmas" not in payload
         assert "nose" not in payload
 
 
-def test_records_are_stored_in_skeleton_order(
-    dataset_name: str, tempdir: Path
-):
+def test_records_are_stored_in_task_order(dataset_name: str, tempdir: Path):
     """Column position is keypoint identity across the whole task."""
 
     def generator() -> DatasetIterator:
         yield from keypoint_generator(
             tempdir,
             {"nose": (0.1, 0.1, 2), "left_eye": (0.2, 0.2, 2)},
-            skeleton={"labels": ["nose", "left_eye"]},
             n=1,
         )
         yield from keypoint_generator(
@@ -258,14 +254,10 @@ def test_records_are_stored_in_skeleton_order(
 def test_omitted_keypoints_are_padded_on_disk(
     dataset_name: str, tempdir: Path
 ):
-    dataset = create_dataset(
-        dataset_name,
-        keypoint_generator(
-            tempdir,
-            {"left_eye": (0.4, 0.2, 2)},
-            skeleton={"labels": LABELS},
-        ),
-    )
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    dataset.set_tasks({"pose": ["keypoints"]})
+    dataset.set_keypoint_metadata(labels=LABELS, task="pose")
+    dataset.add(keypoint_generator(tempdir, {"left_eye": (0.4, 0.2, 2)}))
 
     assert json.loads(keypoint_payloads(dataset)[0]) == {
         "keypoints": [[0.0, 0.0, 0], [0.4, 0.2, 2], [0.0, 0.0, 0]]
@@ -275,11 +267,10 @@ def test_omitted_keypoints_are_padded_on_disk(
 def test_opening_a_dataset_does_not_materialize_flip_pairs(
     dataset_name: str, tempdir: Path
 ):
-    """Inference belongs to the write paths only.
+    """A reopen must leave the stored file byte for byte alone.
 
-    Every open of a dataset revalidates `Metadata`. Inference there would
-    give flip pairs to a dataset that never asked for them. An older
-    ``luxonis-ml`` cannot read a skeleton that has them.
+    Every open revalidates `Metadata`. Inference there would add flip
+    pairs that an older ``luxonis-ml`` cannot read.
     """
     dataset = create_dataset(
         dataset_name,
@@ -287,15 +278,15 @@ def test_opening_a_dataset_does_not_materialize_flip_pairs(
     )
     metadata_path = dataset._metadata_path / "metadata.json"
     before = metadata_path.read_text()
-    assert "flip_pairs" not in before
+    assert json.loads(before)["keypoint_metadata"]["pose"]["flip_pairs"] == []
 
     reopened = LuxonisDataset(dataset_name)
 
-    assert reopened.get_skeletons()["pose"].flip_pairs == []
+    assert reopened.get_keypoint_metadata()["pose"].flip_pairs == []
     assert metadata_path.read_text() == before
 
 
-def test_unused_fields_stay_out_of_the_metadata(
+def test_the_stored_metadata_holds_every_field(
     dataset_name: str, tempdir: Path
 ):
     dataset = create_dataset(
@@ -303,25 +294,31 @@ def test_unused_fields_stay_out_of_the_metadata(
         keypoint_generator(tempdir, [(0.5, 0.3, 2), (0.4, 0.2, 2)]),
     )
 
-    assert read_metadata(dataset)["skeletons"] == {
-        "pose": {"labels": ["0", "1"], "edges": [[0, 1]]}
+    assert read_dataset_metadata(dataset)["keypoint_metadata"] == {
+        "pose": {
+            "labels": ["0", "1"],
+            "edges": [[0, 1]],
+            "flip_pairs": [],
+            "sigmas": [],
+        }
     }
 
 
 def test_a_legacy_dataset_still_loads(dataset_name: str, tempdir: Path):
-    """Datasets written before flip pairs and sigmas existed."""
+    """Written under the old key, and before flip pairs and sigmas."""
     dataset = named_dataset(dataset_name, tempdir)
     metadata_path = dataset._metadata_path / "metadata.json"
-    metadata = json.loads(metadata_path.read_text())
-    for skeleton in metadata["skeletons"].values():
-        skeleton.pop("flip_pairs", None)
-        skeleton.pop("sigmas", None)
-    metadata_path.write_text(json.dumps(metadata))
+    dataset_metadata = json.loads(metadata_path.read_text())
+    dataset_metadata["skeletons"] = dataset_metadata.pop("keypoint_metadata")
+    for entry in dataset_metadata["skeletons"].values():
+        entry.pop("flip_pairs", None)
+        entry.pop("sigmas", None)
+    metadata_path.write_text(json.dumps(dataset_metadata))
 
     reopened = LuxonisDataset(dataset_name)
 
-    assert reopened.get_skeletons()["pose"].labels == LABELS
-    assert reopened.get_skeletons()["pose"].flip_pairs == []
+    assert reopened.get_keypoint_metadata()["pose"].labels == LABELS
+    assert reopened.get_keypoint_metadata()["pose"].flip_pairs == []
     _, labels = LuxonisLoader(reopened)[0]
     assert labels["pose/keypoints"].shape[1] == 9
 
@@ -333,39 +330,39 @@ def test_the_loader_names_the_keypoints(dataset_name: str, tempdir: Path):
     _, labels = loader[0]
 
     assert labels["pose/keypoints"].shape == (1, 9)
-    assert loader.get_skeletons()["pose"].labels == LABELS
+    assert loader.get_keypoint_metadata()["pose"].labels == LABELS
 
 
-def test_set_skeletons_updates_only_what_it_is_given(
+def test_set_keypoint_metadata_updates_only_what_it_is_given(
     dataset_name: str, tempdir: Path
 ):
     """It used to replace the whole entry, so one field wiped the rest.
 
-    A skeleton now has four fields, which makes that unacceptable.
+    It now has four fields, which makes that unacceptable.
     """
     dataset = named_dataset(dataset_name, tempdir)
 
-    dataset.set_skeletons(sigmas=[0.1, 0.2, 0.3], task="pose")
+    dataset.set_keypoint_metadata(sigmas=[0.1, 0.2, 0.3], task="pose")
 
-    skeleton = dataset.get_skeletons()["pose"]
-    assert skeleton.labels == LABELS
-    assert skeleton.sigmas == [0.1, 0.2, 0.3]
-    assert skeleton.flip_pairs == [(1, 2)]
+    task_keypoints = dataset.get_keypoint_metadata()["pose"]
+    assert task_keypoints.labels == LABELS
+    assert task_keypoints.sigmas == [0.1, 0.2, 0.3]
+    assert task_keypoints.flip_pairs == [(1, 2)]
 
 
-def test_set_skeletons_accepts_names(dataset_name: str, tempdir: Path):
+def test_set_keypoint_metadata_accepts_names(dataset_name: str, tempdir: Path):
     dataset = named_dataset(dataset_name, tempdir)
 
-    dataset.set_skeletons(
+    dataset.set_keypoint_metadata(
         labels=LABELS,
         edges=[("nose", "left_eye")],
         flip_pairs=[("left_eye", "right_eye")],
         task="pose",
     )
 
-    skeleton = dataset.get_skeletons()["pose"]
-    assert skeleton.edges == [(0, 1)]
-    assert skeleton.flip_pairs == [(1, 2)]
+    task_keypoints = dataset.get_keypoint_metadata()["pose"]
+    assert task_keypoints.edges == [(0, 1)]
+    assert task_keypoints.flip_pairs == [(1, 2)]
 
 
 def test_flip_pair_inference_can_be_turned_off(
@@ -373,32 +370,36 @@ def test_flip_pair_inference_can_be_turned_off(
 ):
     dataset = named_dataset(dataset_name, tempdir)
 
-    dataset.set_skeletons(labels=LABELS, task="pose", infer_flip_pairs=False)
+    dataset.set_keypoint_metadata(
+        labels=LABELS, task="pose", infer_flip_pairs=False
+    )
 
     # The `add` already inferred them. A fresh dataset below shows that
     # the flag keeps them away.
-    assert dataset.get_skeletons()["pose"].flip_pairs == [(1, 2)]
+    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == [(1, 2)]
 
     fresh = LuxonisDataset(f"{dataset_name}_fresh", delete_local=True)
     fresh.set_tasks({"pose": ["keypoints"]})
-    fresh.set_skeletons(labels=LABELS, task="pose", infer_flip_pairs=False)
+    fresh.set_keypoint_metadata(
+        labels=LABELS, task="pose", infer_flip_pairs=False
+    )
 
-    assert fresh.get_skeletons()["pose"].flip_pairs == []
+    assert fresh.get_keypoint_metadata()["pose"].flip_pairs == []
 
 
-def test_set_skeletons_needs_something_to_set(
+def test_set_keypoint_metadata_needs_something_to_set(
     dataset_name: str, tempdir: Path
 ):
     dataset = named_dataset(dataset_name, tempdir)
 
     with pytest.raises(ValueError, match="Must provide either"):
-        dataset.set_skeletons()
+        dataset.set_keypoint_metadata()
 
 
-def test_native_export_round_trips_the_skeleton(
+def test_native_export_round_trips_the_metadata(
     dataset_name: str, tempdir: Path
 ):
-    """Native export used to drop skeletons entirely.
+    """Native export used to drop the keypoint metadata entirely.
 
     `test_export` covers the round-trip against downloaded fixtures; this
     keeps it verifiable without them.
@@ -406,7 +407,7 @@ def test_native_export_round_trips_the_skeleton(
     dataset = named_dataset(
         dataset_name,
         tempdir,
-        skeleton={
+        fields={
             "edges": [("nose", "left_eye"), ("nose", "right_eye")],
             "sigmas": [0.026, 0.025, 0.025],
         },
@@ -422,15 +423,17 @@ def test_native_export_round_trips_the_skeleton(
         save_dir=tempdir,
     ).parse()
 
-    assert imported.get_skeletons() == dataset.get_skeletons()
+    assert imported.get_keypoint_metadata() == dataset.get_keypoint_metadata()
 
 
-def test_the_exported_skeleton_is_written_once_per_task(
+def test_the_exported_names_are_written_once_per_task(
     dataset_name: str, tempdir: Path
 ):
-    """Writing it on every record would balloon ``annotations.json``.
+    """Naming every record would balloon ``annotations.json``.
 
-    Each split gets its own file, so each has to carry the skeleton once.
+    One record per task and split carries the names as a mapping. Every
+    other record stays a positional list. Each split gets its own file, so
+    each one needs its own named record.
     """
     dataset = named_dataset(dataset_name, tempdir, n=8)
     exported = dataset.export(tempdir / "exported_once", DatasetType.NATIVE)
@@ -439,16 +442,15 @@ def test_the_exported_skeleton_is_written_once_per_task(
     counts = []
     for path in (exported / dataset_name).rglob("annotations.json"):
         keypoints = [
-            record["annotation"]["keypoints"]
+            record["annotation"]["keypoints"]["keypoints"]
             for record in json.loads(path.read_text())
             # Every detection also emits a classification record.
             if "keypoints" in record.get("annotation", {})
         ]
         if keypoints:
-            counts.append(
-                (len(keypoints), sum("skeleton" in k for k in keypoints))
-            )
+            named = sum(isinstance(k, dict) for k in keypoints)
+            counts.append((len(keypoints), named))
 
     assert counts
-    assert all(n_skeletons == 1 for _, n_skeletons in counts)
+    assert all(n_named == 1 for _, n_named in counts)
     assert any(n_keypoints > 1 for n_keypoints, _ in counts)

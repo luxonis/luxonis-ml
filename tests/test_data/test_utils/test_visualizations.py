@@ -16,7 +16,7 @@ from luxonis_ml.data.utils.visualizations import (
     str_to_rgb,
     visualize,
 )
-from luxonis_ml.ldf import Skeleton
+from luxonis_ml.ldf import KeypointMetadata
 
 
 def _labels_panel(output: np.ndarray, image: np.ndarray) -> np.ndarray:
@@ -274,7 +274,7 @@ def test_visualize_keypoint_label_modes(monkeypatch: pytest.MonkeyPatch):
         )
     }
     classes = {"pose": {"person": 0}}
-    skeletons = {"pose": Skeleton(labels=["nose", "eye"])}
+    keypoint_metadata = {"pose": KeypointMetadata(labels=["nose", "eye"])}
     calls: list[str] = []
 
     def fake_draw_keypoint_label(
@@ -297,7 +297,7 @@ def test_visualize_keypoint_label_modes(monkeypatch: pytest.MonkeyPatch):
         "image",
         labels,
         classes,
-        skeletons=skeletons,
+        keypoint_metadata=keypoint_metadata,
         keypoint_label_mode="none",
     )
     assert calls == []
@@ -307,7 +307,7 @@ def test_visualize_keypoint_label_modes(monkeypatch: pytest.MonkeyPatch):
         "image",
         labels,
         classes,
-        skeletons=skeletons,
+        keypoint_metadata=keypoint_metadata,
         keypoint_label_mode="numbers",
     )
     assert calls == ["0", "1", "2"]
@@ -318,7 +318,7 @@ def test_visualize_keypoint_label_modes(monkeypatch: pytest.MonkeyPatch):
         "image",
         labels,
         classes,
-        skeletons=skeletons,
+        keypoint_metadata=keypoint_metadata,
         keypoint_label_mode="full",
     )
     assert calls == ["0: nose", "1: eye"]
@@ -332,7 +332,7 @@ def test_visualize_keypoint_skeletons_respect_visibility():
         )
     }
     classes = {"pose": {"person": 0}}
-    skeletons = {"pose": Skeleton(edges=[(0, 1), (1, 2)])}
+    keypoint_metadata = {"pose": KeypointMetadata(edges=[(0, 1), (1, 2)])}
 
     without_skeletons = visualize(
         image.copy(),
@@ -340,7 +340,7 @@ def test_visualize_keypoint_skeletons_respect_visibility():
         labels,
         classes,
         blend_all=True,
-        skeletons=skeletons,
+        keypoint_metadata=keypoint_metadata,
         draw_skeletons=False,
         keypoint_label_mode="none",
     )
@@ -350,7 +350,7 @@ def test_visualize_keypoint_skeletons_respect_visibility():
         labels,
         classes,
         blend_all=True,
-        skeletons=skeletons,
+        keypoint_metadata=keypoint_metadata,
         draw_skeletons=True,
         keypoint_label_mode="none",
     )
