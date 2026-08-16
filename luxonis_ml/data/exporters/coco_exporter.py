@@ -17,6 +17,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
 )
 from luxonis_ml.data.utils import COCOFormat
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.ldf import Skeleton
 
 
 class CocoExporter(BaseExporter):
@@ -39,7 +40,7 @@ class CocoExporter(BaseExporter):
         max_partition_size_gb: float | None,
         format: COCOFormat = COCOFormat.ROBOFLOW,
         *,
-        skeletons: dict[str, Any] | None = None,
+        skeletons: dict[str, Skeleton] | None = None,
     ):
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb

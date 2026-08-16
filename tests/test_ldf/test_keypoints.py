@@ -50,13 +50,10 @@ COCO_FLIP_PAIRS = [
 ]
 
 
-def payload(annotation: KeypointAnnotation, **kwargs: Any) -> dict[str, Any]:
-    return json.loads(annotation.to_parquet_json(**kwargs))
-
-
-# --------------------------------------------------------------------------
-# `Keypoint` stands in for the triplet it replaced
-# --------------------------------------------------------------------------
+def payload(
+    annotation: KeypointAnnotation, skeleton: Skeleton | None = None
+) -> dict[str, Any]:
+    return json.loads(annotation.to_parquet_json(skeleton))
 
 
 def test_a_keypoint_is_still_a_triplet():
@@ -108,11 +105,6 @@ def test_keypoints_accept_named_fields():
     )
 
     assert annotation.keypoints["nose"] == (0.1, 0.2, 1)
-
-
-# --------------------------------------------------------------------------
-# Stored payload
-# --------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -193,11 +185,6 @@ def test_combining_different_sized_annotations_is_an_error():
 
     with pytest.raises(ValueError, match="different numbers of keypoints"):
         KeypointAnnotation.combine_to_numpy([one, two])
-
-
-# --------------------------------------------------------------------------
-# Ordering
-# --------------------------------------------------------------------------
 
 
 def test_declaration_order_does_not_affect_stored_order():
@@ -308,11 +295,6 @@ def test_positional_names_are_not_a_declaration():
 
     assert list(annotation.keypoints) == ["0", "1"]
     assert annotation.declared_skeleton() is None
-
-
-# --------------------------------------------------------------------------
-# Referring to keypoints by name
-# --------------------------------------------------------------------------
 
 
 def test_edges_and_flip_pairs_accept_names():
@@ -442,11 +424,6 @@ def test_naming_more_keypoints_than_are_present_is_allowed():
         )
 
 
-# --------------------------------------------------------------------------
-# Inferring flip pairs
-# --------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     ("labels", "expected"),
     [
@@ -502,11 +479,6 @@ def test_inference_is_not_applied_by_the_model():
     assert Skeleton(labels=COCO_LABELS).flip_pairs == []
 
 
-# --------------------------------------------------------------------------
-# Serialization of the skeleton itself
-# --------------------------------------------------------------------------
-
-
 def test_unused_fields_are_left_out_of_the_serialized_skeleton():
     """Older versions reject a stored skeleton with unknown keys, so a
     dataset only becomes unreadable to them if it truly uses the fields.
@@ -546,11 +518,6 @@ def test_negative_edges_are_still_accepted():
     `visualizations` guards against out-of-range indices when drawing.
     """
     assert Skeleton(edges=[(-1, 3)]).edges == [(-1, 3)]
-
-
-# --------------------------------------------------------------------------
-# Merging declarations
-# --------------------------------------------------------------------------
 
 
 def test_merging_fills_in_the_gaps():

@@ -191,25 +191,21 @@ def create_zip_output(
 
 
 def get_single_skeleton(
-    allow_keypoints: bool, skeletons: dict[str, Any] | None = None
+    allow_keypoints: bool, skeletons: dict[str, Skeleton] | None = None
 ) -> tuple[list[str], list[list[int]], list[float]]:
     """Return labels, COCO-style edges and sigmas for the single skeleton.
 
     Edges are converted to 1-based indices per COCO spec.
     """
-    if not allow_keypoints or skeletons is None:
+    if not allow_keypoints or not skeletons:
         return [], [], []
-    if isinstance(skeletons, dict):
-        sk = next(iter(skeletons.values()))
-    else:  # list
-        sk = skeletons[0]
-    if isinstance(sk, Skeleton):
-        sk = sk.model_dump()
-    labels = list(sk.get("labels", []))
-    edges = sk.get("edges", [])
-    # COCO expects 1-based indices in skeleton
-    skeleton_1_based = [[a + 1, b + 1] for a, b in edges]
-    return labels, skeleton_1_based, list(sk.get("sigmas", []))
+    skeleton = next(iter(skeletons.values()))
+    return (
+        list(skeleton.labels),
+        # COCO expects 1-based indices in skeleton
+        [[a + 1, b + 1] for a, b in skeleton.edges],
+        list(skeleton.sigmas),
+    )
 
 
 def decode_rle_with_pycoco(ann: dict[str, Any]) -> np.ndarray:
