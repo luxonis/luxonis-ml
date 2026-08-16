@@ -1,4 +1,5 @@
 import json
+import math
 import shutil
 from collections import defaultdict
 from pathlib import Path
@@ -6,6 +7,8 @@ from typing import NoReturn, cast
 
 import numpy as np
 import pytest
+from hypothesis import assume, given
+from hypothesis import strategies as st
 from loguru import logger
 from pytest_subtests.plugin import SubTests
 
@@ -20,7 +23,10 @@ from luxonis_ml.data import (
     UpdateMode,
 )
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
-from luxonis_ml.data.datasets.luxonis_dataset import _split_sizes
+from luxonis_ml.data.datasets.luxonis_dataset import (
+    _resolve_splits,
+    _split_sizes,
+)
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
@@ -229,6 +235,94 @@ def test_split_sizes():
     # Three equal splits divide three groups evenly.
     thirds = {"a": 1 / 3, "b": 1 / 3, "c": 1 / 3}
     assert _split_sizes(3, thirds) == {"a": 1, "b": 1, "c": 1}
+
+
+@given(
+    n_groups=st.integers(min_value=0, max_value=500),
+    weights=st.lists(
+        st.floats(
+            min_value=0, max_value=1000, allow_nan=False, allow_infinity=False
+        ),
+        min_size=1,
+        max_size=6,
+    ),
+)
+def test_split_sizes_gives_every_group_to_exactly_one_split(
+    n_groups: int, weights: list[float]
+):
+    total = sum(weights)
+    assume(total > 0)
+    ratios = {f"s{i}": weight / total for i, weight in enumerate(weights)}
+    assume(math.isclose(sum(ratios.values()), 1.0))
+
+    sizes = _split_sizes(n_groups, ratios)
+
+    assert sizes.keys() == ratios.keys()
+    assert sum(sizes.values()) == n_groups
+    assert all(size >= 0 for size in sizes.values())
+    # A split asked for nothing never takes a group from another split.
+    for split, ratio in ratios.items():
+        if ratio == 0:
+            assert sizes[split] == 0
+
+
+@given(
+    weights=st.dictionaries(
+        st.text(min_size=1),
+        st.floats(
+            min_value=0, max_value=1000, allow_nan=False, allow_infinity=False
+        ),
+        min_size=1,
+        max_size=5,
+    )
+)
+def test_resolve_splits_reads_numbers_as_ratios(weights: dict[str, float]):
+    total = sum(weights.values())
+    assume(total > 0)
+    ratios = {split: weight / total for split, weight in weights.items()}
+    assume(math.isclose(sum(ratios.values()), 1.0))
+
+    resolved, definitions = _resolve_splits(ratios)
+
+    assert definitions is None
+    assert resolved == ratios
+
+
+@given(
+    definitions=st.dictionaries(
+        st.text(min_size=1),
+        st.lists(st.text(min_size=1), max_size=4),
+        min_size=1,
+        max_size=4,
+    )
+)
+def test_resolve_splits_reads_lists_as_filepaths(
+    definitions: dict[str, list[str]],
+):
+    ratios, resolved = _resolve_splits(definitions)
+
+    assert ratios is None
+    assert resolved == definitions
+
+
+def test_resolve_splits_reads_every_spelling_of_one_the_same_way():
+    """`1`, `1.0`, and `True` are the same ratio."""
+    assert (
+        _resolve_splits({"train": 1})
+        == _resolve_splits({"train": 1.0})
+        == _resolve_splits({"train": True})
+        == ({"train": 1.0}, None)
+    )
+    assert (
+        _resolve_splits((1, 0, 0))
+        == _resolve_splits((1.0, 0.0, 0.0))
+        == _resolve_splits((True, False, False))
+    )
+
+
+def test_resolve_splits_rejects_a_mapping_that_is_neither():
+    with pytest.raises(TypeError, match="ratios or filepath lists"):
+        _resolve_splits({"train": 0.5, "val": ["a.jpg"]})  # type: ignore
 
 
 def test_small_dataset_keeps_every_split(
