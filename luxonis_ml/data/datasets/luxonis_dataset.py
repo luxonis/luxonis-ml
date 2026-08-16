@@ -984,7 +984,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 task_keypoint_metadata = self._merge_into_stored(
                     task_keypoint_metadata, stored, task, n_keypoints
                 )
-            elif stored is not None:
+            elif stored is not None and not self._placeholder_is_outgrown(
+                stored, n_keypoints
+            ):
                 continue
             else:
                 task_keypoint_metadata = self._placeholder_keypoint_metadata(
@@ -1042,6 +1044,20 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             labels=[str(i) for i in range(n_keypoints)],
             edges=[(i, i + 1) for i in range(n_keypoints - 1)],
         )
+
+    @classmethod
+    def _placeholder_is_outgrown(
+        cls, stored: KeypointMetadata, n_keypoints: int
+    ) -> bool:
+        """Whether `add` may rewrite an entry it generated itself.
+
+        A placeholder records only how many keypoints there are, so a
+        later `add` with more of them replaces it. A definition survives,
+        and so does a wider placeholder: the stored count sizes the empty
+        keypoint arrays, so it has to cover the widest row on disk.
+        """
+        placeholder = cls._placeholder_keypoint_metadata(len(stored.labels))
+        return stored == placeholder and n_keypoints > len(stored.labels)
 
     @override
     def get_tasks(self) -> dict[str, list[str]]:
