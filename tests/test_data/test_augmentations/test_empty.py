@@ -65,11 +65,21 @@ def test_empty(dataset_name: str, tempdir: Path, n_samples: int):
         if "/classification" not in labels:
             continue
 
-        n_classes = dataset.get_n_classes()[""]
+        classes = dataset.get_classes()[""]
+        n_classes = len(classes)
         if labels["/classification"].sum() == 0:
             assert labels["/classification"].shape == (n_classes,)
             assert labels["/boundingbox"].shape == (0, 5)
             assert labels["/keypoints"].shape == (0, 2 * 3)
             assert labels["/segmentation"].shape == (n_classes, 256, 256)
-            assert labels["/segmentation"].sum() == 0
             assert labels["/instance_segmentation"].shape == (0, 256, 256)
+
+            # A sample with nothing in it claims no object. Whether the
+            # pixels are background instead is asserted without the mosaic,
+            # which pads the parts no source image reaches.
+            foreground = [
+                class_id
+                for class_name, class_id in classes.items()
+                if class_name != "background"
+            ]
+            assert labels["/segmentation"][foreground].sum() == 0

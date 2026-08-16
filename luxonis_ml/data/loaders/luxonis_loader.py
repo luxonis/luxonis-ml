@@ -404,12 +404,8 @@ class LuxonisLoader(BaseLoader):
                     elif task_type == "instance_segmentation":
                         labels[task] = np.zeros((0, image_height, image_width))
                     elif task_type == "segmentation":
-                        labels[task] = np.zeros(
-                            (
-                                len(self._classes[task_name]),
-                                image_height,
-                                image_width,
-                            )
+                        labels[task] = self._empty_segmentation(
+                            task, task_name, image_height, image_width
                         )
                     elif task_type == "classification" or task_is_metadata(
                         task
@@ -419,6 +415,31 @@ class LuxonisLoader(BaseLoader):
                         )
 
         return img_dict, labels
+
+    def _empty_segmentation(
+        self, task: str, task_name: str, height: int, width: int
+    ) -> np.ndarray:
+        """Return the mask of a sample that has no segmentation.
+
+        A sample that carries a mask has every pixel assigned: the mask takes
+        its own, and `background` takes the rest. A sample with no mask says
+        the same thing about all of its pixels, so it is filled the same way.
+
+        Args:
+            task: Full task key, used to look up the background fill.
+            task_name: Task the mask belongs to.
+            height: Image height.
+            width: Image width.
+
+        Returns:
+            Empty class masks, with the background class set when the task
+            has one.
+
+        """
+        mask = np.zeros((len(self._classes[task_name]), height, width))
+        if task in self._tasks_without_background:
+            mask[self._classes[task_name]["background"]] = 1
+        return mask
 
     def _load_data(
         self, idx: int
