@@ -564,6 +564,11 @@ class KeypointMetadata(BaseModelExtraForbid):
                 "Declare them on a single record, or use "
                 f"`LuxonisDataset.set_keypoint_metadata`.{hint}"
             )
+        # `edges`, `flip_pairs` and `sigmas` index into the labels of the
+        # record that declared them. The merged labels keep the order of
+        # the first record, so move the indices of the other record.
+        if self.labels and other.labels and self.labels != other.labels:
+            other = other._reindexed_to(self.labels)
         return KeypointMetadata(
             **{
                 field: getattr(self, field) or getattr(other, field)
@@ -683,6 +688,21 @@ class KeypointMetadata(BaseModelExtraForbid):
                 continue
             flip_pairs.append((min(left[0], right[0]), max(left[0], right[0])))
         return sorted(flip_pairs)
+
+    def _reindexed_to(self, labels: Sequence[str]) -> "KeypointMetadata":
+        """Return the keypoint metadata in a new keypoint order.
+
+        The new labels must be the same names as `labels`. The edges, the
+        flip pairs and the sigmas move to the new indices.
+        """
+        order = [self.labels.index(label) for label in labels]
+        moved = {old: new for new, old in enumerate(order)}
+        return KeypointMetadata(
+            labels=list(labels),
+            edges=[(moved[a], moved[b]) for a, b in self.edges],
+            flip_pairs=[(moved[a], moved[b]) for a, b in self.flip_pairs],
+            sigmas=[self.sigmas[old] for old in order] if self.sigmas else [],
+        )
 
     @model_validator(mode="before")
     @classmethod
