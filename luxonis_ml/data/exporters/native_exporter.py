@@ -134,16 +134,15 @@ class NativeExporter(BaseExporter):
 
             # The downgrade runs last: the skeleton attached here is
             # itself a field an older LDF version does not know.
-            annotation_splits[split].extend(
-                map(self._downgrade, self._with_skeletons(records, split))
-            )
+            self._attach_skeletons(records, split)
+            annotation_splits[split].extend(map(self._downgrade, records))
 
         self._dump_annotations(annotation_splits, self.output_path, self.part)
         self._downgrade.log_summary()
 
-    def _with_skeletons(
+    def _attach_skeletons(
         self, records: list[dict[str, Any]], split: str
-    ) -> list[dict[str, Any]]:
+    ) -> None:
         """Attach the task skeleton to the first keypoint record of a task.
 
         A skeleton describes the task rather than the instance, so it is
@@ -151,8 +150,6 @@ class NativeExporter(BaseExporter):
         `NativeParser` passes it back through `LuxonisDataset.add`, which
         hoists it into the metadata of the imported dataset.
         """
-        if not self.skeletons:
-            return records
         for record in records:
             keypoints = record.get("annotation", {}).get("keypoints")
             if keypoints is None:
@@ -166,7 +163,6 @@ class NativeExporter(BaseExporter):
                 continue
             self._exported_skeletons.add(key)
             keypoints["skeleton"] = skeleton.model_dump()
-        return records
 
     def _maybe_roll_partition(
         self,

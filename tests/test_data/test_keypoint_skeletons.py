@@ -25,7 +25,6 @@ def keypoint_generator(
     keypoints: Any,
     skeleton: dict[str, Any] | None = None,
     n: int = 4,
-    task_name: str = "pose",
 ) -> DatasetIterator:
     for i in range(n):
         annotation: dict[str, Any] = {"keypoints": keypoints}
@@ -33,7 +32,7 @@ def keypoint_generator(
             annotation["skeleton"] = skeleton
         yield {
             "file": str(create_image(i, tempdir)),
-            "task_name": task_name,
+            "task_name": "pose",
             "annotation": {"class": "person", "keypoints": annotation},
         }
 

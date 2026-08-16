@@ -6,7 +6,7 @@ from typing_extensions import TypedDict
 
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 
-from .metadata import Metadata, Skeletons
+from .metadata import Metadata
 
 LDF_1_0_0_TASKS: Final[set[str]] = {
     "classification",
@@ -27,8 +27,24 @@ LDF_1_0_0_TASK_TYPES: Final[dict[str, str]] = {
 }
 
 
+class LDF_1_0_0_Skeleton(TypedDict):
+    """Keypoint skeleton as LDF ``1.0.0`` stored it.
+
+    The layout is frozen: these are the raw values read off disk, which
+    `Metadata` validates into a `luxonis_ml.ldf.Skeleton`.
+
+    Attributes:
+        labels: Keypoint names in index order.
+        edges: Keypoint graph edges as :math:`0`-based index pairs.
+
+    """
+
+    labels: list[str]
+    edges: list[tuple[int, int]]
+
+
 class LDF_1_0_0_MetadataDict(TypedDict):
-    """Metadata dictionary used by LDF :math:`1.0.0`.
+    """Metadata dictionary used by LDF ``1.0.0``.
 
     Attributes:
         source: Source metadata dictionary.
@@ -45,7 +61,7 @@ class LDF_1_0_0_MetadataDict(TypedDict):
     ldf_version: str
     classes: dict[str, list[str]]
     tasks: dict[str, list[str]]
-    skeletons: dict[str, Skeletons]
+    skeletons: dict[str, LDF_1_0_0_Skeleton]
     categorical_encodings: dict[str, dict[str, int]]
     metadata_types: dict[str, Literal["float", "int", "str", "Category"]]
 
@@ -112,7 +128,7 @@ def migrate_dataframe(
 def migrate_metadata(
     metadata: LDF_1_0_0_MetadataDict, df: pl.LazyFrame | None
 ) -> Metadata:  # pragma: no cover
-    """Migrate LDF :math:`1.0.0` metadata to the current schema.
+    """Migrate LDF ``1.0.0`` metadata to the current schema.
 
     Args:
         metadata: Metadata dictionary in the LDF :math:`1.0.0` layout.

@@ -1004,10 +1004,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             elif stored is not None:
                 continue
             else:
-                skeleton = Skeleton(
-                    labels=[str(i) for i in range(n_keypoints)],
-                    edges=[(i, i + 1) for i in range(n_keypoints - 1)],
-                )
+                skeleton = self._placeholder_skeleton(n_keypoints)
             self._metadata.skeletons[task] = self._fill_in_flip_pairs(
                 skeleton, infer=True
             )
@@ -1030,16 +1027,15 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         if stored is None:
             return declared
 
+        # A stored value that `add` generated itself is not worth a warning:
+        # the annotations now describe a real one.
+        placeholder = cls._placeholder_skeleton(n_keypoints)
         merged = declared.model_copy(deep=True)
-        for field in ("labels", "edges", "flip_pairs", "sigmas"):
+        for field in Skeleton.model_fields:
             new, old = getattr(merged, field), getattr(stored, field)
             if not new:
                 setattr(merged, field, old)
-            elif (
-                old
-                and old != new
-                and not cls._is_placeholder(field, old, n_keypoints)
-            ):
+            elif old and old != new and old != getattr(placeholder, field):
                 logger.warning(
                     f"The annotations of task '{task}' describe a different "
                     f"`{field}` than the one already stored. Using the "
@@ -1048,13 +1044,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         return merged
 
     @staticmethod
-    def _is_placeholder(field: str, value: Any, n_keypoints: int) -> bool:
-        """Whether a stored value is one that `add` generated itself."""
-        if field == "labels":
-            return value == [str(i) for i in range(n_keypoints)]
-        if field == "edges":
-            return value == [(i, i + 1) for i in range(n_keypoints - 1)]
-        return False
+    def _placeholder_skeleton(n_keypoints: int) -> Skeleton:
+        """Build the skeleton `add` writes for keypoints that name none."""
+        return Skeleton(
+            labels=[str(i) for i in range(n_keypoints)],
+            edges=[(i, i + 1) for i in range(n_keypoints - 1)],
+        )
 
     @override
     def get_tasks(self) -> dict[str, list[str]]:
@@ -1928,21 +1923,16 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 f"not '{dataset_type}'."
             )
         target_version = resolve_export_version(ldf_version)
+        skeletons = self.metadata.skeletons
 
         EXPORTER_MAP: dict[DatasetType, ExporterSpec] = {
             DatasetType.NATIVE: ExporterSpec(
                 NativeExporter,
-                {
-                    "skeletons": getattr(self.metadata, "skeletons", None),
-                    "ldf_version": target_version,
-                },
+                {"skeletons": skeletons, "ldf_version": target_version},
             ),
             DatasetType.COCO: ExporterSpec(
                 CocoExporter,
-                {
-                    "format": COCOFormat.ROBOFLOW,
-                    "skeletons": getattr(self.metadata, "skeletons", None),
-                },
+                {"format": COCOFormat.ROBOFLOW, "skeletons": skeletons},
             ),
             DatasetType.YOLOV8BOUNDINGBOX: ExporterSpec(YoloV8Exporter, {}),
             DatasetType.YOLOV8INSTANCESEGMENTATION: ExporterSpec(

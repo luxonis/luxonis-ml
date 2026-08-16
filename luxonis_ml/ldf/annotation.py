@@ -463,8 +463,6 @@ class Keypoint(NamedTuple):
 #: A keypoint that is present in a skeleton but absent from an annotation.
 _UNLABELED_KEYPOINT: Final[Keypoint] = Keypoint(0.0, 0.0, 0)
 
-_SKELETON_FIELDS: Final = ("labels", "edges", "flip_pairs", "sigmas")
-
 #: Side markers recognized when inferring flip pairs from keypoint names.
 _SIDE_MARKERS: Final = {
     "left": "left",
@@ -472,42 +470,6 @@ _SIDE_MARKERS: Final = {
     "right": "right",
     "r": "right",
 }
-
-
-def _where(context: str) -> str:
-    return f" for {context}" if context else ""
-
-
-def _is_positional(labels: Iterable[str]) -> bool:
-    """Whether keypoint names are the ``"0"``, ``"1"``, ... fallback.
-
-    Keypoints built from a plain list of triplets are keyed by position.
-    Those names carry no more information than the number of keypoints, so
-    they must never be mistaken for labels the user actually chose.
-    """
-    labels = list(labels)
-    return labels == [str(i) for i in range(len(labels))]
-
-
-def _split_side(label: str) -> tuple[str, str] | None:
-    """Split a keypoint name into its side marker and the remainder.
-
-    Only separator-delimited markers count, so ``bright_spot`` is not
-    mistaken for a right-side keypoint.
-
-    Returns:
-        The side and the remaining name, or ``None`` if the name carries no
-        side marker.
-
-    """
-    parts = re.split(r"[_\-\s]+", label.strip().lower())
-    if len(parts) < 2:
-        return None
-    if (side := _SIDE_MARKERS.get(parts[0])) is not None:
-        return side, "_".join(parts[1:])
-    if (side := _SIDE_MARKERS.get(parts[-1])) is not None:
-        return side, "_".join(parts[:-1])
-    return None
 
 
 class Skeleton(BaseModelExtraForbid):
@@ -582,19 +544,13 @@ class Skeleton(BaseModelExtraForbid):
             )
 
         indices = {label: i for i, label in enumerate(labels)}
-        return {
-            **values,
-            **{
-                field: [
-                    [
-                        cls._resolve_endpoint(endpoint, indices)
-                        for endpoint in pair
-                    ]
-                    for pair in pairs
-                ]
-                for field, pairs in pairs_by_field.items()
-            },
-        }
+        resolved = dict(values)
+        for field, pairs in pairs_by_field.items():
+            resolved[field] = [
+                [cls._resolve_endpoint(endpoint, indices) for endpoint in pair]
+                for pair in pairs
+            ]
+        return resolved
 
     @staticmethod
     def _resolve_endpoint(endpoint: Any, indices: Mapping[str, int]) -> Any:
@@ -649,7 +605,7 @@ class Skeleton(BaseModelExtraForbid):
 
         """
         conflicts = []
-        for field in _SKELETON_FIELDS:
+        for field in Skeleton.model_fields:
             mine, theirs = getattr(self, field), getattr(other, field)
             if not mine or not theirs or mine == theirs:
                 continue
@@ -682,7 +638,7 @@ class Skeleton(BaseModelExtraForbid):
         return Skeleton(
             **{
                 field: getattr(self, field) or getattr(other, field)
-                for field in _SKELETON_FIELDS
+                for field in Skeleton.model_fields
             }
         )
 
@@ -725,11 +681,7 @@ class Skeleton(BaseModelExtraForbid):
                             "keypoints are annotated."
                         )
 
-    def align(
-        self,
-        keypoints: Mapping[str, Keypoint],
-        context: str = "",
-    ) -> dict[str, Keypoint]:
+    def align(self, keypoints: Mapping[str, Keypoint]) -> dict[str, Keypoint]:
         r"""Order keypoints to match the skeleton, padding missing ones.
 
         Keypoints the skeleton defines but the annotation omits are filled
@@ -739,8 +691,6 @@ class Skeleton(BaseModelExtraForbid):
 
         Args:
             keypoints: Keypoints keyed by name.
-            context: Description of what is being aligned, used in the error
-                message.
 
         Returns:
             The keypoints in `labels` order.
@@ -760,8 +710,7 @@ class Skeleton(BaseModelExtraForbid):
         if unknown:
             raise ValueError(
                 f"Keypoints {', '.join(unknown)} are not part of the "
-                f"skeleton{_where(context)}. "
-                f"Known keypoints: {', '.join(self.labels)}."
+                f"skeleton. Known keypoints: {', '.join(self.labels)}."
             )
         return {
             label: keypoints.get(label, _UNLABELED_KEYPOINT)
@@ -2173,6 +2122,42 @@ def load_annotation(
     return classes[task_type].model_validate(
         data, context={"keypoint_labels": keypoint_labels}
     )
+
+
+def _where(context: str) -> str:
+    return f" for {context}" if context else ""
+
+
+def _is_positional(labels: Iterable[str]) -> bool:
+    """Whether keypoint names are the ``"0"``, ``"1"``, ... fallback.
+
+    Keypoints built from a plain list of triplets are keyed by position.
+    Those names carry no more information than the number of keypoints, so
+    they must never be mistaken for labels the user actually chose.
+    """
+    labels = list(labels)
+    return labels == [str(i) for i in range(len(labels))]
+
+
+def _split_side(label: str) -> tuple[str, str] | None:
+    """Split a keypoint name into its side marker and the remainder.
+
+    Only separator-delimited markers count, so ``bright_spot`` is not
+    mistaken for a right-side keypoint.
+
+    Returns:
+        The side and the remaining name, or ``None`` if the name carries no
+        side marker.
+
+    """
+    parts = re.split(r"[_\-\s]+", label.strip().lower())
+    if len(parts) < 2:
+        return None
+    if (side := _SIDE_MARKERS.get(parts[0])) is not None:
+        return side, "_".join(parts[1:])
+    if (side := _SIDE_MARKERS.get(parts[-1])) is not None:
+        return side, "_".join(parts[:-1])
+    return None
 
 
 # Also keeps the API docs rooted here: pydoctor moves a re-exported name to
