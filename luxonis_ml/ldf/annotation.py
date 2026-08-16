@@ -14,17 +14,16 @@ normalized before they are written to LDF parquet shards.
 Record Model
 ============
 
-Dataset ingestion starts with `DatasetRecord`. A record points to media,
-optionally assigns a task name, and optionally carries an annotation payload
-validated by `Detection`.
+Dataset ingestion starts with `DatasetRecord`. A record points to media and
+groups its annotation payloads, each validated by `Detection`, under the task
+name they belong to.
 
-Single-source records use ``"file"``:
+A single source is named by ``"media"``:
 
 .. code-block:: json
 
     {
-      "file": "path/to/image.jpg",
-      "task_name": "detection",
+      "media": "path/to/image.jpg",
 
       "sample_metadata": {
         "record_id": 123,
@@ -33,26 +32,29 @@ Single-source records use ``"file"``:
       },
 
       "annotation": {
-        "class": "car",
-        "boundingbox": {
-          "x": 0.1,
-          "y": 0.2,
-          "w": 0.3,
-          "h": 0.4
-        }
+        "detection": [
+          {
+            "class": "car",
+            "boundingbox": {
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            }
+          }
+        ]
       }
     }
 
-Multi-source records use ``"files"``:
+Several synchronized sources are named by the same key:
 
 .. code-block:: json
 
     {
-      "files": {
+      "media": {
         "rgb": "path/to/rgb.png",
         "depth": "path/to/depth.png"
       },
-      "task_name": "detection",
 
       "sample_metadata": {
         "sequence": "loading_dock_07",
@@ -60,13 +62,17 @@ Multi-source records use ``"files"``:
       },
 
       "annotation": {
-        "class": "person",
-        "boundingbox": {
-          "x": 0.1,
-          "y": 0.1,
-          "w": 0.3,
-          "h": 0.4
-        }
+        "detection": [
+          {
+            "class": "person",
+            "boundingbox": {
+              "x": 0.1,
+              "y": 0.1,
+              "w": 0.3,
+              "h": 0.4
+            }
+          }
+        ]
       }
     }
 
@@ -82,10 +88,25 @@ consumed by training code as annotation labels.
 **Frontend note:** ``sample_metadata`` is sample data, not an annotation
 target.
 
-Task names group annotations that should be consumed together. If no
-``task_name`` is provided, the empty string ``""`` is used. Loader label keys
-therefore follow ``"task_name/task_type"`` and default-task keys start with
-``"/"``.
+Task names group annotations that should be consumed together. The empty
+string ``""`` names the default task, so loader label keys follow
+``"task_name/task_type"`` and default-task keys start with ``"/"``.
+
+An empty ``annotation`` mapping marks a true negative. Such a sample counts as
+a negative for every task of the dataset. A task mapped to an empty list is a
+true negative that also declares the task, which is how a dataset can hold a
+task that has no positive sample yet.
+
+The flat form, a single detection or a list of them beside a ``task_name``, is
+deprecated but still accepted:
+
+.. code-block:: json
+
+    {
+      "file": "path/to/image.jpg",
+      "task_name": "detection",
+      "annotation": {"class": "car"}
+    }
 
 
 Coordinates and Instances
@@ -2066,8 +2087,10 @@ class DatasetRecord(BaseModelExtraForbid):
 
     Attributes:
         files: File paths keyed by source name.
-        annotation: Optional detection associated with the dataset record.
-        task_name: The name of the task to which the record belongs.
+        annotation: Detections grouped by task name. An empty mapping marks a
+            true negative, which counts as a negative for every task of the
+            dataset. A task with an empty list is a true negative that also
+            declares the task itself.
         sample_metadata: JSON-like metadata for the whole sample. Values
             should be JSON-serializable. Missing metadata defaults to an empty
             dictionary.
@@ -2077,7 +2100,6 @@ class DatasetRecord(BaseModelExtraForbid):
 
             {
               "file": "images/frame_001.jpg",
-              "task_name": "detection",
 
               "sample_metadata": {
                 "record_id": 123,
@@ -2086,21 +2108,24 @@ class DatasetRecord(BaseModelExtraForbid):
               },
 
               "annotation": {
-                "class": "person",
-                "boundingbox": {
-                  "x": 0.1,
-                  "y": 0.2,
-                  "w": 0.3,
-                  "h": 0.4
-                }
+                "detection": [
+                  {
+                    "class": "person",
+                    "boundingbox": {
+                      "x": 0.1,
+                      "y": 0.2,
+                      "w": 0.3,
+                      "h": 0.4
+                    }
+                  }
+                ]
               }
             }
 
     """
 
     files: dict[str, PathOrArray]
-    annotation: Detection | None = None
-    task_name: str = ""
+    annotation: dict[str, list[Detection]] = Field(default_factory=dict)
     sample_metadata: Params = Field(default_factory=dict)
 
     @property
@@ -2154,30 +2179,89 @@ class DatasetRecord(BaseModelExtraForbid):
         """
         return list(self.files.values())
 
+    @property
+    @deprecated("Use the keys of `record.annotation` instead.")
+    def task_name(self) -> str:
+        """The task name of a record that carries exactly one task.
+
+        .. deprecated:: 0.10.0
+            Group the detections by task name in ``annotation`` instead.
+
+        Raises:
+            ValueError: If the record carries more than one task.
+
+        """
+        if not self.annotation:
+            return ""
+        if len(self.annotation) > 1:
+            raise ValueError(
+                "A record with several tasks has no single task name. "
+                "Read the keys of `record.annotation` instead."
+            )
+        return next(iter(self.annotation))
+
     @model_validator(mode="after")
-    def validate_task_name_valid_identifier(self) -> Self:
-        Detection._check_valid_identifier(self.task_name, label="Task name")
+    def validate_task_names(self) -> Self:
+        for task_name in self.annotation:
+            if not task_name:
+                continue
+            for part in task_name.split("/"):
+                if not part:
+                    raise ValueError(
+                        f"Task name '{task_name}' has an empty part."
+                    )
+                Detection._check_valid_identifier(part, label="Task name")
         return self
 
     @model_validator(mode="before")
     @classmethod
-    def validate_task_name(cls, values: Any) -> Any:
-        if not isinstance(values, Mapping) or "task" not in values:
+    def normalize_annotation(cls, values: Any) -> Any:
+        """Group the record's detections by task name.
+
+        The deprecated flat forms are accepted and normalized: a single
+        detection, a list of detections, and a ``task_name`` or ``task``
+        beside them.
+        """
+        if not isinstance(values, Mapping):
             return values
 
         values = dict(values)
-        task = values.pop("task")
-        if values.get("task_name", task) != task:
+        task = values.pop("task", None)
+        task_name = values.pop("task_name", None)
+        if task is not None and task_name is not None and task != task_name:
             raise ValueError(
                 "Conflicting values for 'task' and 'task_name'. "
-                "Use only 'task_name'."
+                "Group the detections by task name in 'annotation' instead."
             )
+        if task is not None or task_name is not None:
+            log_once(
+                logger.warning,
+                "The 'task' and 'task_name' fields are deprecated. Group "
+                "the detections by task name in 'annotation' instead.",
+            )
+        if task_name is None:
+            task_name = task
 
-        log_once(
-            logger.warning,
-            "The 'task' field is deprecated. Use 'task_name' instead.",
+        annotation = values.get("annotation")
+        if annotation is None or cls._is_task_mapping(annotation):
+            grouped = dict(annotation or {})
+            if task_name is not None and set(grouped) - {task_name}:
+                raise ValueError(
+                    f"The task name '{task_name}' does not match the tasks "
+                    f"of the annotation mapping: {sorted(grouped)}."
+                )
+            # A task name on its own declares a task that has no positives.
+            if not grouped and task_name is not None:
+                grouped = {task_name: []}
+            values["annotation"] = grouped
+            return values
+
+        detections = (
+            list(annotation)
+            if isinstance(annotation, (list, tuple))
+            else [annotation]
         )
-        values["task_name"] = task
+        values["annotation"] = {task_name or "": detections}
         return values
 
     @model_validator(mode="before")
@@ -2228,6 +2312,9 @@ class DatasetRecord(BaseModelExtraForbid):
         """Recursively convert the dataset record and all its
         annotations and sub-annotations to parquet rows.
 
+        Every detection is flattened into the rows of the main source. Each
+        secondary source gets a single row with no annotation.
+
         Args:
             keypoint_metadata: Keypoint metadata of the written tasks,
                 keyed by task name. A keypoint payload is positional. The
@@ -2238,78 +2325,36 @@ class DatasetRecord(BaseModelExtraForbid):
             Annotation data rows.
 
         """
-        yield from self._to_parquet_rows(
-            self.annotation,
-            self.task_name,
-            json.dumps(self.sample_metadata),
-            keypoint_metadata or {},
+        keypoint_metadata = keypoint_metadata or {}
+        sample_metadata = json.dumps(self.sample_metadata)
+        annotations_by_task = self.annotation or {"": []}
+        # A record of one task keeps naming it on the rows of its secondary
+        # sources. Several tasks have no single name to put there.
+        secondary_task = (
+            next(iter(annotations_by_task))
+            if len(annotations_by_task) == 1
+            else ""
         )
 
-    def _to_parquet_rows(
-        self,
-        annotation: Detection | None,
-        task_name: str,
-        sample_metadata: str,
-        keypoint_metadata: Mapping[str, KeypointMetadata],
-    ) -> Iterable[ParquetRecord]:
-        file_items = sorted(self.files.items(), key=lambda x: str(x[1]))
+        file_items = sorted(self.file_paths.items(), key=lambda x: str(x[1]))
         for i, (source, file_path) in enumerate(file_items):
-            is_main = i == 0
+            if i > 0:
+                yield self._empty_row(
+                    source, file_path, secondary_task, sample_metadata
+                )
+                continue
 
-            if annotation is None or not is_main:
-                yield {
-                    "file": str(file_path),
-                    "source_name": source,
-                    "task_name": task_name,
-                    "class_name": None,
-                    "instance_id": None,
-                    "task_type": None,
-                    "annotation": None,
-                    "sample_metadata": sample_metadata,
-                }
-            else:
-                for task_type in _LABEL_TASK_TYPES:
-                    label: Annotation | None = getattr(annotation, task_type)
-
-                    if label is not None:
-                        yield {
-                            "file": str(file_path),
-                            "source_name": source,
-                            "task_name": task_name,
-                            "class_name": annotation.class_name,
-                            "instance_id": annotation.instance_id,
-                            "task_type": task_type,
-                            "annotation": label.to_parquet_json(
-                                keypoint_metadata.get(task_name)
-                            ),
-                            "sample_metadata": sample_metadata,
-                        }
-                for key, data in annotation.metadata.items():
-                    yield {
-                        "file": str(file_path),
-                        "source_name": source,
-                        "task_name": task_name,
-                        "class_name": annotation.class_name,
-                        "instance_id": annotation.instance_id,
-                        "task_type": f"metadata/{key}",
-                        "annotation": json.dumps(data),
-                        "sample_metadata": sample_metadata,
-                    }
-                if annotation.class_name is not None:
-                    yield {
-                        "file": str(file_path),
-                        "source_name": source,
-                        "task_name": task_name,
-                        "class_name": annotation.class_name,
-                        "instance_id": annotation.instance_id,
-                        "task_type": "classification",
-                        "annotation": "{}",
-                        "sample_metadata": sample_metadata,
-                    }
-                for name, detection in annotation.sub_detections.items():
-                    yield from self._to_parquet_rows(
-                        detection,
-                        f"{task_name}/{name}",
+            for task_name, annotations in annotations_by_task.items():
+                if not annotations:
+                    yield self._empty_row(
+                        source, file_path, task_name, sample_metadata
+                    )
+                for annotation in annotations:
+                    yield from self._detection_rows(
+                        annotation,
+                        task_name,
+                        source,
+                        file_path,
                         sample_metadata,
                         keypoint_metadata,
                     )
@@ -2332,6 +2377,75 @@ class DatasetRecord(BaseModelExtraForbid):
         if isinstance(value, str):
             value = json.loads(value)
         return value if isinstance(value, dict) else {}
+
+    def _detection_rows(
+        self,
+        annotation: Detection,
+        task_name: str,
+        source: str,
+        file_path: FilePath,
+        sample_metadata: str,
+        keypoint_metadata: Mapping[str, KeypointMetadata],
+    ) -> Iterable[ParquetRecord]:
+        def row(task_type: str, payload: str) -> ParquetRecord:
+            return {
+                "file": str(file_path),
+                "source_name": source,
+                "task_name": task_name,
+                "class_name": annotation.class_name,
+                "instance_id": annotation.instance_id,
+                "task_type": task_type,
+                "annotation": payload,
+                "sample_metadata": sample_metadata,
+            }
+
+        for task_type in _LABEL_TASK_TYPES:
+            label: Annotation | None = getattr(annotation, task_type)
+            if label is not None:
+                yield row(
+                    task_type,
+                    label.to_parquet_json(keypoint_metadata.get(task_name)),
+                )
+        for key, data in annotation.metadata.items():
+            yield row(f"metadata/{key}", json.dumps(data))
+        if annotation.class_name is not None:
+            yield row("classification", "{}")
+        for name, detection in annotation.sub_detections.items():
+            yield from self._detection_rows(
+                detection,
+                f"{task_name}/{name}",
+                source,
+                file_path,
+                sample_metadata,
+                keypoint_metadata,
+            )
+
+    @staticmethod
+    def _empty_row(
+        source: str,
+        file_path: FilePath,
+        task_name: str,
+        sample_metadata: str,
+    ) -> ParquetRecord:
+        """Return the row of a source that carries no annotation."""
+        return {
+            "file": str(file_path),
+            "source_name": source,
+            "task_name": task_name,
+            "class_name": None,
+            "instance_id": None,
+            "task_type": None,
+            "annotation": None,
+            "sample_metadata": sample_metadata,
+        }
+
+    @staticmethod
+    def _is_task_mapping(annotation: Any) -> bool:
+        """Whether an annotation payload groups detections by task name."""
+        return isinstance(annotation, Mapping) and all(
+            isinstance(detections, (list, tuple))
+            for detections in annotation.values()
+        )
 
 
 def load_annotation(

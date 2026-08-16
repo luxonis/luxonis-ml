@@ -140,8 +140,8 @@ def test_dataset_record(tempdir: Path):
         ],
     )
 
-    record = DatasetRecord(
-        files={
+    record = DatasetRecord(  # type: ignore[call-arg]
+        media={  # type: ignore[call-arg]
             "left": left,
             "right": right,
         }
@@ -632,9 +632,9 @@ def test_record(tempdir: Path):
     filename = str((tempdir / "image.jpg").resolve())
     cv2.imwrite(filename, np.zeros((256, 256, 3), dtype=np.uint8))
     record = DatasetRecord(
-        file=filename,  # type: ignore
+        media=filename,  # type: ignore
         annotation=detection,
-        task_name="test",
+        task_name="test",  # type: ignore[call-arg]
     )
     common = {
         "file": filename,

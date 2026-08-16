@@ -8,15 +8,21 @@ version therefore drops every field introduced above it.
 Annotations forbid extra fields as well, so the same holds one level
 down: LDF 2.2 added ``edges``, ``flip_pairs`` and ``sigmas`` to a keypoint
 annotation.
+
+LDF 3.0 changed the shape rather than the fields: it groups the detections
+of a record by task name. An older version reads the flat
+``file``/``task_name``/``annotation`` record, so the downgrade rebuilds it.
 """
 
 from collections import Counter
-from typing import Any, Final
+from collections.abc import Mapping
+from typing import Any, Final, TypeGuard
 
 from loguru import logger
 from semver.version import Version
 
 from luxonis_ml.data.utils.constants import LDF_VERSION
+from luxonis_ml.typing import Params, ParamValue
 
 
 def _parse(version: str) -> Version:
@@ -40,6 +46,10 @@ _ADDED_ANNOTATION_FIELDS: Final[dict[tuple[str, str], Version]] = {
 #: The version that started to key the keypoints by name. An older one
 #: reads them as a plain list.
 _KEYPOINT_NAMES_ADDED_IN: Final[Version] = _parse("2.2")
+
+#: The version that grouped a record's detections by task name. Anything
+#: older reads the flat ``file``/``task_name``/``annotation`` shape.
+_TASK_KEYED_RECORDS: Final[Version] = _parse("3.0")
 
 #: LDF versions the native exporter can write, newest first.
 SUPPORTED_EXPORT_VERSIONS: Final[tuple[Version, ...]] = (
@@ -114,12 +124,15 @@ class LDFDowngrader:
             if added_in > target_version
         ]
         self._keeps_keypoint_names = target_version >= _KEYPOINT_NAMES_ADDED_IN
+        self._flatten_record = target_version < _TASK_KEYED_RECORDS
         self._dropped: Counter[str] = Counter()
         self._n_records = 0
 
     def __call__(self, record: dict[str, Any]) -> dict[str, Any]:
         """Rewrite one exported record in place and return it."""
         self._n_records += 1
+        if self._flatten_record:
+            record = self._flatten(record)
         for field in self._to_drop:
             # An empty value is no loss, so drop it but do not report it.
             if record.pop(field, None):
@@ -133,6 +146,34 @@ class LDFDowngrader:
                     self._dropped[f"{task_type}.{field}"] += 1
             self._strip_keypoint_names(annotation)
         return record
+
+    @staticmethod
+    def _flatten(record: dict[str, Any]) -> dict[str, Any]:
+        """Rewrite a record into the flat shape older LDF versions read.
+
+        The exporter writes one detection per record, so the task-keyed
+        mapping always holds a single task and at most one detection.
+        """
+        flattened: dict[str, Any] = {}
+        media = record.pop("media", None)
+        if isinstance(media, dict):
+            flattened["files"] = media
+        elif media is not None:
+            flattened["file"] = media
+
+        annotation = record.pop("annotation", None)
+        if _is_task_keyed(annotation):
+            task_name, detections = next(iter(annotation.items()))
+            flattened["task_name"] = task_name
+            if detections:
+                flattened["annotation"] = detections[0]
+        elif annotation:
+            # Already flat, so it holds the one detection of the record.
+            flattened["annotation"] = annotation
+
+        # The remaining fields keep the order the record had.
+        flattened.update(record)
+        return flattened
 
     def log_summary(self) -> None:
         """Warn about populated data the downgrade discarded."""
@@ -157,3 +198,21 @@ class LDFDowngrader:
         if isinstance(values, dict):
             keypoints["keypoints"] = list(values.values())
             self._dropped["keypoints.names"] += 1
+
+
+def _is_task_keyed(
+    annotation: ParamValue,
+) -> TypeGuard[Mapping[str, list[Params]]]:
+    """Whether an annotation payload groups its detections by task name.
+
+    LDF 3.0 keys the detections of a record by task name. A record written
+    by an older version carries a single detection here, whose values are
+    annotation payloads rather than lists of them.
+    """
+    return (
+        isinstance(annotation, Mapping)
+        and bool(annotation)
+        and all(
+            isinstance(detections, list) for detections in annotation.values()
+        )
+    )

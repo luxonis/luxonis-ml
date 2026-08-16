@@ -155,40 +155,44 @@ class NativeExporter(BaseExporter):
         because the task fields do not describe it.
         """
         for record in records:
-            keypoints = record.get("annotation", {}).get("keypoints")
-            if keypoints is None:
-                continue
-            task_name = record["task_name"]
-            task_keypoints = self.keypoint_metadata.get(task_name)
-            if task_keypoints is None:
-                continue
-            values = keypoints["keypoints"]
-            if len(values) < len(task_keypoints.labels):
-                # A task can hold records with fewer keypoints. The task
-                # fields describe the full set, so such a record must not
-                # carry them. The import checks each record on its own.
-                continue
-            # Keyed on the partition as well: rolling over starts a fresh
-            # `annotations.json`, which has to carry the fields again.
-            key = (self.part, split, task_name)
-            if key in self._metadata_attached:
-                continue
-            self._metadata_attached.add(key)
-            keypoints.update(
-                {
-                    field: value
-                    for field, value in task_keypoints.model_dump(
-                        exclude={"labels"}
-                    ).items()
-                    if value
-                }
-            )
-            # The names are the keys of the payload, so this one record
-            # carries them as a mapping instead of a positional list.
-            if len(task_keypoints.labels) == len(values):
-                keypoints["keypoints"] = dict(
-                    zip(task_keypoints.labels, values, strict=True)
-                )
+            for task_name, detections in record.get("annotation", {}).items():
+                task_keypoints = self.keypoint_metadata.get(task_name)
+                if task_keypoints is None:
+                    continue
+                for detection in detections:
+                    keypoints = detection.get("keypoints")
+                    if keypoints is None:
+                        continue
+                    values = keypoints["keypoints"]
+                    if len(values) < len(task_keypoints.labels):
+                        # A task can hold records with fewer keypoints. The
+                        # task fields describe the full set, so such a record
+                        # must not carry them. The import checks each record
+                        # on its own.
+                        continue
+                    # Keyed on the partition as well: rolling over starts a
+                    # fresh `annotations.json`, which has to carry the fields
+                    # again.
+                    key = (self.part, split, task_name)
+                    if key in self._metadata_attached:
+                        continue
+                    self._metadata_attached.add(key)
+                    keypoints.update(
+                        {
+                            field: value
+                            for field, value in task_keypoints.model_dump(
+                                exclude={"labels"}
+                            ).items()
+                            if value
+                        }
+                    )
+                    # The names are the keys of the payload, so this one
+                    # record carries them as a mapping instead of a
+                    # positional list.
+                    if len(task_keypoints.labels) == len(values):
+                        keypoints["keypoints"] = dict(
+                            zip(task_keypoints.labels, values, strict=True)
+                        )
 
     def _maybe_roll_partition(
         self,
@@ -230,17 +234,17 @@ class NativeExporter(BaseExporter):
 
         multi_source = len(source_to_file) > 1
         record: dict[str, Any] = {
-            ("files" if multi_source else "file"): (
+            "media": (
                 source_to_file
                 if multi_source
                 else source_to_file[group_source_names[0]]
             ),
-            "task_name": task_name,
             "sample_metadata": DatasetRecord.decode_metadata(
                 row.get("sample_metadata")
             ),
         }
 
+        detections: list[dict[str, Any]] = []
         if ann_str is not None:
             data = json.loads(ann_str)
             ann: dict[str, Any] = {
@@ -256,7 +260,10 @@ class NativeExporter(BaseExporter):
                 ann[task_type] = data
             elif task_type.startswith("metadata/"):
                 ann["metadata"] = {task_type[9:]: data}
-            record["annotation"] = ann
+            detections.append(ann)
+        # An empty list still names the task, so a sample that is a negative
+        # for it says so.
+        record["annotation"] = {task_name: detections}
 
         return record
 

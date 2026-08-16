@@ -64,6 +64,8 @@ def test_an_in_memory_image_cannot_be_stored():
 
     with pytest.raises(NotImplementedError, match="in-memory image"):
         _ = record.file_paths
+    with pytest.raises(NotImplementedError, match="in-memory image"):
+        list(record.to_parquet_rows())
 
 
 def test_an_array_annotation_takes_a_path(array: Path):
