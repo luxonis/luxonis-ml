@@ -225,3 +225,51 @@ def test_task_ingestion(
         "detection": STEP,
         "segmentation": STEP,
     }
+
+
+def test_a_negative_keeps_the_stored_task_types(
+    dataset_name: str, tempdir: Path
+):
+    """A later `add` that carries only a negative declares its task.
+
+    The task then arrives with no task type, and the types the first `add`
+    stored have to survive it.
+    """
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    dataset.add(
+        iter(
+            [
+                {
+                    "media": str(create_image(0, tempdir)),
+                    "task_name": "vehicles",
+                    "annotation": {
+                        "class": "car",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.1,
+                            "h": 0.1,
+                        },
+                    },
+                }
+            ]
+        )
+    )
+    assert dataset.get_tasks() == {
+        "vehicles": ["boundingbox", "classification"]
+    }
+
+    dataset.add(
+        iter(
+            [
+                {
+                    "media": str(create_image(1, tempdir)),
+                    "task_name": "vehicles",
+                }
+            ]
+        )
+    )
+
+    assert dataset.get_tasks() == {
+        "vehicles": ["boundingbox", "classification"]
+    }

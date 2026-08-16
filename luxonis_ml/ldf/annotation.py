@@ -431,13 +431,14 @@ from pydantic import (
 )
 from pydantic.types import FilePath, NonNegativeInt, PositiveFloat, PositiveInt
 from pydantic_core import core_schema
-from typing_extensions import Self, deprecated, override
+from typing_extensions import Self, TypeForm, deprecated, override
 
 from luxonis_ml.ldf.parquet import ParquetRecord
 from luxonis_ml.typing import (
     BaseModelExtraForbid,
     Params,
     PathType,
+    TaskType,
     check_type,
 )
 from luxonis_ml.utils.logging import log_once
@@ -800,7 +801,9 @@ class Category(str):
 
     @classmethod
     def __get_pydantic_core_schema__(
-        cls, source_type: Any, handler: GetCoreSchemaHandler
+        cls,
+        source_type: TypeForm["Category"],
+        handler: GetCoreSchemaHandler,
     ) -> core_schema.CoreSchema:
         return core_schema.is_instance_schema(cls)
 
@@ -819,7 +822,9 @@ class _PathOrArraySchema:
 
     @classmethod
     def __get_pydantic_core_schema__(
-        cls, source_type: Any, handler: GetCoreSchemaHandler
+        cls,
+        source_type: TypeForm[FilePath | np.ndarray],
+        handler: GetCoreSchemaHandler,
     ) -> core_schema.CoreSchema:
         return core_schema.no_info_wrap_validator_function(
             cls._validate, handler.generate_schema(FilePath)
@@ -827,8 +832,9 @@ class _PathOrArraySchema:
 
     @staticmethod
     def _validate(
-        value: Any, handler: core_schema.ValidatorFunctionWrapHandler
-    ) -> Any:
+        value: PathType | np.ndarray,
+        handler: core_schema.ValidatorFunctionWrapHandler,
+    ) -> FilePath | np.ndarray:
         return value if isinstance(value, np.ndarray) else handler(value)
 
 
@@ -2354,7 +2360,9 @@ class DatasetRecord(BaseModelExtraForbid):
         )
 
     def to_parquet_rows(
-        self, keypoint_metadata: Mapping[str, KeypointMetadata] | None = None
+        self,
+        keypoint_metadata: Mapping[str, KeypointMetadata] | None = None,
+        instance_counter: dict[str, int] | None = None,
     ) -> Iterable[ParquetRecord]:
         """Recursively convert the dataset record and all its
         annotations and sub-annotations to parquet rows.
@@ -2367,6 +2375,13 @@ class DatasetRecord(BaseModelExtraForbid):
                 keyed by task name. A keypoint payload is positional. The
                 keypoint metadata thus sets the order and pads the omitted
                 keypoints.
+            instance_counter: Next instance number of each task name, shared
+                by every record of one sample. A detection that carries no
+                instance ID takes the next number and advances it, so the
+                rows of one instance can be found again when they are read
+                back. The records of one sample arrive separately, so the
+                counter cannot live on the record. Numbers are left alone
+                when this is omitted.
 
         Yields:
             Annotation data rows.
@@ -2404,6 +2419,7 @@ class DatasetRecord(BaseModelExtraForbid):
                         file_path,
                         sample_metadata,
                         keypoint_metadata,
+                        instance_counter=instance_counter,
                     )
 
     @staticmethod
@@ -2433,14 +2449,34 @@ class DatasetRecord(BaseModelExtraForbid):
         file_path: FilePath,
         sample_metadata: str,
         keypoint_metadata: Mapping[str, KeypointMetadata],
+        *,
+        instance_counter: dict[str, int] | None = None,
+        instance_id: int | None = None,
     ) -> Iterable[ParquetRecord]:
+        """Yield one row per task type of a detection.
+
+        ``instance_counter`` holds the next instance number of each task
+        name, as `to_parquet_rows` describes. ``instance_id`` overrides the
+        number the counter would give: a sub-detection takes the number of
+        its parent, which is what records that it belongs to it.
+        """
+        if instance_id is None:
+            instance_id = annotation.instance_id
+            if instance_counter is not None:
+                # An ID the record sets itself is kept, and the counter moves
+                # past it so a later detection cannot be given the same one.
+                next_id = instance_counter.get(task_name, 0)
+                if instance_id < 0:
+                    instance_id = next_id
+                instance_counter[task_name] = max(next_id, instance_id + 1)
+
         def row(task_type: str, payload: str) -> ParquetRecord:
             return {
                 "file": str(file_path),
                 "source_name": source,
                 "task_name": task_name,
                 "class_name": annotation.class_name,
-                "instance_id": annotation.instance_id,
+                "instance_id": instance_id,
                 "task_type": task_type,
                 "annotation": payload,
                 "sample_metadata": sample_metadata,
@@ -2465,6 +2501,10 @@ class DatasetRecord(BaseModelExtraForbid):
                 file_path,
                 sample_metadata,
                 keypoint_metadata,
+                instance_counter=instance_counter,
+                instance_id=(
+                    instance_id if detection.instance_id < 0 else None
+                ),
             )
 
     @staticmethod
@@ -2496,14 +2536,7 @@ class DatasetRecord(BaseModelExtraForbid):
 
 
 def load_annotation(
-    task_type: Literal[
-        "classification",
-        "boundingbox",
-        "keypoints",
-        "segmentation",
-        "instance_segmentation",
-        "array",
-    ],
+    task_type: TaskType,
     data: Mapping[str, Any],
     *,
     keypoint_labels: Sequence[str] | None = None,

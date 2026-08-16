@@ -81,12 +81,11 @@ class FiftyOneClassificationExporter(BaseExporter):
             self.split_labels[split] = {}
             self.split_image_counter[split] = 0
 
+        # Every classification row counts. The instance number cannot
+        # narrow that: every detection carries one.
         all_classes: set[str] = set()
         for row in prepared_ldf.processed_df.iter_rows(named=True):
-            if (
-                row["task_type"] == "classification"
-                and row["instance_id"] == -1
-            ):
+            if row["task_type"] == "classification":
                 cname = row["class_name"]
                 if cname:
                     all_classes.add(str(cname))
@@ -110,10 +109,7 @@ class FiftyOneClassificationExporter(BaseExporter):
 
             class_name: str | None = None
             for row in entry.iter_rows(named=True):
-                if (
-                    row["task_type"] == "classification"
-                    and row["instance_id"] == -1
-                ):
+                if row["task_type"] == "classification":
                     cname = row["class_name"]
                     if cname:
                         class_name = str(cname)

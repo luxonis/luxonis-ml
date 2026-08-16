@@ -331,11 +331,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             f"Saved DataFrame to Parquet files in '{annotations_path}'."
         )
 
-    def _merge_metadata_with(self, other: "LuxonisDataset") -> None:
-        """Merge relevant metadata from ``other`` into ``self``."""
-        self._metadata = self._metadata.merge_with(other._metadata)
-        self._write_metadata()
-
     def clone(
         self,
         new_dataset_name: str,
@@ -504,6 +499,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 k: v for k, v in splits_other.items() if k in splits_to_merge
             }
 
+        # The metadata decides whether the two datasets can merge at all, so
+        # it is merged before anything is written. Writing the rows first
+        # would leave the target holding the incoming data with its own
+        # classes and tasks never updated.
+        merged_metadata = target_dataset._metadata.merge_with(other._metadata)
+
         df_merged = pl.concat([df_self, df_other])
         target_dataset._save_df_offline(df_merged)
 
@@ -544,7 +545,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 dst_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(src_path, dst_path)
 
-        target_dataset._merge_metadata_with(other)
+        target_dataset._metadata = merged_metadata
+        target_dataset._write_metadata()
 
         return target_dataset
 
@@ -1443,6 +1445,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         )
 
         logger.info("Saving annotations...")
+        # One sample is often built from several records, each holding one
+        # detection, so the instance numbers have to run across them. The
+        # counter is keyed by sample, and every record of that sample
+        # continues it.
+        instance_counters: dict[str, dict[str, int]] = defaultdict(dict)
         with self._progress:
             for record in data_batch:
                 file_paths = record.file_paths.values()
@@ -1454,7 +1461,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                     if len(uuid_list) > 1
                     else str(uuid_list[0])
                 )
-                for row in record.to_parquet_rows(keypoint_metadata):
+                for row in record.to_parquet_rows(
+                    keypoint_metadata, instance_counters[group_id]
+                ):
                     pfm.write(uuid_dict[row["file"]], row, group_id)
                 self._progress.update(task, advance=1)
         self._progress.remove_task(task)
@@ -1663,7 +1672,17 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         self._metadata.categorical_encodings = dict(categorical_encodings)
         self._metadata.metadata_types = metadata_types
-        self.set_tasks(tasks)
+        # An `add` sees only the records it is given. A later one that
+        # carries a negative declares the task with no task type, so the
+        # stored types have to survive it.
+        stored_tasks = self.get_tasks()
+        merged_tasks = {
+            task_name: set(stored_tasks.get(task_name, [])) | set(task_types)
+            for task_name, task_types in tasks.items()
+        }
+        for task_name, task_types in stored_tasks.items():
+            merged_tasks.setdefault(task_name, set(task_types))
+        self.set_tasks(merged_tasks)
         if sources:
             components = {
                 source_name: LuxonisComponent(
