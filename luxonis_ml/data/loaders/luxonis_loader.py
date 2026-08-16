@@ -10,6 +10,7 @@ from typing import Literal, cast
 import cv2
 import numpy as np
 import polars as pl
+import pycocotools.mask
 import yaml
 from loguru import logger
 from typeguard import typechecked
@@ -27,12 +28,7 @@ from luxonis_ml.data.datasets import (
     load_annotation,
 )
 from luxonis_ml.data.loaders.base_loader import BaseLoader
-from luxonis_ml.data.utils import (
-    get_task_name,
-    get_task_type,
-    split_task,
-    task_type_iterator,
-)
+from luxonis_ml.data.utils import get_task_type, split_task
 from luxonis_ml.data.utils.task_utils import task_is_metadata
 from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.typing import (
@@ -286,37 +282,25 @@ class LuxonisLoader(BaseLoader):
 
         self._idx_to_df_row = [idx_map[uuid] for uuid in self._instances]
 
-        self._tasks_without_background = set()
-
         self._idx_to_img_paths = self._precompute_image_paths()
 
-        _, test_labels, _ = self._load_data(0)
-        for task, seg_masks in task_type_iterator(test_labels, "segmentation"):
-            task_name = get_task_name(task)
-            if seg_masks.shape[0] > 1 and (
-                "background" not in self._classes[task_name]
-                or self._classes[task_name]["background"] != 0
-            ):
-                unassigned_pixels = np.sum(seg_masks, axis=0) == 0
-
-                if np.any(unassigned_pixels):
-                    logger.warning(
-                        "Found unassigned pixels in segmentation masks. "
-                        "Assigning them to `background` class (class index 0). "
-                        "If this is not desired then make sure all pixels are "
-                        "assigned to one class or rename your background class."
-                    )
-                    self._tasks_without_background.add(task)
-                    if "background" not in self._classes[task_name]:
-                        self._classes[task_name] = {
-                            "background": 0,
-                            **{
-                                class_name: i + 1
-                                for class_name, i in self._classes[
-                                    task_name
-                                ].items()
-                            },
-                        }
+        self._tasks_without_background = set()
+        for task_name in self._uncovered_tasks():
+            classes = self._classes[task_name]
+            if len(classes) <= 1 or classes.get("background") == 0:
+                continue
+            logger.warning(
+                f"Found unassigned pixels in the segmentation masks of task "
+                f"'{task_name}'. Assigning them to `background` class (class "
+                "index 0). If this is not desired then make sure all pixels "
+                "are assigned to one class or rename your background class."
+            )
+            self._tasks_without_background.add(f"{task_name}/segmentation")
+            if "background" not in classes:
+                self._classes[task_name] = {
+                    "background": 0,
+                    **{name: i + 1 for name, i in classes.items()},
+                }
 
         self._augmentations = self._init_augmentations(
             augmentation_engine,
@@ -382,6 +366,59 @@ class LuxonisLoader(BaseLoader):
                 img_dict[source_name], cv2.COLOR_RGB2BGR
             )
         return LoaderOutput(img_dict, labels, metadata)
+
+    def _uncovered_tasks(self) -> set[str]:
+        """Return the segmentation tasks whose masks leave pixels unassigned.
+
+        Every sample of the view is read, because one sample cannot speak for
+        the rest: which sample the split happened to put first would then
+        decide how many classes the task has.
+
+        The set pixels of a mask are counted straight from its run-length
+        encoding, which is far cheaper than decoding the mask. Masks that
+        overlap are counted twice, so a task whose masks cover every pixel
+        several times over is not reported. That is the same approximation
+        the loader has always made, minus the dependency on the order.
+
+        Returns:
+            Task names that have at least one sample with a pixel no class
+            claimed. A sample with no mask at all says nothing either way.
+
+        """
+        samples = (
+            self._df.filter(
+                (pl.col("task_type") == "segmentation")
+                & pl.col("group_id").is_in(self._instances)
+            )
+            .group_by(["group_id", "task_name"])
+            .agg(pl.col("annotation"))
+        )
+
+        uncovered: set[str] = set()
+        for _, task_name, annotations in samples.iter_rows():
+            # One uncovered sample settles the task, and most datasets have
+            # one early on, so the rest of its masks are never read.
+            if task_name in uncovered:
+                continue
+            covered = 0
+            size = 0
+            for annotation in annotations:
+                mask = json.loads(annotation)
+                # LDF 1.0 stored polylines, which carry no size to compare to.
+                if "counts" not in mask:  # pragma: no cover
+                    continue
+                size = mask["height"] * mask["width"]
+                covered += int(
+                    pycocotools.mask.area(
+                        {
+                            "counts": mask["counts"].encode("utf-8"),
+                            "size": [mask["height"], mask["width"]],
+                        }
+                    )
+                )
+            if covered < size:
+                uncovered.add(task_name)
+        return uncovered
 
     def _add_empty_annotations(
         self, img_dict: dict[str, np.ndarray], labels: Labels

@@ -11,16 +11,12 @@ from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from .utils import create_dataset, create_image
 
 
-def _dataset_with_an_unannotated_sample(
-    dataset_name: str, tempdir: Path
-) -> LuxonisDataset:
-    """Build a dataset whose masks cover only half of every image.
+def _half_covered_dataset(dataset_name: str, tempdir: Path) -> LuxonisDataset:
+    """Build a dataset whose masks cover half of every annotated image.
 
     Two classes are needed, or a single-channel mask needs no background at
-    all. The first sample of the split has to be an annotated one, because
-    that is the sample the loader reads to decide.
+    all. The third sample carries no mask.
     """
-    # The mask covers the top half, so half the pixels belong to no class.
     mask = np.zeros((512, 512), dtype=np.uint8)
     mask[:256] = 1
 
@@ -35,25 +31,26 @@ def _dataset_with_an_unannotated_sample(
             }
         yield {"file": create_image(2, tempdir)}
 
-    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    return create_dataset(dataset_name, generator(), splits={"train": 1.0})
 
+
+def _reorder_split(
+    dataset: LuxonisDataset, unannotated_first: bool, tempdir: Path
+) -> None:
+    """Put the unannotated sample first or last in the train split."""
     unannotated = create_image(2, tempdir).absolute()
     df = dataset._load_df_offline()
     assert df is not None
-    unannotated_group = next(
+    group = next(
         row["group_id"]
         for row in df.iter_rows(named=True)
         if Path(row["file"]) == unannotated
     )
-    # The splits are shuffled, so the unannotated sample is moved last by
-    # hand. The loader decides from the first one.
     splits_path = dataset._metadata_path / "splits.json"
     splits = json.loads(splits_path.read_text())
-    splits["train"] = [
-        group for group in splits["train"] if group != unannotated_group
-    ] + [unannotated_group]
+    rest = [other for other in splits["train"] if other != group]
+    splits["train"] = [group, *rest] if unannotated_first else [*rest, group]
     splits_path.write_text(json.dumps(splits))
-    return dataset
 
 
 def test_a_sample_with_no_mask_is_all_background(
@@ -66,16 +63,35 @@ def test_a_sample_with_no_mask_is_all_background(
     back all-zero instead, so no pixel had a class at all and the target
     had nothing for a per-pixel loss to point at.
     """
-    dataset = _dataset_with_an_unannotated_sample(dataset_name, tempdir)
+    dataset = _half_covered_dataset(dataset_name, tempdir)
     loader = LuxonisLoader(dataset, view="train")
     classes = loader._classes[""]
     background = classes["background"]
 
     masks = [sample.labels["/segmentation"] for sample in loader]
 
-    assert "background" in classes
     for mask in masks:
         assert mask.shape == (len(classes), 512, 512)
         assert np.array_equal(mask.sum(axis=0), np.ones((512, 512)))
     # The unannotated sample is the one whose pixels are all background.
     assert [mask[background].sum() for mask in masks].count(512 * 512) == 1
+
+
+def test_the_background_class_ignores_the_split_order(
+    dataset_name: str, tempdir: Path
+):
+    """Every sample decides, not whichever one the split put first.
+
+    The loader read sample 0 alone, so a dataset whose first sample carried
+    no mask got no background class, and the same dataset returned two
+    channels or three depending on how the split was shuffled.
+    """
+    dataset = _half_covered_dataset(dataset_name, tempdir)
+
+    class_maps = []
+    for unannotated_first in (True, False):
+        _reorder_split(dataset, unannotated_first, tempdir)
+        class_maps.append(LuxonisLoader(dataset, view="train")._classes[""])
+
+    assert class_maps[0] == class_maps[1]
+    assert "background" in class_maps[0]
