@@ -678,7 +678,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             )
 
         if attempt_migration and self.version.major != LDF_VERSION.major:
-            df = migrate_dataframe(df)
+            df = migrate_dataframe(df, self.version)
 
         return df
 
@@ -846,11 +846,15 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 df = df.with_columns(pl.col("uuid").alias("group_id"))
                 self._save_df_offline(df)
 
-            version = Version.parse(metadata_json.get("ldf_version", "1.0.0"))
-            if version.major != LDF_VERSION.major:  # pragma: no cover
+            version = Version.parse(
+                metadata_json.get("ldf_version", "1.0.0"),
+                optional_minor_and_patch=True,
+            )
+            if version.major != LDF_VERSION.major:
                 return migrate_metadata(
                     metadata_json,
                     self._load_df_offline(lazy=True, attempt_migration=False),
+                    version,
                 )
             return Metadata(**metadata_json)
         return Metadata(

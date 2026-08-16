@@ -54,6 +54,7 @@ _TASK_KEYED_RECORDS: Final[Version] = _parse("3.0")
 #: LDF versions the native exporter can write, newest first.
 SUPPORTED_EXPORT_VERSIONS: Final[tuple[Version, ...]] = (
     LDF_VERSION,
+    _parse("2.2"),
     _parse("2.1"),
     _parse("2.0"),
 )

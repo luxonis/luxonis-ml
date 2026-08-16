@@ -35,6 +35,10 @@ LDF_2_0_RECORD_FIELDS = {"file", "files", "task_name", "annotation"}
 #: in 2.2.
 LDF_2_0_KEYPOINT_FIELDS = {"keypoints"}
 
+#: Record fields LDF 3.0 renamed. The manifest keeps the stored name,
+#: so an export never shows the new one.
+LDF_3_0_RENAMES = {"files": "media"}
+
 
 @pytest.fixture
 def warnings_log() -> Iterator[list[str]]:
@@ -121,13 +125,16 @@ def test_resolve_rejects_malformed_versions(version: str):
         resolve_export_version(version)
 
 
-@pytest.mark.parametrize("version", ["3.0", "2.9"])
+@pytest.mark.parametrize(
+    "version",
+    [str(LDF_VERSION.bump_major()), str(LDF_VERSION.bump_minor())],
+)
 def test_resolve_rejects_newer_than_installed(version: str):
     with pytest.raises(ValueError, match="at the newest"):
         resolve_export_version(version)
 
 
-@pytest.mark.parametrize("version", ["1.0", "2.0.1"])
+@pytest.mark.parametrize("version", ["1.0", "2.0.1", "2.9"])
 def test_resolve_rejects_unsupported_versions(version: str):
     with pytest.raises(ValueError, match="Supported versions"):
         resolve_export_version(version)
@@ -141,6 +148,7 @@ def test_every_record_field_has_a_known_ldf_version():
     """
     known = LDF_2_0_RECORD_FIELDS | set(_ADDED_FIELDS)
     assert set(DatasetRecord.model_fields) <= known
+    assert set(LDF_3_0_RENAMES) <= set(DatasetRecord.model_fields)
 
 
 def test_every_keypoint_field_has_a_known_ldf_version():
@@ -249,6 +257,45 @@ def test_export_2_1_keeps_sample_metadata_but_drops_the_task_fields(
         if "edges" in record.get("annotation", {}).get("keypoints", {})
     ]
     assert _read_stamp(root) == "2.1.0"
+
+
+def test_export_2_2_flattens_the_record_but_keeps_the_keypoint_fields(
+    dataset_name: str, tempdir: Path
+):
+    """LDF 2.2 is the last version that reads a flat record.
+
+    It already knows the keypoint task fields and the named keypoints, so
+    the downgrade only rebuilds the record shape. That splits the two
+    concerns, which no other target version does on its own.
+    """
+    dataset = create_dataset(
+        dataset_name, _keypoint_generator(tempdir), splits=(1, 0, 0)
+    )
+    dataset.set_keypoint_metadata(edges=[("nose", "left_eye")], task="pose")
+    root = _export(dataset, tempdir, "keypoints22", ldf_version="2.2")
+
+    records = _read_records(root)
+    assert records
+    assert _read_stamp(root) == "2.2.0"
+    assert all("sample_metadata" in record for record in records)
+    # The flat record names its task beside the annotation, and the
+    # annotation is the detection itself rather than a list of them.
+    assert all("task_name" in record for record in records)
+    assert all(
+        set(record) - {"sample_metadata"} <= LDF_2_0_RECORD_FIELDS
+        for record in records
+    )
+
+    keypoints = [
+        record["annotation"]["keypoints"]
+        for record in records
+        if "keypoints" in record.get("annotation", {})
+    ]
+    assert keypoints
+    named = [k for k in keypoints if isinstance(k["keypoints"], dict)]
+    assert len(named) == 1
+    assert set(named[0]["keypoints"]) == {"nose", "left_eye", "right_eye"}
+    assert named[0]["edges"]
 
 
 def test_an_export_without_the_task_fields_still_imports(
