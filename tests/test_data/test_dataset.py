@@ -508,10 +508,6 @@ def test_make_splits(
     with pytest.raises(ValueError, match=r"between 0\.0 and 1\.0"):
         dataset.make_splits({"train": 8, "val": 1, "test": 1})
 
-    # A `bool` is a subclass of `int`, but it is not a ratio.
-    with pytest.raises(TypeError, match="A bool is not a ratio"):
-        dataset.make_splits({"train": True})  # type: ignore
-
     dataset.add(generator(10))
     # An `int` ratio means the same as the `float` one.
     dataset.make_splits({"custom_split": 1})
@@ -535,10 +531,6 @@ def test_make_splits(
 
     n_groups = sum(len(split_data) for split_data in splits.values())
 
-    # A `bool` is not a ratio, not even inside a tuple.
-    with pytest.raises(TypeError, match="A bool is not a ratio"):
-        dataset.make_splits((True, False, False))  # type: ignore
-
     # An `int` ratio works in a tuple too.
     dataset.make_splits((1, 0, 0), replace_old_splits=True)
     splits = dataset.get_splits()
@@ -546,6 +538,15 @@ def test_make_splits(
     assert len(splits["train"]) == n_groups
     assert not splits["val"]
     assert not splits["test"]
+
+    # `True` is 1 and `False` is 0, so a bool is an ordinary ratio.
+    for bool_splits in ((True, False, False), {"train": True}):
+        dataset.make_splits(bool_splits, replace_old_splits=True)  # type: ignore
+        splits = dataset.get_splits()
+        assert splits is not None
+        assert len(splits["train"]) == n_groups
+        assert not splits.get("val")
+        assert not splits.get("test")
 
     # A mapping may mix an `int` with a `float`. A zero ratio is a
     # common reason to write one.

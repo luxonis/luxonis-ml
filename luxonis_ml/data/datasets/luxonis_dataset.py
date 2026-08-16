@@ -1538,15 +1538,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                     "A tuple of ratios must hold exactly 3 values, for "
                     f"train, val, and test. Got {len(splits)}."
                 )
-            # `bool` is a subclass of `int`, but it is never a ratio.
-            if any(
-                isinstance(ratio, bool) or not isinstance(ratio, (int, float))
-                for ratio in splits
-            ):
-                raise TypeError(
-                    "A tuple of ratios must hold numbers. A bool is not a "
-                    "ratio; use 1.0 and 0.0."
-                )
+            if any(not isinstance(ratio, (int, float)) for ratio in splits):
+                raise TypeError("A tuple of ratios must hold numbers.")
             ratios = {
                 "train": splits[0],
                 "val": splits[1],
@@ -1568,8 +1561,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         else:
             raise TypeError(
                 "Splits must map names to either ratios or filepath lists. "
-                "A ratio is a number from 0 to 1. A bool is not a ratio; "
-                "use 1.0 and 0.0."
+                "A ratio is a number from 0 to 1."
             )
 
         if ratios is not None:
@@ -2145,11 +2137,7 @@ def _split_sizes(n_groups: int, ratios: Mapping[str, float]) -> dict[str, int]:
 def _are_ratios(
     splits: Mapping[str, object],
 ) -> TypeGuard[Mapping[str, float]]:
-    # `bool` is a subclass of `int`, but it is never a ratio.
-    return all(
-        not isinstance(value, bool) and isinstance(value, (int, float))
-        for value in splits.values()
-    )
+    return all(isinstance(value, (int, float)) for value in splits.values())
 
 
 def _are_definitions(
