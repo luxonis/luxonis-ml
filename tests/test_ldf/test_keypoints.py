@@ -355,6 +355,24 @@ def test_edges_are_sorted():
     assert KeypointMetadata(edges=[(2, 3), (0, 1)]).edges == [(0, 1), (2, 3)]
 
 
+def test_an_edge_has_no_direction():
+    """Only the edge list was sorted, never the two ends of an edge.
+
+    An edge named from the other end thus gave an unequal record, and
+    `merge_with` aborted the whole `add` over an edge set that agrees.
+    No consumer reads the direction, so the ends order like a flip pair.
+    """
+    forwards = KeypointMetadata.model_validate(
+        {"labels": ["nose", "left_eye"], "edges": [("nose", "left_eye")]}
+    )
+    backwards = KeypointMetadata.model_validate(
+        {"labels": ["nose", "left_eye"], "edges": [("left_eye", "nose")]}
+    )
+
+    assert backwards.edges == [(0, 1)]
+    assert forwards.merge_with(backwards).edges == [(0, 1)]
+
+
 def test_flip_pairs_are_normalized():
     assert KeypointMetadata(flip_pairs=[(4, 3), (2, 1)]).flip_pairs == [
         (1, 2),
