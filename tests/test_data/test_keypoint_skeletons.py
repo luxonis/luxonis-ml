@@ -63,11 +63,6 @@ def read_metadata(dataset: LuxonisDataset) -> dict[str, Any]:
     return json.loads((dataset._metadata_path / "metadata.json").read_text())
 
 
-# --------------------------------------------------------------------------
-# Promoting the skeleton
-# --------------------------------------------------------------------------
-
-
 def test_names_are_promoted_to_the_task_skeleton(
     dataset_name: str, tempdir: Path
 ):
@@ -158,11 +153,6 @@ def test_an_unknown_keypoint_name_is_rejected(
         )
 
 
-# --------------------------------------------------------------------------
-# Not destroying what is already there
-# --------------------------------------------------------------------------
-
-
 def test_add_does_not_clobber_explicit_skeletons(
     dataset_name: str, tempdir: Path
 ):
@@ -217,11 +207,6 @@ def test_placeholders_are_still_generated(dataset_name: str, tempdir: Path):
     assert dataset.get_skeletons() == {
         "pose": Skeleton(labels=["0", "1"], edges=[(0, 1)])
     }
-
-
-# --------------------------------------------------------------------------
-# What ends up on disk
-# --------------------------------------------------------------------------
 
 
 def test_the_skeleton_is_not_repeated_on_every_row(
@@ -340,11 +325,6 @@ def test_a_legacy_dataset_still_loads(dataset_name: str, tempdir: Path):
     assert labels["pose/keypoints"].shape[1] == 9
 
 
-# --------------------------------------------------------------------------
-# Reading back
-# --------------------------------------------------------------------------
-
-
 def test_the_loader_names_the_keypoints(dataset_name: str, tempdir: Path):
     dataset = named_dataset(dataset_name, tempdir)
     loader = LuxonisLoader(dataset)
@@ -353,11 +333,6 @@ def test_the_loader_names_the_keypoints(dataset_name: str, tempdir: Path):
 
     assert labels["pose/keypoints"].shape == (1, 9)
     assert loader.get_skeletons()["pose"].labels == LABELS
-
-
-# --------------------------------------------------------------------------
-# `set_skeletons`
-# --------------------------------------------------------------------------
 
 
 def test_set_skeletons_updates_only_what_it_is_given(
@@ -416,11 +391,6 @@ def test_set_skeletons_needs_something_to_set(
 
     with pytest.raises(ValueError, match="Must provide either"):
         dataset.set_skeletons()
-
-
-# --------------------------------------------------------------------------
-# Native export
-# --------------------------------------------------------------------------
 
 
 def test_native_export_round_trips_the_skeleton(
