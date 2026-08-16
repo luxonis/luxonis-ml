@@ -32,6 +32,7 @@ from luxonis_ml.data.utils import (
 )
 from luxonis_ml.ldf import (
     SCHEMA_METADATA_KEY,
+    Annotation,
     DatasetRecord,
     DatasetSchema,
     Detection,
@@ -248,6 +249,14 @@ class LuxonisLoader(BaseLoader):
 
         self._df = self.dataset._load_df_offline(raise_when_empty=True)
         self._classes = self.dataset.get_classes()
+        # The names as the dataset declared them, taken before this loader
+        # adds a `background` class to the tasks it fills. Rebuilding a
+        # record drops only the background this loader made up; one the
+        # dataset declares was annotated, so it is data and it stays.
+        self._declared_classes = {
+            task_name: set(classes)
+            for task_name, classes in self._classes.items()
+        }
 
         # Cached because both are read for every loaded sample.
         self._keypoint_metadata = self.dataset.get_keypoint_metadata()
@@ -263,11 +272,28 @@ class LuxonisLoader(BaseLoader):
                     f"`filter_task_names` contains task names that "
                     f"are not in the dataset: {extras}"
                 )
+            # A row with no annotation belongs to one of two kinds, and only
+            # the first may survive a filter on its own. A record with no
+            # annotation at all is a negative for every task. A secondary
+            # source of an annotated record also writes such a row, and that
+            # one belongs to whichever task the record's annotated rows name.
+            group_is_annotated = (
+                pl.col("annotation").is_not_null().any().over("group_id")
+            )
+            group_is_asked_for = (
+                (
+                    pl.col("task_name").is_in(self._filter_task_names)
+                    & pl.col("annotation").is_not_null()
+                )
+                .any()
+                .over("group_id")
+            )
             self._df = self._df.filter(
                 pl.col("task_name").is_in(self._filter_task_names)
-                # A record with no annotation is a negative for every task,
-                # so its row must survive whichever task is asked for.
-                | pl.col("annotation").is_null()
+                | (
+                    pl.col("annotation").is_null()
+                    & (group_is_asked_for | ~group_is_annotated)
+                )
             )
             self._classes = {
                 task_name: self._classes[task_name]
@@ -494,7 +520,19 @@ class LuxonisLoader(BaseLoader):
             else:
                 img_dict[source_name] = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        detections_by_task: dict[str, list[Detection]] = defaultdict(list)
+        # The dataframe holds one row per task type of an instance, so the
+        # rows of one instance are put back together here. A detection then
+        # carries its own class, geometry and metadata, which is the shape
+        # every other producer of a record builds, and the shape the
+        # conversion needs to pair the two by row.
+        instance_order: dict[str, list[tuple[str, int]]] = defaultdict(list)
+        fields_by_instance: dict[
+            tuple[str, int], dict[str, Annotation | str | int | None]
+        ] = {}
+        metadata_by_instance: dict[
+            tuple[str, int], dict[str, int | float | str]
+        ] = defaultdict(dict)
+        rows_seen: dict[tuple[str, str], int] = defaultdict(int)
 
         for annotation_data in ann_rows:
             task_name: str = annotation_data[col["task_name"]]
@@ -512,14 +550,25 @@ class LuxonisLoader(BaseLoader):
             if task_type == "array" and self.dataset.is_remote:
                 data["path"] = self.dataset._arrays_path / data["path"]
 
-            # The task type names the field to fill, so the detection is
-            # validated from a dictionary rather than constructed.
-            fields: dict[str, object] = {
-                "class_name": class_name,
-                "instance_id": instance_id,
-            }
+            # A row that carries no instance ID belongs to the instance at
+            # its own position among the rows of the same task type.
+            position = rows_seen[task_name, task_type]
+            rows_seen[task_name, task_type] = position + 1
+            key = (task_name, instance_id if instance_id >= 0 else position)
+
+            fields = fields_by_instance.get(key)
+            if fields is None:
+                fields = {
+                    "class_name": class_name,
+                    "instance_id": instance_id,
+                }
+                fields_by_instance[key] = fields
+                instance_order[task_name].append(key)
+            elif fields["class_name"] is None:
+                fields["class_name"] = class_name
+
             if task_type.startswith("metadata/"):
-                fields["metadata"] = {task_type[len("metadata/") :]: data}
+                metadata_by_instance[key][task_type[len("metadata/") :]] = data
             elif task_type != "classification":
                 if (
                     "points" in data and "width" not in data
@@ -530,6 +579,8 @@ class LuxonisLoader(BaseLoader):
                     data["height"] = sample_img.shape[0]
                     data["points"] = [tuple(p) for p in data["points"]]
 
+                # The task type names the field to fill, so the detection is
+                # validated from a dictionary rather than constructed.
                 task_keypoints = self._keypoint_metadata.get(task_name)
                 fields[task_type] = load_annotation(
                     task_type,  # type: ignore[arg-type]
@@ -539,9 +590,18 @@ class LuxonisLoader(BaseLoader):
                     ),
                 )
 
-            detections_by_task[task_name].append(
-                Detection.model_validate(fields)
-            )
+        detections_by_task: dict[str, list[Detection]] = {
+            task_name: [
+                Detection.model_validate(
+                    {
+                        **fields_by_instance[key],
+                        "metadata": metadata_by_instance[key],
+                    }
+                )
+                for key in keys
+            ]
+            for task_name, keys in instance_order.items()
+        }
 
         # The rows are already normalized, so validating the record again
         # would repeat that work, and its file checks, for every sample.
@@ -611,6 +671,22 @@ class LuxonisLoader(BaseLoader):
             sample_metadata_list.append(sample_metadata)
 
         img_dict, labels = self._augmentations.apply(loaded_anns)
+
+        # The engine drops a label that has no rows, and puts back only the
+        # ones grouped with a bounding box. A task whose group has none, such
+        # as a keypoints-only task, would lose its key on a negative sample,
+        # and the augmented path would then disagree with the plain one.
+        image_shape = next(iter(img_dict.values())).shape[:2]
+        for key, array in loaded_anns[0][1].items():
+            if key in labels:
+                continue
+            # Only an empty label is ever dropped, so the row count is zero.
+            # A mask carries the image shape, which augmentation changed.
+            shape = (
+                (0, *image_shape) if array.ndim == 3 else (0, *array.shape[1:])
+            )
+            labels[key] = np.zeros(shape, dtype=array.dtype)
+
         metadata_indices = self._augmentations.batch_augmentation_indices
         if len(metadata_indices) > 1:
             sample_metadata = self._merge_sample_metadata(
@@ -827,10 +903,17 @@ class LuxonisLoader(BaseLoader):
             if self._filter_task_names is None
             or task_name in self._filter_task_names
         }
+        synthesized_background = {
+            task_name
+            for task_name, classes in self._classes.items()
+            if "background" in classes
+            and "background" not in self._declared_classes.get(task_name, ())
+        }
         return DatasetSchema(
             tasks=tasks,
             classes=self._classes,
             keypoint_metadata=self._keypoint_metadata,
             categorical_encodings=self.dataset.get_categorical_encodings(),
             n_keypoints=self._n_keypoints,
+            synthesized_background=synthesized_background,
         )
