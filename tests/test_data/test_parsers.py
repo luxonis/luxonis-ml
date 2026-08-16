@@ -9,11 +9,12 @@ from pydantic import SecretStr
 
 from luxonis_ml.data import (
     BaseDataset,
+    LuxonisDataset,
     LuxonisLoader,
     LuxonisParser,
     ParserIssue,
 )
-from luxonis_ml.data.parsers import luxonis_parser
+from luxonis_ml.data.parsers import SOLOParser, luxonis_parser
 from luxonis_ml.data.parsers.base_parser import BaseParser, ParserOutput
 from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.enums import DatasetType
@@ -830,6 +831,99 @@ def test_parser_scopes_keypoint_metadata_to_the_task_of_its_class(
         assert dataset.get_n_keypoints() == {"pose": 3, "hands": 2}
     finally:
         dataset.delete_dataset(delete_local=True)
+
+
+def test_solo_keypoints_get_no_invented_edges(
+    dataset_name: str, tempdir: Path
+):
+    """SOLO names its keypoints, but it defines no skeleton.
+
+    `add` runs first and writes placeholder chain edges. The parser then
+    reports what the source format holds. `set_keypoint_metadata` now
+    merges, so an omitted ``edges`` key kept the chain. An inspection
+    drew lines between unrelated keypoints, and a COCO export wrote them
+    as the category skeleton.
+    """
+    split_dir = tempdir / "solo" / "train"
+    sequence_dir = split_dir / "sequence.0"
+    sequence_dir.mkdir(parents=True)
+    image = create_image(0, sequence_dir)
+    keypoint_labels = ["nose", "left_eye", "right_eye"]
+    bbox_type = "type.unity.com/unity.solo.BoundingBox2DAnnotation"
+    keypoint_type = "type.unity.com/unity.solo.KeypointAnnotation"
+
+    (split_dir / "annotation_definitions.json").write_text(
+        json.dumps(
+            {
+                "annotationDefinitions": [
+                    {
+                        "@type": bbox_type,
+                        "spec": [{"label_id": 0, "label_name": "person"}],
+                    },
+                    {
+                        "@type": keypoint_type,
+                        "template": {
+                            "keypoints": [
+                                {"index": i, "label": label}
+                                for i, label in enumerate(keypoint_labels)
+                            ]
+                        },
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (sequence_dir / "step0.frame_data.json").write_text(
+        json.dumps(
+            {
+                "step": 0,
+                "captures": [
+                    {
+                        "filename": image.name,
+                        "dimension": [512, 512],
+                        "annotations": [
+                            {
+                                "@type": bbox_type,
+                                "values": [
+                                    {
+                                        "labelName": "person",
+                                        "instanceId": 1,
+                                        "origin": [10, 10],
+                                        "dimension": [100, 100],
+                                    }
+                                ],
+                            },
+                            {
+                                "@type": keypoint_type,
+                                "values": [
+                                    {
+                                        "instanceId": 1,
+                                        "keypoints": [
+                                            {"location": [20, 20], "state": 2},
+                                            {"location": [30, 30], "state": 2},
+                                            {"location": [40, 30], "state": 2},
+                                        ],
+                                    }
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    SOLOParser(dataset, DatasetType.SOLO, "pose").parse_split(
+        split_path=split_dir
+    )
+
+    keypoints = dataset.get_keypoint_metadata()["pose"]
+    assert keypoints.labels == keypoint_labels
+    assert keypoints.edges == []
+    dataset.delete_dataset(delete_local=True)
 
 
 def test_partial_split_clsdir_is_preserved(
