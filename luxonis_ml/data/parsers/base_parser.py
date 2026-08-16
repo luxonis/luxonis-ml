@@ -208,6 +208,7 @@ class BaseParser(ABC):
                 task=None
                 if self._task_name is None
                 else self._task_name[class_name],
+                sigmas=metadata.get("sigmas"),
             )
         return added_images
 

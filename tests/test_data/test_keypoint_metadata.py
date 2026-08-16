@@ -662,6 +662,30 @@ def test_a_shorter_record_does_not_get_the_task_fields(
     ] == [{"keypoints": [[0.0, 0.0, 2], [0.1, 0.1, 2]]}]
 
 
+def test_coco_export_round_trips_the_sigmas(dataset_name: str, tempdir: Path):
+    """The COCO exporter writes the sigmas, but the parser dropped them.
+
+    OKS scoring reads the sigmas. A silent fallback to the defaults
+    changes the metric, so the round trip has to keep the exact values.
+    """
+    sigmas = [0.026, 0.025, 0.025]
+    dataset = named_dataset(dataset_name, tempdir, fields={"sigmas": sigmas})
+    exported = dataset.export(tempdir / "exported_coco", DatasetType.COCO)
+    assert isinstance(exported, Path)
+
+    imported = LuxonisParser(
+        str(exported / dataset_name),
+        dataset_type=DatasetType.COCO,
+        dataset_name=f"{dataset_name}_imported",
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    task_keypoints = next(iter(imported.get_keypoint_metadata().values()))
+    assert task_keypoints.labels == LABELS
+    assert task_keypoints.sigmas == sigmas
+
+
 def test_the_exported_names_are_written_once_per_task(
     dataset_name: str, tempdir: Path
 ):
