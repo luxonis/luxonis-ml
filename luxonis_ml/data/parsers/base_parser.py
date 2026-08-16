@@ -199,12 +199,16 @@ class BaseParser(ABC):
         """
         generator, keypoints, added_images = self.from_split(**kwargs)
         self._dataset.add(self._wrap_generator(generator))
-        if keypoints:
-            for metadata in keypoints.values():
-                self._dataset.set_keypoint_metadata(
-                    metadata.get("labels"),
-                    metadata.get("edges"),
-                )
+        for class_name, metadata in keypoints.items():
+            # The keys are source class names. Without the task, every
+            # class would write its keypoints to every task.
+            self._dataset.set_keypoint_metadata(
+                metadata.get("labels"),
+                metadata.get("edges"),
+                task=None
+                if self._task_name is None
+                else self._task_name[class_name],
+            )
         return added_images
 
     @staticmethod

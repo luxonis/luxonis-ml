@@ -745,6 +745,93 @@ def test_ultralytics_ndjson_remote_urls_parser_rejects_existing_remote_dir_when_
         ).parse(reuse_cached=False)
 
 
+def test_parser_scopes_keypoint_metadata_to_the_task_of_its_class(
+    dataset_name: str,
+    tempdir: Path,
+):
+    """The parser gave every task the keypoints of the last class.
+
+    `_parse_split` keys the parser output by source class name, but it
+    called `set_keypoint_metadata` with no task. The last keypoint
+    category thus overwrote the metadata of every task, including a task
+    that holds no keypoints. Each task must keep the keypoint labels of
+    its own class.
+    """
+    dataset_dir = tempdir / "coco_two_keypoint_classes"
+
+    def annotations(image_name: str) -> str:
+        return json.dumps(
+            {
+                "images": [
+                    {
+                        "id": 1,
+                        "file_name": image_name,
+                        "width": 512,
+                        "height": 512,
+                    }
+                ],
+                "annotations": [
+                    {
+                        "id": 1,
+                        "image_id": 1,
+                        "category_id": 1,
+                        "bbox": [128, 128, 256, 256],
+                        "keypoints": [256, 200, 2, 230, 180, 2, 280, 180, 2],
+                    },
+                    {
+                        "id": 2,
+                        "image_id": 1,
+                        "category_id": 2,
+                        "bbox": [10, 10, 60, 60],
+                        "keypoints": [20, 20, 2, 50, 50, 2],
+                    },
+                ],
+                "categories": [
+                    {
+                        "id": 1,
+                        "name": "person",
+                        "keypoints": ["nose", "left_eye", "right_eye"],
+                        "skeleton": [[1, 2], [1, 3]],
+                    },
+                    {
+                        "id": 2,
+                        "name": "hand",
+                        "keypoints": ["thumb", "index"],
+                        "skeleton": [[1, 2]],
+                    },
+                ],
+            }
+        )
+
+    for split, index in [("train", 16), ("valid", 17)]:
+        split_dir = dataset_dir / split
+        split_dir.mkdir(parents=True)
+        image = create_image(index, split_dir)
+        (split_dir / "_annotations.coco.json").write_text(
+            annotations(image.name)
+        )
+
+    dataset = LuxonisParser(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        dataset_type=DatasetType.COCO,
+        task_name={"person": "pose", "hand": "hands"},
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+    try:
+        keypoint_metadata = dataset.get_keypoint_metadata()
+        assert keypoint_metadata["pose"].labels == [
+            "nose",
+            "left_eye",
+            "right_eye",
+        ]
+        assert keypoint_metadata["hands"].labels == ["thumb", "index"]
+        assert dataset.get_n_keypoints() == {"pose": 3, "hands": 2}
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
 def test_partial_split_clsdir_is_preserved(
     dataset_name: str,
     tempdir: Path,
