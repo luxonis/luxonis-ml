@@ -2,8 +2,9 @@ import json
 import math
 import shutil
 from collections import defaultdict
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import NoReturn, cast
+from typing import NoReturn, TypeAlias, cast
 
 import numpy as np
 import pytest
@@ -30,9 +31,106 @@ from luxonis_ml.data.datasets.luxonis_dataset import (
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.typing import Params
+from luxonis_ml.typing import Params, PathType
 
 from .utils import create_dataset, create_image, get_loader_output
+
+# Every shape `make_splits` accepts, spelled out. Each builder receives
+# the 10 image paths of the dataset and returns one `splits` argument.
+SplitsArgument: TypeAlias = (
+    Mapping[str, Sequence[PathType]]
+    | Mapping[str, float]
+    | tuple[float, float, float]
+    | None
+)
+BuildSplits: TypeAlias = Callable[[list[str]], SplitsArgument]
+
+ALL_TO_TRAIN = {"train": 10, "val": 0, "test": 0}
+DEFAULT_10 = {"train": 8, "val": 1, "test": 1}
+BY_DEFINITION = {"train": 6, "val": 2, "test": 2}
+
+SPLIT_INPUTS = [
+    pytest.param(lambda _: None, DEFAULT_10, id="none"),
+    pytest.param(lambda _: (0.8, 0.1, 0.1), DEFAULT_10, id="tuple_float"),
+    pytest.param(lambda _: (1, 0, 0), ALL_TO_TRAIN, id="tuple_int"),
+    pytest.param(
+        lambda _: (True, False, False), ALL_TO_TRAIN, id="tuple_bool"
+    ),
+    pytest.param(lambda _: (1, 0.0, 0.0), ALL_TO_TRAIN, id="tuple_mixed"),
+    pytest.param(
+        lambda _: {"train": 0.8, "val": 0.1, "test": 0.1},
+        DEFAULT_10,
+        id="mapping_float",
+    ),
+    pytest.param(
+        lambda _: {"train": 1, "val": 0, "test": 0},
+        ALL_TO_TRAIN,
+        id="mapping_int",
+    ),
+    pytest.param(
+        lambda _: {"train": True, "val": False, "test": False},
+        ALL_TO_TRAIN,
+        id="mapping_bool",
+    ),
+    pytest.param(
+        lambda _: {"train": 0.8, "val": 0.2, "test": 0},
+        {"train": 8, "val": 2, "test": 0},
+        id="mapping_mixed",
+    ),
+    pytest.param(
+        lambda _: {"train": 1.0}, {"train": 10}, id="mapping_one_split"
+    ),
+    pytest.param(
+        lambda _: {"real": 0.5, "synthetic": 0.5},
+        {"real": 5, "synthetic": 5},
+        id="mapping_custom_names",
+    ),
+    pytest.param(
+        lambda paths: {
+            "train": paths[:6],
+            "val": paths[6:8],
+            "test": paths[8:],
+        },
+        BY_DEFINITION,
+        id="definition_str",
+    ),
+    pytest.param(
+        lambda paths: {
+            "train": [Path(p) for p in paths[:6]],
+            "val": [Path(p) for p in paths[6:8]],
+            "test": [Path(p) for p in paths[8:]],
+        },
+        BY_DEFINITION,
+        id="definition_path",
+    ),
+    pytest.param(
+        lambda paths: {
+            "train": tuple(paths[:6]),
+            "val": tuple(paths[6:8]),
+            "test": tuple(paths[8:]),
+        },
+        BY_DEFINITION,
+        id="definition_tuple",
+    ),
+    pytest.param(
+        lambda paths: {"real": paths[:4], "synthetic": paths[4:]},
+        {"real": 4, "synthetic": 6},
+        id="definition_custom_names",
+    ),
+]
+
+REPLACE_INPUTS = [
+    pytest.param(lambda _: None, DEFAULT_10, id="none"),
+    pytest.param(
+        lambda _: (0.0, 1.0, 0.0),
+        {"train": 0, "val": 10, "test": 0},
+        id="tuple",
+    ),
+    pytest.param(lambda _: {"val": 1.0}, {"val": 10}, id="mapping"),
+    pytest.param(
+        lambda paths: {"test": paths[:3]}, {"test": 3}, id="definition"
+    ),
+]
 
 
 def test_dataset(
@@ -471,6 +569,55 @@ def test_definitions_skip_a_non_filepath(
     assert len(splits["test"]) == 2
     assert not splits["val"]
     assert sum("not a filepath; skipping" in m for m in messages) == 2
+
+
+def _ten_image_dataset(
+    dataset_name: str, tempdir: Path
+) -> tuple[LuxonisDataset, list[str]]:
+    paths = [str(create_image(i, tempdir)) for i in range(10)]
+
+    def generator() -> DatasetIterator:
+        for path in paths:
+            yield {"file": path, "annotation": {"class": "dog"}}
+
+    return create_dataset(dataset_name, generator(), splits=False), paths
+
+
+@pytest.mark.parametrize(("build_splits", "expected"), SPLIT_INPUTS)
+def test_make_splits_accepts_every_documented_input(
+    build_splits: BuildSplits,
+    expected: dict[str, int],
+    dataset_name: str,
+    tempdir: Path,
+):
+    dataset, paths = _ten_image_dataset(dataset_name, tempdir)
+    dataset.make_splits(build_splits(paths))
+
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert {split: len(data) for split, data in splits.items()} == expected
+    group_ids = [group for data in splits.values() for group in data]
+    assert len(group_ids) == len(set(group_ids))
+
+
+@pytest.mark.parametrize(("build_splits", "expected"), REPLACE_INPUTS)
+def test_make_splits_replaces_every_documented_input(
+    build_splits: BuildSplits,
+    expected: dict[str, int],
+    dataset_name: str,
+    tempdir: Path,
+):
+    dataset, paths = _ten_image_dataset(dataset_name, tempdir)
+    dataset.make_splits({"train": paths})
+    before = dataset.get_splits()
+    assert before is not None
+    assert len(before["train"]) == 10
+
+    dataset.make_splits(build_splits(paths), replace_old_splits=True)
+
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert {split: len(data) for split, data in splits.items()} == expected
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
