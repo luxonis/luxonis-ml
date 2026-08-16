@@ -916,6 +916,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         tasks = self.get_task_names() if task is None else [task]
         for t in tasks:
             current = self._metadata.keypoint_metadata.get(t)
+            if current is not None and self._renames_keypoints(
+                current, labels
+            ):
+                current = None
             keypoint_metadata = KeypointMetadata.model_validate(
                 {
                     **(current.model_dump() if current else {}),
@@ -948,6 +952,22 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         if not flip_pairs:
             return keypoint_metadata
         return keypoint_metadata.model_copy(update={"flip_pairs": flip_pairs})
+
+    @staticmethod
+    def _renames_keypoints(
+        current: KeypointMetadata, labels: list[str] | None
+    ) -> bool:
+        """Whether new labels give the stored indices a new meaning.
+
+        `edges`, `flip_pairs` and `sigmas` all address a keypoint by its
+        position. New names put a different keypoint at a position, so
+        the stored values describe the wrong keypoints. Placeholder names
+        carry no identity. A rename that keeps their count therefore only
+        names the keypoints that are already there.
+        """
+        if labels is None or not current.labels or current.labels == labels:
+            return False
+        return current.has_names or len(current.labels) != len(labels)
 
     @override
     def get_keypoint_metadata(self) -> dict[str, KeypointMetadata]:
