@@ -1,0 +1,181 @@
+"""Task keys of the Luxonis Data Format.
+
+A label is addressed by ``"task_name/task_type"``. The task name groups the
+annotations a model consumes together, and may itself be nested when a
+detection carries sub-detections, as in ``"driver/face/keypoints"``. Metadata
+task types keep their own name, as in ``"driver/metadata/age"``.
+"""
+
+from collections.abc import Iterator
+from functools import lru_cache
+
+import numpy as np
+
+from luxonis_ml.typing import Labels, TaskType
+
+__all__ = [
+    "get_task_group",
+    "get_task_name",
+    "get_task_type",
+    "split_task",
+    "task_is_metadata",
+    "task_type_iterator",
+]
+
+
+@lru_cache
+def task_is_metadata(task: str) -> bool:
+    """Check whether a task is a metadata task.
+
+    Args:
+        task: Task to check.
+
+    Returns:
+        Whether the task is a metadata task.
+
+    Examples:
+        >>> task_is_metadata("metadata/weather")
+        True
+        >>> task_is_metadata("camera/metadata/weather")
+        True
+        >>> task_is_metadata("camera/boundingbox")
+        False
+
+    """
+    return get_task_type(task).startswith("metadata/")
+
+
+@lru_cache
+def split_task(task: str) -> tuple[str, str]:
+    """Split a task into task name and task type.
+
+    Args:
+        task: Task to split.
+
+    Returns:
+        Task name and task type.
+
+    Examples:
+        >>> split_task("detector/boundingbox")
+        ('detector', 'boundingbox')
+        >>> split_task("classification")
+        ('', 'classification')
+
+    """
+    splits = task.split("/", 1)
+    if len(splits) == 1:
+        return "", splits[0]
+    return splits[0], splits[1]
+
+
+@lru_cache
+def get_task_name(task: str) -> str:
+    """Return the task name from a task string.
+
+    Args:
+        task: Task string.
+
+    Returns:
+        Task name.
+
+    Examples:
+        >>> get_task_name("detector/boundingbox")
+        'detector'
+        >>> get_task_name("classification")
+        'classification'
+
+    """
+    return task.split("/", maxsplit=1)[0]
+
+
+@lru_cache
+def get_task_group(task: str) -> str:
+    """Return the complete task path without its task-type suffix.
+
+    Unlike `get_task_name`, this keeps every level of a nested task name, so
+    the annotations of a sub-detection group under the sub-detection rather
+    than under its parent. The leading ``"/"`` of the default task marks a
+    name that is empty on purpose, while a task with no separator at all has
+    no name to group by.
+
+    Args:
+        task: Task string, such as ``"task_name/type"``.
+
+    Returns:
+        Task name, including every level of a nested one.
+
+    Examples:
+        >>> get_task_group("detector/boundingbox")
+        'detector'
+        >>> get_task_group("driver/face/keypoints")
+        'driver/face'
+        >>> get_task_group("driver/metadata/color")
+        'driver'
+        >>> get_task_group("/segmentation")
+        ''
+
+    """
+    group = task.removesuffix(get_task_type(task)).removesuffix("/")
+    if group:
+        return group
+    return "" if task.startswith("/") else task
+
+
+@lru_cache
+def get_task_type(task: str) -> str:
+    """Return the task type from a task string.
+
+    Example:
+        >>> get_task_type("task_name/type")
+        'type'
+        >>> get_task_type("metadata/name")
+        'metadata/name'
+        >>> get_task_type("task_name/metadata/name")
+        'metadata/name'
+
+    Args:
+        task: Task string, such as ``"task_name/type"``.
+
+    Returns:
+        Task type. Metadata tasks are returned as ``"metadata/type"``.
+
+    """
+    parts = task.split("/")
+    if len(parts) == 1:
+        return parts[0]
+    if len(parts) == 2:
+        if parts[0] == "metadata":
+            return task
+        return parts[1]
+    if parts[-2] == "metadata":
+        return f"metadata/{parts[-1]}"
+    return task.rsplit("/", maxsplit=1)[-1]
+
+
+def task_type_iterator(
+    labels: Labels, task_type: TaskType
+) -> Iterator[tuple[str, np.ndarray]]:
+    """Iterate over labels of a specific task type.
+
+    Args:
+        labels: Labels to iterate over.
+        task_type: Label type to yield.
+
+    Returns:
+        Iterator over matching labels.
+
+    Examples:
+        >>> labels = {
+        ...     "detector/boundingbox": np.array([1]),
+        ...     "pose/keypoints": np.array([2]),
+        ... }
+        >>> [
+        ...     (task, arr.tolist())
+        ...     for task, arr in task_type_iterator(labels, "keypoints")
+        ... ]
+        [('pose/keypoints', [2])]
+
+    """
+    for task, array in labels.items():
+        if get_task_type(task) == task_type:
+            yield task, array
