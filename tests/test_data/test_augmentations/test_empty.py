@@ -74,9 +74,9 @@ def test_empty(dataset_name: str, tempdir: Path, n_samples: int):
             assert labels["/segmentation"].shape == (n_classes, 256, 256)
             assert labels["/instance_segmentation"].shape == (0, 256, 256)
 
-            # A sample with nothing in it claims no object. Whether the
-            # pixels are background instead is asserted without the mosaic,
-            # which pads the parts no source image reaches.
+            # An empty sample claims no foreground. The mosaic pads areas
+            # outside the source images, so test_background_class.py
+            # checks the background fill instead.
             foreground = [
                 class_id
                 for class_name, class_id in classes.items()

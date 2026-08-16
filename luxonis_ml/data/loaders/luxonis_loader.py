@@ -368,21 +368,17 @@ class LuxonisLoader(BaseLoader):
         return LoaderOutput(img_dict, labels, metadata)
 
     def _uncovered_tasks(self) -> set[str]:
-        """Return the segmentation tasks whose masks leave pixels unassigned.
+        """Return the segmentation tasks that leave pixels unassigned.
 
-        Every sample of the view is read, because one sample cannot speak for
-        the rest: which sample the split happened to put first would then
-        decide how many classes the task has.
+        The check reads every sample of the view. A check on one sample
+        lets the split order decide the class count of the task.
 
-        The set pixels of a mask are counted straight from its run-length
-        encoding, which is far cheaper than decoding the mask. Masks that
-        overlap are counted twice, so a task whose masks cover every pixel
-        several times over is not reported. That is the same approximation
-        the loader has always made, minus the dependency on the order.
+        `pycocotools.mask.area` counts the set pixels of the run-length
+        encoding, which costs much less than a decode. A pixel under two
+        masks counts twice, so a task with much overlap can pass the
+        check. The old check on sample 0 made the same approximation.
 
-        Returns:
-            Task names that have at least one sample with a pixel no class
-            claimed. A sample with no mask at all says nothing either way.
+        A sample with no mask gives no verdict on its task.
 
         """
         samples = (
@@ -396,23 +392,22 @@ class LuxonisLoader(BaseLoader):
 
         uncovered: set[str] = set()
         for _, task_name, annotations in samples.iter_rows():
-            # One uncovered sample settles the task, and most datasets have
-            # one early on, so the rest of its masks are never read.
+            # One uncovered sample settles the task.
             if task_name in uncovered:
                 continue
             covered = 0
             size = 0
             for annotation in annotations:
-                mask = json.loads(annotation)
-                # LDF 1.0 stored polylines, which carry no size to compare to.
-                if "counts" not in mask:  # pragma: no cover
+                data = json.loads(annotation)
+                # LDF 1.0 stored polylines, which carry no size to compare.
+                if "counts" not in data:  # pragma: no cover
                     continue
-                size = mask["height"] * mask["width"]
+                size = data["height"] * data["width"]
                 covered += int(
                     pycocotools.mask.area(
                         {
-                            "counts": mask["counts"].encode("utf-8"),
-                            "size": [mask["height"], mask["width"]],
+                            "counts": data["counts"].encode("utf-8"),
+                            "size": [data["height"], data["width"]],
                         }
                     )
                 )
