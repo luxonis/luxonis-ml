@@ -142,7 +142,7 @@ class YoloV6Parser(BaseParser):
                         annotation_data = f.readlines()
 
                 if not annotation_data:
-                    yield {"file": str(img_path), "annotation": None}
+                    yield {"media": str(img_path), "annotation": None}
                     continue
 
                 for ann_line in annotation_data:
@@ -152,7 +152,7 @@ class YoloV6Parser(BaseParser):
                     class_name = class_names[int(class_id)]
 
                     yield {
-                        "file": str(img_path),
+                        "media": str(img_path),
                         "annotation": {
                             "class": class_name,
                             "boundingbox": {

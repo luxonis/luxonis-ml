@@ -2,7 +2,7 @@ import inspect
 import random
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -488,21 +488,26 @@ class BaseParser(ABC):
             Unique added image paths.
 
         """
-        return list(
-            {
-                Path(v)
-                for item in generator
-                for v in (
-                    [item["file"]]
-                    if isinstance(item, dict) and "file" in item
-                    else item["files"].values()
-                    if isinstance(item, dict) and "files" in item
-                    else [item.file]
-                    if isinstance(item, DatasetRecord)
-                    else []
-                )
-            }
-        )
+        paths: set[Path] = set()
+        for item in generator:
+            if isinstance(item, DatasetRecord):
+                paths.update(Path(file) for file in item.file_paths.values())
+                continue
+            media = next(
+                (
+                    item[key]
+                    for key in ("media", "file", "files")
+                    if key in item
+                ),
+                None,
+            )
+            if media is None:
+                continue
+            if isinstance(media, Mapping):
+                paths.update(Path(file) for file in media.values())
+            else:
+                paths.add(Path(media))
+        return list(paths)
 
     def _warn_skipped_annotation(
         self,

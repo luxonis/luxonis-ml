@@ -208,7 +208,7 @@ class SOLOParser(BaseParser):
                                         mask_int == target_int
                                     ).astype(np.uint8)
                                     yield {
-                                        "file": img_path,
+                                        "media": img_path,
                                         "annotation": {
                                             "class": class_name,
                                             "segmentation": {
@@ -240,7 +240,7 @@ class SOLOParser(BaseParser):
 
                                     instance_id = bbox_annotation["instanceId"]
                                     bounding_boxes[instance_id] = {
-                                        "file": img_path,
+                                        "media": img_path,
                                         "annotation": {
                                             "class": class_name,
                                             "instance_id": instance_id,
@@ -295,7 +295,7 @@ class SOLOParser(BaseParser):
                                     instance_id = instance["instanceId"]
 
                                     instance_segmentations[instance_id] = {
-                                        "file": img_path,
+                                        "media": img_path,
                                         "annotation": {
                                             "instance_id": instance_id,
                                             "instance_segmentation": {
@@ -336,7 +336,7 @@ class SOLOParser(BaseParser):
                                     ]
 
                                     instance_keypoints[instance_id] = {
-                                        "file": img_path,
+                                        "media": img_path,
                                         "annotation": {
                                             "instance_id": instance_id,
                                             "keypoints": {
@@ -389,7 +389,7 @@ class SOLOParser(BaseParser):
                                 )
 
                             yield {
-                                "file": img_path,
+                                "media": img_path,
                                 "annotation": annotation_entry,
                             }
 

@@ -121,7 +121,7 @@ class CreateMLParser(BaseParser):
                 path = curr_annotations["path"]
                 for bbox_class, (x, y, w, h) in curr_annotations["bboxes"]:
                     yield {
-                        "file": path,
+                        "media": path,
                         "annotation": {
                             "class": bbox_class,
                             "boundingbox": {

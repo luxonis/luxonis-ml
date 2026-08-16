@@ -68,7 +68,7 @@ def test_dataset_record(tempdir: Path):
     cv2.imwrite(str(left), np.zeros((100, 100, 3)))
     cv2.imwrite(str(right), np.zeros((100, 100, 3)))
     empty_metadata = {"sample_metadata": DEFAULT_METADATA}
-    record = DatasetRecord(file=left)  # type: ignore
+    record = DatasetRecord(media=left)  # type: ignore
     assert record.file == left
 
     compare_parquet_rows(
@@ -88,7 +88,7 @@ def test_dataset_record(tempdir: Path):
     )
 
     record = DatasetRecord(
-        file=left,  # type: ignore
+        media=left,  # type: ignore
         sample_metadata={"source": "camera-a"},
     )
     compare_parquet_rows(
@@ -108,7 +108,7 @@ def test_dataset_record(tempdir: Path):
     )
 
     record = DatasetRecord(
-        file=left,  # type: ignore
+        media=left,  # type: ignore
         annotation={
             "class": "person",
             "boundingbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},

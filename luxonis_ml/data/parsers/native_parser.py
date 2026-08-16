@@ -118,16 +118,14 @@ class NativeParser(BaseParser):
         def generator() -> DatasetIterator:
             for record in data:
                 with suppress(KeyError):
-                    if "file" in record:
-                        record["file"] = resolve_manifest_path(
-                            annotation_path.parent, record["file"]
-                        )
-                    elif "files" in record:
-                        for key, value in record["files"].items():
-                            if isinstance(value, PathType):
-                                record["files"][key] = resolve_manifest_path(
-                                    annotation_path.parent, value
-                                )
+                    # An older manifest names the media with the keys a
+                    # record now accepts only as deprecated ones.
+                    for key in ("media", "file", "files"):
+                        if key in record:
+                            record["media"] = _resolve_media(
+                                record.pop(key), annotation_path.parent
+                            )
+                            break
                 annotation = record.get("annotation")
                 for detection in (
                     annotation
@@ -171,6 +169,23 @@ class NativeParser(BaseParser):
                 )
 
 
+def _resolve_media(media: object, base_dir: Path) -> object:
+    """Resolve one path, or a mapping of source names to paths.
+
+    Anything else is returned untouched, so the record model reports it.
+    """
+    if isinstance(media, dict):
+        return {
+            source: resolve_manifest_path(base_dir, path)
+            if isinstance(path, PathType)
+            else path
+            for source, path in media.items()
+        }
+    if isinstance(media, PathType):
+        return resolve_manifest_path(base_dir, media)
+    return media
+
+
 def _resolve_annotation_paths(
     annotation: dict[str, Any], base_dir: Path
 ) -> None:
@@ -185,6 +200,10 @@ def _resolve_annotation_paths(
         value = annotation.get(field)
         if isinstance(value, dict) and isinstance(value.get(key), PathType):
             value[key] = resolve_manifest_path(base_dir, value[key])
+            if field == "array":
+                # The manifest keeps the stored key, which the annotation
+                # now accepts only as a deprecated name.
+                value["data"] = value.pop(key)
     sub_detections = annotation.get("sub_detections")
     if isinstance(sub_detections, dict):
         for sub_detection in sub_detections.values():

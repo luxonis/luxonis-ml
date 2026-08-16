@@ -309,12 +309,16 @@ sample:
     {
         "class": "embedding",
         "array": {
-            "path": "path/to/embedding.npy",
+            "data": "path/to/embedding.npy",
         },
     }
 
 Arrays are useful for modality-specific targets or auxiliary data that should
 be stored with the dataset but does not fit standard spatial schemas.
+
+``data`` also takes the array itself, for a record that was never on disk.
+Such a record can be rendered but not stored. The stored key stays ``path``,
+which is deprecated as an input name.
 
 
 Metadata and Categories
@@ -396,6 +400,7 @@ from pydantic import (
     AliasChoices,
     Field,
     GetCoreSchemaHandler,
+    PlainSerializer,
     ValidationInfo,
     field_serializer,
     field_validator,
@@ -771,6 +776,45 @@ class Category(str):
         cls, source_type: Any, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
         return core_schema.is_instance_schema(cls)
+
+
+def _serialize_path_or_array(value: FilePath | np.ndarray) -> str:
+    if not isinstance(value, np.ndarray):
+        return str(value)
+    raise ValueError(
+        f"Cannot serialize an in-memory array of shape {value.shape}. "
+        "Save it to a file and reference that path instead."
+    )
+
+
+class _PathOrArraySchema:
+    """Accept an array without naming the union branches in the errors."""
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: GetCoreSchemaHandler
+    ) -> core_schema.CoreSchema:
+        return core_schema.no_info_wrap_validator_function(
+            cls._validate, handler.generate_schema(FilePath)
+        )
+
+    @staticmethod
+    def _validate(
+        value: Any, handler: core_schema.ValidatorFunctionWrapHandler
+    ) -> Any:
+        return value if isinstance(value, np.ndarray) else handler(value)
+
+
+PathOrArray: TypeAlias = Annotated[
+    FilePath | np.ndarray,
+    _PathOrArraySchema,
+    PlainSerializer(_serialize_path_or_array, when_used="json"),
+]
+"""A path to a file, or the data itself held in memory.
+
+A record that holds data in memory can be rendered and converted, but not
+stored. Save the data to a file and reference that path to store it.
+"""
 
 
 #: The `Detection` fields holding a single `Annotation`, in parquet row order.
@@ -1727,19 +1771,27 @@ class InstanceSegmentationAnnotation(SegmentationAnnotation):
 
 
 class ArrayAnnotation(Annotation):
-    """Custom annotation backed by an array file.
+    """Custom annotation backed by an array file or an in-memory array.
 
     All instances of this annotation must have the same shape.
 
     Attributes:
-        path: Path to the array saved as a ``.npy`` file.
+        path: Path to the array saved as a ``.npy`` file, or the array
+            itself. An in-memory array cannot be stored; save it to a file
+            and reference that path instead.
+
+            .. deprecated:: 0.10.0
+                The ``path`` input name is deprecated. Use ``data``, which
+                also accepts the array itself. The stored key stays ``path``.
 
     """
 
-    path: FilePath
+    path: PathOrArray
 
     def to_numpy(self) -> np.ndarray:
-        """Load the array from the file path."""
+        """Return the array, and load it from the file when needed."""
+        if isinstance(self.path, np.ndarray):
+            return self.path
         return np.load(self.path)
 
     @staticmethod
@@ -1762,20 +1814,38 @@ class ArrayAnnotation(Annotation):
             :math:`N` is the number of instances.
 
         """
-        out_arr = np.zeros(
-            (len(annotations), n_classes, *np.load(annotations[0].path).shape)
-        )
-        for i, ann in enumerate(annotations):
-            out_arr[i, classes[i]] = np.load(ann.path)
+        arrays = [ann.to_numpy() for ann in annotations]
+        out_arr = np.zeros((len(arrays), n_classes, *arrays[0].shape))
+        for i, array in enumerate(arrays):
+            out_arr[i, classes[i]] = array
         return out_arr
 
-    @field_serializer("path", when_used="json")
-    def _serialize_path(self, value: FilePath) -> str:
-        return str(value)
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_data(cls, values: Any) -> Any:
+        """Accept the array under either the old or the new name."""
+        if not isinstance(values, Mapping):
+            return values
+        if "data" in values:
+            if "path" in values:
+                raise ValueError("Provide either 'path' or 'data', not both.")
+            values = dict(values)
+            values["path"] = values.pop("data")
+        elif "path" in values:
+            log_once(
+                logger.warning,
+                "The 'path' field of an array annotation is deprecated. "
+                "Use 'data', which also accepts the array itself.",
+            )
+        return values
 
     @field_validator("path")
     @classmethod
-    def _validate_path(cls, path: FilePath) -> FilePath:
+    def _validate_path(
+        cls, path: FilePath | np.ndarray
+    ) -> FilePath | np.ndarray:
+        if isinstance(path, np.ndarray):
+            return path
         if path.suffix != ".npy":
             raise ValueError(
                 f"Array annotation file must be a .npy file. Got {path}"
@@ -1796,12 +1866,16 @@ class ArrayAnnotation(Annotation):
 
 
 class DatasetRecord(BaseModelExtraForbid):
-    """Dataset record containing file paths and an optional annotation.
+    """Dataset record containing file paths and its annotations.
 
     A record is the unit of ingestion for `LuxonisDataset.add`. It may point
     to one media source through ``file`` or to multiple synchronized sources
     through ``files``, but never both -- passing both is an error, where
     ``files`` used to be silently discarded in favor of ``file``.
+
+    Annotations are grouped by task name, so one record can carry every
+    detection of a sample. The older flat forms still work: a single
+    detection, or a list of them, together with a ``task_name``.
 
     ``sample_metadata`` stores **record-level metadata**. It is preserved by
     native import/export and returned by `LuxonisLoader` as
@@ -1842,14 +1916,14 @@ class DatasetRecord(BaseModelExtraForbid):
 
     """
 
-    files: dict[str, FilePath]
+    files: dict[str, PathOrArray]
     annotation: Detection | None = None
     task_name: str = ""
     sample_metadata: Params = Field(default_factory=dict)
 
     @property
-    def file(self) -> FilePath:
-        """The file path of the dataset record.
+    def file(self) -> FilePath | np.ndarray:
+        """The single file of the dataset record.
 
         This property is provided for convenience when the dataset record has
         exactly one file.
@@ -1863,8 +1937,34 @@ class DatasetRecord(BaseModelExtraForbid):
         return next(iter(self.files.values()))
 
     @property
+    def file_paths(self) -> dict[str, FilePath]:
+        """The record's files, guaranteed to be paths on disk.
+
+        Use this wherever a record is about to be stored, because anything
+        that writes the record needs somewhere to read the media from.
+
+        Raises:
+            NotImplementedError: If any source holds an in-memory image.
+
+        """
+        paths: dict[str, FilePath] = {}
+        in_memory: list[str] = []
+        for source, file in self.files.items():
+            if isinstance(file, np.ndarray):
+                in_memory.append(source)
+            else:
+                paths[source] = file
+        if in_memory:
+            raise NotImplementedError(
+                f"Sources {sorted(in_memory)} hold an in-memory image "
+                "instead of a file path. A dataset cannot store those: write "
+                "the image to a file and reference that path instead."
+            )
+        return paths
+
+    @property
     @deprecated("Use `list(record.files.values())` instead.")
-    def all_file_paths(self) -> list[FilePath]:
+    def all_file_paths(self) -> list[FilePath | np.ndarray]:
         """All file paths associated with the dataset record.
 
         .. deprecated:: 0.9.0
@@ -1907,20 +2007,37 @@ class DatasetRecord(BaseModelExtraForbid):
         # A shallow copy is enough: nothing below mutates a nested value,
         # and deep-copying would duplicate any mask the payload carries.
         values = dict(values)
-        if "file" in values:
-            if "files" in values:
-                raise ValueError("Provide either 'file' or 'files', not both.")
-            values["files"] = {"image": values.pop("file")}
-        if "files" in values:
-            files = values["files"]
-            # Anything else is left untouched for pydantic to report
-            # against `files` instead of failing on the paths below.
-            if isinstance(files, Mapping) and all(
-                isinstance(path, PathType) for path in files.values()
-            ):
-                values["files"] = {
-                    key: Path(path).absolute() for key, path in files.items()
-                }
+        provided = [key for key in ("media", "file", "files") if key in values]
+        if len(provided) > 1:
+            names = " or ".join(f"'{key}'" for key in provided)
+            raise ValueError(f"Provide either {names}, not both.")
+        if provided and provided != ["media"]:
+            log_once(
+                logger.warning,
+                "The 'file' and 'files' fields are deprecated. Use 'media', "
+                "which takes one path or a mapping of source names to paths.",
+            )
+        if not provided:
+            return values
+
+        media = values.pop(provided[0])
+        # 'file' always named one source. 'media' names one only when it is
+        # a file itself, so that it can also take the mapping 'files' took.
+        if provided[0] == "file" or (
+            provided[0] == "media"
+            and isinstance(media, (PathType, np.ndarray))
+        ):
+            media = {"image": media}
+        # Anything else is left untouched for pydantic to report against
+        # `files` instead of failing on the paths below.
+        if isinstance(media, Mapping):
+            media = {
+                source: Path(file).absolute()
+                if isinstance(file, PathType)
+                else file
+                for source, file in media.items()
+            }
+        values["files"] = media
         return values
 
     def to_parquet_rows(
@@ -2074,6 +2191,11 @@ def load_annotation(
     }
     if task_type not in classes:
         raise ValueError(f"Unknown label type: {task_type}")
+    if task_type == "array" and "path" in data:
+        # Stored arrays keep the old key, so reading one back must not look
+        # like a caller that still uses the deprecated name.
+        data = {**data, "data": data["path"]}
+        del data["path"]
     return classes[task_type].model_validate(
         data, context={"keypoint_labels": keypoint_labels}
     )
@@ -2195,6 +2317,7 @@ __all__ = [
     "KeypointMetadata",
     "KeypointVisibility",
     "NormalizedFloat",
+    "PathOrArray",
     "SegmentationAnnotation",
     "load_annotation",
 ]

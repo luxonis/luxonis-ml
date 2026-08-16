@@ -42,7 +42,7 @@ def test_task_ingestion(
         for i in range(STEP):
             path = create_image(i, tempdir)
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "animals",
                 "annotation": {
                     "class": "dog",
@@ -50,7 +50,7 @@ def test_task_ingestion(
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "animals",
                 "annotation": {
                     "class": "cat",
@@ -58,7 +58,7 @@ def test_task_ingestion(
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "landmass",
                 "annotation": {
                     "class": "water",
@@ -76,7 +76,7 @@ def test_task_ingestion(
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "landmass",
                 "annotation": {
                     "class": "grass",
@@ -101,14 +101,14 @@ def test_task_ingestion(
         for i in range(STEP, 2 * STEP):
             path = create_image(i, tempdir)
             yield {
-                "file": str(path),
+                "media": str(path),
                 "annotation": {
                     "class": "dog",
                     "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "annotation": {
                     "class": "cat",
                     "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.1, "h": 0.3},
@@ -129,7 +129,7 @@ def test_task_ingestion(
         for i in range(2 * STEP, 3 * STEP):
             path = create_image(i, tempdir)
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "animals",
                 "annotation": {
                     "class": "dog",
@@ -137,7 +137,7 @@ def test_task_ingestion(
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "annotation": {
                     "class": "water",
                     "segmentation": {
@@ -167,7 +167,7 @@ def test_task_ingestion(
         for i in range(3 * STEP, 4 * STEP):
             path = create_image(i, tempdir)
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "detection",
                 "annotation": {
                     "class": "bike",
@@ -175,7 +175,7 @@ def test_task_ingestion(
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "segmentation",
                 "annotation": {
                     "class": "body",
@@ -192,7 +192,7 @@ def test_task_ingestion(
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "landmass-2",
                 "annotation": {
                     "class": "water",

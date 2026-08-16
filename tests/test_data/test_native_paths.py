@@ -47,7 +47,7 @@ def test_native_parser_accepts_windows_style_file_paths(tempdir: Path):
 
     parsed_record = next(iter(generator))
     parsed_file = (
-        parsed_record["file"]
+        parsed_record["media"]
         if isinstance(parsed_record, dict)
         else parsed_record.file
     )
@@ -86,7 +86,9 @@ def test_yolov4_parser_keeps_unlabeled_image_with_duplicate_basename(
     records = list(generator)
     files = {
         Path(
-            record["file"] if isinstance(record, dict) else record.file
+            record["media"]
+            if isinstance(record, dict)
+            else next(iter(record.file_paths.values()))
         ).resolve()
         for record in records
     }
@@ -133,7 +135,7 @@ def test_native_parser_resolves_array_annotation_paths(tempdir: Path):
 
     record = next(iter(generator))
     assert isinstance(record, dict)
-    assert record["annotation"]["array"]["path"] == array_path.resolve()
+    assert record["annotation"]["array"]["data"] == array_path.resolve()
 
 
 def test_native_parser_resolves_paths_for_a_list_of_annotations(
