@@ -1007,7 +1007,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         A described value wins. A field that the description leaves empty
         comes from the stored keypoint metadata. An `add` thus discards
-        nothing.
+        nothing. Stored labels are the exception. They name the columns of
+        the rows already written, so they keep their order.
         """
         if stored is None:
             return declared
@@ -1016,6 +1017,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         # annotations now describe a real one.
         placeholder = cls._placeholder_keypoint_metadata(n_keypoints)
         merged = declared.model_copy(deep=True)
+        if stored.has_names:
+            # `_alignment_keypoint_metadata` writes the new rows in the
+            # stored order, so the stored labels name the stored columns.
+            # A record may name a subset of them, or name them in another
+            # order. Neither renames a column.
+            merged.labels = list(stored.labels)
         for field in KeypointMetadata.model_fields:
             new, old = getattr(merged, field), getattr(stored, field)
             if not new:
