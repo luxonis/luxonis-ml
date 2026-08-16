@@ -170,6 +170,39 @@ def test_merge_with_none_sources():
     assert merged.source == source
 
 
+def test_merge_keeps_keypoint_fields_the_other_dataset_omits(
+    basic_metadata: Metadata,
+):
+    """Test that a merge fills the empty keypoint fields.
+
+    The merge kept the incoming keypoint metadata whole, so every field
+    that the incoming dataset left empty disappeared. A dataset that
+    declared edges, flip pairs and sigmas lost all three when a plainer
+    dataset merged into it. The fields hold indices into the labels, so
+    they only carry over while both datasets list the same labels in the
+    same order. The assertion checks that both datasets contribute.
+    """
+    other_metadata = Metadata(
+        source=None,
+        ldf_version="2.0.0",
+        classes={},
+        tasks={},
+        keypoint_metadata={
+            "task1": KeypointMetadata(
+                labels=["head", "tail"], sigmas=[0.05, 0.05]
+            )
+        },
+        categorical_encodings={},
+        metadata_types={},
+    )
+
+    merged = basic_metadata.merge_with(other_metadata)
+
+    assert merged.keypoint_metadata["task1"] == KeypointMetadata(
+        labels=["head", "tail"], edges=[(0, 1)], sigmas=[0.05, 0.05]
+    )
+
+
 def test_merge_metadata_types(basic_metadata: Metadata):
     """Test merging of metadata types."""
     other_metadata = Metadata(

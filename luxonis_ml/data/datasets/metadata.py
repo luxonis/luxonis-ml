@@ -99,14 +99,11 @@ class Metadata(BaseModelExtraForbid):
                 merged_tasks[key] = other.tasks[key]
 
         mine, theirs = self.keypoint_metadata, other.keypoint_metadata
-        for task in set(mine) & set(theirs):
-            if mine[task] != theirs[task]:
-                logger.warning(
-                    f"Task '{task}' has different keypoint metadata in the "
-                    "two datasets being merged. Keeping the one from the "
-                    "dataset being merged in."
-                )
         merged_keypoint_metadata = {**mine, **theirs}
+        for task in set(mine) & set(theirs):
+            merged_keypoint_metadata[task] = _merge_keypoint_metadata(
+                mine[task], theirs[task], task
+            )
 
         merged_categorical_encodings = {}
         for key in set(self.categorical_encodings) | set(
@@ -153,3 +150,53 @@ class Metadata(BaseModelExtraForbid):
             classes,
             key=lambda x: (0, "") if x == "background" else (1, x.lower()),
         )
+
+
+def _merge_keypoint_metadata(
+    mine: KeypointMetadata, theirs: KeypointMetadata, task: str
+) -> KeypointMetadata:
+    """Merge the keypoint metadata of one task from two datasets.
+
+    The dataset that is merged in wins. A field it leaves empty comes
+    from the other dataset. `edges`, `flip_pairs` and `sigmas` hold
+    indices into `labels`, so they only carry over if both datasets list
+    the same labels in the same order.
+
+    Args:
+        mine: Keypoint metadata of the target dataset.
+        theirs: Keypoint metadata of the dataset that is merged in.
+        task: Name of the task, used in the warnings.
+
+    Returns:
+        The merged keypoint metadata.
+
+    """
+    if mine.labels != theirs.labels:
+        logger.warning(
+            f"Task '{task}' has different keypoint labels in the two "
+            "datasets being merged. Keeping the ones from the dataset "
+            "being merged in. They now describe the keypoints of the "
+            "other dataset too, which gave them a different order."
+        )
+        return theirs
+
+    conflicts = [
+        field
+        for field in KeypointMetadata.model_fields
+        if getattr(mine, field)
+        and getattr(theirs, field)
+        and getattr(mine, field) != getattr(theirs, field)
+    ]
+    if conflicts:
+        logger.warning(
+            f"Task '{task}' has a different {', '.join(conflicts)} in the "
+            "two datasets being merged. Keeping the one from the dataset "
+            "being merged in."
+        )
+    return theirs.model_copy(
+        update={
+            field: getattr(mine, field)
+            for field in KeypointMetadata.model_fields
+            if not getattr(theirs, field)
+        }
+    )
