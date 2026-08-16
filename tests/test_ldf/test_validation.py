@@ -20,6 +20,7 @@ from luxonis_ml.ldf import (
     SegmentationAnnotation,
     load_annotation,
 )
+from luxonis_ml.typing import TaskType
 
 
 def test_bbox_missing_field_is_a_validation_error():
@@ -141,12 +142,12 @@ def test_keypoint_clipping_does_not_mutate_the_input():
     ],
 )
 def test_load_annotation_does_not_mutate_the_input(
-    task_type: str, data: dict[str, Any]
+    task_type: TaskType, data: dict[str, Any]
 ):
     """The mapping is validated directly, so nothing must leak back."""
     original = json.dumps(data)
 
-    load_annotation(task_type, data)  # type: ignore[arg-type]
+    load_annotation(task_type, data)
 
     assert json.dumps(data) == original
 
@@ -160,10 +161,10 @@ def test_load_annotation_does_not_mutate_the_input(
     ],
 )
 def test_load_annotation_accepts_a_read_only_mapping(
-    task_type: str, data: dict[str, Any]
+    task_type: TaskType, data: dict[str, Any]
 ):
     """`load_annotation` is typed to take any `Mapping`."""
-    load_annotation(task_type, MappingProxyType(data))  # type: ignore[arg-type]
+    load_annotation(task_type, MappingProxyType(data))
 
 
 def test_mask_size_wins_over_supplied_height_and_width():

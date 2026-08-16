@@ -10,6 +10,7 @@ from typing_extensions import override
 
 from luxonis_ml.data import (
     BaseDataset,
+    DatasetIterator,
     LuxonisDataset,
     LuxonisLoader,
     LuxonisParser,
@@ -1440,7 +1441,7 @@ def test_task_names_group_a_record_by_class(dataset_name: str, tempdir: Path):
     )
     image = create_image(0, tempdir)
 
-    def generator() -> Iterator[dict[str, Any]]:
+    def generator() -> DatasetIterator:
         yield {
             "file": image,
             "annotation": [
@@ -1463,7 +1464,7 @@ def test_task_names_reject_an_unknown_class(dataset_name: str, tempdir: Path):
     parser = native_parser(dataset_name, {"car": "vehicles"})
     image = create_image(0, tempdir)
 
-    def generator() -> Iterator[dict[str, Any]]:
+    def generator() -> DatasetIterator:
         yield {"file": image, "annotation": [{"class": "bicycle"}]}
 
     with pytest.raises(ValueError, match="not found in task names"):
@@ -1478,7 +1479,7 @@ def test_an_unlabeled_record_is_yielded_for_every_task(
     )
     image = create_image(0, tempdir)
 
-    def generator() -> Iterator[dict[str, Any]]:
+    def generator() -> DatasetIterator:
         yield {"file": image}
 
     records = list(parser._wrap_generator(generator()))
