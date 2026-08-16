@@ -31,7 +31,7 @@ class LDF_1_0_0_Skeleton(TypedDict):
     """Keypoint skeleton as LDF ``1.0.0`` stored it.
 
     The layout is frozen: these are the raw values read off disk, which
-    `Metadata` validates into a `luxonis_ml.ldf.Skeleton`.
+    `Metadata` validates into a `luxonis_ml.ldf.KeypointMetadata`.
 
     Attributes:
         labels: Keypoint names in index order.
