@@ -557,6 +557,32 @@ def test_merging_the_same_names_in_a_different_order_agrees():
     assert merged.labels == ["a", "b"]
 
 
+def test_merging_moves_the_other_records_indices_into_the_merged_order():
+    """`edges`, `flip_pairs` and `sigmas` index the labels of one record.
+
+    The merged labels come from the record that declared first, so the
+    other record's indices belong to another order. The merge used to
+    copy them unchanged, so `add` silently stored an edge between the
+    wrong keypoints and gave the wrong keypoint each sigma.
+    """
+    first = KeypointMetadata(labels=["nose", "left_eye", "right_eye"])
+    second = KeypointMetadata.model_validate(
+        {
+            "labels": ["right_eye", "left_eye", "nose"],
+            "edges": [("nose", "left_eye")],
+            "flip_pairs": [("left_eye", "right_eye")],
+            "sigmas": [0.035, 0.025, 0.026],
+        }
+    )
+
+    merged = first.merge_with(second, "task 'pose'")
+
+    assert merged.labels == ["nose", "left_eye", "right_eye"]
+    assert merged.edges == [(0, 1)]
+    assert merged.flip_pairs == [(1, 2)]
+    assert merged.sigmas == [0.026, 0.025, 0.035]
+
+
 def test_merging_disagreeing_metadata_is_an_error():
     with pytest.raises(ValueError, match="Conflicting keypoint metadata"):
         KeypointMetadata(labels=["a", "b"]).merge_with(
