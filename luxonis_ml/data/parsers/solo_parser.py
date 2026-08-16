@@ -133,8 +133,10 @@ class SOLOParser(BaseParser):
             annotation_definitions_dict
         )
 
+        # SOLO defines no skeleton. The empty list clears the placeholder
+        # edges that `add` writes for unnamed keypoints.
         skeletons = {
-            class_name: {"labels": keypoint_labels}
+            class_name: {"labels": keypoint_labels, "edges": []}
             for class_name in bbox_class_names
         }
 
