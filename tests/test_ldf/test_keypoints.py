@@ -1,8 +1,8 @@
 """Tests for the label-keyed keypoint annotation and its skeleton.
 
-The stored payload shape, the order keypoints end up in, and the way names
-are resolved to indices are all relied upon well outside of this module, so
-they are pinned here rather than left implicit at each of those sites.
+Code far outside of this module depends on three things: the shape of the
+stored payload, the final order of the keypoints, and the way a name
+becomes an index. These tests pin all three in one place.
 """
 
 import json
@@ -57,10 +57,10 @@ def payload(
 
 
 def test_a_keypoint_is_still_a_triplet():
-    """It is a named tuple so that nothing holding one has to care.
+    """A `Keypoint` is a named tuple, so a holder does not have to care.
 
-    Being a real tuple is what keeps `to_numpy`, the ``(N, 3K)`` loader
-    output, and every consumer that unpacks or indexes a keypoint working.
+    `to_numpy`, the ``(N, 3K)`` loader output, and every consumer that
+    unpacks or indexes a keypoint rely on the tuple.
     """
     keypoint = KeypointAnnotation.model_validate(
         {"keypoints": [(0.1, 0.2, 1)]}
@@ -120,11 +120,11 @@ def test_keypoints_accept_named_fields():
     ],
 )
 def test_keypoints_are_stored_as_flat_triplets(keypoints: Any):
-    """Six modules parse this payload without going through pydantic.
+    """Six modules parse this payload outside of pydantic.
 
-    `coco_exporter` unpacks each entry into exactly three values and
-    `ldf_equivalence` enumerates it, the latter silently producing garbage
-    rather than raising if it were ever handed a mapping.
+    `coco_exporter` unpacks each entry into three values.
+    `ldf_equivalence` enumerates it. A mapping would give
+    `ldf_equivalence` garbage, and it would not raise.
     """
     annotation = KeypointAnnotation.model_validate({"keypoints": keypoints})
 
@@ -400,10 +400,10 @@ def test_a_positional_list_is_named_by_its_own_skeleton():
 
 
 def test_naming_more_keypoints_than_are_present_is_allowed():
-    """That is what makes annotating only some of them possible.
+    """An annotation can thus name only some of the keypoints.
 
-    Only the mapping form can be sparse: in a list, position *is* the
-    identity, so a short list has no way to say which keypoints it holds.
+    Only a mapping can be sparse. In a list the position is the identity,
+    so a short list cannot say which keypoints it holds.
     """
     annotation = KeypointAnnotation.model_validate(
         {
@@ -472,9 +472,9 @@ def test_inferred_flip_pairs_are_a_valid_skeleton():
 def test_inference_is_not_applied_by_the_model():
     """It belongs to the write paths only.
 
-    `Metadata` is revalidated every time a dataset is opened, so inferring
-    here would materialize flip pairs for datasets that never asked for
-    them, and a skeleton carrying them cannot be read by older versions.
+    Every open of a dataset revalidates `Metadata`. Inference here would
+    give flip pairs to a dataset that never asked for them. An older
+    version cannot read a skeleton that has them.
     """
     assert Skeleton(labels=COCO_LABELS).flip_pairs == []
 

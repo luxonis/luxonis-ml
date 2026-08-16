@@ -1,7 +1,8 @@
 """Dataset-level tests for keypoint skeletons.
 
-Covers promoting the skeleton an annotation describes into the dataset
-metadata, and the compatibility properties that promotion has to preserve.
+`LuxonisDataset.add` moves the skeleton of an annotation into the dataset
+metadata. These tests cover that move and the compatibility that it must
+keep.
 """
 
 import json
@@ -276,9 +277,9 @@ def test_opening_a_dataset_does_not_materialize_flip_pairs(
 ):
     """Inference belongs to the write paths only.
 
-    `Metadata` is revalidated every time a dataset is opened. Inferring
-    there would persist flip pairs for datasets that never asked for them,
-    and older versions of `luxonis-ml` cannot read a skeleton that has any.
+    Every open of a dataset revalidates `Metadata`. Inference there would
+    give flip pairs to a dataset that never asked for them. An older
+    ``luxonis-ml`` cannot read a skeleton that has them.
     """
     dataset = create_dataset(
         dataset_name,
@@ -338,8 +339,9 @@ def test_the_loader_names_the_keypoints(dataset_name: str, tempdir: Path):
 def test_set_skeletons_updates_only_what_it_is_given(
     dataset_name: str, tempdir: Path
 ):
-    """It used to replace the whole entry, so setting one field wiped the
-    rest. With four fields that would be indefensible.
+    """It used to replace the whole entry, so one field wiped the rest.
+
+    A skeleton now has four fields, which makes that unacceptable.
     """
     dataset = named_dataset(dataset_name, tempdir)
 
@@ -373,8 +375,8 @@ def test_flip_pair_inference_can_be_turned_off(
 
     dataset.set_skeletons(labels=LABELS, task="pose", infer_flip_pairs=False)
 
-    # Already inferred when the data was added, so clear them first to see
-    # that the flag is what keeps them away.
+    # The `add` already inferred them. A fresh dataset below shows that
+    # the flag keeps them away.
     assert dataset.get_skeletons()["pose"].flip_pairs == [(1, 2)]
 
     fresh = LuxonisDataset(f"{dataset_name}_fresh", delete_local=True)

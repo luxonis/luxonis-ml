@@ -955,11 +955,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     def _fill_in_flip_pairs(skeleton: Skeleton, *, infer: bool) -> Skeleton:
         """Infer flip pairs from the keypoint names when none are known.
 
-        Inference deliberately happens only where a skeleton is written,
-        never while one is being read back: materializing flip pairs on
-        load would persist them for datasets that never asked for the
-        feature, and older versions of `luxonis-ml` cannot read a skeleton
-        that has them.
+        Only a write path infers them, never a read path. A read path
+        would give flip pairs to a dataset that never asked for them. An
+        older ``luxonis-ml`` cannot read a skeleton that has them.
         """
         if not infer or skeleton.flip_pairs or not skeleton.labels:
             return skeleton
@@ -977,11 +975,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         num_kpts_per_task: dict[str, set[int]],
         declared: dict[str, Skeleton],
     ) -> None:
-        """Promote the skeletons described by the annotations.
+        """Promote the skeletons that the annotations describe.
 
-        Placeholder names and chain edges are generated only for keypoint
-        tasks that have no skeleton at all, so a skeleton that was set
-        explicitly beforehand survives being added to.
+        Only a keypoint task with no skeleton gets placeholder names and
+        chain edges. An explicit skeleton thus survives an `add`.
         """
         if not num_kpts_per_task:
             return
@@ -1020,15 +1017,14 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     ) -> Skeleton:
         """Combine a described skeleton with the one already stored.
 
-        Described values win, but whatever they leave empty is kept from
-        the stored skeleton, so adding to a dataset never discards what it
-        already knows.
+        A described value wins. A field that the description leaves empty
+        comes from the stored skeleton. An `add` thus discards nothing.
         """
         if stored is None:
             return declared
 
-        # A stored value that `add` generated itself is not worth a warning:
-        # the annotations now describe a real one.
+        # No warning for a stored value that `add` generated itself. The
+        # annotations now describe a real one.
         placeholder = cls._placeholder_skeleton(n_keypoints)
         merged = declared.model_copy(deep=True)
         for field in Skeleton.model_fields:

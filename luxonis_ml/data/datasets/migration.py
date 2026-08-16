@@ -131,7 +131,7 @@ def migrate_metadata(
     """Migrate LDF ``1.0.0`` metadata to the current schema.
 
     Args:
-        metadata: Metadata dictionary in the LDF :math:`1.0.0` layout.
+        metadata: Metadata dictionary in the LDF ``1.0.0`` layout.
         df: Optional annotation dataframe used to infer task names for
             non-default datasets.
 
