@@ -403,6 +403,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import (
+    TYPE_CHECKING,
     Annotated,
     Any,
     Final,
@@ -440,6 +441,11 @@ from luxonis_ml.typing import (
     check_type,
 )
 from luxonis_ml.utils.logging import log_once
+
+if TYPE_CHECKING:
+    from luxonis_ml.typing import LoaderOutput
+
+    from .schema import DatasetSchema
 
 KeypointVisibility: TypeAlias = Literal[0, 1, 2]
 """Keypoint visibility following the COCO convention.
@@ -975,7 +981,11 @@ class Detection(BaseModelExtraForbid):
     )
     instance_id: int = -1
 
-    metadata: dict[str, int | float | str | Category] = {}
+    # A literal default is deep-copied into every instance, which the
+    # loader pays for once per annotation row.
+    metadata: dict[str, int | float | str | Category] = Field(
+        default_factory=dict
+    )
 
     boundingbox: Optional["BBoxAnnotation"] = None
     keypoints: Optional["KeypointAnnotation"] = None
@@ -985,7 +995,7 @@ class Detection(BaseModelExtraForbid):
 
     scale_to_boxes: bool = False
 
-    sub_detections: dict[str, "Detection"] = {}
+    sub_detections: dict[str, "Detection"] = Field(default_factory=dict)
 
     def get_task_types(self) -> set[str]:
         """Get all the task type associated with this detection.
@@ -2305,6 +2315,43 @@ class DatasetRecord(BaseModelExtraForbid):
             }
         values["files"] = media
         return values
+
+    def to_loader_output(
+        self,
+        schema: "DatasetSchema",
+        *,
+        images: dict[str, np.ndarray] | None = None,
+        keep_categorical_as_strings: bool = False,
+        include_empty: bool = True,
+    ) -> "LoaderOutput":
+        """Convert this record into the arrays a loader returns.
+
+        Args:
+            schema: Schema of the dataset this record belongs to. It supplies
+                what a record cannot: the class IDs, the number of classes of
+                a segmentation task, and the keypoint count of an empty
+                keypoint label.
+            images: Images keyed by source name. Read from the record's files
+                when omitted.
+            keep_categorical_as_strings: Whether categorical metadata keeps
+                its string values instead of the encoded integers.
+            include_empty: Whether every task of the schema gets a label, even
+                when this record has no annotation for it.
+
+        Returns:
+            The images, one label per task and task type, and this record's
+            metadata with the schema attached.
+
+        """
+        from luxonis_ml.ldf.conversion import record_to_loader_output
+
+        return record_to_loader_output(
+            self,
+            schema,
+            images=images,
+            keep_categorical_as_strings=keep_categorical_as_strings,
+            include_empty=include_empty,
+        )
 
     def to_parquet_rows(
         self, keypoint_metadata: Mapping[str, KeypointMetadata] | None = None
