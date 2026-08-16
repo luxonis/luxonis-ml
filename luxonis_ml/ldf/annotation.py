@@ -1085,6 +1085,28 @@ class Annotation(ABC, BaseModelExtraForbid):
         """
         ...
 
+    @staticmethod
+    @abstractmethod
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["Annotation", int | None]]:
+        """Split a combined array back into single annotations.
+
+        This is the inverse of `combine_to_numpy`. Only some layouts carry
+        the class of each annotation, so the class ID is optional: keypoints
+        and instance masks are stored without one, and the caller has to
+        take it from another annotation of the same instance.
+
+        Args:
+            array: Array in the layout `combine_to_numpy` produces.
+
+        Returns:
+            One annotation per instance, each with its class ID when the
+            layout carries one.
+
+        """
+        ...
+
 
 class ClassificationAnnotation(Annotation):
     """Dummy wrapper annotation for classification tasks.
@@ -1121,6 +1143,26 @@ class ClassificationAnnotation(Annotation):
         for i in range(len(annotations)):
             classify_vector[classes[i]] = 1
         return classify_vector
+
+    @staticmethod
+    @override
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["ClassificationAnnotation", int]]:
+        r"""Split a multi-hot label vector into one annotation per class.
+
+        Args:
+            array: Multi-hot class vector of shape
+                :math:`\left(C,\right)`.
+
+        Returns:
+            One annotation per class the vector marks, with its class ID.
+
+        """
+        return [
+            (ClassificationAnnotation(), int(class_id))
+            for class_id in np.flatnonzero(array)
+        ]
 
 
 class BBoxAnnotation(Annotation):
@@ -1178,6 +1220,34 @@ class BBoxAnnotation(Annotation):
         for i, ann in enumerate(annotations):
             boxes[i] = ann.to_numpy(classes[i])
         return boxes
+
+    @staticmethod
+    @override
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["BBoxAnnotation", int]]:
+        r"""Split bounding box rows into single annotations.
+
+        Args:
+            array: Rows of shape :math:`\left(N, 5\right)`, each in the
+                format ``[class_id, x, y, w, h]``.
+
+        Returns:
+            One bounding box per row, with the class ID of its first column.
+
+        """
+        return [
+            (
+                BBoxAnnotation(
+                    x=float(row[1]),
+                    y=float(row[2]),
+                    w=float(row[3]),
+                    h=float(row[4]),
+                ),
+                int(row[0]),
+            )
+            for row in array
+        ]
 
     @model_validator(mode="before")
     @classmethod
@@ -1323,6 +1393,38 @@ class KeypointAnnotation(Annotation):
                 )
             keypoints[i] = ann.to_numpy()
         return keypoints
+
+    @staticmethod
+    @override
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["KeypointAnnotation", None]]:
+        r"""Split flattened keypoint rows into single annotations.
+
+        Args:
+            array: Rows of shape :math:`\left(N, 3K\right)`.
+
+        Returns:
+            One keypoint annotation per row. The layout carries no class,
+            so every class ID is ``None``.
+
+        """
+        return [
+            (
+                # Validated rather than constructed: visibility is a literal
+                # that the float array cannot carry.
+                KeypointAnnotation.model_validate(
+                    {
+                        "keypoints": [
+                            (float(x), float(y), round(float(visibility)))
+                            for x, y, visibility in row.reshape(-1, 3)
+                        ]
+                    }
+                ),
+                None,
+            )
+            for row in array
+        ]
 
     def declared_metadata(self) -> KeypointMetadata | None:
         """Return the task-level metadata this annotation describes.
@@ -1570,6 +1672,33 @@ class SegmentationAnnotation(Annotation):
 
         return segmentation
 
+    @staticmethod
+    @override
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["SegmentationAnnotation", int]]:
+        r"""Split class masks into one annotation per class.
+
+        Args:
+            array: Semantic masks of shape :math:`\left(C, H, W\right)`.
+
+        Returns:
+            One annotation per class that has any pixel, with its class ID.
+            The combination gave each pixel to one class, and the split does
+            not restore the overlaps.
+
+        """
+        return [
+            (
+                SegmentationAnnotation.model_validate(
+                    {"mask": mask.astype(np.uint8)}
+                ),
+                class_id,
+            )
+            for class_id, mask in enumerate(array)
+            if mask.any()
+        ]
+
     @field_serializer("counts", when_used="json")
     def _serialize_counts(self, counts: bytes) -> str:
         return counts.decode("utf-8")
@@ -1769,6 +1898,31 @@ class InstanceSegmentationAnnotation(SegmentationAnnotation):
         """
         return np.stack([ann.to_numpy() for ann in annotations])
 
+    @staticmethod
+    @override
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["InstanceSegmentationAnnotation", None]]:
+        r"""Split instance masks into single annotations.
+
+        Args:
+            array: Instance masks of shape :math:`\left(N, H, W\right)`.
+
+        Returns:
+            One annotation per mask. The layout carries no class, so every
+            class ID is ``None``.
+
+        """
+        return [
+            (
+                InstanceSegmentationAnnotation.model_validate(
+                    {"mask": mask.astype(np.uint8)}
+                ),
+                None,
+            )
+            for mask in array
+        ]
+
 
 class ArrayAnnotation(Annotation):
     """Custom annotation backed by an array file or an in-memory array.
@@ -1819,6 +1973,34 @@ class ArrayAnnotation(Annotation):
         for i, array in enumerate(arrays):
             out_arr[i, classes[i]] = array
         return out_arr
+
+    @staticmethod
+    @override
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["ArrayAnnotation", int | None]]:
+        r"""Split class-indexed arrays into single annotations.
+
+        Args:
+            array: Arrays of shape :math:`\left(N, C, \ldots\right)`, where
+                every instance fills the slot of its own class.
+
+        Returns:
+            One annotation per instance, holding the data of its class slot.
+            An instance whose data is all zeros has no slot to tell apart, so
+            it takes the first one and reports no class ID.
+
+        """
+        annotations: list[tuple[ArrayAnnotation, int | None]] = []
+        for instance in array:
+            class_id = next(
+                (i for i, slot in enumerate(instance) if slot.any()), None
+            )
+            slot = instance[class_id or 0]
+            annotations.append(
+                (ArrayAnnotation.model_validate({"data": slot}), class_id)
+            )
+        return annotations
 
     @model_validator(mode="before")
     @classmethod
