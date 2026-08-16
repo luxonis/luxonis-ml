@@ -708,7 +708,8 @@ class KeypointMetadata(BaseModelExtraForbid):
                 f"Duplicate keypoint names: {', '.join(duplicates)}."
             )
 
-        self.edges = sorted(self.edges)
+        # An edge has no direction, so its ends order like a flip pair.
+        self.edges = sorted((min(a, b), max(a, b)) for a, b in self.edges)
 
         seen: dict[int, tuple[int, int]] = {}
         flip_pairs = []
