@@ -207,6 +207,32 @@ def test_a_later_add_cannot_reorder_the_stored_labels(
     }
 
 
+def test_a_later_add_updates_the_placeholder_count(
+    dataset_name: str, tempdir: Path
+):
+    """The stored count used to freeze at what the first `add` saw.
+
+    A record of unnamed keypoints declares nothing, so the guard that
+    protects an explicit definition also skipped the placeholder that
+    `add` wrote itself. The count then contradicts the rows on disk, and
+    `LuxonisLoader` sizes an empty keypoint label to the old width.
+    """
+    dataset = create_dataset(
+        dataset_name,
+        keypoint_generator(tempdir, [(0.1, 0.1, 2), (0.2, 0.2, 2)], n=1),
+    )
+    assert dataset.get_n_keypoints() == {"pose": 2}
+
+    dataset.add(
+        keypoint_generator(
+            tempdir, [(0.1, 0.1, 2), (0.2, 0.2, 2), (0.3, 0.3, 2)], n=1
+        )
+    )
+
+    assert dataset.get_n_keypoints() == {"pose": 3}
+    assert dataset.get_keypoint_metadata()["pose"].labels == ["0", "1", "2"]
+
+
 def test_positional_names_do_not_clash_with_real_ones(
     dataset_name: str, tempdir: Path
 ):
