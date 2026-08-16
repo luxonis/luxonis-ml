@@ -109,6 +109,28 @@ def test_keypoints_accept_named_fields():
 
 
 @pytest.mark.parametrize(
+    ("keypoint", "match"),
+    [
+        pytest.param({"y": 0.2, "visibility": 1}, "x", id="no-x"),
+        pytest.param({"x": 0.1, "visibility": 1}, "y", id="no-y"),
+        pytest.param({"x": 0.1, "y": 0.2, "vis": 1}, "vis", id="typo"),
+    ],
+)
+def test_an_incomplete_named_keypoint_is_an_error(
+    keypoint: dict[str, Any], match: str
+):
+    """A gap in the mapping used to shift the later values left.
+
+    ``{"y": 0.2, "visibility": 1}`` became ``(0.2, 1.0, 2)``, and a typo
+    such as ``vis`` was dropped without a word. Both give coordinates that
+    look valid, so nothing downstream can catch them. The mapping has to
+    reach pydantic, which names the field that is wrong.
+    """
+    with pytest.raises(pydantic.ValidationError, match=match):
+        KeypointAnnotation.model_validate({"keypoints": {"nose": keypoint}})
+
+
+@pytest.mark.parametrize(
     "keypoints",
     [
         pytest.param([(0.1, 0.2, 2), (0.3, 0.4, 1)], id="list"),
