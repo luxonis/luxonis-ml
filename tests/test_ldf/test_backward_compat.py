@@ -34,5 +34,8 @@ def test_references_to_ldf_classes_resolve():
     """
     package = Path(luxonis_ml.__file__).parent
     for path in sorted(package.rglob("*.py")):
-        for name in LDF_CLASS_REFERENCE.findall(path.read_text()):
+        # Python source is UTF-8. Without this, the read takes the locale
+        # encoding, and `__main__.py` breaks the test on Windows.
+        source = path.read_text(encoding="utf-8")
+        for name in LDF_CLASS_REFERENCE.findall(source):
             assert name in ldf.__all__, f"{path}: luxonis_ml.ldf.{name}"
