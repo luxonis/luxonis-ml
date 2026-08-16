@@ -464,6 +464,34 @@ def test_new_labels_drop_the_indices_they_invalidate(
     assert task_keypoints.sigmas == []
 
 
+def test_a_keypointless_dataset_omits_the_new_key(
+    dataset_name: str, tempdir: Path
+):
+    """LDF 2.2 renamed the stored ``skeletons`` to ``keypoint_metadata``.
+
+    `Metadata` forbids extra fields, so the new key alone stops an older
+    ``luxonis-ml`` from opening the dataset. A dataset without keypoints
+    holds nothing that LDF 2.2 added, so it must not carry the key. Every
+    write path rewrote it, even for a plain detection dataset.
+    """
+
+    def generator() -> DatasetIterator:
+        for i in range(4):
+            yield {
+                "file": str(create_image(i, tempdir)),
+                "task_name": "detection",
+                "annotation": {
+                    "class": "person",
+                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.3},
+                },
+            }
+
+    dataset = create_dataset(dataset_name, generator())
+
+    assert "keypoint_metadata" not in read_dataset_metadata(dataset)
+    assert LuxonisDataset(dataset_name).get_keypoint_metadata() == {}
+
+
 def test_set_keypoint_metadata_accepts_names(dataset_name: str, tempdir: Path):
     dataset = named_dataset(dataset_name, tempdir)
 

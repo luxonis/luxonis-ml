@@ -785,8 +785,16 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         return processed
 
     def _write_metadata(self) -> None:
+        # `keypoint_metadata` is new in LDF 2.2 and `Metadata` forbids
+        # extra fields. A dataset without keypoints must not carry the
+        # key, or an older luxonis-ml refuses to open it.
+        exclude: set[str] = set()
+        if not self._metadata.keypoint_metadata:
+            exclude.add("keypoint_metadata")
         path = self._metadata_path / "metadata.json"
-        path.write_text(self._metadata.model_dump_json(indent=4))
+        path.write_text(
+            self._metadata.model_dump_json(indent=4, exclude=exclude)
+        )
         with suppress(shutil.SameFileError):
             self._fs.put_file(path, "metadata/metadata.json")
 
