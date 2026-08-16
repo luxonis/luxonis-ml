@@ -1825,6 +1825,7 @@ def export(
         Parameter(alias="-m"),
     ] = None,
     zip: bool = True,
+    ldf_version: str | None = None,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
     """Export a Luxonis dataset to disk.
@@ -1842,6 +1843,10 @@ def export(
         zip: If ``True``, the exported dataset will be zipped into a
             single archive. If ``False``, the dataset will be exported as a
             directory with the specified structure.
+        ldf_version: LDF version to write, such as ``2.0``, so the export
+            can be read by an older luxonis-ml. Only valid with
+            ``--type native``. Downgrading is lossy and warns about what
+            it drops.
         bucket_storage: Storage type of the dataset.
 
     """
@@ -1849,7 +1854,13 @@ def export(
     if delete_existing and Path(save_dir).exists():
         shutil.rmtree(save_dir)
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
-    dataset.export(save_dir, dataset_type, max_partition_size_gb, zip)
+    dataset.export(
+        save_dir,
+        dataset_type=dataset_type,
+        max_partition_size_gb=max_partition_size_gb,
+        zip_output=zip,
+        ldf_version=ldf_version,
+    )
 
 
 @app.command

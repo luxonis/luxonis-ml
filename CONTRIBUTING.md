@@ -6,33 +6,46 @@ For API usage details, use the generated docs at
 
 ## Preparation
 
+Install [uv](https://docs.astral.sh/uv/), then:
+
 ```bash
 git clone git@github.com:luxonis/luxonis-ml.git
 cd luxonis-ml
 
-python -m venv .venv
-source .venv/bin/activate
+uv sync
 
-python -m pip install --upgrade pip
-python -m pip install -e '.[dev]'
-
-pre-commit install
-luxonis_ml checkhealth
+uv run prek install
+uv run luxonis_ml checkhealth
 ```
 
-**Use Python 3.10 or newer.** CI currently runs the core checks on Python
-3.10, so Python 3.10 is the safest local baseline.
+`uv sync` creates `.venv` and installs the package in editable mode together
+with the `dev` dependency group. That group depends on `luxonis-ml[all]`, so a
+plain `uv sync` pulls in every extra as well — you do not need `--all-extras`.
+There is no `source .venv/bin/activate` step: `uv run <cmd>` syncs the
+environment and runs the command inside it. Use `uv run --no-sync <cmd>` when
+you have hand-installed something into `.venv` that a sync would revert, such
+as a git checkout of a dependency.
 
-The editable install (`-e`) keeps your checkout importable while you edit it.
-The `dev` extra installs the package extras plus test, docs, and pre-commit
-tools.
+**The project targets Python 3.10 or newer.** `.python-version` pins the local
+interpreter to 3.10, which is what CI runs, and `uv` downloads it for you if it
+is missing.
 
-If dependency resolution behaves differently from CI, match the CI constraint:
+The repository's requirements files are generated pip compatibility exports,
+not inputs. Do not edit them by hand. Change dependencies in `pyproject.toml`
+(or with `uv add`), then run:
 
 ```bash
-printf 'setuptools<81\n' > /tmp/luxonis-ml-constraints.txt
-PIP_CONSTRAINT=/tmp/luxonis-ml-constraints.txt python -m pip install -e '.[dev]'
+tools/export_requirements.sh
 ```
+
+A pre-commit hook runs it for you whenever the dependency files change, so
+usually you only need to review and stage the refreshed `uv.lock` and
+requirements files before committing again.
+
+Only `requirements.txt` is hash pinned. The other exports retain their legacy
+unhashed format; this is also required for `data`, because pip does not honour
+the uv override that removes `opencv-python-headless`. See the comment in
+`tools/export_requirements.sh`.
 
 ## Repository Map
 
@@ -43,19 +56,27 @@ PIP_CONSTRAINT=/tmp/luxonis-ml-constraints.txt python -m pip install -e '.[dev]'
 | `luxonis_ml/nn_archive`        | Model archive metadata and archive generation utilities.                         |
 | `luxonis_ml/tracker`           | Experiment tracking integrations.                                                |
 | `luxonis_ml/telemetry`         | Lightweight telemetry client, events, redaction, and backends.                   |
+| `luxonis_ml/vizlab`            | Annotation rendering, layout composition, and the interactive viewer.            |
 | `tests`                        | Pytest suite, fixtures, integration tests, and data workflow coverage.           |
 | `tools/build_pydoctor_docs.py` | The local and CI entrypoint for generated API docs.                              |
+| `tools/export_requirements.sh` | Regenerates `uv.lock` and the `requirements*.txt` exports.                       |
+| `tools/version.py`             | Reports the package version, or changes it for a release.                        |
 
-Package dependencies are defined in `pyproject.toml` and loaded from the
-module requirement files plus `extra_requirements/`.
+Package dependencies are defined entirely in `pyproject.toml`: runtime
+requirements in `[project.dependencies]`, the per-module and cloud extras in
+`[project.optional-dependencies]`, and the `dev` and `docs` tooling in
+`[dependency-groups]`.
 
 ## Pre-commit checks
 
 Run the same formatting and static checks before pushing:
 
 ```bash
-pre-commit run --all-files
+uv run prek run --all-files
 ```
+
+The hooks are executed by [`prek`](https://github.com/j178/prek), a drop-in
+replacement for `pre-commit` that reads the same `.pre-commit-config.yaml`.
 
 Pre-commit runs:
 
@@ -67,6 +88,7 @@ Pre-commit runs:
 | `prettier`             | YAML formatting.                                                                          |
 | `taplo-format`         | TOML formatting.                                                                          |
 | `pre-commit-hooks`     | File endings, JSON/YAML/TOML validity, private key detection, and main branch protection. |
+| `export-requirements`  | Keeps `uv.lock` and the pip requirements exports in sync with `pyproject.toml`.           |
 
 **Do not commit directly to `main`.** The pre-commit hook blocks it, and PRs
 are the expected review path.
@@ -76,9 +98,9 @@ are the expected review path.
 Run focused tests while developing, then broaden the run before opening a PR.
 
 ```bash
-python -m pytest tests/test_utils/test_config.py -q
-python -m pytest tests/test_data/test_loader.py --only-local -q
-python -m pytest tests --only-local -n auto
+uv run pytest tests/test_utils/test_config.py -q
+uv run pytest tests/test_data/test_loader.py --only-local -q
+uv run pytest tests --only-local -n auto
 ```
 
 Use `--only-local` for data tests that are parametrized over local and cloud
@@ -107,7 +129,7 @@ Public API docs are generated from docstrings with pydoctor using the
 Build the current checkout locally:
 
 ```bash
-python tools/build_pydoctor_docs.py --mode current --output apidocs
+uv run python tools/build_pydoctor_docs.py --mode current --output apidocs
 ```
 
 Open `apidocs/latest/index.html` to inspect the result.
@@ -129,16 +151,12 @@ Good doc changes should:
 
 ## Type Checking and Security
 
-CI runs Pyright in warning mode against `pyproject.toml` after installing
-`.[dev]`.
+CI runs Pyright in warning mode against `pyproject.toml`. Pyright is pinned in
+the `dev` dependency group, so the local run matches CI:
 
 ```bash
-pyright --project pyproject.toml
+uv run pyright --warnings --level warning --project pyproject.toml
 ```
-
-_Pyright is invoked through the GitHub Action in CI; install it locally through
-your preferred Node or Python wrapper if you want the same feedback before
-pushing._
 
 CI also runs Semgrep with automatic rules and secret scanning. Treat those
 findings as required review items unless the team explicitly accepts the risk.
@@ -149,7 +167,7 @@ findings as required review items unless the team explicitly accepts the risk.
    `bugfix/`, `docs/`, or `ci/`.
 1. Keep changes scoped. Update tests and generated-doc docstrings with behavior
    changes.
-1. Run focused tests, then `pre-commit run --all-files`.
+1. Run focused tests, then `uv run prek run --all-files`.
 1. Build docs if public APIs, docstrings, or examples changed.
 1. Open a PR and include the problem, solution, and verification commands.
 
@@ -171,12 +189,67 @@ selected extras.
 
 ## Releases
 
+A release needs two manual steps: start the workflow, then merge the pull
+request it opens.
+
+1. Run the `Release PR` workflow from the Actions tab. Give it `major`,
+   `minor`, `patch`, or an explicit version such as `1.2.3`.
+1. The workflow changes `__version__` in `luxonis_ml/__init__.py` and opens a
+   `release/vX.Y.Z` pull request that lists the changes after the last tag.
+1. Review the pull request, wait for CI, and merge it.
+1. The `Release Tag` workflow then tags `vX.Y.Z-beta` on the merge commit and
+   creates the GitHub release with generated notes.
+1. The release publication starts the PyPI upload and the docs deployment.
+
+Use `tools/version.py` for the same version change on your machine:
+
+```bash
+python3 tools/version.py --path luxonis_ml/__init__.py            # report
+python3 tools/version.py --path luxonis_ml/__init__.py --set minor
+```
+
+`.github/release.yaml` groups the generated notes into categories from the pull
+request labels. GitHub reads that file; the name is not ours to choose.
+
+### Shared with the other repositories
+
+The release logic lives in two reusable workflows, and every Luxonis
+repository calls them. Only the two thin caller workflows and the label
+configuration are per repository. To adopt them elsewhere, add a
+`Release PR` caller:
+
+```yaml
+jobs:
+  release-pr:
+    uses: luxonis/luxonis-ml/.github/workflows/reusable-release-pr.yaml@main
+    with:
+      version: ${{ inputs.version }}
+      version-file: luxonis_train/__init__.py
+      project-name: LuxonisTrain
+    secrets:
+      WORKFLOW_SECRET: ${{ secrets.WORKFLOW_SECRET }}
+```
+
+and a `Release Tag` caller with the same `version-file`. The repository needs
+the `WORKFLOW_SECRET` secret and a `release` label. The reusable workflows
+check out `tools/version.py` from this repository, so the caller does not copy
+it.
+
 Package publishing and documentation deployment are handled by GitHub Actions:
 
+- `reusable-release-pr.yaml` and `reusable-release-tag.yaml` hold the shared
+  release logic.
+- `release-pr.yaml` opens the version bump pull request on manual dispatch.
+- `release-tag.yaml` tags and releases a merged `release/*` pull request.
 - `python-publish.yml` builds and publishes on release publication or manual
   dispatch.
 - `docs-pages.yaml` publishes GitHub Pages docs on `main`, release publication,
   or manual dispatch.
+- `pip-install.yaml` installs from the `requirements*.txt` exports whenever they
+  or their inputs change. Nothing else in CI uses those files, so this is what
+  keeps the pip path working for users who do not have `uv`.
+- `dependencies_autoupdate.yaml` runs `uv lock --upgrade` monthly and opens a PR
+  with the refreshed lock and exports.
 
 Do not change release or dependency behavior without checking the relevant
 workflow and package metadata in `pyproject.toml`.
