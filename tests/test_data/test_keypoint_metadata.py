@@ -175,6 +175,38 @@ def test_add_does_not_clobber_explicit_metadata(
     assert task_keypoints.edges == [(0, 1), (0, 2)]
 
 
+def test_a_later_add_cannot_reorder_the_stored_labels(
+    dataset_name: str, tempdir: Path
+):
+    """The labels of a second `add` used to replace the stored ones.
+
+    The rows of the second `add` are written in the stored order, so the
+    new order renamed every column. The payload and the flip pair prove
+    it: the payload keeps the nose in column 0, and the flip pair holds
+    indices, so it must still join the two eyes.
+    """
+    dataset = named_dataset(dataset_name, tempdir)
+
+    dataset.add(
+        keypoint_generator(
+            tempdir,
+            {
+                "right_eye": (0.6, 0.2, 1),
+                "left_eye": (0.4, 0.2, 2),
+                "nose": (0.5, 0.3, 2),
+            },
+            n=1,
+        )
+    )
+
+    task_keypoints = dataset.get_keypoint_metadata()["pose"]
+    assert task_keypoints.labels == LABELS
+    assert task_keypoints.flip_pairs == [(1, 2)]
+    assert set(keypoint_payloads(dataset)) == {
+        '{"keypoints":[[0.5,0.3,2],[0.4,0.2,2],[0.6,0.2,1]]}'
+    }
+
+
 def test_positional_names_do_not_clash_with_real_ones(
     dataset_name: str, tempdir: Path
 ):
