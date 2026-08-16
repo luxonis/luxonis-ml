@@ -396,9 +396,14 @@ def test_the_task_fields_must_match_the_keypoints(
 
 
 def test_duplicate_names_are_rejected():
-    """An annotation cannot hit this, because its names are dict keys."""
-    with pytest.raises(ValueError, match="Duplicate"):
-        KeypointMetadata(labels=["a", "a"]).validate_for(2)
+    """A name is the key of a keypoint, so a duplicate drops one.
+
+    An annotation cannot hit this, because its names are dict keys.
+    `set_keypoint_metadata` can, so the check belongs on construction and
+    not in `validate_for`, which only a record path calls.
+    """
+    with pytest.raises(pydantic.ValidationError, match="Duplicate"):
+        KeypointMetadata(labels=["a", "a"])
 
 
 def test_an_annotation_may_hold_fewer_keypoints_than_the_task():

@@ -592,14 +592,6 @@ class KeypointMetadata(BaseModelExtraForbid):
                     f"{len(value)} {field}, but the annotations contain "
                     f"{n_keypoints} keypoints."
                 )
-        duplicates = sorted(
-            label for label, count in Counter(self.labels).items() if count > 1
-        )
-        if duplicates:
-            raise ValueError(
-                f"Duplicate keypoint names{_where(context)}: "
-                f"{', '.join(duplicates)}."
-            )
         for field in ("edges", "flip_pairs"):
             for pair in getattr(self, field):
                 for index in pair:
@@ -706,6 +698,16 @@ class KeypointMetadata(BaseModelExtraForbid):
 
     @model_validator(mode="after")
     def _normalize(self) -> Self:
+        # A name is the key of the keypoint, on disk and in the loader.
+        # A duplicate name thus drops a keypoint instead of failing.
+        duplicates = sorted(
+            label for label, count in Counter(self.labels).items() if count > 1
+        )
+        if duplicates:
+            raise ValueError(
+                f"Duplicate keypoint names: {', '.join(duplicates)}."
+            )
+
         self.edges = sorted(self.edges)
 
         seen: dict[int, tuple[int, int]] = {}

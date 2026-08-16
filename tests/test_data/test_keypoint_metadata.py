@@ -485,6 +485,28 @@ def test_flip_pair_inference_can_be_turned_off(
     assert fresh.get_keypoint_metadata()["pose"].flip_pairs == []
 
 
+def test_set_keypoint_metadata_rejects_duplicate_names(
+    dataset_name: str, tempdir: Path
+):
+    """A duplicate name used to pass, and it destroyed a keypoint.
+
+    Both the stored payload and the loader output key the keypoints by
+    name, so the second ``left_eye`` overwrote the first one.
+    `get_n_keypoints` still reported three, and nothing warned. The shape
+    assertion is what a duplicate name silently changed to ``(1, 6)``.
+    """
+    dataset = named_dataset(dataset_name, tempdir)
+
+    with pytest.raises(ValueError, match="Duplicate keypoint names"):
+        dataset.set_keypoint_metadata(
+            labels=["nose", "left_eye", "left_eye"], task="pose"
+        )
+
+    assert dataset.get_keypoint_metadata()["pose"].labels == LABELS
+    _, labels = LuxonisLoader(dataset)[0]
+    assert labels["pose/keypoints"].shape == (1, 9)
+
+
 def test_set_keypoint_metadata_needs_something_to_set(
     dataset_name: str, tempdir: Path
 ):
