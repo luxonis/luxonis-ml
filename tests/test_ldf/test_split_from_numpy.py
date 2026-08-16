@@ -105,8 +105,8 @@ def test_arrays_come_back_from_their_class_slot(tempdir: Path):
     np.save(first, np.array([1.0, 2.0]))
     np.save(second, np.array([3.0, 4.0]))
     arrays = [
-        ArrayAnnotation(data=first),  # type: ignore[call-arg]
-        ArrayAnnotation(data=second),  # type: ignore[call-arg]
+        ArrayAnnotation.model_validate({"data": first}),
+        ArrayAnnotation.model_validate({"data": second}),
     ]
     combined = ArrayAnnotation.combine_to_numpy(arrays, [2, 0], 3)
 

@@ -23,20 +23,32 @@ def test_boxes_keep_their_class_and_coordinates():
         tasks={"vehicles": ["boundingbox", "classification"]},
         classes={"vehicles": {"car": 0, "truck": 1}},
     )
-    record = DatasetRecord(
-        media=IMAGE,  # type: ignore[call-arg]
-        annotation={
-            "vehicles": [
-                {
-                    "class": "truck",
-                    "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.2, "h": 0.2},
-                },
-                {
-                    "class": "car",
-                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
-                },
-            ]
-        },
+    record = DatasetRecord.model_validate(
+        {
+            "media": IMAGE,
+            "annotation": {
+                "vehicles": [
+                    {
+                        "class": "truck",
+                        "boundingbox": {
+                            "x": 0.5,
+                            "y": 0.5,
+                            "w": 0.2,
+                            "h": 0.2,
+                        },
+                    },
+                    {
+                        "class": "car",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.2,
+                            "h": 0.2,
+                        },
+                    },
+                ]
+            },
+        }
     )
 
     rebuilt = roundtrip(record, schema)
@@ -59,17 +71,26 @@ def test_keypoints_take_the_class_of_their_instance():
         classes={"pose": {"person": 0}},
         n_keypoints={"pose": 2},
     )
-    record = DatasetRecord(
-        media=IMAGE,  # type: ignore[call-arg]
-        annotation={
-            "pose": [
-                {
-                    "class": "person",
-                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.5, "h": 0.5},
-                    "keypoints": {"keypoints": [(0.2, 0.2, 2), (0.3, 0.3, 1)]},
-                }
-            ]
-        },
+    record = DatasetRecord.model_validate(
+        {
+            "media": IMAGE,
+            "annotation": {
+                "pose": [
+                    {
+                        "class": "person",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.5,
+                            "h": 0.5,
+                        },
+                        "keypoints": {
+                            "keypoints": [(0.2, 0.2, 2), (0.3, 0.3, 1)]
+                        },
+                    }
+                ]
+            },
+        }
     )
 
     (detection,) = roundtrip(record, schema).annotation["pose"]
@@ -89,11 +110,13 @@ def test_semantic_masks_keep_one_detection_per_class():
         tasks={"scene": ["segmentation", "classification"]},
         classes={"scene": {"road": 0, "sky": 1}},
     )
-    record = DatasetRecord(
-        media=IMAGE,  # type: ignore[call-arg]
-        annotation={
-            "scene": [{"class": "road", "segmentation": {"mask": mask}}]
-        },
+    record = DatasetRecord.model_validate(
+        {
+            "media": IMAGE,
+            "annotation": {
+                "scene": [{"class": "road", "segmentation": {"mask": mask}}]
+            },
+        }
     )
 
     (detection,) = roundtrip(record, schema).annotation["scene"]
@@ -112,17 +135,24 @@ def test_instance_masks_pair_with_their_box():
         },
         classes={"cars": {"car": 0}},
     )
-    record = DatasetRecord(
-        media=IMAGE,  # type: ignore[call-arg]
-        annotation={
-            "cars": [
-                {
-                    "class": "car",
-                    "boundingbox": {"x": 0.2, "y": 0.2, "w": 0.3, "h": 0.3},
-                    "instance_segmentation": {"mask": mask},
-                }
-            ]
-        },
+    record = DatasetRecord.model_validate(
+        {
+            "media": IMAGE,
+            "annotation": {
+                "cars": [
+                    {
+                        "class": "car",
+                        "boundingbox": {
+                            "x": 0.2,
+                            "y": 0.2,
+                            "w": 0.3,
+                            "h": 0.3,
+                        },
+                        "instance_segmentation": {"mask": mask},
+                    }
+                ]
+            },
+        }
     )
 
     (detection,) = roundtrip(record, schema).annotation["cars"]
@@ -140,11 +170,15 @@ def test_arrays_keep_their_data(tempdir: Path):
         tasks={"embeddings": ["array", "classification"]},
         classes={"embeddings": {"vector": 0}},
     )
-    record = DatasetRecord(
-        media=IMAGE,  # type: ignore[call-arg]
-        annotation={
-            "embeddings": [{"class": "vector", "array": {"data": array_path}}]
-        },
+    record = DatasetRecord.model_validate(
+        {
+            "media": IMAGE,
+            "annotation": {
+                "embeddings": [
+                    {"class": "vector", "array": {"data": array_path}}
+                ]
+            },
+        }
     )
 
     (detection,) = roundtrip(record, schema).annotation["embeddings"]
@@ -169,22 +203,34 @@ def test_metadata_stays_with_its_own_instance():
             "vehicles/metadata/color": {"red": 0, "blue": 1}
         },
     )
-    record = DatasetRecord(
-        media=IMAGE,  # type: ignore[call-arg]
-        annotation={
-            "vehicles": [
-                {
-                    "class": "car",
-                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
-                    "metadata": {"color": Category("blue"), "wheels": 4},
-                },
-                {
-                    "class": "car",
-                    "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.2, "h": 0.2},
-                    "metadata": {"color": Category("red"), "wheels": 6},
-                },
-            ]
-        },
+    record = DatasetRecord.model_validate(
+        {
+            "media": IMAGE,
+            "annotation": {
+                "vehicles": [
+                    {
+                        "class": "car",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.2,
+                            "h": 0.2,
+                        },
+                        "metadata": {"color": Category("blue"), "wheels": 4},
+                    },
+                    {
+                        "class": "car",
+                        "boundingbox": {
+                            "x": 0.5,
+                            "y": 0.5,
+                            "w": 0.2,
+                            "h": 0.2,
+                        },
+                        "metadata": {"color": Category("red"), "wheels": 6},
+                    },
+                ]
+            },
+        }
     )
 
     detections = roundtrip(record, schema).annotation["vehicles"]
@@ -198,7 +244,7 @@ def test_a_true_negative_stays_empty():
         tasks={"vehicles": ["boundingbox", "classification"]},
         classes={"vehicles": {"car": 0}},
     )
-    record = DatasetRecord(media=IMAGE)  # type: ignore[call-arg]
+    record = DatasetRecord.model_validate({"media": IMAGE})
 
     rebuilt = roundtrip(record, schema)
 
@@ -216,27 +262,34 @@ def test_a_sub_detection_comes_back_nested():
             "driver/face": {"face": 0},
         },
     )
-    record = DatasetRecord(
-        media=IMAGE,  # type: ignore[call-arg]
-        annotation={
-            "driver": [
-                {
-                    "class": "person",
-                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.5, "h": 0.5},
-                    "sub_detections": {
-                        "face": {
-                            "class": "face",
-                            "boundingbox": {
-                                "x": 0.2,
-                                "y": 0.2,
-                                "w": 0.1,
-                                "h": 0.1,
-                            },
-                        }
-                    },
-                }
-            ]
-        },
+    record = DatasetRecord.model_validate(
+        {
+            "media": IMAGE,
+            "annotation": {
+                "driver": [
+                    {
+                        "class": "person",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.5,
+                            "h": 0.5,
+                        },
+                        "sub_detections": {
+                            "face": {
+                                "class": "face",
+                                "boundingbox": {
+                                    "x": 0.2,
+                                    "y": 0.2,
+                                    "w": 0.1,
+                                    "h": 0.1,
+                                },
+                            }
+                        },
+                    }
+                ]
+            },
+        }
     )
 
     rebuilt = roundtrip(record, schema)
@@ -263,28 +316,35 @@ def test_two_levels_of_sub_detections_come_back_nested():
             "vehicle/plate/text": {"CO": 0},
         },
     )
-    record = DatasetRecord(
-        media=IMAGE,  # type: ignore[call-arg]
-        annotation={
-            "vehicle": [
-                {
-                    "class": "car",
-                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.5, "h": 0.5},
-                    "sub_detections": {
-                        "plate": {
-                            "class": "plate",
-                            "boundingbox": {
-                                "x": 0.2,
-                                "y": 0.2,
-                                "w": 0.1,
-                                "h": 0.1,
-                            },
-                            "sub_detections": {"text": {"class": "CO"}},
-                        }
-                    },
-                }
-            ]
-        },
+    record = DatasetRecord.model_validate(
+        {
+            "media": IMAGE,
+            "annotation": {
+                "vehicle": [
+                    {
+                        "class": "car",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.5,
+                            "h": 0.5,
+                        },
+                        "sub_detections": {
+                            "plate": {
+                                "class": "plate",
+                                "boundingbox": {
+                                    "x": 0.2,
+                                    "y": 0.2,
+                                    "w": 0.1,
+                                    "h": 0.1,
+                                },
+                                "sub_detections": {"text": {"class": "CO"}},
+                            }
+                        },
+                    }
+                ]
+            },
+        }
     )
 
     rebuilt = roundtrip(record, schema)
@@ -307,35 +367,37 @@ def test_every_parent_keeps_its_own_sub_detection():
             "driver/face": {"happy": 0, "sad": 1},
         },
     )
-    record = DatasetRecord(
-        media=IMAGE,  # type: ignore[call-arg]
-        annotation={
-            "driver": [
-                {
-                    "class": "person",
-                    "instance_id": index,
-                    "boundingbox": {
-                        "x": 0.1 * index,
-                        "y": 0.1,
-                        "w": 0.1,
-                        "h": 0.1,
-                    },
-                    "sub_detections": {
-                        "face": {
-                            "class": mood,
-                            "instance_id": index,
-                            "boundingbox": {
-                                "x": 0.1 * index,
-                                "y": 0.5,
-                                "w": 0.1,
-                                "h": 0.1,
-                            },
-                        }
-                    },
-                }
-                for index, mood in enumerate(["happy", "sad", "happy"])
-            ]
-        },
+    record = DatasetRecord.model_validate(
+        {
+            "media": IMAGE,
+            "annotation": {
+                "driver": [
+                    {
+                        "class": "person",
+                        "instance_id": index,
+                        "boundingbox": {
+                            "x": 0.1 * index,
+                            "y": 0.1,
+                            "w": 0.1,
+                            "h": 0.1,
+                        },
+                        "sub_detections": {
+                            "face": {
+                                "class": mood,
+                                "instance_id": index,
+                                "boundingbox": {
+                                    "x": 0.1 * index,
+                                    "y": 0.5,
+                                    "w": 0.1,
+                                    "h": 0.1,
+                                },
+                            }
+                        },
+                    }
+                    for index, mood in enumerate(["happy", "sad", "happy"])
+                ]
+            },
+        }
     )
 
     drivers = roundtrip(record, schema).annotation["driver"]
@@ -354,10 +416,12 @@ def test_the_schema_travels_with_the_sample():
         tasks={"vehicles": ["classification"]},
         classes={"vehicles": {"car": 0}},
     )
-    record = DatasetRecord(
-        media=IMAGE,  # type: ignore[call-arg]
-        annotation={"vehicles": [{"class": "car"}]},
-        sample_metadata={"camera": "left"},
+    record = DatasetRecord.model_validate(
+        {
+            "media": IMAGE,
+            "annotation": {"vehicles": [{"class": "car"}]},
+            "sample_metadata": {"camera": "left"},
+        }
     )
 
     sample = record.to_loader_output(schema)
@@ -369,9 +433,8 @@ def test_the_schema_travels_with_the_sample():
 
 def test_rebuilding_without_a_schema_is_refused():
     schema = DatasetSchema(classes={"": {"car": 0}})
-    record = DatasetRecord(
-        media=IMAGE,  # type: ignore[call-arg]
-        annotation={"": [{"class": "car"}]},
+    record = DatasetRecord.model_validate(
+        {"media": IMAGE, "annotation": {"": [{"class": "car"}]}}
     )
     sample = record.to_loader_output(schema)
     sample.metadata.clear()
@@ -397,44 +460,56 @@ def test_sub_detections_follow_their_parent_out_of_order():
             "driver/face": {"happy": 0, "sad": 1},
         },
     )
-    record = DatasetRecord(
-        media=IMAGE,  # type: ignore[call-arg]
-        annotation={
-            "driver": [
-                {
-                    "class": "person",
-                    "instance_id": 1,
-                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
-                    "sub_detections": {
-                        "face": {
-                            "class": "sad",
-                            "boundingbox": {
-                                "x": 0.15,
-                                "y": 0.2,
-                                "w": 0.05,
-                                "h": 0.05,
-                            },
-                        }
+    record = DatasetRecord.model_validate(
+        {
+            "media": IMAGE,
+            "annotation": {
+                "driver": [
+                    {
+                        "class": "person",
+                        "instance_id": 1,
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.1,
+                            "h": 0.1,
+                        },
+                        "sub_detections": {
+                            "face": {
+                                "class": "sad",
+                                "boundingbox": {
+                                    "x": 0.15,
+                                    "y": 0.2,
+                                    "w": 0.05,
+                                    "h": 0.05,
+                                },
+                            }
+                        },
                     },
-                },
-                {
-                    "class": "person",
-                    "instance_id": 0,
-                    "boundingbox": {"x": 0.6, "y": 0.1, "w": 0.1, "h": 0.1},
-                    "sub_detections": {
-                        "face": {
-                            "class": "happy",
-                            "boundingbox": {
-                                "x": 0.65,
-                                "y": 0.2,
-                                "w": 0.05,
-                                "h": 0.05,
-                            },
-                        }
+                    {
+                        "class": "person",
+                        "instance_id": 0,
+                        "boundingbox": {
+                            "x": 0.6,
+                            "y": 0.1,
+                            "w": 0.1,
+                            "h": 0.1,
+                        },
+                        "sub_detections": {
+                            "face": {
+                                "class": "happy",
+                                "boundingbox": {
+                                    "x": 0.65,
+                                    "y": 0.2,
+                                    "w": 0.05,
+                                    "h": 0.05,
+                                },
+                            }
+                        },
                     },
-                },
-            ]
-        },
+                ]
+            },
+        }
     )
 
     drivers = roundtrip(record, schema).annotation["driver"]
@@ -455,16 +530,23 @@ def test_a_class_the_schema_does_not_define_is_refused():
         tasks={"vehicles": ["boundingbox", "classification"]},
         classes={"vehicles": {"car": 0}},
     )
-    record = DatasetRecord(
-        media=IMAGE,  # type: ignore[call-arg]
-        annotation={
-            "vehicles": [
-                {
-                    "class": "van",
-                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
-                }
-            ]
-        },
+    record = DatasetRecord.model_validate(
+        {
+            "media": IMAGE,
+            "annotation": {
+                "vehicles": [
+                    {
+                        "class": "van",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.1,
+                            "h": 0.1,
+                        },
+                    }
+                ]
+            },
+        }
     )
 
     with pytest.raises(ValueError, match="does not define the class 'van'"):
@@ -494,16 +576,23 @@ def test_a_sub_task_without_a_parent_keeps_its_own_name():
         tasks={"driver/face": ["boundingbox", "classification"]},
         classes={"driver/face": {"happy": 0}},
     )
-    record = DatasetRecord(
-        media=IMAGE,  # type: ignore[call-arg]
-        annotation={
-            "driver/face": [
-                {
-                    "class": "happy",
-                    "boundingbox": {"x": 0.3, "y": 0.1, "w": 0.1, "h": 0.1},
-                }
-            ]
-        },
+    record = DatasetRecord.model_validate(
+        {
+            "media": IMAGE,
+            "annotation": {
+                "driver/face": [
+                    {
+                        "class": "happy",
+                        "boundingbox": {
+                            "x": 0.3,
+                            "y": 0.1,
+                            "w": 0.1,
+                            "h": 0.1,
+                        },
+                    }
+                ]
+            },
+        }
     )
 
     rebuilt = roundtrip(record, schema)
@@ -550,12 +639,14 @@ def test_a_named_task_is_not_nested_under_the_default_task():
         tasks={"": ["classification"], "vehicles": ["classification"]},
         classes={"": {"scene": 0}, "vehicles": {"car": 0}},
     )
-    record = DatasetRecord(
-        media=IMAGE,  # type: ignore[call-arg]
-        annotation={
-            "": [{"class": "scene"}],
-            "vehicles": [{"class": "car"}],
-        },
+    record = DatasetRecord.model_validate(
+        {
+            "media": IMAGE,
+            "annotation": {
+                "": [{"class": "scene"}],
+                "vehicles": [{"class": "car"}],
+            },
+        }
     )
 
     rebuilt = roundtrip(record, schema)

@@ -26,7 +26,7 @@ from luxonis_ml.typing import TaskType
 def test_bbox_missing_field_is_a_validation_error():
     """Indexing the raw input used to raise a bare ``KeyError: 'h'``."""
     with pytest.raises(pydantic.ValidationError) as info:
-        BBoxAnnotation(x=0.1, y=0.1, w=0.1)  # type: ignore[call-arg]
+        BBoxAnnotation.model_validate({"x": 0.1, "y": 0.1, "w": 0.1})
     assert [(e["loc"], e["type"]) for e in info.value.errors()] == [
         (("h",), "missing")
     ]
@@ -172,10 +172,8 @@ def test_mask_size_wins_over_supplied_height_and_width():
     mask = np.zeros((4, 6), dtype=np.uint8)
     mask[1:3, 2:5] = 1
 
-    annotation = SegmentationAnnotation(
-        mask=mask,  # type: ignore[call-arg]
-        height=999,
-        width=999,
+    annotation = SegmentationAnnotation.model_validate(
+        {"mask": mask, "height": 999, "width": 999}
     )
 
     assert (annotation.height, annotation.width) == (4, 6)
@@ -185,12 +183,14 @@ def test_mask_size_wins_over_supplied_height_and_width():
 def test_record_rejects_both_file_and_files(tempdir: Path):
     """`files` used to be silently replaced by the single `file`."""
     with pytest.raises(pydantic.ValidationError, match="not both"):
-        DatasetRecord(
-            file=tempdir / "image.png",  # type: ignore[call-arg]
-            files={
-                "left": tempdir / "left.png",
-                "right": tempdir / "right.png",
-            },
+        DatasetRecord.model_validate(
+            {
+                "file": tempdir / "image.png",
+                "files": {
+                    "left": tempdir / "left.png",
+                    "right": tempdir / "right.png",
+                },
+            }
         )
 
 
@@ -216,19 +216,23 @@ def test_record_rejects_conflicting_task_and_task_name(tempdir: Path):
     """The deprecated `task` used to silently win over `task_name`."""
     (tempdir / "image.png").touch()
     with pytest.raises(pydantic.ValidationError, match="Conflicting values"):
-        DatasetRecord(
-            file=tempdir / "image.png",  # type: ignore[call-arg]
-            task="detection",  # type: ignore[call-arg]
-            task_name="segmentation",  # type: ignore[call-arg]
+        DatasetRecord.model_validate(
+            {
+                "file": tempdir / "image.png",
+                "task": "detection",
+                "task_name": "segmentation",
+            }
         )
 
 
 def test_record_accepts_matching_task_and_task_name(tempdir: Path):
     (tempdir / "image.png").touch()
-    record = DatasetRecord(
-        file=tempdir / "image.png",  # type: ignore[call-arg]
-        task="detection",  # type: ignore[call-arg]
-        task_name="detection",  # type: ignore[call-arg]
+    record = DatasetRecord.model_validate(
+        {
+            "file": tempdir / "image.png",
+            "task": "detection",
+            "task_name": "detection",
+        }
     )
 
     assert record.task_name == "detection"
@@ -249,7 +253,9 @@ def test_png_mask_is_read_without_opencv(tempdir: Path):
     mask[1:3, 2:5] = 1
     Image.fromarray(mask * 255).save(tempdir / "mask.png")
 
-    annotation = SegmentationAnnotation(mask=tempdir / "mask.png")  # type: ignore[call-arg]
+    annotation = SegmentationAnnotation.model_validate(
+        {"mask": tempdir / "mask.png"}
+    )
 
     np.testing.assert_array_equal(annotation.to_numpy(), mask)
 
@@ -268,7 +274,9 @@ def test_array_path_falls_back_when_mmap_is_unavailable(
 
     monkeypatch.setattr(np, "load", no_mmap)
 
-    annotation = ArrayAnnotation(data=tempdir / "array.npy")  # type: ignore[call-arg]
+    annotation = ArrayAnnotation.model_validate(
+        {"data": tempdir / "array.npy"}
+    )
 
     assert isinstance(annotation.path, Path)
     assert annotation.path.name == "array.npy"
@@ -277,13 +285,15 @@ def test_array_path_falls_back_when_mmap_is_unavailable(
 def test_sub_detections_inherit_the_record_metadata(tempdir: Path):
     """The serialized metadata is now threaded through the recursion."""
     (tempdir / "image.png").touch()
-    record = DatasetRecord(
-        file=tempdir / "image.png",  # type: ignore[call-arg]
-        sample_metadata={"camera": "left"},
-        annotation=Detection(
-            class_name="person",
-            sub_detections={"head": Detection(class_name="head")},
-        ),
+    record = DatasetRecord.model_validate(
+        {
+            "file": tempdir / "image.png",
+            "sample_metadata": {"camera": "left"},
+            "annotation": Detection(
+                class_name="person",
+                sub_detections={"head": Detection(class_name="head")},
+            ),
+        }
     )
 
     rows = list(record.to_parquet_rows())

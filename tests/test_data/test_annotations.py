@@ -140,10 +140,12 @@ def test_dataset_record(tempdir: Path):
         ],
     )
 
-    record = DatasetRecord(  # type: ignore[call-arg]
-        media={  # type: ignore[call-arg]
-            "left": left,
-            "right": right,
+    record = DatasetRecord.model_validate(
+        {
+            "media": {
+                "left": left,
+                "right": right,
+            }
         }
     )
     with pytest.raises(ValueError, match="must have exactly one file"):
@@ -631,10 +633,8 @@ def test_record(tempdir: Path):
     )
     filename = str((tempdir / "image.jpg").resolve())
     cv2.imwrite(filename, np.zeros((256, 256, 3), dtype=np.uint8))
-    record = DatasetRecord(
-        media=filename,  # type: ignore
-        annotation=detection,
-        task_name="test",  # type: ignore[call-arg]
+    record = DatasetRecord.model_validate(
+        {"media": filename, "annotation": detection, "task_name": "test"}
     )
     common = {
         "file": filename,

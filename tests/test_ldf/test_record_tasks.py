@@ -33,23 +33,30 @@ def rows(record: DatasetRecord) -> list[tuple[str, str | None, str | None]]:
 
 
 def test_a_bare_detection_lands_in_the_default_task(image: Path):
-    record = DatasetRecord(media=image, annotation=CAR)  # type: ignore[call-arg]
+    record = DatasetRecord.model_validate({"media": image, "annotation": CAR})
 
     assert set(record.annotation) == {""}
     assert record.annotation[""][0].class_name == "car"
 
 
 def test_a_detection_and_a_one_item_list_agree(image: Path):
-    single = DatasetRecord(media=image, annotation=CAR)  # type: ignore[call-arg]
-    listed = DatasetRecord(media=image, annotation=[CAR])  # type: ignore[call-arg]
+    single = DatasetRecord.model_validate({"media": image, "annotation": CAR})
+    listed = DatasetRecord.model_validate(
+        {"media": image, "annotation": [CAR]}
+    )
 
     assert list(single.to_parquet_rows()) == list(listed.to_parquet_rows())
 
 
 def test_detections_are_grouped_by_task(image: Path):
-    record = DatasetRecord(
-        media=image,  # type: ignore[call-arg]
-        annotation={"vehicles": [CAR, TRUCK], "weather": [{"class": "rain"}]},
+    record = DatasetRecord.model_validate(
+        {
+            "media": image,
+            "annotation": {
+                "vehicles": [CAR, TRUCK],
+                "weather": [{"class": "rain"}],
+            },
+        }
     )
 
     assert rows(record) == [
@@ -62,10 +69,8 @@ def test_detections_are_grouped_by_task(image: Path):
 
 
 def test_the_deprecated_task_name_becomes_the_mapping_key(image: Path):
-    record = DatasetRecord(
-        media=image,  # type: ignore[call-arg]
-        task_name="vehicles",  # type: ignore[call-arg]
-        annotation=[CAR],
+    record = DatasetRecord.model_validate(
+        {"media": image, "task_name": "vehicles", "annotation": [CAR]}
     )
 
     assert set(record.annotation) == {"vehicles"}
@@ -77,17 +82,18 @@ def test_the_deprecated_task_name_becomes_the_mapping_key(image: Path):
 
 def test_a_task_name_beside_a_mapping_has_to_match(image: Path):
     with pytest.raises(ValidationError, match="does not match the tasks"):
-        DatasetRecord(
-            media=image,  # type: ignore[call-arg]
-            task_name="weather",  # type: ignore[call-arg]
-            annotation={"vehicles": [CAR]},
+        DatasetRecord.model_validate(
+            {
+                "media": image,
+                "task_name": "weather",
+                "annotation": {"vehicles": [CAR]},
+            }
         )
 
 
 def test_a_task_name_without_detections_declares_the_task(image: Path):
-    record = DatasetRecord(  # type: ignore[call-arg]
-        media=image,  # type: ignore[call-arg]
-        task_name="vehicles",  # type: ignore[call-arg]
+    record = DatasetRecord.model_validate(
+        {"media": image, "task_name": "vehicles"}
     )
 
     assert record.annotation == {"vehicles": []}
@@ -95,16 +101,15 @@ def test_a_task_name_without_detections_declares_the_task(image: Path):
 
 
 def test_a_record_without_an_annotation_declares_nothing(image: Path):
-    record = DatasetRecord(media=image)  # type: ignore[call-arg]
+    record = DatasetRecord.model_validate({"media": image})
 
     assert record.annotation == {}
     assert rows(record) == [("", None, None)]
 
 
 def test_task_names_may_name_a_sub_detection(image: Path):
-    record = DatasetRecord(
-        media=image,  # type: ignore[call-arg]
-        annotation={"driver/face": [{"class": "face"}]},
+    record = DatasetRecord.model_validate(
+        {"media": image, "annotation": {"driver/face": [{"class": "face"}]}}
     )
 
     assert rows(record) == [("driver/face", "classification", "face")]
@@ -112,16 +117,20 @@ def test_task_names_may_name_a_sub_detection(image: Path):
 
 def test_an_empty_part_of_a_task_name_is_rejected(image: Path):
     with pytest.raises(ValidationError, match="empty part"):
-        DatasetRecord(
-            media=image,  # type: ignore[call-arg]
-            annotation={"driver//face": [{"class": "face"}]},
+        DatasetRecord.model_validate(
+            {
+                "media": image,
+                "annotation": {"driver//face": [{"class": "face"}]},
+            }
         )
 
 
 def test_the_task_name_property_needs_a_single_task(image: Path):
-    record = DatasetRecord(
-        media=image,  # type: ignore[call-arg]
-        annotation={"vehicles": [CAR], "weather": [{"class": "rain"}]},
+    record = DatasetRecord.model_validate(
+        {
+            "media": image,
+            "annotation": {"vehicles": [CAR], "weather": [{"class": "rain"}]},
+        }
     )
 
     with pytest.raises(ValueError, match="no single task name"):
@@ -139,16 +148,18 @@ def test_every_secondary_source_gets_exactly_one_empty_row(tempdir: Path):
     for path in (rgb, depth):
         path.touch()
 
-    record = DatasetRecord(  # type: ignore[call-arg]
-        media={"rgb": rgb, "depth": depth},  # type: ignore[call-arg]
-        annotation={
-            "driver": [
-                Detection(
-                    class_name="person",
-                    sub_detections={"face": Detection(class_name="face")},
-                )
-            ]
-        },
+    record = DatasetRecord.model_validate(
+        {
+            "media": {"rgb": rgb, "depth": depth},
+            "annotation": {
+                "driver": [
+                    Detection(
+                        class_name="person",
+                        sub_detections={"face": Detection(class_name="face")},
+                    )
+                ]
+            },
+        }
     )
 
     emitted = [
@@ -164,16 +175,18 @@ def test_every_secondary_source_gets_exactly_one_empty_row(tempdir: Path):
 
 
 def test_detections_keep_their_own_sub_detections(image: Path):
-    record = DatasetRecord(
-        media=image,  # type: ignore[call-arg]
-        annotation={
-            "driver": [
-                Detection(
-                    class_name="person",
-                    sub_detections={"face": Detection(class_name="face")},
-                )
-            ]
-        },
+    record = DatasetRecord.model_validate(
+        {
+            "media": image,
+            "annotation": {
+                "driver": [
+                    Detection(
+                        class_name="person",
+                        sub_detections={"face": Detection(class_name="face")},
+                    )
+                ]
+            },
+        }
     )
 
     assert rows(record) == [
