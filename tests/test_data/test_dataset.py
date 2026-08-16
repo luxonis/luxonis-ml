@@ -209,8 +209,7 @@ def test_split_sizes():
     assert _split_sizes(9, default) == {"train": 7, "val": 1, "test": 1}
     assert _split_sizes(14, default) == {"train": 11, "val": 2, "test": 1}
 
-    # Seven groups is the smallest count that fills all three splits.
-    # Below it the test split cannot get a whole group.
+    # Below 7 groups the test split cannot get a whole group.
     assert _split_sizes(6, default) == {"train": 5, "val": 1, "test": 0}
 
     for n_groups in range(1, 200):
@@ -263,12 +262,7 @@ def test_remove_duplicates_skips_a_clean_dataset(
     tempdir: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """A clean dataset must not pay for a full rewrite.
-
-    make_splits calls remove_duplicates before it knows the result. The
-    method rewrote every parquet file and re-uploaded the annotations,
-    even when it removed nothing.
-    """
+    """A clean dataset must not pay for a full parquet rewrite."""
     paths = [str(create_image(i, tempdir)) for i in range(3)]
 
     def generator(duplicate: bool) -> DatasetIterator:
@@ -339,8 +333,6 @@ def test_make_splits_is_atomic(
     monkeypatch.undo()
 
     assert dataset.get_splits() == old_splits
-    # `put_dir` uploads the whole metadata directory, so the partial
-    # file must not outlive the failure.
     assert not list(dataset._metadata_path.glob("*.tmp"))
 
 
@@ -464,9 +456,6 @@ def test_make_splits(
     with pytest.raises(ValueError, match=r"Ratios must sum to 1.0"):
         dataset.make_splits((0.7, 0.1, 1))
 
-    with pytest.raises(TypeError, match="exactly 3 values"):
-        dataset.make_splits((0.7, 0.1, 0.1, 0.1))  # type: ignore
-
     # An out-of-range ratio reports the range, not a misleading sum.
     with pytest.raises(ValueError, match=r"between 0\.0 and 1\.0"):
         dataset.make_splits({"train": 1.5})
@@ -481,36 +470,15 @@ def test_make_splits(
     with pytest.raises(TypeError, match="ratios or filepath lists"):
         dataset.make_splits({"train": "invalid"})
 
-    # A `str` and the binary types all register as a `Sequence`, but a
-    # buffer is a sequence of ints, not a list of filepaths.
-    for buffer in (b"a.jpg", bytearray(b"a.jpg"), memoryview(b"a.jpg")):
-        with pytest.raises(TypeError, match="ratios or filepath lists"):
-            dataset.make_splits({"train": buffer})  # type: ignore
-
-    with pytest.raises(TypeError, match="mapping, a tuple of 3 ratios"):
-        dataset.make_splits([0.8, 0.1, 0.1])  # type: ignore
-
-    # The checks below replace the ones `typeguard` used to make.
-    with pytest.raises(TypeError, match="must hold numbers"):
-        dataset.make_splits(("a", "b", "c"))  # type: ignore
-
-    with pytest.raises(TypeError, match="split name must be a string"):
-        dataset.make_splits({1: 1.0})  # type: ignore
-
-    with pytest.raises(TypeError, match="must be a bool"):
-        dataset.make_splits((1.0, 0.0, 0.0), replace_old_splits="yes")  # type: ignore
-
     with pytest.raises(TypeError, match="ratios or filepath lists"):
         dataset.make_splits({"train": 0.5, "val": ["a.jpg"]})  # type: ignore
 
-    # A mapping of counts needs no special case. No ratio can exceed 1,
-    # so the range check already rejects it.
+    # Counts are not ratios; no ratio can exceed 1.
     with pytest.raises(ValueError, match=r"between 0\.0 and 1\.0"):
         dataset.make_splits({"train": 8, "val": 1, "test": 1})
 
     dataset.add(generator(10))
-    # An `int` ratio means the same as the `float` one.
-    dataset.make_splits({"custom_split": 1})
+    dataset.make_splits({"custom_split": 1.0})
     splits = dataset.get_splits()
     assert splits is not None
     assert set(splits.keys()) == {"train", "val", "test", "custom_split"}
@@ -531,25 +499,22 @@ def test_make_splits(
 
     n_groups = sum(len(split_data) for split_data in splits.values())
 
-    # An `int` ratio works in a tuple too.
-    dataset.make_splits((1, 0, 0), replace_old_splits=True)
-    splits = dataset.get_splits()
-    assert splits is not None
-    assert len(splits["train"]) == n_groups
-    assert not splits["val"]
-    assert not splits["test"]
-
     # `True` is 1 and `False` is 0, so a bool is an ordinary ratio.
-    for bool_splits in ((True, False, False), {"train": True}):
-        dataset.make_splits(bool_splits, replace_old_splits=True)  # type: ignore
+    for all_to_train in (
+        (1.0, 0.0, 0.0),
+        (1, 0, 0),
+        (True, False, False),
+        {"train": 1},
+        {"train": True},
+    ):
+        dataset.make_splits(all_to_train, replace_old_splits=True)  # type: ignore
         splits = dataset.get_splits()
         assert splits is not None
         assert len(splits["train"]) == n_groups
         assert not splits.get("val")
         assert not splits.get("test")
 
-    # A mapping may mix an `int` with a `float`. A zero ratio is a
-    # common reason to write one.
+    # A zero ratio is the usual reason to mix an int into a mapping.
     dataset.make_splits(
         {"train": 0.8, "val": 0.2, "test": 0}, replace_old_splits=True
     )

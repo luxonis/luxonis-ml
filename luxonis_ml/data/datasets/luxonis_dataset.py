@@ -9,7 +9,7 @@ from functools import cached_property
 from os import PathLike
 from pathlib import Path, PurePosixPath
 from types import NotImplementedType
-from typing import Any, Literal, TypeGuard, overload
+from typing import Any, Literal, overload
 
 import numpy as np
 import polars as pl
@@ -1507,11 +1507,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 splits. If ``True``, the existing splits are discarded first.
 
         Raises:
-            TypeError: If ``splits`` is not a mapping, a tuple of 3
-                ratios, or ``None``. Also if the mapping values are
-                neither ratios nor file lists. The method does not check
-                the elements of a file list. It warns and skips each
-                element that is not a filepath.
+            TypeError: If the mapping values are neither ratios nor
+                filepath lists. The method warns and skips each element
+                of a filepath list that is not a filepath.
             ValueError: If ``splits`` is provided but is empty.
             ValueError: If the ratios are outside the range from 0 to 1 or
                 do not sum to 1.
@@ -1526,47 +1524,35 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         ratios: Mapping[str, float] | None = None
         definitions: Mapping[str, Sequence[PathType]] | None = None
 
-        if not isinstance(replace_old_splits, bool):
-            raise TypeError(
-                "`replace_old_splits` must be a bool, not a "
-                f"{type(replace_old_splits).__name__}."
-            )
-
         if isinstance(splits, tuple):
-            if len(splits) != 3:
-                raise TypeError(
-                    "A tuple of ratios must hold exactly 3 values, for "
-                    f"train, val, and test. Got {len(splits)}."
-                )
-            if any(not isinstance(ratio, (int, float)) for ratio in splits):
-                raise TypeError("A tuple of ratios must hold numbers.")
-            ratios = {
-                "train": splits[0],
-                "val": splits[1],
-                "test": splits[2],
-            }
-        elif not isinstance(splits, Mapping):
-            raise TypeError(
-                "Splits must be a mapping, a tuple of 3 ratios, or None. "
-                f"Got a {type(splits).__name__}."
+            ratios = dict(
+                zip(("train", "val", "test"), map(float, splits), strict=True)
             )
         elif not splits:
             raise ValueError("Splits cannot be empty")
-        elif not all(isinstance(split, str) for split in splits):
-            raise TypeError("Every split name must be a string.")
-        elif _are_ratios(splits):
-            ratios = splits
-        elif _are_definitions(splits):
-            definitions = splits
         else:
-            raise TypeError(
-                "Splits must map names to either ratios or filepath lists. "
-                "A ratio is a number from 0 to 1."
-            )
+            ratios = {
+                split: float(value)
+                for split, value in splits.items()
+                if isinstance(value, (int, float))
+            }
+            if len(ratios) < len(splits):
+                ratios = None
+                definitions = {
+                    split: value
+                    for split, value in splits.items()
+                    # A `str` is a Sequence, but one path is not a list.
+                    if isinstance(value, Sequence)
+                    and not isinstance(value, str)
+                }
+                if len(definitions) < len(splits):
+                    raise TypeError(
+                        "Splits must map names to either ratios or "
+                        "filepath lists. A ratio is a number from 0 to 1."
+                    )
 
         if ratios is not None:
-            # The range check comes first. An out-of-range ratio also
-            # breaks the sum, and the sum error hides the real mistake.
+            # Check the range first; a bad ratio breaks the sum too.
             if any(not 0.0 <= ratio <= 1.0 for ratio in ratios.values()):
                 raise ValueError(
                     "Ratios must be between 0.0 and 1.0 (inclusive)"
@@ -1588,17 +1574,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             with open(splits_path) as file:
                 old_splits = defaultdict(list, json.load(file))
 
-        # The old splits stay in memory until the write. A failure in
-        # between must not discard them.
-        defined_group_ids: set[str] = (
-            set()
-            if replace_old_splits
-            else {
-                group_id
-                for group_ids in old_splits.values()
-                for group_id in group_ids
-            }
-        )
+        defined_group_ids: set[str] = set()
+        if not replace_old_splits:
+            for group_ids in old_splits.values():
+                defined_group_ids.update(group_ids)
 
         if ratios is not None:
             df = self._load_df_offline(raise_when_empty=True)
@@ -1633,9 +1612,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                     )
 
         else:
-            # The chain above sets exactly one of the two, or it raises.
-            # An `elif definitions is not None` here would let a later
-            # edit fall through and re-save the old splits in silence.
             assert definitions is not None
 
             n_files = sum(map(len, definitions.values()))
@@ -1652,8 +1628,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             for split, filepaths in definitions.items():
                 ids: list[str] = []
                 for filepath in filepaths:
-                    # The validation above checks the container, not the
-                    # elements, so a bad element arrives here.
                     if not isinstance(filepath, (str, Path)):
                         logger.warning(
                             f"Split '{split}' contains {filepath!r}, "
@@ -2096,8 +2070,7 @@ def _write_json(path: Path, data: Mapping[str, list[str]]) -> None:
         tmp_path.write_text(json.dumps(data, indent=4))
         tmp_path.replace(path)
     finally:
-        # `put_dir` uploads the whole metadata directory, so a partial
-        # file left here would reach the remote on the next push.
+        # `push_to_cloud` uploads the whole metadata directory.
         tmp_path.unlink(missing_ok=True)
 
 
@@ -2106,13 +2079,9 @@ def _split_sizes(n_groups: int, ratios: Mapping[str, float]) -> dict[str, int]:
 
     The function uses the largest remainder method. Each split first
     gets the whole part of its exact share. The leftover groups then go
-    to the splits with the largest fractional parts.
-
-    A ``ceil`` of each share gives every split more than its part in
-    turn, so the last split absorbs all the error. With the default
-    80/10/10 ratios, the test split was empty for 9 groups or fewer,
-    and again for 11 to 14 groups. Above that the test split survived,
-    but the train split still took more than its share.
+    to the splits with the largest fractional parts. A ``ceil`` of each
+    share would give every split more than its part in turn, and the
+    last split would absorb all the error.
 
     Args:
         n_groups: The number of groups to divide.
@@ -2132,21 +2101,3 @@ def _split_sizes(n_groups: int, ratios: Mapping[str, float]) -> dict[str, int]:
     for split in by_remainder[:leftover]:
         sizes[split] += 1
     return sizes
-
-
-def _are_ratios(
-    splits: Mapping[str, object],
-) -> TypeGuard[Mapping[str, float]]:
-    return all(isinstance(value, (int, float)) for value in splits.values())
-
-
-def _are_definitions(
-    splits: Mapping[str, object],
-) -> TypeGuard[Mapping[str, Sequence[PathType]]]:
-    # `str` and the binary types are sequences too, but none of them is
-    # a list of filepaths.
-    return all(
-        isinstance(value, Sequence)
-        and not isinstance(value, (str, bytes, bytearray, memoryview))
-        for value in splits.values()
-    )
