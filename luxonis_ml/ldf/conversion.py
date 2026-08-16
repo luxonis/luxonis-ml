@@ -103,10 +103,10 @@ def record_to_loader_output(
 
     labels: Labels = {}
     for task_name, types in task_types.items():
-        detections = sorted(
-            annotations.get(task_name, []),
-            key=lambda detection: detection.instance_id,
-        )
+        # Already in instance-ID order: `_flatten_sub_detections` sorts each
+        # task before it collects the children, so that a child keeps the
+        # row of its parent. Sorting again here would undo that.
+        detections = annotations.get(task_name, [])
         instance_order = _instance_order(detections)
         for task_type in sorted(types):
             labels[f"{task_name}/{task_type}"] = _build_label(
@@ -173,6 +173,11 @@ def _flatten_sub_detections(
 
     A sub-detection is annotated separately from its parent, so a loader sees
     ``"driver/face"`` as an ordinary task.
+
+    The parents are put in instance-ID order here, before their children are
+    collected, so a child keeps the row of its parent. Sorting each task
+    separately would not: a sub-detection carries the default instance ID, so
+    its own sort leaves it where it was written while the parent moves.
     """
     flattened: dict[str, list[Detection]] = defaultdict(list)
 
@@ -183,7 +188,9 @@ def _flatten_sub_detections(
 
     for task_name, detections in annotations.items():
         flattened.setdefault(task_name, [])
-        for detection in detections:
+        for detection in sorted(
+            detections, key=lambda detection: detection.instance_id
+        ):
             add(task_name, detection)
     return dict(flattened)
 
@@ -205,6 +212,10 @@ def _nest_sub_detections(
     for task_name in sorted(
         nested, key=lambda name: name.count("/"), reverse=True
     ):
+        if "/" not in task_name:
+            # A task at the top level. Without this the default task, whose
+            # name is empty, would claim every other task as its sub-task.
+            continue
         parent_name, _, sub_name = task_name.rpartition("/")
         if not sub_name or parent_name not in nested:
             continue
@@ -409,8 +420,11 @@ def _instance_detections(
             )
 
     metadata = _split_metadata(task_name, task_types, schema)
+    # The metadata is keyed by row index, and a row in the middle can carry
+    # no value, so the count of the keys is not the number of rows.
+    metadata_rows = [max(metadata) + 1] if metadata else []
     n_instances = max(
-        [len(rows) for rows in split.values()] + [len(metadata)], default=0
+        [len(rows) for rows in split.values()] + metadata_rows, default=0
     )
 
     detections = []
@@ -450,7 +464,14 @@ def _semantic_detections(
     detections = []
     for annotation, class_id in SegmentationAnnotation.split_from_numpy(array):
         class_name = _class_name(task_name, class_id, schema)
-        if class_name == "background" and not keep_background:
+        # Only the channel the loader added is dropped. A dataset that
+        # declares a `background` class annotated it itself, and dropping
+        # that one would delete the user's own mask.
+        if (
+            class_name == "background"
+            and task_name in schema.synthesized_background
+            and not keep_background
+        ):
             continue
         detections.append(
             Detection(class_name=class_name, segmentation=annotation)

@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from luxonis_ml.ldf import Category, DatasetRecord, DatasetSchema
+from luxonis_ml.ldf.conversion import labels_to_record
 
 IMAGE = np.zeros((8, 8, 3), dtype=np.uint8)
 
@@ -377,3 +378,188 @@ def test_rebuilding_without_a_schema_is_refused():
 
     with pytest.raises(ValueError, match="without the dataset schema"):
         sample.to_ldf()
+
+
+def test_sub_detections_follow_their_parent_out_of_order():
+    """The parents sort by instance ID; their faces must move with them.
+
+    A sub-detection carries no instance ID of its own, so sorting the faces
+    on their own leaves them in the order they were written while the
+    parents move.
+    """
+    schema = DatasetSchema(
+        tasks={
+            "driver": ["boundingbox", "classification"],
+            "driver/face": ["boundingbox", "classification"],
+        },
+        classes={
+            "driver": {"person": 0},
+            "driver/face": {"happy": 0, "sad": 1},
+        },
+    )
+    record = DatasetRecord(
+        media=IMAGE,  # type: ignore[call-arg]
+        annotation={
+            "driver": [
+                {
+                    "class": "person",
+                    "instance_id": 1,
+                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
+                    "sub_detections": {
+                        "face": {
+                            "class": "sad",
+                            "boundingbox": {
+                                "x": 0.15,
+                                "y": 0.2,
+                                "w": 0.05,
+                                "h": 0.05,
+                            },
+                        }
+                    },
+                },
+                {
+                    "class": "person",
+                    "instance_id": 0,
+                    "boundingbox": {"x": 0.6, "y": 0.1, "w": 0.1, "h": 0.1},
+                    "sub_detections": {
+                        "face": {
+                            "class": "happy",
+                            "boundingbox": {
+                                "x": 0.65,
+                                "y": 0.2,
+                                "w": 0.05,
+                                "h": 0.05,
+                            },
+                        }
+                    },
+                },
+            ]
+        },
+    )
+
+    drivers = roundtrip(record, schema).annotation["driver"]
+
+    faces = {
+        round(driver.boundingbox.x, 3): (  # type: ignore[union-attr]
+            driver.sub_detections["face"].class_name,
+            round(driver.sub_detections["face"].boundingbox.x, 3),  # type: ignore[union-attr]
+        )
+        for driver in drivers
+    }
+    assert faces == {0.1: ("sad", 0.15), 0.6: ("happy", 0.65)}
+
+
+def test_a_class_the_schema_does_not_define_is_refused():
+    """An array numbers its classes, so the schema has to know them all."""
+    schema = DatasetSchema(
+        tasks={"vehicles": ["boundingbox", "classification"]},
+        classes={"vehicles": {"car": 0}},
+    )
+    record = DatasetRecord(
+        media=IMAGE,  # type: ignore[call-arg]
+        annotation={
+            "vehicles": [
+                {
+                    "class": "van",
+                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
+                }
+            ]
+        },
+    )
+
+    with pytest.raises(ValueError, match="does not define the class 'van'"):
+        record.to_loader_output(schema)
+
+
+def test_a_class_id_the_schema_does_not_know_rebuilds_without_a_name():
+    """A rebuild must not invent a name for an ID the schema lacks."""
+    schema = DatasetSchema(
+        tasks={"v": ["boundingbox", "classification"]},
+        classes={"v": {"car": 0}},
+    )
+
+    record = labels_to_record(
+        {"v/boundingbox": np.array([[7, 0.1, 0.2, 0.3, 0.4]])}, schema
+    )
+
+    (detection,) = record.annotation["v"]
+    assert detection.class_name is None
+    assert detection.boundingbox is not None
+    assert detection.boundingbox.x == pytest.approx(0.1)
+
+
+def test_a_sub_task_without_a_parent_keeps_its_own_name():
+    """Nothing may be dropped when the parent task has no detections."""
+    schema = DatasetSchema(
+        tasks={"driver/face": ["boundingbox", "classification"]},
+        classes={"driver/face": {"happy": 0}},
+    )
+    record = DatasetRecord(
+        media=IMAGE,  # type: ignore[call-arg]
+        annotation={
+            "driver/face": [
+                {
+                    "class": "happy",
+                    "boundingbox": {"x": 0.3, "y": 0.1, "w": 0.1, "h": 0.1},
+                }
+            ]
+        },
+    )
+
+    rebuilt = roundtrip(record, schema)
+
+    assert set(rebuilt.annotation) == {"driver/face"}
+    (face,) = rebuilt.annotation["driver/face"]
+    assert face.boundingbox is not None
+    assert face.boundingbox.x == pytest.approx(0.3)
+
+
+def test_a_sub_detection_without_a_parent_is_not_dropped():
+    """More children than parents: the extra one keeps its own task."""
+    schema = DatasetSchema(
+        tasks={
+            "driver": ["boundingbox"],
+            "driver/face": ["boundingbox"],
+        },
+        classes={"driver": {"person": 0}, "driver/face": {"happy": 0}},
+    )
+
+    record = labels_to_record(
+        {
+            "driver/boundingbox": np.array([[0, 0.1, 0.1, 0.1, 0.1]]),
+            "driver/face/boundingbox": np.array(
+                [[0, 0.2, 0.2, 0.1, 0.1], [0, 0.6, 0.6, 0.1, 0.1]]
+            ),
+        },
+        schema,
+    )
+
+    assert len(record.annotation["driver"]) == 1
+    assert list(record.annotation["driver"][0].sub_detections) == ["face"]
+    assert len(record.annotation["driver/face"]) == 1
+
+
+def test_a_named_task_is_not_nested_under_the_default_task():
+    """The default task is named ``""``, and every name ends with it.
+
+    A rebuild that splits a task name on its last ``"/"`` reads ``"vehicles"``
+    as the ``"vehicles"`` sub-detection of the default task, and the named
+    task disappears.
+    """
+    schema = DatasetSchema(
+        tasks={"": ["classification"], "vehicles": ["classification"]},
+        classes={"": {"scene": 0}, "vehicles": {"car": 0}},
+    )
+    record = DatasetRecord(
+        media=IMAGE,  # type: ignore[call-arg]
+        annotation={
+            "": [{"class": "scene"}],
+            "vehicles": [{"class": "car"}],
+        },
+    )
+
+    rebuilt = roundtrip(record, schema)
+
+    assert set(rebuilt.annotation) == {"", "vehicles"}
+    assert rebuilt.annotation["vehicles"][0].class_name == "car"
+    assert rebuilt.annotation[""][0].sub_detections == {}
