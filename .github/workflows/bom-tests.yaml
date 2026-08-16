@@ -63,7 +63,7 @@ jobs:
       (github.event_name == 'pull_request' &&
        startsWith(github.head_ref, 'release/') &&
        github.event.pull_request.base.ref == 'main')
-    uses: Luxonis/luxonis-train/.github/workflows/ci.yaml@b218fe618f169833efcc6051f635d283ca7d606d
+    uses: Luxonis/luxonis-train/.github/workflows/ci.yaml@main
     with:
       concurrency_group: bom-${{ github.workflow }}-${{ github.ref }}
       cancel_in_progress: true
