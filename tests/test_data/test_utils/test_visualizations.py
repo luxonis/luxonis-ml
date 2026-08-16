@@ -1,3 +1,6 @@
+import inspect
+from typing import get_args, get_type_hints
+
 import cv2
 import numpy as np
 import pytest
@@ -322,6 +325,34 @@ def test_visualize_keypoint_label_modes(monkeypatch: pytest.MonkeyPatch):
         keypoint_label_mode="full",
     )
     assert calls == ["0: nose", "1: eye"]
+
+    # The docstring named neither this mode nor the index that "full"
+    # draws, so nothing here was covered or described.
+    calls.clear()
+    visualize(
+        image.copy(),
+        "image",
+        labels,
+        classes,
+        keypoint_metadata=keypoint_metadata,
+        keypoint_label_mode="names",
+    )
+    assert calls == ["nose", "eye"]
+
+
+def test_every_keypoint_label_mode_is_documented():
+    """The docstring listed three of the four modes, and misread one.
+
+    It gave ``"full"`` the behaviour of ``"names"``, which it never
+    named. A reader of the API docs could not discover ``"names"``.
+    """
+    modes = get_args(get_type_hints(visualize)["keypoint_label_mode"])
+    docstring = inspect.getdoc(visualize) or ""
+    _, _, documented = docstring.partition("keypoint_label_mode:")
+
+    assert set(modes) == {"none", "numbers", "names", "full"}
+    for mode in modes:
+        assert f'``"{mode}"``' in documented, mode
 
 
 def test_visualize_keypoint_skeletons_respect_visibility():
