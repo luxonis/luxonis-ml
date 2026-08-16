@@ -1,20 +1,14 @@
 from collections.abc import Iterable
-from typing import Literal, TypeAlias
+from typing import Literal
 
 from loguru import logger
+from pydantic import AliasChoices, Field
 
 from luxonis_ml.data.utils.constants import LDF_VERSION
-from luxonis_ml.ldf import Skeleton
+from luxonis_ml.ldf import KeypointMetadata
 from luxonis_ml.typing import BaseModelExtraForbid
 
 from .source import LuxonisSource
-
-Skeletons: TypeAlias = Skeleton
-"""Keypoint skeleton metadata.
-
-.. deprecated:: 0.10.0
-    Use `luxonis_ml.ldf.Skeleton`.
-"""
 
 
 class Metadata(BaseModelExtraForbid):
@@ -25,7 +19,9 @@ class Metadata(BaseModelExtraForbid):
         ldf_version: Luxonis Data Format version.
         classes: Class-index mappings per task.
         tasks: Task types per task name.
-        skeletons: Keypoint skeleton definitions per task.
+        keypoint_metadata: Keypoint definitions per task. A dataset written
+            before LDF 2.2 stores them under ``"skeletons"``, which is
+            still accepted.
         categorical_encodings: Integer encodings for categorical metadata.
         metadata_types: Metadata value types per metadata task.
         parent_dataset: Optional identifier of the source dataset this
@@ -37,7 +33,10 @@ class Metadata(BaseModelExtraForbid):
     ldf_version: str = str(LDF_VERSION)
     classes: dict[str, dict[str, int]] = {}
     tasks: dict[str, list[str]] = {}
-    skeletons: dict[str, Skeleton] = {}
+    keypoint_metadata: dict[str, KeypointMetadata] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("keypoint_metadata", "skeletons"),
+    )
     categorical_encodings: dict[str, dict[str, int]] = {}
     metadata_types: dict[str, Literal["float", "int", "str", "Category"]] = {}
     parent_dataset: str | None = None
@@ -60,8 +59,8 @@ class Metadata(BaseModelExtraForbid):
             other: Metadata object to merge into this one.
 
         Returns:
-            New metadata object containing merged classes, tasks,
-            skeletons, categorical encodings, metadata types, and source
+            New metadata object containing merged classes, tasks, keypoint
+            metadata, categorical encodings, metadata types, and source
             information.
 
         Raises:
@@ -99,14 +98,15 @@ class Metadata(BaseModelExtraForbid):
             else:
                 merged_tasks[key] = other.tasks[key]
 
-        for task in set(self.skeletons) & set(other.skeletons):
-            if self.skeletons[task] != other.skeletons[task]:
+        mine, theirs = self.keypoint_metadata, other.keypoint_metadata
+        for task in set(mine) & set(theirs):
+            if mine[task] != theirs[task]:
                 logger.warning(
-                    f"Task '{task}' has different keypoint skeletons in the "
+                    f"Task '{task}' has different keypoint metadata in the "
                     "two datasets being merged. Keeping the one from the "
                     "dataset being merged in."
                 )
-        merged_skeletons = {**self.skeletons, **other.skeletons}
+        merged_keypoint_metadata = {**mine, **theirs}
 
         merged_categorical_encodings = {}
         for key in set(self.categorical_encodings) | set(
@@ -143,7 +143,7 @@ class Metadata(BaseModelExtraForbid):
             source=merged_source,
             classes=merged_classes,
             tasks=merged_tasks,
-            skeletons=merged_skeletons,
+            keypoint_metadata=merged_keypoint_metadata,
             categorical_encodings=merged_categorical_encodings,
             metadata_types=merged_metadata_types,  # type: ignore
         )

@@ -15,10 +15,10 @@ from luxonis_ml.ldf.annotation import (
     InstanceSegmentationAnnotation,
     Keypoint,
     KeypointAnnotation,
+    KeypointMetadata,
     KeypointVisibility,
     NormalizedFloat,
     SegmentationAnnotation,
-    Skeleton,
     load_annotation,
 )
 from luxonis_ml.ldf.parquet import ParquetRecord
@@ -34,10 +34,10 @@ __all__ = [
     "InstanceSegmentationAnnotation",
     "Keypoint",
     "KeypointAnnotation",
+    "KeypointMetadata",
     "KeypointVisibility",
     "NormalizedFloat",
     "ParquetRecord",
     "SegmentationAnnotation",
-    "Skeleton",
     "load_annotation",
 ]

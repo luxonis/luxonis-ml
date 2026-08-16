@@ -17,7 +17,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
 )
 from luxonis_ml.data.utils import COCOFormat
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.ldf import Skeleton
+from luxonis_ml.ldf import KeypointMetadata
 
 
 class CocoExporter(BaseExporter):
@@ -25,7 +25,7 @@ class CocoExporter(BaseExporter):
 
     Attributes:
         format: COCO output layout variant.
-        skeletons: Optional keypoint skeleton metadata.
+        keypoint_metadata: Optional keypoint definitions per task.
         allow_keypoints: Whether keypoint annotations can be exported.
         class_name_to_category_id: Category IDs per split and class name.
         last_category_id: Last assigned category ID per split.
@@ -40,16 +40,16 @@ class CocoExporter(BaseExporter):
         max_partition_size_gb: float | None,
         format: COCOFormat = COCOFormat.ROBOFLOW,
         *,
-        skeletons: dict[str, Skeleton] | None = None,
+        keypoint_metadata: dict[str, KeypointMetadata] | None = None,
     ):
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
         self.format = format
-        self.skeletons = skeletons
-        if self.skeletons is None:
+        self.keypoint_metadata = keypoint_metadata
+        if self.keypoint_metadata is None:
             self.allow_keypoints = False
-        elif len(self.skeletons) == 1:
+        elif len(self.keypoint_metadata) == 1:
             self.allow_keypoints = True
         else:
             self.allow_keypoints = False
@@ -210,7 +210,7 @@ class CocoExporter(BaseExporter):
 
             if self.allow_keypoints:
                 kp_labels, kp_skeleton, kp_sigmas = get_single_skeleton(
-                    self.allow_keypoints, self.skeletons
+                    self.keypoint_metadata
                 )
                 if kp_labels:
                     cat_entry["keypoints"] = kp_labels

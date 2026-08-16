@@ -2,7 +2,7 @@ import pytest
 
 from luxonis_ml.data import Metadata
 from luxonis_ml.data.datasets.source import LuxonisSource
-from luxonis_ml.ldf import Skeleton
+from luxonis_ml.ldf import KeypointMetadata
 
 
 @pytest.fixture
@@ -12,7 +12,9 @@ def basic_metadata() -> Metadata:
         ldf_version="2.0.0",
         classes={"task1": {"class1": 0, "class2": 1}},
         tasks={"task1": ["subtask1", "subtask2"]},
-        skeletons={"task1": Skeleton(labels=["head", "tail"], edges=[(0, 1)])},
+        keypoint_metadata={
+            "task1": KeypointMetadata(labels=["head", "tail"], edges=[(0, 1)])
+        },
         categorical_encodings={"cat1": {"a": 0, "b": 1}},
         metadata_types={"field1": "str", "field2": "int"},
     )
@@ -27,7 +29,7 @@ def test_merge_with_different_versions():
         source=None,
         classes={},
         tasks={},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={},
         metadata_types={},
     )
@@ -36,7 +38,7 @@ def test_merge_with_different_versions():
         source=None,
         classes={},
         tasks={},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={},
         metadata_types={},
     )
@@ -54,7 +56,7 @@ def test_merge_classes(basic_metadata: Metadata):
         ldf_version="2.0.0",
         classes={"task1": {"class2": 1, "class3": 2}, "task2": {"classA": 0}},
         tasks={},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={},
         metadata_types={},
     )
@@ -77,7 +79,7 @@ def test_merge_tasks(basic_metadata: Metadata):
         ldf_version="2.0.0",
         classes={},
         tasks={"task1": ["subtask2", "subtask3"], "task2": ["other_subtask"]},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={},
         metadata_types={},
     )
@@ -95,7 +97,7 @@ def test_merge_categorical_encodings(basic_metadata: Metadata):
         ldf_version="2.0.0",
         classes={},
         tasks={},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={"cat1": {"b": 1, "c": 2}, "cat2": {"x": 0}},
         metadata_types={},
     )
@@ -118,7 +120,7 @@ def test_merge_sources():
         ldf_version="2.0.0",
         classes={},
         tasks={},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={},
         metadata_types={},
     )
@@ -128,7 +130,7 @@ def test_merge_sources():
         ldf_version="2.0.0",
         classes={},
         tasks={},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={},
         metadata_types={},
     )
@@ -146,7 +148,7 @@ def test_merge_with_none_sources():
         ldf_version="2.0.0",
         classes={},
         tasks={},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={},
         metadata_types={},
     )
@@ -156,7 +158,7 @@ def test_merge_with_none_sources():
         ldf_version="2.0.0",
         classes={},
         tasks={},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={},
         metadata_types={},
     )
@@ -175,7 +177,7 @@ def test_merge_metadata_types(basic_metadata: Metadata):
         ldf_version="2.0.0",
         classes={},
         tasks={},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={},
         metadata_types={"field2": "int", "field3": "float"},
     )

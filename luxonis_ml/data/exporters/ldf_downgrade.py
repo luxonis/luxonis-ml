@@ -6,7 +6,8 @@ luxonis-ml fails to validate on an older install -- LDF 2.1 added
 version therefore drops every field introduced above it.
 
 Annotations forbid extra fields as well, so the same holds one level
-down: LDF 2.2 added the keypoint ``skeleton``.
+down: LDF 2.2 added ``edges``, ``flip_pairs`` and ``sigmas`` to a keypoint
+annotation.
 """
 
 from collections import Counter
@@ -31,8 +32,14 @@ _ADDED_FIELDS: Final[dict[str, Version]] = {
 #: The same for fields of a single annotation, keyed by the task type
 #: that holds them and the field name.
 _ADDED_ANNOTATION_FIELDS: Final[dict[tuple[str, str], Version]] = {
-    ("keypoints", "skeleton"): _parse("2.2"),
+    ("keypoints", "edges"): _parse("2.2"),
+    ("keypoints", "flip_pairs"): _parse("2.2"),
+    ("keypoints", "sigmas"): _parse("2.2"),
 }
+
+#: The version that started to key the keypoints by name. An older one
+#: reads them as a plain list.
+_KEYPOINT_NAMES_ADDED_IN: Final[Version] = _parse("2.2")
 
 #: LDF versions the native exporter can write, newest first.
 SUPPORTED_EXPORT_VERSIONS: Final[tuple[Version, ...]] = (
@@ -106,6 +113,7 @@ class LDFDowngrader:
             for path, added_in in _ADDED_ANNOTATION_FIELDS.items()
             if added_in > target_version
         ]
+        self._keeps_keypoint_names = target_version >= _KEYPOINT_NAMES_ADDED_IN
         self._dropped: Counter[str] = Counter()
         self._n_records = 0
 
@@ -123,6 +131,7 @@ class LDFDowngrader:
                 task = annotation.get(task_type)
                 if isinstance(task, dict) and task.pop(field, None):
                     self._dropped[f"{task_type}.{field}"] += 1
+            self._strip_keypoint_names(annotation)
         return record
 
     def log_summary(self) -> None:
@@ -132,3 +141,19 @@ class LDFDowngrader:
                 f"Exporting to LDF {self.target_version} drops '{field}' "
                 f"from {n_dropped} of {self._n_records} records."
             )
+
+    def _strip_keypoint_names(self, annotation: dict[str, Any]) -> None:
+        """Turn named keypoints back into a positional list.
+
+        LDF 2.2 keys the keypoints by name. An older version reads them as
+        a plain list, so a mapping fails to validate there.
+        """
+        if self._keeps_keypoint_names:
+            return
+        keypoints = annotation.get("keypoints")
+        if not isinstance(keypoints, dict):
+            return
+        values = keypoints.get("keypoints")
+        if isinstance(values, dict):
+            keypoints["keypoints"] = list(values.values())
+            self._dropped["keypoints.names"] += 1

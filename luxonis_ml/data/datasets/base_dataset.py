@@ -3,9 +3,10 @@ from collections.abc import Iterator, Sequence
 from typing import TypeAlias
 
 from semver.version import Version
+from typing_extensions import deprecated
 
 from luxonis_ml.data.datasets.source import LuxonisSource
-from luxonis_ml.ldf import DatasetRecord, Skeleton
+from luxonis_ml.ldf import DatasetRecord, KeypointMetadata
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
@@ -14,7 +15,7 @@ DATASETS_REGISTRY: Registry[type["BaseDataset"]] = Registry(name="datasets")
 
 DatasetIterator: TypeAlias = Iterator[dict | DatasetRecord]
 
-SkeletonEdge: TypeAlias = tuple[int, int] | tuple[str, str]
+KeypointPair: TypeAlias = tuple[int, int] | tuple[str, str]
 """A pair of keypoints, given either by index or by name."""
 
 
@@ -112,26 +113,32 @@ class BaseDataset(
         ...
 
     @abstractmethod
-    def set_skeletons(
+    def set_keypoint_metadata(
         self,
         labels: list[str] | None = None,
-        edges: list[SkeletonEdge] | None = None,
+        edges: list[KeypointPair] | None = None,
         task: str | None = None,
         *,
-        flip_pairs: list[SkeletonEdge] | None = None,
+        flip_pairs: list[KeypointPair] | None = None,
         sigmas: list[float] | None = None,
         infer_flip_pairs: bool = True,
     ) -> None:
-        """Set keypoint skeleton semantics for tasks that use keypoints.
+        """Set the keypoint definitions of the tasks that use keypoints.
 
-        Only the fields that are provided are replaced, so a skeleton can
+        Only the fields that you provide are replaced, so a definition can
         be built up over several calls.
+
+        Prefer the records. A record can carry ``edges``, ``flip_pairs``
+        and ``sigmas`` beside its keypoints, and `add` moves them here.
+
+        .. deprecated:: 0.10.0
+            Declare the keypoints on the records instead.
 
         For example:
 
         .. python::
 
-            dataset.set_skeletons(
+            dataset.set_keypoint_metadata(
                 labels=["right hand", "right shoulder", ...],
                 edges=[[0, 1], [4, 5], ...]
             )
@@ -140,7 +147,7 @@ class BaseDataset(
 
         .. python::
 
-            dataset.set_skeletons(
+            dataset.set_keypoint_metadata(
                 labels=["nose", "left_eye", "right_eye"],
                 edges=[("nose", "left_eye"), ("nose", "right_eye")],
             )
@@ -148,8 +155,8 @@ class BaseDataset(
         Args:
             labels: Optional keypoint names.
             edges: Optional edges between keypoints.
-            task: Optional task to update. If omitted, all keypoint tasks
-                are updated.
+            task: Optional task to update. If omitted, all tasks are
+                updated.
             flip_pairs: Optional pairs of keypoints swapped by a horizontal
                 flip. Inferred from ``left``/``right`` names when omitted.
             sigmas: Optional per-keypoint OKS standard deviations.
@@ -157,20 +164,55 @@ class BaseDataset(
                 names when none are known.
 
         Raises:
-            ValueError: If none of the skeleton fields are provided.
+            ValueError: If you provide none of the fields.
 
         """
         ...
 
     @abstractmethod
-    def get_skeletons(self) -> dict[str, Skeleton]:
-        """Return keypoint skeletons for each task.
+    def get_keypoint_metadata(self) -> dict[str, KeypointMetadata]:
+        """Return the keypoint definition of each task.
 
         Returns:
-            Keypoint skeletons keyed by task name.
+            Keypoint metadata keyed by task name.
 
         """
         ...
+
+    @deprecated("Use `set_keypoint_metadata` instead.")
+    def set_skeletons(
+        self,
+        labels: list[str] | None = None,
+        edges: list[KeypointPair] | None = None,
+        task: str | None = None,
+        *,
+        flip_pairs: list[KeypointPair] | None = None,
+        sigmas: list[float] | None = None,
+        infer_flip_pairs: bool = True,
+    ) -> None:
+        """Set the keypoint definitions of the tasks that use keypoints.
+
+        .. deprecated:: 0.10.0
+            Use `set_keypoint_metadata`, or declare the keypoints on the
+            records.
+        """
+        self.set_keypoint_metadata(
+            labels,
+            edges,
+            task,
+            flip_pairs=flip_pairs,
+            sigmas=sigmas,
+            infer_flip_pairs=infer_flip_pairs,
+        )
+
+    @deprecated("Use `get_keypoint_metadata` instead.")
+    def get_skeletons(self) -> dict[str, KeypointMetadata]:
+        """Return the keypoint definition of each task.
+
+        .. deprecated:: 0.10.0
+            Use `get_keypoint_metadata`.
+        """
+        return self.get_keypoint_metadata()
 
     @abstractmethod
     def add(
@@ -283,9 +325,12 @@ class BaseDataset(
             Number of keypoints keyed by task name.
 
         """
-        return {
-            task: len(skeleton.labels)
-            # A skeleton set from edges alone has no labels to count.
-            or max((max(edge) for edge in skeleton.edges), default=-1) + 1
-            for task, skeleton in self.get_skeletons().items()
-        }
+        n_keypoints: dict[str, int] = {}
+        for task, task_keypoints in self.get_keypoint_metadata().items():
+            if task_keypoints.labels:
+                n_keypoints[task] = len(task_keypoints.labels)
+            else:
+                # A definition set from edges alone has no labels to count.
+                last = max((max(e) for e in task_keypoints.edges), default=-1)
+                n_keypoints[task] = last + 1
+        return n_keypoints

@@ -34,7 +34,7 @@ from luxonis_ml.data.utils import (
     task_type_iterator,
 )
 from luxonis_ml.data.utils.task_utils import task_is_metadata
-from luxonis_ml.ldf import DatasetRecord, Skeleton
+from luxonis_ml.ldf import DatasetRecord, KeypointMetadata
 from luxonis_ml.typing import (
     Labels,
     LoaderOutput,
@@ -237,7 +237,7 @@ class LuxonisLoader(BaseLoader):
         self._classes = self.dataset.get_classes()
 
         # Cached because both are read for every loaded sample.
-        self._skeletons = self.dataset.get_skeletons()
+        self._keypoint_metadata = self.dataset.get_keypoint_metadata()
         self._n_keypoints = self.dataset.get_n_keypoints()
 
         if self._filter_task_names is not None:
@@ -343,19 +343,17 @@ class LuxonisLoader(BaseLoader):
         """
         return len(self._instances)
 
-    def get_skeletons(self) -> dict[str, Skeleton]:
-        """Return the keypoint skeleton of each task.
+    def get_keypoint_metadata(self) -> dict[str, KeypointMetadata]:
+        """Return the keypoint definition of each task.
 
-        A skeleton describes the dataset, not one sample. It is thus not
-        part of the loader output. It carries the keypoint names, the
-        edges between the keypoints, the pairs that a horizontal flip
-        swaps, and the OKS sigmas.
+        It describes the dataset, not one sample. It is thus not part of
+        the loader output.
 
         Returns:
-            Keypoint skeletons keyed by task name.
+            Keypoint metadata keyed by task name.
 
         """
-        return dict(self._skeletons)
+        return dict(self._keypoint_metadata)
 
     @override
     def __getitem__(self, idx: int) -> LoaderOutput:
@@ -417,9 +415,7 @@ class LuxonisLoader(BaseLoader):
                     if task_type == "boundingbox":
                         labels[task] = np.zeros((0, 5))
                     elif task_type == "keypoints":
-                        # A keypoint task can lack a skeleton entirely, and
-                        # this runs inside `__getitem__`, where a `KeyError`
-                        # would surface as a broken sample.
+                        # A keypoint task can lack metadata entirely.
                         n_keypoints = self._n_keypoints.get(task_name, 0)
                         labels[task] = np.zeros((0, n_keypoints * 3))
                     elif task_type == "instance_segmentation":
@@ -540,11 +536,13 @@ class LuxonisLoader(BaseLoader):
                     data["height"] = sample_img.shape[0]
                     data["points"] = [tuple(p) for p in data["points"]]
 
-                skeleton = self._skeletons.get(task_name)
+                task_keypoints = self._keypoint_metadata.get(task_name)
                 annotation = load_annotation(
                     task_type,  # type: ignore[arg-type]
                     data,
-                    keypoint_labels=skeleton.labels if skeleton else None,
+                    keypoint_labels=(
+                        task_keypoints.labels if task_keypoints else None
+                    ),
                 )
                 labels_by_task[full_task_name].append(annotation)
                 if class_name is not None:

@@ -1,4 +1,4 @@
-"""Tests for the label-keyed keypoint annotation and its skeleton.
+"""Tests for the label-keyed keypoint annotation and its metadata.
 
 Code far outside of this module depends on three things: the shape of the
 stored payload, the final order of the keypoints, and the way a name
@@ -15,7 +15,7 @@ import pytest
 from luxonis_ml.ldf import (
     Keypoint,
     KeypointAnnotation,
-    Skeleton,
+    KeypointMetadata,
     load_annotation,
 )
 
@@ -51,9 +51,10 @@ COCO_FLIP_PAIRS = [
 
 
 def payload(
-    annotation: KeypointAnnotation, skeleton: Skeleton | None = None
+    annotation: KeypointAnnotation,
+    keypoint_metadata: KeypointMetadata | None = None,
 ) -> dict[str, Any]:
-    return json.loads(annotation.to_parquet_json(skeleton))
+    return json.loads(annotation.to_parquet_json(keypoint_metadata))
 
 
 def test_a_keypoint_is_still_a_triplet():
@@ -131,22 +132,21 @@ def test_keypoints_are_stored_as_flat_triplets(keypoints: Any):
     assert payload(annotation) == {"keypoints": [[0.1, 0.2, 2], [0.3, 0.4, 1]]}
 
 
-def test_names_and_skeleton_are_not_stored_per_annotation():
-    """They describe the task, so `add` hoists them into the metadata."""
+def test_task_fields_are_not_stored_per_annotation():
+    """They describe the task, so `add` hoists them into the dataset."""
     annotation = KeypointAnnotation.model_validate(
         {
             "keypoints": {"nose": (0.1, 0.2, 2), "left_eye": (0.3, 0.4, 1)},
-            "skeleton": {
-                "edges": [("nose", "left_eye")],
-                "sigmas": [0.1, 0.2],
-            },
+            "edges": [("nose", "left_eye")],
+            "sigmas": [0.1, 0.2],
         }
     )
 
     stored = annotation.to_parquet_json()
 
     assert json.loads(stored) == {"keypoints": [[0.1, 0.2, 2], [0.3, 0.4, 1]]}
-    assert "skeleton" not in stored
+    assert "edges" not in stored
+    assert "sigmas" not in stored
     assert "nose" not in stored
 
 
@@ -155,7 +155,8 @@ def test_naming_the_keypoints_does_not_grow_the_payload():
     named = KeypointAnnotation.model_validate(
         {
             "keypoints": dict.fromkeys(COCO_LABELS, (0.1, 0.2, 2)),
-            "skeleton": {"edges": [(0, 1)], "sigmas": [0.05] * 17},
+            "edges": [(0, 1)],
+            "sigmas": [0.05] * 17,
         }
     )
     bare = KeypointAnnotation.model_validate(
@@ -194,7 +195,9 @@ def test_declaration_order_does_not_affect_stored_order():
     up in the same columns; otherwise the ``(N, 3K)`` array silently mixes
     up which keypoint is which.
     """
-    skeleton = Skeleton(labels=["nose", "left_eye", "right_eye"])
+    keypoint_metadata = KeypointMetadata(
+        labels=["nose", "left_eye", "right_eye"]
+    )
     forwards = KeypointAnnotation.model_validate(
         {
             "keypoints": {
@@ -214,19 +217,21 @@ def test_declaration_order_does_not_affect_stored_order():
         }
     )
 
-    assert payload(forwards, skeleton=skeleton) == payload(
-        backwards, skeleton=skeleton
+    assert payload(forwards, keypoint_metadata=keypoint_metadata) == payload(
+        backwards, keypoint_metadata=keypoint_metadata
     )
 
 
 def test_omitted_keypoints_are_padded():
     """Annotating only the keypoints that are there is the point of names."""
-    skeleton = Skeleton(labels=["nose", "left_eye", "right_eye"])
+    keypoint_metadata = KeypointMetadata(
+        labels=["nose", "left_eye", "right_eye"]
+    )
     annotation = KeypointAnnotation.model_validate(
         {"keypoints": {"left_eye": (0.2, 0.2, 2)}}
     )
 
-    assert payload(annotation, skeleton=skeleton) == {
+    assert payload(annotation, keypoint_metadata=keypoint_metadata) == {
         "keypoints": [[0.0, 0.0, 0], [0.2, 0.2, 2], [0.0, 0.0, 0]]
     }
 
@@ -235,38 +240,24 @@ def test_unnamed_records_align_with_named_ones():
     """A task can mix the two, e.g. after a native export writes the
     skeleton onto only the first record of each task.
     """
-    skeleton = Skeleton(labels=["nose", "left_eye"])
+    keypoint_metadata = KeypointMetadata(labels=["nose", "left_eye"])
     annotation = KeypointAnnotation.model_validate(
         {"keypoints": [(0.1, 0.1, 2), (0.2, 0.2, 2)]}
     )
 
-    assert payload(annotation, skeleton=skeleton) == {
+    assert payload(annotation, keypoint_metadata=keypoint_metadata) == {
         "keypoints": [[0.1, 0.1, 2], [0.2, 0.2, 2]]
     }
 
 
 def test_an_unknown_keypoint_is_an_error():
     """A typo must not quietly become a missing keypoint."""
-    with pytest.raises(pydantic.ValidationError, match="noze"):
-        KeypointAnnotation.model_validate(
-            {
-                "keypoints": {"noze": (0.1, 0.2, 2)},
-                "skeleton": {"labels": ["nose"]},
-            }
-        )
-
-
-def test_a_declared_skeleton_orders_and_pads_on_its_own():
-    """No dataset needed: the annotation already knows the full set."""
     annotation = KeypointAnnotation.model_validate(
-        {
-            "keypoints": {"right_eye": (0.3, 0.3, 2)},
-            "skeleton": {"labels": ["nose", "left_eye", "right_eye"]},
-        }
+        {"keypoints": {"noze": (0.1, 0.2, 2)}}
     )
 
-    assert list(annotation.keypoints) == ["nose", "left_eye", "right_eye"]
-    assert annotation.keypoints["nose"] == (0.0, 0.0, 0)
+    with pytest.raises(ValueError, match="noze"):
+        annotation.to_parquet_json(KeypointMetadata(labels=["nose"]))
 
 
 def test_stored_keypoints_are_read_back_under_their_names():
@@ -281,10 +272,12 @@ def test_stored_keypoints_are_read_back_under_their_names():
         "keypoints", data, keypoint_labels=["nose", "left_eye"]
     )
     positional = load_annotation("keypoints", data)
+    assert isinstance(named, KeypointAnnotation)
+    assert isinstance(positional, KeypointAnnotation)
 
-    assert list(named.keypoints) == ["nose", "left_eye"]  # type: ignore[attr-defined]
-    assert list(positional.keypoints) == ["0", "1"]  # type: ignore[attr-defined]
-    assert np.allclose(named.to_numpy(), positional.to_numpy())  # type: ignore[attr-defined]
+    assert list(named.keypoints) == ["nose", "left_eye"]
+    assert list(positional.keypoints) == ["0", "1"]
+    assert np.allclose(named.to_numpy(), positional.to_numpy())
 
 
 def test_positional_names_are_not_a_declaration():
@@ -294,7 +287,7 @@ def test_positional_names_are_not_a_declaration():
     )
 
     assert list(annotation.keypoints) == ["0", "1"]
-    assert annotation.declared_skeleton() is None
+    assert annotation.declared_metadata() is None
 
 
 def test_edges_and_flip_pairs_accept_names():
@@ -306,45 +299,45 @@ def test_edges_and_flip_pairs_accept_names():
                 "left_eye": (0.2, 0.2, 2),
                 "right_eye": (0.3, 0.3, 2),
             },
-            "skeleton": {
-                "edges": [("nose", "left_eye"), ("nose", "right_eye")],
-                "flip_pairs": [("left_eye", "right_eye")],
-            },
+            "edges": [("nose", "left_eye"), ("nose", "right_eye")],
+            "flip_pairs": [("left_eye", "right_eye")],
         }
     )
 
-    assert annotation.skeleton is not None
-    assert annotation.skeleton.edges == [(0, 1), (0, 2)]
-    assert annotation.skeleton.flip_pairs == [(1, 2)]
+    assert annotation.edges == [(0, 1), (0, 2)]
+    assert annotation.flip_pairs == [(1, 2)]
 
 
 def test_names_and_indices_can_be_mixed():
-    skeleton = Skeleton.model_validate(
+    keypoint_metadata = KeypointMetadata.model_validate(
         {"labels": ["nose", "left_eye"], "edges": [("nose", 1)]}
     )
 
-    assert skeleton.edges == [(0, 1)]
+    assert keypoint_metadata.edges == [(0, 1)]
 
 
 def test_referring_by_name_without_labels_is_an_error():
     with pytest.raises(pydantic.ValidationError, match="require"):
-        Skeleton.model_validate({"edges": [("nose", "left_eye")]})
+        KeypointMetadata.model_validate({"edges": [("nose", "left_eye")]})
 
 
 def test_an_unknown_name_in_an_edge_is_an_error():
     with pytest.raises(pydantic.ValidationError, match="Unknown keypoint"):
-        Skeleton.model_validate(
+        KeypointMetadata.model_validate(
             {"labels": ["nose"], "edges": [("nose", "left_eye")]}
         )
 
 
 def test_edges_are_sorted():
-    """`set_skeletons` has always sorted them; the hoist must agree."""
-    assert Skeleton(edges=[(2, 3), (0, 1)]).edges == [(0, 1), (2, 3)]
+    """`set_keypoint_metadata` sorts them, and the hoist agrees."""
+    assert KeypointMetadata(edges=[(2, 3), (0, 1)]).edges == [(0, 1), (2, 3)]
 
 
 def test_flip_pairs_are_normalized():
-    assert Skeleton(flip_pairs=[(4, 3), (2, 1)]).flip_pairs == [(1, 2), (3, 4)]
+    assert KeypointMetadata(flip_pairs=[(4, 3), (2, 1)]).flip_pairs == [
+        (1, 2),
+        (3, 4),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -358,70 +351,55 @@ def test_invalid_flip_pairs_are_rejected(
     flip_pairs: list[tuple[int, int]], match: str
 ):
     with pytest.raises(pydantic.ValidationError, match=match):
-        Skeleton(flip_pairs=flip_pairs)
+        KeypointMetadata(flip_pairs=flip_pairs)
 
 
 @pytest.mark.parametrize(
-    ("n_keypoints", "skeleton", "match"),
+    ("n_keypoints", "fields", "match"),
     [
         pytest.param(1, {"sigmas": [0.1, 0.2]}, "2 sigmas", id="sigmas"),
-        pytest.param(
-            2, {"labels": ["a", "b"], "sigmas": [0.1]}, "1 sigmas", id="named"
-        ),
         pytest.param(1, {"edges": [(0, 5)]}, "keypoint 5", id="edge-range"),
         pytest.param(
             1, {"flip_pairs": [(0, 5)]}, "keypoint 5", id="flip-range"
         ),
-        pytest.param(2, {"labels": ["a", "a"]}, "Duplicate", id="duplicates"),
     ],
 )
-def test_a_skeleton_must_match_the_keypoints(
-    n_keypoints: int, skeleton: dict[str, Any], match: str
+def test_the_task_fields_must_match_the_keypoints(
+    n_keypoints: int, fields: dict[str, Any], match: str
 ):
     with pytest.raises(pydantic.ValidationError, match=match):
         KeypointAnnotation.model_validate(
-            {
-                "keypoints": [(0.1, 0.2, 2)] * n_keypoints,
-                "skeleton": skeleton,
-            }
+            {"keypoints": [(0.1, 0.2, 2)] * n_keypoints, **fields}
         )
 
 
-def test_a_positional_list_is_named_by_its_own_skeleton():
-    """Writing the keypoints in skeleton order is the obvious thing to do."""
-    annotation = KeypointAnnotation.model_validate(
-        {
-            "keypoints": [(0.1, 0.1, 2), (0.2, 0.2, 2), (0.3, 0.3, 1)],
-            "skeleton": {"labels": ["nose", "left_eye", "right_eye"]},
-        }
-    )
-
-    assert annotation.keypoints["left_eye"] == (0.2, 0.2, 2)
+def test_duplicate_names_are_rejected():
+    """An annotation cannot hit this, because its names are dict keys."""
+    with pytest.raises(ValueError, match="Duplicate"):
+        KeypointMetadata(labels=["a", "a"]).validate_for(2)
 
 
-def test_naming_more_keypoints_than_are_present_is_allowed():
-    """An annotation can thus name only some of the keypoints.
+def test_an_annotation_may_hold_fewer_keypoints_than_the_task():
+    """A sparse mapping is padded when the payload is written.
 
     Only a mapping can be sparse. In a list the position is the identity,
     so a short list cannot say which keypoints it holds.
     """
-    annotation = KeypointAnnotation.model_validate(
-        {
-            "keypoints": {"b": (0.1, 0.2, 2)},
-            "skeleton": {"labels": ["a", "b", "c"]},
-        }
+    keypoint_metadata = KeypointMetadata(labels=["a", "b", "c"])
+    sparse = KeypointAnnotation.model_validate(
+        {"keypoints": {"b": (0.1, 0.2, 2)}}
     )
 
-    assert len(annotation.keypoints) == 3
-    assert annotation.keypoints["a"] == (0.0, 0.0, 0)
+    assert payload(sparse, keypoint_metadata=keypoint_metadata) == {
+        "keypoints": [[0.0, 0.0, 0], [0.1, 0.2, 2], [0.0, 0.0, 0]]
+    }
 
-    with pytest.raises(pydantic.ValidationError, match="not part of the"):
-        KeypointAnnotation.model_validate(
-            {
-                "keypoints": [(0.1, 0.2, 2)],
-                "skeleton": {"labels": ["a", "b", "c"]},
-            }
-        )
+    short_list = KeypointAnnotation.model_validate(
+        {"keypoints": [(0.1, 0.2, 2)]}
+    )
+
+    with pytest.raises(ValueError, match="not part of the"):
+        short_list.to_parquet_json(keypoint_metadata)
 
 
 @pytest.mark.parametrize(
@@ -458,58 +436,54 @@ def test_infer_flip_pairs(labels: list[str], expected: list[tuple[int, int]]):
     """A wrong pair mirrors the wrong keypoints without ever failing, so
     matching stays narrow and refuses anything ambiguous.
     """
-    assert Skeleton.infer_flip_pairs(labels) == expected
+    assert KeypointMetadata.infer_flip_pairs(labels) == expected
 
 
-def test_inferred_flip_pairs_are_a_valid_skeleton():
-    flip_pairs = Skeleton.infer_flip_pairs(COCO_LABELS)
+def test_inferred_flip_pairs_are_valid_metadata():
+    flip_pairs = KeypointMetadata.infer_flip_pairs(COCO_LABELS)
 
-    skeleton = Skeleton(labels=COCO_LABELS, flip_pairs=flip_pairs)
+    keypoint_metadata = KeypointMetadata(
+        labels=COCO_LABELS, flip_pairs=flip_pairs
+    )
 
-    assert skeleton.flip_pairs == flip_pairs
+    assert keypoint_metadata.flip_pairs == flip_pairs
 
 
 def test_inference_is_not_applied_by_the_model():
-    """It belongs to the write paths only.
+    """Only a write path infers them, never validation.
 
-    Every open of a dataset revalidates `Metadata`. Inference here would
-    give flip pairs to a dataset that never asked for them. An older
-    version cannot read a skeleton that has them.
+    See `LuxonisDataset._fill_in_flip_pairs` for why.
     """
-    assert Skeleton(labels=COCO_LABELS).flip_pairs == []
+    assert KeypointMetadata(labels=COCO_LABELS).flip_pairs == []
 
 
-def test_unused_fields_are_left_out_of_the_serialized_skeleton():
-    """Older versions reject a stored skeleton with unknown keys, so a
-    dataset only becomes unreadable to them if it truly uses the fields.
-    """
-    assert json.loads(Skeleton(labels=["a"], edges=[]).model_dump_json()) == {
-        "labels": ["a"],
-        "edges": [],
-    }
-
-
-def test_used_fields_are_serialized():
+def test_every_field_is_serialized():
+    """The stored keypoint metadata is a plain dump of the four fields."""
     dumped = json.loads(
-        Skeleton(
+        KeypointMetadata(
             labels=["left_a", "right_a"],
+            edges=[(0, 1)],
             flip_pairs=[(0, 1)],
             sigmas=[0.1, 0.2],
         ).model_dump_json()
     )
 
-    assert dumped["flip_pairs"] == [[0, 1]]
-    assert dumped["sigmas"] == [0.1, 0.2]
+    assert dumped == {
+        "labels": ["left_a", "right_a"],
+        "edges": [[0, 1]],
+        "flip_pairs": [[0, 1]],
+        "sigmas": [0.1, 0.2],
+    }
 
 
-def test_a_legacy_skeleton_still_loads():
+def test_legacy_metadata_still_loads():
     """Datasets written before flip pairs and sigmas existed."""
-    skeleton = Skeleton.model_validate(
+    keypoint_metadata = KeypointMetadata.model_validate(
         {"labels": ["a", "b"], "edges": [[0, 1]]}
     )
 
-    assert skeleton.flip_pairs == []
-    assert skeleton.sigmas == []
+    assert keypoint_metadata.flip_pairs == []
+    assert keypoint_metadata.sigmas == []
 
 
 def test_negative_edges_are_still_accepted():
@@ -517,12 +491,12 @@ def test_negative_edges_are_still_accepted():
     predates this change would make existing datasets impossible to open.
     `visualizations` guards against out-of-range indices when drawing.
     """
-    assert Skeleton(edges=[(-1, 3)]).edges == [(-1, 3)]
+    assert KeypointMetadata(edges=[(-1, 3)]).edges == [(-1, 3)]
 
 
 def test_merging_fills_in_the_gaps():
-    merged = Skeleton(labels=["a", "b"]).merge_with(
-        Skeleton(sigmas=[0.1, 0.2])
+    merged = KeypointMetadata(labels=["a", "b"]).merge_with(
+        KeypointMetadata(sigmas=[0.1, 0.2])
     )
 
     assert merged.labels == ["a", "b"]
@@ -531,24 +505,24 @@ def test_merging_fills_in_the_gaps():
 
 def test_merging_the_same_names_in_a_different_order_agrees():
     """Only the set of names matters; the first declaration sets the order."""
-    merged = Skeleton(labels=["a", "b"]).merge_with(
-        Skeleton(labels=["b", "a"])
+    merged = KeypointMetadata(labels=["a", "b"]).merge_with(
+        KeypointMetadata(labels=["b", "a"])
     )
 
     assert merged.labels == ["a", "b"]
 
 
-def test_merging_disagreeing_skeletons_is_an_error():
-    with pytest.raises(ValueError, match="Conflicting keypoint skeletons"):
-        Skeleton(labels=["a", "b"]).merge_with(
-            Skeleton(labels=["a", "c"]), "task 'pose'"
+def test_merging_disagreeing_metadata_is_an_error():
+    with pytest.raises(ValueError, match="Conflicting keypoint metadata"):
+        KeypointMetadata(labels=["a", "b"]).merge_with(
+            KeypointMetadata(labels=["a", "c"]), "task 'pose'"
         )
 
 
 def test_the_conflict_names_the_task_and_the_fields():
     with pytest.raises(ValueError, match="Conflicting") as info:
-        Skeleton(labels=["a", "b"]).merge_with(
-            Skeleton(labels=["a", "c"]), "task 'pose'"
+        KeypointMetadata(labels=["a", "b"]).merge_with(
+            KeypointMetadata(labels=["a", "c"]), "task 'pose'"
         )
 
     message = str(info.value)

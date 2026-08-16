@@ -302,8 +302,8 @@ def inspect(
 
     classes = dataset.get_classes()
     categorical_encodings = dataset.get_categorical_encodings()
-    keypoint_skeletons = (
-        dataset.get_skeletons()
+    keypoint_metadata = (
+        dataset.get_keypoint_metadata()
         if skeletons or keypoint_labels in ("names", "full")
         else None
     )
@@ -367,7 +367,7 @@ def inspect(
                         classes,
                         blend_all=blend_all,
                         categorical_encodings=categorical_encodings,
-                        skeletons=keypoint_skeletons,
+                        keypoint_metadata=keypoint_metadata,
                         draw_skeletons=skeletons,
                         keypoint_label_mode=keypoint_labels,
                     )
@@ -396,7 +396,7 @@ def inspect(
                     classes,
                     blend_all=blend_all,
                     categorical_encodings=categorical_encodings,
-                    skeletons=keypoint_skeletons,
+                    keypoint_metadata=keypoint_metadata,
                     draw_skeletons=skeletons,
                     keypoint_label_mode=keypoint_labels,
                 )

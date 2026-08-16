@@ -181,10 +181,9 @@ Each keypoint is a `Keypoint`. It is a named tuple, so ``keypoint[2]`` and
 ``keypoint.visibility`` give the same value. Visibility defaults to
 :math:`2`.
 
-An annotation can also carry a `Skeleton`. A skeleton describes the whole
-task with four fields: the keypoint names, the edges between the keypoints,
-the pairs that a horizontal flip swaps, and the OKS sigmas. Edges and flip
-pairs can refer to keypoints by name:
+An annotation can also carry three task-level fields: the edges between the
+keypoints, the pairs that a horizontal flip swaps, and the OKS sigmas. Edges
+and flip pairs can refer to keypoints by name:
 
 .. python::
 
@@ -196,19 +195,17 @@ pairs can refer to keypoints by name:
                 "left_eye": (0.40, 0.20, 2),
                 "right_eye": (0.60, 0.20, 1),
             },
-            "skeleton": {
-                "edges": [("nose", "left_eye"), ("nose", "right_eye")],
-                "flip_pairs": [("left_eye", "right_eye")],
-                "sigmas": [0.026, 0.025, 0.025],
-            },
+            "edges": [("nose", "left_eye"), ("nose", "right_eye")],
+            "flip_pairs": [("left_eye", "right_eye")],
+            "sigmas": [0.026, 0.025, 0.025],
         },
     }
 
-A skeleton describes the task, not the instance. `LuxonisDataset.add` thus
-moves it into the dataset metadata and keeps one skeleton for each task. If
-you give no flip pairs, `LuxonisDataset.add` infers them from ``left`` and
-``right`` names. The dataset stores the keypoints of a task in skeleton
-order.
+These three fields describe the task, not the instance.
+`LuxonisDataset.add` thus moves them into a `KeypointMetadata` and keeps one
+entry for each task. If you give no flip pairs, `LuxonisDataset.add` infers
+them from ``left`` and ``right`` names. The dataset stores the keypoints of
+a task in the order that the keypoint metadata defines.
 
 For :math:`K` keypoints and :math:`N` instances, loader output uses shape
 :math:`\left(N, 3 \cdot K\right)`.
@@ -457,7 +454,7 @@ class Keypoint(NamedTuple):
     visibility: KeypointVisibility = 2
 
 
-#: A keypoint that is present in a skeleton but absent from an annotation.
+#: A keypoint the task defines but an annotation leaves out.
 _UNLABELED_KEYPOINT: Final[Keypoint] = Keypoint(0.0, 0.0, 0)
 
 #: Side markers recognized when inferring flip pairs from keypoint names.
@@ -469,28 +466,29 @@ _SIDE_MARKERS: Final = {
 }
 
 
-class Skeleton(BaseModelExtraForbid):
+class KeypointMetadata(BaseModelExtraForbid):
     r"""Task-level description of a set of keypoints.
 
-    A skeleton describes the keypoints of a whole task, not those of one
-    instance. You can declare it on a `KeypointAnnotation`.
-    `LuxonisDataset.add` then moves it into the dataset metadata and keeps
-    one skeleton for each task.
+    It describes the keypoints of a whole task, not those of one instance.
+    A `KeypointAnnotation` carries the same values as flat fields, and
+    `LuxonisDataset.add` moves them here. A dataset keeps one entry for
+    each task.
 
-    Edges and flip pairs accept keypoint names. A skeleton resolves the
-    names against `labels` and stores indices, which index into a keypoint
-    array. The resolution is part of the validation, so give the names as
-    data and not to the constructor:
+    Edges and flip pairs accept keypoint names. They resolve against
+    `labels` and store indices, which index into a keypoint array. The
+    fields declare indices, so pass the names through `model_validate`.
+    The constructor resolves them too, but a type checker rejects a name
+    there:
 
     Example:
-        >>> Skeleton.model_validate(
+        >>> KeypointMetadata.model_validate(
         ...     {
         ...         "labels": ["nose", "left_eye", "right_eye"],
         ...         "edges": [("nose", "left_eye"), ("nose", "right_eye")],
         ...         "flip_pairs": [("left_eye", "right_eye")],
         ...     }
         ... )
-        Skeleton(labels=['nose', 'left_eye', 'right_eye'], edges=[(0, 1), (0, 2)], flip_pairs=[(1, 2)], sigmas=[])
+        KeypointMetadata(labels=['nose', 'left_eye', 'right_eye'], edges=[(0, 1), (0, 2)], flip_pairs=[(1, 2)], sigmas=[])
 
     Attributes:
         labels: Keypoint names in index order.
@@ -506,101 +504,37 @@ class Skeleton(BaseModelExtraForbid):
     flip_pairs: list[tuple[NonNegativeInt, NonNegativeInt]] = []
     sigmas: list[PositiveFloat] = []
 
-    @model_validator(mode="before")
-    @classmethod
-    def _resolve_label_endpoints(cls, values: Any) -> Any:
-        if not isinstance(values, Mapping):
-            return values
+    @property
+    def has_names(self) -> bool:
+        """Whether the labels are chosen names.
 
-        try:
-            pairs_by_field = {
-                field: [list(pair) for pair in values[field]]
-                for field in ("edges", "flip_pairs")
-                if isinstance(values.get(field), Iterable)
-                and not isinstance(values[field], (str, bytes))
-            }
-        except TypeError:
-            # Malformed input. Let pydantic report it against the field type.
-            return values
+        An annotation that carries a plain list of triplets is keyed
+        ``"0"``, ``"1"``, ..., and `LuxonisDataset.add` stores those keys
+        as the labels. They record only how many keypoints there are.
+        """
+        return bool(self.labels) and not _is_positional(self.labels)
 
-        if not any(
-            isinstance(endpoint, str)
-            for pairs in pairs_by_field.values()
-            for pair in pairs
-            for endpoint in pair
-        ):
-            return values
-
-        labels = values.get("labels")
-        if not check_type(labels, list[str]) or not labels:
-            raise ValueError(
-                "Keypoint labels are required in order to refer to skeleton "
-                "edges or flip pairs by name. Provide `labels`, or refer to "
-                "the keypoints by index."
-            )
-
-        indices = {label: i for i, label in enumerate(labels)}
-        resolved = dict(values)
-        for field, pairs in pairs_by_field.items():
-            resolved[field] = [
-                [cls._resolve_endpoint(endpoint, indices) for endpoint in pair]
-                for pair in pairs
-            ]
-        return resolved
-
-    @staticmethod
-    def _resolve_endpoint(endpoint: Any, indices: Mapping[str, int]) -> Any:
-        if not isinstance(endpoint, str):
-            return endpoint
-        if endpoint not in indices:
-            raise ValueError(
-                f"Unknown keypoint name '{endpoint}'. "
-                f"Known keypoints: {', '.join(indices)}."
-            )
-        return indices[endpoint]
-
-    @model_validator(mode="after")
-    def _normalize(self) -> Self:
-        self.edges = sorted(self.edges)
-
-        seen: dict[int, tuple[int, int]] = {}
-        flip_pairs = []
-        for a, b in self.flip_pairs:
-            if a == b:
-                raise ValueError(
-                    f"Flip pair ({a}, {b}) flips keypoint {a} onto itself."
-                )
-            for index in (a, b):
-                if index in seen:
-                    raise ValueError(
-                        f"Keypoint {index} appears in both flip pairs "
-                        f"{seen[index]} and {(a, b)}. "
-                        "Flip pairs must be disjoint."
-                    )
-            seen[a] = seen[b] = (a, b)
-            flip_pairs.append((min(a, b), max(a, b)))
-        self.flip_pairs = sorted(flip_pairs)
-        return self
-
-    def merge_with(self, other: "Skeleton", context: str = "") -> "Skeleton":
-        """Merge two skeleton declarations into one.
+    def merge_with(
+        self, other: "KeypointMetadata", context: str = ""
+    ) -> "KeypointMetadata":
+        """Merge two keypoint declarations into one.
 
         A field that one declaration leaves empty comes from the other one.
         Two values for the same field must agree.
 
         Args:
-            other: Skeleton to merge into this one.
+            other: Keypoint metadata to merge into this one.
             context: Description of the merge, used in the error message.
 
         Returns:
-            The merged skeleton.
+            The merged keypoint metadata.
 
         Raises:
-            ValueError: If the two skeletons disagree on any field.
+            ValueError: If the two declarations disagree on any field.
 
         """
         conflicts = []
-        for field in Skeleton.model_fields:
+        for field in KeypointMetadata.model_fields:
             mine, theirs = getattr(self, field), getattr(other, field)
             if not mine or not theirs or mine == theirs:
                 continue
@@ -617,28 +551,28 @@ class Skeleton(BaseModelExtraForbid):
                 for field in conflicts
             )
             hint = (
-                "\nRecords that annotate only some of the keypoints must "
-                "still name the full set, either through their own "
-                "`skeleton` or through `LuxonisDataset.set_skeletons`."
+                "\nA record that annotates only some of the keypoints must "
+                "still name the full set. It can give the missing ones a "
+                "visibility of 0."
                 if "labels" in conflicts
                 else ""
             )
             raise ValueError(
-                f"Conflicting keypoint skeletons declared{_where(context)}. "
+                f"Conflicting keypoint metadata declared{_where(context)}. "
                 f"The following fields disagree:\n{differences}\n"
-                "All records of a task must describe the same skeleton. "
-                "Declare it on a single record, or use "
-                f"`LuxonisDataset.set_skeletons`.{hint}"
+                "All records of a task must describe the same keypoints. "
+                "Declare them on a single record, or use "
+                f"`LuxonisDataset.set_keypoint_metadata`.{hint}"
             )
-        return Skeleton(
+        return KeypointMetadata(
             **{
                 field: getattr(self, field) or getattr(other, field)
-                for field in Skeleton.model_fields
+                for field in KeypointMetadata.model_fields
             }
         )
 
     def validate_for(self, n_keypoints: int, context: str = "") -> None:
-        """Check the skeleton against a concrete number of keypoints.
+        """Check the keypoint metadata against a number of keypoints.
 
         Args:
             n_keypoints: Number of annotated keypoints.
@@ -646,17 +580,17 @@ class Skeleton(BaseModelExtraForbid):
                 messages.
 
         Raises:
-            ValueError: If the skeleton does not describe ``n_keypoints``
-                keypoints.
+            ValueError: If the keypoint metadata does not describe
+                ``n_keypoints`` keypoints.
 
         """
         for field in ("labels", "sigmas"):
             value = getattr(self, field)
             if value and len(value) != n_keypoints:
                 raise ValueError(
-                    f"The skeleton{_where(context)} defines {len(value)} "
-                    f"{field}, but the annotations contain {n_keypoints} "
-                    "keypoints."
+                    f"The keypoint metadata{_where(context)} defines "
+                    f"{len(value)} {field}, but the annotations contain "
+                    f"{n_keypoints} keypoints."
                 )
         duplicates = sorted(
             label for label, count in Counter(self.labels).items() if count > 1
@@ -671,15 +605,15 @@ class Skeleton(BaseModelExtraForbid):
                 for index in pair:
                     if not 0 <= index < n_keypoints:
                         raise ValueError(
-                            f"The skeleton{_where(context)} refers to keypoint "
-                            f"{index} in `{field}`, but only {n_keypoints} "
-                            "keypoints are annotated."
+                            f"The keypoint metadata{_where(context)} refers "
+                            f"to keypoint {index} in `{field}`, but only "
+                            f"{n_keypoints} keypoints are annotated."
                         )
 
     def align(self, keypoints: Mapping[str, Keypoint]) -> dict[str, Keypoint]:
-        r"""Order keypoints to match the skeleton, padding missing ones.
+        r"""Order keypoints to match the task, padding missing ones.
 
-        A keypoint that the skeleton defines but the annotation omits gets
+        A keypoint that the task defines but the annotation omits gets
         :math:`\left(0, 0, 0\right)`. This is the COCO value for a keypoint
         that is not labeled. An annotation can thus name only the keypoints
         it has.
@@ -691,21 +625,21 @@ class Skeleton(BaseModelExtraForbid):
             The keypoints in `labels` order.
 
         Raises:
-            ValueError: If a keypoint is not part of the skeleton.
+            ValueError: If a keypoint is not part of the task.
 
         """
         if not self.labels:
             return dict(keypoints)
         # Positional keys carry only their order, so they count as already
-        # in skeleton order. A record without names can thus sit next to
+        # in task order. A record without names can thus sit next to
         # records that have them.
         if len(keypoints) == len(self.labels) and _is_positional(keypoints):
             return dict(zip(self.labels, keypoints.values(), strict=True))
         unknown = sorted(set(keypoints) - set(self.labels))
         if unknown:
             raise ValueError(
-                f"Keypoints {', '.join(unknown)} are not part of the "
-                f"skeleton. Known keypoints: {', '.join(self.labels)}."
+                f"Keypoints {', '.join(unknown)} are not part of the task. "
+                f"Known keypoints: {', '.join(self.labels)}."
             )
         return {
             label: keypoints.get(label, _UNLABELED_KEYPOINT)
@@ -730,7 +664,7 @@ class Skeleton(BaseModelExtraForbid):
             Flip pairs as :math:`0`-based index pairs.
 
         Example:
-            >>> Skeleton.infer_flip_pairs(
+            >>> KeypointMetadata.infer_flip_pairs(
             ...     ["nose", "left_eye", "right_eye", "l_ear", "r_ear"]
             ... )
             [(1, 2), (3, 4)]
@@ -758,17 +692,40 @@ class Skeleton(BaseModelExtraForbid):
             flip_pairs.append((min(left[0], right[0]), max(left[0], right[0])))
         return sorted(flip_pairs)
 
-    @model_serializer(mode="plain")
-    def _serialize(self) -> dict[str, Any]:
-        # An older ``luxonis-ml`` validates a stored skeleton as a total
-        # `TypedDict`, so always write `labels` and `edges`. Skip the newer
-        # fields when unused. A dataset that ignores them stays readable.
-        data: dict[str, Any] = {"labels": self.labels, "edges": self.edges}
-        if self.flip_pairs:
-            data["flip_pairs"] = self.flip_pairs
-        if self.sigmas:
-            data["sigmas"] = self.sigmas
-        return data
+    @model_validator(mode="before")
+    @classmethod
+    def _resolve_names(cls, values: Any) -> Any:
+        if not isinstance(values, Mapping):
+            return values
+        labels = values.get("labels")
+        return _resolve_pairs(
+            values,
+            labels if check_type(labels, list[str]) else None,
+            "Provide `labels`, or refer to the keypoints by index.",
+        )
+
+    @model_validator(mode="after")
+    def _normalize(self) -> Self:
+        self.edges = sorted(self.edges)
+
+        seen: dict[int, tuple[int, int]] = {}
+        flip_pairs = []
+        for a, b in self.flip_pairs:
+            if a == b:
+                raise ValueError(
+                    f"Flip pair ({a}, {b}) flips keypoint {a} onto itself."
+                )
+            for index in (a, b):
+                if index in seen:
+                    raise ValueError(
+                        f"Keypoint {index} appears in both flip pairs "
+                        f"{seen[index]} and {(a, b)}. "
+                        "Flip pairs must be disjoint."
+                    )
+            seen[a] = seen[b] = (a, b)
+            flip_pairs.append((min(a, b), max(a, b)))
+        self.flip_pairs = sorted(flip_pairs)
+        return self
 
 
 class _SerializedRLE(TypedDict):
@@ -1007,7 +964,9 @@ class Detection(BaseModelExtraForbid):
                     )
                     for label, keypoint in self.keypoints.keypoints.items()
                 },
-                skeleton=self.keypoints.skeleton,
+                edges=self.keypoints.edges,
+                flip_pairs=self.keypoints.flip_pairs,
+                sigmas=self.keypoints.sigmas,
             )
         return self
 
@@ -1025,13 +984,15 @@ class Detection(BaseModelExtraForbid):
 class Annotation(ABC, BaseModelExtraForbid):
     """Base class for an annotation."""
 
-    def to_parquet_json(self, skeleton: "Skeleton | None" = None) -> str:
+    def to_parquet_json(
+        self, keypoint_metadata: KeypointMetadata | None = None
+    ) -> str:
         """Serialize the annotation into its stored parquet payload.
 
         Args:
-            skeleton: Skeleton of the task of the annotation, when known.
-                Only a keypoint annotation uses it. Its payload is
-                positional, so the skeleton sets the order.
+            keypoint_metadata: Keypoint metadata of the task, when known.
+                A keypoint payload is positional, so the keypoint metadata
+                sets the order. Every other annotation ignores it.
 
         Returns:
             The serialized annotation.
@@ -1203,13 +1164,17 @@ class BBoxAnnotation(Annotation):
 class KeypointAnnotation(Annotation):
     r"""Keypoint annotation.
 
-    Keypoints are keyed by name, so an annotation can describe which
-    keypoints it holds instead of relying on their position. The
-    coordinates are normalized to :math:`\left[0, 1\right]` based on the
-    image size.
+    Keypoints are keyed by name, so an annotation can say which keypoints
+    it holds instead of relying on their position. The coordinates are
+    normalized to :math:`\left[0, 1\right]` based on the image size.
 
-    A plain list of triplets is also accepted, in which case the keypoints
-    are keyed by position as ``"0"``, ``"1"``, ....
+    A plain list of triplets is also accepted. The keypoints are then keyed
+    by position as ``"0"``, ``"1"``, ....
+
+    `edges`, `flip_pairs` and `sigmas` describe the task, not the instance.
+    `LuxonisDataset.add` moves them into a `KeypointMetadata`, so a stored
+    payload holds only the coordinates. Edges and flip pairs accept
+    keypoint names, which resolve against the names of `keypoints`.
 
     Example:
         >>> KeypointAnnotation(
@@ -1225,14 +1190,17 @@ class KeypointAnnotation(Annotation):
                 - :math:`1`: Occluded.
                 - :math:`2`: Visible.
 
-        skeleton: Skeleton of the task the annotation belongs to.
-            `LuxonisDataset.add` promotes it into the dataset metadata, so
-            it is stored once per task rather than on every annotation.
+        edges: Keypoint graph edges, as index pairs or as name pairs.
+        flip_pairs: Pairs that a horizontal flip swaps, as index pairs or
+            as name pairs.
+        sigmas: Per-keypoint OKS standard deviations.
 
     """
 
     keypoints: dict[str, Keypoint]
-    skeleton: Skeleton | None = None
+    edges: list[tuple[int, int]] = []
+    flip_pairs: list[tuple[NonNegativeInt, NonNegativeInt]] = []
+    sigmas: list[PositiveFloat] = []
 
     def to_numpy(self) -> np.ndarray:
         r"""Convert the keypoint annotation to flattened row format.
@@ -1284,13 +1252,13 @@ class KeypointAnnotation(Annotation):
                     "Cannot combine keypoint annotations with different "
                     f"numbers of keypoints ({n_keypoints} and "
                     f"{len(ann.keypoints)}). All annotations of a task must "
-                    "share a single skeleton."
+                    "describe the same keypoints."
                 )
             keypoints[i] = ann.to_numpy()
         return keypoints
 
-    def declared_skeleton(self) -> Skeleton | None:
-        """Return the task-level skeleton this annotation describes.
+    def declared_metadata(self) -> KeypointMetadata | None:
+        """Return the task-level metadata this annotation describes.
 
         Keypoint names count as a declaration only if they are more than
         the positional fallback. An annotation built from a plain list is
@@ -1298,21 +1266,29 @@ class KeypointAnnotation(Annotation):
         keypoints, so they must not conflict with real names.
 
         Returns:
-            The declared skeleton, or ``None`` if nothing was declared.
+            The declared metadata, or ``None`` if the annotation declares
+            nothing.
 
         """
         labels = list(self.keypoints)
         if _is_positional(labels):
-            return self.skeleton
-        if self.skeleton is None:
-            return Skeleton(labels=labels)
-        return self.skeleton.model_copy(update={"labels": labels})
+            labels = []
+        if not (labels or self.edges or self.flip_pairs or self.sigmas):
+            return None
+        return KeypointMetadata(
+            labels=labels,
+            edges=self.edges,
+            flip_pairs=self.flip_pairs,
+            sigmas=self.sigmas,
+        )
 
     @override
-    def to_parquet_json(self, skeleton: Skeleton | None = None) -> str:
+    def to_parquet_json(
+        self, keypoint_metadata: KeypointMetadata | None = None
+    ) -> str:
         annotation = self
-        if skeleton is not None:
-            aligned = skeleton.align(self.keypoints)
+        if keypoint_metadata is not None:
+            aligned = keypoint_metadata.align(self.keypoints)
             # Compared as items, not as mappings. Dict equality ignores
             # order, and the stored payload encodes only the order.
             if list(aligned.items()) != list(self.keypoints.items()):
@@ -1321,9 +1297,10 @@ class KeypointAnnotation(Annotation):
 
     @model_serializer(mode="plain", when_used="json")
     def _serialize(self) -> dict[str, Any]:
-        # The payload is positional. The names and the skeleton describe
-        # the task, not the instance. `LuxonisDataset.add` thus keeps them
-        # in the dataset metadata and not on every row.
+        # The payload is positional. The names, the edges, the flip pairs
+        # and the sigmas describe the task, not the instance.
+        # `LuxonisDataset.add` thus keeps them in the dataset metadata and
+        # not on every row.
         return {
             "keypoints": [
                 list(keypoint) for keypoint in self.keypoints.values()
@@ -1336,11 +1313,9 @@ class KeypointAnnotation(Annotation):
         if not isinstance(values, Mapping) or "keypoints" not in values:
             return values
 
-        # The loader gives the labels for a stored annotation. The skeleton
-        # of the annotation gives them when it lists the keypoints.
-        labels = (info.context or {}).get("keypoint_labels") or (
-            cls._skeleton_labels(values.get("skeleton"))
-        )
+        # A stored payload is positional and carries no names. The loader
+        # supplies the names of the task when it reads one back.
+        labels = (info.context or {}).get("keypoint_labels")
 
         # Coerced up front for the same reason as in `BBoxAnnotation`.
         try:
@@ -1374,13 +1349,13 @@ class KeypointAnnotation(Annotation):
                 label: tuple(keypoint) for label, keypoint in keypoints.items()
             },
         }
-        if values.get("skeleton") is not None and not _is_positional(
-            keypoints
-        ):
-            values["skeleton"] = cls._name_skeleton(
-                values["skeleton"], list(keypoints)
-            )
-        return values
+        names = list(keypoints)
+        return _resolve_pairs(
+            values,
+            None if _is_positional(names) else names,
+            "Pass the keypoints as a mapping keyed by name, or refer to "
+            "them by index.",
+        )
 
     @staticmethod
     def _as_mapping(
@@ -1408,22 +1383,12 @@ class KeypointAnnotation(Annotation):
         }
 
     @staticmethod
-    def _skeleton_labels(skeleton: Any) -> list[str] | None:
-        """Return the keypoint names a skeleton lists, if it lists any."""
-        if isinstance(skeleton, Skeleton):
-            return skeleton.labels or None
-        if isinstance(skeleton, Mapping):
-            labels = skeleton.get("labels")
-            if check_type(labels, list[str]) and labels:
-                return labels
-        return None
-
-    @staticmethod
     def _as_triplet(keypoint: Any) -> list[Any]:
         """Return the coordinates as a list, which the caller can clip.
 
         `Keypoint` supplies the default visibility when the keypoint
-        omits it.
+        omits it. A keypoint with too many values passes through to
+        pydantic, which names the value that does not belong.
         """
         if isinstance(keypoint, Mapping):
             keypoint = [
@@ -1432,36 +1397,17 @@ class KeypointAnnotation(Annotation):
                 if field in keypoint
             ]
         x, y, *rest = keypoint
-        if len(rest) > 1:
-            raise ValueError("A keypoint consists of at most three values")
         return [float(x), float(y), *rest]
 
-    @staticmethod
-    def _name_skeleton(skeleton: Any, labels: list[str]) -> Any:
-        """Give a skeleton the keypoint names it does not declare itself.
-
-        A skeleton can thus refer to its edges and flip pairs by name. It
-        does not have to repeat the names of the keypoints.
-        """
-        if isinstance(skeleton, Skeleton):
-            if skeleton.labels:
-                return skeleton
-            return skeleton.model_copy(update={"labels": labels})
-        if isinstance(skeleton, Mapping) and not skeleton.get("labels"):
-            return {**skeleton, "labels": labels}
-        return skeleton
-
     @model_validator(mode="after")
-    def _validate_skeleton(self) -> Self:
-        if self.skeleton is None:
+    def _validate_declared_metadata(self) -> Self:
+        declared = self.declared_metadata()
+        if declared is None:
             return self
-        # The check uses the skeleton, not the number of keypoints in this
-        # annotation. An annotation can name only some of them.
-        self.skeleton.validate_for(
-            len(self.skeleton.labels) or len(self.keypoints)
-        )
-        if self.skeleton.labels:
-            self.keypoints = self.skeleton.align(self.keypoints)
+        declared.validate_for(len(self.keypoints))
+        # `KeypointMetadata` sorts the edges and orders each flip pair, so
+        # take them back to keep the two in step.
+        self.edges, self.flip_pairs = declared.edges, declared.flip_pairs
         return self
 
 
@@ -1959,15 +1905,16 @@ class DatasetRecord(BaseModelExtraForbid):
         return values
 
     def to_parquet_rows(
-        self, skeletons: Mapping[str, Skeleton] | None = None
+        self, keypoint_metadata: Mapping[str, KeypointMetadata] | None = None
     ) -> Iterable[ParquetRecord]:
         """Recursively convert the dataset record and all its
         annotations and sub-annotations to parquet rows.
 
         Args:
-            skeletons: Skeletons of the written tasks, keyed by task name.
-                A keypoint payload is positional. The skeleton of the task
-                thus sets the order and pads the omitted keypoints.
+            keypoint_metadata: Keypoint metadata of the written tasks,
+                keyed by task name. A keypoint payload is positional. The
+                keypoint metadata thus sets the order and pads the omitted
+                keypoints.
 
         Yields:
             Annotation data rows.
@@ -1977,7 +1924,7 @@ class DatasetRecord(BaseModelExtraForbid):
             self.annotation,
             self.task_name,
             json.dumps(self.sample_metadata),
-            skeletons or {},
+            keypoint_metadata or {},
         )
 
     def _to_parquet_rows(
@@ -1985,7 +1932,7 @@ class DatasetRecord(BaseModelExtraForbid):
         annotation: Detection | None,
         task_name: str,
         sample_metadata: str,
-        skeletons: Mapping[str, Skeleton],
+        keypoint_metadata: Mapping[str, KeypointMetadata],
     ) -> Iterable[ParquetRecord]:
         file_items = sorted(self.files.items(), key=lambda x: str(x[1]))
         for i, (source, file_path) in enumerate(file_items):
@@ -2015,7 +1962,7 @@ class DatasetRecord(BaseModelExtraForbid):
                             "instance_id": annotation.instance_id,
                             "task_type": task_type,
                             "annotation": label.to_parquet_json(
-                                skeletons.get(task_name)
+                                keypoint_metadata.get(task_name)
                             ),
                             "sample_metadata": sample_metadata,
                         }
@@ -2046,7 +1993,7 @@ class DatasetRecord(BaseModelExtraForbid):
                         detection,
                         f"{task_name}/{name}",
                         sample_metadata,
-                        skeletons,
+                        keypoint_metadata,
                     )
 
     @staticmethod
@@ -2128,6 +2075,70 @@ def _is_positional(labels: Iterable[str]) -> bool:
     return labels == [str(i) for i in range(len(labels))]
 
 
+def _resolve_pairs(
+    values: Mapping[str, Any], labels: Sequence[str] | None, hint: str
+) -> Mapping[str, Any]:
+    """Replace every keypoint name in ``edges`` and ``flip_pairs``.
+
+    Args:
+        values: Raw input values.
+        labels: Keypoint names in index order, when they are known.
+        hint: Sentence that tells the caller how to supply the names.
+
+    Returns:
+        The values, with each name replaced by its index.
+
+    Raises:
+        ValueError: If a name occurs but no names are known, or if a name
+            is not one of them.
+
+    """
+    try:
+        pairs_by_field = {
+            field: [list(pair) for pair in values[field]]
+            for field in ("edges", "flip_pairs")
+            if isinstance(values.get(field), Iterable)
+            and not isinstance(values[field], (str, bytes))
+        }
+    except TypeError:
+        # Malformed input. Let pydantic report it against the field type.
+        return values
+
+    if not any(
+        isinstance(endpoint, str)
+        for pairs in pairs_by_field.values()
+        for pair in pairs
+        for endpoint in pair
+    ):
+        return values
+
+    if not labels:
+        raise ValueError(
+            "Keypoint names are required in order to refer to the edges or "
+            f"the flip pairs by name. {hint}"
+        )
+
+    indices = {label: i for i, label in enumerate(labels)}
+    resolved = dict(values)
+    for field, pairs in pairs_by_field.items():
+        resolved[field] = [
+            [_resolve_endpoint(endpoint, indices) for endpoint in pair]
+            for pair in pairs
+        ]
+    return resolved
+
+
+def _resolve_endpoint(endpoint: Any, indices: Mapping[str, int]) -> Any:
+    if not isinstance(endpoint, str):
+        return endpoint
+    if endpoint not in indices:
+        raise ValueError(
+            f"Unknown keypoint name '{endpoint}'. "
+            f"Known keypoints: {', '.join(indices)}."
+        )
+    return indices[endpoint]
+
+
 def _split_side(label: str) -> tuple[str, str] | None:
     """Split a keypoint name into its side marker and the remainder.
 
@@ -2162,9 +2173,9 @@ __all__ = [
     "InstanceSegmentationAnnotation",
     "Keypoint",
     "KeypointAnnotation",
+    "KeypointMetadata",
     "KeypointVisibility",
     "NormalizedFloat",
     "SegmentationAnnotation",
-    "Skeleton",
     "load_annotation",
 ]
