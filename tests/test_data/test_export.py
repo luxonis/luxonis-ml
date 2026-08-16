@@ -198,6 +198,59 @@ def test_a_whole_image_export_keeps_its_classes(
     assert {"road", "sky"} <= imported_classes
 
 
+def test_native_export_does_not_invent_a_nameless_task(
+    dataset_name: str,
+    tempdir: Path,
+):
+    """A sample with no annotation names no task.
+
+    The exporter wrote ``{"": []}`` for such a row, and `LuxonisDataset.add`
+    registers every key of a record's annotation, so the re-import gained a
+    nameless task the original never had.
+    """
+
+    def generator() -> DatasetIterator:
+        yield {
+            "media": create_image(0, tempdir),
+            "annotation": {
+                "detection": [
+                    {
+                        "class": "person",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.1,
+                            "h": 0.1,
+                        },
+                    }
+                ]
+            },
+        }
+        # A true negative of `detection`, which must survive.
+        yield {
+            "media": create_image(1, tempdir),
+            "annotation": {"detection": []},
+        }
+        # No annotation at all, which must name nothing.
+        yield {"media": create_image(2, tempdir)}
+
+    dataset = create_dataset(dataset_name, generator(), splits=(1, 0, 0))
+    export_path = dataset.export(
+        tempdir / "exported", dataset_type=DatasetType.NATIVE
+    )
+    assert isinstance(export_path, Path)
+    imported_dataset = LuxonisParser(
+        str(Path(export_path) / dataset.identifier),
+        dataset_type=DatasetType.NATIVE,
+        dataset_name=f"{dataset_name}_imported",
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    assert "" not in imported_dataset.get_tasks()
+    assert imported_dataset.get_tasks() == dataset.get_tasks()
+
+
 @pytest.mark.parametrize("url", ["COCO_people_subset.zip"])
 def test_export_edge_cases(
     dataset_name: str,

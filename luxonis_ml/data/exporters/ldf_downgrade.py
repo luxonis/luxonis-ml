@@ -149,13 +149,13 @@ class LDFDowngrader:
         return record
 
     @staticmethod
-    def _flatten(record: dict[str, Any]) -> dict[str, Any]:
+    def _flatten(record: Params) -> Params:
         """Rewrite a record into the flat shape older LDF versions read.
 
         The exporter writes one detection per record, so the task-keyed
         mapping always holds a single task and at most one detection.
         """
-        flattened: dict[str, Any] = {}
+        flattened: Params = {}
         media = record.pop("media", None)
         if isinstance(media, dict):
             flattened["files"] = media

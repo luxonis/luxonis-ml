@@ -16,6 +16,7 @@ from luxonis_ml.data.exporters.ldf_downgrade import LDFDowngrader
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.ldf import DatasetRecord, KeypointMetadata
+from luxonis_ml.typing import Params
 from luxonis_ml.utils.path import path_to_posix
 
 
@@ -30,7 +31,7 @@ class NativeExporter(BaseExporter):
     ``files``. It is **record-level metadata**, not an annotation label.
 
     The export root also holds a ``metadata.json`` version stamp, such as
-    ``{"ldf_version": "2.2.0"}``. It is not the full `Metadata` model a
+    ``{"ldf_version": "3.0.0"}``. It is not the full `Metadata` model a
     dataset keeps in its own storage.
 
     Passing an older ``ldf_version`` strips the fields that version does
@@ -244,7 +245,7 @@ class NativeExporter(BaseExporter):
             ),
         }
 
-        detections: list[dict[str, Any]] = []
+        detections: list[Params] = []
         if ann_str is not None:
             data = json.loads(ann_str)
             ann: dict[str, Any] = {
@@ -261,9 +262,11 @@ class NativeExporter(BaseExporter):
             elif task_type.startswith("metadata/"):
                 ann["metadata"] = {task_type[9:]: data}
             detections.append(ann)
-        # An empty list still names the task, so a sample that is a negative
-        # for it says so.
-        record["annotation"] = {task_name: detections}
+        # A named empty list still names the task, so a sample that is a
+        # negative for it says so. An empty name names no task, so it must
+        # not become one on the way back in.
+        if task_name or detections:
+            record["annotation"] = {task_name: detections}
 
         return record
 

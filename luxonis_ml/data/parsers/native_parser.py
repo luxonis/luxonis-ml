@@ -1,17 +1,27 @@
 import json
+from collections.abc import Iterator, Mapping
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias
 
 from loguru import logger
 from semver.version import Version
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.constants import LDF_VERSION
-from luxonis_ml.typing import PathType
+from luxonis_ml.typing import PathType, PrimitiveType
 from luxonis_ml.utils.path import resolve_manifest_path
 
 from .base_parser import BaseParser, ParserOutput
+
+ManifestValue: TypeAlias = (
+    dict[str, "ManifestValue"] | list["ManifestValue"] | Path | PrimitiveType
+)
+"""A value of a decoded ``annotations.json``.
+
+The parser rewrites the relative path of every companion file in place, so a
+`pathlib.Path` belongs here beside the values the JSON itself holds.
+"""
 
 # Annotation fields holding a path to a companion file, as ``(field, key)``.
 # These are written relative to ``annotations.json`` so a dataset directory
@@ -126,16 +136,10 @@ class NativeParser(BaseParser):
                                 record.pop(key), annotation_path.parent
                             )
                             break
-                annotation = record.get("annotation")
-                for detection in (
-                    annotation
-                    if isinstance(annotation, list)
-                    else [annotation]
-                ):
-                    if isinstance(detection, dict):
-                        _resolve_annotation_paths(
-                            detection, annotation_path.parent
-                        )
+                for detection in _walk_detections(record.get("annotation")):
+                    _resolve_annotation_paths(
+                        detection, annotation_path.parent
+                    )
                 yield record
 
         added_images = self._get_added_images(generator())
@@ -169,7 +173,7 @@ class NativeParser(BaseParser):
                 )
 
 
-def _resolve_media(media: object, base_dir: Path) -> object:
+def _resolve_media(media: ManifestValue, base_dir: Path) -> ManifestValue:
     """Resolve one path, or a mapping of source names to paths.
 
     Anything else is returned untouched, so the record model reports it.
@@ -209,3 +213,42 @@ def _resolve_annotation_paths(
         for sub_detection in sub_detections.values():
             if isinstance(sub_detection, dict):
                 _resolve_annotation_paths(sub_detection, base_dir)
+
+
+def _walk_detections(
+    annotation: ManifestValue,
+) -> Iterator[dict[str, ManifestValue]]:
+    """Yield every detection of a record's annotation payload.
+
+    A payload maps a task name to its detections. The flat forms, one
+    detection or a list of them, are deprecated but still appear in an
+    export written by an older version.
+
+    The task mapping is recognized the same way `DatasetRecord` recognizes
+    it, by every value being a list or a tuple. The two must agree, or a
+    payload the record accepts reaches this parser as something else.
+    """
+    if isinstance(annotation, Mapping):
+        grouped = [
+            detections
+            for detections in annotation.values()
+            if isinstance(detections, (list, tuple))
+        ]
+        if len(grouped) == len(annotation):
+            for detections in grouped:
+                yield from (
+                    detection
+                    for detection in detections
+                    if isinstance(detection, dict)
+                )
+            return
+        # The caller rewrites the paths in place, so the detection itself
+        # is yielded, never a copy of it.
+        if isinstance(annotation, dict):
+            yield annotation
+    elif isinstance(annotation, (list, tuple)):
+        yield from (
+            detection
+            for detection in annotation
+            if isinstance(detection, dict)
+        )
