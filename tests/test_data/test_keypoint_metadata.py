@@ -577,6 +577,63 @@ def test_native_export_round_trips_the_metadata(
     assert imported.get_keypoint_metadata() == dataset.get_keypoint_metadata()
 
 
+def test_a_shorter_record_does_not_get_the_task_fields(
+    dataset_name: str, tempdir: Path
+):
+    """The export used to put the task fields on any first record.
+
+    A task can hold records with different numbers of keypoints; `add`
+    only warns. The edges and the sigmas describe the full set, so a
+    shorter record cannot carry them. The export was unreadable: the
+    import checks every record against its own keypoints, and the short
+    one referred to a keypoint it does not have.
+    """
+
+    def generator() -> DatasetIterator:
+        for i, n_keypoints in enumerate([2, 3, 3, 3]):
+            yield {
+                "file": str(create_image(i, tempdir)),
+                "task_name": "pose",
+                "annotation": {
+                    "class": "person",
+                    "keypoints": {
+                        "keypoints": [
+                            (0.1 * j, 0.1 * j, 2) for j in range(n_keypoints)
+                        ]
+                    },
+                },
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits=False)
+    # The short record is alone in its split, so the export meets it
+    # first there.
+    dataset.make_splits(
+        {
+            "val": [str(create_image(0, tempdir))],
+            "train": [str(create_image(i, tempdir)) for i in (1, 2, 3)],
+        }
+    )
+    exported = dataset.export(tempdir / "exported_mixed", DatasetType.NATIVE)
+    assert isinstance(exported, Path)
+
+    imported = LuxonisParser(
+        str(exported / dataset_name),
+        dataset_type=DatasetType.NATIVE,
+        dataset_name=f"{dataset_name}_imported",
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    assert imported.get_keypoint_metadata()["pose"].edges == [(0, 1), (1, 2)]
+
+    val_path = exported / dataset_name / "val" / "annotations.json"
+    assert [
+        record["annotation"]["keypoints"]
+        for record in json.loads(val_path.read_text())
+        if "keypoints" in record["annotation"]
+    ] == [{"keypoints": [[0.0, 0.0, 2], [0.1, 0.1, 2]]}]
+
+
 def test_the_exported_names_are_written_once_per_task(
     dataset_name: str, tempdir: Path
 ):
