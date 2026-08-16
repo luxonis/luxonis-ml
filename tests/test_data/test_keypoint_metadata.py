@@ -433,6 +433,37 @@ def test_set_keypoint_metadata_updates_only_what_it_is_given(
     assert task_keypoints.flip_pairs == [(1, 2)]
 
 
+def test_new_labels_drop_the_indices_they_invalidate(
+    dataset_name: str, tempdir: Path
+):
+    """A relabel used to keep the stored edges, flip pairs and sigmas.
+
+    All three address a keypoint by its position. New labels put a
+    different keypoint at each position, so the stored values then
+    describe the wrong keypoints. Nothing raises, because every index
+    stays in range. The kept flip pair ``(1, 2)`` flips ``right_eye``
+    onto ``nose``.
+    """
+    dataset = named_dataset(
+        dataset_name,
+        tempdir,
+        fields={
+            "edges": [("nose", "left_eye")],
+            "sigmas": [0.026, 0.025, 0.025],
+        },
+    )
+    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == [(1, 2)]
+
+    dataset.set_keypoint_metadata(
+        labels=["left_eye", "right_eye", "nose"], task="pose"
+    )
+
+    task_keypoints = dataset.get_keypoint_metadata()["pose"]
+    assert task_keypoints.flip_pairs == [(0, 1)]
+    assert task_keypoints.edges == []
+    assert task_keypoints.sigmas == []
+
+
 def test_set_keypoint_metadata_accepts_names(dataset_name: str, tempdir: Path):
     dataset = named_dataset(dataset_name, tempdir)
 
