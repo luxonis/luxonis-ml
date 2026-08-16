@@ -233,6 +233,31 @@ def test_a_later_add_updates_the_placeholder_count(
     assert dataset.get_keypoint_metadata()["pose"].labels == ["0", "1", "2"]
 
 
+def test_an_edges_only_declaration_still_names_the_keypoints(
+    dataset_name: str, tempdir: Path
+):
+    """A declaration of edges alone used to store ``labels=[]``.
+
+    The stored entry then held no count, so `get_n_keypoints` read it off
+    the highest edge index. A task with five keypoints reported two, and
+    the loader padded a keypoint-free sample to that width. The names
+    keep the count, so the assertion on them guards the count too.
+    """
+    dataset = create_dataset(
+        dataset_name,
+        keypoint_generator(
+            tempdir,
+            [(0.1 * i, 0.2, 2) for i in range(5)],
+            fields={"edges": [(0, 1)]},
+        ),
+    )
+
+    task_keypoints = dataset.get_keypoint_metadata()["pose"]
+    assert task_keypoints.labels == ["0", "1", "2", "3", "4"]
+    assert task_keypoints.edges == [(0, 1)]
+    assert dataset.get_n_keypoints() == {"pose": 5}
+
+
 def test_positional_names_do_not_clash_with_real_ones(
     dataset_name: str, tempdir: Path
 ):

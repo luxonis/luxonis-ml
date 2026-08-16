@@ -992,6 +992,18 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 task_keypoint_metadata = self._placeholder_keypoint_metadata(
                     n_keypoints
                 )
+            labels = task_keypoint_metadata.labels
+            if not labels or (
+                not task_keypoint_metadata.has_names
+                and len(labels) < n_keypoints
+            ):
+                # A description of edges alone names nothing, and a
+                # placeholder from an earlier `add` can be too narrow.
+                # The stored entry has to carry the keypoint count.
+                placeholder = self._placeholder_keypoint_metadata(n_keypoints)
+                task_keypoint_metadata = task_keypoint_metadata.model_copy(
+                    update={"labels": placeholder.labels}
+                )
             self._metadata.keypoint_metadata[task] = self._fill_in_flip_pairs(
                 task_keypoint_metadata, infer=True
             )
