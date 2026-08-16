@@ -76,7 +76,6 @@ def test_a_sample_with_no_mask_is_all_background(
     assert "background" in classes
     for mask in masks:
         assert mask.shape == (len(classes), 512, 512)
-        # Every pixel belongs to exactly one class.
-        assert mask.sum() == 512 * 512
+        assert np.array_equal(mask.sum(axis=0), np.ones((512, 512)))
     # The unannotated sample is the one whose pixels are all background.
     assert [mask[background].sum() for mask in masks].count(512 * 512) == 1
