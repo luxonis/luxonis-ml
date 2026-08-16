@@ -5,6 +5,7 @@ import polars as pl
 from semver.version import Version
 from typing_extensions import TypedDict
 
+from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 
 from .metadata import Metadata
@@ -167,8 +168,13 @@ def migrate_metadata(
 
     """
     if version.major >= 2:
-        # LDF 3.0 changed the record contract, not the metadata it keeps.
-        return Metadata.model_validate(metadata)
+        # LDF 3.0 changed the record contract, not the metadata it keeps, so
+        # nothing stored has to move. The stamp does: a dataset that keeps
+        # its old one is never migrated, and can never merge with a dataset
+        # this version wrote.
+        return Metadata.model_validate(
+            {**metadata, "ldf_version": str(LDF_VERSION)}
+        )
 
     new_metadata = {}
     old_classes = metadata["classes"]

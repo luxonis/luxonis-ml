@@ -3,8 +3,6 @@
 import json
 from pathlib import Path
 
-from semver.version import Version
-
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.utils.constants import LDF_VERSION
@@ -38,8 +36,10 @@ def test_a_2_x_dataset_still_loads(dataset_name: str, tempdir: Path):
 
     reopened = LuxonisDataset(dataset_name)
 
-    assert reopened.version == Version.parse("2.1.0")
-    assert reopened.version.major != LDF_VERSION.major
+    # The migration ran, so the dataset now reports the version it was
+    # migrated to. A dataset left on its old stamp would be migrated again
+    # on every open, and could never merge with one this version wrote.
+    assert reopened.version == LDF_VERSION
     assert reopened.get_classes() == {"vehicles": {"car": 0}}
 
     labels = LuxonisLoader(reopened, view="train")[0].labels
