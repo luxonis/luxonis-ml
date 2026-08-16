@@ -5,6 +5,7 @@ dataset metadata. These tests cover that move and the compatibility that
 it must keep.
 """
 
+import inspect
 import json
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,7 @@ from typing import Any
 import pytest
 
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
-from luxonis_ml.data.datasets.base_dataset import DatasetIterator
+from luxonis_ml.data.datasets.base_dataset import BaseDataset, DatasetIterator
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.ldf import KeypointMetadata
 
@@ -542,6 +543,35 @@ def test_flip_pair_inference_can_be_turned_off(
     )
 
     assert fresh.get_keypoint_metadata()["pose"].flip_pairs == []
+
+
+def test_only_the_skeleton_aliases_are_documented_as_deprecated():
+    """A body-level ``.. deprecated::`` block deprecates the whole method.
+
+    The rename left such a block on `set_keypoint_metadata`, which is the
+    replacement API. pydoctor then printed the same banner on the
+    supported setter as on the aliases that it replaces. The docstring
+    must agree with the decorator.
+    """
+    documented: set[str] = set()
+    decorated: set[str] = set()
+    for name in (
+        "set_keypoint_metadata",
+        "get_keypoint_metadata",
+        "set_skeletons",
+        "get_skeletons",
+    ):
+        method = getattr(BaseDataset, name)
+        docstring = inspect.getdoc(method) or ""
+        if any(
+            line.startswith(".. deprecated::")
+            for line in docstring.splitlines()
+        ):
+            documented.add(name)
+        if hasattr(method, "__deprecated__"):
+            decorated.add(name)
+
+    assert documented == decorated == {"set_skeletons", "get_skeletons"}
 
 
 def test_set_keypoint_metadata_rejects_duplicate_names(

@@ -131,9 +131,6 @@ class BaseDataset(
         Prefer the records. A record can carry ``edges``, ``flip_pairs``
         and ``sigmas`` beside its keypoints, and `add` moves them here.
 
-        .. deprecated:: 0.10.0
-            Declare the keypoints on the records instead.
-
         For example:
 
         .. python::
