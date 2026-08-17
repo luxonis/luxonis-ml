@@ -28,6 +28,34 @@ def compute_histogram(dataset: LuxonisDataset) -> dict[str, int]:
     return dict(classes)
 
 
+def test_generated_instance_ids_continue_across_batches(
+    dataset_name: str, tempdir: Path
+):
+    image = create_image(0, tempdir)
+
+    def generator() -> DatasetIterator:
+        for class_name, x in [("cat", 0.1), ("dog", 0.5)]:
+            yield {
+                "media": image,
+                "task_name": "animals",
+                "annotation": {
+                    "class": class_name,
+                    "boundingbox": {"x": x, "y": 0.1, "w": 0.2, "h": 0.2},
+                },
+            }
+
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    dataset.add(generator(), batch_size=1)
+    dataset.make_splits({"train": [image]})
+
+    boxes = LuxonisLoader(dataset, view="train")[0].labels[
+        "animals/boundingbox"
+    ]
+
+    assert boxes[:, 0].tolist() == [0.0, 1.0]
+    assert boxes[:, 1].tolist() == [0.1, 0.5]
+
+
 def test_task_ingestion(
     bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
 ):

@@ -1405,6 +1405,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         pfm: ParquetFileManager,
         index: pl.DataFrame | None,
         declared_keypoint_metadata: dict[str, KeypointMetadata],
+        instance_counters: dict[str, dict[str, int]],
     ) -> None:
         keypoint_metadata = self._alignment_keypoint_metadata(
             declared_keypoint_metadata
@@ -1445,11 +1446,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         )
 
         logger.info("Saving annotations...")
-        # One sample is often built from several records, each holding one
-        # detection, so the instance numbers have to run across them. The
-        # counter is keyed by sample, and every record of that sample
-        # continues it.
-        instance_counters: dict[str, dict[str, int]] = defaultdict(dict)
         with self._progress:
             for record in data_batch:
                 file_paths = record.file_paths.values()
@@ -1627,6 +1623,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             for name, sub_detection in ann.sub_detections.items():
                 update_state(f"{task_name}/{name}", sub_detection)
 
+        instance_counters: dict[str, dict[str, int]] = defaultdict(dict)
         with ParquetFileManager(annotations_path, batch_size) as pfm:
             for i, record in enumerate(generator, start=1):
                 if not isinstance(record, DatasetRecord):
@@ -1644,12 +1641,20 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 data_batch.append(record)
                 if i % batch_size == 0:
                     self._add_process_batch(
-                        data_batch, pfm, index, declared_keypoint_metadata
+                        data_batch,
+                        pfm,
+                        index,
+                        declared_keypoint_metadata,
+                        instance_counters,
                     )
                     data_batch = []
 
             self._add_process_batch(
-                data_batch, pfm, index, declared_keypoint_metadata
+                data_batch,
+                pfm,
+                index,
+                declared_keypoint_metadata,
+                instance_counters,
             )
 
         with suppress(shutil.SameFileError):
