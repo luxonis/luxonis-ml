@@ -54,7 +54,9 @@ def test_multi_input(dataset_name: str, tempdir: Path):
         dict[str, Literal["RGB", "BGR", "GRAY"]],
         {"image1": "RGB", "image2": "BGR", "image3": "GRAY"},
     )
-    dataset = create_dataset(dataset_name, generator())
+    # `Mosaic4` combines four images, so the train split must keep all
+    # four groups. The default ratios give one group to `val`.
+    dataset = create_dataset(dataset_name, generator(), splits=(1.0, 0.0, 0.0))
     loader = LuxonisLoader(
         dataset,
         height=512,
