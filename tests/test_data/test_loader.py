@@ -286,6 +286,29 @@ def test_filter_task_names(randint: int, tempdir: Path):
     ) == [[0.0, 1.0], [1.0, 0.0]]
 
 
+def test_task_filter_keeps_all_sources_of_a_negative(
+    dataset_name: str, tempdir: Path
+):
+    left = create_image(0, tempdir)
+    right = create_image(1, tempdir)
+    record = {
+        "media": {"left": left, "right": right},
+        "annotation": {
+            "animals": [{"class": "cat"}],
+            "vehicles": [],
+        },
+    }
+    dataset = create_dataset(
+        dataset_name, iter([record]), splits={"train": 1.0}
+    )
+
+    sample = LuxonisLoader(
+        dataset, view="train", filter_task_names=["vehicles"]
+    )[0]
+
+    assert set(sample.images) == {"left", "right"}
+
+
 def test_filter_task_names_rejects_unknown_task(randint: int, tempdir: Path):
     dataset = _create_filter_task_names_dataset(
         f"test_filter_task_names_rejects_unknown_task_{randint}", tempdir
