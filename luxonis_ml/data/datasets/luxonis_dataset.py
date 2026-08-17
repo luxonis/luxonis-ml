@@ -1487,11 +1487,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             sources (``"train_real"``, ``"train_synth"``) or for
             creating fully custom splits.
 
-        Note:
-            The method skips each file that is already in a split. Thus
-            you can give the same filepath definitions more than one
-            time. If no file is new, the existing splits do not change.
-
         Args:
             splits: A mapping defining the splits. Can be one of the following:
 
