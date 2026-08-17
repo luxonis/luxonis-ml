@@ -1986,6 +1986,7 @@ dependencies = [
     { name = "rich" },
     { name = "semver" },
     { name = "typeguard" },
+    { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
@@ -2116,6 +2117,7 @@ requires-dist = [
     { name = "s3fs", marker = "extra == 's3'", specifier = "==2024.6.1" },
     { name = "semver", specifier = "~=3.0" },
     { name = "typeguard", specifier = "~=4.1" },
+    { name = "typing-extensions", specifier = ">=4.13" },
     { name = "unique-names-generator", marker = "extra == 'tracker'", specifier = "~=1.0" },
 ]
 provides-extras = ["ldf", "data", "telemetry", "tracker", "nn-archive", "utils", "gcs", "mlflow", "roboflow", "s3", "all"]
