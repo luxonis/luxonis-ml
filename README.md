@@ -348,7 +348,7 @@ directly in your configuration files. Instead:
 - `LUXONISML_BUCKET` - the cloud bucket that holds remote datasets
 
 > [!NOTE]
-> `LuxonisML` collects anonymized usage telemetry. Set `LUXONIS_TELEMETRY_ENABLED=false` to disable it. See the [`luxonis_ml.telemetry`](https://docs.luxonis.com/software-v3/ai-inference/model-source/training/luxonis-ml/luxonis-ml-api-reference/telemetry) documentation for the exact data each event carries.
+> `LuxonisML` sends no telemetry. It only provides a telemetry client that other Luxonis packages can use. To turn that client off, set `LUXONIS_TELEMETRY_ENABLED=false`. See the [`luxonis_ml.telemetry`](https://docs.luxonis.com/software-v3/ai-inference/model-source/training/luxonis-ml/luxonis-ml-api-reference/telemetry) documentation for the data an event carries.
 
 <a name="documentation"></a>
 
