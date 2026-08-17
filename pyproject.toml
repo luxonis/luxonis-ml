@@ -27,6 +27,7 @@ dependencies = [
   "rich~=15.0",
   "semver~=3.0",
   "typeguard~=4.1",
+  "typing-extensions>=4.13",
 ]
 
 [project.optional-dependencies]
