@@ -1694,10 +1694,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             for name, sub_detection in ann.sub_detections.items():
                 update_state(f"{task_name}/{name}", sub_detection)
 
-        # One sample is often built from several records, each holding one
-        # detection, so the instance numbers have to run across them. The
-        # counter is keyed by sample, and every record of that sample
-        # continues it.
         instance_counters: dict[str, dict[str, int]] = defaultdict(dict)
         with ParquetFileManager(annotations_path, batch_size) as pfm:
             for record in generator:
