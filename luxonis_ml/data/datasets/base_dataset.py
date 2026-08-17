@@ -175,15 +175,40 @@ class BaseDataset(
         *,
         replace_old_splits: bool = False,
     ) -> None:
-        """Generate dataset splits.
+        """Create dataset splits for training, validation, and testing.
+
+        Note:
+            Although ``"train"``, ``"val"``, and ``"test"``
+            are the conventional split names, you can use any split names
+            you want by providing a mapping to the ``splits`` argument.
+            This can be useful for combining records from multiple
+            sources (``"train_real"``, ``"train_synth"``) or for
+            creating fully custom splits.
 
         Args:
-            splits: Split definitions or ratios. Accepts explicit
-                filepath lists, split ratios keyed by split name, or a
-                ``(train, val, test)`` ratio tuple. Omit to create
-                default train, validation, and test splits.
-            replace_old_splits: Whether to replace existing split
-                assignments instead of adding only new files.
+            splits: A mapping defining the splits. Can be one of the following:
+
+                - A mapping of split names to lists of file paths.
+                - A mapping of split names to ratios.
+                - A tuple of three ratios for train, val, and test splits.
+
+                A ratio is a number from 0 to 1, and the ratios sum to
+                1. ``1`` and ``1.0`` both work.
+
+            replace_old_splits: Whether to replace old splits with new ones.
+                If ``False`` (default), new splits are added to the existing
+                splits. If ``True``, the existing splits are discarded first.
+
+        Raises:
+            TypeError: If the mapping values are neither ratios nor
+                filepath lists. The method warns and skips each element
+                of a filepath list that is not a filepath.
+            ValueError: If ``splits`` is provided but is empty.
+            ValueError: If the ratios are outside the range from 0 to 1 or
+                do not sum to 1.
+            ValueError: If split ratios are used but all the data already
+                belongs to a split while ``replace_old_splits`` is ``False``.
+            FileNotFoundError: If the dataset is empty.
 
         """
         ...
