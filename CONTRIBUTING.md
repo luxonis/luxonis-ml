@@ -259,8 +259,9 @@ Package publishing and documentation deployment are handled by GitHub Actions:
 - `release-tag.yaml` tags and releases a merged `release/*` pull request.
 - `python-publish.yml` builds and publishes on release publication or manual
   dispatch.
-- `docs-pages.yaml` publishes GitHub Pages docs on `main`, release publication,
-  or manual dispatch.
+- `export-pydoctor-reference.yaml` builds the API reference from the docstrings.
+  It runs on a `release/*` pull request or on manual dispatch, and uploads the
+  result as an artifact.
 - `pip-install.yaml` installs from the `requirements*.txt` exports whenever they
   or their inputs change. Nothing else in CI uses those files, so this is what
   keeps the pip path working for users who do not have `uv`.

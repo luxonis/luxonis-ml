@@ -255,10 +255,14 @@ ratios of the splits, or pass the exact files of each split.
         }
     )
 
-A call with no argument splits 80/10/10. A split from ratios uses only the
-records that no split holds yet, so a second call needs new records. Pass
-``replace_old_splits=True`` to drop the old splits and to split every
-record again.
+A call with no argument splits 80/10/10. A ratio is a number from 0 to 1,
+and the ratios must sum to 1.
+
+A split from ratios uses only the records that no split holds yet. A second
+call with ratios thus needs new records, or it raises an error. A call with
+explicit file lists only logs a warning and keeps the old splits. Thus you
+can parse the same data twice. Pass ``replace_old_splits=True`` to drop the
+old splits and to split every record again.
 
 
 Annotation Payloads

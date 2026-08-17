@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: Auto-assign
-        uses: toshimaru/auto-author-assign@3e19bfc990cb1cf0589dce95e9f75289bb1e22de
+        uses: toshimaru/auto-author-assign@a78a94b219445cece8ccf0d45fec60af449f212a
 
   labeler:
     runs-on: ubuntu-latest
@@ -40,9 +40,8 @@ jobs:
           ref: ${{ github.head_ref }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
         with:
-          version: "0.11.32"
           enable-cache: true
 
       - name: Run pre-commit hooks
@@ -61,9 +60,8 @@ jobs:
           ref: ${{ github.head_ref }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
         with:
-          version: "0.11.32"
           enable-cache: true
 
       - name: Build docs
@@ -80,9 +78,8 @@ jobs:
           ref: ${{ github.head_ref }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
         with:
-          version: "0.11.32"
           enable-cache: true
 
       - name: Sync dependencies
@@ -165,9 +162,8 @@ jobs:
           ref: ${{ github.head_ref }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
         with:
-          version: "0.11.32"
           enable-cache: true
 
       - name: Restore pytest durations
@@ -306,9 +302,8 @@ jobs:
           ref: ${{ github.head_ref }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
         with:
-          version: "0.11.32"
           enable-cache: true
 
       # Only the submodule's own extra, so a dependency missing from that extra
