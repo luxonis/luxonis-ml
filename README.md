@@ -55,6 +55,11 @@ tracking, and utility layers that the other Luxonis tools build on.
    luxonis_ml data parse "roboflow://team-roboflow/coco-128/2/coco" --name coco_test
    ```
 
+   > [!IMPORTANT]
+   > A `roboflow://` source needs the `ROBOFLOW_API_KEY` environment variable.
+   > Get your key from the
+   > [Roboflow documentation](https://docs.roboflow.com/api-reference/authentication).
+
 1. **Inspect the result**
 
    ```bash
