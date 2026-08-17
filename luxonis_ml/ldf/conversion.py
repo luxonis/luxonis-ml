@@ -201,8 +201,9 @@ def _nest_sub_detections(
     """Put every sub-task back under the detection it belongs to.
 
     A task named ``"driver/face"`` is the ``"face"`` sub-detection of the
-    ``"driver"`` task. Its detections pair with their parents by row index,
-    which is the same order the instance IDs gave them.
+    ``"driver"`` task. Its detections pair with their parents by row index
+    only when every parent has one. Compact label arrays do not retain the
+    gaps needed to place sparse children safely.
     """
     nested = {
         name: list(detections) for name, detections in annotations.items()
@@ -220,14 +221,12 @@ def _nest_sub_detections(
         if not sub_name or parent_name not in nested:
             continue
         parents = nested[parent_name]
-        children = nested.pop(task_name)
-        for index, child in enumerate(children):
-            if index < len(parents):
-                parents[index].sub_detections[sub_name] = child
-            else:
-                # A sub-detection with no parent of its own keeps its task,
-                # because dropping it would lose an annotation.
-                nested.setdefault(task_name, []).append(child)
+        children = nested[task_name]
+        if len(children) != len(parents):
+            continue
+        nested.pop(task_name)
+        for parent, child in zip(parents, children, strict=True):
+            parent.sub_detections[sub_name] = child
     return nested
 
 

@@ -641,8 +641,7 @@ def test_a_sub_task_without_a_parent_keeps_its_own_name():
     assert face.boundingbox.x == pytest.approx(0.3)
 
 
-def test_a_sub_detection_without_a_parent_is_not_dropped():
-    """More children than parents: the extra one keeps its own task."""
+def test_children_are_not_nested_when_a_parent_is_missing():
     schema = DatasetSchema(
         tasks={
             "driver": ["boundingbox"],
@@ -661,9 +660,42 @@ def test_a_sub_detection_without_a_parent_is_not_dropped():
         schema,
     )
 
-    assert len(record.annotation["driver"]) == 1
-    assert list(record.annotation["driver"][0].sub_detections) == ["face"]
-    assert len(record.annotation["driver/face"]) == 1
+    assert record.annotation["driver"][0].sub_detections == {}
+    assert len(record.annotation["driver/face"]) == 2
+
+
+def test_sparse_children_are_not_attached_by_compacted_index():
+    schema = DatasetSchema(
+        tasks={
+            "driver": ["boundingbox"],
+            "driver/face": ["boundingbox"],
+        },
+        classes={"driver": {"person": 0}, "driver/face": {"face": 0}},
+    )
+
+    record = labels_to_record(
+        {
+            "driver/boundingbox": np.array(
+                [
+                    [0, 0.1, 0.1, 0.1, 0.1],
+                    [0, 0.3, 0.1, 0.1, 0.1],
+                    [0, 0.6, 0.1, 0.1, 0.1],
+                ]
+            ),
+            "driver/face/boundingbox": np.array(
+                [[0, 0.1, 0.2, 0.1, 0.1], [0, 0.6, 0.2, 0.1, 0.1]]
+            ),
+        },
+        schema,
+    )
+
+    assert all(
+        not driver.sub_detections for driver in record.annotation["driver"]
+    )
+    assert [
+        face.boundingbox.x  # type: ignore[union-attr]
+        for face in record.annotation["driver/face"]
+    ] == pytest.approx([0.1, 0.6])
 
 
 def test_a_named_task_is_not_nested_under_the_default_task():
