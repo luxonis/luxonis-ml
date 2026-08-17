@@ -27,6 +27,7 @@ dependencies = [
   "rich~=15.0",
   "semver~=3.0",
   "typeguard~=4.1",
+  "typing-extensions>=4.13",
 ]
 
 [project.optional-dependencies]
@@ -204,6 +205,10 @@ wrap-summaries = 72
 wrap-descriptions = 72
 
 [tool.pyright]
+# `TypeForm` (PEP 747) names the type expression a pydantic
+# `__get_pydantic_core_schema__` hook receives. The PEP is not final, so
+# pyright reads the annotation only with this on.
+enableExperimentalFeatures = true
 pythonVersion = "3.10"
 exclude = [
   "**/node_modules",

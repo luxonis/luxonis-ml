@@ -686,9 +686,11 @@ def test_a_shorter_record_does_not_get_the_task_fields(
 
     val_path = exported / dataset_name / "val" / "annotations.json"
     assert [
-        record["annotation"]["keypoints"]
+        detection["keypoints"]
         for record in json.loads(val_path.read_text())
-        if "keypoints" in record["annotation"]
+        for detections in record["annotation"].values()
+        for detection in detections
+        if "keypoints" in detection
     ] == [{"keypoints": [[0.0, 0.0, 2], [0.1, 0.1, 2]]}]
 
 
@@ -732,10 +734,12 @@ def test_the_exported_names_are_written_once_per_task(
     counts = []
     for path in (exported / dataset_name).rglob("annotations.json"):
         keypoints = [
-            record["annotation"]["keypoints"]["keypoints"]
+            detection["keypoints"]["keypoints"]
             for record in json.loads(path.read_text())
+            for detections in record.get("annotation", {}).values()
+            for detection in detections
             # Every detection also emits a classification record.
-            if "keypoints" in record.get("annotation", {})
+            if "keypoints" in detection
         ]
         if keypoints:
             named = sum(isinstance(k, dict) for k in keypoints)

@@ -2,7 +2,7 @@ import inspect
 import random
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -12,7 +12,7 @@ from loguru import logger
 from luxonis_ml.data import BaseDataset, DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue, ParserIssueMessage
 from luxonis_ml.enums.enums import DatasetType
-from luxonis_ml.ldf import DatasetRecord
+from luxonis_ml.ldf import DatasetRecord, Detection
 from luxonis_ml.typing import PathType
 
 if TYPE_CHECKING:
@@ -488,21 +488,26 @@ class BaseParser(ABC):
             Unique added image paths.
 
         """
-        return list(
-            {
-                Path(v)
-                for item in generator
-                for v in (
-                    [item["file"]]
-                    if isinstance(item, dict) and "file" in item
-                    else item["files"].values()
-                    if isinstance(item, dict) and "files" in item
-                    else [item.file]
-                    if isinstance(item, DatasetRecord)
-                    else []
-                )
-            }
-        )
+        paths: set[Path] = set()
+        for item in generator:
+            if isinstance(item, DatasetRecord):
+                paths.update(Path(file) for file in item.file_paths.values())
+                continue
+            media = next(
+                (
+                    item[key]
+                    for key in ("media", "file", "files")
+                    if key in item
+                ),
+                None,
+            )
+            if media is None:
+                continue
+            if isinstance(media, Mapping):
+                paths.update(Path(file) for file in media.values())
+            else:
+                paths.add(Path(media))
+        return list(paths)
 
     def _warn_skipped_annotation(
         self,
@@ -647,23 +652,33 @@ class BaseParser(ABC):
             if isinstance(item, dict):
                 item = DatasetRecord(**item)
 
-            if self._task_name is not None:
-                if item.annotation is None:
-                    for task_name in set(self._task_name.values()):
-                        yield item.model_copy(
-                            update={"task_name": task_name}, deep=True
-                        )
-                else:
-                    class_name = item.annotation.class_name
-                    if class_name is not None:
-                        try:
-                            task_name = self._task_name[class_name]
-                        except KeyError:
-                            raise ValueError(
-                                f"Class '{class_name}' not found in task names."
-                            ) from None
-
-                        item.task_name = self._task_name[class_name]
-                    yield item
-            else:
+            if self._task_name is None:
                 yield item
+                continue
+
+            if not any(item.annotation.values()):
+                for task_name in set(self._task_name.values()):
+                    yield item.model_copy(
+                        update={"annotation": {task_name: []}}, deep=True
+                    )
+                continue
+
+            grouped: dict[str, list[Detection]] = defaultdict(list)
+            for task_name, detections in item.annotation.items():
+                for detection in detections:
+                    class_name = detection.class_name
+                    # A detection with no class has nothing to resolve, so
+                    # it stays under the task it came with.
+                    if class_name is None:
+                        grouped[task_name].append(detection)
+                        continue
+                    try:
+                        resolved = self._task_name[class_name]
+                    except KeyError:
+                        raise ValueError(
+                            f"Class '{class_name}' not found in task names."
+                        ) from None
+                    grouped[resolved].append(detection)
+
+            item.annotation = dict(grouped)
+            yield item

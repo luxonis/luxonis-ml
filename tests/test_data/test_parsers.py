@@ -9,6 +9,7 @@ from pydantic import SecretStr
 
 from luxonis_ml.data import (
     BaseDataset,
+    DatasetIterator,
     LuxonisDataset,
     LuxonisLoader,
     LuxonisParser,
@@ -16,8 +17,10 @@ from luxonis_ml.data import (
 )
 from luxonis_ml.data.parsers import SOLOParser, luxonis_parser
 from luxonis_ml.data.parsers.base_parser import BaseParser, ParserOutput
+from luxonis_ml.data.parsers.native_parser import NativeParser
 from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.utils import environ
 
 from .utils import create_image
@@ -1178,3 +1181,76 @@ def test_ultralytics_version_selects_an_export(
 
     assert ultralytics_requests[0]["params"] == {"v": 3}
     assert destination == tempdir / "warehouse.v3.ndjson"
+
+
+def native_parser(
+    dataset_name: str, task_name: dict[str, str]
+) -> NativeParser:
+    return NativeParser(
+        dataset=LuxonisDataset(dataset_name, delete_local=True),
+        dataset_type=DatasetType.NATIVE,
+        task_name=task_name,
+    )
+
+
+def test_task_names_group_a_record_by_class(dataset_name: str, tempdir: Path):
+    """A record's detections split across the tasks their classes name.
+
+    A record used to carry one detection, so the parser could set a single
+    task name on it. Now the detections of one record can belong to
+    different tasks, and each has to land in its own group.
+    """
+    parser = native_parser(
+        dataset_name, {"car": "vehicles", "rain": "weather"}
+    )
+    image = create_image(0, tempdir)
+
+    def generator() -> DatasetIterator:
+        yield {
+            "file": image,
+            "annotation": [
+                {"class": "car"},
+                {"class": "rain"},
+                {"boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1}},
+            ],
+        }
+
+    (record,) = list(parser._wrap_generator(generator()))
+
+    assert isinstance(record, DatasetRecord)
+    assert {
+        task_name: [detection.class_name for detection in detections]
+        for task_name, detections in record.annotation.items()
+    } == {"vehicles": ["car"], "weather": ["rain"], "": [None]}
+
+
+def test_task_names_reject_an_unknown_class(dataset_name: str, tempdir: Path):
+    parser = native_parser(dataset_name, {"car": "vehicles"})
+    image = create_image(0, tempdir)
+
+    def generator() -> DatasetIterator:
+        yield {"file": image, "annotation": [{"class": "bicycle"}]}
+
+    with pytest.raises(ValueError, match="not found in task names"):
+        list(parser._wrap_generator(generator()))
+
+
+def test_an_unlabeled_record_is_yielded_for_every_task(
+    dataset_name: str, tempdir: Path
+):
+    parser = native_parser(
+        dataset_name, {"car": "vehicles", "rain": "weather"}
+    )
+    image = create_image(0, tempdir)
+
+    def generator() -> DatasetIterator:
+        yield {"file": image}
+
+    records = list(parser._wrap_generator(generator()))
+
+    assert sorted(
+        task_name
+        for record in records
+        if isinstance(record, DatasetRecord)
+        for task_name in record.annotation
+    ) == ["vehicles", "weather"]

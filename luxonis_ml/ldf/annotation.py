@@ -14,17 +14,16 @@ normalized before they are written to LDF parquet shards.
 Record Model
 ============
 
-Dataset ingestion starts with `DatasetRecord`. A record points to media,
-optionally assigns a task name, and optionally carries an annotation payload
-validated by `Detection`.
+Dataset ingestion starts with `DatasetRecord`. A record points to media and
+groups its annotation payloads, each validated by `Detection`, under the task
+name they belong to.
 
-Single-source records use ``"file"``:
+A single source is named by ``"media"``:
 
 .. code-block:: json
 
     {
-      "file": "path/to/image.jpg",
-      "task_name": "detection",
+      "media": "path/to/image.jpg",
 
       "sample_metadata": {
         "record_id": 123,
@@ -33,26 +32,29 @@ Single-source records use ``"file"``:
       },
 
       "annotation": {
-        "class": "car",
-        "boundingbox": {
-          "x": 0.1,
-          "y": 0.2,
-          "w": 0.3,
-          "h": 0.4
-        }
+        "detection": [
+          {
+            "class": "car",
+            "boundingbox": {
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            }
+          }
+        ]
       }
     }
 
-Multi-source records use ``"files"``:
+Several synchronized sources are named by the same key:
 
 .. code-block:: json
 
     {
-      "files": {
+      "media": {
         "rgb": "path/to/rgb.png",
         "depth": "path/to/depth.png"
       },
-      "task_name": "detection",
 
       "sample_metadata": {
         "sequence": "loading_dock_07",
@@ -60,13 +62,17 @@ Multi-source records use ``"files"``:
       },
 
       "annotation": {
-        "class": "person",
-        "boundingbox": {
-          "x": 0.1,
-          "y": 0.1,
-          "w": 0.3,
-          "h": 0.4
-        }
+        "detection": [
+          {
+            "class": "person",
+            "boundingbox": {
+              "x": 0.1,
+              "y": 0.1,
+              "w": 0.3,
+              "h": 0.4
+            }
+          }
+        ]
       }
     }
 
@@ -82,10 +88,25 @@ consumed by training code as annotation labels.
 **Frontend note:** ``sample_metadata`` is sample data, not an annotation
 target.
 
-Task names group annotations that should be consumed together. If no
-``task_name`` is provided, the empty string ``""`` is used. Loader label keys
-therefore follow ``"task_name/task_type"`` and default-task keys start with
-``"/"``.
+Task names group annotations that should be consumed together. The empty
+string ``""`` names the default task, so loader label keys follow
+``"task_name/task_type"`` and default-task keys start with ``"/"``.
+
+An empty ``annotation`` mapping marks a true negative. Such a sample counts as
+a negative for every task of the dataset. A task mapped to an empty list is a
+true negative that also declares the task, which is how a dataset can hold a
+task that has no positive sample yet.
+
+The flat form, a single detection or a list of them beside a ``task_name``, is
+deprecated but still accepted:
+
+.. code-block:: json
+
+    {
+      "file": "path/to/image.jpg",
+      "task_name": "detection",
+      "annotation": {"class": "car"}
+    }
 
 
 Coordinates and Instances
@@ -309,12 +330,16 @@ sample:
     {
         "class": "embedding",
         "array": {
-            "path": "path/to/embedding.npy",
+            "data": "path/to/embedding.npy",
         },
     }
 
 Arrays are useful for modality-specific targets or auxiliary data that should
 be stored with the dataset but does not fit standard spatial schemas.
+
+``data`` also takes the array itself, for a record that was never on disk.
+Such a record can be rendered but not stored. The stored key stays ``path``,
+which is deprecated as an input name.
 
 
 Metadata and Categories
@@ -378,6 +403,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import (
+    TYPE_CHECKING,
     Annotated,
     Any,
     Final,
@@ -396,6 +422,7 @@ from pydantic import (
     AliasChoices,
     Field,
     GetCoreSchemaHandler,
+    PlainSerializer,
     ValidationInfo,
     field_serializer,
     field_validator,
@@ -404,16 +431,22 @@ from pydantic import (
 )
 from pydantic.types import FilePath, NonNegativeInt, PositiveFloat, PositiveInt
 from pydantic_core import core_schema
-from typing_extensions import Self, deprecated, override
+from typing_extensions import Self, TypeForm, deprecated, override
 
 from luxonis_ml.ldf.parquet import ParquetRecord
 from luxonis_ml.typing import (
     BaseModelExtraForbid,
     Params,
     PathType,
+    TaskType,
     check_type,
 )
 from luxonis_ml.utils.logging import log_once
+
+if TYPE_CHECKING:
+    from luxonis_ml.typing import LoaderOutput
+
+    from .schema import DatasetSchema
 
 KeypointVisibility: TypeAlias = Literal[0, 1, 2]
 """Keypoint visibility following the COCO convention.
@@ -768,9 +801,53 @@ class Category(str):
 
     @classmethod
     def __get_pydantic_core_schema__(
-        cls, source_type: Any, handler: GetCoreSchemaHandler
+        cls,
+        source_type: TypeForm["Category"],
+        handler: GetCoreSchemaHandler,
     ) -> core_schema.CoreSchema:
         return core_schema.is_instance_schema(cls)
+
+
+def _serialize_path_or_array(value: FilePath | np.ndarray) -> str:
+    if not isinstance(value, np.ndarray):
+        return str(value)
+    raise ValueError(
+        f"Cannot serialize an in-memory array of shape {value.shape}. "
+        "Save it to a file and reference that path instead."
+    )
+
+
+class _PathOrArraySchema:
+    """Accept an array without naming the union branches in the errors."""
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: TypeForm[FilePath | np.ndarray],
+        handler: GetCoreSchemaHandler,
+    ) -> core_schema.CoreSchema:
+        return core_schema.no_info_wrap_validator_function(
+            cls._validate, handler.generate_schema(FilePath)
+        )
+
+    @staticmethod
+    def _validate(
+        value: PathType | np.ndarray,
+        handler: core_schema.ValidatorFunctionWrapHandler,
+    ) -> FilePath | np.ndarray:
+        return value if isinstance(value, np.ndarray) else handler(value)
+
+
+PathOrArray: TypeAlias = Annotated[
+    FilePath | np.ndarray,
+    _PathOrArraySchema,
+    PlainSerializer(_serialize_path_or_array, when_used="json"),
+]
+"""A path to a file, or the data itself held in memory.
+
+A record that holds data in memory can be rendered and converted, but not
+stored. Save the data to a file and reference that path to store it.
+"""
 
 
 #: The `Detection` fields holding a single `Annotation`, in parquet row order.
@@ -910,7 +987,11 @@ class Detection(BaseModelExtraForbid):
     )
     instance_id: int = -1
 
-    metadata: dict[str, int | float | str | Category] = {}
+    # A literal default is deep-copied into every instance, which the
+    # loader pays for once per annotation row.
+    metadata: dict[str, int | float | str | Category] = Field(
+        default_factory=dict
+    )
 
     boundingbox: Optional["BBoxAnnotation"] = None
     keypoints: Optional["KeypointAnnotation"] = None
@@ -920,7 +1001,7 @@ class Detection(BaseModelExtraForbid):
 
     scale_to_boxes: bool = False
 
-    sub_detections: dict[str, "Detection"] = {}
+    sub_detections: dict[str, "Detection"] = Field(default_factory=dict)
 
     def get_task_types(self) -> set[str]:
         """Get all the task type associated with this detection.
@@ -1041,6 +1122,28 @@ class Annotation(ABC, BaseModelExtraForbid):
         """
         ...
 
+    @staticmethod
+    @abstractmethod
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["Annotation", int | None]]:
+        """Split a combined array back into single annotations.
+
+        This is the inverse of `combine_to_numpy`. Only some layouts carry
+        the class of each annotation, so the class ID is optional: keypoints
+        and instance masks are stored without one, and the caller has to
+        take it from another annotation of the same instance.
+
+        Args:
+            array: Array in the layout `combine_to_numpy` produces.
+
+        Returns:
+            One annotation per instance, each with its class ID when the
+            layout carries one.
+
+        """
+        ...
+
 
 class ClassificationAnnotation(Annotation):
     """Dummy wrapper annotation for classification tasks.
@@ -1077,6 +1180,26 @@ class ClassificationAnnotation(Annotation):
         for i in range(len(annotations)):
             classify_vector[classes[i]] = 1
         return classify_vector
+
+    @staticmethod
+    @override
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["ClassificationAnnotation", int]]:
+        r"""Split a multi-hot label vector into one annotation per class.
+
+        Args:
+            array: Multi-hot class vector of shape
+                :math:`\left(C,\right)`.
+
+        Returns:
+            One annotation per class the vector marks, with its class ID.
+
+        """
+        return [
+            (ClassificationAnnotation(), int(class_id))
+            for class_id in np.flatnonzero(array)
+        ]
 
 
 class BBoxAnnotation(Annotation):
@@ -1134,6 +1257,34 @@ class BBoxAnnotation(Annotation):
         for i, ann in enumerate(annotations):
             boxes[i] = ann.to_numpy(classes[i])
         return boxes
+
+    @staticmethod
+    @override
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["BBoxAnnotation", int]]:
+        r"""Split bounding box rows into single annotations.
+
+        Args:
+            array: Rows of shape :math:`\left(N, 5\right)`, each in the
+                format ``[class_id, x, y, w, h]``.
+
+        Returns:
+            One bounding box per row, with the class ID of its first column.
+
+        """
+        return [
+            (
+                BBoxAnnotation(
+                    x=float(row[1]),
+                    y=float(row[2]),
+                    w=float(row[3]),
+                    h=float(row[4]),
+                ),
+                int(row[0]),
+            )
+            for row in array
+        ]
 
     @model_validator(mode="before")
     @classmethod
@@ -1279,6 +1430,38 @@ class KeypointAnnotation(Annotation):
                 )
             keypoints[i] = ann.to_numpy()
         return keypoints
+
+    @staticmethod
+    @override
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["KeypointAnnotation", None]]:
+        r"""Split flattened keypoint rows into single annotations.
+
+        Args:
+            array: Rows of shape :math:`\left(N, 3K\right)`.
+
+        Returns:
+            One keypoint annotation per row. The layout carries no class,
+            so every class ID is ``None``.
+
+        """
+        return [
+            (
+                # Validated rather than constructed: visibility is a literal
+                # that the float array cannot carry.
+                KeypointAnnotation.model_validate(
+                    {
+                        "keypoints": [
+                            (float(x), float(y), round(float(visibility)))
+                            for x, y, visibility in row.reshape(-1, 3)
+                        ]
+                    }
+                ),
+                None,
+            )
+            for row in array
+        ]
 
     def declared_metadata(self) -> KeypointMetadata | None:
         """Return the task-level metadata this annotation describes.
@@ -1526,6 +1709,33 @@ class SegmentationAnnotation(Annotation):
 
         return segmentation
 
+    @staticmethod
+    @override
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["SegmentationAnnotation", int]]:
+        r"""Split class masks into one annotation per class.
+
+        Args:
+            array: Semantic masks of shape :math:`\left(C, H, W\right)`.
+
+        Returns:
+            One annotation per class that has any pixel, with its class ID.
+            The combination gave each pixel to one class, and the split does
+            not restore the overlaps.
+
+        """
+        return [
+            (
+                SegmentationAnnotation.model_validate(
+                    {"mask": mask.astype(np.uint8)}
+                ),
+                class_id,
+            )
+            for class_id, mask in enumerate(array)
+            if mask.any()
+        ]
+
     @field_serializer("counts", when_used="json")
     def _serialize_counts(self, counts: bytes) -> str:
         return counts.decode("utf-8")
@@ -1725,21 +1935,54 @@ class InstanceSegmentationAnnotation(SegmentationAnnotation):
         """
         return np.stack([ann.to_numpy() for ann in annotations])
 
+    @staticmethod
+    @override
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["InstanceSegmentationAnnotation", None]]:
+        r"""Split instance masks into single annotations.
+
+        Args:
+            array: Instance masks of shape :math:`\left(N, H, W\right)`.
+
+        Returns:
+            One annotation per mask. The layout carries no class, so every
+            class ID is ``None``.
+
+        """
+        return [
+            (
+                InstanceSegmentationAnnotation.model_validate(
+                    {"mask": mask.astype(np.uint8)}
+                ),
+                None,
+            )
+            for mask in array
+        ]
+
 
 class ArrayAnnotation(Annotation):
-    """Custom annotation backed by an array file.
+    """Custom annotation backed by an array file or an in-memory array.
 
     All instances of this annotation must have the same shape.
 
     Attributes:
-        path: Path to the array saved as a ``.npy`` file.
+        path: Path to the array saved as a ``.npy`` file, or the array
+            itself. An in-memory array cannot be stored; save it to a file
+            and reference that path instead.
+
+            .. deprecated:: 0.10.0
+                The ``path`` input name is deprecated. Use ``data``, which
+                also accepts the array itself. The stored key stays ``path``.
 
     """
 
-    path: FilePath
+    path: PathOrArray
 
     def to_numpy(self) -> np.ndarray:
-        """Load the array from the file path."""
+        """Return the array, and load it from the file when needed."""
+        if isinstance(self.path, np.ndarray):
+            return self.path
         return np.load(self.path)
 
     @staticmethod
@@ -1762,20 +2005,66 @@ class ArrayAnnotation(Annotation):
             :math:`N` is the number of instances.
 
         """
-        out_arr = np.zeros(
-            (len(annotations), n_classes, *np.load(annotations[0].path).shape)
-        )
-        for i, ann in enumerate(annotations):
-            out_arr[i, classes[i]] = np.load(ann.path)
+        arrays = [ann.to_numpy() for ann in annotations]
+        out_arr = np.zeros((len(arrays), n_classes, *arrays[0].shape))
+        for i, array in enumerate(arrays):
+            out_arr[i, classes[i]] = array
         return out_arr
 
-    @field_serializer("path", when_used="json")
-    def _serialize_path(self, value: FilePath) -> str:
-        return str(value)
+    @staticmethod
+    @override
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["ArrayAnnotation", int | None]]:
+        r"""Split class-indexed arrays into single annotations.
+
+        Args:
+            array: Arrays of shape :math:`\left(N, C, \ldots\right)`, where
+                every instance fills the slot of its own class.
+
+        Returns:
+            One annotation per instance, holding the data of its class slot.
+            An instance whose data is all zeros has no slot to tell apart, so
+            it takes the first one and reports no class ID.
+
+        """
+        annotations: list[tuple[ArrayAnnotation, int | None]] = []
+        for instance in array:
+            class_id = next(
+                (i for i, slot in enumerate(instance) if slot.any()), None
+            )
+            slot = instance[class_id or 0]
+            annotations.append(
+                (ArrayAnnotation.model_validate({"data": slot}), class_id)
+            )
+        return annotations
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_data(cls, values: Any) -> Any:
+        """Accept the array under either the old or the new name."""
+        if not isinstance(values, Mapping):
+            return values
+        if "data" in values:
+            if "path" in values:
+                raise ValueError("Provide either 'path' or 'data', not both.")
+            values = dict(values)
+            values["path"] = values.pop("data")
+        elif "path" in values:
+            log_once(
+                logger.warning,
+                "The 'path' field of an array annotation is deprecated. "
+                "Use 'data', which also accepts the array itself.",
+            )
+        return values
 
     @field_validator("path")
     @classmethod
-    def _validate_path(cls, path: FilePath) -> FilePath:
+    def _validate_path(
+        cls, path: FilePath | np.ndarray
+    ) -> FilePath | np.ndarray:
+        if isinstance(path, np.ndarray):
+            return path
         if path.suffix != ".npy":
             raise ValueError(
                 f"Array annotation file must be a .npy file. Got {path}"
@@ -1796,12 +2085,16 @@ class ArrayAnnotation(Annotation):
 
 
 class DatasetRecord(BaseModelExtraForbid):
-    """Dataset record containing file paths and an optional annotation.
+    """Dataset record containing file paths and its annotations.
 
     A record is the unit of ingestion for `LuxonisDataset.add`. It may point
     to one media source through ``file`` or to multiple synchronized sources
     through ``files``, but never both -- passing both is an error, where
     ``files`` used to be silently discarded in favor of ``file``.
+
+    Annotations are grouped by task name, so one record can carry every
+    detection of a sample. The older flat forms still work: a single
+    detection, or a list of them, together with a ``task_name``.
 
     ``sample_metadata`` stores **record-level metadata**. It is preserved by
     native import/export and returned by `LuxonisLoader` as
@@ -1810,8 +2103,10 @@ class DatasetRecord(BaseModelExtraForbid):
 
     Attributes:
         files: File paths keyed by source name.
-        annotation: Optional detection associated with the dataset record.
-        task_name: The name of the task to which the record belongs.
+        annotation: Detections grouped by task name. An empty mapping marks a
+            true negative, which counts as a negative for every task of the
+            dataset. A task with an empty list is a true negative that also
+            declares the task itself.
         sample_metadata: JSON-like metadata for the whole sample. Values
             should be JSON-serializable. Missing metadata defaults to an empty
             dictionary.
@@ -1821,7 +2116,6 @@ class DatasetRecord(BaseModelExtraForbid):
 
             {
               "file": "images/frame_001.jpg",
-              "task_name": "detection",
 
               "sample_metadata": {
                 "record_id": 123,
@@ -1830,26 +2124,29 @@ class DatasetRecord(BaseModelExtraForbid):
               },
 
               "annotation": {
-                "class": "person",
-                "boundingbox": {
-                  "x": 0.1,
-                  "y": 0.2,
-                  "w": 0.3,
-                  "h": 0.4
-                }
+                "detection": [
+                  {
+                    "class": "person",
+                    "boundingbox": {
+                      "x": 0.1,
+                      "y": 0.2,
+                      "w": 0.3,
+                      "h": 0.4
+                    }
+                  }
+                ]
               }
             }
 
     """
 
-    files: dict[str, FilePath]
-    annotation: Detection | None = None
-    task_name: str = ""
+    files: dict[str, PathOrArray]
+    annotation: dict[str, list[Detection]] = Field(default_factory=dict)
     sample_metadata: Params = Field(default_factory=dict)
 
     @property
-    def file(self) -> FilePath:
-        """The file path of the dataset record.
+    def file(self) -> FilePath | np.ndarray:
+        """The single file of the dataset record.
 
         This property is provided for convenience when the dataset record has
         exactly one file.
@@ -1863,8 +2160,34 @@ class DatasetRecord(BaseModelExtraForbid):
         return next(iter(self.files.values()))
 
     @property
+    def file_paths(self) -> dict[str, FilePath]:
+        """The record's files, guaranteed to be paths on disk.
+
+        Use this wherever a record is about to be stored, because anything
+        that writes the record needs somewhere to read the media from.
+
+        Raises:
+            NotImplementedError: If any source holds an in-memory image.
+
+        """
+        paths: dict[str, FilePath] = {}
+        in_memory: list[str] = []
+        for source, file in self.files.items():
+            if isinstance(file, np.ndarray):
+                in_memory.append(source)
+            else:
+                paths[source] = file
+        if in_memory:
+            raise NotImplementedError(
+                f"Sources {sorted(in_memory)} hold an in-memory image "
+                "instead of a file path. A dataset cannot store those: write "
+                "the image to a file and reference that path instead."
+            )
+        return paths
+
+    @property
     @deprecated("Use `list(record.files.values())` instead.")
-    def all_file_paths(self) -> list[FilePath]:
+    def all_file_paths(self) -> list[FilePath | np.ndarray]:
         """All file paths associated with the dataset record.
 
         .. deprecated:: 0.9.0
@@ -1872,30 +2195,89 @@ class DatasetRecord(BaseModelExtraForbid):
         """
         return list(self.files.values())
 
+    @property
+    @deprecated("Use the keys of `record.annotation` instead.")
+    def task_name(self) -> str:
+        """The task name of a record that carries exactly one task.
+
+        .. deprecated:: 0.10.0
+            Group the detections by task name in ``annotation`` instead.
+
+        Raises:
+            ValueError: If the record carries more than one task.
+
+        """
+        if not self.annotation:
+            return ""
+        if len(self.annotation) > 1:
+            raise ValueError(
+                "A record with several tasks has no single task name. "
+                "Read the keys of `record.annotation` instead."
+            )
+        return next(iter(self.annotation))
+
     @model_validator(mode="after")
-    def validate_task_name_valid_identifier(self) -> Self:
-        Detection._check_valid_identifier(self.task_name, label="Task name")
+    def validate_task_names(self) -> Self:
+        for task_name in self.annotation:
+            if not task_name:
+                continue
+            for part in task_name.split("/"):
+                if not part:
+                    raise ValueError(
+                        f"Task name '{task_name}' has an empty part."
+                    )
+                Detection._check_valid_identifier(part, label="Task name")
         return self
 
     @model_validator(mode="before")
     @classmethod
-    def validate_task_name(cls, values: Any) -> Any:
-        if not isinstance(values, Mapping) or "task" not in values:
+    def normalize_annotation(cls, values: Any) -> Any:
+        """Group the record's detections by task name.
+
+        The deprecated flat forms are accepted and normalized: a single
+        detection, a list of detections, and a ``task_name`` or ``task``
+        beside them.
+        """
+        if not isinstance(values, Mapping):
             return values
 
         values = dict(values)
-        task = values.pop("task")
-        if values.get("task_name", task) != task:
+        task = values.pop("task", None)
+        task_name = values.pop("task_name", None)
+        if task is not None and task_name is not None and task != task_name:
             raise ValueError(
                 "Conflicting values for 'task' and 'task_name'. "
-                "Use only 'task_name'."
+                "Group the detections by task name in 'annotation' instead."
             )
+        if task is not None or task_name is not None:
+            log_once(
+                logger.warning,
+                "The 'task' and 'task_name' fields are deprecated. Group "
+                "the detections by task name in 'annotation' instead.",
+            )
+        if task_name is None:
+            task_name = task
 
-        log_once(
-            logger.warning,
-            "The 'task' field is deprecated. Use 'task_name' instead.",
+        annotation = values.get("annotation")
+        if annotation is None or cls._is_task_mapping(annotation):
+            grouped = dict(annotation or {})
+            if task_name is not None and set(grouped) - {task_name}:
+                raise ValueError(
+                    f"The task name '{task_name}' does not match the tasks "
+                    f"of the annotation mapping: {sorted(grouped)}."
+                )
+            # A task name on its own declares a task that has no positives.
+            if not grouped and task_name is not None:
+                grouped = {task_name: []}
+            values["annotation"] = grouped
+            return values
+
+        detections = (
+            list(annotation)
+            if isinstance(annotation, (list, tuple))
+            else [annotation]
         )
-        values["task_name"] = task
+        values["annotation"] = {task_name or "": detections}
         return values
 
     @model_validator(mode="before")
@@ -1907,112 +2289,137 @@ class DatasetRecord(BaseModelExtraForbid):
         # A shallow copy is enough: nothing below mutates a nested value,
         # and deep-copying would duplicate any mask the payload carries.
         values = dict(values)
-        if "file" in values:
-            if "files" in values:
-                raise ValueError("Provide either 'file' or 'files', not both.")
-            values["files"] = {"image": values.pop("file")}
-        if "files" in values:
-            files = values["files"]
-            # Anything else is left untouched for pydantic to report
-            # against `files` instead of failing on the paths below.
-            if isinstance(files, Mapping) and all(
-                isinstance(path, PathType) for path in files.values()
-            ):
-                values["files"] = {
-                    key: Path(path).absolute() for key, path in files.items()
-                }
+        provided = [key for key in ("media", "file", "files") if key in values]
+        if len(provided) > 1:
+            names = " or ".join(f"'{key}'" for key in provided)
+            raise ValueError(f"Provide either {names}, not both.")
+        if provided and provided != ["media"]:
+            log_once(
+                logger.warning,
+                "The 'file' and 'files' fields are deprecated. Use 'media', "
+                "which takes one path or a mapping of source names to paths.",
+            )
+        if not provided:
+            return values
+
+        media = values.pop(provided[0])
+        # 'file' always named one source. 'media' names one only when it is
+        # a file itself, so that it can also take the mapping 'files' took.
+        if provided[0] == "file" or (
+            provided[0] == "media"
+            and isinstance(media, (PathType, np.ndarray))
+        ):
+            media = {"image": media}
+        # Anything else is left untouched for pydantic to report against
+        # `files` instead of failing on the paths below.
+        if isinstance(media, Mapping):
+            media = {
+                source: Path(file).absolute()
+                if isinstance(file, PathType)
+                else file
+                for source, file in media.items()
+            }
+        values["files"] = media
         return values
 
+    def to_loader_output(
+        self,
+        schema: "DatasetSchema",
+        *,
+        images: dict[str, np.ndarray] | None = None,
+        keep_categorical_as_strings: bool = False,
+        include_empty: bool = True,
+    ) -> "LoaderOutput":
+        """Convert this record into the arrays a loader returns.
+
+        Args:
+            schema: Schema of the dataset this record belongs to. It supplies
+                what a record cannot: the class IDs, the number of classes of
+                a segmentation task, and the keypoint count of an empty
+                keypoint label.
+            images: Images keyed by source name. Read from the record's files
+                when omitted.
+            keep_categorical_as_strings: Whether categorical metadata keeps
+                its string values instead of the encoded integers.
+            include_empty: Whether every task of the schema gets a label, even
+                when this record has no annotation for it.
+
+        Returns:
+            The images, one label per task and task type, and this record's
+            metadata with the schema attached.
+
+        """
+        from luxonis_ml.ldf.conversion import record_to_loader_output
+
+        return record_to_loader_output(
+            self,
+            schema,
+            images=images,
+            keep_categorical_as_strings=keep_categorical_as_strings,
+            include_empty=include_empty,
+        )
+
     def to_parquet_rows(
-        self, keypoint_metadata: Mapping[str, KeypointMetadata] | None = None
+        self,
+        keypoint_metadata: Mapping[str, KeypointMetadata] | None = None,
+        instance_counter: dict[str, int] | None = None,
     ) -> Iterable[ParquetRecord]:
         """Recursively convert the dataset record and all its
         annotations and sub-annotations to parquet rows.
+
+        Every detection is flattened into the rows of the main source. Each
+        secondary source gets a single row with no annotation.
 
         Args:
             keypoint_metadata: Keypoint metadata of the written tasks,
                 keyed by task name. A keypoint payload is positional. The
                 keypoint metadata thus sets the order and pads the omitted
                 keypoints.
+            instance_counter: Next instance number of each task name, shared
+                by every record of one sample. A detection that carries no
+                instance ID takes the next number and advances it, so the
+                rows of one instance can be found again when they are read
+                back. The records of one sample arrive separately, so the
+                counter cannot live on the record. Numbers are left alone
+                when this is omitted.
 
         Yields:
             Annotation data rows.
 
         """
-        yield from self._to_parquet_rows(
-            self.annotation,
-            self.task_name,
-            json.dumps(self.sample_metadata),
-            keypoint_metadata or {},
+        keypoint_metadata = keypoint_metadata or {}
+        sample_metadata = json.dumps(self.sample_metadata)
+        annotations_by_task = self.annotation or {"": []}
+        # A record of one task keeps naming it on the rows of its secondary
+        # sources. Several tasks have no single name to put there.
+        secondary_task = (
+            next(iter(annotations_by_task))
+            if len(annotations_by_task) == 1
+            else ""
         )
 
-    def _to_parquet_rows(
-        self,
-        annotation: Detection | None,
-        task_name: str,
-        sample_metadata: str,
-        keypoint_metadata: Mapping[str, KeypointMetadata],
-    ) -> Iterable[ParquetRecord]:
-        file_items = sorted(self.files.items(), key=lambda x: str(x[1]))
+        file_items = sorted(self.file_paths.items(), key=lambda x: str(x[1]))
         for i, (source, file_path) in enumerate(file_items):
-            is_main = i == 0
+            if i > 0:
+                yield self._empty_row(
+                    source, file_path, secondary_task, sample_metadata
+                )
+                continue
 
-            if annotation is None or not is_main:
-                yield {
-                    "file": str(file_path),
-                    "source_name": source,
-                    "task_name": task_name,
-                    "class_name": None,
-                    "instance_id": None,
-                    "task_type": None,
-                    "annotation": None,
-                    "sample_metadata": sample_metadata,
-                }
-            else:
-                for task_type in _LABEL_TASK_TYPES:
-                    label: Annotation | None = getattr(annotation, task_type)
-
-                    if label is not None:
-                        yield {
-                            "file": str(file_path),
-                            "source_name": source,
-                            "task_name": task_name,
-                            "class_name": annotation.class_name,
-                            "instance_id": annotation.instance_id,
-                            "task_type": task_type,
-                            "annotation": label.to_parquet_json(
-                                keypoint_metadata.get(task_name)
-                            ),
-                            "sample_metadata": sample_metadata,
-                        }
-                for key, data in annotation.metadata.items():
-                    yield {
-                        "file": str(file_path),
-                        "source_name": source,
-                        "task_name": task_name,
-                        "class_name": annotation.class_name,
-                        "instance_id": annotation.instance_id,
-                        "task_type": f"metadata/{key}",
-                        "annotation": json.dumps(data),
-                        "sample_metadata": sample_metadata,
-                    }
-                if annotation.class_name is not None:
-                    yield {
-                        "file": str(file_path),
-                        "source_name": source,
-                        "task_name": task_name,
-                        "class_name": annotation.class_name,
-                        "instance_id": annotation.instance_id,
-                        "task_type": "classification",
-                        "annotation": "{}",
-                        "sample_metadata": sample_metadata,
-                    }
-                for name, detection in annotation.sub_detections.items():
-                    yield from self._to_parquet_rows(
-                        detection,
-                        f"{task_name}/{name}",
+            for task_name, annotations in annotations_by_task.items():
+                if not annotations:
+                    yield self._empty_row(
+                        source, file_path, task_name, sample_metadata
+                    )
+                for annotation in annotations:
+                    yield from self._detection_rows(
+                        annotation,
+                        task_name,
+                        source,
+                        file_path,
                         sample_metadata,
                         keypoint_metadata,
+                        instance_counter=instance_counter,
                     )
 
     @staticmethod
@@ -2034,16 +2441,102 @@ class DatasetRecord(BaseModelExtraForbid):
             value = json.loads(value)
         return value if isinstance(value, dict) else {}
 
+    def _detection_rows(
+        self,
+        annotation: Detection,
+        task_name: str,
+        source: str,
+        file_path: FilePath,
+        sample_metadata: str,
+        keypoint_metadata: Mapping[str, KeypointMetadata],
+        *,
+        instance_counter: dict[str, int] | None = None,
+        instance_id: int | None = None,
+    ) -> Iterable[ParquetRecord]:
+        """Yield one row per task type of a detection.
+
+        ``instance_counter`` holds the next instance number of each task
+        name, as `to_parquet_rows` describes. ``instance_id`` overrides the
+        number the counter would give: a sub-detection takes the number of
+        its parent, which is what records that it belongs to it.
+        """
+        if instance_id is None:
+            instance_id = annotation.instance_id
+            if instance_counter is not None:
+                # An ID the record sets itself is kept, and the counter moves
+                # past it so a later detection cannot be given the same one.
+                next_id = instance_counter.get(task_name, 0)
+                if instance_id < 0:
+                    instance_id = next_id
+                instance_counter[task_name] = max(next_id, instance_id + 1)
+
+        def row(task_type: str, payload: str) -> ParquetRecord:
+            return {
+                "file": str(file_path),
+                "source_name": source,
+                "task_name": task_name,
+                "class_name": annotation.class_name,
+                "instance_id": instance_id,
+                "task_type": task_type,
+                "annotation": payload,
+                "sample_metadata": sample_metadata,
+            }
+
+        for task_type in _LABEL_TASK_TYPES:
+            label: Annotation | None = getattr(annotation, task_type)
+            if label is not None:
+                yield row(
+                    task_type,
+                    label.to_parquet_json(keypoint_metadata.get(task_name)),
+                )
+        for key, data in annotation.metadata.items():
+            yield row(f"metadata/{key}", json.dumps(data))
+        if annotation.class_name is not None:
+            yield row("classification", "{}")
+        for name, detection in annotation.sub_detections.items():
+            yield from self._detection_rows(
+                detection,
+                f"{task_name}/{name}",
+                source,
+                file_path,
+                sample_metadata,
+                keypoint_metadata,
+                instance_counter=instance_counter,
+                instance_id=(
+                    instance_id if detection.instance_id < 0 else None
+                ),
+            )
+
+    @staticmethod
+    def _empty_row(
+        source: str,
+        file_path: FilePath,
+        task_name: str,
+        sample_metadata: str,
+    ) -> ParquetRecord:
+        """Return the row of a source that carries no annotation."""
+        return {
+            "file": str(file_path),
+            "source_name": source,
+            "task_name": task_name,
+            "class_name": None,
+            "instance_id": None,
+            "task_type": None,
+            "annotation": None,
+            "sample_metadata": sample_metadata,
+        }
+
+    @staticmethod
+    def _is_task_mapping(annotation: Any) -> bool:
+        """Whether an annotation payload groups detections by task name."""
+        return isinstance(annotation, Mapping) and all(
+            isinstance(detections, (list, tuple))
+            for detections in annotation.values()
+        )
+
 
 def load_annotation(
-    task_type: Literal[
-        "classification",
-        "boundingbox",
-        "keypoints",
-        "segmentation",
-        "instance_segmentation",
-        "array",
-    ],
+    task_type: TaskType,
     data: Mapping[str, Any],
     *,
     keypoint_labels: Sequence[str] | None = None,
@@ -2074,6 +2567,11 @@ def load_annotation(
     }
     if task_type not in classes:
         raise ValueError(f"Unknown label type: {task_type}")
+    if task_type == "array" and "path" in data:
+        # Stored arrays keep the old key, so reading one back must not look
+        # like a caller that still uses the deprecated name.
+        data = {**data, "data": data["path"]}
+        del data["path"]
     return classes[task_type].model_validate(
         data, context={"keypoint_labels": keypoint_labels}
     )
@@ -2195,6 +2693,7 @@ __all__ = [
     "KeypointMetadata",
     "KeypointVisibility",
     "NormalizedFloat",
+    "PathOrArray",
     "SegmentationAnnotation",
     "load_annotation",
 ]

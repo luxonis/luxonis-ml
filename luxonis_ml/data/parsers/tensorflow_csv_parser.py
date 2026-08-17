@@ -108,11 +108,11 @@ class TensorflowCSVParser(BaseParser):
                 path = str(img_path.resolve())
                 curr_annotations = images_annotations.get(path, {"bboxes": []})
                 if not curr_annotations["bboxes"]:
-                    yield {"file": path, "annotation": None}
+                    yield {"media": path, "annotation": None}
                     continue
                 for bbox_class, (x, y, w, h) in curr_annotations["bboxes"]:
                     yield {
-                        "file": path,
+                        "media": path,
                         "annotation": {
                             "class": bbox_class,
                             "boundingbox": {

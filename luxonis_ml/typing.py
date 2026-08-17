@@ -12,6 +12,8 @@ from pydantic import BaseModel, ConfigDict
 if TYPE_CHECKING:  # pragma: no cover
     import numpy as np
 
+    from luxonis_ml.ldf import DatasetRecord, DatasetSchema
+
 
 PathType: TypeAlias = str | Path
 """A string or a `pathlib.Path`_ object.
@@ -145,6 +147,57 @@ class LoaderOutput(
     def image(self) -> "np.ndarray":
         """Returns the first image in the images dictionary."""
         return next(iter(self.images.values()))
+
+    def to_ldf(
+        self,
+        schema: "DatasetSchema | None" = None,
+        *,
+        keep_background: bool = False,
+    ) -> "DatasetRecord":
+        """Convert the labels back into one canonical LDF record.
+
+        Arrays that describe the same instance are paired by row index. The
+        returned record holds its images in memory, so it can be rendered and
+        inspected, but not added to a dataset.
+
+        Args:
+            schema: Schema of the dataset the sample came from. Taken from
+                `metadata` when omitted, where `LuxonisLoader` attaches it.
+            keep_background: Whether the background class of a semantic mask
+                becomes a detection of its own.
+
+        Returns:
+            One record holding every detection the labels describe.
+
+        Raises:
+            ValueError: If no schema is given and the metadata carries none.
+
+        """
+        from luxonis_ml.ldf.conversion import labels_to_record
+        from luxonis_ml.ldf.schema import SCHEMA_METADATA_KEY, DatasetSchema
+
+        if schema is None:
+            stored = self.metadata.get(SCHEMA_METADATA_KEY)
+            if stored is None:
+                raise ValueError(
+                    "Cannot rebuild a record without the dataset schema. "
+                    "Pass `schema=`; only samples from `LuxonisLoader` carry "
+                    "it already."
+                )
+            schema = DatasetSchema.model_validate(stored)
+
+        metadata = {
+            key: value
+            for key, value in self.metadata.items()
+            if key != SCHEMA_METADATA_KEY
+        }
+        return labels_to_record(
+            self.labels,
+            schema,
+            images=self.images,
+            sample_metadata=metadata,
+            keep_background=keep_background,
+        )
 
 
 RGB: TypeAlias = tuple[int, int, int]

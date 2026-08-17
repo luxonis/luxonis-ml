@@ -68,7 +68,7 @@ def test_dataset_record(tempdir: Path):
     cv2.imwrite(str(left), np.zeros((100, 100, 3)))
     cv2.imwrite(str(right), np.zeros((100, 100, 3)))
     empty_metadata = {"sample_metadata": DEFAULT_METADATA}
-    record = DatasetRecord(file=left)  # type: ignore
+    record = DatasetRecord(media=left)  # type: ignore
     assert record.file == left
 
     compare_parquet_rows(
@@ -88,7 +88,7 @@ def test_dataset_record(tempdir: Path):
     )
 
     record = DatasetRecord(
-        file=left,  # type: ignore
+        media=left,  # type: ignore
         sample_metadata={"source": "camera-a"},
     )
     compare_parquet_rows(
@@ -108,7 +108,7 @@ def test_dataset_record(tempdir: Path):
     )
 
     record = DatasetRecord(
-        file=left,  # type: ignore
+        media=left,  # type: ignore
         annotation={
             "class": "person",
             "boundingbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
@@ -140,10 +140,12 @@ def test_dataset_record(tempdir: Path):
         ],
     )
 
-    record = DatasetRecord(
-        files={
-            "left": left,
-            "right": right,
+    record = DatasetRecord.model_validate(
+        {
+            "media": {
+                "left": left,
+                "right": right,
+            }
         }
     )
     with pytest.raises(ValueError, match="must have exactly one file"):
@@ -631,10 +633,8 @@ def test_record(tempdir: Path):
     )
     filename = str((tempdir / "image.jpg").resolve())
     cv2.imwrite(filename, np.zeros((256, 256, 3), dtype=np.uint8))
-    record = DatasetRecord(
-        file=filename,  # type: ignore
-        annotation=detection,
-        task_name="test",
+    record = DatasetRecord.model_validate(
+        {"media": filename, "annotation": detection, "task_name": "test"}
     )
     common = {
         "file": filename,

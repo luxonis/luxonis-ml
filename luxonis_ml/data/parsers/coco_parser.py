@@ -333,7 +333,7 @@ class COCOParser(BaseParser):
                         # Keypoint annotations: skip images with no labels
                         continue
                     # Register image with no annotations (valid COCO case)
-                    yield {"file": file, "annotation": None}
+                    yield {"media": file, "annotation": None}
                     continue
 
                 for ann in img_anns:
@@ -395,7 +395,7 @@ class COCOParser(BaseParser):
                         next_fallback_id += 1
 
                     record = {
-                        "file": file,
+                        "media": file,
                         "annotation": {
                             "class": class_name,
                             "instance_id": instance_id,

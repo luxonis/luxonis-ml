@@ -2,7 +2,7 @@ import json
 import math
 import shutil
 from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from functools import cached_property
@@ -331,11 +331,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             f"Saved DataFrame to Parquet files in '{annotations_path}'."
         )
 
-    def _merge_metadata_with(self, other: "LuxonisDataset") -> None:
-        """Merge relevant metadata from ``other`` into ``self``."""
-        self._metadata = self._metadata.merge_with(other._metadata)
-        self._write_metadata()
-
     def clone(
         self,
         new_dataset_name: str,
@@ -504,6 +499,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 k: v for k, v in splits_other.items() if k in splits_to_merge
             }
 
+        # The metadata decides whether the two datasets can merge at all, so
+        # it is merged before anything is written. Writing the rows first
+        # would leave the target holding the incoming data with its own
+        # classes and tasks never updated.
+        merged_metadata = target_dataset._metadata.merge_with(other._metadata)
+
         df_merged = pl.concat([df_self, df_other])
         target_dataset._save_df_offline(df_merged)
 
@@ -544,7 +545,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 dst_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(src_path, dst_path)
 
-        target_dataset._merge_metadata_with(other)
+        target_dataset._metadata = merged_metadata
+        target_dataset._write_metadata()
 
         return target_dataset
 
@@ -678,7 +680,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             )
 
         if attempt_migration and self.version.major != LDF_VERSION.major:
-            df = migrate_dataframe(df)
+            df = migrate_dataframe(df, self.version)
 
         return df
 
@@ -846,11 +848,15 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 df = df.with_columns(pl.col("uuid").alias("group_id"))
                 self._save_df_offline(df)
 
-            version = Version.parse(metadata_json.get("ldf_version", "1.0.0"))
-            if version.major != LDF_VERSION.major:  # pragma: no cover
+            version = Version.parse(
+                metadata_json.get("ldf_version", "1.0.0"),
+                optional_minor_and_patch=True,
+            )
+            if version.major != LDF_VERSION.major:
                 return migrate_metadata(
                     metadata_json,
                     self._load_df_offline(lazy=True, attempt_migration=False),
+                    version,
                 )
             return Metadata(**metadata_json)
         return Metadata(
@@ -1351,15 +1357,23 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         uuid_dict = {}
         for record in data_batch:
             self._progress.update(task, advance=1)
-            if record.annotation is None or record.annotation.array is None:
-                continue
-            ann = record.annotation.array
-            if self.is_remote:
-                uuid = self._fs.get_file_uuid(ann.path, local=True)
-                uuid_dict[str(ann.path)] = uuid
-                ann.path = Path(uuid).with_suffix(ann.path.suffix)
-            else:
-                ann.path = ann.path.absolute().resolve()
+            for detections in record.annotation.values():
+                for detection in _walk_detections(detections):
+                    ann = detection.array
+                    if ann is None:
+                        continue
+                    if isinstance(ann.path, np.ndarray):
+                        raise NotImplementedError(
+                            "An array annotation holds its data in memory, "
+                            "which a dataset cannot store. Save it as a "
+                            "'.npy' file and pass that path instead."
+                        )
+                    if self.is_remote:
+                        uuid = self._fs.get_file_uuid(ann.path, local=True)
+                        uuid_dict[str(ann.path)] = uuid
+                        ann.path = Path(uuid).with_suffix(ann.path.suffix)
+                    else:
+                        ann.path = ann.path.absolute().resolve()
         self._progress.stop()
         self._progress.remove_task(task)
         if self.is_remote:
@@ -1391,11 +1405,14 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         pfm: ParquetFileManager,
         index: pl.DataFrame | None,
         declared_keypoint_metadata: dict[str, KeypointMetadata],
+        instance_counters: dict[str, dict[str, int]],
     ) -> None:
         keypoint_metadata = self._alignment_keypoint_metadata(
             declared_keypoint_metadata
         )
-        paths = {path for data in data_batch for path in data.all_file_paths}
+        paths = {
+            path for data in data_batch for path in data.file_paths.values()
+        }
         logger.info("Generating UUIDs...")
         uuid_dict = self._fs.get_file_uuids(paths, local=True)
 
@@ -1431,7 +1448,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         logger.info("Saving annotations...")
         with self._progress:
             for record in data_batch:
-                file_paths = record.all_file_paths
+                file_paths = record.file_paths.values()
                 uuid_list = [
                     uuid_dict[str(file_path)] for file_path in file_paths
                 ]
@@ -1440,10 +1457,36 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                     if len(uuid_list) > 1
                     else str(uuid_list[0])
                 )
-                for row in record.to_parquet_rows(keypoint_metadata):
+                for row in record.to_parquet_rows(
+                    keypoint_metadata, instance_counters[group_id]
+                ):
                     pfm.write(uuid_dict[row["file"]], row, group_id)
                 self._progress.update(task, advance=1)
         self._progress.remove_task(task)
+
+    def _infer_default_task(self, record: DatasetRecord) -> None:
+        """Re-file the record's unnamed detections under an inferred task.
+
+        A detection whose class belongs to a known task moves there. One
+        whose class is unknown stays under the default task.
+        """
+        detections = record.annotation.get("")
+        if not detections:
+            return
+
+        current_classes = self.get_classes()
+        inferred: dict[str, list[Detection]] = defaultdict(list)
+        for detection in detections:
+            task_name = (
+                infer_task("", detection.class_name, current_classes)
+                if detection.class_name is not None
+                else ""
+            )
+            inferred[task_name].append(detection)
+
+        del record.annotation[""]
+        for task_name, task_detections in inferred.items():
+            record.annotation.setdefault(task_name, []).extend(task_detections)
 
     @override
     def add(
@@ -1468,7 +1511,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                     def record_generator():
                         yield {
                             "file": "/path/to/image.jpg",
-                            "task_name": "animals",
 
                             "sample_metadata": {
                                 "record_id": 123,
@@ -1477,24 +1519,28 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                             },
 
                             "annotation": {
-                                "instance_id": 1,
-                                "class": "cat",
-                                "boundingbox": {
-                                    "x": 0.10,
-                                    "y": 0.20,
-                                    "w": 0.30,
-                                    "h": 0.40,
-                                },
-                                "keypoints": {
-                                    "keypoints": [
-                                        (0.15, 0.25, 1),
-                                        (0.50, 0.60, 1),
-                                        (0.70, 0.80, 0),
-                                    ],
-                                },
-                                "instance_segmentation": {
-                                    "mask": "/path/to/mask.png",
-                                },
+                                "animals": [
+                                    {
+                                        "instance_id": 1,
+                                        "class": "cat",
+                                        "boundingbox": {
+                                            "x": 0.10,
+                                            "y": 0.20,
+                                            "w": 0.30,
+                                            "h": 0.40,
+                                        },
+                                        "keypoints": {
+                                            "keypoints": [
+                                                (0.15, 0.25, 1),
+                                                (0.50, 0.60, 1),
+                                                (0.70, 0.80, 0),
+                                            ],
+                                        },
+                                        "instance_segmentation": {
+                                            "mask": "/path/to/mask.png",
+                                        },
+                                    }
+                                ],
                             },
                         }
 
@@ -1535,83 +1581,80 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         assert annotations_path is not None
 
+        def update_state(task_name: str, ann: Detection) -> None:
+            if ann.class_name is not None:
+                classes_per_task[task_name].add(ann.class_name)
+            elif not classes_per_task[task_name]:
+                classes_per_task[task_name] = set()
+
+            tasks[task_name] |= ann.get_task_types()
+
+            if ann.keypoints is not None:
+                num_kpts_per_task[task_name].add(len(ann.keypoints.keypoints))
+                declared = ann.keypoints.declared_metadata()
+                if declared is not None:
+                    current = declared_keypoint_metadata.get(task_name)
+                    declared_keypoint_metadata[task_name] = (
+                        declared
+                        if current is None
+                        else current.merge_with(
+                            declared, f"task '{task_name}'"
+                        )
+                    )
+            for name, value in ann.metadata.items():
+                task = f"{task_name}/metadata/{name}"
+                typ = type(value).__name__
+                if task in metadata_types and metadata_types[task] != typ:
+                    if {typ, metadata_types[task]} == {"int", "float"}:
+                        metadata_types[task] = "float"
+                    else:
+                        raise ValueError(
+                            f"Metadata type mismatch for {task}: {metadata_types[task]} and {typ}"
+                        )
+                else:
+                    metadata_types[task] = typ
+
+                if not isinstance(value, Category):
+                    continue
+                if value not in categorical_encodings[task]:
+                    categorical_encodings[task][value] = len(
+                        categorical_encodings[task]
+                    )
+            for name, sub_detection in ann.sub_detections.items():
+                update_state(f"{task_name}/{name}", sub_detection)
+
+        instance_counters: dict[str, dict[str, int]] = defaultdict(dict)
         with ParquetFileManager(annotations_path, batch_size) as pfm:
             for i, record in enumerate(generator, start=1):
                 if not isinstance(record, DatasetRecord):
                     record = DatasetRecord(**record)
                 sources.update(record.files.keys())
-                ann = record.annotation
-                if ann is not None:
-                    if not record.task_name:
-                        record.task_name = infer_task(
-                            record.task_name,
-                            ann.class_name,
-                            self.get_classes(),
-                        )
 
-                    def update_state(task_name: str, ann: Detection) -> None:
-                        if ann.class_name is not None:
-                            classes_per_task[task_name].add(ann.class_name)
-                        elif not classes_per_task[task_name]:
-                            classes_per_task[task_name] = set()
-
-                        tasks[task_name] |= ann.get_task_types()
-
-                        if ann.keypoints is not None:
-                            num_kpts_per_task[task_name].add(
-                                len(ann.keypoints.keypoints)
-                            )
-                            declared = ann.keypoints.declared_metadata()
-                            if declared is not None:
-                                current = declared_keypoint_metadata.get(
-                                    task_name
-                                )
-                                declared_keypoint_metadata[task_name] = (
-                                    declared
-                                    if current is None
-                                    else current.merge_with(
-                                        declared, f"task '{task_name}'"
-                                    )
-                                )
-                        for name, value in ann.metadata.items():
-                            task = f"{task_name}/metadata/{name}"
-                            typ = type(value).__name__
-                            if (
-                                task in metadata_types
-                                and metadata_types[task] != typ
-                            ):
-                                if {typ, metadata_types[task]} == {
-                                    "int",
-                                    "float",
-                                }:
-                                    metadata_types[task] = "float"
-                                else:
-                                    raise ValueError(
-                                        f"Metadata type mismatch for {task}: {metadata_types[task]} and {typ}"
-                                    )
-                            else:
-                                metadata_types[task] = typ
-
-                            if not isinstance(value, Category):
-                                continue
-                            if value not in categorical_encodings[task]:
-                                categorical_encodings[task][value] = len(
-                                    categorical_encodings[task]
-                                )
-                        for name, sub_detection in ann.sub_detections.items():
-                            update_state(f"{task_name}/{name}", sub_detection)
-
-                    update_state(record.task_name, ann)
+                self._infer_default_task(record)
+                for task_name, detections in record.annotation.items():
+                    # A task with no detections is a negative that still
+                    # declares the task, so it is registered either way.
+                    tasks.setdefault(task_name, set())
+                    for detection in detections:
+                        update_state(task_name, detection)
 
                 data_batch.append(record)
                 if i % batch_size == 0:
                     self._add_process_batch(
-                        data_batch, pfm, index, declared_keypoint_metadata
+                        data_batch,
+                        pfm,
+                        index,
+                        declared_keypoint_metadata,
+                        instance_counters,
                     )
                     data_batch = []
 
             self._add_process_batch(
-                data_batch, pfm, index, declared_keypoint_metadata
+                data_batch,
+                pfm,
+                index,
+                declared_keypoint_metadata,
+                instance_counters,
             )
 
         with suppress(shutil.SameFileError):
@@ -1634,7 +1677,17 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         self._metadata.categorical_encodings = dict(categorical_encodings)
         self._metadata.metadata_types = metadata_types
-        self.set_tasks(tasks)
+        # An `add` sees only the records it is given. A later one that
+        # carries a negative declares the task with no task type, so the
+        # stored types have to survive it.
+        stored_tasks = self.get_tasks()
+        merged_tasks = {
+            task_name: set(stored_tasks.get(task_name, [])) | set(task_types)
+            for task_name, task_types in tasks.items()
+        }
+        for task_name, task_types in stored_tasks.items():
+            merged_tasks.setdefault(task_name, set(task_types))
+        self.set_tasks(merged_tasks)
         if sources:
             components = {
                 source_name: LuxonisComponent(
@@ -2241,3 +2294,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                     task=task_name,
                     rewrite_metadata=False,
                 )
+
+
+def _walk_detections(detections: Iterable[Detection]) -> Iterator[Detection]:
+    """Yield every detection, and every detection nested under it."""
+    for detection in detections:
+        yield detection
+        yield from _walk_detections(detection.sub_detections.values())

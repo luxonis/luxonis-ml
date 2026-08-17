@@ -104,7 +104,7 @@ class SegmentationMaskDirectoryParser(BaseParser):
                     curr_seg_mask = np.zeros_like(mask)
                     curr_seg_mask[mask == id] = 1
                     yield {
-                        "file": file,
+                        "media": file,
                         "annotation": {
                             "class": class_name,
                             "segmentation": {"mask": curr_seg_mask},

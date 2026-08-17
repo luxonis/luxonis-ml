@@ -111,16 +111,16 @@ Records, Tasks, and Labels
 ==========================
 
 Dataset ingestion is record-based. A record points to one file or to multiple
-synchronized files, optionally assigns a task name, and optionally provides an
-annotation payload.
+synchronized files through ``media``, and groups its annotation payloads by
+task name.
 
 Example:
-    The two supported media-key styles are easy to distinguish.
+    The same key takes one file or a mapping of source names.
 
-    >>> single_source = {"file": "image.jpg", "annotation": None}
-    >>> multi_source = {"files": {"rgb": "rgb.png", "depth": "depth.png"}}
-    >>> "file" in single_source, "files" in multi_source
-    (True, True)
+    >>> single_source = {"media": "image.jpg"}
+    >>> multi_source = {"media": {"rgb": "rgb.png", "depth": "depth.png"}}
+    >>> isinstance(multi_source["media"], dict)
+    True
 
 Task names group annotations that should be consumed together by a model or
 loader. Loader label keys use ``"task_name/task_type"``. If no task name is

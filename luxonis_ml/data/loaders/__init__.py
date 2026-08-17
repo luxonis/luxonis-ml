@@ -180,6 +180,18 @@ as it describes the returned arrays rather than the dataset record:
 Both keys are reserved. A record defining one of them keeps its own value,
 and the loader warns rather than overwriting it.
 
+A third reserved key, ``"schema"``, holds the dataset's `DatasetSchema`: its
+tasks, class IDs, keypoint metadata, keypoint counts, and categorical
+encodings. It is what makes a sample self-describing, so the arrays can be
+turned back into a record:
+
+.. python::
+
+    record = loader[0].to_ldf()
+
+The rebuilt record holds its images in memory. It can be rendered and
+inspected, but a dataset cannot store it until they are written to files.
+
 When a batch augmentation combines several samples, metadata from the input
 samples is preserved in ``"batch_augmentation_metadata"``:
 

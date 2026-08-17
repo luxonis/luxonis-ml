@@ -28,6 +28,34 @@ def compute_histogram(dataset: LuxonisDataset) -> dict[str, int]:
     return dict(classes)
 
 
+def test_generated_instance_ids_continue_across_batches(
+    dataset_name: str, tempdir: Path
+):
+    image = create_image(0, tempdir)
+
+    def generator() -> DatasetIterator:
+        for class_name, x in [("cat", 0.1), ("dog", 0.5)]:
+            yield {
+                "media": image,
+                "task_name": "animals",
+                "annotation": {
+                    "class": class_name,
+                    "boundingbox": {"x": x, "y": 0.1, "w": 0.2, "h": 0.2},
+                },
+            }
+
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    dataset.add(generator(), batch_size=1)
+    dataset.make_splits({"train": [image]})
+
+    boxes = LuxonisLoader(dataset, view="train")[0].labels[
+        "animals/boundingbox"
+    ]
+
+    assert boxes[:, 0].tolist() == [0.0, 1.0]
+    assert boxes[:, 1].tolist() == [0.1, 0.5]
+
+
 def test_task_ingestion(
     bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
 ):
@@ -42,7 +70,7 @@ def test_task_ingestion(
         for i in range(STEP):
             path = create_image(i, tempdir)
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "animals",
                 "annotation": {
                     "class": "dog",
@@ -50,7 +78,7 @@ def test_task_ingestion(
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "animals",
                 "annotation": {
                     "class": "cat",
@@ -58,7 +86,7 @@ def test_task_ingestion(
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "landmass",
                 "annotation": {
                     "class": "water",
@@ -76,7 +104,7 @@ def test_task_ingestion(
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "landmass",
                 "annotation": {
                     "class": "grass",
@@ -101,14 +129,14 @@ def test_task_ingestion(
         for i in range(STEP, 2 * STEP):
             path = create_image(i, tempdir)
             yield {
-                "file": str(path),
+                "media": str(path),
                 "annotation": {
                     "class": "dog",
                     "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "annotation": {
                     "class": "cat",
                     "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.1, "h": 0.3},
@@ -129,7 +157,7 @@ def test_task_ingestion(
         for i in range(2 * STEP, 3 * STEP):
             path = create_image(i, tempdir)
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "animals",
                 "annotation": {
                     "class": "dog",
@@ -137,7 +165,7 @@ def test_task_ingestion(
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "annotation": {
                     "class": "water",
                     "segmentation": {
@@ -167,7 +195,7 @@ def test_task_ingestion(
         for i in range(3 * STEP, 4 * STEP):
             path = create_image(i, tempdir)
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "detection",
                 "annotation": {
                     "class": "bike",
@@ -175,7 +203,7 @@ def test_task_ingestion(
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "segmentation",
                 "annotation": {
                     "class": "body",
@@ -192,7 +220,7 @@ def test_task_ingestion(
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "landmass-2",
                 "annotation": {
                     "class": "water",
@@ -224,4 +252,52 @@ def test_task_ingestion(
         "landmass-2": STEP,
         "detection": STEP,
         "segmentation": STEP,
+    }
+
+
+def test_a_negative_keeps_the_stored_task_types(
+    dataset_name: str, tempdir: Path
+):
+    """A later `add` that carries only a negative declares its task.
+
+    The task then arrives with no task type, and the types the first `add`
+    stored have to survive it.
+    """
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    dataset.add(
+        iter(
+            [
+                {
+                    "media": str(create_image(0, tempdir)),
+                    "task_name": "vehicles",
+                    "annotation": {
+                        "class": "car",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.1,
+                            "h": 0.1,
+                        },
+                    },
+                }
+            ]
+        )
+    )
+    assert dataset.get_tasks() == {
+        "vehicles": ["boundingbox", "classification"]
+    }
+
+    dataset.add(
+        iter(
+            [
+                {
+                    "media": str(create_image(1, tempdir)),
+                    "task_name": "vehicles",
+                }
+            ]
+        )
+    )
+
+    assert dataset.get_tasks() == {
+        "vehicles": ["boundingbox", "classification"]
     }

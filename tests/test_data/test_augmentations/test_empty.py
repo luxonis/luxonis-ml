@@ -25,7 +25,7 @@ def test_empty(dataset_name: str, tempdir: Path, n_samples: int):
             img = create_image(i, tempdir)
             if i < keep_samples:
                 yield {
-                    "file": img,
+                    "media": img,
                     "annotation": {
                         "class": ["dog", "cat"][i % 2],
                         "segmentation": {
@@ -53,7 +53,7 @@ def test_empty(dataset_name: str, tempdir: Path, n_samples: int):
                     },
                 }
             else:
-                yield {"file": img}
+                yield {"media": img}
 
     dataset = create_dataset(
         dataset_name, generator(n_samples), splits={"train": 1.0}
