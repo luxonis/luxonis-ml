@@ -281,10 +281,8 @@ class LuxonisLoader(BaseLoader):
                 pl.col("annotation").is_not_null().any().over("group_id")
             )
             group_is_asked_for = (
-                (
-                    pl.col("task_name").is_in(self._filter_task_names)
-                    & pl.col("annotation").is_not_null()
-                )
+                pl.col("task_name")
+                .is_in(self._filter_task_names)
                 .any()
                 .over("group_id")
             )
