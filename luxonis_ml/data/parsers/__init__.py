@@ -66,7 +66,10 @@ Supported Formats
      - Dataset type
      - Parser
      - Typical annotations
-   * - `COCO JSON <https://roboflow.com/formats/coco-json>`__
+   * - COCO JSON in the `FiftyOne
+       <https://docs.voxel51.com/user_guide/export_datasets.html#cocodetectiondataset-export>`__
+       layout or the `Roboflow
+       <https://roboflow.com/formats/coco-json>`__ layout
      - ``DatasetType.COCO``
      - `COCOParser`
      - Bounding boxes, segmentation, instance segmentation, keypoints.

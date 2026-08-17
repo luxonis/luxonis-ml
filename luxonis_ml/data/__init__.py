@@ -140,6 +140,127 @@ See:
     and instance-association rules.
 
 
+Adding Records with a Generator
+===============================
+
+`LuxonisDataset.add` accepts any iterable of records. A generator function
+is the usual choice, because it holds one record in memory at a time.
+
+The generator below reads one annotation file for each directory. It yields
+the bounding box and the keypoints of one object under a shared
+``instance_id``. It yields each segmentation mask under a separate task
+name.
+
+.. python::
+
+    import json
+    from pathlib import Path
+
+    import cv2
+    import numpy as np
+
+    from luxonis_ml.data import LuxonisDataset
+
+    dataset_root = Path("data/parking_lot")
+
+
+    def generator():
+        for annotation_file in dataset_root.rglob("annotations.json"):
+            data = json.loads(annotation_file.read_text())
+            width = data["dimensions"]["width"]
+            height = data["dimensions"]["height"]
+            image = str(annotation_file.parent / data["filename"])
+
+            for instance_id, box in data["BoundingBoxAnnotation"].items():
+                x, y = box["origin"]
+                w, h = box["dimension"]
+                yield {
+                    "file": image,
+                    "task_name": f"instance_keypoints_{box['labelName']}",
+                    "annotation": {
+                        "class": box["labelName"],
+                        "instance_id": int(instance_id),
+                        "boundingbox": {
+                            "x": x / width,
+                            "y": y / height,
+                            "w": w / width,
+                            "h": h / height,
+                        },
+                    },
+                }
+
+            for instance_id, pose in data["KeypointsAnnotation"].items():
+                yield {
+                    "file": image,
+                    "task_name": f"instance_keypoints_{pose['labelName']}",
+                    "annotation": {
+                        "instance_id": int(instance_id),
+                        "keypoints": {
+                            "keypoints": [
+                                (
+                                    keypoint["location"][0] / width,
+                                    keypoint["location"][1] / height,
+                                    keypoint["visibility"],
+                                )
+                                for keypoint in pose["keypoints"]
+                            ]
+                        },
+                    },
+                }
+
+            masks = data["VehicleTypeSegmentation"]
+            mask_path = annotation_file.parent / masks["filename"]
+            mask = cv2.cvtColor(cv2.imread(str(mask_path)), cv2.COLOR_BGR2RGB)
+
+            for instance in masks["instances"]:
+                color = np.array(instance["pixelValue"], dtype=np.uint8)
+                yield {
+                    "file": image,
+                    "task_name": "segmentation",
+                    "annotation": {
+                        "class": instance["labelName"],
+                        "segmentation": {
+                            "mask": (mask == color)
+                            .all(axis=-1)
+                            .astype(np.uint8)
+                        },
+                    },
+                }
+
+
+    dataset = LuxonisDataset("parking_lot")
+    dataset.add(generator())
+
+Note:
+    The shared ``instance_id`` links the box and the keypoints of one
+    object. Give the keypoints of each class a separate task name, because
+    the loader stacks the keypoints of one task into a single array.
+
+
+Defining Splits
+===============
+
+`LuxonisDataset.make_splits` assigns the records to named splits. Pass the
+ratios of the splits, or pass the exact files of each split.
+
+.. python::
+
+    dataset.make_splits({"train": 0.7, "val": 0.2, "test": 0.1})
+
+    dataset.make_splits(
+        {
+            "train": ["image_1.jpg", "image_2.jpg"],
+            "val": ["image_3.jpg"],
+            "test": ["image_4.jpg"],
+        }
+    )
+
+A call with no argument splits 80/10/10. A split from ratios uses only the
+records that no split holds yet, so a second call needs new records. Pass
+``replace_old_splits=True`` to drop the old splits and to split every
+record again.
+
+
 Annotation Payloads
 ===================
 

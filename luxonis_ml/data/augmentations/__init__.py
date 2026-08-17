@@ -51,6 +51,28 @@ For example, a pipeline that contains `MixUp` and `Mosaic4` requires
 Custom augmentation engines can be added by subclassing `AugmentationEngine`.
 Subclasses are automatically registered in `AUGMENTATION_ENGINES`.
 
+`LuxonisLoader` builds the engine for you. Pass the configuration as a list
+of records, or as the path of a YAML or JSON file that holds the same list:
+
+.. python::
+
+    from luxonis_ml.data import LuxonisDataset, LuxonisLoader
+
+    loader = LuxonisLoader(
+        LuxonisDataset("parking_lot"),
+        view="train",
+        augmentation_engine="albumentations",
+        augmentation_config="augmentations.yaml",
+        height=256,
+        width=320,
+        keep_aspect_ratio=True,
+        color_space="RGB",
+    )
+
+    for sample in loader:
+        images = sample.images
+        labels = sample.labels
+
 
 Custom Transforms
 =================
