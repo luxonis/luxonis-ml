@@ -64,6 +64,44 @@ def test_boxes_keep_their_class_and_coordinates():
     )
 
 
+def test_class_only_labels_survive_beside_boxes():
+    schema = DatasetSchema(
+        tasks={"vehicles": ["boundingbox", "classification"]},
+        classes={"vehicles": {"car": 0, "truck": 1}},
+    )
+    record = DatasetRecord.model_validate(
+        {
+            "media": IMAGE,
+            "annotation": {
+                "vehicles": [
+                    {
+                        "class": "car",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.2,
+                            "h": 0.2,
+                        },
+                    },
+                    {"class": "truck"},
+                ]
+            },
+        }
+    )
+    sample = record.to_loader_output(schema)
+
+    rebuilt = sample.to_ldf()
+
+    assert [
+        (detection.class_name, detection.boundingbox is not None)
+        for detection in rebuilt.annotation["vehicles"]
+    ] == [("car", True), ("truck", False)]
+    assert np.array_equal(
+        rebuilt.to_loader_output(schema).labels["vehicles/classification"],
+        sample.labels["vehicles/classification"],
+    )
+
+
 def test_keypoints_take_the_class_of_their_instance():
     """A keypoint row carries no class, so its box has to supply one."""
     schema = DatasetSchema(

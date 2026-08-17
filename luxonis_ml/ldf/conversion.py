@@ -398,10 +398,14 @@ def _build_detections(
             task_name, task_types, schema, keep_background=keep_background
         )
     )
-    if all(detection.class_name is None for detection in detections):
-        detections.extend(
-            _classification_detections(task_name, task_types, schema)
+    represented = {detection.class_name for detection in detections}
+    detections.extend(
+        detection
+        for detection in _classification_detections(
+            task_name, task_types, schema
         )
+        if detection.class_name not in represented
+    )
     return detections
 
 
