@@ -148,7 +148,8 @@ LDF supports a small set of annotation payload families:
     - classification through a ``"class"`` value;
     - normalized ``xywh`` bounding boxes through ``"boundingbox"``;
     - normalized ``(x, y, visibility)`` keypoint triplets through
-      ``"keypoints"``;
+      ``"keypoints"``, keyed by keypoint name and optionally carrying
+      ``"edges"``, ``"flip_pairs"`` and ``"sigmas"`` for the whole task;
     - semantic segmentation masks through polygon points, binary masks, or
       COCO RLE values under ``"segmentation"``;
     - instance segmentation masks through the same mask encodings under

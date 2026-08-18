@@ -9,11 +9,12 @@ from pydantic import SecretStr
 
 from luxonis_ml.data import (
     BaseDataset,
+    LuxonisDataset,
     LuxonisLoader,
     LuxonisParser,
     ParserIssue,
 )
-from luxonis_ml.data.parsers import luxonis_parser
+from luxonis_ml.data.parsers import SOLOParser, luxonis_parser
 from luxonis_ml.data.parsers.base_parser import BaseParser, ParserOutput
 from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.enums import DatasetType
@@ -743,6 +744,186 @@ def test_ultralytics_ndjson_remote_urls_parser_rejects_existing_remote_dir_when_
             delete_local=True,
             save_dir=tempdir,
         ).parse(reuse_cached=False)
+
+
+def test_parser_scopes_keypoint_metadata_to_the_task_of_its_class(
+    dataset_name: str,
+    tempdir: Path,
+):
+    """The parser gave every task the keypoints of the last class.
+
+    `_parse_split` keys the parser output by source class name, but it
+    called `set_keypoint_metadata` with no task. The last keypoint
+    category thus overwrote the metadata of every task, including a task
+    that holds no keypoints. Each task must keep the keypoint labels of
+    its own class.
+    """
+    dataset_dir = tempdir / "coco_two_keypoint_classes"
+
+    def annotations(image_name: str) -> str:
+        return json.dumps(
+            {
+                "images": [
+                    {
+                        "id": 1,
+                        "file_name": image_name,
+                        "width": 512,
+                        "height": 512,
+                    }
+                ],
+                "annotations": [
+                    {
+                        "id": 1,
+                        "image_id": 1,
+                        "category_id": 1,
+                        "bbox": [128, 128, 256, 256],
+                        "keypoints": [256, 200, 2, 230, 180, 2, 280, 180, 2],
+                    },
+                    {
+                        "id": 2,
+                        "image_id": 1,
+                        "category_id": 2,
+                        "bbox": [10, 10, 60, 60],
+                        "keypoints": [20, 20, 2, 50, 50, 2],
+                    },
+                ],
+                "categories": [
+                    {
+                        "id": 1,
+                        "name": "person",
+                        "keypoints": ["nose", "left_eye", "right_eye"],
+                        "skeleton": [[1, 2], [1, 3]],
+                    },
+                    {
+                        "id": 2,
+                        "name": "hand",
+                        "keypoints": ["thumb", "index"],
+                        "skeleton": [[1, 2]],
+                    },
+                ],
+            }
+        )
+
+    for split, index in [("train", 16), ("valid", 17)]:
+        split_dir = dataset_dir / split
+        split_dir.mkdir(parents=True)
+        image = create_image(index, split_dir)
+        (split_dir / "_annotations.coco.json").write_text(
+            annotations(image.name)
+        )
+
+    dataset = LuxonisParser(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        dataset_type=DatasetType.COCO,
+        task_name={"person": "pose", "hand": "hands"},
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+    try:
+        keypoint_metadata = dataset.get_keypoint_metadata()
+        assert keypoint_metadata["pose"].labels == [
+            "nose",
+            "left_eye",
+            "right_eye",
+        ]
+        assert keypoint_metadata["hands"].labels == ["thumb", "index"]
+        assert dataset.get_n_keypoints() == {"pose": 3, "hands": 2}
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
+def test_solo_keypoints_get_no_invented_edges(
+    dataset_name: str, tempdir: Path
+):
+    """SOLO names its keypoints, but it defines no skeleton.
+
+    `add` runs first and writes placeholder chain edges. The parser then
+    reports what the source format holds. `set_keypoint_metadata` now
+    merges, so an omitted ``edges`` key kept the chain. An inspection
+    drew lines between unrelated keypoints, and a COCO export wrote them
+    as the category skeleton.
+    """
+    split_dir = tempdir / "solo" / "train"
+    sequence_dir = split_dir / "sequence.0"
+    sequence_dir.mkdir(parents=True)
+    image = create_image(0, sequence_dir)
+    keypoint_labels = ["nose", "left_eye", "right_eye"]
+    bbox_type = "type.unity.com/unity.solo.BoundingBox2DAnnotation"
+    keypoint_type = "type.unity.com/unity.solo.KeypointAnnotation"
+
+    (split_dir / "annotation_definitions.json").write_text(
+        json.dumps(
+            {
+                "annotationDefinitions": [
+                    {
+                        "@type": bbox_type,
+                        "spec": [{"label_id": 0, "label_name": "person"}],
+                    },
+                    {
+                        "@type": keypoint_type,
+                        "template": {
+                            "keypoints": [
+                                {"index": i, "label": label}
+                                for i, label in enumerate(keypoint_labels)
+                            ]
+                        },
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (sequence_dir / "step0.frame_data.json").write_text(
+        json.dumps(
+            {
+                "step": 0,
+                "captures": [
+                    {
+                        "filename": image.name,
+                        "dimension": [512, 512],
+                        "annotations": [
+                            {
+                                "@type": bbox_type,
+                                "values": [
+                                    {
+                                        "labelName": "person",
+                                        "instanceId": 1,
+                                        "origin": [10, 10],
+                                        "dimension": [100, 100],
+                                    }
+                                ],
+                            },
+                            {
+                                "@type": keypoint_type,
+                                "values": [
+                                    {
+                                        "instanceId": 1,
+                                        "keypoints": [
+                                            {"location": [20, 20], "state": 2},
+                                            {"location": [30, 30], "state": 2},
+                                            {"location": [40, 30], "state": 2},
+                                        ],
+                                    }
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    SOLOParser(dataset, DatasetType.SOLO, "pose").parse_split(
+        split_path=split_dir
+    )
+
+    keypoints = dataset.get_keypoint_metadata()["pose"]
+    assert keypoints.labels == keypoint_labels
+    assert keypoints.edges == []
+    dataset.delete_dataset(delete_local=True)
 
 
 def test_partial_split_clsdir_is_preserved(

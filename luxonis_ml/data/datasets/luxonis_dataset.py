@@ -62,11 +62,16 @@ from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.ldf_equivalence import ldf_equivalent
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.enums.enums import DatasetType
-from luxonis_ml.ldf import Category, DatasetRecord, Detection
+from luxonis_ml.ldf import (
+    Category,
+    DatasetRecord,
+    Detection,
+    KeypointMetadata,
+)
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import LuxonisFileSystem, environ
 
-from .base_dataset import BaseDataset, DatasetIterator
+from .base_dataset import BaseDataset, DatasetIterator, KeypointPair
 from .metadata import Metadata
 from .migration import migrate_dataframe, migrate_metadata
 from .source import LuxonisComponent, LuxonisSource
@@ -780,8 +785,16 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         return processed
 
     def _write_metadata(self) -> None:
+        # `keypoint_metadata` is new in LDF 2.2 and `Metadata` forbids
+        # extra fields. A dataset without keypoints must not carry the
+        # key, or an older luxonis-ml refuses to open it.
+        exclude: set[str] = set()
+        if not self._metadata.keypoint_metadata:
+            exclude.add("keypoint_metadata")
         path = self._metadata_path / "metadata.json"
-        path.write_text(self._metadata.model_dump_json(indent=4))
+        path.write_text(
+            self._metadata.model_dump_json(indent=4, exclude=exclude)
+        )
         with suppress(shutil.SameFileError):
             self._fs.put_file(path, "metadata/metadata.json")
 
@@ -845,7 +858,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             ldf_version=str(LDF_VERSION),
             classes={},
             tasks={},
-            skeletons={},
+            keypoint_metadata={},
             categorical_encodings={},
             metadata_types={},
         )
@@ -886,43 +899,205 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         return self._metadata.classes
 
     @override
-    def set_skeletons(
+    def set_keypoint_metadata(
         self,
         labels: list[str] | None = None,
-        edges: list[tuple[int, int]] | None = None,
+        edges: list[KeypointPair] | None = None,
         task: str | None = None,
+        *,
+        flip_pairs: list[KeypointPair] | None = None,
+        sigmas: list[float] | None = None,
+        infer_flip_pairs: bool = True,
     ) -> None:
-        """Set keypoint skeleton metadata.
-
-        Args:
-            labels: Optional keypoint names.
-            edges: Optional keypoint edges as :math:`0`-based index pairs.
-            task: Optional task to update. If omitted, all tasks are
-                updated.
-
-        Raises:
-            ValueError: If neither ``labels`` nor ``edges`` is provided.
-
-        """
-        if labels is None and edges is None:
-            raise ValueError("Must provide either keypoint names or edges")
+        updates = {
+            "labels": labels,
+            "edges": edges,
+            "flip_pairs": flip_pairs,
+            "sigmas": sigmas,
+        }
+        if all(value is None for value in updates.values()):
+            raise ValueError(
+                "Must provide either keypoint names, edges, flip pairs, "
+                "or sigmas"
+            )
 
         tasks = self.get_task_names() if task is None else [task]
         for t in tasks:
-            self._metadata.skeletons[t] = {
-                "labels": labels or [],
-                "edges": sorted(edges or []),
-            }
+            current = self._metadata.keypoint_metadata.get(t)
+            if current is not None and self._renames_keypoints(
+                current, labels
+            ):
+                current = None
+            keypoint_metadata = KeypointMetadata.model_validate(
+                {
+                    **(current.model_dump() if current else {}),
+                    **{
+                        field: value
+                        for field, value in updates.items()
+                        if value is not None
+                    },
+                }
+            )
+            self._metadata.keypoint_metadata[t] = self._fill_in_flip_pairs(
+                keypoint_metadata, infer=infer_flip_pairs
+            )
+
         self._write_metadata()
 
+    @staticmethod
+    def _fill_in_flip_pairs(
+        keypoint_metadata: KeypointMetadata, *, infer: bool
+    ) -> KeypointMetadata:
+        """Infer flip pairs from the keypoint names when none are known.
+
+        Only a write path infers them, never a read path. A read path
+        would give flip pairs to a dataset that never asked for them.
+        """
+        labels = keypoint_metadata.labels
+        if not infer or keypoint_metadata.flip_pairs or not labels:
+            return keypoint_metadata
+        flip_pairs = KeypointMetadata.infer_flip_pairs(labels)
+        if not flip_pairs:
+            return keypoint_metadata
+        return keypoint_metadata.model_copy(update={"flip_pairs": flip_pairs})
+
+    @staticmethod
+    def _renames_keypoints(
+        current: KeypointMetadata, labels: list[str] | None
+    ) -> bool:
+        """Whether new labels give the stored indices a new meaning.
+
+        `edges`, `flip_pairs` and `sigmas` all address a keypoint by its
+        position. New names put a different keypoint at a position, so
+        the stored values describe the wrong keypoints. Placeholder names
+        carry no identity. A rename that keeps their count therefore only
+        names the keypoints that are already there.
+        """
+        if labels is None or not current.labels or current.labels == labels:
+            return False
+        return current.has_names or len(current.labels) != len(labels)
+
     @override
-    def get_skeletons(
+    def get_keypoint_metadata(self) -> dict[str, KeypointMetadata]:
+        return dict(self._metadata.keypoint_metadata)
+
+    def _update_keypoint_metadata(
         self,
-    ) -> dict[str, tuple[list[str], list[tuple[int, int]]]]:
-        return {
-            task: (skel["labels"], skel["edges"])
-            for task, skel in self._metadata.skeletons.items()
-        }
+        num_kpts_per_task: dict[str, set[int]],
+        declared: dict[str, KeypointMetadata],
+    ) -> None:
+        """Promote the keypoints that the annotations describe.
+
+        Only a keypoint task with no keypoint metadata gets placeholder
+        names and chain edges. An explicit definition thus survives an
+        `add`.
+        """
+        if not num_kpts_per_task:
+            return
+
+        for task, sizes in num_kpts_per_task.items():
+            n_keypoints = max(sizes)
+            if len(sizes) > 1:
+                logger.warning(
+                    f"Task '{task}' mixes annotations with different numbers "
+                    f"of keypoints ({sorted(sizes)}). Storing keypoint "
+                    f"metadata for {n_keypoints} keypoints."
+                )
+            stored = self._metadata.keypoint_metadata.get(task)
+            task_keypoint_metadata = declared.get(task)
+            if task_keypoint_metadata is not None:
+                task_keypoint_metadata.validate_for(
+                    n_keypoints, f"task '{task}'"
+                )
+                task_keypoint_metadata = self._merge_into_stored(
+                    task_keypoint_metadata, stored, task, n_keypoints
+                )
+            elif stored is not None and not self._placeholder_is_outgrown(
+                stored, n_keypoints
+            ):
+                continue
+            else:
+                task_keypoint_metadata = self._placeholder_keypoint_metadata(
+                    n_keypoints
+                )
+            labels = task_keypoint_metadata.labels
+            if not labels or (
+                not task_keypoint_metadata.has_names
+                and len(labels) < n_keypoints
+            ):
+                # A description of edges alone names nothing, and a
+                # placeholder from an earlier `add` can be too narrow.
+                # The stored entry has to carry the keypoint count.
+                placeholder = self._placeholder_keypoint_metadata(n_keypoints)
+                task_keypoint_metadata = task_keypoint_metadata.model_copy(
+                    update={"labels": placeholder.labels}
+                )
+            self._metadata.keypoint_metadata[task] = self._fill_in_flip_pairs(
+                task_keypoint_metadata, infer=True
+            )
+        self._write_metadata()
+
+    @classmethod
+    def _merge_into_stored(
+        cls,
+        declared: KeypointMetadata,
+        stored: KeypointMetadata | None,
+        task: str,
+        n_keypoints: int,
+    ) -> KeypointMetadata:
+        """Combine described keypoints with the ones already stored.
+
+        A described value wins. A field that the description leaves empty
+        comes from the stored keypoint metadata. An `add` thus discards
+        nothing. Stored labels are the exception. They name the columns of
+        the rows already written, so they keep their order.
+        """
+        if stored is None:
+            return declared
+
+        # No warning for a stored value that `add` generated itself. The
+        # annotations now describe a real one.
+        placeholder = cls._placeholder_keypoint_metadata(n_keypoints)
+        merged = declared.model_copy(deep=True)
+        if stored.has_names:
+            # `_alignment_keypoint_metadata` writes the new rows in the
+            # stored order, so the stored labels name the stored columns.
+            # A record may name a subset of them, or name them in another
+            # order. Neither renames a column.
+            merged.labels = list(stored.labels)
+        for field in KeypointMetadata.model_fields:
+            new, old = getattr(merged, field), getattr(stored, field)
+            if not new:
+                setattr(merged, field, old)
+            elif old and old != new and old != getattr(placeholder, field):
+                logger.warning(
+                    f"The annotations of task '{task}' describe a different "
+                    f"`{field}` than the one already stored. Using the "
+                    f"described one. Stored: {old}, described: {new}."
+                )
+        return merged
+
+    @staticmethod
+    def _placeholder_keypoint_metadata(n_keypoints: int) -> KeypointMetadata:
+        """Build what `add` writes for keypoints that name none."""
+        return KeypointMetadata(
+            labels=[str(i) for i in range(n_keypoints)],
+            edges=[(i, i + 1) for i in range(n_keypoints - 1)],
+        )
+
+    @classmethod
+    def _placeholder_is_outgrown(
+        cls, stored: KeypointMetadata, n_keypoints: int
+    ) -> bool:
+        """Whether `add` may rewrite an entry it generated itself.
+
+        A placeholder records only how many keypoints there are, so a
+        later `add` with more of them replaces it. A definition survives,
+        and so does a wider placeholder: the stored count sizes the empty
+        keypoint arrays, so it has to cover the widest row on disk.
+        """
+        placeholder = cls._placeholder_keypoint_metadata(len(stored.labels))
+        return stored == placeholder and n_keypoints > len(stored.labels)
 
     @override
     def get_tasks(self) -> dict[str, list[str]]:
@@ -1195,12 +1370,31 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 uuid_dict=uuid_dict,
             )
 
+    def _alignment_keypoint_metadata(
+        self, declared: dict[str, KeypointMetadata]
+    ) -> dict[str, KeypointMetadata]:
+        """Return the keypoint metadata the payload is aligned against.
+
+        The stored keypoint metadata owns the label set of a task, so a
+        record can name a subset of it. Placeholder names that an earlier
+        `add` generated own nothing, so the records win over those.
+        """
+        aligned = dict(declared)
+        for task, stored in self._metadata.keypoint_metadata.items():
+            if stored.has_names:
+                aligned[task] = stored
+        return aligned
+
     def _add_process_batch(
         self,
         data_batch: list[DatasetRecord],
         pfm: ParquetFileManager,
         index: pl.DataFrame | None,
+        declared_keypoint_metadata: dict[str, KeypointMetadata],
     ) -> None:
+        keypoint_metadata = self._alignment_keypoint_metadata(
+            declared_keypoint_metadata
+        )
         paths = {path for data in data_batch for path in data.all_file_paths}
         logger.info("Generating UUIDs...")
         uuid_dict = self._fs.get_file_uuids(paths, local=True)
@@ -1246,7 +1440,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                     if len(uuid_list) > 1
                     else str(uuid_list[0])
                 )
-                for row in record.to_parquet_rows():
+                for row in record.to_parquet_rows(keypoint_metadata):
                     pfm.write(uuid_dict[row["file"]], row, group_id)
                 self._progress.update(task, advance=1)
         self._progress.remove_task(task)
@@ -1326,7 +1520,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         tasks: dict[str, set[str]] = defaultdict(set)
         categorical_encodings = defaultdict(dict)
         metadata_types = {}
-        num_kpts_per_task: dict[str, int] = {}
+        num_kpts_per_task: dict[str, set[int]] = defaultdict(set)
+        declared_keypoint_metadata: dict[str, KeypointMetadata] = {}
         sources: set[str] = set()
 
         annotations_path = get_dir(
@@ -1363,9 +1558,21 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                         tasks[task_name] |= ann.get_task_types()
 
                         if ann.keypoints is not None:
-                            num_kpts_per_task[task_name] = len(
-                                ann.keypoints.keypoints
+                            num_kpts_per_task[task_name].add(
+                                len(ann.keypoints.keypoints)
                             )
+                            declared = ann.keypoints.declared_metadata()
+                            if declared is not None:
+                                current = declared_keypoint_metadata.get(
+                                    task_name
+                                )
+                                declared_keypoint_metadata[task_name] = (
+                                    declared
+                                    if current is None
+                                    else current.merge_with(
+                                        declared, f"task '{task_name}'"
+                                    )
+                                )
                         for name, value in ann.metadata.items():
                             task = f"{task_name}/metadata/{name}"
                             typ = type(value).__name__
@@ -1398,10 +1605,14 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
                 data_batch.append(record)
                 if i % batch_size == 0:
-                    self._add_process_batch(data_batch, pfm, index)
+                    self._add_process_batch(
+                        data_batch, pfm, index, declared_keypoint_metadata
+                    )
                     data_batch = []
 
-            self._add_process_batch(data_batch, pfm, index)
+            self._add_process_batch(
+                data_batch, pfm, index, declared_keypoint_metadata
+            )
 
         with suppress(shutil.SameFileError):
             self._fs.put_dir(annotations_path, "")
@@ -1417,12 +1628,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
                 self.set_classes(list(classes | old_classes), task=task)
 
-        for task, num_kpts in num_kpts_per_task.items():
-            self.set_skeletons(
-                labels=[str(i) for i in range(num_kpts)],
-                edges=[(i, i + 1) for i in range(num_kpts - 1)],
-                task=task,
-            )
+        self._update_keypoint_metadata(
+            num_kpts_per_task, declared_keypoint_metadata
+        )
 
         self._metadata.categorical_encodings = dict(categorical_encodings)
         self._metadata.metadata_types = metadata_types
@@ -1653,16 +1861,21 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 f"not '{dataset_type}'."
             )
         target_version = resolve_export_version(ldf_version)
+        keypoint_metadata = self.metadata.keypoint_metadata
 
         EXPORTER_MAP: dict[DatasetType, ExporterSpec] = {
             DatasetType.NATIVE: ExporterSpec(
-                NativeExporter, {"ldf_version": target_version}
+                NativeExporter,
+                {
+                    "keypoint_metadata": keypoint_metadata,
+                    "ldf_version": target_version,
+                },
             ),
             DatasetType.COCO: ExporterSpec(
                 CocoExporter,
                 {
                     "format": COCOFormat.ROBOFLOW,
-                    "skeletons": getattr(self.metadata, "skeletons", None),
+                    "keypoint_metadata": keypoint_metadata,
                 },
             ),
             DatasetType.YOLOV8BOUNDINGBOX: ExporterSpec(YoloV8Exporter, {}),

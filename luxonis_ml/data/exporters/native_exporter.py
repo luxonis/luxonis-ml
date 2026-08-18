@@ -15,7 +15,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
 from luxonis_ml.data.exporters.ldf_downgrade import LDFDowngrader
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.ldf import DatasetRecord
+from luxonis_ml.ldf import DatasetRecord, KeypointMetadata
 from luxonis_ml.utils.path import path_to_posix
 
 
@@ -30,12 +30,12 @@ class NativeExporter(BaseExporter):
     ``files``. It is **record-level metadata**, not an annotation label.
 
     The export root also holds a ``metadata.json`` version stamp, such as
-    ``{"ldf_version": "2.1.0"}``. It is not the full `Metadata` model a
+    ``{"ldf_version": "2.2.0"}``. It is not the full `Metadata` model a
     dataset keeps in its own storage.
 
     Passing an older ``ldf_version`` strips the fields that version does
-    not know -- exporting LDF 2.0 omits ``sample_metadata``. See
-    `LDFDowngrader`.
+    not know -- exporting LDF 2.0 omits ``sample_metadata`` and the
+    keypoint names, edges, flip pairs and sigmas. See `LDFDowngrader`.
 
     Example:
         .. code-block:: json
@@ -70,12 +70,15 @@ class NativeExporter(BaseExporter):
         output_path: Path,
         max_partition_size_gb: float | None,
         *,
+        keypoint_metadata: dict[str, KeypointMetadata] | None = None,
         ldf_version: Version | None = None,
     ):
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
+        self.keypoint_metadata = keypoint_metadata or {}
         self.ldf_version = ldf_version or LDF_VERSION
+        self._metadata_attached: set[tuple[int | None, str, str]] = set()
         self._downgrade = LDFDowngrader(self.ldf_version)
 
     @staticmethod
@@ -129,10 +132,63 @@ class NativeExporter(BaseExporter):
                     shutil.copy(p, data_path / f"{idx}{p.suffix}")
                     self.current_size += p.stat().st_size
 
-            annotation_splits[split].extend(records)
+            # The downgrade runs last: the fields attached here are
+            # themselves fields an older LDF version does not know.
+            self._attach_keypoint_metadata(records, split)
+            annotation_splits[split].extend(map(self._downgrade, records))
 
         self._dump_annotations(annotation_splits, self.output_path, self.part)
         self._downgrade.log_summary()
+
+    def _attach_keypoint_metadata(
+        self, records: list[dict[str, Any]], split: str
+    ) -> None:
+        """Attach the task fields to the first keypoint record of a task.
+
+        The names, the edges, the flip pairs and the sigmas describe the
+        task, not the instance. Each task and split thus carries them once,
+        and not on every record. `NativeParser` passes them to
+        `LuxonisDataset.add`, which moves them into the keypoint metadata
+        of the imported dataset. Every later record of the same length
+        stays positional, and the import aligns it against the names of
+        the first one. A record with fewer keypoints carries nothing,
+        because the task fields do not describe it.
+        """
+        for record in records:
+            keypoints = record.get("annotation", {}).get("keypoints")
+            if keypoints is None:
+                continue
+            task_name = record["task_name"]
+            task_keypoints = self.keypoint_metadata.get(task_name)
+            if task_keypoints is None:
+                continue
+            values = keypoints["keypoints"]
+            if len(values) < len(task_keypoints.labels):
+                # A task can hold records with fewer keypoints. The task
+                # fields describe the full set, so such a record must not
+                # carry them. The import checks each record on its own.
+                continue
+            # Keyed on the partition as well: rolling over starts a fresh
+            # `annotations.json`, which has to carry the fields again.
+            key = (self.part, split, task_name)
+            if key in self._metadata_attached:
+                continue
+            self._metadata_attached.add(key)
+            keypoints.update(
+                {
+                    field: value
+                    for field, value in task_keypoints.model_dump(
+                        exclude={"labels"}
+                    ).items()
+                    if value
+                }
+            )
+            # The names are the keys of the payload, so this one record
+            # carries them as a mapping instead of a positional list.
+            if len(task_keypoints.labels) == len(values):
+                keypoints["keypoints"] = dict(
+                    zip(task_keypoints.labels, values, strict=True)
+                )
 
     def _maybe_roll_partition(
         self,
@@ -202,7 +258,7 @@ class NativeExporter(BaseExporter):
                 ann["metadata"] = {task_type[9:]: data}
             record["annotation"] = ann
 
-        return self._downgrade(record)
+        return record
 
     def _dump_annotations(
         self,

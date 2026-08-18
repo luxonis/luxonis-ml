@@ -1,7 +1,8 @@
 """Exporting the native format at an older LDF version.
 
 `DatasetRecord` forbids extra fields, so LDF 2.1 adding ``sample_metadata``
-made every 2.1 export unreadable by an older luxonis-ml.
+made every 2.1 export unreadable by an older luxonis-ml. An annotation
+forbids them too, and LDF 2.2 added the keypoint task fields.
 """
 
 import json
@@ -15,19 +16,24 @@ from semver.version import Version
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.exporters.ldf_downgrade import (
+    _ADDED_ANNOTATION_FIELDS,
     _ADDED_FIELDS,
     LDFDowngrader,
     resolve_export_version,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.enums.enums import DatasetType
-from luxonis_ml.ldf import DatasetRecord
+from luxonis_ml.ldf import DatasetRecord, KeypointAnnotation
 
 from .utils import create_dataset, create_image
 
 #: Fields a pre-2.1 `DatasetRecord` accepts. Anything else trips
 #: ``extra="forbid"`` on an older install.
 LDF_2_0_RECORD_FIELDS = {"file", "files", "task_name", "annotation"}
+
+#: The same for a keypoint annotation, which gained the task fields
+#: in 2.2.
+LDF_2_0_KEYPOINT_FIELDS = {"keypoints"}
 
 
 @pytest.fixture
@@ -54,6 +60,26 @@ def _generator(tempdir: Path, with_metadata: bool = True) -> DatasetIterator:
         yield record
 
 
+def _keypoint_generator(tempdir: Path) -> DatasetIterator:
+    """Yield named keypoints, which `add` promotes to the keypoint metadata."""
+    for i in range(2):
+        yield {
+            "file": create_image(i, tempdir),
+            "task_name": "pose",
+            "sample_metadata": {"record_id": i, "origin": "test"},
+            "annotation": {
+                "class": "person",
+                "keypoints": {
+                    "keypoints": {
+                        "nose": (0.5, 0.3, 2),
+                        "left_eye": (0.4, 0.2, 2),
+                        "right_eye": (0.6, 0.2, 1),
+                    }
+                },
+            },
+        }
+
+
 def _read_records(export_root: Path) -> list[dict]:
     """Read every annotation record an export directory holds."""
     return [
@@ -77,9 +103,12 @@ def _export(
     return tempdir / name / dataset.identifier
 
 
-@pytest.mark.parametrize("version", ["2.0", "2.0.0"])
-def test_resolve_accepts_short_and_full_versions(version: str):
-    assert resolve_export_version(version) == Version.parse("2.0.0")
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [("2.0", "2.0.0"), ("2.0.0", "2.0.0"), ("2.1", "2.1.0")],
+)
+def test_resolve_accepts_short_and_full_versions(version: str, expected: str):
+    assert resolve_export_version(version) == Version.parse(expected)
 
 
 def test_resolve_defaults_to_current_version():
@@ -114,6 +143,16 @@ def test_every_record_field_has_a_known_ldf_version():
     assert set(DatasetRecord.model_fields) <= known
 
 
+def test_every_keypoint_field_has_a_known_ldf_version():
+    """An annotation forbids extra fields just as a record does."""
+    known = LDF_2_0_KEYPOINT_FIELDS | {
+        field
+        for task_type, field in _ADDED_ANNOTATION_FIELDS
+        if task_type == "keypoints"
+    }
+    assert set(KeypointAnnotation.model_fields) <= known
+
+
 def test_downgrade_removes_the_key_rather_than_emptying_it():
     """``sample_metadata: {}`` still fails ``extra="forbid"``."""
     downgraded = LDFDowngrader(Version.parse("2.0.0"))(
@@ -125,6 +164,27 @@ def test_downgrade_removes_the_key_rather_than_emptying_it():
 def test_downgrade_to_current_version_is_a_passthrough():
     record = {"file": "a.jpg", "sample_metadata": {"x": 1}}
     assert LDFDowngrader(LDF_VERSION)(dict(record)) == record
+
+
+def test_downgrade_removes_the_keypoint_task_fields():
+    """They sit inside the annotation, not on the record.
+
+    The names are the keys of the payload, so the downgrade also has to
+    turn a named mapping back into a positional list.
+    """
+    keypoints = {
+        "keypoints": {"nose": [0.5, 0.3, 2], "left_eye": [0.4, 0.2, 2]},
+        "edges": [[0, 1]],
+        "flip_pairs": [[0, 1]],
+        "sigmas": [0.026, 0.025],
+    }
+    downgraded = LDFDowngrader(Version.parse("2.0.0"))(
+        {"file": "a.jpg", "annotation": {"keypoints": keypoints}}
+    )
+
+    assert downgraded["annotation"]["keypoints"] == {
+        "keypoints": [[0.5, 0.3, 2], [0.4, 0.2, 2]]
+    }
 
 
 def test_export_2_0_omits_sample_metadata(dataset_name: str, tempdir: Path):
@@ -146,6 +206,78 @@ def test_export_2_0_omits_sample_metadata(dataset_name: str, tempdir: Path):
     assert _read_stamp(root) == "2.0.0"
 
 
+def test_export_2_0_drops_the_keypoint_task_fields(
+    dataset_name: str, tempdir: Path, warnings_log: list[str]
+):
+    """The keypoint task fields arrived in LDF 2.2.
+
+    `test_keypoint_metadata` covers the export writing them at the current
+    version, so this only has to show that 2.0 does not.
+    """
+    dataset = create_dataset(
+        dataset_name, _keypoint_generator(tempdir), splits=(1, 0, 0)
+    )
+    root = _export(dataset, tempdir, "keypoints20", ldf_version="2.0")
+
+    keypoints = [
+        record["annotation"]["keypoints"]
+        for record in _read_records(root)
+        # Every keypoint detection also emits a classification record.
+        if "keypoints" in record.get("annotation", {})
+    ]
+    assert keypoints
+    assert all(isinstance(k["keypoints"], list) for k in keypoints)
+    assert all("edges" not in k for k in keypoints)
+    assert [msg for msg in warnings_log if "keypoints.names" in msg]
+
+
+def test_export_2_1_keeps_sample_metadata_but_drops_the_task_fields(
+    dataset_name: str, tempdir: Path
+):
+    """LDF 2.1 knows ``sample_metadata``. Only the rest is newer."""
+    dataset = create_dataset(
+        dataset_name, _keypoint_generator(tempdir), splits=(1, 0, 0)
+    )
+    root = _export(dataset, tempdir, "keypoints21", ldf_version="2.1")
+
+    records = _read_records(root)
+    assert records
+    assert all("sample_metadata" in record for record in records)
+    assert not [
+        record
+        for record in records
+        if "edges" in record.get("annotation", {}).get("keypoints", {})
+    ]
+    assert _read_stamp(root) == "2.1.0"
+
+
+def test_an_export_without_the_task_fields_still_imports(
+    dataset_name: str, tempdir: Path
+):
+    """A dropped field must not make the export unusable.
+
+    The stored keypoints keep the task order, so the import names them by
+    position.
+    """
+    dataset = create_dataset(
+        dataset_name, _keypoint_generator(tempdir), splits=(1, 0, 0)
+    )
+    root = _export(dataset, tempdir, "keypoints20_import", ldf_version="2.0")
+
+    imported = LuxonisParser(
+        str(root),
+        dataset_type=DatasetType.NATIVE,
+        dataset_name=f"{dataset_name}_imported",
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+    imported.make_splits((1, 0, 0), replace_old_splits=True)
+
+    _, labels = LuxonisLoader(imported)[0]
+    assert labels["pose/keypoints"].shape == (1, 9)
+    assert imported.get_keypoint_metadata()["pose"].labels == ["0", "1", "2"]
+
+
 def test_export_defaults_to_current_version(dataset_name: str, tempdir: Path):
     dataset = create_dataset(
         dataset_name, _generator(tempdir), splits=(1, 0, 0)
@@ -159,7 +291,7 @@ def test_export_defaults_to_current_version(dataset_name: str, tempdir: Path):
 
 
 def test_export_2_0_round_trips(dataset_name: str, tempdir: Path):
-    """A 2.0 export re-imports cleanly, minus the dropped metadata."""
+    """A 2.0 export re-imports cleanly, minus the dropped sample metadata."""
     dataset = create_dataset(
         dataset_name, _generator(tempdir), splits=(1, 0, 0)
     )
@@ -183,7 +315,7 @@ def test_export_2_0_round_trips(dataset_name: str, tempdir: Path):
         assert "origin" not in output.metadata
 
 
-def test_export_2_0_warns_about_dropped_metadata(
+def test_export_2_0_warns_about_dropped_sample_metadata(
     dataset_name: str, tempdir: Path, warnings_log: list[str]
 ):
     dataset = create_dataset(

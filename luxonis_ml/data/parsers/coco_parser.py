@@ -294,6 +294,8 @@ class COCOParser(BaseParser):
                     "edges": list(
                         map(tuple, (np.array(cat["skeleton"]) - 1).tolist())
                     ),
+                    # Not part of the COCO spec, but our exporter writes it.
+                    "sigmas": cat.get("sigmas"),
                 }
 
         def generator() -> DatasetIterator:

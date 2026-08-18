@@ -21,6 +21,7 @@ from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.ldf import KeypointMetadata
 from luxonis_ml.typing import Params
 
 from .utils import create_dataset, create_image, get_loader_output
@@ -51,9 +52,9 @@ def test_dataset(
         )
         assert set(dataset.get_task_names()) == {"coco"}
         assert dataset.get_classes().get("coco") == {"person": 0}
-        assert dataset.get_skeletons() == {
-            "coco": (
-                [
+        assert dataset.get_keypoint_metadata() == {
+            "coco": KeypointMetadata(
+                labels=[
                     "nose",
                     "left_eye",
                     "right_eye",
@@ -72,7 +73,7 @@ def test_dataset(
                     "left_ankle",
                     "right_ankle",
                 ],
-                sorted(
+                edges=sorted(
                     [
                         (15, 13),
                         (13, 11),
@@ -95,6 +96,18 @@ def test_dataset(
                         (4, 6),
                     ]
                 ),
+                # Inferred from the `left_`/`right_` names, with the
+                # midline `nose` correctly left unpaired.
+                flip_pairs=[
+                    (1, 2),
+                    (3, 4),
+                    (5, 6),
+                    (7, 8),
+                    (9, 10),
+                    (11, 12),
+                    (13, 14),
+                    (15, 16),
+                ],
             ),
         }
         assert dataset.get_n_keypoints() == {"coco": 17}
@@ -166,7 +179,7 @@ def test_dataset_fail(dataset_name: str, tempdir: Path):
     dataset = create_dataset(dataset_name, generator())
 
     with pytest.raises(ValueError, match="Must provide either"):
-        dataset.set_skeletons()
+        dataset.set_keypoint_metadata()
 
     with pytest.raises(ValueError, match="Must set delete_remote"):
         dataset.delete_dataset()
@@ -561,7 +574,10 @@ def test_clone_dataset(
     assert cloned_dataset.get_splits() == dataset.get_splits()
     assert cloned_dataset.get_classes() == dataset.get_classes()
     assert cloned_dataset.get_task_names() == dataset.get_task_names()
-    assert cloned_dataset.get_skeletons() == dataset.get_skeletons()
+    assert (
+        cloned_dataset.get_keypoint_metadata()
+        == dataset.get_keypoint_metadata()
+    )
 
     df_cloned = cloned_dataset._load_df_offline()
     df_original = dataset._load_df_offline()
