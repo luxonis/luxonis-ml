@@ -54,7 +54,7 @@ def test_detections_are_grouped_by_task(image: Path):
             "media": image,
             "annotation": {
                 "vehicles": [CAR, TRUCK],
-                "weather": [{"class": "rain"}],
+                "weather": {"class": "rain"},
             },
         }
     )
@@ -66,6 +66,55 @@ def test_detections_are_grouped_by_task(image: Path):
         ("vehicles", "classification", "truck"),
         ("weather", "classification", "rain"),
     ]
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        {"boundingbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4}},
+        {"keypoints": {"keypoints": [[0.1, 0.2, 1]]}},
+        {"metadata": {"age": 3}},
+        {"sub_detections": {"face": {"class": "face"}}},
+    ],
+    ids=["boundingbox", "keypoints", "metadata", "sub_detections"],
+)
+def test_a_lone_mapping_field_stays_a_flat_detection(
+    image: Path, field: dict[str, object]
+):
+    """A detection may set one field, and that field may hold a mapping.
+
+    A task maps to a single detection now, so a mapping value no longer
+    tells the two forms apart. The keys settle it, because every key here
+    names a field of a detection.
+    """
+    record = DatasetRecord.model_validate(
+        {"media": image, "annotation": field}
+    )
+
+    assert set(record.annotation) == {""}
+    [detection] = record.annotation[""]
+    assert getattr(detection, next(iter(field))) is not None
+
+
+def test_a_task_may_carry_the_name_of_a_detection_field(image: Path):
+    """No field of a detection holds a list, so a list names a task."""
+    record = DatasetRecord.model_validate(
+        {"media": image, "annotation": {"metadata": [{"class": "x"}]}}
+    )
+
+    assert rows(record) == [("metadata", "classification", "x")]
+
+
+def test_such_a_task_needs_the_list_form(image: Path):
+    """The field wins when one detection sits under its name.
+
+    Both readings fit, so the shorthand keeps precedence. The list form
+    states the task without any doubt.
+    """
+    with pytest.raises(ValidationError, match="valid string"):
+        DatasetRecord.model_validate(
+            {"media": image, "annotation": {"class": {"class": "car"}}}
+        )
 
 
 def test_the_deprecated_task_name_becomes_the_mapping_key(image: Path):

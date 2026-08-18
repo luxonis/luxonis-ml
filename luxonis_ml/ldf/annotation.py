@@ -2371,7 +2371,12 @@ class DatasetRecord(BaseModelExtraForbid):
 
         annotation = values.get("annotation")
         if annotation is None or cls._is_task_mapping(annotation):
-            grouped = dict(annotation or {})
+            grouped = {
+                task_name: list(detections)
+                if isinstance(detections, (list, tuple))
+                else [detections]
+                for task_name, detections in (annotation or {}).items()
+            }
             if task_name is not None and set(grouped) - {task_name}:
                 raise ValueError(
                     f"The task name '{task_name}' does not match the tasks "
@@ -2640,7 +2645,18 @@ class DatasetRecord(BaseModelExtraForbid):
     @staticmethod
     def _is_task_mapping(annotation: Any) -> bool:
         """Whether an annotation payload groups detections by task name."""
-        return isinstance(annotation, Mapping) and all(
+        if not isinstance(annotation, Mapping):
+            return False
+        if not annotation:
+            return True
+
+        # A key that names no field of a detection can only be a task name.
+        if set(annotation) - (set(Detection.model_fields) | {"class"}):
+            return True
+
+        # Every key also names a detection field, so the values decide. No
+        # field of a detection holds a list, so a list means a task.
+        return any(
             isinstance(detections, (list, tuple))
             for detections in annotation.values()
         )
