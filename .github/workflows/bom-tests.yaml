@@ -81,7 +81,7 @@ jobs:
       (github.event_name == 'pull_request' &&
        startsWith(github.head_ref, 'release/') &&
        github.event.pull_request.base.ref == 'main')
-    uses: Luxonis/modelconverter/.github/workflows/ci.yaml@7baabc4958565cc93bca43f1a53c5bfc6ca419b4
+    uses: Luxonis/modelconverter/.github/workflows/ci.yaml@e8bb246b0702669cfc5a4742ef265e92bf8b7a74
     with:
       ml_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref        || github.head_ref }}
       modelconv_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.modelconv_ref || 'main' }}
