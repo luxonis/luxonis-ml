@@ -307,9 +307,9 @@ sanitizing, exporting, synchronizing, cloning, merging, and deleting datasets.
     luxonis_ml data inspect <dataset_name>
     luxonis_ml data health <dataset_name>
     luxonis_ml data sanitize <dataset_name>
-    luxonis_ml data export <dataset_name> --type ultralytics-ndjson
-    luxonis_ml data export <dataset_name> --type ultralytics-ndjson-instancesegmentation
-    luxonis_ml data export <dataset_name> --type ultralytics-ndjson-keypoints
+    luxonis_ml data export <dataset_name> --type native
+    luxonis_ml data export <dataset_name> --type coco
+    luxonis_ml data export <dataset_name> --type ultralyticsndjson
     luxonis_ml data push <dataset_name>
     luxonis_ml data pull <dataset_name>
     luxonis_ml data clone <dataset_name> <new_name>
