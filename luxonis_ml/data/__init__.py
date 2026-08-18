@@ -14,8 +14,9 @@ owns them:
       splits, cloning, merging, remote synchronization, and dataset plugins.
     - `luxonis_ml.ldf.annotation` documents `DatasetRecord`, `Detection`,
       `Category`, and all annotation payload schemas.
-    - `luxonis_ml.data.parsers` documents `LuxonisParser`, supported external
-      formats, split-ratio modes, and parser-specific caveats.
+    - `luxonis_ml.data.parsers` documents `LuxonisParser`, the supported
+      external formats, the directory layout each one expects, the native LDF
+      layout, split-ratio modes, and parser-specific caveats.
     - `luxonis_ml.data.loaders` documents `LuxonisLoader`, loader outputs,
       label key conventions, color spaces, filtering, and preprocessing.
     - `luxonis_ml.data.augmentations` documents `AlbumentationsEngine`,
@@ -317,7 +318,9 @@ sanitizing, exporting, synchronizing, cloning, merging, and deleting datasets.
     luxonis_ml data delete <dataset_name>
 
 See:
-    `luxonis_ml.data.__main__` for command implementation details.
+    `luxonis_ml.data.__main__` for command implementation details, and
+    `luxonis_ml.data.parsers` for the directory layout of every supported
+    format, including the native LDF layout that ``--type native`` writes.
 
 
 Extension Points
