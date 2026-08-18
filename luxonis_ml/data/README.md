@@ -277,6 +277,7 @@ dataset.make_splits({
 ```
 
 This will split the dataset across `"train"`, `"val"`, and `"test"` sets with the specified ratios.
+A ratio is a number from 0 to 1, and the ratios must sum to 1.
 
 For more refined control over the splits, you can pass a dictionary with the split names as keys and lists of file names as values:
 
@@ -291,8 +292,10 @@ dataset.make_splits({
 
 Calling `make_splits` with no arguments will default to an 80/10/10 split.
 
-In order for splits to be created, there must be some new data in the dataset. If no new data were added, calling `make_splits` will raise an error.
-If you wish to delete old splits and create new ones using all the data, pass `redefine_splits=True` to the method call.
+In order for splits to be created, there must be some new data in the dataset.
+If no new data were added, calling `make_splits` with ratios will raise an error.
+If you give explicit file lists, the method only logs a warning and keeps the existing splits. Thus you can parse the same data twice.
+If you wish to delete old splits and create new ones using all the data, pass `replace_old_splits=True` to the method call.
 
 > [!NOTE]
 > There are no restrictions on the split names,
