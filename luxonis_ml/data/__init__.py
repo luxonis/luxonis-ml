@@ -145,7 +145,8 @@ Adding Records with a Generator
 ===============================
 
 `LuxonisDataset.add` accepts any iterable of records. A generator function
-is the usual choice, because it holds one record in memory at a time.
+is the usual choice, because you do not build the full list of records in
+memory.
 
 The generator below reads one annotation file for each directory. It yields
 the bounding box and the keypoints of one object under a shared
