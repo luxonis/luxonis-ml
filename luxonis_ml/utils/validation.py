@@ -56,6 +56,8 @@ __all__ = [
 ]
 
 _HOOK_ATTR = "_luxonis_validation_hook"
+_PREVIOUS_HOOK_ATTR = "_luxonis_previous_hook"
+_USE_RICH_ATTR = "_luxonis_validation_use_rich"
 _MAX_VALUE_LENGTH = 70
 _SUGGESTION_CUTOFF = 0.75
 _QUOTED = re.compile(r"'([^']*)'")
@@ -253,23 +255,34 @@ def iter_validation_problems(
             yield problem
 
 
-def install_excepthook(*, use_rich: bool = True) -> None:
-    """Summarize uncaught validation errors below their traceback.
+def install_excepthook(*, use_rich: bool = True, enabled: bool = True) -> None:
+    """Configure summaries for uncaught validation errors.
 
     Wraps `sys.excepthook` with one that first lets the previously
     installed hook run — so the traceback still shows where the error came
     from, and crash reporters still see it — and then prints a readable
-    summary of the `ValidationError` as the last thing the reader sees.
-    Calling this more than once is harmless.
+    summary of the `ValidationError` as the last thing the reader sees. An
+    existing Luxonis hook is reconfigured, or removed when ``enabled`` is
+    False. Calling this more than once is harmless.
 
     Args:
         use_rich: If True, the summary is a `rich` panel. If False, it is
             plain text.
+        enabled: Whether validation error summaries are enabled.
 
     """
-    previous = sys.excepthook
-    if getattr(previous, _HOOK_ATTR, False):
+    current = sys.excepthook
+    if getattr(current, _HOOK_ATTR, False):
+        if enabled:
+            setattr(current, _USE_RICH_ATTR, use_rich)
+        else:
+            sys.excepthook = getattr(current, _PREVIOUS_HOOK_ATTR)
         return
+
+    if not enabled:
+        return
+
+    previous = current
 
     def hook(
         exc_type: type[BaseException],
@@ -279,12 +292,14 @@ def install_excepthook(*, use_rich: bool = True) -> None:
         previous(exc_type, exc, traceback)
         if not isinstance(exc, ValidationError):
             return
-        if use_rich:
+        if getattr(hook, _USE_RICH_ATTR):
             Console(stderr=True).print(render_validation_error(exc))
         else:
             sys.stderr.write(f"{format_validation_error(exc)}\n")
 
     setattr(hook, _HOOK_ATTR, True)
+    setattr(hook, _PREVIOUS_HOOK_ATTR, previous)
+    setattr(hook, _USE_RICH_ATTR, use_rich)
     sys.excepthook = hook
 
 

@@ -109,13 +109,15 @@ def setup_logging(
 
     warnings.showwarning = _custom_warning_handler
 
-    if (
-        pretty_validation_errors
-        and not environ.LUXONISML_DISABLE_PRETTY_VALIDATION_ERRORS
-    ):
-        from .validation import install_excepthook
+    from .validation import install_excepthook
 
-        install_excepthook(use_rich=use_rich)
+    install_excepthook(
+        use_rich=use_rich,
+        enabled=(
+            pretty_validation_errors
+            and not environ.LUXONISML_DISABLE_PRETTY_VALIDATION_ERRORS
+        ),
+    )
 
 
 def deprecated(
