@@ -984,6 +984,20 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         Annotations and metadata are always pulled. Media files are pulled
         either when missing locally or always, depending on ``update_mode``.
 
+        The pull overwrites the local ``annotations/`` and ``metadata/``
+        folders with the remote copies on every call, so local-only edits
+        to those folders are lost.
+
+        With ``UpdateMode.MISSING``, a media file counts as missing only
+        when both locations are absent:
+
+            - the path in the ``file`` column of the Parquet shard;
+            - ``media/<uuid><suffix>``, where the UUID comes from the
+              ``uuid`` column of the same shard.
+
+        With ``UpdateMode.ALL``, every media file is downloaded again and
+        overwrites the local copy.
+
         Args:
             update_mode: Media synchronization mode.
 
