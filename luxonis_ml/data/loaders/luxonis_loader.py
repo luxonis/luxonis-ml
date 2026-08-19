@@ -5,7 +5,7 @@ import warnings
 from collections import defaultdict
 from copy import deepcopy
 from pathlib import Path
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import cv2
 import numpy as np
@@ -38,6 +38,9 @@ from luxonis_ml.typing import (
     PathType,
     TrackedAugmentations,
 )
+
+if TYPE_CHECKING:
+    from pycocotools import _EncodedRLE
 
 
 class LuxonisLoader(BaseLoader):
@@ -290,7 +293,7 @@ class LuxonisLoader(BaseLoader):
             if len(classes) <= 1 or classes.get("background") == 0:
                 continue
             logger.warning(
-                f"Found unassigned pixels in the segmentation masks of task "
+                "Found unassigned pixels in the segmentation masks of task "
                 f"'{task_name}'. Assigning them to `background` class (class "
                 "index 0). If this is not desired then make sure all pixels "
                 "are assigned to one class or rename your background class."
@@ -370,13 +373,10 @@ class LuxonisLoader(BaseLoader):
     def _uncovered_tasks(self) -> set[str]:
         """Return the segmentation tasks that leave pixels unassigned.
 
-        The check reads every sample of the view. A check on one sample
-        lets the split order decide the class count of the task.
-
-        `pycocotools.mask.area` counts the set pixels of the run-length
-        encoding, which costs much less than a decode. A pixel under two
-        masks counts twice, so a task with much overlap can pass the
-        check. The old check on sample 0 made the same approximation.
+        A task is uncovered when the union of one sample's masks does
+        not fill the image. The union counts a pixel once, as
+        `SegmentationAnnotation.combine_to_numpy` does, and
+        `pycocotools` measures it without a decode.
 
         A sample with no mask gives no verdict on its task.
 
@@ -395,23 +395,9 @@ class LuxonisLoader(BaseLoader):
             # One uncovered sample settles the task.
             if task_name in uncovered:
                 continue
-            covered = 0
-            size = 0
-            for annotation in annotations:
-                data = json.loads(annotation)
-                # LDF 1.0 stored polylines, which carry no size to compare.
-                if "counts" not in data:  # pragma: no cover
-                    continue
-                size = data["height"] * data["width"]
-                covered += int(
-                    pycocotools.mask.area(
-                        {
-                            "counts": data["counts"].encode("utf-8"),
-                            "size": [data["height"], data["width"]],
-                        }
-                    )
-                )
-            if covered < size:
+            union = pycocotools.mask.merge(self._sample_masks(annotations))
+            height, width = union["size"]
+            if pycocotools.mask.area(union) < height * width:
                 uncovered.add(task_name)
         return uncovered
 
@@ -818,3 +804,31 @@ class LuxonisLoader(BaseLoader):
             idx_to_img_paths[idx] = dict(sorted(source_to_path.items()))
 
         return idx_to_img_paths
+
+    @staticmethod
+    def _sample_masks(annotations: list[str]) -> list["_EncodedRLE"]:
+        """Return the masks of one sample as run-length encodings.
+
+        An LDF 1.0 polyline stores normalized points and no size, so it
+        is rasterized on a grid and no image is read.
+
+        """
+        parsed = [json.loads(annotation) for annotation in annotations]
+        encoded = [data for data in parsed if "counts" in data]
+        polylines = [data["points"] for data in parsed if "counts" not in data]
+
+        # Any grid measures a normalized polyline.
+        height, width = 1000, 1000
+        if encoded:
+            height, width = encoded[0]["height"], encoded[0]["width"]
+
+        masks: list[_EncodedRLE] = [
+            {"counts": data["counts"].encode(), "size": [height, width]}
+            for data in encoded
+        ]
+        for points in polylines:
+            polygon = []
+            for x, y in points:
+                polygon += [round(x * width), round(y * height)]
+            masks += pycocotools.mask.frPyObjects([polygon], height, width)
+        return masks
