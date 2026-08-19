@@ -203,6 +203,10 @@ style = "google"
 wrap-summaries = 72
 wrap-descriptions = 72
 
+[tool.pydoctor]
+docformat = "google"
+warnings-as-errors = true
+
 [tool.pyright]
 pythonVersion = "3.10"
 exclude = [

@@ -64,7 +64,7 @@ from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.ldf import Category, DatasetRecord, Detection
 from luxonis_ml.typing import PathType
-from luxonis_ml.utils import LuxonisFileSystem, deprecated, environ
+from luxonis_ml.utils import LuxonisFileSystem, environ
 
 from .base_dataset import BaseDataset, DatasetIterator
 from .metadata import Metadata
@@ -984,6 +984,20 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         Annotations and metadata are always pulled. Media files are pulled
         either when missing locally or always, depending on ``update_mode``.
 
+        The pull overwrites the local ``annotations/`` and ``metadata/``
+        folders with the remote copies on every call, so local-only edits
+        to those folders are lost.
+
+        With ``UpdateMode.MISSING``, a media file counts as missing only
+        when both locations are absent:
+
+            - the path in the ``file`` column of the Parquet shard;
+            - ``media/<uuid><suffix>``, where the UUID comes from the
+              ``uuid`` column of the same shard.
+
+        With ``UpdateMode.ALL``, every media file is downloaded again and
+        overwrites the local copy.
+
         Args:
             update_mode: Media synchronization mode.
 
@@ -1465,11 +1479,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         with open(splits_path) as file:
             return json.load(file)
 
-    @deprecated(
-        "ratios",
-        "definitions",
-        suggest={"ratios": "splits", "definitions": "splits"},
-    )
     @override
     def make_splits(
         self,
@@ -1480,106 +1489,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             | None
         ) = None,
         *,
-        ratios: dict[str, float] | tuple[float, float, float] | None = None,
-        definitions: dict[str, list[PathType]] | None = None,
         replace_old_splits: bool = False,
     ) -> None:
-        """Create dataset splits for training, validation, and testing.
-
-        Note:
-            Although ``"train"``, ``"val"``, and ``"test"``
-            are the conventional split names, you can use any split names
-            you want by providing a mapping to the ``splits`` argument.
-            This can be useful for combining records from multiple
-            sources (``"train_real"``, ``"train_synth"``) or for
-            creating fully custom splits.
-
-        Args:
-            splits: A mapping defining the splits. Can be one of the following:
-
-                - A mapping of split names to lists of file paths.
-                - A mapping of split names to float ratios.
-                - A tuple of three float ratios for train, val, and test splits.
-
-            ratios: A mapping of split names to float ratios
-                or a tuple of three float ratios for train, val, and test splits.
-
-                .. deprecated:: 0.4.0
-                    Use ``splits`` instead.
-
-            definitions: A mapping of split names to lists of file paths.
-
-                .. deprecated:: 0.4.0
-                    Use ``splits`` instead.
-
-            replace_old_splits: Whether to replace old splits with new ones. If ``False`
-                (default), new splits will be added to old splits, and duplicate group IDs will be filtered out. If ``True``, old splits will be replaced with new splits.
-
-        Raises:
-            ValueError: If both ``ratios`` and ``definitions`` are provided.
-            ValueError: If neither ``splits``, ``ratios``, nor ``definitions`` is provided.
-            ValueError: If both ``splits`` and ``ratios``/``definitions`` are provided.
-            ValueError: If ``splits`` is provided but is empty.
-            ValueError: If ``ratios`` is provided but does not sum to 1.
-            ValueError: If ``definitions`` is provided but the total number of files in definitions exceeds
-                the dataset size.
-            ValueError: If ``definitions`` are provided but all of them
-                are already included in old splits, resulting in no new
-                files to add to splits while ``replace_old_splits`` is ``False``.
-            FileNotFoundError: If the dataset is empty.
-            TypeError: If the splits definitions are not in the expected format.
-
-        """
-        if ratios is not None and definitions is not None:
-            raise ValueError("Cannot provide both ratios and definitions")
-
-        if splits is None and ratios is None and definitions is None:
+        if splits is None:
             splits = {"train": 0.8, "val": 0.1, "test": 0.1}
 
-        if splits is not None:
-            if ratios is not None or definitions is not None:
-                raise ValueError(
-                    "Cannot provide both splits and ratios/definitions"
-                )
-            if isinstance(splits, tuple):
-                ratios = splits
-            elif isinstance(splits, dict):
-                if not splits:
-                    raise ValueError("Splits cannot be empty")
-                value = next(iter(splits.values()))
-                if isinstance(value, float):
-                    ratios = splits  # type: ignore
-                elif isinstance(value, list):
-                    definitions = splits  # type: ignore
-
-        if ratios is not None:
-            if isinstance(ratios, tuple):
-                if not len(ratios) == 3:
-                    raise ValueError(
-                        "Ratios must be a tuple of 3 floats for train, val, and test splits"
-                    )
-                ratios = {
-                    "train": ratios[0],
-                    "val": ratios[1],
-                    "test": ratios[2],
-                }
-            sum_ = sum(ratios.values())
-            if not math.isclose(sum_, 1.0):
-                raise ValueError(f"Ratios must sum to 1.0, got {sum_:0.4f}")
-
-        if definitions is not None:
-            n_files = sum(map(len, definitions.values()))
-            if n_files > len(self):
-                logger.warning(
-                    "Dataset size is smaller than the total number of files in the definitions. "
-                    f"Dataset size: {len(self)}, Definitions: {n_files}. "
-                    "Duplicate files will be filtered out and extra files in definitions will be ignored."
-                )
-                self.remove_duplicates()
-
-        splits_to_update: list[str] = []
-        new_splits: dict[str, list[str]] = {}
-        old_splits: dict[str, list[str]] = defaultdict(list)
+        ratios, definitions = _resolve_splits(splits)
 
         splits_path = get_file(
             self._fs,
@@ -1587,77 +1502,42 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             self._metadata_path,
             default=self._metadata_path / "splits.json",
         )
+        old_splits: dict[str, list[str]] = defaultdict(list)
         if splits_path.exists():
             with open(splits_path) as file:
                 old_splits = defaultdict(list, json.load(file))
 
-        defined_group_ids = {
-            group_id
-            for group_ids in old_splits.values()
-            for group_id in group_ids
-        }
+        defined_group_ids: set[str] = set()
+        if not replace_old_splits:
+            for group_ids in old_splits.values():
+                defined_group_ids.update(group_ids)
 
-        if definitions is None:
-            ratios = ratios or {"train": 0.8, "val": 0.1, "test": 0.1}
-            df = self._load_df_offline(raise_when_empty=True)
-            ids = (
-                df.filter(~pl.col("group_id").is_in(defined_group_ids))
-                .select("group_id")
-                .unique()
-                .sort("group_id")
-                .get_column("group_id")
-                .to_list()
-            )
-            if not ids:
-                if not replace_old_splits:
-                    raise ValueError(
-                        "No new files to add to splits. "
-                        "If you want to generate new splits, set `replace_old_splits=True`"
-                    )
-                ids = (
-                    df.select("group_id")
-                    .unique()
-                    .get_column("group_id")
-                    .to_list()
-                )
-                old_splits = defaultdict(list)
-
-            np.random.shuffle(ids)
-            N = len(ids)
-            lower_bound = 0
-            for split, ratio in ratios.items():
-                upper_bound = lower_bound + math.ceil(N * ratio)
-                new_splits[split] = ids[lower_bound:upper_bound]
-                splits_to_update.append(split)
-                lower_bound = upper_bound
-
+        if ratios is not None:
+            new_splits = self._split_by_ratio(ratios, defined_group_ids)
         else:
-            index = self._get_index(raise_when_empty=True)
-            for split, filepaths in definitions.items():
-                splits_to_update.append(split)
-                if not isinstance(filepaths, list):
-                    raise TypeError(
-                        "Must provide splits as a list of filepaths"
+            assert definitions is not None
+            new_splits = self._split_by_definition(
+                definitions, defined_group_ids
+            )
+            if not any(new_splits.values()):
+                if not replace_old_splits:
+                    logger.warning(
+                        "No new files to add to splits. "
+                        "The existing splits are left unchanged."
                     )
-                ids: list[str] = []
-                for filepath in filepaths:
-                    group_id = find_filepath_group_id(
-                        filepath, index, raise_on_missing=False
-                    )
+                    return
+                logger.warning(
+                    "No file from the definitions is in the dataset. "
+                    "The new splits are empty."
+                )
 
-                    if group_id is None:
-                        logger.warning(
-                            f"No group ID found for '{filepath}' in definitions; skipping."
-                        )
-                        continue
-                    ids.append(group_id)
-
-                new_splits[split] = list(set(ids))
+        if replace_old_splits:
+            old_splits.clear()
 
         for split, group_ids in new_splits.items():
             old_splits[split].extend(group_ids)
 
-        splits_path.write_text(json.dumps(old_splits, indent=4))
+        _write_json(splits_path, old_splits)
 
         with suppress(shutil.SameFileError):
             self._fs.put_file(splits_path, "metadata/splits.json")
@@ -1968,11 +1848,21 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             for duplicates in duplicate_info["duplicate_uuids"]
             for file in duplicates["files"][1:]
         ]
+        n_rows = df.select(pl.len()).collect().item()
         df = df.filter(~pl.col("file").is_in(duplicate_files_to_remove))
 
-        df = df.unique(subset=["file", "annotation"], maintain_order=True)
+        deduplicated = df.unique(
+            subset=["file", "annotation"], maintain_order=True
+        ).collect()
 
-        self._save_df_offline(df.collect())
+        # Both steps above only drop rows. An equal row count thus means
+        # the data did not change, so the rewrite and the upload below
+        # would only repeat the current contents.
+        if deduplicated.height == n_rows:
+            logger.info("The dataset has no duplicates.")
+            return
+
+        self._save_df_offline(deduplicated)
 
         if self.is_remote:
             self._fs.put_dir(
@@ -2028,3 +1918,217 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                     task=task_name,
                     rewrite_metadata=False,
                 )
+
+    def _split_by_ratio(
+        self, ratios: Mapping[str, float], defined_group_ids: set[str]
+    ) -> dict[str, list[str]]:
+        """Divide the unassigned groups between the splits.
+
+        Args:
+            ratios: Split names mapped to ratios that sum to 1.
+            defined_group_ids: Groups that already belong to a split.
+
+        Returns:
+            Split names mapped to the group ids they receive.
+
+        Raises:
+            ValueError: If every group already belongs to a split.
+
+        """
+        df = self._load_df_offline(raise_when_empty=True)
+        ids = (
+            df.filter(~pl.col("group_id").is_in(defined_group_ids))
+            .select("group_id")
+            .unique()
+            .sort("group_id")
+            .get_column("group_id")
+            .to_list()
+        )
+        if not ids:
+            raise ValueError(
+                "No new files to add to splits. "
+                "If you want to generate new splits, set "
+                "`replace_old_splits=True`"
+            )
+
+        np.random.shuffle(ids)
+        new_splits: dict[str, list[str]] = {}
+        lower_bound = 0
+        for split, size in _split_sizes(len(ids), ratios).items():
+            upper_bound = lower_bound + size
+            new_splits[split] = ids[lower_bound:upper_bound]
+            lower_bound = upper_bound
+
+        for split, group_ids in new_splits.items():
+            if not group_ids and ratios[split] > 0:
+                logger.warning(
+                    f"Split '{split}' got no data. The dataset has "
+                    f"{len(ids)} new groups, which is too few for "
+                    f"the ratio {ratios[split]}."
+                )
+        return new_splits
+
+    def _split_by_definition(
+        self,
+        definitions: Mapping[str, Sequence[PathType]],
+        defined_group_ids: set[str],
+    ) -> dict[str, list[str]]:
+        """Resolve filepath lists to group ids.
+
+        The method adds each group that it takes to
+        ``defined_group_ids``, so no group lands in two splits.
+
+        Args:
+            definitions: Split names mapped to filepath lists.
+            defined_group_ids: Groups that already belong to a split.
+
+        Returns:
+            Split names mapped to the group ids they receive.
+
+        """
+        n_files = sum(map(len, definitions.values()))
+        dataset_size = len(self)
+        if n_files > dataset_size:
+            logger.warning(
+                "Dataset size is smaller than the total number of files in the definitions. "
+                f"Dataset size: {dataset_size}, Definitions: {n_files}. "
+                "Duplicate files will be filtered out and extra files in definitions will be ignored."
+            )
+            self.remove_duplicates()
+
+        index = self._get_index(raise_when_empty=True)
+        new_splits: dict[str, list[str]] = {}
+        for split, filepaths in definitions.items():
+            ids: list[str] = []
+            for filepath in filepaths:
+                if not isinstance(filepath, (str, Path)):
+                    logger.warning(
+                        f"Split '{split}' contains {filepath!r}, "
+                        f"which is a {type(filepath).__name__} and "
+                        "not a filepath; skipping."
+                    )
+                    continue
+
+                group_id = find_filepath_group_id(
+                    filepath, index, raise_on_missing=False
+                )
+
+                if group_id is None:
+                    logger.warning(
+                        f"No group ID found for '{filepath}' in definitions; skipping."
+                    )
+                    continue
+                if group_id in defined_group_ids:
+                    continue
+                ids.append(group_id)
+                defined_group_ids.add(group_id)
+
+            new_splits[split] = ids
+        return new_splits
+
+
+def _resolve_splits(
+    splits: Mapping[str, Sequence[PathType]]
+    | Mapping[str, float]
+    | tuple[float, float, float],
+) -> tuple[dict[str, float] | None, Mapping[str, Sequence[PathType]] | None]:
+    """Read the ``splits`` argument as ratios or as filepath lists.
+
+    Args:
+        splits: The argument given to ``make_splits``.
+
+    Returns:
+        The ratios and the filepath lists. Exactly one of the two is
+        ``None``.
+
+    Raises:
+        ValueError: If ``splits`` is empty, or if the ratios fall outside
+            the range from 0 to 1, or do not sum to 1.
+        TypeError: If the mapping values are neither ratios nor filepath
+            lists.
+
+    """
+    if isinstance(splits, tuple):
+        ratios = dict(
+            zip(["train", "val", "test"], map(float, splits), strict=True)
+        )
+    elif not splits:
+        raise ValueError("Splits cannot be empty")
+    else:
+        ratios = {
+            split: float(value)
+            for split, value in splits.items()
+            if isinstance(value, (int, float))
+        }
+        if len(ratios) < len(splits):
+            definitions = {
+                split: value
+                for split, value in splits.items()
+                # A `str` is a Sequence, but one path is not a list.
+                if isinstance(value, Sequence) and not isinstance(value, str)
+            }
+            if len(definitions) < len(splits):
+                raise TypeError(
+                    "Splits must map names to either ratios or filepath "
+                    "lists. A ratio is a number from 0 to 1."
+                )
+            return None, definitions
+
+    # Check the range first; a bad ratio breaks the sum too.
+    if any(not 0.0 <= ratio <= 1.0 for ratio in ratios.values()):
+        raise ValueError("Ratios must be between 0.0 and 1.0 (inclusive)")
+    sum_ = sum(ratios.values())
+    if not math.isclose(sum_, 1.0):
+        raise ValueError(f"Ratios must sum to 1.0, got {sum_:0.4f}")
+
+    return ratios, None
+
+
+def _write_json(path: Path, data: Mapping[str, list[str]]) -> None:
+    """Write JSON to a temporary file, then rename the file.
+
+    ``Path.replace`` is atomic on one filesystem. A failure during the
+    write thus leaves the previous file unchanged, instead of a
+    truncated file that no longer parses.
+
+    Args:
+        path: The destination file.
+        data: The data to write.
+
+    """
+    tmp_path = path.with_name(f"{path.name}.tmp")
+    try:
+        tmp_path.write_text(json.dumps(data, indent=4))
+        tmp_path.replace(path)
+    finally:
+        # `push_to_cloud` uploads the whole metadata directory.
+        tmp_path.unlink(missing_ok=True)
+
+
+def _split_sizes(n_groups: int, ratios: Mapping[str, float]) -> dict[str, int]:
+    """Divide the groups between the splits.
+
+    The function uses the largest remainder method. Each split first
+    gets the whole part of its exact share. The leftover groups then go
+    to the splits with the largest fractional parts. A ``ceil`` of each
+    share would give every split more than its part in turn, and the
+    last split would absorb all the error.
+
+    Args:
+        n_groups: The number of groups to divide.
+        ratios: A mapping of split names to ratios. The ratios sum to 1.
+
+    Returns:
+        A mapping of split names to group counts. The counts sum to
+        ``n_groups``.
+
+    """
+    shares = {split: n_groups * ratio for split, ratio in ratios.items()}
+    sizes = {split: int(share) for split, share in shares.items()}
+    leftover = max(0, n_groups - sum(sizes.values()))
+    by_remainder = sorted(
+        shares, key=lambda split: shares[split] - sizes[split], reverse=True
+    )
+    for split in by_remainder[:leftover]:
+        sizes[split] += 1
+    return sizes
