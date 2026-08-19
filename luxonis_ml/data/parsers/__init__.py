@@ -51,10 +51,6 @@ Note:
     When parsing ZIP files, place the dataset layout directly at the archive
     root unless the selected parser explicitly expects a nested directory.
 
-Warning:
-    Format-specific parsers do not follow symbolic links. Datasets that rely
-    on symlinked images or labels may not parse as expected.
-
 
 Supported Formats
 =================
@@ -147,7 +143,7 @@ Supported Formats
      - Grayscale masks with class mappings in ``_classes.csv``.
    * - Native LDF
      - ``DatasetType.NATIVE``
-     - ``NativeParser``
+     - `NativeParser`
      - Existing Luxonis native exports, including ``sample_metadata`` records.
 
 See:
@@ -163,7 +159,6 @@ directories for parser types that support it, ZIP archives whose extracted
 root contains a supported layout, remote paths handled by ``LuxonisFileSystem``,
 Roboflow URLs in ``roboflow://workspace/project/version/format`` form, and
 Ultralytics format URLs in ``ultralytics://username/datasets/slug``.
-Parser implementations do not follow symbolic links.
 
 Each tree below shows one split in full. The other splits repeat the same
 structure. Roboflow exports name the second split ``valid``, and FiftyOne
@@ -244,8 +239,9 @@ directory::
 Ultralytics NDJSON
 ------------------
 
-The directory holds exactly one ``.ndjson`` manifest. The manifest holds one
-record for each image::
+The directory holds exactly one ``.ndjson`` manifest. The first line of the
+manifest is a header record. It holds ``"type": "dataset"`` and
+``class_names``. Each later record describes one image::
 
     dataset_dir/
     ├── dataset.ndjson
@@ -461,11 +457,10 @@ Each split holds the images, the matching masks, and ``_classes.csv``::
     ├── valid/
     └── test/
 
-The mask of ``img1.jpg`` is ``img1_mask.png``. Auto-detection looks for the
-image of each mask under the ``.jpg`` suffix. Give ``DatasetType.SEGMASK``
-explicitly to use another image suffix. The masks are grayscale images, and
-each pixel value is a class. ``_classes.csv`` maps the pixel values to the
-class names:
+The mask of ``img1.jpg`` is ``img1_mask.png``. The parser needs a ``.jpg``
+image for each mask. An explicit ``DatasetType.SEGMASK`` does not change this
+rule. The masks are grayscale images, and each pixel value is a class.
+``_classes.csv`` maps the pixel values to the class names:
 
 .. code-block:: text
 
@@ -473,6 +468,10 @@ class names:
     0, background
     1, class1
     2, class2
+
+The parser does not remove the whitespace from the class names. The row
+``0, background`` gives the class name ``" background"``, with the leading
+space.
 
 Native LDF
 ----------
@@ -538,9 +537,11 @@ The keys of a record are:
     - ``annotation`` holds one detection. The export writes one record for
       each detection, so several records can share the same ``file``.
 
-A detection holds a ``class``, an ``instance_id``, and one payload key. The
+A detection holds a ``class``, an ``instance_id``, and its payload keys. A
 payload key is ``boundingbox``, ``keypoints``, ``segmentation``,
-``instance_segmentation``, ``array``, or ``metadata``. Boxes and keypoints use
+``instance_segmentation``, or ``metadata``. The export writes at
+most one payload key in each record, but a hand-written detection may hold
+several at once. Boxes and keypoints use
 image-normalized coordinates. Masks are written as COCO RLE, with a
 ``height``, a ``width``, and a compressed ``counts`` string:
 
@@ -555,6 +556,10 @@ image-normalized coordinates. Masks are written as COCO RLE, with a
         "counts": "b14<000000000^3"
       }
     }
+
+Important:
+    The ``array`` annotation type is not yet supported for import.
+    The parser ignores any ``array`` payload key in the source dataset.
 
 See:
     `luxonis_ml.ldf.annotation` for every payload key, the accepted mask

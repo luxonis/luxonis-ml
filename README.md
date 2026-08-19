@@ -131,18 +131,20 @@ pip install luxonis-ml[data]
 
 Each module has its own extra, so you install only what you use:
 
-| Extra        | Installs the dependencies of                     |
-| ------------ | ------------------------------------------------ |
-| `ldf`        | `luxonis_ml.ldf`                                 |
-| `data`       | `luxonis_ml.data`, and `luxonis_ml.ldf` with it  |
-| `tracker`    | `luxonis_ml.tracker`                             |
-| `telemetry`  | `luxonis_ml.telemetry`, with the PostHog backend |
-| `nn_archive` | `luxonis_ml.nn_archive`                          |
-| `utils`      | `luxonis_ml.utils`                               |
-| `all`        | All of the above, and all of the extras below    |
+| Extra        | Installs the dependencies of                              |
+| ------------ | --------------------------------------------------------- |
+| `ldf`        | `luxonis_ml.ldf`                                          |
+| `data`       | `luxonis_ml.data`, and `luxonis_ml.ldf` with it           |
+| `tracker`    | `luxonis_ml.tracker`, except `mlflow` and `opencv-python` |
+| `telemetry`  | `luxonis_ml.telemetry`, with the PostHog backend          |
+| `nn_archive` | `luxonis_ml.nn_archive`                                   |
+| `utils`      | `luxonis_ml.utils`                                        |
+| `all`        | All of the above, and all of the extras below             |
 
-If you import a module without its extra, the import fails with a message that
-names the extra to install.
+The `data`, `ldf`, `tracker`, and `utils` modules fail on import when you do
+not install their extra. The message names the extra. `luxonis_ml.telemetry`
+is an exception: it imports without `posthog` and falls back to a no-op
+backend.
 
 ### ☁️ Additional Dependencies
 
@@ -283,7 +285,7 @@ tracker.close()
 ```
 
 > [!NOTE]
-> The `tracker` extra installs no backend SDK. Install `torch` for TensorBoard, `wandb` for Weights & Biases, or `mlflow` for MLflow.
+> The `tracker` extra does not install every dependency of `luxonis_ml.tracker`. The module imports `mlflow` and `cv2` at import time, so install `mlflow` and `opencv-python` as well: `pip install "luxonis-ml[tracker,mlflow]" opencv-python`. Install `torch` for TensorBoard and `wandb` for Weights & Biases.
 
 <a name="cli"></a>
 
@@ -296,7 +298,7 @@ The package installs the `luxonis_ml` executable.
 - `data` - Parse, inspect, export, merge, push, pull, and delete datasets
 - `archive` - Inspect and extract `NN Archive` files
 - `fs` - Copy and list files across the supported storage backends
-- `checkhealth` - Report which modules import correctly in your environment
+- `checkhealth` - Report whether the `ldf`, `data`, `utils`, and `nn_archive` modules import correctly
 
 **To get help on any command:**
 

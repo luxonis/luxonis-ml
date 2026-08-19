@@ -149,11 +149,9 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
     The cleanup fixes duplicate class names and known label-index errors in
     ImageNet FiftyOne exports:
 
-        - the first ``"crane"`` (the bird, index 141) becomes
-          ``"crane bird"``, which separates it from the crane machine at
-          index 524;
-        - the second ``"maillot"`` (index 646) becomes
-          ``"maillot swim suit"``;
+        - the first ``"crane"`` (the bird) becomes ``"crane bird"``, which
+          separates it from the crane machine;
+        - the second ``"maillot"`` becomes ``"maillot swim suit"``;
         - image ``006742`` moves from index 517 to index 134;
         - image ``031933`` moves from index 639 to index 638.
 

@@ -25,17 +25,22 @@ Example:
         tracker.close()
 
 Note:
-    The ``tracker`` extra installs no backend SDK. Install the SDK of each
-    backend you enable:
+    The ``tracker`` extra does not install every dependency of this package.
+    The package imports ``mlflow`` and ``cv2`` at import time, so install
+    ``mlflow`` and ``opencv-python`` as well:
+
+    .. code-block:: bash
+
+        pip install "luxonis-ml[tracker,mlflow]" opencv-python
+
+    Install the SDK of each remaining backend you enable:
 
         - TensorBoard needs ``torch``, because the writer comes from
           ``torch.utils.tensorboard``;
-        - Weights & Biases needs ``wandb``;
-        - MLflow needs ``mlflow``, which the ``luxonis-ml[mlflow]`` extra
-          also provides.
+        - Weights & Biases needs ``wandb``.
 
-    The tracker imports each SDK only when you enable that backend, so an
-    absent SDK matters only for the backends you turn on.
+    The tracker imports ``torch`` and ``wandb`` only when you enable those
+    backends, so an absent SDK matters only for the backends you turn on.
 
 .. contents:: Table of Contents
    :depth: 2
@@ -72,7 +77,9 @@ Two backends need one more argument, and the constructor raises
    * - Flag
      - Also needs
    * - ``is_tensorboard``
-     - Nothing. The writer uses ``<save_directory>/tensorboard_logs``.
+     - Nothing. The writer uses
+       ``<save_directory>/tensorboard_logs/<run_name>``. A sweep run adds a
+       ``trial_<n>`` level.
    * - ``is_wandb``
      - ``wandb_entity``, and ``project_name`` or ``project_id``.
    * - ``is_mlflow``
@@ -82,14 +89,20 @@ Two backends need one more argument, and the constructor raises
 Logging API
 ===========
 
-`LuxonisTracker` sends each call to every enabled backend:
+`LuxonisTracker` sends each of these calls to every enabled backend that
+supports it:
 
     - `LuxonisTracker.log_hyperparams`;
     - `LuxonisTracker.log_metric` and `LuxonisTracker.log_metrics`;
     - `LuxonisTracker.log_image` and `LuxonisTracker.log_images`;
     - `LuxonisTracker.log_matrix`;
-    - `LuxonisTracker.upload_artifact`;
-    - `LuxonisTracker.close`.
+    - `LuxonisTracker.upload_artifact`.
+
+TensorBoard accepts no artifact, so `LuxonisTracker.upload_artifact` reaches
+Weights & Biases and MLflow only.
+
+`LuxonisTracker.close` calls no backend. It writes the unsent MLflow buffer
+to disk when you enable MLflow.
 
 The images are ``numpy`` arrays of shape :math:`\left(H, W, C\right)`.
 

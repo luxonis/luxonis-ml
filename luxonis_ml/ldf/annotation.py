@@ -315,6 +315,10 @@ properties:
         },
     }
 
+The `OCR heads
+<https://github.com/luxonis/luxonis-train/tree/main/luxonis_train/nodes#ocr-heads>`__
+of LuxonisTrain consume this metadata.
+
 Embedding and re-identification datasets commonly store identifiers or other
 lookup keys:
 
@@ -326,6 +330,10 @@ lookup keys:
             "color": Category("red"),
         },
     }
+
+The `embedding heads
+<https://github.com/luxonis/luxonis-train/tree/main/luxonis_train/nodes#embedding-heads>`__
+of LuxonisTrain consume this metadata.
 
 Important:
     Metadata and arrays have no universal geometric semantics. Built-in

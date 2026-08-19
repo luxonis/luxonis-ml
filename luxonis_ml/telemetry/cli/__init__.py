@@ -10,8 +10,10 @@ the generated help and version callbacks. ``exclude_commands`` and
 
 By default, an instrumented command reports its name, a success flag,
 and its duration in milliseconds. ``include_system_metadata`` adds the
-system fields. Argument values stay local unless the caller names them
-in an ``allowlist``.
+system fields, but only when the client holds a system context provider.
+Pass ``system_context_providers=[system_context_provider]`` to `Telemetry`
+first. Argument values stay local unless the caller names them in an
+``allowlist``.
 
 Example:
     Instrument a Typer app and keep every argument value local.
@@ -28,8 +30,10 @@ Example:
         instrument_typer(app, telemetry)
 
 Note:
-    The adapters import their CLI framework lazily, so Typer and
-    Cyclopts stay optional dependencies of this package.
+    This package imports each adapter module on first use, so a Typer
+    application never loads the Cyclopts adapter. Cyclopts is a base
+    dependency of LuxonisML. Typer is not, so install it yourself before
+    you call `instrument_typer`.
 
 See:
     `skip_telemetry` to exclude one command callback.

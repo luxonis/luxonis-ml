@@ -150,9 +150,9 @@ the portal with the next release.
 
 For docs changes, update the package and object docstrings that feed the
 generated site. The submodule `README.md` files were removed, so the docstrings
-are the only home for API documentation. Keep the root `README.md` short: it
-introduces the library and links to the generated site. Document a new
-behavior next to the code that implements it.
+are the only home for API documentation. Keep the root `README.md` a user
+guide: it introduces the library, shows the main workflows, and links to the
+generated site. Document a new behavior next to the code that implements it.
 
 Good doc changes should:
 
@@ -215,7 +215,7 @@ request it opens.
 1. Review the pull request, wait for CI, and merge it.
 1. The `Release Tag` workflow then tags `vX.Y.Z-beta` on the merge commit and
    creates the GitHub release with generated notes.
-1. The release publication starts the PyPI upload and the docs deployment.
+1. The release publication starts the PyPI upload.
 
 Use `tools/version.py` for the same version change on your machine:
 
@@ -251,7 +251,8 @@ the `WORKFLOW_SECRET` secret and a `release` label. The reusable workflows
 check out `tools/version.py` from this repository, so the caller does not copy
 it.
 
-Package publishing and documentation deployment are handled by GitHub Actions:
+Package publishing, the API reference export, and dependency updates run in
+GitHub Actions:
 
 - `reusable-release-pr.yaml` and `reusable-release-tag.yaml` hold the shared
   release logic.

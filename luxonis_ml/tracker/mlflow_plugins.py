@@ -42,6 +42,12 @@ class LuxonisRequestHeaderProvider(RequestHeaderProvider):
         alone do not change MLflow requests. Register the provider in
         your own application first.
 
+    Warning:
+        ``environ.MLFLOW_CLOUDFLARE_SECRET`` is a ``SecretStr``, and
+        `request_headers` puts that object into the header without a call
+        to ``get_secret_value()``. The header therefore carries the masked
+        text, not the secret. Cloudflare Access rejects such a request.
+
     """
 
     def in_context(self) -> bool:

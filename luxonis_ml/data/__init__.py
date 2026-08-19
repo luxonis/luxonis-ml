@@ -144,8 +144,8 @@ See:
 Adding Records with a Generator
 ===============================
 
-`LuxonisDataset.add` accepts any iterable of records. A generator function
-is the usual choice, because you do not build the full list of records in
+`LuxonisDataset.add` takes an iterator of records. A generator function is
+the usual choice, because you do not build the full list of records in
 memory.
 
 The generator below reads one annotation file for each directory. It yields
@@ -262,9 +262,13 @@ and the ratios must sum to 1.
 
 A split from ratios uses only the records that no split holds yet. A second
 call with ratios thus needs new records, or it raises an error. A call with
-explicit file lists only logs a warning and keeps the old splits. Thus you
-can parse the same data twice. Pass ``replace_old_splits=True`` to drop the
-old splits and to split every record again.
+explicit file lists adds only the files that no split holds yet. If no named
+file is new, the call logs a warning and keeps the old splits. Thus you can
+parse the same data twice.
+
+Pass ``replace_old_splits=True`` to drop the old splits. A later call with
+ratios then splits every record again. A later call with file lists splits
+only the files that you name.
 
 
 Annotation Payloads

@@ -31,8 +31,8 @@ initializes a new one when no matching dataset exists.
 
 Typical mutation flow:
 
-    1. Yield `DatasetRecord`-compatible dictionaries from an iterable.
-    2. Pass the iterable to `LuxonisDataset.add`.
+    1. Yield `DatasetRecord`-compatible dictionaries from a generator.
+    2. Pass the generator to `LuxonisDataset.add`.
     3. Call `LuxonisDataset.make_splits` to define split membership.
     4. Optionally clone, merge, export, push, pull, inspect, sanitize, or
        delete through `LuxonisDataset` methods or the CLI.
@@ -101,9 +101,9 @@ cloud storage.
 Dataset Records
 ===============
 
-`LuxonisDataset.add` accepts any iterable yielding `DatasetRecord`-compatible
-items. A record may use ``"file"`` for a single source or ``"files"`` for
-multiple synchronized sources.
+`LuxonisDataset.add` takes an iterator of `DatasetRecord`-compatible items.
+A record may use ``"file"`` for a single source or ``"files"`` for multiple
+synchronized sources.
 
 .. list-table:: Record-level fields
    :header-rows: 1
@@ -190,7 +190,8 @@ Remote datasets use the same local metadata structure and synchronize media
 and annotation state with the configured object store. In the bucket, the
 dataset lives at
 ``<bucket_storage>://<bucket>/<team_id>/datasets/<dataset_name>/`` and keeps
-the same ``annotations/``, ``media/``, and ``metadata/`` subfolders.
+the same ``annotations/``, ``media/``, and ``metadata/`` subfolders. Array
+annotations add a fourth ``arrays/`` subfolder.
 
 A remote dataset renames its media objects. Each file becomes
 ``<uuid><original suffix>``, where the UUID comes from the content of the

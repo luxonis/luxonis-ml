@@ -18,12 +18,16 @@ The package is organized around a few main areas:
   and registry helpers.
 
 Each area installs through its own extra, such as ``luxonis-ml[data]``. The
-``all`` extra installs every module and every cloud integration. An import
-without its extra raises ``ImportError`` and names the extra to install.
+``all`` extra installs every module and every cloud integration. The ``data``,
+``ldf``, ``tracker``, and ``utils`` modules raise ``ImportError`` when their
+extra is absent, and the message names the extra to install.
+`luxonis_ml.telemetry` is an exception: it imports without ``posthog`` and
+falls back to a no-op backend.
 
 The package also installs a ``luxonis_ml`` command. It provides the ``data``,
 ``archive``, and ``fs`` sub-applications, and a ``checkhealth`` command that
-reports which modules import correctly.
+reports whether the ``ldf``, ``data``, ``utils``, and ``nn_archive`` modules
+import correctly.
 
 The project is in beta, so APIs may change as the library evolves.
 """

@@ -50,10 +50,12 @@ Configuration
     telemetry = Telemetry("luxonis_ml", config=config)
     telemetry.capture("dataset_parse_started", {"dataset_format": "coco"})
 
-Three fields change what leaves the machine.
-``include_base_context=False`` drops the shared base context, for a library
-that builds its own. ``disable_geoip=True`` stops PostHog from deriving
-coarse location data from the IP address; the default leaves that
+Several fields change what leaves the machine. ``allowlist`` keeps only the
+property keys that you name, and it covers every event, not only a CLI
+event. ``include_system_metadata=True`` adds the system context to every
+event. ``include_base_context=False`` drops the shared base context, for a
+library that builds its own. ``disable_geoip=True`` stops PostHog from
+deriving coarse location data from the IP address; the default leaves that
 enrichment on. ``allow_reserved_overrides=True`` lets a caller or a context
 provider overwrite the base-context fields below, which are otherwise
 protected.
@@ -225,7 +227,9 @@ Initialize each component of a library separately:
         "luxonis_ml", source_component="nn_archive"
     )
 
-If you omit ``source_component``, it defaults to the library name. A second
+If you omit ``source_component``, the lookup runs first and returns the one
+instance already registered for the library, whatever its component. A new
+instance then uses the library name as the component. A second
 `get_or_init` call for the same pair reuses the instance. It ignores a
 different ``config`` or ``library_version`` with a warning, and it merges
 new context providers into the instance. `get_telemetry` returns ``None``
