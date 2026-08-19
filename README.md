@@ -158,7 +158,7 @@ These extras add support for specific cloud services and integrations:
 | `mlflow`   | MLflow tracking and artifact storage |
 
 > [!NOTE]
-> `LuxonisML` installs these four dependencies for you on first use. If you open a `gs://`, `s3://`, `mlflow://`, or `roboflow://` path and the package is absent, `LuxonisML` installs it and continues. Install the extra yourself when you want a reproducible environment or an offline machine.
+> `LuxonisML` installs these four dependencies for you on first use. If you open a `gs://`, `gcs://`, `s3://`, `mlflow://`, or `roboflow://` path and the package is absent, `LuxonisML` installs it and continues. Install the extra yourself when you want a reproducible environment or an offline machine.
 
 **Examples**:
 
@@ -236,7 +236,7 @@ dataset = LuxonisParser(
 
 - a local directory, or a `ZIP` archive
 - `s3://bucket/path/to/directory` for **AWS S3**
-- `gs://bucket/path/to/directory` for **Google Cloud Storage**
+- `gs://bucket/path/to/directory` or `gcs://bucket/path/to/directory` for **Google Cloud Storage**
 - `roboflow://{workspace}/{project}/{version}/{format}` for **RoboFlow**
 - `ultralytics://{username}/datasets/{slug}` for **Ultralytics**
 

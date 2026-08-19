@@ -119,7 +119,7 @@ class LuxonisParser(Generic[T]):
                     - Local path to the dataset directory.
 
                     - Remote URL supported by L{LuxonisFileSystem}.
-                        - ``gcs://`` for Google Cloud Storage
+                        - ``gcs://`` or ``gs://`` for Google Cloud Storage
                         - ``s3://`` for Amazon S3
 
                     - ``roboflow://`` for Roboflow datasets.
