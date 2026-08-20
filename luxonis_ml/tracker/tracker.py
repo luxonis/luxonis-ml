@@ -703,9 +703,15 @@ class LuxonisTracker:
                 image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
             elif image.ndim == 3 and image.shape[2] == 4:
                 image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGRA)
-            cv2.imwrite(str(path), image)
+            # `imwrite` reports a full disk or a read-only directory
+            # through its return value, not through an exception
+            written = cv2.imwrite(str(path), image)
         except Exception as e:
             logger.warning(f"Failed to save image '{name}' locally: {e}")
+            return None
+
+        if not written:
+            logger.warning(f"Failed to write the image '{name}' to '{path}'.")
             return None
         return str(path)
 

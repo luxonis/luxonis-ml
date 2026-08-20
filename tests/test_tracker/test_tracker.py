@@ -1123,3 +1123,25 @@ def test_an_outage_after_a_good_start_backs_off(
 
     assert len(attempts) <= 3
     assert len(mlflow_tracker.local_logs) == 10
+
+
+@pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0,
+    reason="root writes to a read-only directory anyway",
+)
+def test_an_unwritable_image_is_reported(tempdir: Path) -> None:
+    """`cv2.imwrite` reports a read-only or full volume through its
+    return value. A path for a file that was never written would tell
+    the user the image survived.
+    """
+    image_dir = tempdir / "images"
+    image_dir.mkdir()
+    image_dir.chmod(0o500)
+    try:
+        saved = LuxonisTracker._save_image_locally(
+            image_dir, 0, "loss", rgb_image()
+        )
+    finally:
+        image_dir.chmod(0o700)
+
+    assert saved is None
