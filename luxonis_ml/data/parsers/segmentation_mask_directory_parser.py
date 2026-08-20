@@ -24,7 +24,26 @@ class SegmentationMaskDirectoryParser(BaseParser):
         ├── valid/
         └── test/
 
-    ``_classes.csv`` maps pixel values to class names.
+    ``_classes.csv`` maps pixel values to class names::
+
+        Pixel Value, Class
+        0, background
+        1, class1
+        2, class2
+
+    The parser reads only the class-name column. That column must be
+    named ``" Class"`` with a leading space, which is the header that
+    Roboflow writes. The name of the pixel-value column does not matter,
+    because the parser never reads it. The row order gives the pixel
+    value, so the first row describes pixel value 0.
+
+    The parser does not remove the whitespace from the class names. The
+    row ``0, background`` gives the class name ``" background"``, with
+    the leading space.
+
+    The parser reads each mask as an 8-bit grayscale image. Each distinct
+    pixel value becomes one class. The parser takes the class name from
+    that row of the class-name column.
 
     This is one of the formats that Roboflow can generate.
     """

@@ -14,7 +14,33 @@ def instrument_cyclopts(
     include_system_metadata: bool | None = None,
     exclude_commands: set[str] | None = None,
 ) -> None:
-    """Wrap Cyclopts commands to emit telemetry events."""
+    """Wrap Cyclopts commands to emit telemetry events.
+
+    The wrapper walks the app recursively, so it also instruments the
+    commands of every sub-app. Aliases share one app object, so the
+    wrapper instruments each sub-app once.
+
+    Args:
+        app: The Cyclopts application to instrument.
+        telemetry: The telemetry client that captures the events.
+        allowlist: Names of the command arguments you allow in the
+            event. One allowlist covers every instrumented command. If
+            omitted, no argument value is sent. The wrapper always drops
+            ``self``, ``ctx``, and ``context``, and it drops any Click
+            or Typer context object.
+        include_system_metadata: Whether to attach system metadata to
+            the events. If omitted, the telemetry configuration
+            decides.
+        exclude_commands: Full command names to leave uninstrumented,
+            such as ``{"data parse"}``. Nested names use a space
+            between the parts.
+
+    Note:
+        The wrapper skips the generated help and version callbacks. Use
+        `luxonis_ml.telemetry.cli.skip_telemetry` on a single callback
+        to exclude that command as well.
+
+    """
     _wrap_cyclopts(
         app,
         telemetry,

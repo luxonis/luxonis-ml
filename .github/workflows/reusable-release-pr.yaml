@@ -1,0 +1,125 @@
+name: Reusable Release PR
+
+# Shared by every Luxonis repository. Call it from a thin `Release PR`
+# workflow, as `.github/workflows/release-pr.yaml` in this repository does.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "major, minor, patch, or an explicit version such as 1.2.3"
+        type: string
+        required: true
+      version-file:
+        description: "File that holds `__version__`, such as pkg/__init__.py"
+        type: string
+        required: true
+      project-name:
+        description: "Name for the pull request title, such as LuxonisML"
+        type: string
+        required: true
+    secrets:
+      WORKFLOW_SECRET:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  release-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # A release always comes from `main`. The full history gives the
+          # previous tag and the changes after it.
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out the version tool
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: luxonis/luxonis-ml
+          ref: main
+          path: .release-tools
+          sparse-checkout: tools/version.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Set the new version
+        id: version
+        env:
+          REQUEST: ${{ inputs.version }}
+          VERSION_FILE: ${{ inputs.version-file }}
+        run: |
+          version="$(python3 .release-tools/tools/version.py \
+            --path "$VERSION_FILE" --set "$REQUEST")"
+          if git tag --list "v$version" "v$version-*" | grep -q .; then
+            echo "::error::A tag for version $version exists already."
+            exit 1
+          fi
+          {
+            echo "version=$version"
+            echo "previous=$(git describe --tags --abbrev=0)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Write the pull request body
+        env:
+          BODY_PATH: ${{ runner.temp }}/release-pr-body.md
+          PREVIOUS: ${{ steps.version.outputs.previous }}
+          PROJECT: ${{ inputs.project-name }}
+          VERSION: ${{ steps.version.outputs.version }}
+          VERSION_FILE: ${{ inputs.version-file }}
+        run: |
+          # The heredoc expands shell variables only. A commit subject cannot
+          # inject a command, because the shell never re-reads an expansion.
+          changelog="$(git log --pretty=format:'- %s' "$PREVIOUS"..HEAD)"
+          cat >"$BODY_PATH" <<BODY
+          ## Purpose
+          Release ${PROJECT} \`v${VERSION}\`. The \`Release PR\` workflow opened this
+          pull request, and the merge of it starts the release.
+
+          ## Specification
+          The version in \`${VERSION_FILE}\` becomes \`${VERSION}\`.
+
+          Changes after \`${PREVIOUS}\`:
+
+          ${changelog}
+
+          ## Dependencies & Potential Impact
+          This pull request changes the version only. The new version then goes to
+          PyPI under the same package name.
+
+          ## Deployment Plan
+          1. Approve and merge this pull request.
+          2. The \`Release Tag\` workflow creates the tag, the release, and the notes.
+          3. The release event starts the publish workflows.
+
+          ## Testing & Validation
+          CI runs on this pull request.
+
+          ## AI Usage
+          The \`Release PR\` workflow generated this pull request. No AI tool wrote it.
+
+          Submitted code was reviewed by a human: YES/NO
+
+          The author is taking the responsibility for the contribution: YES/NO
+          BODY
+
+      - name: Create the pull request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v7.0.11
+        with:
+          # A pull request from the default token does not start CI. The
+          # personal token makes the checks run.
+          token: ${{ secrets.WORKFLOW_SECRET }}
+          base: main
+          branch: release/v${{ steps.version.outputs.version }}
+          delete-branch: true
+          # Also keeps the `.release-tools` checkout out of the commit.
+          add-paths: ${{ inputs.version-file }}
+          commit-message: "chore: bump the version to ${{ steps.version.outputs.version }}"
+          title: "${{ inputs.project-name }} `v${{ steps.version.outputs.version }}`"
+          body-path: ${{ runner.temp }}/release-pr-body.md
+          labels: release
