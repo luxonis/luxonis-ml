@@ -492,6 +492,30 @@ def test_long_values_keep_their_tail():
     assert problem.value.endswith("img_0001.png'")
 
 
+def test_fixed_length_tuple_elements_resolve_by_position():
+    class Pair(BaseModel):
+        pair: tuple[int, Resize]
+
+    wrong = missing_letter("height", 4)
+    message = format_validation_error(
+        catch(Pair, pair=(1, {wrong: 5})), model=Pair
+    )
+    assert f"pair[1].{wrong}" in message
+    assert "did you mean 'height'?" in message
+
+
+def test_variadic_tuple_elements_keep_their_type():
+    class Many(BaseModel):
+        items: tuple[Resize, ...]
+
+    wrong = missing_letter("width", 3)
+    message = format_validation_error(
+        catch(Many, items=({wrong: 5},)), model=Many
+    )
+    assert f"items[0].{wrong}" in message
+    assert "did you mean 'width'?" in message
+
+
 def test_suggests_through_a_mapping_key():
     class Layers(BaseModel):
         layers: dict[str, Resize]

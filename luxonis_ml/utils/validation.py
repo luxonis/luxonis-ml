@@ -634,7 +634,7 @@ def _resolve_location(
     for part in loc:
         if isinstance(part, int):
             is_tag.append(False)
-            annotations = _element_annotations(annotations)
+            annotations = _element_annotations(annotations, part)
             continue
         if not annotations:
             is_tag.append(_is_certain_type_tag(part))
@@ -690,16 +690,23 @@ def _mapping_values(annotations: Sequence[Any]) -> list[Any]:
     return out
 
 
-def _element_annotations(annotations: Sequence[Any]) -> list[Any]:
+def _element_annotations(annotations: Sequence[Any], index: int) -> list[Any]:
     out: list[Any] = []
     for annotation in annotations:
         for candidate in _flatten_union(annotation):
             args = get_args(candidate)
-            if args and _origin_is(candidate, Sequence):
-                out.append(args[0])
-            else:
+            if not args or not _origin_is(candidate, Sequence):
                 out.append(candidate)
+            elif not _is_fixed_tuple(candidate, args):
+                out.append(args[0])
+            elif index < len(args):
+                out.append(args[index])
     return out
+
+
+def _is_fixed_tuple(annotation: Any, args: Sequence[Any]) -> bool:
+    """Tell a ``tuple[int, str]`` from a ``tuple[int, ...]``."""
+    return get_origin(annotation) is tuple and Ellipsis not in args
 
 
 def _origin_is(annotation: Any, base: type) -> bool:
