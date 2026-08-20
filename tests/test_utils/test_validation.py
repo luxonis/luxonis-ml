@@ -409,6 +409,31 @@ def test_suggestions_use_validation_aliases():
     assert "did you mean 'class'?" in message
 
 
+class NameOnly(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid", validate_by_alias=False, validate_by_name=True
+    )
+
+    class_name: str = Field(validation_alias="class")
+
+
+def test_suggestions_skip_an_alias_the_model_rejects():
+    wrong = missing_letter("class", 4)
+    message = format_validation_error(
+        catch(NameOnly, **{wrong: "cat"}), model=NameOnly
+    )
+    assert f"unexpected field {wrong!r}" in message
+    assert "did you mean 'class'?" not in message
+
+
+def test_suggestions_use_the_name_the_model_accepts():
+    wrong = missing_letter("class_name", 4)
+    message = format_validation_error(
+        catch(NameOnly, **{wrong: "cat"}), model=NameOnly
+    )
+    assert "did you mean 'class_name'?" in message
+
+
 def test_no_suggestion_for_a_merely_related_name():
     message = format_validation_error(
         catch(Aliased, task_name="a"), model=Aliased

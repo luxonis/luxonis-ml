@@ -593,10 +593,16 @@ def _valid_field_names(
 
 
 def _accepted_fields(model: type[BaseModel]) -> dict[str, FieldInfo]:
-    by_name = model.model_config.get("populate_by_name", False)
+    config = model.model_config
+    by_alias = config.get("validate_by_alias", True)
+    # pydantic before 2.11 spells this setting `populate_by_name`
+    by_name = config.get(
+        "validate_by_name", config.get("populate_by_name", False)
+    )
+
     fields: dict[str, FieldInfo] = {}
     for name, field in model.model_fields.items():
-        aliases = _validation_aliases(field)
+        aliases = _validation_aliases(field) if by_alias else []
         for key in aliases or [name]:
             fields.setdefault(key, field)
         if aliases and by_name:
