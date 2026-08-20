@@ -1175,3 +1175,31 @@ def test_a_second_outage_reports_its_drops_again(
         tracker_module.logger.remove(handle)
 
     assert any("log buffer is full" in warning for warning in warnings)
+
+
+def test_two_trackers_do_not_share_an_artifact_directory(
+    tempdir: Path, fake_backends: SimpleNamespace
+) -> None:
+    """A sweep gives every trial its own tracker over one run directory.
+    Each tracker counts artifacts from zero, so the second one must not
+    overwrite the snapshot of the first.
+    """
+    fake_backends.mlflow.fail_init = True
+    snapshots: list[Path] = []
+    for trial in ("trial_0", "trial_1"):
+        tracker = LuxonisTracker(
+            project_name="project",
+            run_name="run",
+            save_directory=tempdir,
+            is_mlflow=True,
+            mlflow_tracking_uri="http://mlflow",
+        )
+        (tempdir / trial).mkdir()
+        checkpoint = tempdir / trial / "best.ckpt"
+        checkpoint.write_text(trial)
+
+        tracker.upload_artifact_to_mlflow(checkpoint)
+        snapshots.append(Path(tracker.local_logs[0].args[0]))
+
+    assert snapshots[0] != snapshots[1]
+    assert [path.read_text() for path in snapshots] == ["trial_0", "trial_1"]

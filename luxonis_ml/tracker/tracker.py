@@ -484,15 +484,7 @@ class LuxonisTracker:
         points at the copy, or is the original one if the copy failed.
         """
         source = Path(call.args[0])
-        target = (
-            self.run_directory
-            / "artifacts"
-            / str(self._buffered_artifacts)
-            / source.name
-        )
-        # claimed even if the copy fails, so that no two artifacts can
-        # ever end up in the same directory
-        self._buffered_artifacts += 1
+        target = self._next_artifact_directory() / source.name
 
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -505,6 +497,22 @@ class LuxonisTracker:
             return call
 
         return BufferedCall(call.kind, (str(copy), *call.args[1:]))
+
+    def _next_artifact_directory(self) -> Path:
+        """Return an artifact directory no earlier snapshot has used.
+
+        A sweep gives every trial its own tracker over one shared run
+        directory, and each tracker starts counting at zero, so a free
+        slot has to be found rather than assumed.
+        """
+        root = self.run_directory / "artifacts"
+        while True:
+            target = root / str(self._buffered_artifacts)
+            # claimed even if the copy fails, so that no two artifacts
+            # can ever end up in the same directory
+            self._buffered_artifacts += 1
+            if not target.exists():
+                return target
 
     def _enforce_buffer_limit(
         self, kind: MLflowCall | None, limit: int
