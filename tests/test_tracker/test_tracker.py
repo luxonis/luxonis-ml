@@ -309,6 +309,7 @@ def test_mlflow_logging(
     }
     # whether system metrics are enabled depends on psutil being installed,
     # so it is asserted in the two `find_spec` tests instead
+
     # the resolved IDs are stored, the project name is left alone
     assert mlflow_tracker.project_id == "exp-1"
     assert mlflow_tracker.run_id == "run-1"
@@ -692,9 +693,9 @@ def test_a_rejected_call_does_not_block_the_ones_behind_it(
     fake_backends: SimpleNamespace,
     tempdir: Path,
 ) -> None:
-    """A call MLflow rejects for good used to stay at the head of the
-    buffer, where it was retried before - and instead of - every later
-    call, so nothing reached MLflow until the buffer overflowed.
+    """MLflow can reject one call for good and still accept the calls
+    behind it. The tracker drops the rejected call, so the buffer keeps
+    moving.
     """
     mlflow = fake_backends.mlflow
     mlflow.reject_kinds = {"log_artifact"}
@@ -715,9 +716,8 @@ def test_a_rejected_call_does_not_block_the_ones_behind_it(
 def test_an_unreachable_server_keeps_the_whole_buffer(
     mlflow_tracker: LuxonisTracker, fake_backends: SimpleNamespace
 ) -> None:
-    """Telling a rejected call apart from an unreachable server must not
-    make an outage drop the buffer: nothing gets through, so nothing may
-    be dropped.
+    """The rejected-call check must not drop the buffer during an
+    outage. Nothing gets through, so nothing may be dropped.
     """
     mlflow = fake_backends.mlflow
     mlflow_tracker.log_metric("loss", 1.0, 0)
@@ -732,9 +732,8 @@ def test_an_unreachable_server_keeps_the_whole_buffer(
 def test_other_ranks_wait_for_a_new_run(
     tempdir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A run left over from an earlier training used to satisfy the wait
-    immediately, so a worker joined the previous run instead of the one
-    rank zero was about to create.
+    """A worker joins the run that rank zero creates now. A run
+    directory from an earlier training must not satisfy the wait.
     """
     (tempdir / "0-old").mkdir()
     (tempdir / "1-previous").mkdir()
@@ -753,9 +752,8 @@ def test_other_ranks_wait_for_a_new_run(
 def test_a_failed_wandb_init_is_retried(
     tempdir: Path, fake_backends: SimpleNamespace
 ) -> None:
-    """A failed `wandb.init` used to leave the module in the experiment
-    dictionary, which made every later log raise `KeyError: 'wandb_run'`
-    instead of initializing again.
+    """The tracker stores the WandB handles only after `init` succeeds.
+    A failed `init` leaves nothing behind, so the next log tries again.
     """
     wandb = fake_backends.wandb
     wandb.fail_init = True
@@ -780,9 +778,9 @@ def test_a_failed_wandb_init_is_retried(
 def test_other_ranks_do_not_buffer_artifacts(
     tempdir: Path, fake_backends: SimpleNamespace
 ) -> None:
-    """`upload_artifact_to_mlflow` was the one public logging method
-    without a rank gate, so a worker buffered artifacts that its
-    rank-gated `close` then never sent nor saved.
+    """`upload_artifact_to_mlflow` is rank-gated like every other
+    logging method. Only rank zero finalizes the run, so only rank zero
+    may buffer.
     """
     artifact_path = tempdir / "model.onnx"
     artifact_path.write_text("weights")
@@ -808,9 +806,8 @@ def test_a_failing_local_save_still_shuts_the_backends_down(
     fake_backends: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`save_logs_locally` was the only teardown step that could raise,
-    which left the other backends unfinalized and unrecoverable, as
-    `close` refuses to run twice.
+    """`close` runs only once, so a failed local save must not stop the
+    other backends. Each teardown step reports its own failure.
     """
     fake_backends.mlflow.fail_init = True
     tracker = LuxonisTracker(
@@ -838,8 +835,9 @@ def test_a_failing_local_save_still_shuts_the_backends_down(
 def test_saving_locally_twice_keeps_both_batches(
     mlflow_tracker: LuxonisTracker, fake_backends: SimpleNamespace
 ) -> None:
-    """The second save used to truncate the file the first one wrote,
-    and the cleared buffer meant the first batch was gone for good.
+    """A local save appends to what an earlier save wrote. It then
+    clears the buffer, so the two batches neither duplicate nor
+    overwrite each other.
     """
     fake_backends.mlflow.fail_init = True
 
@@ -871,7 +869,7 @@ def test_an_unreadable_local_save_is_replaced(
     mlflow_tracker: LuxonisTracker, fake_backends: SimpleNamespace
 ) -> None:
     """A `local_logs.json` that cannot be parsed must not stop the save
-    that is trying to rescue the buffer.
+    that rescues the buffer.
     """
     fake_backends.mlflow.fail_init = True
     (mlflow_tracker.run_directory / "local_logs.json").write_text("{ not json")
@@ -890,9 +888,9 @@ def test_hyperparameters_survive_a_full_buffer(
     fake_backends: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The buffer used to evict strictly the oldest call, and as
-    `log_hyperparams` is the first call of a run, the configuration was
-    the first thing lost during a long outage.
+    """A full buffer drops the oldest expendable call first.
+    `log_hyperparams` is the first call of a run, and no later call
+    repeats it.
     """
     monkeypatch.setattr(tracker_module, "MAX_BUFFERED_LOGS", 5)
     fake_backends.mlflow.fail_init = True
@@ -914,9 +912,9 @@ def test_a_buffered_artifact_outlives_the_original_file(
     fake_backends: SimpleNamespace,
     tempdir: Path,
 ) -> None:
-    """Checkpoint callbacks delete the file right after handing it over,
-    so a buffered artifact whose upload was postponed by the retry
-    backoff used to be lost by the time the buffer was replayed.
+    """Checkpoint callbacks delete the file right after they hand it
+    over. The tracker copies a buffered artifact at once, so the replay
+    still finds it.
     """
     fake_backends.mlflow.fail_init = True
     checkpoint = tempdir / "best.ckpt"
@@ -940,8 +938,8 @@ def test_artifacts_sharing_a_file_name_are_kept_apart(
     fake_backends: SimpleNamespace,
     tempdir: Path,
 ) -> None:
-    """Both artifacts used to be copied to `artifacts/<file name>`, so
-    the second silently overwrote the first.
+    """Each buffered artifact gets its own numbered directory. Two
+    artifacts with the same file name therefore both survive.
     """
     fake_backends.mlflow.fail_init = True
     for fold in ("fold_a", "fold_b"):
@@ -963,8 +961,8 @@ def test_artifacts_sharing_a_file_name_are_kept_apart(
 def test_close_waives_the_retry_backoff(
     mlflow_tracker: LuxonisTracker, fake_backends: SimpleNamespace
 ) -> None:
-    """Every buffered call pushed the backoff another minute out, so the
-    last-chance reconnect in `close` never actually tried.
+    """Every buffered call pushes the retry backoff another minute out.
+    `close` waives it, so its last reconnect attempt really runs.
     """
     fake_backends.mlflow.fail_init = True
     mlflow_tracker.log_metric("loss", 1.0, 0)
@@ -982,8 +980,8 @@ def test_close_waives_the_retry_backoff(
 def test_reading_the_experiment_after_close_starts_no_run(
     mlflow_tracker: LuxonisTracker, fake_backends: SimpleNamespace
 ) -> None:
-    """Reading `experiment` after `close` used to re-initialize MLflow,
-    leaving a fresh run that the idempotent `close` could never end.
+    """`experiment` returns the existing handles after `close`. A fresh
+    run would have no end, because `close` runs only once.
     """
     fake_backends.mlflow.fail_init = True
     mlflow_tracker.log_metric("loss", 1.0, 0)
@@ -1003,8 +1001,8 @@ def test_reading_the_experiment_after_close_starts_no_run(
 def test_unicode_numerals_are_not_run_numbers(
     tempdir: Path, prefix: str
 ) -> None:
-    """`isnumeric` accepts numerals `int` cannot parse, so a directory
-    such as `½-baseline` crashed the constructor.
+    """`isnumeric` accepts numerals that `int` cannot parse. The tracker
+    uses `isdecimal`, so a directory such as `½-baseline` is not a run.
     """
     (tempdir / f"{prefix}-baseline").mkdir()
 
@@ -1018,8 +1016,8 @@ def test_unicode_numerals_are_not_run_numbers(
 def test_mlflow_logging_leaves_the_other_backends_alone(
     tempdir: Path, fake_backends: SimpleNamespace
 ) -> None:
-    """Buffering an MLflow call used to read the whole `experiment`
-    property, which initialized TensorBoard and WandB as a side effect.
+    """An MLflow call initializes MLflow alone. TensorBoard and WandB
+    start when their own logging methods run.
     """
     fake_backends.mlflow.fail_init = True
     tracker = LuxonisTracker(
@@ -1045,8 +1043,8 @@ def test_the_buffer_is_only_reported_full_once(
     fake_backends: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Once the cap is reached every further call evicts one, so warning
-    per eviction flooded the log for the rest of the outage.
+    """A full buffer evicts one call for every further call. The tracker
+    warns once, so the eviction cannot flood the log.
     """
     monkeypatch.setattr(tracker_module, "MAX_BUFFERED_LOGS", 2)
     fake_backends.mlflow.fail_init = True

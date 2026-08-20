@@ -17,6 +17,7 @@ from typing import (
     TypeVar,
 )
 
+import cv2
 import numpy as np
 from loguru import logger
 from typing_extensions import Self
@@ -416,11 +417,8 @@ class LuxonisTracker:
     def _mlflow_call(self, kind: MLflowCall, *args: Any) -> None:
         """Send a call to MLflow, buffering it if MLflow is unavailable.
 
-        Args:
-            kind: Name of the MLflow logging function to call.
-            args: Positional arguments of the call. They are what gets
-                buffered, so they have to be JSON-serializable.
-
+        The positional arguments are what gets buffered, so they have to
+        be JSON-serializable.
         """
         # only MLflow is initialized here, the other backends have
         # nothing to do with this call
@@ -468,12 +466,8 @@ class LuxonisTracker:
         Callers routinely delete an artifact right after handing it over,
         so it is copied before it can disappear. Every artifact gets its
         own sub-directory, which keeps its file name intact for MLflow and
-        keeps artifacts that share a file name apart.
-
-        Returns:
-            The call with its path pointing at the copy, or the call
-            unchanged if the copy could not be made.
-
+        keeps artifacts that share a file name apart. The returned call
+        points at the copy, or is the original one if the copy failed.
         """
         source = Path(call.args[0])
         target = (
@@ -524,9 +518,10 @@ class LuxonisTracker:
 
         # the buffer stays full for the rest of the outage, so warning
         # per dropped call would bury every other message
-        if (kind or "all") in self._warned_buffer_limits:
+        warned = kind or "all"
+        if warned in self._warned_buffer_limits:
             return
-        self._warned_buffer_limits.add(kind or "all")
+        self._warned_buffer_limits.add(warned)
         logger.warning(
             f"The MLflow log buffer is full ({limit} entries), dropping the "
             f"oldest '{dropped.kind}' call. Logs are buffered locally "
@@ -570,12 +565,9 @@ class LuxonisTracker:
         """Send the call queued behind a failing one.
 
         This tells a call MLflow rejects apart from an MLflow that is
-        unreachable, without reordering the calls that survive.
-
-        Returns:
-            Whether the next buffered call went through. It is removed
-            from the buffer when it did.
-
+        unreachable, without reordering the calls that survive. Returns
+        whether the call went through, and removes it from the buffer
+        when it did.
         """
         if len(self.local_logs) < 2:
             return False
@@ -675,17 +667,13 @@ class LuxonisTracker:
     ) -> str | None:
         """Write a buffered image to `image_dir`.
 
-        Returns:
-            Path the image was written to, or ``None`` if it could not be
-            encoded.
-
+        Returns the path it was written to, or ``None`` if the image
+        could not be encoded.
         """
         stem = re.sub(r"\W+", "_", name.removesuffix(".png")).strip("_")
         path = image_dir / f"{idx}_{stem or 'image'}.png"
 
         try:
-            import cv2
-
             if image.ndim == 3 and image.shape[2] == 3:
                 image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
             elif image.ndim == 3 and image.shape[2] == 4:
@@ -992,17 +980,9 @@ class LuxonisTracker:
         left over from an earlier training would otherwise be mistaken
         for the current one. Rank zero cannot be identified with any
         certainty from here, so once `grace_period` has passed without a
-        new run appearing this falls back to the newest existing one.
-
-        Args:
-            timeout: How long to wait for any run directory to appear.
-            poll_interval: How often to check for it.
-            grace_period: How long to wait for a run that did not exist
-                yet before falling back to the newest existing one.
-
-        Raises:
-            RuntimeError: If no run directory appears within `timeout`.
-
+        new run appearing this falls back to the newest existing one. It
+        raises `RuntimeError` if no run directory shows up within
+        `timeout`.
         """
         known = set(self._existing_runs())
         start = time.monotonic()

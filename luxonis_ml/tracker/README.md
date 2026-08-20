@@ -46,17 +46,11 @@ Additional backend dependencies:
   - The unified logging facade. You decide which backends to enable via
     constructor flags (`is_tensorboard`, `is_wandb`, `is_mlflow`).
 
-- **LuxonisRequestHeaderProvider**
-
-  - MLflow request header provider that injects Cloudflare access headers from
-    environment variables when needed. It requires MLflow, so it is imported
-    lazily on first access.
-
 ## Quickstart
 
-`close()` finalizes every enabled backend, so use the tracker as a context
-manager and it is called for you — with the run marked as failed if the block
-raises:
+`close()` finalizes every enabled backend. Use the tracker as a context
+manager to call it automatically. If the block raises, the tracker marks the
+run as failed:
 
 ```python
 from luxonis_ml.tracker import LuxonisTracker
@@ -138,39 +132,30 @@ Images are expected as `numpy.ndarray` and are logged in a backend-appropriate
 format.
 
 `close()` flushes and closes the TensorBoard writer, ends the MLflow run, and
-finishes the WandB run. It is idempotent, and a backend that fails to shut down
-is reported rather than raised, so teardown cannot lose the other backends'
-data.
+finishes the WandB run. It is idempotent. If a backend fails to shut down, the
+tracker reports the failure and does not raise it. Thus the teardown cannot
+lose the data of the other backends.
 
 ## MLflow Notes
 
 - MLflow is initialized lazily on first access to `tracker.experiment`.
-- When MLflow logging fails, the call is buffered and replayed — in order —
-  once the server answers again. A failed connection is only retried once per
-  minute, so an unreachable server does not stall the training loop. `close()`
-  ignores that backoff to give the server one last chance.
-- A call MLflow keeps rejecting while it accepts the calls behind it is dropped,
-  so a single bad call cannot block every later log.
-- A buffered artifact is copied into the run directory straight away, because
-  callers routinely delete the file right after handing it over.
-- The buffer is bounded (500 calls, of which at most 50 images). The oldest
-  entry is dropped once it fills up, and the first drop is warned about.
-  Hyperparameters and artifacts go last, as no later call repeats them.
+- When MLflow logging fails, the tracker buffers the call. It replays the
+  buffer in order when the server answers again. It retries a failed
+  connection only once per minute, so an unreachable server does not stall the
+  training loop. `close()` ignores that backoff and tries one last time.
+- MLflow can reject one call and accept the calls behind it. The tracker then
+  drops the rejected call, so one bad call cannot block every later log.
+- The tracker copies a buffered artifact into the run directory immediately,
+  because callers routinely delete the file after they hand it over.
+- The buffer holds a maximum of 500 calls, of which 50 can be images. When the
+  buffer is full, the tracker drops the oldest entry and warns once.
+  Hyperparameters and artifacts go last, because no later call repeats them.
 - On shutdown, any logs that could still not be sent are saved to:
-  - `<save_directory>/<run_name>/local_logs.json` — appended to, so saving
-    more than once during a run keeps the earlier records
+  - `<save_directory>/<run_name>/local_logs.json`. A later save appends to
+    this file and keeps the earlier records.
   - `<save_directory>/<run_name>/images/`
-  - `<save_directory>/<run_name>/artifacts/<n>/` — one directory per artifact,
-    which keeps artifacts that share a file name apart
-
-### Cloudflare Access Headers
-
-If your MLflow endpoint is protected by Cloudflare Access, set:
-
-- `MLFLOW_CLOUDFLARE_ID`
-- `MLFLOW_CLOUDFLARE_SECRET`
-
-The `LuxonisRequestHeaderProvider` injects those headers into MLflow requests.
+  - `<save_directory>/<run_name>/artifacts/<n>/`. Each artifact gets its own
+    directory, which keeps artifacts with the same file name apart.
 
 ## Distributed Training
 
