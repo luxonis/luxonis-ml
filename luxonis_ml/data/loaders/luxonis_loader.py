@@ -5,11 +5,12 @@ import warnings
 from collections import defaultdict
 from copy import deepcopy
 from pathlib import Path
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import cv2
 import numpy as np
 import polars as pl
+import pycocotools.mask
 import yaml
 from loguru import logger
 from typeguard import typechecked
@@ -27,12 +28,7 @@ from luxonis_ml.data.datasets import (
     load_annotation,
 )
 from luxonis_ml.data.loaders.base_loader import BaseLoader
-from luxonis_ml.data.utils import (
-    get_task_name,
-    get_task_type,
-    split_task,
-    task_type_iterator,
-)
+from luxonis_ml.data.utils import get_task_type, split_task
 from luxonis_ml.data.utils.task_utils import task_is_metadata
 from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.typing import (
@@ -42,6 +38,9 @@ from luxonis_ml.typing import (
     PathType,
     TrackedAugmentations,
 )
+
+if TYPE_CHECKING:
+    from pycocotools import _EncodedRLE
 
 
 class LuxonisLoader(BaseLoader):
@@ -286,37 +285,25 @@ class LuxonisLoader(BaseLoader):
 
         self._idx_to_df_row = [idx_map[uuid] for uuid in self._instances]
 
-        self._tasks_without_background = set()
-
         self._idx_to_img_paths = self._precompute_image_paths()
 
-        _, test_labels, _ = self._load_data(0)
-        for task, seg_masks in task_type_iterator(test_labels, "segmentation"):
-            task_name = get_task_name(task)
-            if seg_masks.shape[0] > 1 and (
-                "background" not in self._classes[task_name]
-                or self._classes[task_name]["background"] != 0
-            ):
-                unassigned_pixels = np.sum(seg_masks, axis=0) == 0
-
-                if np.any(unassigned_pixels):
-                    logger.warning(
-                        "Found unassigned pixels in segmentation masks. "
-                        "Assigning them to `background` class (class index 0). "
-                        "If this is not desired then make sure all pixels are "
-                        "assigned to one class or rename your background class."
-                    )
-                    self._tasks_without_background.add(task)
-                    if "background" not in self._classes[task_name]:
-                        self._classes[task_name] = {
-                            "background": 0,
-                            **{
-                                class_name: i + 1
-                                for class_name, i in self._classes[
-                                    task_name
-                                ].items()
-                            },
-                        }
+        self._tasks_without_background = set()
+        for task_name in self._uncovered_tasks():
+            classes = self._classes[task_name]
+            if len(classes) <= 1 or classes.get("background") == 0:
+                continue
+            logger.warning(
+                "Found unassigned pixels in the segmentation masks of task "
+                f"'{task_name}'. Assigning them to `background` class (class "
+                "index 0). If this is not desired then make sure all pixels "
+                "are assigned to one class or rename your background class."
+            )
+            self._tasks_without_background.add(f"{task_name}/segmentation")
+            if "background" not in classes:
+                self._classes[task_name] = {
+                    "background": 0,
+                    **{name: i + 1 for name, i in classes.items()},
+                }
 
         self._augmentations = self._init_augmentations(
             augmentation_engine,
@@ -383,6 +370,37 @@ class LuxonisLoader(BaseLoader):
             )
         return LoaderOutput(img_dict, labels, metadata)
 
+    def _uncovered_tasks(self) -> set[str]:
+        """Return the segmentation tasks that leave pixels unassigned.
+
+        A task is uncovered when the union of one sample's masks does
+        not fill the image. The union counts a pixel once, as
+        `SegmentationAnnotation.combine_to_numpy` does, and
+        ``pycocotools`` measures it without a decode.
+
+        A sample with no mask gives no verdict on its task.
+
+        """
+        samples = (
+            self._df.filter(
+                (pl.col("task_type") == "segmentation")
+                & pl.col("group_id").is_in(self._instances)
+            )
+            .group_by(["group_id", "task_name"])
+            .agg(pl.col("annotation"))
+        )
+
+        uncovered: set[str] = set()
+        for _, task_name, annotations in samples.iter_rows():
+            # One uncovered sample settles the task.
+            if task_name in uncovered:
+                continue
+            union = pycocotools.mask.merge(self._sample_masks(annotations))
+            height, width = union["size"]
+            if pycocotools.mask.area(union) < height * width:
+                uncovered.add(task_name)
+        return uncovered
+
     def _add_empty_annotations(
         self, img_dict: dict[str, np.ndarray], labels: Labels
     ) -> tuple[dict[str, np.ndarray], Labels]:
@@ -404,13 +422,13 @@ class LuxonisLoader(BaseLoader):
                     elif task_type == "instance_segmentation":
                         labels[task] = np.zeros((0, image_height, image_width))
                     elif task_type == "segmentation":
-                        labels[task] = np.zeros(
-                            (
-                                len(self._classes[task_name]),
-                                image_height,
-                                image_width,
-                            )
+                        classes = self._classes[task_name]
+                        mask = np.zeros(
+                            (len(classes), image_height, image_width)
                         )
+                        if task in self._tasks_without_background:
+                            mask[classes["background"]] = 1
+                        labels[task] = mask
                     elif task_type == "classification" or task_is_metadata(
                         task
                     ):
@@ -786,3 +804,31 @@ class LuxonisLoader(BaseLoader):
             idx_to_img_paths[idx] = dict(sorted(source_to_path.items()))
 
         return idx_to_img_paths
+
+    @staticmethod
+    def _sample_masks(annotations: list[str]) -> list["_EncodedRLE"]:
+        """Return the masks of one sample as run-length encodings.
+
+        An LDF 1.0 polyline stores normalized points and no size, so it
+        is rasterized on a grid and no image is read.
+
+        """
+        parsed = [json.loads(annotation) for annotation in annotations]
+        encoded = [data for data in parsed if "counts" in data]
+        polylines = [data["points"] for data in parsed if "counts" not in data]
+
+        # Any grid measures a normalized polyline.
+        height, width = 1000, 1000
+        if encoded:
+            height, width = encoded[0]["height"], encoded[0]["width"]
+
+        masks: list[_EncodedRLE] = [
+            {"counts": data["counts"].encode(), "size": [height, width]}
+            for data in encoded
+        ]
+        for points in polylines:
+            polygon = []
+            for x, y in points:
+                polygon += [round(x * width), round(y * height)]
+            masks += pycocotools.mask.frPyObjects([polygon], height, width)
+        return masks
