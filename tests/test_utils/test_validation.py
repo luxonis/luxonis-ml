@@ -495,6 +495,34 @@ def test_failures_under_two_union_members_are_collapsed():
     assert "Circle: radius — this field is required" in problem.message
 
 
+def test_container_union_members_are_collapsed():
+    class Container(BaseModel):
+        value: list[int] | list[str]
+
+    error = catch(Container, value=[None])
+    (problem,) = iter_validation_problems(error, model=Container)
+
+    assert problem.location == "value"
+    assert problem.message == (
+        "does not match any of the allowed types: list[int], list[str]"
+    )
+
+
+def test_nested_and_direct_union_member_failures_are_collapsed():
+    class Nested(BaseModel):
+        count: int
+
+    class Container(BaseModel):
+        value: Nested | int
+
+    error = catch(Container, value={"count": "bad"})
+    (problem,) = iter_validation_problems(error, model=Container)
+
+    assert problem.location == "value"
+    assert "Nested: count — input should be a valid integer" in problem.message
+    assert "int: input should be a valid integer" in problem.message
+
+
 def test_collapsed_union_members_keep_their_suggestions():
     wrong = missing_letter("radius", 3)
     message = format_validation_error(

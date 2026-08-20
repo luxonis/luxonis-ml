@@ -387,25 +387,46 @@ def _group_union_errors(
 def _nested_unions(
     errors: Sequence[ErrorDetails], model: type[BaseModel] | None
 ) -> set[tuple[Any, ...]]:
-    """Find unions with a field-level failure under two or more members.
+    """Find unions with a failure below two or more members.
 
-    Such failures land under different member tags, so grouping by the
-    immediate parent alone leaves them apart. Read on their own, they
-    contradict each other: each one describes a different alternative,
-    but nothing in its location says so.
+    Such failures land under different member tags, so grouping by their
+    immediate parent alone leaves them apart. This includes failures in
+    container elements and a member that fails on its own type. Read on
+    their own, they contradict each other: each one describes a different
+    alternative, but nothing in its location says so.
     """
     tags: dict[tuple[Any, ...], set[str]] = {}
+    direct_members: set[tuple[Any, ...]] = set()
+    name_errors_below_members: set[tuple[Any, ...]] = set()
     for error in errors:
         loc = tuple(error["loc"])
         for length, tag in enumerate(loc):
             if not isinstance(tag, str):
                 continue
-            if not _is_member_tag(loc[:length], tag, model):
+            annotations, _ = _resolve_location(model, loc[:length])
+            members = _union_members(annotations)
+            if not members or not any(
+                _tag_matches(tag, member) for member in members
+            ):
                 continue
-            if _names_a_field(loc, length):
-                tags.setdefault(loc[:length], set()).add(tag)
+            parent = loc[:length]
+            tags.setdefault(parent, set()).add(tag)
+            if length == len(loc) - 1:
+                direct_members.add(parent)
+            elif error["type"] in _OWN_NAME_ERRORS:
+                name_errors_below_members.add(parent)
             break
-    return {parent for parent, seen in tags.items() if len(seen) > 1}
+    return {
+        parent
+        for parent, seen in tags.items()
+        if len(seen) > 1
+        # A model branch with a missing or misspelled field provides a much
+        # better, actionable error than the direct type failure of another
+        # branch. Keeping it separate also preserves its field suggestion.
+        and not (
+            parent in direct_members and parent in name_errors_below_members
+        )
+    }
 
 
 def _names_a_field(loc: Sequence[Any], depth: int) -> bool:
