@@ -584,6 +584,8 @@ class LuxonisTracker:
             # was just handled is still the head
             self.local_logs.pop(0)
 
+        # a later outage has to report its drops again
+        self._warned_buffer_limits.clear()
         logger.info("Successfully re-logged stored logs to MLflow.")
 
     def _replay_next_call(self, mlflow: ModuleType) -> bool:
@@ -634,6 +636,8 @@ class LuxonisTracker:
             json.dump(grouped, f, default=_json_default)
 
         self.local_logs.clear()
+        # a later outage has to report its drops again
+        self._warned_buffer_limits.clear()
 
         logger.info(
             f"Logs saved locally at '{log_path}', images in {image_dir}, "

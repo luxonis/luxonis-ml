@@ -1145,3 +1145,33 @@ def test_an_unwritable_image_is_reported(tempdir: Path) -> None:
         image_dir.chmod(0o700)
 
     assert saved is None
+
+
+def test_a_second_outage_reports_its_drops_again(
+    mlflow_tracker: LuxonisTracker,
+    fake_backends: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The tracker warns once per full buffer. A later outage has to
+    warn again, or the user never learns that it discarded data.
+    """
+    monkeypatch.setattr(tracker_module, "MAX_BUFFERED_LOGS", 2)
+    fake_backends.mlflow.fail_init = True
+    for step in range(5):
+        mlflow_tracker.log_metric("loss", 1.0, step)
+
+    fake_backends.mlflow.fail_init = False
+    mlflow_tracker._mlflow_retry_at = 0.0
+    mlflow_tracker.log_metric("loss", 1.0, 5)
+    assert not mlflow_tracker.local_logs
+
+    fake_backends.mlflow.fail_after = len(fake_backends.mlflow.calls)
+    warnings: list[str] = []
+    handle = tracker_module.logger.add(warnings.append, level="WARNING")
+    try:
+        for step in range(6, 12):
+            mlflow_tracker.log_metric("loss", 1.0, step)
+    finally:
+        tracker_module.logger.remove(handle)
+
+    assert any("log buffer is full" in warning for warning in warnings)
