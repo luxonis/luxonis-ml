@@ -1,6 +1,6 @@
 """Human-readable rendering of pydantic validation errors.
 
-Pydantic's default `ValidationError` message is accurate but noisy: it
+Pydantic's default ``ValidationError`` message is accurate but noisy: it
 repeats the raw error type, the truncated input value, and a documentation
 URL for every problem, and it reports union failures once per union member.
 This module turns such an error into a short list of `ValidationProblem`
@@ -23,7 +23,7 @@ The model that failed is recovered from the error's own traceback. Knowing
 it lets the formatter tell a field name from a mapping key or from one of
 pydantic's internal union member tags, and suggest the closest valid field
 name for a misspelled key. Pass ``model`` explicitly for an error that
-arrives without its traceback, or one raised by a `pydantic.TypeAdapter`,
+arrives without its traceback, or one raised by a ``pydantic.TypeAdapter``,
 which validates something that need not be a model at all.
 
 .. _rich:
@@ -187,7 +187,7 @@ def render_validation_error(
             naming the model that failed to validate.
 
     Returns:
-        A renderable suitable for `rich.console.Console.print`.
+        A renderable suitable for ``rich.console.Console.print``.
 
     .. _rich:
         https://rich.readthedocs.io/en/stable/
@@ -260,15 +260,15 @@ def iter_validation_problems(
 def install_excepthook(*, use_rich: bool = True, enabled: bool = True) -> None:
     """Configure summaries for uncaught validation errors.
 
-    Wraps `sys.excepthook` with one that first lets the previously
+    Wraps ``sys.excepthook`` with one that first lets the previously
     installed hook run — so the traceback still shows where the error came
     from, and crash reporters still see it — and then prints a readable
-    summary of the `ValidationError` as the last thing the reader sees. An
+    summary of the ``ValidationError`` as the last thing the reader sees. An
     existing Luxonis hook is reconfigured, or removed when ``enabled`` is
     False. Calling this more than once is harmless.
 
     Args:
-        use_rich: If True, the summary is a `rich` panel. If False, it is
+        use_rich: If True, the summary is a ``rich`` panel. If False, it is
             plain text.
         enabled: Whether validation error summaries are enabled.
 
@@ -309,11 +309,11 @@ def _validated_model(error: ValidationError) -> type[BaseModel] | None:
     """Recover the model that raised ``error`` from its traceback.
 
     Pydantic enters its Rust validator from a single Python frame, and that
-    frame still holds the model — as ``cls`` for `BaseModel.model_validate`
+    frame still holds the model — as ``cls`` for ``BaseModel.model_validate``
     and its siblings, as ``self`` for ``Model(**data)``. Only pydantic's own
     frames are searched, so a model that merely happens to be the ``self``
     of a calling method cannot be mistaken for the one being validated, and
-    the innermost match wins. A `pydantic.TypeAdapter` yields nothing, since
+    the innermost match wins. A ``pydantic.TypeAdapter`` yields nothing, since
     what it validates need not be a model at all.
     """
     found: type[BaseModel] | None = None
