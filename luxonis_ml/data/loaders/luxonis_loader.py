@@ -376,7 +376,7 @@ class LuxonisLoader(BaseLoader):
         A task is uncovered when the union of one sample's masks does
         not fill the image. The union counts a pixel once, as
         `SegmentationAnnotation.combine_to_numpy` does, and
-        `pycocotools` measures it without a decode.
+        ``pycocotools`` measures it without a decode.
 
         A sample with no mask gives no verdict on its task.
 
