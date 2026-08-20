@@ -607,9 +607,9 @@ def test_excepthook_keeps_the_previous_hook(
     install_excepthook()
     error = catch(Cfg, name="a", epocs=1)
 
-    sys.excepthook(type(error), error, None)
+    sys.excepthook(type(error), error, error.__traceback__)
 
-    assert len(excepthook) == 1
+    assert excepthook == [(type(error), error, error.__traceback__)]
     assert "unexpected field 'epocs'" in capsys.readouterr().err
 
 
@@ -690,7 +690,9 @@ def test_augmentation_config_names_the_model_it_validated():
             config=[{"name": "Flip", wrong: {"p": 1.0}}],
         )
 
-    assert "did you mean 'params'?" in format_validation_error(info.value)
+    message = format_validation_error(info.value)
+    assert "Invalid AlbumentationConfigItem" in message
+    assert "did you mean 'params'?" in message
 
 
 def test_archive_inspection_names_the_model_it_validated(tmp_path: Path):
