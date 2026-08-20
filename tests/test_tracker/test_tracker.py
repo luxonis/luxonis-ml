@@ -1058,3 +1058,20 @@ def test_the_buffer_is_only_reported_full_once(
         tracker_module.logger.remove(handle)
 
     assert sum("log buffer is full" in warning for warning in warnings) == 1
+
+
+def test_logging_after_close_reaches_no_new_run(
+    mlflow_tracker: LuxonisTracker, fake_backends: SimpleNamespace
+) -> None:
+    """MLflow opens a fresh run for a call that arrives while no run is
+    active. `close` runs only once, so that run would stay open forever.
+    """
+    mlflow_tracker.log_metric("loss", 1.0, 0)
+    mlflow_tracker.close()
+    sent = len(fake_backends.mlflow.calls)
+
+    mlflow_tracker.log_metric("loss", 2.0, 1)
+    mlflow_tracker.upload_artifact_to_mlflow("model.onnx")
+
+    assert len(fake_backends.mlflow.calls) == sent
+    assert not mlflow_tracker.local_logs

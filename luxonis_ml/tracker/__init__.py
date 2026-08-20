@@ -128,6 +128,9 @@ buffer is full, the tracker drops the oldest call and warns once. The
 hyperparameters and the artifacts go last, because no later call repeats
 them.
 
+A call that arrives after `LuxonisTracker.close` is ignored. MLflow would
+otherwise open a fresh run for it, and no later `close` would end that run.
+
 `LuxonisTracker.close` waives the retry backoff to give the server one last
 chance. It then writes a buffer that is still not empty under
 ``<save_directory>/<run_name>``:

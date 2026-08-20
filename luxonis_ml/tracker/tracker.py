@@ -420,9 +420,19 @@ class LuxonisTracker:
         The positional arguments are what gets buffered, so they have to
         be JSON-serializable.
         """
+        if self._closed:
+            # `end_run` already ran, so MLflow would put this call into a
+            # fresh run that nothing ever ends, and buffering it would
+            # keep data that no later `close` flushes
+            logger.warning(
+                f"Ignoring the MLflow '{kind}' call, because the run is "
+                "already closed."
+            )
+            return
+
         # only MLflow is initialized here, the other backends have
         # nothing to do with this call
-        if not self.mlflow_initialized and not self._closed:
+        if not self.mlflow_initialized:
             self._init_mlflow()
 
         call = BufferedCall(kind, args)
