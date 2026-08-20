@@ -36,6 +36,7 @@ import re
 import sys
 import types
 from collections.abc import Iterator, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Union, get_args, get_origin
 
@@ -294,10 +295,17 @@ def install_excepthook(*, use_rich: bool = True, enabled: bool = True) -> None:
         previous(exc_type, exc, traceback)
         if not isinstance(exc, ValidationError):
             return
-        if getattr(hook, _USE_RICH_ATTR):
-            Console(stderr=True).print(render_validation_error(exc))
-        else:
-            sys.stderr.write(f"{format_validation_error(exc)}\n")
+        try:
+            if getattr(hook, _USE_RICH_ATTR):
+                Console(stderr=True).print(render_validation_error(exc))
+            else:
+                sys.stderr.write(f"{format_validation_error(exc)}\n")
+        except Exception as formatter_error:
+            with suppress(Exception):
+                sys.stderr.write(
+                    "\nLuxonis ML could not format the validation error "
+                    f"({_safe_repr(formatter_error)}).\n"
+                )
 
     setattr(hook, _HOOK_ATTR, True)
     setattr(hook, _PREVIOUS_HOOK_ATTR, previous)
@@ -641,12 +649,20 @@ def _format_input(error: ErrorDetails) -> str | None:
     if error["type"] in _OWN_NAME_ERRORS:
         return None
 
-    value = repr(error["input"])
+    value = _safe_repr(error["input"])
     if len(value) > _MAX_VALUE_LENGTH:
         head = (_MAX_VALUE_LENGTH - 1) // 2
         tail = _MAX_VALUE_LENGTH - 1 - head
         value = f"{value[:head]}…{value[-tail:]}"
     return value
+
+
+def _safe_repr(value: Any) -> str:
+    """Return a representation without trusting user-defined ``__repr__``."""
+    try:
+        return repr(value)
+    except Exception:
+        return f"<unprintable {type(value).__name__} object>"
 
 
 def _suggest(value: Any, candidates: Sequence[str]) -> str | None:

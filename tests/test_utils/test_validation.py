@@ -538,6 +538,17 @@ def test_long_values_keep_their_tail():
     assert problem.value.endswith("img_0001.png'")
 
 
+def test_unprintable_input_does_not_break_formatter():
+    class BadRepr:
+        def __repr__(self) -> str:
+            raise RuntimeError("broken repr")
+
+    error = catch(Cfg, name="a", epochs=BadRepr())
+    (problem,) = iter_validation_problems(error, model=Cfg)
+
+    assert problem.value == "<unprintable BadRepr object>"
+
+
 def test_fixed_length_tuple_elements_resolve_by_position():
     class Pair(BaseModel):
         pair: tuple[int, Resize]
@@ -674,6 +685,29 @@ def test_excepthook_can_be_disabled(excepthook: list[tuple]):
 
     assert sys.excepthook is previous
     assert excepthook == []
+
+
+def test_excepthook_reports_formatter_failures(
+    excepthook: list[tuple],
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    install_excepthook(use_rich=False)
+    error = catch(Cfg, name="a", epochs="invalid")
+
+    def fail(_error: ValidationError) -> str:
+        raise RuntimeError("formatter failed")
+
+    monkeypatch.setattr(
+        "luxonis_ml.utils.validation.format_validation_error", fail
+    )
+    sys.excepthook(type(error), error, error.__traceback__)
+
+    assert excepthook == [(type(error), error, error.__traceback__)]
+    assert (
+        "Luxonis ML could not format the validation error "
+        "(RuntimeError('formatter failed'))." in capsys.readouterr().err
+    )
 
 
 def test_augmentation_config_names_the_model_it_validated():
