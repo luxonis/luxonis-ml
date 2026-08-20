@@ -1075,3 +1075,26 @@ def test_logging_after_close_reaches_no_new_run(
 
     assert len(fake_backends.mlflow.calls) == sent
     assert not mlflow_tracker.local_logs
+
+
+def test_a_full_buffer_keeps_the_call_that_just_arrived(
+    mlflow_tracker: LuxonisTracker,
+    fake_backends: SimpleNamespace,
+    tempdir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Artifacts and hyperparameters are the last to be dropped. They
+    must still give way once they fill the buffer, or no later metric
+    can enter it at all.
+    """
+    monkeypatch.setattr(tracker_module, "MAX_BUFFERED_LOGS", 3)
+    fake_backends.mlflow.fail_init = True
+    checkpoint = tempdir / "best.ckpt"
+    checkpoint.write_text("weights")
+
+    for _ in range(3):
+        mlflow_tracker.upload_artifact_to_mlflow(checkpoint)
+    mlflow_tracker.log_metric("loss", 1.0, 0)
+
+    kinds = [call.kind for call in mlflow_tracker.local_logs]
+    assert kinds == ["log_artifact", "log_artifact", "log_metric"]

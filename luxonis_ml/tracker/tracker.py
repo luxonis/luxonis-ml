@@ -508,8 +508,9 @@ class LuxonisTracker:
         """Drop the oldest expendable buffered call once ``limit`` is
         exceeded.
 
-        Hyperparameters and artifacts are only dropped when the buffer
-        holds nothing else, because no later call repeats them.
+        Hyperparameters and artifacts go last, because no later call
+        repeats them. They still give way once nothing older is left to
+        drop, or a backlog of them would block every later metric.
         """
         indices = [
             i
@@ -519,10 +520,15 @@ class LuxonisTracker:
         if len(indices) <= limit:
             return
 
+        # the call that has just arrived is never the one to drop, or a
+        # backlog of hyperparameters and artifacts would swallow every
+        # metric logged after it
+        newest = len(self.local_logs) - 1
         expendable = [
             i
             for i in indices
-            if self.local_logs[i].kind not in _IRREPLACEABLE_CALLS
+            if i != newest
+            and self.local_logs[i].kind not in _IRREPLACEABLE_CALLS
         ]
         dropped = self.local_logs.pop((expendable or indices)[0])
 
