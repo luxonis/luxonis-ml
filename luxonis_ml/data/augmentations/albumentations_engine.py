@@ -808,9 +808,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
         Transformations are matched by identity rather than by class name,
         which keeps registry aliases and repeated entries apart. Only
-        `A.BaseCompose` instances are descended into; a ``transforms``
-        attribute is not enough, as leaves such as `A.ColorJitter` expose
-        one for their internal adjustment functions.
+        ``A.BaseCompose`` instances are descended into; a ``transforms``
+        attribute is not enough, as leaves such as ``A.ColorJitter``
+        expose one for their internal adjustment functions.
         """
         if isinstance(transform, A.BaseCompose):
             for child in transform.transforms:
@@ -1195,7 +1195,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
         Args:
             transform: Albumentations composition to wrap. Must be an
-                `A.ReplayCompose` when ``is_pixel`` is set.
+                ``A.ReplayCompose`` when ``is_pixel`` is set.
             is_pixel: Whether the composition contains pixel-only
                 transforms that should be replayed across image sources.
             source_names: Image source names replayed for pixel-only
@@ -1249,7 +1249,7 @@ def _normalize_params(
     """Keep the sampled parameters that can be reported as provenance.
 
     Args:
-        params: Parameters `Albumentations` reported back.
+        params: Parameters Albumentations reported back.
         transform: Transformation they belong to, needed to tell a
             configured value from a sampled one. Nested parameters have no
             transformation of their own.
@@ -1268,10 +1268,10 @@ def _normalize_params(
 def _is_configured(transform: Any, key: str, value: Any) -> bool:
     """Whether a reported parameter only echoes back the configuration.
 
-    Some transformations do sample these: `A.CropAndPad` draws its ``fill``
-    from the range it was given, and the drawn value belongs in the report.
-    Keys the transformation knows nothing about, such as the input
-    ``shape``, are never sampled.
+    Some transformations do sample these: ``A.CropAndPad`` draws its
+    ``fill`` from the range it was given, and the drawn value belongs in
+    the report. Keys the transformation knows nothing about, such as the
+    input ``shape``, are never sampled.
     """
     if key not in _STATIC_PARAMS:
         return False

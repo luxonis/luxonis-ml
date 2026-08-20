@@ -2,7 +2,7 @@
 
 This guide is the starting point for local development and pull requests.
 For API usage details, use the generated docs at
-<https://luxonis.github.io/luxonis-ml/latest/>.
+<https://docs.luxonis.com/software-v3/ai-inference/model-source/training/luxonis-ml/luxonis-ml-api-reference/>.
 
 ## Preparation
 
@@ -57,7 +57,6 @@ the uv override that removes `opencv-python-headless`. See the comment in
 | `luxonis_ml/tracker`           | Experiment tracking integrations.                                                |
 | `luxonis_ml/telemetry`         | Lightweight telemetry client, events, redaction, and backends.                   |
 | `tests`                        | Pytest suite, fixtures, integration tests, and data workflow coverage.           |
-| `tools/build_pydoctor_docs.py` | The local and CI entrypoint for generated API docs.                              |
 | `tools/export_requirements.sh` | Regenerates `uv.lock` and the `requirements*.txt` exports.                       |
 | `tools/version.py`             | Reports the package version, or changes it for a release.                        |
 
@@ -128,14 +127,38 @@ Public API docs are generated from docstrings with pydoctor using the
 Build the current checkout locally:
 
 ```bash
-uv run python tools/build_pydoctor_docs.py --mode current --output apidocs
+uv run pydoctor luxonis_ml
 ```
 
-Open `apidocs/latest/index.html` to inspect the result.
+Open `apidocs/index.html` to inspect the result. CI runs the same command. The
+`[tool.pydoctor]` section of `pyproject.toml` sets the Google docstring format
+and `warnings-as-errors`, which pydoctor reads on its own.
 
-For docs changes, prefer updating package and object docstrings that feed the
-generated site. Several submodule `README.md` files are deprecated and point to
-GitHub Pages; avoid expanding them unless the task specifically asks for it.
+> [!IMPORTANT]
+> A warning fails the build. pydoctor exits non-zero on broken markup, on a
+> reference it cannot resolve, and on an annotation it cannot parse.
+
+Single backticks ask pydoctor for a link. Put a name it cannot resolve, such
+as a class from another library, in double backticks instead. For a real link
+to external documentation, use the reST hyperlink form with an explicit target.
+
+pydoctor also parses each string inside an annotation as a forward reference,
+`Annotated[...]` metadata included. Write `Parameter(negative=())`, not
+`Parameter(negative="")`. Keep a value such as a file extension in a module
+constant that the annotation names.
+
+The published reference lives on the Luxonis documentation portal. The
+`Export pydoctor reference` workflow builds it from these docstrings with the
+exporter that the `luxonis/docs-content` repository provides. The workflow
+uploads the result as the `luxonis-ml-api-reference` artifact. It runs on
+`release/*` pull requests and on manual dispatch, so a docstring change reaches
+the portal with the next release.
+
+For docs changes, update the package and object docstrings that feed the
+generated site. The submodule `README.md` files were removed, so the docstrings
+are the only home for API documentation. Keep the root `README.md` a user
+guide: it introduces the library, shows the main workflows, and links to the
+generated site. Document a new behavior next to the code that implements it.
 
 Good doc changes should:
 
@@ -175,13 +198,13 @@ applied automatically from branch names and changed paths.
 
 PR CI runs:
 
-| Check        | Notes                                                     |
-| ------------ | --------------------------------------------------------- |
-| `pre-commit` | Must pass before docs, type check, and tests proceed.     |
-| `docs`       | Builds pydoctor docs with `tools/build_pydoctor_docs.py`. |
-| `type-check` | Runs Pyright on Python 3.10.                              |
-| `semgrep`    | Runs security and secret scanning.                        |
-| `tests`      | Runs pytest on Ubuntu and Windows in six split groups.    |
+| Check        | Notes                                                  |
+| ------------ | ------------------------------------------------------ |
+| `pre-commit` | Must pass before docs, type check, and tests proceed.  |
+| `docs`       | Builds the pydoctor docs. A warning fails the job.     |
+| `type-check` | Runs Pyright on Python 3.10.                           |
+| `semgrep`    | Runs security and secret scanning.                     |
+| `tests`      | Runs pytest on Ubuntu and Windows in six split groups. |
 
 Release branches named `release/*` also run extra package-install checks for
 selected extras.
@@ -198,7 +221,7 @@ request it opens.
 1. Review the pull request, wait for CI, and merge it.
 1. The `Release Tag` workflow then tags `vX.Y.Z-beta` on the merge commit and
    creates the GitHub release with generated notes.
-1. The release publication starts the PyPI upload and the docs deployment.
+1. The release publication starts the PyPI upload.
 
 Use `tools/version.py` for the same version change on your machine:
 
@@ -234,7 +257,8 @@ the `WORKFLOW_SECRET` secret and a `release` label. The reusable workflows
 check out `tools/version.py` from this repository, so the caller does not copy
 it.
 
-Package publishing and documentation deployment are handled by GitHub Actions:
+Package publishing, the API reference export, and dependency updates run in
+GitHub Actions:
 
 - `reusable-release-pr.yaml` and `reusable-release-tag.yaml` hold the shared
   release logic.
@@ -242,8 +266,9 @@ Package publishing and documentation deployment are handled by GitHub Actions:
 - `release-tag.yaml` tags and releases a merged `release/*` pull request.
 - `python-publish.yml` builds and publishes on release publication or manual
   dispatch.
-- `docs-pages.yaml` publishes GitHub Pages docs on `main`, release publication,
-  or manual dispatch.
+- `export-pydoctor-reference.yaml` builds the API reference from the docstrings.
+  It runs on a `release/*` pull request or on manual dispatch, and uploads the
+  result as an artifact.
 - `pip-install.yaml` installs from the `requirements*.txt` exports whenever they
   or their inputs change. Nothing else in CI uses those files, so this is what
   keeps the pip path working for users who do not have `uv`.

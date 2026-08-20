@@ -57,7 +57,7 @@ def ls(
     *,
     recursive: Annotated[
         bool,
-        Parameter(alias="-r", negative=""),
+        Parameter(alias="-r", negative=()),
     ] = False,
     typ: Annotated[
         Literal["file", "directory", "all"],

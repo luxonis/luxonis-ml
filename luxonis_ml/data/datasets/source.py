@@ -1,11 +1,15 @@
 from typing import Any
 
 from pydantic import Field, field_validator
+from typing_extensions import deprecated
 
 from luxonis_ml.data.utils import ImageType, MediaType
 from luxonis_ml.typing import BaseModelExtraForbid
 
 
+@deprecated(
+    "LuxonisComponent is deprecated and will be removed in a future release."
+)
 class LuxonisComponent(BaseModelExtraForbid):
     """Media component within a source.
 
@@ -16,6 +20,9 @@ class LuxonisComponent(BaseModelExtraForbid):
         media_type: Media kind represented by the component.
         image_type: Image kind. Only used for image media.
 
+    .. deprecated:: 0.10.0
+        LuxonisComponent is deprecated and will be removed in a future release.
+
     """
 
     name: str
@@ -23,6 +30,9 @@ class LuxonisComponent(BaseModelExtraForbid):
     image_type: ImageType = ImageType.COLOR
 
 
+@deprecated(
+    "LuxonisSource is deprecated and will be removed in a future release."
+)
 class LuxonisSource(BaseModelExtraForbid):
     """Source definition for a dataset.
 
@@ -37,6 +47,9 @@ class LuxonisSource(BaseModelExtraForbid):
             target.
 
     .. _OAK-D: https://docs.luxonis.com/projects/hardware/en/latest/pages/BW1098OAK/
+
+    .. deprecated:: 0.10.0
+        LuxonisSource is deprecated and will be removed in a future release.
 
     """
 

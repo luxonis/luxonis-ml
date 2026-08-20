@@ -315,6 +315,10 @@ properties:
         },
     }
 
+The `OCR heads
+<https://github.com/luxonis/luxonis-train/tree/main/luxonis_train/nodes#ocr-heads>`__
+of LuxonisTrain consume this metadata.
+
 Embedding and re-identification datasets commonly store identifiers or other
 lookup keys:
 
@@ -326,6 +330,10 @@ lookup keys:
             "color": Category("red"),
         },
     }
+
+The `embedding heads
+<https://github.com/luxonis/luxonis-train/tree/main/luxonis_train/nodes#embedding-heads>`__
+of LuxonisTrain consume this metadata.
 
 Important:
     Metadata and arrays have no universal geometric semantics. Built-in
@@ -922,6 +930,10 @@ class SegmentationAnnotation(Annotation):
         When providing the RLE as a list of counts instead of encoded bytes
         make sure the counts follow FORTRAN (column-major)
         order as expected by the COCO RLE format.
+
+        The counts alternate between background runs and foreground runs,
+        and the first count is always a background run. If the mask starts
+        with a foreground pixel, the first count is 0.
 
     Attributes:
         height: The height of the segmentation mask.
