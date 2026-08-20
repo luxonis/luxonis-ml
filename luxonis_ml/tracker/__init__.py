@@ -125,10 +125,9 @@ because callers routinely delete the file after they hand it over.
 
 The buffer holds a maximum of 500 calls, of which 50 can be images. When the
 buffer is full, the tracker drops the oldest call and warns once for each
-outage. The
-hyperparameters and the artifacts go last, because no later call repeats
-them. They still give way to the call that has just arrived, or a long
-outage would let them block every later metric.
+outage. The hyperparameters and the artifacts go last, because no later call
+repeats them. They still give way to the call that has just arrived, or a
+long outage would let them block every later metric.
 
 A call that arrives after `LuxonisTracker.close` is ignored. MLflow would
 otherwise open a fresh run for it, and no later `close` would end that run.
