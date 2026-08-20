@@ -554,6 +554,33 @@ def test_excepthook_is_installed_only_once(excepthook: list[tuple]):
     assert excepthook == []
 
 
+def test_excepthook_can_switch_to_plain_text(
+    excepthook: list[tuple], capsys: pytest.CaptureFixture[str]
+):
+    install_excepthook(use_rich=True)
+    installed = sys.excepthook
+
+    install_excepthook(use_rich=False)
+    error = catch(Cfg, name="a", epocs=1)
+    sys.excepthook(type(error), error, None)
+
+    printed = capsys.readouterr().err
+    assert sys.excepthook is installed
+    assert len(excepthook) == 1
+    assert "unexpected field 'epocs'" in printed
+    assert "╭" not in printed
+
+
+def test_excepthook_can_be_disabled(excepthook: list[tuple]):
+    previous = sys.excepthook
+    install_excepthook()
+
+    install_excepthook(enabled=False)
+
+    assert sys.excepthook is previous
+    assert excepthook == []
+
+
 def test_augmentation_config_names_the_model_it_validated():
     from luxonis_ml.data import AlbumentationsEngine
 
