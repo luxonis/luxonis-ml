@@ -466,6 +466,52 @@ def test_union_members_failing_inside_a_container_are_listed():
     assert problem.value == "['a', 1]"
 
 
+class Point(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    x: int
+    y: int
+
+
+class Circle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    radius: int
+
+
+class Shape(BaseModel):
+    shape: Point | Circle
+
+
+def test_failures_under_two_union_members_are_collapsed():
+    error = catch(Shape, shape={"x": "left", "y": 2})
+    (problem,) = iter_validation_problems(error, model=Shape)
+
+    assert problem.location == "shape"
+    assert problem.message.startswith(
+        "does not match any of the allowed types:\n"
+    )
+    assert "Point: x — input should be a valid integer" in problem.message
+    assert "Circle: radius — this field is required" in problem.message
+
+
+def test_collapsed_union_members_keep_their_suggestions():
+    wrong = missing_letter("radius", 3)
+    message = format_validation_error(
+        catch(Shape, shape={wrong: 2}), model=Shape
+    )
+    assert f"Circle: {wrong} — unexpected field" in message
+    assert "did you mean 'radius'?" in message
+
+
+def test_collapsed_union_reasons_stay_indented():
+    output = render(catch(Shape, shape={"x": "left", "y": 2}), model=Shape)
+    lines = [line for line in output.splitlines() if "Point:" in line]
+
+    assert lines
+    assert all(line.startswith("│      ") for line in lines)
+
+
 def test_panel_title_is_not_read_as_markup():
     output = render(catch(Cfg, name="a", epocs=1), title="Config [dev]")
     assert "Config [dev]" in output

@@ -118,7 +118,9 @@ class ValidationProblem:
         location: Dotted path to the offending value, using ``[i]`` for
             sequence indices, e.g. ``model.inputs[0].dtype``. Empty for a
             problem concerning the top-level value itself.
-        message: What is wrong, as a lowercase sentence fragment.
+        message: What is wrong, as a lowercase sentence fragment. A
+            union whose members failed on their own fields spans several
+            lines: a header, then one indented line per alternative.
         hint: Optional follow-up suggestion, such as the closest matching
             field name for a misspelled key.
         value: Optional repr of the offending input value.
@@ -160,7 +162,7 @@ def format_validation_error(
             prefix = "    "
         else:
             prefix = "  "
-        lines.append(f"{prefix}{problem.message}")
+        lines.extend(f"{prefix}{line}" for line in problem.message.split("\n"))
         if problem.value is not None:
             lines.append(f"{prefix}got: {problem.value}")
         if problem.hint is not None:
@@ -247,8 +249,8 @@ def iter_validation_problems(
     """
     model = model or _validated_model(error)
     seen: set[tuple[str, str]] = set()
-    for group in _group_union_errors(error.errors(), model):
-        problem = _to_problem(group, model)
+    for parent, group in _group_union_errors(error.errors(), model):
+        problem = _to_problem(parent, group, model)
         key = (problem.location, problem.message)
         if key not in seen:
             seen.add(key)
@@ -341,8 +343,14 @@ def _default_title(
 def _group_union_errors(
     errors: Sequence[ErrorDetails],
     model: type[BaseModel] | None,
-) -> list[list[ErrorDetails]]:
-    """Group failures reported for members of the same union."""
+) -> list[tuple[tuple[Any, ...] | None, list[ErrorDetails]]]:
+    """Group failures reported for members of the same union.
+
+    Returns:
+        One entry per problem, as the location of the union that owns the
+        group, or None for a failure that has nothing to do with a union.
+
+    """
     by_parent: dict[tuple[Any, ...], list[ErrorDetails]] = {}
     for error in errors:
         by_parent.setdefault(tuple(error["loc"][:-1]), []).append(error)
@@ -352,19 +360,49 @@ def _group_union_errors(
         for parent, group in by_parent.items()
         if len(group) > 1 and _is_union_group(group, model)
     }
+    unions |= _nested_unions(errors, model)
 
-    out: list[list[ErrorDetails]] = []
+    out: list[tuple[tuple[Any, ...] | None, list[ErrorDetails]]] = []
     position: dict[tuple[Any, ...], int] = {}
     for error in errors:
         parent = _union_parent(tuple(error["loc"]), unions, model)
         if parent is None:
-            out.append([error])
+            out.append((None, [error]))
         elif parent in position:
-            out[position[parent]].append(error)
+            out[position[parent]][1].append(error)
         else:
             position[parent] = len(out)
-            out.append([error])
+            out.append((parent, [error]))
     return out
+
+
+def _nested_unions(
+    errors: Sequence[ErrorDetails], model: type[BaseModel] | None
+) -> set[tuple[Any, ...]]:
+    """Find unions with a field-level failure under two or more members.
+
+    Such failures land under different member tags, so grouping by the
+    immediate parent alone leaves them apart. Read on their own, they
+    contradict each other: each one describes a different alternative,
+    but nothing in its location says so.
+    """
+    tags: dict[tuple[Any, ...], set[str]] = {}
+    for error in errors:
+        loc = tuple(error["loc"])
+        for length, tag in enumerate(loc):
+            if not isinstance(tag, str):
+                continue
+            if not _is_member_tag(loc[:length], tag, model):
+                continue
+            if _names_a_field(loc, length):
+                tags.setdefault(loc[:length], set()).add(tag)
+            break
+    return {parent for parent, seen in tags.items() if len(seen) > 1}
+
+
+def _names_a_field(loc: Sequence[Any], depth: int) -> bool:
+    """Tell whether a failure below a member tag names a field of it."""
+    return any(isinstance(part, str) for part in loc[depth + 1 :])
 
 
 def _union_parent(
@@ -391,6 +429,8 @@ def _is_member_tag(
     members = _union_members(annotations)
     if members:
         return any(_tag_matches(tag, member) for member in members)
+    if annotations:
+        return False
     return _is_certain_type_tag(tag)
 
 
@@ -467,10 +507,12 @@ def _looks_like_type_tag(tag: str) -> bool:
 
 
 def _to_problem(
-    group: Sequence[ErrorDetails], model: type[BaseModel] | None
+    parent: tuple[Any, ...] | None,
+    group: Sequence[ErrorDetails],
+    model: type[BaseModel] | None,
 ) -> ValidationProblem:
-    if len(group) > 1:
-        return _union_problem(group, model)
+    if parent is not None:
+        return _union_problem(parent, group, model)
 
     error = group[0]
     loc = tuple(error["loc"])
@@ -484,23 +526,60 @@ def _to_problem(
 
 
 def _union_problem(
-    group: Sequence[ErrorDetails], model: type[BaseModel] | None
+    parent: tuple[Any, ...],
+    group: Sequence[ErrorDetails],
+    model: type[BaseModel] | None,
 ) -> ValidationProblem:
+    """Phrase every failed member of one union as a single problem.
+
+    A member that failed on its own type is named and nothing more. A
+    member that failed deeper down is named together with the reason, so
+    that the reader keeps the detail the collapsing would otherwise lose.
+    """
+    depth = len(parent)
+    header = "does not match any of the allowed types"
+    if any(_names_a_field(error["loc"], depth) for error in group):
+        reasons = [_member_reason(error, parent, model) for error in group]
+        message = "\n".join([f"{header}:", *(f"  {r}" for r in reasons)])
+    else:
+        names = [_clean_type_name(str(error["loc"][depth])) for error in group]
+        message = f"{header}: {', '.join(dict.fromkeys(names))}"
+
+    # only a member that failed on its own type carries the whole value
     outermost = min(group, key=lambda error: len(error["loc"]))
-    depth = len(outermost["loc"]) - 1
-
-    alternatives: list[str] = []
-    for error in group:
-        name = _clean_type_name(str(error["loc"][depth]))
-        if name not in alternatives:
-            alternatives.append(name)
-
+    on_its_own_type = len(outermost["loc"]) == depth + 1
     return ValidationProblem(
-        location=_format_location(tuple(outermost["loc"][:depth]), model),
-        message="does not match any of the allowed types: "
-        + ", ".join(alternatives),
-        value=_format_input(outermost),
+        location=_format_location(parent, model),
+        message=message,
+        value=_format_input(outermost) if on_its_own_type else None,
     )
+
+
+def _member_reason(
+    error: ErrorDetails, parent: tuple[Any, ...], model: type[BaseModel] | None
+) -> str:
+    loc = tuple(error["loc"])
+    name = _clean_type_name(str(loc[len(parent)]))
+    message, hint = _describe(error, loc, model)
+    inside = _location_below(loc, parent, model)
+    if inside:
+        message = f"{inside} — {message}"
+    if hint is not None:
+        message = f"{message} ({hint})"
+    return f"{name}: {message}"
+
+
+def _location_below(
+    loc: tuple[Any, ...],
+    parent: tuple[Any, ...],
+    model: type[BaseModel] | None,
+) -> str:
+    """Format the part of ``loc`` that lies below ``parent``."""
+    whole = _format_location(loc, model)
+    head = _format_location(parent, model)
+    if head and whole.startswith(head):
+        return whole[len(head) :].lstrip(".")
+    return whole
 
 
 def _describe(
