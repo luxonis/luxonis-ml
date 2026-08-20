@@ -2,7 +2,7 @@ name: GitHub Actions Version Updater
 
 on:
   schedule:
-    - cron: "0 0 * * 0"
+    - cron: "0 0 1 * *"
   workflow_dispatch:
 
 jobs:
@@ -10,7 +10,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      # `persist-credentials` must stay enabled: the updater below pushes its
+      # branch with a plain `git push`, relying on the token this step writes
+      # into the local git config.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # zizmor: ignore[artipacked]
         with:
           token: ${{ secrets.WORKFLOW_SECRET }}
 

@@ -51,10 +51,6 @@ Note:
     When parsing ZIP files, place the dataset layout directly at the archive
     root unless the selected parser explicitly expects a nested directory.
 
-Warning:
-    Format-specific parsers do not follow symbolic links. Datasets that rely
-    on symlinked images or labels may not parse as expected.
-
 
 Supported Formats
 =================
@@ -66,59 +62,69 @@ Supported Formats
      - Dataset type
      - Parser
      - Typical annotations
-   * - COCO JSON
+   * - COCO JSON in the `FiftyOne
+       <https://docs.voxel51.com/user_guide/export_datasets.html#cocodetectiondataset-export>`__
+       layout or the `Roboflow
+       <https://roboflow.com/formats/coco-json>`__ layout
      - ``DatasetType.COCO``
      - `COCOParser`
      - Bounding boxes, segmentation, instance segmentation, keypoints.
-   * - Pascal VOC XML
+   * - `Pascal VOC XML <https://roboflow.com/formats/pascal-voc-xml>`__
      - ``DatasetType.VOC``
      - `VOCParser`
      - Bounding boxes.
-   * - YOLO Darknet TXT
+   * - `YOLO Darknet TXT <https://roboflow.com/formats/yolo-darknet-txt>`__
      - ``DatasetType.DARKNET``
      - `DarknetParser`
      - Bounding boxes.
-   * - YOLOv4 PyTorch TXT
+   * - `YOLOv4 PyTorch TXT <https://roboflow.com/formats/yolov4-pytorch-txt>`__
      - ``DatasetType.YOLOV4``
      - `YoloV4Parser`
      - Bounding boxes.
-   * - MT YOLOv6
+   * - `MT YOLOv6 <https://roboflow.com/formats/mt-yolov6>`__
      - ``DatasetType.YOLOV6``
      - `YoloV6Parser`
      - Bounding boxes.
-   * - YOLOv8 bounding boxes
+   * - `YOLOv8 bounding boxes
+       <https://roboflow.com/formats/yolov8-pytorch-txt>`__
      - ``DatasetType.YOLOV8BOUNDINGBOX``
      - `YOLOv8Parser`
      - Bounding boxes.
-   * - YOLOv8 instance segmentation
+   * - `YOLOv8 instance segmentation
+       <https://roboflow.com/formats/yolov8-pytorch-txt>`__
      - ``DatasetType.YOLOV8INSTANCESEGMENTATION``
      - `YOLOv8Parser`
      - Instance segmentation.
-   * - YOLOv8 keypoints
+   * - `YOLOv8 keypoints
+       <https://roboflow.com/formats/yolov8-pytorch-txt>`__
      - ``DatasetType.YOLOV8KEYPOINTS``
      - `YOLOv8Parser`
      - Keypoints.
-   * - Ultralytics NDJSON detection
+   * - `Ultralytics NDJSON detection
+       <https://docs.ultralytics.com/datasets/detect/#ultralytics-ndjson-format>`__
      - ``DatasetType.ULTRALYTICSNDJSON``
      - `UltralyticsNDJSONParser`
      - Detection records, including local paths or remote image URLs.
-   * - Ultralytics NDJSON instance segmentation
+   * - `Ultralytics NDJSON instance segmentation
+       <https://docs.ultralytics.com/datasets/detect/#ultralytics-ndjson-format>`__
      - ``DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION``
      - `UltralyticsNDJSONParser`
      - Segmentation records.
-   * - Ultralytics NDJSON keypoints
+   * - `Ultralytics NDJSON keypoints
+       <https://docs.ultralytics.com/datasets/detect/#ultralytics-ndjson-format>`__
      - ``DatasetType.ULTRALYTICSNDJSONKEYPOINTS``
      - `UltralyticsNDJSONParser`
      - Pose records.
-   * - CreateML JSON
+   * - `CreateML JSON <https://roboflow.com/formats/createml-json>`__
      - ``DatasetType.CREATEML``
      - `CreateMLParser`
      - Bounding boxes.
-   * - TensorFlow Object Detection CSV
+   * - `TensorFlow Object Detection CSV
+       <https://roboflow.com/formats/tensorflow-object-detection-csv>`__
      - ``DatasetType.TFCSV``
      - `TensorflowCSVParser`
      - Bounding boxes.
-   * - SOLO
+   * - `SOLO <https://docs.unity3d.com/Packages/com.unity.perception@1.0/manual/Schema/SoloSchema.html>`__
      - ``DatasetType.SOLO``
      - `SOLOParser`
      - Synthetic data with boxes, masks, keypoints, and segmentation.
@@ -126,7 +132,8 @@ Supported Formats
      - ``DatasetType.CLSDIR``
      - `ClassificationDirectoryParser`
      - Class labels encoded by directory names.
-   * - FiftyOne classification
+   * - `FiftyOne classification
+       <https://docs.voxel51.com/user_guide/export_datasets.html>`__
      - ``DatasetType.FIFTYONECLS``
      - `FiftyOneClassificationParser`
      - Class labels from ``labels.json``.
@@ -136,57 +143,427 @@ Supported Formats
      - Grayscale masks with class mappings in ``_classes.csv``.
    * - Native LDF
      - ``DatasetType.NATIVE``
-     - ``NativeParser``
+     - `NativeParser`
      - Existing Luxonis native exports, including ``sample_metadata`` records.
 
 See:
-    `luxonis_ml.data.datasets.annotation` for the LDF annotation schemas
-    produced by these parsers.
+    `luxonis_ml.ldf.annotation` for the LDF annotation schemas produced by
+    these parsers.
 
 
-Format Layout Notes
-===================
+Expected Directory Layouts
+==========================
 
 The dispatcher can parse full dataset directories, individual split
 directories for parser types that support it, ZIP archives whose extracted
 root contains a supported layout, remote paths handled by ``LuxonisFileSystem``,
 Roboflow URLs in ``roboflow://workspace/project/version/format`` form, and
 Ultralytics format URLs in ``ultralytics://username/datasets/slug``.
-Parser implementations do not follow symbolic links.
 
-Common layout markers:
+Each tree below shows one split in full. The other splits repeat the same
+structure. Roboflow exports name the second split ``valid``, and FiftyOne
+exports name it ``validation``.
 
-    - COCO JSON supports FiftyOne-style splits with ``train/data`` plus
-      ``labels.json`` and Roboflow-style splits with images beside
-      ``_annotations.coco.json``.
-    - YOLOv8-v12 Roboflow layouts use split directories containing
-      ``images/`` and ``labels/``; Ultralytics layouts use top-level
-      ``images/<split>``, ``labels/<split>``, and a YAML file.
-    - Ultralytics NDJSON uses a single ``.ndjson`` manifest. Records may
-      reference local image paths or remote image URLs.
-    - Pascal VOC XML places images and matching ``.xml`` annotations in each
-      split directory.
-    - YOLO Darknet uses split directories with image/``.txt`` pairs and
-      ``_darknet.labels``.
-    - YOLOv4 PyTorch uses ``_annotations.txt`` and ``_classes.txt`` in each
-      split directory.
-    - MT YOLOv6 uses top-level ``images/<split>``, ``labels/<split>``, and
-      ``data.yaml``.
-    - CreateML JSON uses ``_annotations.createml.json`` in each split
-      directory.
-    - TensorFlow Object Detection CSV uses ``_annotations.csv`` in each split
-      directory.
-    - SOLO expects Unity Perception metadata, sensor, annotation, metric, and
-      sequence files per split.
-    - Classification directory data may be split-based
-      (``train/class_name/*.jpg``) or flat (``class_name/*.jpg``), with
-      random splits applied to flat layouts.
-    - FiftyOne classification data uses ``data/`` images and ``labels.json``.
-      ``labels.json`` contains a ``classes`` list and a mapping from image stem
-      to class index.
-    - Segmentation mask directories pair images with ``*_mask`` images and
-      define pixel-value classes in ``_classes.csv``.
+COCO JSON
+---------
 
+The FiftyOne layout keeps the images in a ``data`` directory and the
+annotations in ``labels.json``::
+
+    dataset_dir/
+    ├── train/
+    │   ├── data/
+    │   │   ├── img1.jpg
+    │   │   ├── img2.jpg
+    │   │   └── ...
+    │   └── labels.json
+    ├── validation/
+    │   ├── data/
+    │   └── labels.json
+    └── test/
+        ├── data/
+        └── labels.json
+
+The Roboflow layout keeps the images beside ``_annotations.coco.json``::
+
+    dataset_dir/
+    ├── train/
+    │   ├── img1.jpg
+    │   ├── img2.jpg
+    │   ├── ...
+    │   └── _annotations.coco.json
+    ├── valid/
+    └── test/
+
+YOLOv8-v12 and Ultralytics
+--------------------------
+
+The Roboflow layout gives each split its own ``images`` and ``labels``
+directories::
+
+    dataset_dir/
+    ├── train/
+    │   ├── images/
+    │   │   ├── img1.jpg
+    │   │   ├── img2.jpg
+    │   │   └── ...
+    │   └── labels/
+    │       ├── img1.txt
+    │       ├── img2.txt
+    │       └── ...
+    ├── valid/
+    ├── test/
+    └── *.yaml
+
+The `Ultralytics layout <https://docs.ultralytics.com/datasets/>`__ puts the
+split directories under one ``images`` directory and one ``labels``
+directory::
+
+    dataset_dir/
+    ├── images/
+    │   ├── train/
+    │   │   ├── img1.jpg
+    │   │   ├── img2.jpg
+    │   │   └── ...
+    │   ├── val/
+    │   └── test/
+    ├── labels/
+    │   ├── train/
+    │   │   ├── img1.txt
+    │   │   ├── img2.txt
+    │   │   └── ...
+    │   ├── val/
+    │   └── test/
+    └── *.yaml
+
+Ultralytics NDJSON
+------------------
+
+The directory holds exactly one ``.ndjson`` manifest. The first line of the
+manifest is a header record. It holds ``"type": "dataset"`` and
+``class_names``. Each later record describes one image::
+
+    dataset_dir/
+    ├── dataset.ndjson
+    ├── train/
+    ├── val/
+    └── test/
+
+A record names a local image through ``file``. A record names a remote image
+through ``url``, and ``file`` then gives the name of the local cache file. You
+can also give the path of the manifest itself. A manifest of remote images
+alone needs no image directories::
+
+    dataset.ndjson
+
+Pascal VOC XML
+--------------
+
+Each split holds the images and the matching ``.xml`` files::
+
+    dataset_dir/
+    ├── train/
+    │   ├── img1.jpg
+    │   ├── img1.xml
+    │   └── ...
+    ├── valid/
+    └── test/
+
+YOLO Darknet TXT
+----------------
+
+Each split holds image and ``.txt`` pairs, plus ``_darknet.labels``::
+
+    dataset_dir/
+    ├── train/
+    │   ├── img1.jpg
+    │   ├── img1.txt
+    │   ├── ...
+    │   └── _darknet.labels
+    ├── valid/
+    └── test/
+
+YOLOv4 PyTorch TXT
+------------------
+
+Each split holds ``_annotations.txt`` and ``_classes.txt``::
+
+    dataset_dir/
+    ├── train/
+    │   ├── img1.jpg
+    │   ├── img2.jpg
+    │   ├── ...
+    │   ├── _annotations.txt
+    │   └── _classes.txt
+    ├── valid/
+    └── test/
+
+MT YOLOv6
+---------
+
+The split directories sit under one ``images`` directory and one ``labels``
+directory, next to ``data.yaml``::
+
+    dataset_dir/
+    ├── images/
+    │   ├── train/
+    │   │   ├── img1.jpg
+    │   │   ├── img2.jpg
+    │   │   └── ...
+    │   ├── valid/
+    │   └── test/
+    ├── labels/
+    │   ├── train/
+    │   │   ├── img1.txt
+    │   │   ├── img2.txt
+    │   │   └── ...
+    │   ├── valid/
+    │   └── test/
+    └── data.yaml
+
+CreateML JSON
+-------------
+
+Each split holds ``_annotations.createml.json``::
+
+    dataset_dir/
+    ├── train/
+    │   ├── img1.jpg
+    │   ├── img2.jpg
+    │   ├── ...
+    │   └── _annotations.createml.json
+    ├── valid/
+    └── test/
+
+TensorFlow Object Detection CSV
+-------------------------------
+
+Each split holds ``_annotations.csv``::
+
+    dataset_dir/
+    ├── train/
+    │   ├── img1.jpg
+    │   ├── img2.jpg
+    │   ├── ...
+    │   └── _annotations.csv
+    ├── valid/
+    └── test/
+
+SOLO
+----
+
+Each split holds the Unity Perception definition files and one directory for
+each sequence::
+
+    dataset_dir/
+    ├── train/
+    │   ├── metadata.json
+    │   ├── sensor_definitions.json
+    │   ├── annotation_definitions.json
+    │   ├── metric_definitions.json
+    │   └── sequence.<SequenceNUM>/
+    │       ├── step<StepNUM>.camera.jpg
+    │       ├── step<StepNUM>.frame_data.json
+    │       └── step<StepNUM>.camera.semantic segmentation.jpg
+    ├── valid/
+    └── test/
+
+The semantic segmentation image is optional. ``metadata.json`` declares
+``totalSequences``, and the parser warns when the count of sequence
+directories does not match it.
+
+Classification Directory
+------------------------
+
+One directory holds the images of one class. The split layout keeps the class
+directories inside the split directories::
+
+    dataset_dir/
+    ├── train/
+    │   ├── class1/
+    │   │   ├── img1.jpg
+    │   │   ├── img2.jpg
+    │   │   └── ...
+    │   ├── class2/
+    │   └── ...
+    ├── valid/
+    └── test/
+
+The flat layout puts the class directories in the root. The parser then makes
+random splits::
+
+    dataset_dir/
+    ├── class1/
+    │   ├── img1.jpg
+    │   └── ...
+    ├── class2/
+    │   └── ...
+    └── info.json
+
+``info.json`` is optional. It is the only file the root of a flat layout may
+hold.
+
+FiftyOne Classification
+-----------------------
+
+The images go in a ``data`` directory, and the labels go in ``labels.json``.
+The split layout gives each split its own pair::
+
+    dataset_dir/
+    ├── train/
+    │   ├── data/
+    │   │   ├── img1.jpg
+    │   │   └── ...
+    │   └── labels.json
+    ├── validation/
+    │   ├── data/
+    │   └── labels.json
+    └── test/
+        ├── data/
+        └── labels.json
+
+The flat layout holds one pair, and the parser then makes random splits::
+
+    dataset_dir/
+    ├── data/
+    │   ├── img1.jpg
+    │   └── ...
+    └── labels.json
+
+``labels.json`` holds a list of class names and a map from the image stem to
+the index of its class:
+
+.. code-block:: json
+
+    {
+      "classes": ["class1", "class2"],
+      "labels": {
+        "img1": 0,
+        "img2": 1
+      }
+    }
+
+Segmentation Mask Directory
+---------------------------
+
+Each split holds the images, the matching masks, and ``_classes.csv``::
+
+    dataset_dir/
+    ├── train/
+    │   ├── img1.jpg
+    │   ├── img1_mask.png
+    │   ├── ...
+    │   └── _classes.csv
+    ├── valid/
+    └── test/
+
+The mask of ``img1.jpg`` is ``img1_mask.png``. The parser needs a ``.jpg``
+image for each mask. An explicit ``DatasetType.SEGMASK`` does not change this
+rule. The masks are grayscale images, and each pixel value is a class.
+``_classes.csv`` maps the pixel values to the class names:
+
+.. code-block:: text
+
+    Pixel Value, Class
+    0, background
+    1, class1
+    2, class2
+
+The parser does not remove the whitespace from the class names. The row
+``0, background`` gives the class name ``" background"``, with the leading
+space.
+
+Native LDF
+----------
+
+``DatasetType.NATIVE`` reads back what `LuxonisDataset.export` writes with
+``--type native``. Use it to move a dataset between machines, or to read an
+LDF export without `LuxonisParser`::
+
+    dataset_dir/
+    ├── metadata.json
+    ├── train/
+    │   ├── annotations.json
+    │   └── images/
+    │       ├── 0.jpg
+    │       ├── 1.jpg
+    │       └── ...
+    ├── val/
+    │   ├── annotations.json
+    │   └── images/
+    └── test/
+        ├── annotations.json
+        └── images/
+
+``metadata.json`` holds the LDF version of the export, such as
+``{"ldf_version": "2.1.0"}``. It is optional, and the parser reads it only to
+warn about an export from a newer version. An export larger than
+``max_partition_size_gb`` is written as ``<name>_part0``, ``<name>_part1``,
+and so on, and each part repeats this layout.
+
+``annotations.json`` holds a list of records. Each record uses the same shape
+that `LuxonisDataset.add` accepts, so you can read one without `LuxonisParser`:
+
+.. code-block:: json
+
+    [
+      {
+        "file": "images/0.jpg",
+        "task_name": "detection",
+        "sample_metadata": {
+          "camera": "left"
+        },
+        "annotation": {
+          "instance_id": 0,
+          "class": "person",
+          "boundingbox": {
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          }
+        }
+      }
+    ]
+
+The keys of a record are:
+
+    - ``file`` holds the path of one image, relative to ``annotations.json``.
+      A record with several synchronized sources uses ``files`` instead, which
+      maps each source name to a path.
+    - ``task_name`` names the task group of the annotation.
+    - ``sample_metadata`` holds record-level metadata, such as a camera name
+      or a frame number. It is not an annotation label.
+    - ``annotation`` holds one detection. The export writes one record for
+      each detection, so several records can share the same ``file``.
+
+A detection holds a ``class``, an ``instance_id``, and its payload keys. A
+payload key is ``boundingbox``, ``keypoints``, ``segmentation``,
+``instance_segmentation``, or ``metadata``. The export writes at
+most one payload key in each record, but a hand-written detection may hold
+several at once. Boxes and keypoints use
+image-normalized coordinates. Masks are written as COCO RLE, with a
+``height``, a ``width``, and a compressed ``counts`` string:
+
+.. code-block:: json
+
+    {
+      "instance_id": 1,
+      "class": "road",
+      "segmentation": {
+        "height": 720,
+        "width": 1280,
+        "counts": "b14<000000000^3"
+      }
+    }
+
+Important:
+    The ``array`` annotation type is not yet supported for import.
+    The parser ignores any ``array`` payload key in the source dataset.
+
+See:
+    `luxonis_ml.ldf.annotation` for every payload key, the accepted mask
+    encodings, the coordinate conventions, and the metadata categories.
 
 Split Ratio Modes
 =================
@@ -209,8 +586,17 @@ Example:
 .. code-block:: bash
 
     luxonis_ml data parse ./dataset --name parking_lot --type coco
-    luxonis_ml data parse ./dataset --split-ratio 0.8,0.1,0.1
-    luxonis_ml data parse ./dataset --split-ratio 1000,100,50
+    luxonis_ml data parse ./dataset --train 0.8 --val 0.1 --test 0.1
+    luxonis_ml data parse ./dataset --train 1000 --val 100 --test 50
+
+Give ``--train``, ``--val``, and ``--test`` each their own value. If you set
+only some of them, the remaining splits share the leftover records equally.
+This applies to ratios only, not to counts.
+
+The older ``--split-ratio`` option takes one Python list literal of three
+values, such as ``--split-ratio "[0.8, 0.1, 0.1]"``. A comma-separated value
+without brackets raises ``ValueError``. The option is deprecated. Use
+``--train``, ``--val``, and ``--test`` instead.
 
 
 COCO Keypoints
@@ -239,6 +625,15 @@ Evaluation Dataset Notes
 COCO-2017
 ---------
 
+The FiftyOne layout is what the ``fiftyone`` package writes. Install it, then
+download one split at a time:
+
+.. code-block:: bash
+
+    fiftyone zoo datasets load coco-2017 \
+        --splits validation \
+        --kwargs max_samples=1000
+
 COCO parsing handles both FiftyOne and Roboflow layouts. Bounding boxes are
 normalized relative to image dimensions; polygon or RLE segmentations are
 stored as RLE; instance segmentation is emitted from the same segmentation
@@ -259,11 +654,17 @@ write cleaned annotation files when source metadata requires repair.
 ImageNet Sample
 ---------------
 
+The ImageNet-sample dataset holds 1,000 images across the 1,000 ImageNet
+classes, for image classification. Download it with the ``fiftyone`` package:
+
+.. code-block:: bash
+
+    fiftyone zoo datasets load imagenet-sample
+
 The ImageNet-sample parser handles FiftyOne image classification exports in
 flat ``data/`` plus ``labels.json`` form or in split-based
-``train/validation/test`` directories. Flat layouts are split randomly at parse
-time. ``labels.json`` contains ``classes`` and ``labels`` keys, where
-``labels`` maps image stems to class indices.
+``train/validation/test`` directories. The command above writes the flat form.
+The parser splits a flat layout randomly at parse time.
 
 Known ImageNet-sample label issues are cleaned automatically: duplicate
 ``"crane"`` and ``"maillot"`` class names are disambiguated, and known

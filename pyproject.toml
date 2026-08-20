@@ -8,13 +8,76 @@ license = "Apache-2.0"
 authors = [{ name = "Luxonis", email = "support@luxonis.com" }]
 maintainers = [{ name = "Luxonis", email = "support@luxonis.com" }]
 keywords = ["ml", "ops", "camera", "luxonis", "oak"]
-dynamic = ["dependencies", "optional-dependencies", "version"]
+dynamic = ["version"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Programming Language :: Python :: 3.10",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
   "Topic :: Scientific/Engineering :: Image Processing",
   "Topic :: Scientific/Engineering :: Image Recognition",
+]
+dependencies = [
+  "PyYAML~=6.0",
+  "cyclopts~=4.16",
+  "fsspec==2024.6.1",
+  "loguru~=0.7",
+  "pydantic-extra-types~=2.10",
+  "pydantic-settings~=2.1",
+  "pydantic~=2.7",
+  "rich~=15.0",
+  "semver~=3.0",
+  "typeguard~=4.1",
+]
+
+[project.optional-dependencies]
+ldf = ["numpy~=2.2", "pillow>=10.0", "pycocotools~=2.0"]
+data = [
+  "luxonis-ml[ldf]",
+  "albumentations>=2.0.0",
+  "bidict~=0.21",
+  "defusedxml~=0.7",
+  "filelock~=3.0",
+  "gdown~=6.1",
+  "matplotlib~=3.10",
+  "numpy~=2.2",
+  "opencv-python~=4.10",
+  "pillow-heif~=1.5",
+  "polars[timezone]~=1.43",
+  "pyarrow~=23.0",
+  "pycocotools~=2.0",
+  "requests~=2.32",
+]
+telemetry = ["posthog~=7.29"]
+tracker = ["numpy~=2.2", "opencv-python~=4.10", "unique-names-generator~=1.0"]
+# Public install targets whose dependencies are already in the base package.
+nn_archive = []
+utils = []
+
+gcs = ["gcsfs==2024.6.1"]
+mlflow = ["mlflow~=3.1"]
+roboflow = ["roboflow~=1.4"]
+s3 = ["s3fs==2024.6.1"]
+
+all = [
+  "luxonis-ml[data,gcs,ldf,mlflow,nn_archive,roboflow,s3,telemetry,tracker,utils]",
+]
+
+[dependency-groups]
+lint = ["prek~=0.4"]
+docs = ["pydoctor~=25.10"]
+dev = [
+  { include-group = "lint" },
+  { include-group = "docs" },
+  "luxonis-ml[all]",
+  "hypothesis~=6.161",
+  "onnx~=1.22",
+  "pyright~=1.1",
+  "pytest-clarity~=1.0",
+  "pytest-cov~=7.1",
+  "pytest-dependency~=0.6",
+  "pytest-split~=0.11",
+  "pytest-subtests~=0.15",
+  "pytest-xdist~=3.8",
 ]
 
 [project.scripts]
@@ -25,54 +88,18 @@ repository = "https://github.com/luxonis/luxonis-ml"
 issues = "https://github.com/luxonis/luxonis-ml/issues"
 
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
+
+[tool.uv]
+override-dependencies = ["opencv-python-headless; sys_platform == 'never'"]
 
 [tool.setuptools.packages.find]
 where = ["."]
+include = ["luxonis_ml*"]
 
 [tool.setuptools.dynamic]
-dependencies = { file = ["luxonis_ml/utils/requirements.txt"] }
 version = { attr = "luxonis_ml.__version__" }
-
-[tool.setuptools.dynamic.optional-dependencies]
-data = { file = ["luxonis_ml/data/requirements.txt"] }
-utils = { file = ["luxonis_ml/utils/requirements.txt"] }
-tracker = { file = ["luxonis_ml/tracker/requirements.txt"] }
-telemetry = { file = ["extra_requirements/posthog.txt"] }
-nn_archive = { file = ["luxonis_ml/nn_archive/requirements.txt"] }
-
-roboflow = { file = ["extra_requirements/roboflow.txt"] }
-gcs = { file = ["extra_requirements/gcs.txt"] }
-s3 = { file = ["extra_requirements/s3.txt"] }
-mlflow = { file = ["extra_requirements/mlflow.txt"] }
-
-[tool.setuptools.dynamic.optional-dependencies.all]
-file = [
-  "luxonis_ml/data/requirements.txt",
-  "luxonis_ml/utils/requirements.txt",
-  "luxonis_ml/tracker/requirements.txt",
-  "luxonis_ml/nn_archive/requirements.txt",
-  "extra_requirements/roboflow.txt",
-  "extra_requirements/gcs.txt",
-  "extra_requirements/s3.txt",
-  "extra_requirements/mlflow.txt",
-  "extra_requirements/posthog.txt",
-]
-
-[tool.setuptools.dynamic.optional-dependencies.dev]
-file = [
-  "luxonis_ml/data/requirements.txt",
-  "luxonis_ml/utils/requirements.txt",
-  "luxonis_ml/tracker/requirements.txt",
-  "luxonis_ml/nn_archive/requirements.txt",
-  "extra_requirements/roboflow.txt",
-  "extra_requirements/gcs.txt",
-  "extra_requirements/s3.txt",
-  "extra_requirements/mlflow.txt",
-  "extra_requirements/posthog.txt",
-  "requirements-dev.txt",
-]
 
 [tool.ruff]
 target-version = "py310"
@@ -176,8 +203,21 @@ style = "google"
 wrap-summaries = 72
 wrap-descriptions = 72
 
+[tool.pydoctor]
+docformat = "google"
+warnings-as-errors = true
+
 [tool.pyright]
-exclude = ["examples", "__main__.py"]
+pythonVersion = "3.10"
+exclude = [
+  "**/node_modules",
+  "**/__pycache__",
+  "**/.*",
+  "build",
+  "dist",
+  "examples",
+  "__main__.py",
+]
 typeCheckingMode = "basic"
 reportMissingTypeStubs = "none"
 reportPrivateImportUsage = "none"
@@ -185,10 +225,6 @@ reportPrivateUsage = "none"
 reportIncompatibleVariableOverride = "none"
 reportIncompatibleMethodOverride = "none"
 reportUnnecessaryIsInstance = "none"
-
-[tool.pyleft]
-paths = ["luxonis_train"]
-exclude = ["examples", "__main__.py"]
 
 [tool.pytest]
 doctest_optionflags = [
@@ -198,7 +234,6 @@ doctest_optionflags = [
 ]
 testpaths = ["tests", "luxonis_ml"]
 addopts = ["--disable-warnings", "--doctest-modules"]
-
 
 [tool.coverage.run]
 omit = ["luxonis_ml/utils/logging.py", "**/__main__.py"]

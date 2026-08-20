@@ -164,7 +164,7 @@ def test_export_edge_cases(
         save_dir=tempdir,
     ).parse()
 
-    dataset.make_splits(ratios=(1, 0, 0), replace_old_splits=True)
+    dataset.make_splits((1, 0, 0), replace_old_splits=True)
 
     loader = LuxonisLoader(dataset, view="train")
     original_data = [img for img, _ in loader]
@@ -188,7 +188,7 @@ def test_export_edge_cases(
                 delete_local=(i == 0),
                 save_dir=tempdir,
             ).parse()
-        dataset.make_splits(ratios=(1, 0, 0), replace_old_splits=True)
+        dataset.make_splits((1, 0, 0), replace_old_splits=True)
         loader = LuxonisLoader(dataset, view="train")
         new_data = [img for img, _ in loader]
         assert len(new_data) == len(original_data)

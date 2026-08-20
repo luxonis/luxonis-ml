@@ -24,23 +24,23 @@ def inspect(
     *,
     inputs: Annotated[
         bool,
-        Parameter(alias="-i", negative=""),
+        Parameter(alias="-i", negative=()),
     ] = False,
     metadata: Annotated[
         bool,
-        Parameter(alias="-m", negative=""),
+        Parameter(alias="-m", negative=()),
     ] = False,
     outputs: Annotated[
         bool,
-        Parameter(alias="-o", negative=""),
+        Parameter(alias="-o", negative=()),
     ] = False,
     heads: Annotated[
         bool,
-        Parameter(alias="-h", negative=""),
+        Parameter(alias="-h", negative=()),
     ] = False,
     buildinfo: Annotated[
         bool,
-        Parameter(alias="-b", negative=""),
+        Parameter(alias="-b", negative=()),
     ] = False,
 ):
     """Print NN Archive configuration.

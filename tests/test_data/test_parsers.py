@@ -5,6 +5,7 @@ from typing import Any, cast
 
 import pytest
 from loguru import logger
+from pydantic import SecretStr
 
 from luxonis_ml.data import (
     BaseDataset,
@@ -12,6 +13,7 @@ from luxonis_ml.data import (
     LuxonisParser,
     ParserIssue,
 )
+from luxonis_ml.data.parsers import luxonis_parser
 from luxonis_ml.data.parsers.base_parser import BaseParser, ParserOutput
 from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.enums import DatasetType
@@ -914,3 +916,84 @@ def test_partial_split_train_only_roboflow_coco_keeps_format_detection(
     assert len(splits["val"]) == 0
     assert len(splits["test"]) == 0
     dataset.delete_dataset(delete_local=True)
+
+
+class _FakeExportResponse:
+    """Stand-in for the export response of the Ultralytics API."""
+
+    ok = True
+
+    def json(self) -> dict[str, str]:
+        return {"downloadUrl": "https://storage.example.com/export.ndjson"}
+
+
+@pytest.fixture
+def ultralytics_requests(
+    monkeypatch: pytest.MonkeyPatch, tempdir: Path
+) -> list[dict[str, Any]]:
+    """Capture the requests that `_download_ultralytics_dataset` makes.
+
+    The live parser test skips without an API key, so these mocked
+    calls are the only coverage of the URL contract.
+    """
+    calls: list[dict[str, Any]] = []
+
+    def fake_get(url: str, **kwargs) -> _FakeExportResponse:
+        calls.append({"url": url, "params": kwargs.get("params")})
+        return _FakeExportResponse()
+
+    monkeypatch.setattr(
+        environ, "ULTRALYTICS_API_KEY", SecretStr("ul_" + "0" * 40)
+    )
+    monkeypatch.setattr(luxonis_parser.requests, "get", fake_get)
+    monkeypatch.setattr(
+        luxonis_parser,
+        "download_remote_file",
+        lambda url, destination, **_: destination.write_text("{}"),
+    )
+    return calls
+
+
+def test_ultralytics_url_uses_owner_and_name(
+    ultralytics_requests: list[dict[str, Any]], tempdir: Path
+):
+    """The API dropped the lookup by username and slug.
+
+    A `GET` on `/api/datasets` now answers 405, so the export must be
+    addressed by owner and name.
+    """
+    destination, name = LuxonisParser._download_ultralytics_dataset(
+        "ultralytics://acme-vision/datasets/warehouse", tempdir
+    )
+
+    assert len(ultralytics_requests) == 1
+    assert ultralytics_requests[0]["url"] == (
+        "https://platform.ultralytics.com/api"
+        "/datasets/acme-vision/warehouse/export"
+    )
+    assert ultralytics_requests[0]["params"] is None
+    assert name == "warehouse"
+    assert destination == tempdir / "warehouse.ndjson"
+
+
+def test_ultralytics_url_escapes_both_segments(
+    ultralytics_requests: list[dict[str, Any]], tempdir: Path
+):
+    LuxonisParser._download_ultralytics_dataset(
+        "ultralytics://a b/datasets/c d", tempdir
+    )
+
+    assert ultralytics_requests[0]["url"].endswith(
+        "/datasets/a%20b/c%20d/export"
+    )
+
+
+def test_ultralytics_version_selects_an_export(
+    ultralytics_requests: list[dict[str, Any]], tempdir: Path
+):
+    destination, _ = LuxonisParser._download_ultralytics_dataset(
+        "ultralytics://acme-vision/datasets/warehouse?v=3", tempdir
+    )
+
+    assert ultralytics_requests[0]["params"] == {"v": 3}
+    assert destination == tempdir / "warehouse.v3.ndjson"

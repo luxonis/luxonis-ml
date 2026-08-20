@@ -83,7 +83,7 @@ class BufferedCall(NamedTuple):
 
 
 def _json_default(obj: Any) -> Any:
-    """Serialize the values `json` does not know, such as NumPy
+    """Serialize the values ``json`` does not know, such as NumPy
     scalars.
     """
     if isinstance(obj, np.generic):
@@ -495,7 +495,7 @@ class LuxonisTracker:
     def _enforce_buffer_limit(
         self, kind: MLflowCall | None, limit: int
     ) -> None:
-        """Drop the oldest expendable buffered call once `limit` is
+        """Drop the oldest expendable buffered call once ``limit`` is
         exceeded.
 
         Hyperparameters and artifacts are only dropped when the buffer
@@ -665,7 +665,7 @@ class LuxonisTracker:
     def _save_image_locally(
         image_dir: Path, idx: int, name: str, image: np.ndarray
     ) -> str | None:
-        """Write a buffered image to `image_dir`.
+        """Write a buffered image to ``image_dir``.
 
         Returns the path it was written to, or ``None`` if the image
         could not be encoded.
@@ -838,8 +838,10 @@ class LuxonisTracker:
 
         if self.is_wandb:
             table = self.experiment["wandb"].Table(
-                columns=["Row Index"]
-                + [f"Col {i}" for i in range(matrix.shape[1])]
+                columns=[
+                    "Row Index",
+                    *[f"Col {i}" for i in range(matrix.shape[1])],
+                ]
             )
             for i, row in enumerate(matrix):
                 table.add_data(i, *row)
@@ -979,10 +981,10 @@ class LuxonisTracker:
         Waits for a run directory that was not there yet, because a run
         left over from an earlier training would otherwise be mistaken
         for the current one. Rank zero cannot be identified with any
-        certainty from here, so once `grace_period` has passed without a
+        certainty from here, so once ``grace_period`` has passed without a
         new run appearing this falls back to the newest existing one. It
-        raises `RuntimeError` if no run directory shows up within
-        `timeout`.
+        raises ``RuntimeError`` if no run directory shows up within
+        ``timeout``.
         """
         known = set(self._existing_runs())
         start = time.monotonic()

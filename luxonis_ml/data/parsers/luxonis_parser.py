@@ -5,7 +5,7 @@ from enum import Enum
 from importlib.util import find_spec
 from pathlib import Path
 from typing import Generic, TypeVar, overload
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 
 import requests
 from loguru import logger
@@ -119,7 +119,7 @@ class LuxonisParser(Generic[T]):
                     - Local path to the dataset directory.
 
                     - Remote URL supported by L{LuxonisFileSystem}.
-                        - ``gcs://`` for Google Cloud Storage
+                        - ``gcs://`` or ``gs://`` for Google Cloud Storage
                         - ``s3://`` for Amazon S3
 
                     - ``roboflow://`` for Roboflow datasets.
@@ -277,6 +277,13 @@ class LuxonisParser(Generic[T]):
 
         If the dataset already exists, parsing will be skipped and the
         existing dataset will be returned instead.
+
+        Note:
+            When the parser reads a single split, this method sets
+            ``random_split=True`` unless you pass your own value. This
+            differs from `BaseParser.parse_split`, which declares
+            ``random_split=False``. A single split therefore gets random
+            train, val, and test splits by default.
 
         Args:
             kwargs: Parser-specific arguments.
@@ -494,35 +501,12 @@ class LuxonisParser(Generic[T]):
                 "Expected `ultralytics://username/datasets/slug`."
             )
 
-        dataset_response = requests.get(
-            f"{ultralytics_api_base_url}/datasets",
-            headers=headers,
-            params={
-                "username": parsed.netloc,
-                "slug": path_parts[1],
-            },
-            timeout=30.0,
-        )
-        if not dataset_response.ok:
-            try:
-                error = dataset_response.json().get("error")
-            except ValueError:
-                error = dataset_response.text
-
-            raise RuntimeError(
-                f"Ultralytics API request failed "
-                f"({dataset_response.status_code}): {error}"
-            )
-
-        dataset = dataset_response.json()["dataset"]
-
-        dataset_id = dataset["_id"]
-
-        export_params = {"v": version} if version is not None else None
+        name = path_parts[1]
         export_response = requests.get(
-            f"{ultralytics_api_base_url}/datasets/{dataset_id}/export",
+            f"{ultralytics_api_base_url}/datasets"
+            f"/{quote(parsed.netloc)}/{quote(name)}/export",
             headers=headers,
-            params=export_params,
+            params={"v": version} if version is not None else None,
             timeout=120.0,
         )
         if not export_response.ok:
@@ -540,14 +524,9 @@ class LuxonisParser(Generic[T]):
 
         download_url = export_response.json()["downloadUrl"]
 
-        file_stem = dataset["slug"]
-        dataset_name = dataset["name"]
         local_path = local_path or Path.cwd()
-        destination = (
-            local_path / f"{file_stem}.v{version}.ndjson"
-            if version is not None
-            else local_path / f"{file_stem}.ndjson"
-        )
+        version_suffix = f".v{version}" if version is not None else ""
+        destination = local_path / f"{name}{version_suffix}.ndjson"
         download_remote_file(download_url, destination, timeout=120.0)
 
-        return destination, dataset_name
+        return destination, name

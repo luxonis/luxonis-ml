@@ -24,7 +24,7 @@ optional stage filtering through ``apply_on_stages``. When
 The engine groups transforms by behavior rather than preserving the exact
 input order:
 
-    1. Batch transforms, such as `MixUp` and `Mosaic4`.
+    1. Batch transforms, such as `MixUp` or `Mosaic4`.
     2. Spatial transforms, such as Albumentations dual transforms.
     3. Custom basic transforms.
     4. Pixel-only transforms.
@@ -51,6 +51,28 @@ For example, a pipeline that contains `MixUp` and `Mosaic4` requires
 Custom augmentation engines can be added by subclassing `AugmentationEngine`.
 Subclasses are automatically registered in `AUGMENTATION_ENGINES`.
 
+`LuxonisLoader` builds the engine for you. Pass the configuration as a list
+of records, or as the path of a YAML or JSON file that holds the same list:
+
+.. python::
+
+    from luxonis_ml.data import LuxonisDataset, LuxonisLoader
+
+    loader = LuxonisLoader(
+        LuxonisDataset("parking_lot"),
+        view="train",
+        augmentation_engine="albumentations",
+        augmentation_config="augmentations.yaml",
+        height=256,
+        width=320,
+        keep_aspect_ratio=True,
+        color_space="RGB",
+    )
+
+    for sample in loader:
+        images = sample.images
+        labels = sample.labels
+
 
 Custom Transforms
 =================
@@ -59,7 +81,13 @@ Custom transforms follow Albumentations conventions. Subclass an appropriate
 base class such as ``DualTransform`` or ``ImageOnlyTransform``, implement the
 target methods needed by your labels, register the class in
 `luxonis_ml.data.augmentations.custom.TRANSFORMATIONS`, and reference the
-class name in loader configuration.
+class name in loader configuration. The `Albumentations guide
+<https://albumentations.ai/docs/4-advanced-guides/creating-custom-transforms/>`__
+explains the base classes and the target methods.
+
+To combine several samples into one, subclass `BatchTransform` instead of an
+Albumentations base class. `CutMix`, `MixUp`, and `Mosaic4` are the built-in
+examples. Registration and configuration work the same way.
 
 .. python::
 
@@ -97,6 +125,9 @@ A custom engine should subclass `AugmentationEngine` and implement:
       transformed values;
     - ``batch_size`` to tell `LuxonisLoader` how many source samples are
       needed per augmented output.
+
+Engines may also override `AugmentationEngine.applied_augmentations` to
+report the configured paths and runtime parameters of their latest call.
 """
 
 from .albumentations_engine import AlbumentationsEngine

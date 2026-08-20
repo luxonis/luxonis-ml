@@ -20,12 +20,10 @@ from luxonis_ml.data import (
     LuxonisParser,
     UpdateMode,
 )
-from luxonis_ml.data.utils.augmentations_collector import (
-    AugmentationsCollector,
-)
 from luxonis_ml.data.utils.cli_utils import (
     check_exists,
     get_dataset_info,
+    get_tracked_augmentations,
     parse_split_ratio,
     print_info,
 )
@@ -44,6 +42,12 @@ app = App(help="Dataset utilities.")
 
 
 BucketStorageT: TypeAlias = Annotated[BucketStorage, Parameter(alias="-b")]
+
+# pydoctor parses each string in an annotation as a forward reference,
+# and ".json" is not one. The extensions stay out of the annotation.
+AUG_CONFIG_VALIDATOR = validators.Path(
+    exists=True, ext={".json", ".yaml", ".yml"}
+)
 
 
 @app.command
@@ -69,13 +73,13 @@ def delete(
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
     local: Annotated[
         bool,
-        Parameter(alias="-l", negative=""),
+        Parameter(alias="-l", negative=()),
     ] = False,
     remote: Annotated[
         bool,
-        Parameter(alias="-r", negative=""),
+        Parameter(alias="-r", negative=()),
     ] = False,
-    yes: Annotated[bool, Parameter(alias="-y", negative="")] = False,
+    yes: Annotated[bool, Parameter(alias="-y", negative=())] = False,
 ):
     """Delete a dataset from local storage, remote storage, or both.
 
@@ -190,12 +194,7 @@ def inspect(
     view: Annotated[list[str] | None, Parameter(alias="-v")] = None,
     aug_config: Annotated[
         Path | None,
-        Parameter(
-            alias="-a",
-            validator=validators.Path(
-                exists=True, ext={".json", ".yaml", ".yml"}
-            ),
-        ),
+        Parameter(alias="-a", validator=AUG_CONFIG_VALIDATOR),
     ] = None,
     size_multiplier: Annotated[
         float,
@@ -203,35 +202,35 @@ def inspect(
     ] = 1.0,
     ignore_aspect_ratio: Annotated[
         bool,
-        Parameter(alias="-i", negative=""),
+        Parameter(alias="-i", negative=()),
     ] = False,
     deterministic: Annotated[
         bool,
-        Parameter(alias="-d", negative=""),
+        Parameter(alias="-d", negative=()),
     ] = False,
     force_update: Annotated[
         bool,
-        Parameter(alias="-f", negative=""),
+        Parameter(alias="-f", negative=()),
     ] = False,
     blend_all: Annotated[
         bool,
-        Parameter(alias="-bl", negative=""),
+        Parameter(alias="-bl", negative=()),
     ] = False,
     per_instance: Annotated[
         bool,
-        Parameter(alias="-pi", negative=""),
+        Parameter(alias="-pi", negative=()),
     ] = False,
     list_augmentations: Annotated[
         bool,
-        Parameter(negative=""),
+        Parameter(negative=()),
     ] = False,
     print_sample_metadata: Annotated[
         bool,
-        Parameter(negative=""),
+        Parameter(negative=()),
     ] = True,
     skeletons: Annotated[
         bool,
-        Parameter(negative=""),
+        Parameter(negative=()),
     ] = False,
     keypoint_labels: Annotated[
         Literal["none", "numbers", "names", "full"],
@@ -265,6 +264,12 @@ def inspect(
 
     """
     check_exists(name, bucket_storage)
+    if list_augmentations and aug_config is None:
+        logger.warning(
+            "The '--list-augmentations' option requires "
+            "'--aug-config' to be set. No augmentations will be listed."
+        )
+        list_augmentations = False
 
     view = view or ["train"]
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
@@ -296,24 +301,6 @@ def inspect(
             seed=42 if deterministic else None,
         )
 
-    if list_augmentations:
-        if aug_config is None:
-            logger.warning(
-                "--list-augmentations was set but --aug-config was not "
-                "provided. No augmentations will be shown."
-            )
-            get_applied_augmentations = list
-        elif loader._augmentations is not None:
-            collector = AugmentationsCollector(
-                loader._augmentations,  # type: ignore
-                aug_config,
-            )
-            get_applied_augmentations = collector.get_applied_augmentations
-        else:
-            get_applied_augmentations = list
-    else:
-        get_applied_augmentations = list
-
     classes = dataset.get_classes()
     categorical_encodings = dataset.get_categorical_encodings()
     keypoint_skeletons = (
@@ -326,9 +313,17 @@ def inspect(
     for data in loader:
         images_dict = data.images
         labels = data.labels
+        tracked_augmentations = get_tracked_augmentations(data.metadata)
 
         if print_sample_metadata:
-            print("Sample metadata:", data.metadata)
+            metadata = data.metadata
+            if not list_augmentations and tracked_augmentations is not None:
+                # The runtime parameters of every transformation would bury
+                # the record metadata this flag exists to show.
+                metadata = {
+                    k: v for k, v in metadata.items() if k != "augmentations"
+                }
+            print("Sample metadata:", metadata)
 
         current_windows = set(images_dict.keys())
         for stale_window in prev_windows - current_windows:
@@ -379,7 +374,7 @@ def inspect(
                     )
                     if list_augmentations:
                         instance_image = add_augmentation_footer(
-                            instance_image, get_applied_augmentations()
+                            instance_image, list(tracked_augmentations or {})
                         )
                     cv2.resizeWindow(
                         source_name,
@@ -408,7 +403,7 @@ def inspect(
                 )
                 if list_augmentations:
                     labeled_image = add_augmentation_footer(
-                        labeled_image, get_applied_augmentations()
+                        labeled_image, list(tracked_augmentations or {})
                     )
                 cv2.resizeWindow(
                     source_name, labeled_image.shape[1], labeled_image.shape[0]
@@ -441,7 +436,7 @@ def export(
         Parameter(
             name="--delete",
             alias="-d",
-            negative="",
+            negative=(),
         ),
     ] = False,
     max_partition_size_gb: Annotated[
@@ -449,6 +444,7 @@ def export(
         Parameter(alias="-m"),
     ] = None,
     zip: bool = True,
+    ldf_version: str | None = None,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
     """Export a Luxonis dataset to disk.
@@ -466,6 +462,10 @@ def export(
         zip: If ``True``, the exported dataset will be zipped into a
             single archive. If ``False``, the dataset will be exported as a
             directory with the specified structure.
+        ldf_version: LDF version to write, such as ``2.0``, so the export
+            can be read by an older luxonis-ml. Only valid with
+            ``--type native``. Downgrading is lossy and warns about what
+            it drops.
         bucket_storage: Storage type of the dataset.
 
     """
@@ -473,7 +473,13 @@ def export(
     if delete_existing and Path(save_dir).exists():
         shutil.rmtree(save_dir)
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
-    dataset.export(save_dir, dataset_type, max_partition_size_gb, zip)
+    dataset.export(
+        save_dir,
+        dataset_type=dataset_type,
+        max_partition_size_gb=max_partition_size_gb,
+        zip_output=zip,
+        ldf_version=ldf_version,
+    )
 
 
 @app.command
@@ -500,7 +506,7 @@ def parse(
         Parameter(
             name="--delete",
             alias="-d",
-            negative="",
+            negative=(),
         ),
     ] = False,
     save_dir: Annotated[
@@ -757,7 +763,7 @@ def push(
     bucket_storage: BucketStorage,
     force: Annotated[
         bool,
-        Parameter(alias="-f", negative=""),
+        Parameter(alias="-f", negative=()),
     ] = False,
 ):
     """Push a local dataset to cloud storage.
@@ -806,7 +812,7 @@ def pull(
     *,
     force: Annotated[
         bool,
-        Parameter(alias="-f", negative=""),
+        Parameter(alias="-f", negative=()),
     ] = False,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
@@ -850,7 +856,7 @@ def clone(
     *,
     push: Annotated[
         bool,
-        Parameter(alias="-p", negative=""),
+        Parameter(alias="-p", negative=()),
     ] = True,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
     split: Annotated[
