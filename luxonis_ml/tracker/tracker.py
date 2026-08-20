@@ -444,7 +444,11 @@ class LuxonisTracker:
         if self.local_logs:
             # replay the buffered calls first so the order is preserved
             self._buffer(call)
-            self.log_stored_logs_to_mlflow()
+            # a server that failed a moment ago is not asked again until
+            # the backoff expires, or every logged value would pay for
+            # the outage twice over
+            if time.monotonic() >= self._mlflow_retry_at:
+                self.log_stored_logs_to_mlflow()
             return
 
         try:
@@ -563,6 +567,11 @@ class LuxonisTracker:
                 self._perform_mlflow_call(mlflow, call)
             except Exception as e:
                 if not self._replay_next_call(mlflow):
+                    # the server answers nothing at all, so hold off
+                    # before the next attempt
+                    self._mlflow_retry_at = (
+                        time.monotonic() + MLFLOW_RETRY_INTERVAL
+                    )
                     logger.warning(
                         f"Failed to re-log stored logs to MLflow: {e}"
                     )
@@ -932,11 +941,12 @@ class LuxonisTracker:
         succeeded = status in {"success", "finished"}
 
         if self.is_mlflow:
-            if self.local_logs and not self.mlflow_initialized:
+            if self.local_logs:
                 # give an MLflow server that came back up a last chance,
                 # for which the backoff has to be waived
                 self._mlflow_retry_at = 0.0
-                self._init_mlflow()
+                if not self.mlflow_initialized:
+                    self._init_mlflow()
             self.log_stored_logs_to_mlflow()
             if self.local_logs:
                 self._finalize_backend(

@@ -1098,3 +1098,28 @@ def test_a_full_buffer_keeps_the_call_that_just_arrived(
 
     kinds = [call.kind for call in mlflow_tracker.local_logs]
     assert kinds == ["log_artifact", "log_artifact", "log_metric"]
+
+
+def test_an_outage_after_a_good_start_backs_off(
+    mlflow_tracker: LuxonisTracker, fake_backends: SimpleNamespace
+) -> None:
+    """A server that dies mid-run must be asked again only once per
+    backoff. Without it every logged value pays for two failed round
+    trips, which is the stall the backoff exists to prevent.
+    """
+    mlflow_tracker.log_metric("loss", 0.0, 0)
+    fake_backends.mlflow.fail_after = len(fake_backends.mlflow.calls)
+
+    attempts: list[str] = []
+    record = fake_backends.mlflow._record
+
+    def counting(name: str, *args: object) -> None:
+        attempts.append(name)
+        record(name, *args)
+
+    fake_backends.mlflow._record = counting
+    for step in range(1, 11):
+        mlflow_tracker.log_metric("loss", float(step), step)
+
+    assert len(attempts) <= 3
+    assert len(mlflow_tracker.local_logs) == 10
