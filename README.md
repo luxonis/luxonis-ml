@@ -55,13 +55,6 @@ tracking, and utility layers that the other Luxonis tools build on.
    luxonis_ml data parse "roboflow://team-roboflow/coco-128/2/coco" --name coco_test
    ```
 
-   > [!IMPORTANT]
-   > A `roboflow://` source needs the `ROBOFLOW_API_KEY` environment variable.
-   > Get your key from the
-   > [Roboflow settings](https://app.roboflow.com/settings/api). The
-   > [Roboflow documentation](https://docs.roboflow.com/reference/authentication/authentication/find-your-roboflow-api-key)
-   > gives the steps.
-
 1. **Inspect the result**
 
    ```bash
@@ -80,6 +73,13 @@ tracking, and utility layers that the other Luxonis tools build on.
        images = sample.images
        labels = sample.labels
    ```
+
+> [!IMPORTANT]
+> A `roboflow://` source needs the `ROBOFLOW_API_KEY` environment variable.
+> Get your key from the
+> [Roboflow settings](https://app.roboflow.com/settings/api). The
+> [Roboflow documentation](https://docs.roboflow.com/reference/authentication/authentication/find-your-roboflow-api-key)
+> gives the steps.
 
 > [!NOTE]
 > For hands-on examples of how to prepare data with `LuxonisML` and train AI models using `LuxonisTrain`, check out [this guide](https://github.com/luxonis/ai-tutorials/tree/main/training).
