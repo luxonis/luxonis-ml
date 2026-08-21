@@ -229,6 +229,10 @@ reportPrivateUsage = "none"
 reportIncompatibleVariableOverride = "none"
 reportIncompatibleMethodOverride = "none"
 reportUnnecessaryIsInstance = "none"
+# `LuxonisTracker.experiment` maps each backend to its own handle, and a
+# backend is absent until it starts. Only the enabled ones are ever read,
+# which the checker cannot see from the flags.
+reportTypedDictNotRequiredAccess = "none"
 
 [tool.pytest]
 doctest_optionflags = [

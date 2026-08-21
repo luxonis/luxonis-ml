@@ -3,17 +3,19 @@ import os
 import re
 import shutil
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import wraps
 from importlib.util import find_spec
 from pathlib import Path
 from types import ModuleType, TracebackType
 from typing import (
-    Any,
+    TYPE_CHECKING,
     Concatenate,
     Literal,
     NamedTuple,
     ParamSpec,
+    TypeAlias,
+    TypedDict,
     TypeVar,
 )
 
@@ -23,12 +25,30 @@ from loguru import logger
 from typing_extensions import Self
 from unique_names_generator import get_random_name
 
-from luxonis_ml.typing import PathType
+from luxonis_ml.typing import ParamValue, PathType
+
+# The backend SDKs are optional at runtime, and each one is imported only
+# when its own flag is turned on. The types are needed here regardless.
+if TYPE_CHECKING:  # pragma: no cover
+    from torch.utils.tensorboard.writer import SummaryWriter
+    from wandb.sdk.wandb_run import Run as WandbRun
 
 P = ParamSpec("P")
 T = TypeVar("T")
 
-Backend = Literal["tensorboard", "wandb", "wandb_run", "mlflow"]
+
+class Experiment(TypedDict, total=False):
+    """Handles of the backends that have been initialized.
+
+    A backend is absent until its initialization succeeds, so the
+    presence of a key means the backend is ready to use.
+    """
+
+    tensorboard: "SummaryWriter"
+    wandb: ModuleType
+    wandb_run: "WandbRun"
+    mlflow: ModuleType
+
 
 MLflowCall = Literal[
     "log_metric",
@@ -38,6 +58,42 @@ MLflowCall = Literal[
     "log_dict",
     "log_artifact",
 ]
+
+LogValue: TypeAlias = ParamValue | np.ndarray | Path
+"""A value that can end up in ``local_logs.json``.
+
+`_json_default` serializes the values ``json`` itself does not know, so
+an array or a path is as acceptable as a primitive.
+"""
+
+MLflowArg: TypeAlias = (
+    str | int | float | np.ndarray | Mapping[str, LogValue] | None
+)
+"""One positional argument of a buffered MLflow call.
+
+A metric name, a metric value, a step, an image, a mapping of parameters
+or of matrix data, or an artifact path.
+"""
+
+LogRecord: TypeAlias = dict[str, MLflowArg]
+"""One buffered call, keyed by the argument names of its kind."""
+
+LogGroup: TypeAlias = Literal[
+    "metric", "metrics", "params", "images", "artifacts", "matrices"
+]
+"""Top-level key of ``local_logs.json``."""
+
+
+class LocalLogGroups(TypedDict):
+    """The buffered calls of a run, grouped for ``local_logs.json``."""
+
+    metric: list[LogRecord]
+    metrics: list[LogRecord]
+    params: dict[str, LogValue]
+    images: list[LogRecord]
+    artifacts: list[LogRecord]
+    matrices: list[LogRecord]
+
 
 MAX_BUFFERED_LOGS = 500
 """Maximum number of MLflow calls buffered during an outage."""
@@ -52,7 +108,7 @@ more aggressively than the other calls.
 MLFLOW_RETRY_INTERVAL = 60.0
 """Seconds to wait before retrying a failed MLflow initialization."""
 
-_LOG_GROUPS: dict[MLflowCall, tuple[str, tuple[str, ...]]] = {
+_LOG_GROUPS: dict[MLflowCall, tuple[LogGroup, tuple[str, ...]]] = {
     "log_metric": ("metric", ("name", "value", "step")),
     "log_metrics": ("metrics", ("metrics", "step")),
     "log_params": ("params", ("params",)),
@@ -79,10 +135,10 @@ class BufferedCall(NamedTuple):
     """
 
     kind: MLflowCall
-    args: tuple[Any, ...]
+    args: tuple[MLflowArg, ...]
 
 
-def _json_default(obj: Any) -> Any:
+def _json_default(obj: object) -> ParamValue:
     """Serialize the values ``json`` does not know, such as NumPy
     scalars.
     """
@@ -210,7 +266,7 @@ class LuxonisTracker:
         if not (self.is_tensorboard or self.is_wandb or self.is_mlflow):
             raise ValueError("At least one integration must be used!")
 
-        self._experiment: dict[Backend, Any] = {}
+        self._experiment: Experiment = {}
         self._mlflow_retry_at = 0.0
         self._closed = False
         self._buffered_artifacts = 0
@@ -278,7 +334,7 @@ class LuxonisTracker:
         return int(number) if number.isdecimal() else 0
 
     @property
-    def experiment(self) -> dict[Backend, Any]:
+    def experiment(self) -> Experiment:
         """Creates new experiments or returns active ones if already
         created.
 
@@ -410,7 +466,7 @@ class LuxonisTracker:
                 f"{MLFLOW_RETRY_INTERVAL:.0f} seconds."
             )
 
-    def _mlflow_call(self, kind: MLflowCall, *args: Any) -> None:
+    def _mlflow_call(self, kind: MLflowCall, *args: MLflowArg) -> None:
         """Send a call to MLflow, buffering it if MLflow is unavailable.
 
         The positional arguments are what gets buffered, so they have to
@@ -479,7 +535,9 @@ class LuxonisTracker:
         keeps artifacts that share a file name apart. The returned call
         points at the copy, or is the original one if the copy failed.
         """
-        source = Path(call.args[0])
+        path = call.args[0]
+        assert isinstance(path, str)
+        source = Path(path)
         target = self._next_artifact_directory() / source.name
 
         try:
@@ -631,9 +689,12 @@ class LuxonisTracker:
         for idx, image in enumerate(
             grouped["images"][first_image:], start=first_image
         ):
+            name, data = image["name"], image["image_data"]
+            assert isinstance(name, str)
+            assert isinstance(data, np.ndarray)
             # replace the image data with the path it was written to
             image["image_data"] = self._save_image_locally(
-                image_dir, idx, image["name"], image["image_data"]
+                image_dir, idx, name, data
             )
 
         with open(log_path, "w") as f:
@@ -649,7 +710,7 @@ class LuxonisTracker:
         )
 
     @staticmethod
-    def _empty_log_groups() -> dict[str, Any]:
+    def _empty_log_groups() -> LocalLogGroups:
         """Return the empty group structure of ``local_logs.json``."""
         return {
             "metrics": [],
@@ -660,7 +721,7 @@ class LuxonisTracker:
             "matrices": [],
         }
 
-    def _load_saved_logs(self, log_path: Path) -> dict[str, Any]:
+    def _load_saved_logs(self, log_path: Path) -> LocalLogGroups:
         """Load an earlier local save so a later one adds to it."""
         grouped = self._empty_log_groups()
         if not log_path.exists():
@@ -681,15 +742,17 @@ class LuxonisTracker:
         return grouped
 
     def _group_local_logs(
-        self, grouped: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+        self, grouped: LocalLogGroups | None = None
+    ) -> LocalLogGroups:
         """Group the buffered calls by kind for local serialization."""
         grouped = grouped if grouped is not None else self._empty_log_groups()
         for call in self.local_logs:
             group, fields = _LOG_GROUPS[call.kind]
             record = dict(zip(fields, call.args, strict=True))
             if group == "params":
-                grouped["params"].update(record["params"])
+                params = record["params"]
+                assert isinstance(params, Mapping)
+                grouped["params"].update(params)
             else:
                 grouped[group].append(record)
         return grouped
@@ -847,7 +910,7 @@ class LuxonisTracker:
         matrix: np.ndarray,
         name: str,
         step: int,
-        extra_data: dict | None = None,
+        extra_data: Mapping[str, LogValue] | None = None,
     ) -> None:
         r"""Log a matrix to the enabled logging services.
 
@@ -861,7 +924,7 @@ class LuxonisTracker:
 
         """
         if self.is_mlflow:
-            matrix_data: dict = {
+            matrix_data: dict[str, LogValue] = {
                 "flat_array": matrix.flatten().tolist(),
                 "shape": matrix.shape,
             }
@@ -989,7 +1052,7 @@ class LuxonisTracker:
 
     @staticmethod
     def _finalize_backend(
-        name: str, finalize: Callable[..., Any], *args: Any
+        name: str, finalize: Callable[..., None], *args: str | int
     ) -> None:
         """Shut a backend down without letting it break the teardown."""
         try:

@@ -10,9 +10,18 @@ paths.
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import TypeAlias
 
+import numpy as np
 import pytest
+
+from luxonis_ml.tracker.tracker import LogValue, MLflowArg
+
+Scalar: TypeAlias = int | float | np.generic
+"""A cell of a logged matrix, which numpy hands over as its own scalar."""
+
+WandbImage: TypeAlias = dict[str, np.ndarray | str]
+"""What `FakeWandb.Image` hands back."""
 
 
 class FakeSummaryWriter:
@@ -20,9 +29,9 @@ class FakeSummaryWriter:
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.scalars: list[tuple[str, float, int]] = []
-        self.images: list[tuple[str, Any, int, str]] = []
+        self.images: list[tuple[str, np.ndarray, int, str]] = []
         self.texts: list[tuple[str, str, int]] = []
-        self.hparams: list[dict[str, Any]] = []
+        self.hparams: list[dict[str, LogValue]] = []
         self.closed = False
         self.fail_on_close = False
 
@@ -30,7 +39,7 @@ class FakeSummaryWriter:
         self.scalars.append((name, value, step))
 
     def add_image(
-        self, name: str, img: Any, step: int, dataformats: str
+        self, name: str, img: np.ndarray, step: int, dataformats: str
     ) -> None:
         self.images.append((name, img, step, dataformats))
 
@@ -38,7 +47,7 @@ class FakeSummaryWriter:
         self.texts.append((name, text, step))
 
     def add_hparams(
-        self, hparams: dict[str, Any], metrics: dict[str, Any]
+        self, hparams: dict[str, LogValue], metrics: dict[str, float]
     ) -> None:
         self.hparams.append(hparams)
         self.hparam_metrics = metrics
@@ -51,9 +60,9 @@ class FakeSummaryWriter:
 
 class FakeConfig:
     def __init__(self):
-        self.params: dict[str, Any] = {}
+        self.params: dict[str, LogValue] = {}
 
-    def update(self, params: dict[str, Any]) -> None:
+    def update(self, params: dict[str, LogValue]) -> None:
         self.params.update(params)
 
 
@@ -70,23 +79,28 @@ class FakeArtifact:
 class FakeTable:
     def __init__(self, columns: list[str]):
         self.columns = columns
-        self.rows: list[tuple] = []
+        self.rows: list[tuple[Scalar, ...]] = []
 
-    def add_data(self, *row: Any) -> None:
+    def add_data(self, *row: Scalar) -> None:
         self.rows.append(row)
 
 
+# Defined here, because it names `FakeTable`.
+WandbLogValue: TypeAlias = float | WandbImage | FakeTable
+"""A value the tracker logs through a WandB run."""
+
+
 class FakeWandbRun:
-    def __init__(self, **init_kwargs: Any):
+    def __init__(self, **init_kwargs: str | Path | None):
         self.init_kwargs = init_kwargs
-        self.logged: list[dict[str, Any]] = []
+        self.logged: list[dict[str, WandbLogValue]] = []
         self.artifacts: list[FakeArtifact] = []
         self.config = FakeConfig()
         self.exit_code: int | None = None
         self.fail_on_finish = False
 
     # `log` deliberately takes no `step`; passing one would be an error
-    def log(self, data: dict[str, Any]) -> None:
+    def log(self, data: dict[str, WandbLogValue]) -> None:
         self.logged.append(data)
 
     def log_artifact(self, artifact: FakeArtifact) -> None:
@@ -107,10 +121,10 @@ class FakeWandb:
         self.init_attempts = 0
         self.fail_init = False
 
-    def Image(self, img: Any, caption: str) -> dict[str, Any]:
+    def Image(self, img: np.ndarray, caption: str) -> WandbImage:
         return {"img": img, "caption": caption}
 
-    def init(self, **kwargs: Any) -> FakeWandbRun:
+    def init(self, **kwargs: str | Path | None) -> FakeWandbRun:
         self.init_attempts += 1
         if self.fail_init:
             raise RuntimeError("wandb is unreachable")
@@ -122,9 +136,9 @@ class FakeMlflow:
     def __init__(self):
         self.tracking_uri: str | None = None
         self.system_metrics = False
-        self.experiment_kwargs: dict[str, Any] | None = None
-        self.run_kwargs: dict[str, Any] | None = None
-        self.calls: list[tuple[str, tuple]] = []
+        self.experiment_kwargs: dict[str, str | None] | None = None
+        self.run_kwargs: dict[str, str | bool | None] | None = None
+        self.calls: list[tuple[str, tuple[MLflowArg, ...]]] = []
         self.init_attempts = 0
         self.end_run_calls: list[str] = []
 
@@ -169,29 +183,29 @@ class FakeMlflow:
             info=SimpleNamespace(run_id=run_id or "run-1"),
         )
 
-    def _record(self, name: str, *args: Any) -> None:
+    def _record(self, name: str, *args: MLflowArg) -> None:
         if name in self.reject_kinds:
             raise RuntimeError(f"mlflow rejects {name}")
         if self.fail_after is not None and len(self.calls) >= self.fail_after:
             raise RuntimeError("mlflow is unreachable")
         self.calls.append((name, args))
 
-    def log_metric(self, *args: Any) -> None:
+    def log_metric(self, *args: MLflowArg) -> None:
         self._record("log_metric", *args)
 
-    def log_metrics(self, *args: Any) -> None:
+    def log_metrics(self, *args: MLflowArg) -> None:
         self._record("log_metrics", *args)
 
-    def log_params(self, *args: Any) -> None:
+    def log_params(self, *args: MLflowArg) -> None:
         self._record("log_params", *args)
 
-    def log_image(self, *args: Any) -> None:
+    def log_image(self, *args: MLflowArg) -> None:
         self._record("log_image", *args)
 
-    def log_dict(self, *args: Any) -> None:
+    def log_dict(self, *args: MLflowArg) -> None:
         self._record("log_dict", *args)
 
-    def log_artifact(self, *args: Any) -> None:
+    def log_artifact(self, *args: MLflowArg) -> None:
         self._record("log_artifact", *args)
 
     def end_run(self, status: str) -> None:

@@ -10,11 +10,25 @@ import pytest
 from luxonis_ml.tracker import tracker as tracker_module
 from luxonis_ml.tracker.tracker import LuxonisTracker
 
-from .conftest import FakeSummaryWriter
+from .conftest import FakeSummaryWriter, FakeTable, FakeWandbRun
 
 
 def rgb_image() -> np.ndarray:
     return np.full((4, 4, 3), 128, dtype=np.uint8)
+
+
+def writer_of(tracker: LuxonisTracker) -> FakeSummaryWriter:
+    """Return the fake TensorBoard writer the tracker logs through."""
+    writer = tracker.experiment["tensorboard"]
+    assert isinstance(writer, FakeSummaryWriter)
+    return writer
+
+
+def run_of(tracker: LuxonisTracker) -> FakeWandbRun:
+    """Return the fake WandB run the tracker logs through."""
+    run = tracker.experiment["wandb_run"]
+    assert isinstance(run, FakeWandbRun)
+    return run
 
 
 @pytest.fixture
@@ -210,7 +224,7 @@ def test_tensorboard_logs_the_whole_matrix(tb_tracker: LuxonisTracker) -> None:
     matrix = np.arange(2000).reshape(40, 50)
     tb_tracker.log_matrix(matrix, "confusion", 1)
 
-    name, text, step = tb_tracker.experiment["tensorboard"].texts[0]
+    name, text, step = writer_of(tb_tracker).texts[0]
     assert (name, step) == ("confusion", 1)
     # numpy summarizes arrays over 1000 elements unless told otherwise
     assert "..." not in text
@@ -226,7 +240,7 @@ def test_sweep_runs_get_their_own_trial_directory(tempdir: Path) -> None:
             is_tensorboard=True,
             is_sweep=True,
         )
-        writer = tracker.experiment["tensorboard"]
+        writer = writer_of(tracker)
         assert writer.log_dir.name == f"trial_{trial}"
 
 
@@ -235,7 +249,7 @@ def test_wandb_logging(
     fake_backends: SimpleNamespace,
     tempdir: Path,
 ) -> None:
-    run = wandb_tracker.experiment["wandb_run"]
+    run = run_of(wandb_tracker)
     assert run.init_kwargs["project"] == "project"
     assert run.init_kwargs["entity"] == "entity"
     assert run.init_kwargs["name"] == "run"
@@ -259,7 +273,9 @@ def test_wandb_logging(
         "img": pytest.approx(rgb_image()),
         "caption": "vis",
     }
-    assert run.logged[3]["confusion_table"].rows == [(0, 0, 1), (1, 2, 3)]
+    table = run.logged[3]["confusion_table"]
+    assert isinstance(table, FakeTable)
+    assert table.rows == [(0, 0, 1), (1, 2, 3)]
     assert run.artifacts[0].name == "model"
     assert run.artifacts[0].type == "model"
     assert run.artifacts[0].files == [str(artifact_path)]
@@ -275,7 +291,7 @@ def test_wandb_falls_back_to_the_project_id(tempdir: Path) -> None:
         is_wandb=True,
         wandb_entity="entity",
     )
-    assert tracker.experiment["wandb_run"].init_kwargs["project"] == "42"
+    assert run_of(tracker).init_kwargs["project"] == "42"
 
 
 def test_mlflow_logging(
@@ -631,8 +647,8 @@ def test_close_is_idempotent(
     tracker.close()
 
     assert fake_backends.mlflow.end_run_calls == ["FINISHED"]
-    assert tracker.experiment["wandb_run"].exit_code == 0
-    assert tracker.experiment["tensorboard"].closed
+    assert run_of(tracker).exit_code == 0
+    assert writer_of(tracker).closed
 
 
 def test_close_survives_broken_backends(
@@ -650,8 +666,8 @@ def test_close_survives_broken_backends(
     )
     tracker.log_metric("loss", 0.5, 1)
 
-    tracker.experiment["tensorboard"].fail_on_close = True
-    tracker.experiment["wandb_run"].fail_on_finish = True
+    writer_of(tracker).fail_on_close = True
+    run_of(tracker).fail_on_finish = True
     fake_backends.mlflow.fail_end_run = True
 
     tracker.close()
@@ -828,8 +844,8 @@ def test_a_failing_local_save_still_shuts_the_backends_down(
     monkeypatch.setattr(tracker, "save_logs_locally", broken_save)
     tracker.close()
 
-    assert tracker.experiment["tensorboard"].closed
-    assert tracker.experiment["wandb_run"].exit_code == 0
+    assert writer_of(tracker).closed
+    assert run_of(tracker).exit_code == 0
 
 
 def test_saving_locally_twice_keeps_both_batches(
@@ -1191,7 +1207,9 @@ def test_two_trackers_do_not_share_an_artifact_directory(
         checkpoint.write_text(trial)
 
         tracker.upload_artifact_to_mlflow(checkpoint)
-        snapshots.append(Path(tracker.local_logs[0].args[0]))
+        snapshot = tracker.local_logs[0].args[0]
+        assert isinstance(snapshot, str)
+        snapshots.append(Path(snapshot))
 
     assert snapshots[0] != snapshots[1]
     assert [path.read_text() for path in snapshots] == ["trial_0", "trial_1"]
