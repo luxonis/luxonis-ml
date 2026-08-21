@@ -40,6 +40,11 @@ with guard_missing_extra("utils"):
     from .graph import is_acyclic, traverse_graph
     from .logging import deprecated, log_once, setup_logging
     from .registry import AutoRegisterMeta, Registry
+    from .validation import (
+        ValidationProblem,
+        format_validation_error,
+        render_validation_error,
+    )
 
 
 __all__ = [
@@ -51,10 +56,13 @@ __all__ = [
     "LuxonisConfig",
     "LuxonisFileSystem",
     "Registry",
+    "ValidationProblem",
     "deprecated",
     "environ",
+    "format_validation_error",
     "is_acyclic",
     "log_once",
+    "render_validation_error",
     "setup_logging",
     "traverse_graph",
 ]
