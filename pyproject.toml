@@ -57,9 +57,13 @@ gcs = ["gcsfs==2024.6.1"]
 mlflow = ["mlflow~=3.1"]
 roboflow = ["roboflow~=1.4"]
 s3 = ["s3fs==2024.6.1"]
+# Tracker backends. The `tracker` extra deliberately excludes them, because
+# each one is only needed when its own flag is turned on.
+tensorboard = ["tensorboard~=2.18", "torch~=2.5"]
+wandb = ["wandb~=0.21"]
 
 all = [
-  "luxonis-ml[data,gcs,ldf,mlflow,nn_archive,roboflow,s3,telemetry,tracker,utils]",
+  "luxonis-ml[data,gcs,ldf,mlflow,nn_archive,roboflow,s3,telemetry,tensorboard,tracker,utils,wandb]",
 ]
 
 [dependency-groups]

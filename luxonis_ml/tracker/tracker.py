@@ -309,10 +309,7 @@ class LuxonisTracker:
         return self._experiment
 
     def _init_tensorboard(self) -> None:
-        # torch is an optional backend dependency and not part of `[dev]`
-        from torch.utils.tensorboard.writer import (  # pyright: ignore[reportMissingImports]
-            SummaryWriter,
-        )
+        from torch.utils.tensorboard.writer import SummaryWriter
 
         log_dir = self.save_directory / "tensorboard_logs" / self.run_name
         if self.is_sweep:
@@ -334,8 +331,7 @@ class LuxonisTracker:
         self._experiment["tensorboard"] = SummaryWriter(log_dir=log_dir)
 
     def _init_wandb(self) -> None:
-        # wandb is an optional backend dependency and not part of `[dev]`
-        import wandb  # pyright: ignore[reportMissingImports]
+        import wandb
 
         log_dir = self.save_directory / "wandb_logs"
         log_dir.mkdir(parents=True, exist_ok=True)
