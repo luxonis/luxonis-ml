@@ -2106,7 +2106,7 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'data'", specifier = "~=23.0" },
     { name = "pycocotools", marker = "extra == 'data'", specifier = "~=2.0" },
     { name = "pycocotools", marker = "extra == 'ldf'", specifier = "~=2.0" },
-    { name = "pydantic", specifier = "~=2.7" },
+    { name = "pydantic", specifier = "~=2.13" },
     { name = "pydantic-extra-types", specifier = "~=2.10" },
     { name = "pydantic-settings", specifier = "~=2.1" },
     { name = "pyyaml", specifier = "~=6.0" },
