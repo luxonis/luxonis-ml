@@ -466,6 +466,54 @@ class LuxonisTracker:
                 f"{MLFLOW_RETRY_INTERVAL:.0f} seconds."
             )
 
+    def _tensorboard(self) -> "SummaryWriter":
+        """Return the TensorBoard writer, and start it if needed."""
+        if "tensorboard" not in self._experiment and not self._closed:
+            self._init_tensorboard()
+        writer = self._experiment.get("tensorboard")
+        if writer is None:
+            raise RuntimeError(self._unavailable("TensorBoard"))
+        return writer
+
+    def _wandb(self) -> ModuleType:
+        """Return the WandB module, which carries the data types."""
+        if "wandb" not in self._experiment and not self._closed:
+            self._init_wandb()
+        wandb = self._experiment.get("wandb")
+        if wandb is None:
+            raise RuntimeError(self._unavailable("WandB"))
+        return wandb
+
+    def _wandb_run(self) -> "WandbRun":
+        """Return the WandB run, and start it if needed."""
+        if "wandb_run" not in self._experiment and not self._closed:
+            self._init_wandb()
+        run = self._experiment.get("wandb_run")
+        if run is None:
+            raise RuntimeError(self._unavailable("WandB"))
+        return run
+
+    def _mlflow(self) -> ModuleType:
+        """Return the MLflow module of the running experiment.
+
+        Unlike the other accessors this one starts nothing. Only the
+        callers that already checked `mlflow_initialized` use it, and a
+        logging call that finds MLflow down buffers instead.
+        """
+        mlflow = self._experiment.get("mlflow")
+        if mlflow is None:
+            raise RuntimeError(self._unavailable("MLflow"))
+        return mlflow
+
+    @staticmethod
+    def _unavailable(backend: str) -> str:
+        """Explain that a backend was asked for but never started."""
+        return (
+            f"{backend} is not available. Turn it on with the matching "
+            "flag, install its SDK, and check the log for a failed "
+            "initialization."
+        )
+
     def _mlflow_call(self, kind: MLflowCall, *args: MLflowArg) -> None:
         """Send a call to MLflow, buffering it if MLflow is unavailable.
 
@@ -504,7 +552,7 @@ class LuxonisTracker:
             return
 
         try:
-            self._perform_mlflow_call(self._experiment["mlflow"], call)
+            self._perform_mlflow_call(self._mlflow(), call)
         except Exception as e:
             logger.warning(f"Attempt to log to MLflow failed: {e}")
             self._buffer(call)
@@ -622,7 +670,7 @@ class LuxonisTracker:
         if not self.mlflow_initialized or not self.local_logs:
             return
 
-        mlflow = self._experiment["mlflow"]
+        mlflow = self._mlflow()
         while self.local_logs:
             call = self.local_logs[0]
             try:
@@ -801,7 +849,7 @@ class LuxonisTracker:
 
         """
         if self.is_tensorboard:
-            self.experiment["tensorboard"].add_hparams(
+            self._tensorboard().add_hparams(
                 {
                     key: value
                     if isinstance(value, (bool, int, float, str))
@@ -813,7 +861,7 @@ class LuxonisTracker:
                 {"placeholder_metric": 0},
             )
         if self.is_wandb:
-            self.experiment["wandb_run"].config.update(params)
+            self._wandb_run().config.update(params)
         if self.is_mlflow:
             self._mlflow_call("log_params", params)
 
@@ -832,11 +880,11 @@ class LuxonisTracker:
 
         """
         if self.is_tensorboard:
-            self.experiment["tensorboard"].add_scalar(name, value, step)
+            self._tensorboard().add_scalar(name, value, step)
 
         if self.is_wandb:
             # let wandb increment step to avoid calls with inconsistent steps
-            self.experiment["wandb_run"].log({name: value})
+            self._wandb_run().log({name: value})
 
         if self.is_mlflow:
             self._mlflow_call("log_metric", name, value, step)
@@ -852,9 +900,9 @@ class LuxonisTracker:
         """
         if self.is_tensorboard:
             for key, value in metrics.items():
-                self.experiment["tensorboard"].add_scalar(key, value, step)
+                self._tensorboard().add_scalar(key, value, step)
         if self.is_wandb:
-            self.experiment["wandb_run"].log(metrics)
+            self._wandb_run().log(metrics)
         if self.is_mlflow:
             self._mlflow_call("log_metrics", metrics, step)
 
@@ -874,14 +922,12 @@ class LuxonisTracker:
 
         """
         if self.is_tensorboard:
-            self.experiment["tensorboard"].add_image(
-                name, img, step, dataformats="HWC"
-            )
+            self._tensorboard().add_image(name, img, step, dataformats="HWC")
 
         if self.is_wandb:
-            wandb_image = self.experiment["wandb"].Image(img, caption=name)
+            wandb_image = self._wandb().Image(img, caption=name)
             # if step is added here it doesn't work correctly with wandb
-            self.experiment["wandb_run"].log({name: wandb_image})
+            self._wandb_run().log({name: wandb_image})
 
         if self.is_mlflow:
             # split images into separate directories based on step
@@ -936,10 +982,10 @@ class LuxonisTracker:
             matrix_str = np.array2string(
                 matrix, separator=", ", threshold=matrix.size
             )
-            self.experiment["tensorboard"].add_text(name, matrix_str, step)
+            self._tensorboard().add_text(name, matrix_str, step)
 
         if self.is_wandb:
-            table = self.experiment["wandb"].Table(
+            table = self._wandb().Table(
                 columns=[
                     "Row Index",
                     *[f"Col {i}" for i in range(matrix.shape[1])],
@@ -948,7 +994,7 @@ class LuxonisTracker:
             for i, row in enumerate(matrix):
                 table.add_data(i, *row)
             # let wandb increment step to avoid calls with inconsistent steps
-            self.experiment["wandb_run"].log({f"{name}_table": table})
+            self._wandb_run().log({f"{name}_table": table})
 
     @rank_zero_only
     def upload_artifact(
@@ -970,11 +1016,9 @@ class LuxonisTracker:
         """
         path = Path(path)
         if self.is_wandb:
-            artifact = self.experiment["wandb"].Artifact(
-                name=name or path.stem, type=typ
-            )
+            artifact = self._wandb().Artifact(name=name or path.stem, type=typ)
             artifact.add_file(local_path=str(path))
-            self.experiment["wandb_run"].log_artifact(artifact)
+            self._wandb_run().log_artifact(artifact)
 
         if self.is_mlflow:
             self.upload_artifact_to_mlflow(path, name)
@@ -1032,21 +1076,19 @@ class LuxonisTracker:
 
         if "tensorboard" in self._experiment:
             # `SummaryWriter.close` flushes the pending events first
-            self._finalize_backend(
-                "TensorBoard", self._experiment["tensorboard"].close
-            )
+            self._finalize_backend("TensorBoard", self._tensorboard().close)
 
         if self.mlflow_initialized:
             self._finalize_backend(
                 "MLflow",
-                self._experiment["mlflow"].end_run,
+                self._mlflow().end_run,
                 "FINISHED" if succeeded else "FAILED",
             )
 
         if "wandb_run" in self._experiment:
             self._finalize_backend(
                 "WandB",
-                self._experiment["wandb_run"].finish,
+                self._wandb_run().finish,
                 0 if succeeded else 1,
             )
 

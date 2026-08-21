@@ -19,14 +19,14 @@ def rgb_image() -> np.ndarray:
 
 def writer_of(tracker: LuxonisTracker) -> FakeSummaryWriter:
     """Return the fake TensorBoard writer the tracker logs through."""
-    writer = tracker.experiment["tensorboard"]
+    writer = tracker.experiment.get("tensorboard")
     assert isinstance(writer, FakeSummaryWriter)
     return writer
 
 
 def run_of(tracker: LuxonisTracker) -> FakeWandbRun:
     """Return the fake WandB run the tracker logs through."""
-    run = tracker.experiment["wandb_run"]
+    run = tracker.experiment.get("wandb_run")
     assert isinstance(run, FakeWandbRun)
     return run
 
@@ -193,8 +193,7 @@ def test_no_mlflow_environment_without_mlflow(
 def test_tensorboard_logging(
     tb_tracker: LuxonisTracker, tempdir: Path
 ) -> None:
-    writer = tb_tracker.experiment["tensorboard"]
-    assert isinstance(writer, FakeSummaryWriter)
+    writer = writer_of(tb_tracker)
     assert writer.log_dir == tempdir / "tensorboard_logs" / "run"
 
     tb_tracker.log_metric("loss", 0.5, 1)
@@ -485,7 +484,7 @@ def test_replaying_stops_at_the_first_failure(
     mlflow.fail_init = False
     mlflow.fail_after = 2
     mlflow_tracker._mlflow_retry_at = 0.0
-    assert mlflow_tracker.experiment["mlflow"] is mlflow
+    assert mlflow_tracker.experiment.get("mlflow") is mlflow
 
     mlflow_tracker.log_stored_logs_to_mlflow()
 
@@ -502,7 +501,7 @@ def test_nothing_to_replay(
 
     fake_backends.mlflow.fail_init = False
     mlflow_tracker._mlflow_retry_at = 0.0
-    assert mlflow_tracker.experiment["mlflow"] is fake_backends.mlflow
+    assert mlflow_tracker.experiment.get("mlflow") is fake_backends.mlflow
     # initialized, but nothing buffered
     mlflow_tracker.log_stored_logs_to_mlflow()
 
@@ -1213,3 +1212,65 @@ def test_two_trackers_do_not_share_an_artifact_directory(
 
     assert snapshots[0] != snapshots[1]
     assert [path.read_text() for path in snapshots] == ["trial_0", "trial_1"]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "backend"),
+    [
+        ({"is_tensorboard": True}, "TensorBoard"),
+        (
+            {
+                "is_wandb": True,
+                "project_name": "project",
+                "wandb_entity": "entity",
+            },
+            "WandB",
+        ),
+    ],
+)
+@pytest.mark.usefixtures("fake_backends")
+def test_a_backend_that_never_started_is_named(
+    tempdir: Path, kwargs: dict, backend: str
+) -> None:
+    """`close` starts no backend, so a log that follows it finds none.
+    The error has to say which backend is missing, because a bare
+    `KeyError` on the handle tells the user nothing.
+    """
+    tracker = LuxonisTracker(run_name="run", save_directory=tempdir, **kwargs)
+    tracker.close()
+
+    with pytest.raises(RuntimeError, match=f"{backend} is not available"):
+        tracker.log_metric("loss", 1.0, 0)
+
+
+def test_the_wandb_data_types_are_named_too(
+    wandb_tracker: LuxonisTracker,
+) -> None:
+    """`log_image` reaches for the WandB module, not for the run. That
+    path needs the same error as the run itself.
+    """
+    wandb_tracker.close()
+
+    with pytest.raises(RuntimeError, match="WandB is not available"):
+        wandb_tracker.log_image("vis", rgb_image(), 0)
+
+
+def test_an_image_can_be_the_first_wandb_call(
+    wandb_tracker: LuxonisTracker, fake_backends: SimpleNamespace
+) -> None:
+    """`log_image` asks for the WandB module before the run exists, so
+    that entry point has to start the run as well.
+    """
+    wandb_tracker.log_image("vis", rgb_image(), 0)
+
+    assert fake_backends.wandb.init_attempts == 1
+    assert len(run_of(wandb_tracker).logged) == 1
+
+
+def test_asking_for_a_backend_that_is_off(tb_tracker: LuxonisTracker) -> None:
+    """The accessors guard the rule that a caller only asks for a
+    backend that runs. Nothing in the class breaks that rule, so the
+    error is a safety net rather than a reachable path.
+    """
+    with pytest.raises(RuntimeError, match="MLflow is not available"):
+        tb_tracker._mlflow()
