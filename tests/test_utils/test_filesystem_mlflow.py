@@ -1083,4 +1083,6 @@ def test_tracker_upload_artifact_to_mlflow(
     tracker.upload_artifact(artifact)
     assert set(fs.walk_dir("", recursive=True)) == {"model.yaml"}
 
-    tracker.experiment["mlflow"].end_run()
+    mlflow_module = tracker.experiment.get("mlflow")
+    assert mlflow_module is not None
+    mlflow_module.end_run()

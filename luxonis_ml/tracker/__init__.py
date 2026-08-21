@@ -16,31 +16,29 @@ Example:
 
         from luxonis_ml.tracker import LuxonisTracker
 
-        tracker = LuxonisTracker(
+        with LuxonisTracker(
             project_name="training",
             run_name="baseline",
             is_tensorboard=True,
-        )
-        tracker.log_metric("loss", 0.42, step=1)
-        tracker.close()
+        ) as tracker:
+            tracker.log_metric("loss", 0.42, step=1)
 
 Note:
-    The ``tracker`` extra does not install every dependency of this package.
-    The package imports ``mlflow`` and ``cv2`` at import time, so install
-    ``mlflow`` and ``opencv-python`` as well:
-
-    .. code-block:: bash
-
-        pip install "luxonis-ml[tracker,mlflow]" opencv-python
-
-    Install the SDK of each remaining backend you enable:
+    The ``tracker`` extra does not install the backend SDKs. Install the SDK
+    of each backend you enable:
 
         - TensorBoard needs ``torch``, because the writer comes from
           ``torch.utils.tensorboard``;
-        - Weights & Biases needs ``wandb``.
+        - Weights & Biases needs ``wandb``;
+        - MLflow needs ``mlflow``, which the ``mlflow`` extra installs.
 
-    The tracker imports ``torch`` and ``wandb`` only when you enable those
-    backends, so an absent SDK matters only for the backends you turn on.
+    .. code-block:: bash
+
+        pip install "luxonis-ml[tracker,mlflow]" torch wandb
+
+    The tracker imports ``torch``, ``wandb``, and ``mlflow`` only when you
+    enable those backends. An absent SDK thus matters only for the backends
+    you turn on.
 
 .. contents:: Table of Contents
    :depth: 2
@@ -101,8 +99,11 @@ supports it:
 TensorBoard accepts no artifact, so `LuxonisTracker.upload_artifact` reaches
 Weights & Biases and MLflow only.
 
-`LuxonisTracker.close` calls no backend. It writes the unsent MLflow buffer
-to disk when you enable MLflow.
+`LuxonisTracker.close` finalizes each enabled backend. It flushes and closes
+the TensorBoard writer, ends the MLflow run, and finishes the WandB run. A
+second call does nothing. If one backend fails to shut down, the tracker
+reports the failure and does not raise it. The other backends thus keep
+their data.
 
 The images are ``numpy`` arrays of shape :math:`\left(H, W, C\right)`.
 
@@ -111,33 +112,46 @@ MLflow Notes
 ============
 
 MLflow starts on the first access to `LuxonisTracker.experiment`. A failed
-MLflow call does not raise. The tracker buffers the payload and retries it
-after the next successful call.
+MLflow call does not raise. The tracker buffers the call and replays the
+buffer in order when the server answers again. It retries a failed
+connection only once per minute, so an unreachable server does not stall the
+training loop.
 
-`LuxonisTracker.close` writes a buffer that is still not empty under
+MLflow can reject one call and still accept the calls behind it. The tracker
+then drops the rejected call, so one bad call cannot block every later log.
+
+The tracker copies a buffered artifact into the run directory at once,
+because callers routinely delete the file after they hand it over.
+
+The buffer holds a maximum of 500 calls, of which 50 can be images. When the
+buffer is full, the tracker drops the oldest call and warns once for each
+outage. The hyperparameters and the artifacts go last, because no later call
+repeats them. They still give way to the call that has just arrived, or a
+long outage would let them block every later metric.
+
+A call that arrives after `LuxonisTracker.close` is ignored. MLflow would
+otherwise open a fresh run for it, and no later `close` would end that run.
+
+`LuxonisTracker.close` waives the retry backoff to give the server one last
+chance. It then writes a buffer that is still not empty under
 ``<save_directory>/<run_name>``:
 
     - ``local_logs.json`` holds the metrics, the parameters, the matrices,
-      and the index of the saved images and artifacts;
+      and the index of the saved images and artifacts. A later save appends
+      to this file and keeps the earlier records;
     - ``images/`` holds the buffered images;
-    - ``artifacts/`` holds a copy of each buffered artifact whose source
-      file still exists.
-
-Set ``MLFLOW_CLOUDFLARE_ID`` and ``MLFLOW_CLOUDFLARE_SECRET`` for an MLflow
-server behind Cloudflare Access. Register
-`LuxonisRequestHeaderProvider` in your application, because LuxonisML
-declares no MLflow entry point for it.
+    - ``artifacts/<n>/`` holds a copy of each buffered artifact. Each
+      artifact gets its own directory, which keeps artifacts with the same
+      file name apart.
 
 See:
-    `luxonis_ml.tracker.tracker` for the logging implementation and
-    `luxonis_ml.tracker.mlflow_plugins` for MLflow request-header support.
+    `luxonis_ml.tracker.tracker` for the logging implementation.
 
 """
 
 from luxonis_ml.guard_extras import guard_missing_extra
 
 with guard_missing_extra("tracker"):
-    from .mlflow_plugins import LuxonisRequestHeaderProvider
     from .tracker import LuxonisTracker
 
-__all__ = ["LuxonisRequestHeaderProvider", "LuxonisTracker"]
+__all__ = ["LuxonisTracker"]
