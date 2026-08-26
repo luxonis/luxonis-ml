@@ -1,31 +1,165 @@
 import json
 import os
+import re
+import shutil
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import wraps
 from importlib.util import find_spec
 from pathlib import Path
-from typing import Any, Literal
+from types import ModuleType, TracebackType
+from typing import (
+    TYPE_CHECKING,
+    Concatenate,
+    Literal,
+    NamedTuple,
+    ParamSpec,
+    TypeAlias,
+    TypedDict,
+    TypeVar,
+)
 
 import cv2
 import numpy as np
 from loguru import logger
+from typing_extensions import Self
 from unique_names_generator import get_random_name
 
-from luxonis_ml.typing import PathType
-from luxonis_ml.utils.filesystem import LuxonisFileSystem
+from luxonis_ml.typing import ParamValue, PathType
+
+# The backend SDKs are optional at runtime, and each one is imported only
+# when its own flag is turned on. The types are needed here regardless.
+if TYPE_CHECKING:  # pragma: no cover
+    from torch.utils.tensorboard.writer import SummaryWriter
+    from wandb.sdk.wandb_run import Run as WandbRun
+
+P = ParamSpec("P")
+T = TypeVar("T")
+
+
+class Experiment(TypedDict, total=False):
+    """Handles of the backends that have been initialized.
+
+    A backend is absent until its initialization succeeds, so the
+    presence of a key means the backend is ready to use.
+    """
+
+    tensorboard: "SummaryWriter"
+    wandb: ModuleType
+    wandb_run: "WandbRun"
+    mlflow: ModuleType
+
+
+MLflowCall = Literal[
+    "log_metric",
+    "log_metrics",
+    "log_params",
+    "log_image",
+    "log_dict",
+    "log_artifact",
+]
+
+LogValue: TypeAlias = ParamValue | np.ndarray | Path
+"""A value that can end up in ``local_logs.json``.
+
+`_json_default` serializes the values ``json`` itself does not know, so
+an array or a path is as acceptable as a primitive.
+"""
+
+MLflowArg: TypeAlias = (
+    str | int | float | np.ndarray | Mapping[str, LogValue] | None
+)
+"""One positional argument of a buffered MLflow call.
+
+A metric name, a metric value, a step, an image, a mapping of parameters
+or of matrix data, or an artifact path.
+"""
+
+LogRecord: TypeAlias = dict[str, MLflowArg]
+"""One buffered call, keyed by the argument names of its kind."""
+
+LogGroup: TypeAlias = Literal[
+    "metric", "metrics", "params", "images", "artifacts", "matrices"
+]
+"""Top-level key of ``local_logs.json``."""
+
+
+class LocalLogGroups(TypedDict):
+    """The buffered calls of a run, grouped for ``local_logs.json``."""
+
+    metric: list[LogRecord]
+    metrics: list[LogRecord]
+    params: dict[str, LogValue]
+    images: list[LogRecord]
+    artifacts: list[LogRecord]
+    matrices: list[LogRecord]
+
+
+MAX_BUFFERED_LOGS = 500
+"""Maximum number of MLflow calls buffered during an outage."""
+
+MAX_BUFFERED_IMAGES = 50
+"""Maximum number of buffered images.
+
+Images dominate the memory footprint of the buffer, so they are capped
+more aggressively than the other calls.
+"""
+
+MLFLOW_RETRY_INTERVAL = 60.0
+"""Seconds to wait before retrying a failed MLflow initialization."""
+
+_LOG_GROUPS: dict[MLflowCall, tuple[LogGroup, tuple[str, ...]]] = {
+    "log_metric": ("metric", ("name", "value", "step")),
+    "log_metrics": ("metrics", ("metrics", "step")),
+    "log_params": ("params", ("params",)),
+    "log_image": ("images", ("image_data", "name")),
+    "log_dict": ("matrices", ("matrix", "name")),
+    "log_artifact": ("artifacts", ("path", "name")),
+}
+"""Maps an MLflow call to its group and field names in
+``local_logs.json``."""
+
+_IRREPLACEABLE_CALLS: frozenset[MLflowCall] = frozenset(
+    {"log_params", "log_artifact"}
+)
+"""Calls whose data no later call repeats.
+
+Metrics and images are logged again on the next step, hyperparameters and
+artifacts are not, so they are the last to be dropped from a full buffer.
+"""
+
+
+class BufferedCall(NamedTuple):
+    """An MLflow call that could not be sent and is kept for a later
+    retry.
+    """
+
+    kind: MLflowCall
+    args: tuple[MLflowArg, ...]
+
+
+def _json_default(obj: object) -> ParamValue:
+    """Serialize the values ``json`` does not know, such as NumPy
+    scalars.
+    """
+    if isinstance(obj, np.generic):
+        return obj.item()
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return str(obj)
 
 
 class LuxonisTracker:
     """Logger wrapper for `TensorBoard`_, `WandB`_, and `MLflow`_.
 
     `LuxonisTracker` stores run metadata, initializes the selected logging
-    integrations lazily, and keeps a local fallback cache for MLflow logs
+    integrations lazily, and keeps a local fallback buffer for MLflow logs
     that fail transiently.
 
     Attributes:
         project_name: Project name used by WandB and MLflow.
-        project_id: Project identifier used by WandB and MLflow.
+        project_id: Project identifier used by WandB and MLflow. Set to
+            the resolved experiment ID once MLflow is initialized.
         save_directory: Root directory where local run outputs are stored.
         is_tensorboard: Whether TensorBoard logging is enabled.
         is_wandb: Whether WandB logging is enabled.
@@ -33,8 +167,8 @@ class LuxonisTracker:
         is_sweep: Whether the current run belongs to a sweep.
         rank: Process rank. Only rank :math:`0` writes through
             rank-gated logging methods.
-        local_logs: Locally cached MLflow payloads that will be retried
-            or written to disk on close.
+        local_logs: MLflow calls that failed and will be retried or
+            written to disk on close.
         mlflow_initialized: Whether MLflow initialization has succeeded.
         run_id: MLflow run identifier, used to resume an existing run.
         wandb_entity: WandB entity used for logging.
@@ -73,7 +207,7 @@ class LuxonisTracker:
             project_name: Project name used for WandB and MLflow.
             project_id: Project ID used for WandB and MLflow.
             run_name: Run name. If omitted, rank :math:`0` generates a
-                new name and other ranks use the latest run name.
+                new name and other ranks wait for it to appear.
             run_id: MLflow run ID used to continue a previous run.
             save_directory: Directory where local outputs are saved.
             is_tensorboard: Whether to use TensorBoard logging.
@@ -93,8 +227,6 @@ class LuxonisTracker:
             ValueError: If no logging integration is enabled.
 
         """
-        os.environ["MLFLOW_HTTP_REQUEST_MAX_RETRIES"] = "2"
-
         self.project_name = project_name
         self.project_id = project_id
         self.save_directory = Path(save_directory)
@@ -104,19 +236,13 @@ class LuxonisTracker:
         self.is_mlflow = is_mlflow
         self.is_sweep = is_sweep
         self.rank = rank
-        self.local_logs = {
-            "metric": [],
-            "params": {},
-            "images": [],
-            "artifacts": [],
-            "matrices": [],
-            "metrics": [],
-        }
+        self.wandb_entity = wandb_entity
+        self.mlflow_tracking_uri = mlflow_tracking_uri
         self.mlflow_initialized = False
+        self.local_logs: list[BufferedCall] = []
 
-        self.run_id = (
-            run_id  # if using MLFlow then it will continue previous run
-        )
+        # if using MLflow then it will continue previous run
+        self.run_id = run_id
 
         if (
             (is_wandb or is_mlflow)
@@ -129,188 +255,60 @@ class LuxonisTracker:
 
         if self.is_wandb and wandb_entity is None:
             raise ValueError("Must specify wandb_entity when using wandb!")
-        self.wandb_entity = wandb_entity
+
         if self.is_mlflow:
             if mlflow_tracking_uri is None:
                 raise ValueError(
                     "Must specify mlflow_tracking_uri when using mlflow!"
                 )
-            self.mlflow_tracking_uri = mlflow_tracking_uri
+            os.environ.setdefault("MLFLOW_HTTP_REQUEST_MAX_RETRIES", "2")
 
         if not (self.is_tensorboard or self.is_wandb or self.is_mlflow):
             raise ValueError("At least one integration must be used!")
 
-        self._experiment = None
+        self._experiment: Experiment = {}
+        self._mlflow_retry_at = 0.0
+        self._closed = False
+        self._buffered_artifacts = 0
+        self._warned_buffer_limits: set[str] = set()
 
         if run_name:
             self.run_name = run_name
-        # create new directory if rank==0 else return newest run
+        # create new directory if rank==0 else wait for the newest run
         elif rank == 0:
             self.run_name = self._get_run_name()
         else:
-            time.sleep(1)  # DDP hotfix
             self.run_name = self._get_latest_run_name()
 
         self.run_directory = self.save_directory / self.run_name
         self.run_directory.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
-    def rank_zero_only(fn: Callable) -> Callable:
-        """Wrap a function so only processes with rank=0 execute it."""
+    def rank_zero_only(
+        fn: Callable[Concatenate["LuxonisTracker", P], T],
+    ) -> Callable[Concatenate["LuxonisTracker", P], T | None]:
+        """Wrap a method so only processes with rank=0 execute it."""
 
         @wraps(fn)
         def wrapped_fn(
-            self: "LuxonisTracker", *args: Any, **kwargs: Any
-        ) -> Any | None:
+            self: "LuxonisTracker", *args: P.args, **kwargs: P.kwargs
+        ) -> T | None:
             if self.rank == 0:
                 return fn(self, *args, **kwargs)
             return None
 
         return wrapped_fn
 
-    def log_to_mlflow(self, log_fn: Callable, *args, **kwargs) -> None:
-        """Log to MLflow with retries.
+    def __enter__(self) -> Self:
+        return self
 
-        Logs locally if failures persist.
-        """
-        try:
-            log_fn(*args, **kwargs)
-            self.log_stored_logs_to_mlflow()  # Attempt to log stored logs after successful log
-        except Exception as e:
-            logger.warning(f"Attempt to log to MLflow failed: {e}")
-        else:
-            return
-
-        self.store_log_locally(log_fn, *args, **kwargs)
-
-    def store_log_locally(self, log_fn: Callable, *args, **kwargs) -> None:
-        """Store log data locally if logging to MLflow fails."""
-        # Checking functions without triggering reconnections.
-        if log_fn == self.experiment["mlflow"].log_metric:
-            self.local_logs["metric"].append(
-                {"name": args[0], "value": args[1], "step": args[2]}
-            )
-        elif log_fn == self.experiment["mlflow"].log_metrics:
-            self.local_logs["metrics"].append(
-                {"metrics": args[0], "step": args[1]}
-            )
-        elif log_fn == self.experiment["mlflow"].log_params:
-            self.local_logs["params"].update(args[0])
-        elif log_fn == self.experiment["mlflow"].log_image:
-            self.local_logs["images"].append(
-                {"image_data": args[0], "name": args[1]}
-            )
-        elif log_fn == self.upload_artifact_to_mlflow:
-            self.local_logs["artifacts"].append(
-                {"path": str(args[0]), "name": args[1]}
-            )
-        elif log_fn == self.experiment["mlflow"].log_dict:
-            self.local_logs["matrices"].append(
-                {"matrix": args[0], "name": args[1]}
-            )
-
-    def log_stored_logs_to_mlflow(self) -> None:
-        """Log any data stored in local_logs to MLflow."""
-        if not self.mlflow_initialized or not any(self.local_logs.values()):
-            return
-
-        try:
-            if self.local_logs["params"]:
-                self.experiment["mlflow"].log_params(self.local_logs["params"])
-                self.local_logs["params"] = {}
-            for metric in list(self.local_logs["metric"]):
-                self.experiment["mlflow"].log_metric(
-                    metric["name"], metric["value"], metric["step"]
-                )
-                self.local_logs["metric"].remove(metric)
-            for metrics in list(self.local_logs["metrics"]):
-                self.experiment["mlflow"].log_metrics(
-                    metrics["metrics"], metrics["step"]
-                )
-                self.local_logs["metrics"].remove(metrics)
-            for image in list(self.local_logs["images"]):
-                self.experiment["mlflow"].log_image(
-                    image["image_data"], image["name"]
-                )
-                self.local_logs["images"].remove(image)
-            for matrix in list(self.local_logs["matrices"]):
-                self.experiment["mlflow"].log_dict(
-                    matrix["matrix"], matrix["name"]
-                )
-                self.local_logs["matrices"].remove(matrix)
-            for artifact in list(self.local_logs["artifacts"]):
-                self.upload_artifact_to_mlflow(
-                    Path(artifact["path"]), artifact["name"]
-                )
-                self.local_logs["artifacts"].remove(artifact)
-
-            logger.info("Successfully re-logged stored logs to MLflow.")
-        except Exception as e:
-            logger.warning(f"Failed to re-log stored logs to MLflow: {e}")
-
-    def save_logs_locally(self) -> None:
-        """Save metrics, parameters, images, artifacts, and matrices locally.
-
-        The tracker buffers MLflow logs when a remote call fails. This
-        method writes the buffer under the run directory, which is
-        ``<save_directory>/<run_name>``:
-
-            - ``local_logs.json`` holds the metrics, the parameters, the
-              matrices, and the index of the saved images and artifacts;
-            - ``images/`` holds the buffered images as ``<index>.png``;
-            - ``artifacts/`` holds a copy of each buffered artifact whose
-              source file still exists.
-
-        The image entries in ``local_logs.json`` hold the new local paths,
-        not the original data. An artifact entry holds the new local path
-        only after a successful copy. A missing source keeps its original
-        path.
-
-        `LuxonisTracker.close` calls this method when MLflow is enabled and
-        the buffer is not empty.
-
-        """
-        image_dir = self.run_directory / "images"
-        artifact_dir = self.run_directory / "artifacts"
-
-        image_dir.mkdir(exist_ok=True)
-        artifact_dir.mkdir(exist_ok=True)
-
-        for idx, img in enumerate(self.local_logs["images"]):
-            img_path = str(image_dir / f"{idx}.png")
-            cv2.imwrite(
-                img_path, cv2.cvtColor(img["image_data"], cv2.COLOR_RGB2BGR)
-            )
-            img["image_data"] = img_path  # Replace data with path
-
-        for artifact in self.local_logs["artifacts"]:
-            artifact_path = Path(artifact["path"])
-            if artifact_path.exists():
-                local_path = artifact_dir / artifact_path.name
-                local_path.write_bytes(artifact_path.read_bytes())
-                artifact["path"] = str(local_path)
-
-        log_dir = self.run_directory / "local_logs.json"
-        with open(log_dir, "w") as f:
-            json.dump(
-                {
-                    k: self.local_logs[k]
-                    for k in [
-                        "metrics",
-                        "metric",
-                        "params",
-                        "images",
-                        "artifacts",
-                        "matrices",
-                    ]
-                },
-                f,
-            )
-
-        logger.info(
-            f"Logs saved locally at '{log_dir}', "
-            f"images in {image_dir}, artifacts in {artifact_dir}"
-        )
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.close("success" if exc_type is None else "failed")
 
     @property
     def name(self) -> str:
@@ -324,115 +322,517 @@ class LuxonisTracker:
 
     @property
     def version(self) -> int:
-        """Tracker version.
+        """Run number.
 
         Returns:
-            Version number :math:`1`.
+            The number prefix of the run name, or :math:`0` if the run
+            name was provided by the user and carries no number.
 
         """
-        return 1
+        number = self.run_name.split("-")[0]
+        # `isdecimal`, unlike `isnumeric`, accepts exactly what `int` does
+        return int(number) if number.isdecimal() else 0
 
     @property
-    @rank_zero_only
-    def experiment(
-        self,
-    ) -> dict[Literal["tensorboard", "wandb", "mlflow"], Any]:
+    def experiment(self) -> Experiment:
         """Creates new experiments or returns active ones if already
         created.
+
+        Returns:
+            Mapping of the enabled backends to their handles. Empty for
+            processes with a non-zero rank, which never log. After
+            `close` the already-created handles are returned as they are,
+            without starting anything new.
+
         """
-        if self._experiment is None:
-            self._experiment = {}
+        if self.rank != 0:
+            return {}
+
+        if self._closed:
+            # re-initializing here would start a run that nothing ends,
+            # as `close` refuses to run a second time
+            return self._experiment
 
         if self.is_tensorboard and "tensorboard" not in self._experiment:
-            from torch.utils.tensorboard.writer import SummaryWriter
-
-            log_dir = self.save_directory / "tensorboard_logs" / self.run_name
-            if self.is_sweep:
-                trial_id = 0
-                if log_dir.exists():
-                    trial_id = (
-                        max(
-                            (
-                                int(f.split("_")[-1])
-                                for f in os.listdir(log_dir)  # noqa: PTH208
-                                if f.startswith("trial_")
-                            ),
-                            default=0,
-                        )
-                        + 1
-                    )
-                log_dir = log_dir / f"trial_{trial_id}"
-
-            self._experiment["tensorboard"] = SummaryWriter(log_dir=log_dir)
+            self._init_tensorboard()
 
         if self.is_wandb and "wandb" not in self._experiment:
-            import wandb
+            self._init_wandb()
 
-            self._experiment["wandb"] = wandb
-
-            log_dir = self.save_directory / "wandb_logs"
-            log_dir.mkdir(parents=True, exist_ok=True)
-
-            self._experiment["wandb"].init(
-                project=self.project_name
-                if self.project_name is not None
-                else self.project_id,
-                entity=self.wandb_entity,
-                dir=log_dir,
-                name=self.run_name,
-            )
-
-        if self.is_mlflow and self.mlflow_initialized is False:
-            try:
-                import mlflow
-
-                if find_spec("psutil") is not None:
-                    mlflow.enable_system_metrics_logging()
-                    if find_spec("pynvml") is None:
-                        logger.warning(
-                            "pynvml not found, GPU stats will not be monitored. "
-                            "To enable GPU monitoring, install it using 'pip install pynvml'"
-                        )
-                else:
-                    logger.warning(
-                        "`psutil` not found. To enable system metric logging, "
-                        "install it using 'pip install psutil'"
-                    )
-
-                self._experiment["mlflow"] = mlflow
-
-                self.artifacts_dir = self.run_directory / "artifacts"
-                self.artifacts_dir.mkdir(parents=True, exist_ok=True)
-
-                self._experiment["mlflow"].set_tracking_uri(
-                    self.mlflow_tracking_uri
-                )
-
-                if self.project_id is not None:
-                    self.project_name = None
-
-                experiment = self._experiment["mlflow"].set_experiment(
-                    experiment_name=self.project_name,
-                    experiment_id=self.project_id,
-                )
-                self.project_id = experiment.experiment_id
-
-                # If self.run_id is None, create a new run; otherwise, use the existing one
-                run = self._experiment["mlflow"].start_run(
-                    run_id=self.run_id,
-                    run_name=self.run_name,
-                    nested=self.is_sweep,
-                )
-                self.run_id = run.info.run_id
-                self.mlflow_initialized = (
-                    True  # Mark MLflow as initialized successfully
-                )
-
-            except Exception as e:
-                logger.warning(f"Failed to initialize MLflow: {e}")
-                self.mlflow_initialized = False  # Mark MLflow as unavailable
+        if self.is_mlflow and not self.mlflow_initialized:
+            self._init_mlflow()
 
         return self._experiment
+
+    def _init_tensorboard(self) -> None:
+        from torch.utils.tensorboard.writer import SummaryWriter
+
+        log_dir = self.save_directory / "tensorboard_logs" / self.run_name
+        if self.is_sweep:
+            trial_id = 0
+            if log_dir.exists():
+                trial_id = (
+                    max(
+                        (
+                            int(path.name.split("_")[-1])
+                            for path in log_dir.iterdir()
+                            if path.name.startswith("trial_")
+                        ),
+                        default=0,
+                    )
+                    + 1
+                )
+            log_dir = log_dir / f"trial_{trial_id}"
+
+        self._experiment["tensorboard"] = SummaryWriter(log_dir=log_dir)
+
+    def _init_wandb(self) -> None:
+        import wandb
+
+        log_dir = self.save_directory / "wandb_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        run = wandb.init(
+            project=self.project_name
+            if self.project_name is not None
+            else self.project_id,
+            entity=self.wandb_entity,
+            dir=log_dir,
+            name=self.run_name,
+        )
+
+        # both keys are stored only once `init` succeeded, otherwise a
+        # failed initialization would look like a finished one and would
+        # never be retried
+        self._experiment["wandb"] = wandb
+        self._experiment["wandb_run"] = run
+
+    def _init_mlflow(self) -> None:
+        """Initialize MLflow, backing off after a failed attempt.
+
+        A failed attempt is not retried for `MLFLOW_RETRY_INTERVAL`
+        seconds so that an unreachable server cannot stall the training
+        loop with a full reconnect on every logged value.
+        """
+        if time.monotonic() < self._mlflow_retry_at:
+            return
+
+        try:
+            import mlflow
+
+            if find_spec("psutil") is not None:
+                mlflow.enable_system_metrics_logging()
+                if find_spec("pynvml") is None:
+                    logger.warning(
+                        "pynvml not found, GPU stats will not be monitored. "
+                        "To enable GPU monitoring, install it using 'pip install pynvml'"
+                    )
+            else:
+                logger.warning(
+                    "`psutil` not found. To enable system metric logging, "
+                    "install it using 'pip install psutil'"
+                )
+
+            # guaranteed by the constructor whenever MLflow is enabled
+            assert self.mlflow_tracking_uri is not None
+            mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+
+            experiment = mlflow.set_experiment(
+                experiment_name=self.project_name
+                if self.project_id is None
+                else None,
+                experiment_id=self.project_id,
+            )
+            self.project_id = experiment.experiment_id
+
+            # if self.run_id is None a new run is created,
+            # otherwise the existing one is resumed
+            run = mlflow.start_run(
+                run_id=self.run_id,
+                run_name=self.run_name,
+                nested=self.is_sweep,
+            )
+            self.run_id = run.info.run_id
+            # stored only once the run exists, so that a failed attempt
+            # does not leave a handle behind
+            self._experiment["mlflow"] = mlflow
+            self.mlflow_initialized = True
+
+        except Exception as e:
+            self._mlflow_retry_at = time.monotonic() + MLFLOW_RETRY_INTERVAL
+            logger.warning(
+                f"Failed to initialize MLflow: {e}. Logs will be buffered "
+                f"locally, the connection is retried in "
+                f"{MLFLOW_RETRY_INTERVAL:.0f} seconds."
+            )
+
+    def _tensorboard(self) -> "SummaryWriter":
+        """Return the TensorBoard writer, and start it if needed."""
+        if "tensorboard" not in self._experiment and not self._closed:
+            self._init_tensorboard()
+        writer = self._experiment.get("tensorboard")
+        if writer is None:
+            raise RuntimeError(self._unavailable("TensorBoard"))
+        return writer
+
+    def _wandb(self) -> ModuleType:
+        """Return the WandB module, which carries the data types."""
+        if "wandb" not in self._experiment and not self._closed:
+            self._init_wandb()
+        wandb = self._experiment.get("wandb")
+        if wandb is None:
+            raise RuntimeError(self._unavailable("WandB"))
+        return wandb
+
+    def _wandb_run(self) -> "WandbRun":
+        """Return the WandB run, and start it if needed."""
+        if "wandb_run" not in self._experiment and not self._closed:
+            self._init_wandb()
+        run = self._experiment.get("wandb_run")
+        if run is None:
+            raise RuntimeError(self._unavailable("WandB"))
+        return run
+
+    def _mlflow(self) -> ModuleType:
+        """Return the MLflow module of the running experiment.
+
+        Unlike the other accessors this one starts nothing. Only the
+        callers that already checked `mlflow_initialized` use it, and a
+        logging call that finds MLflow down buffers instead.
+        """
+        mlflow = self._experiment.get("mlflow")
+        if mlflow is None:
+            raise RuntimeError(self._unavailable("MLflow"))
+        return mlflow
+
+    @staticmethod
+    def _unavailable(backend: str) -> str:
+        """Explain that a backend was asked for but never started."""
+        return (
+            f"{backend} is not available. Turn it on with the matching "
+            "flag, install its SDK, and check the log for a failed "
+            "initialization."
+        )
+
+    def _mlflow_call(self, kind: MLflowCall, *args: MLflowArg) -> None:
+        """Send a call to MLflow, buffering it if MLflow is unavailable.
+
+        The positional arguments are what gets buffered, so they have to
+        be JSON-serializable.
+        """
+        if self._closed:
+            # `end_run` already ran, so MLflow would put this call into a
+            # fresh run that nothing ever ends, and buffering it would
+            # keep data that no later `close` flushes
+            logger.warning(
+                f"Ignoring the MLflow '{kind}' call, because the run is "
+                "already closed."
+            )
+            return
+
+        # only MLflow is initialized here, the other backends have
+        # nothing to do with this call
+        if not self.mlflow_initialized:
+            self._init_mlflow()
+
+        call = BufferedCall(kind, args)
+
+        if not self.mlflow_initialized:
+            self._buffer(call)
+            return
+
+        if self.local_logs:
+            # replay the buffered calls first so the order is preserved
+            self._buffer(call)
+            # a server that failed a moment ago is not asked again until
+            # the backoff expires, or every logged value would pay for
+            # the outage twice over
+            if time.monotonic() >= self._mlflow_retry_at:
+                self.log_stored_logs_to_mlflow()
+            return
+
+        try:
+            self._perform_mlflow_call(self._mlflow(), call)
+        except Exception as e:
+            logger.warning(f"Attempt to log to MLflow failed: {e}")
+            self._buffer(call)
+
+    @staticmethod
+    def _perform_mlflow_call(mlflow: ModuleType, call: BufferedCall) -> None:
+        if call.kind == "log_artifact":
+            # the artifact name is only kept for the local fallback,
+            # MLflow always stores artifacts under their file name
+            mlflow.log_artifact(call.args[0])
+        else:
+            getattr(mlflow, call.kind)(*call.args)
+
+    def _buffer(self, call: BufferedCall) -> None:
+        """Buffer a call that could not be sent to MLflow."""
+        if call.kind == "log_artifact":
+            call = self._snapshot_artifact(call)
+        self.local_logs.append(call)
+        self._enforce_buffer_limit("log_image", MAX_BUFFERED_IMAGES)
+        self._enforce_buffer_limit(None, MAX_BUFFERED_LOGS)
+
+    def _snapshot_artifact(self, call: BufferedCall) -> BufferedCall:
+        """Copy a buffered artifact into the run directory.
+
+        Callers routinely delete an artifact right after handing it over,
+        so it is copied before it can disappear. Every artifact gets its
+        own sub-directory, which keeps its file name intact for MLflow and
+        keeps artifacts that share a file name apart. The returned call
+        points at the copy, or is the original one if the copy failed.
+        """
+        path = call.args[0]
+        assert isinstance(path, str)
+        source = Path(path)
+        target = self._next_artifact_directory() / source.name
+
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            copy = shutil.copy2(source, target)
+        except OSError as e:
+            logger.warning(
+                f"Could not copy the artifact '{source}' to '{target}', it "
+                f"will be lost if the file disappears: {e}"
+            )
+            return call
+
+        return BufferedCall(call.kind, (str(copy), *call.args[1:]))
+
+    def _next_artifact_directory(self) -> Path:
+        """Return an artifact directory no earlier snapshot has used.
+
+        A sweep gives every trial its own tracker over one shared run
+        directory, and each tracker starts counting at zero, so a free
+        slot has to be found rather than assumed.
+        """
+        root = self.run_directory / "artifacts"
+        while True:
+            target = root / str(self._buffered_artifacts)
+            # claimed even if the copy fails, so that no two artifacts
+            # can ever end up in the same directory
+            self._buffered_artifacts += 1
+            if not target.exists():
+                return target
+
+    def _enforce_buffer_limit(
+        self, kind: MLflowCall | None, limit: int
+    ) -> None:
+        """Drop the oldest expendable buffered call once ``limit`` is
+        exceeded.
+
+        Hyperparameters and artifacts go last, because no later call
+        repeats them. They still give way once nothing older is left to
+        drop, or a backlog of them would block every later metric.
+        """
+        indices = [
+            i
+            for i, call in enumerate(self.local_logs)
+            if kind is None or call.kind == kind
+        ]
+        if len(indices) <= limit:
+            return
+
+        # the call that has just arrived is never the one to drop, or a
+        # backlog of hyperparameters and artifacts would swallow every
+        # metric logged after it
+        newest = len(self.local_logs) - 1
+        expendable = [
+            i
+            for i in indices
+            if i != newest
+            and self.local_logs[i].kind not in _IRREPLACEABLE_CALLS
+        ]
+        dropped = self.local_logs.pop((expendable or indices)[0])
+
+        # the buffer stays full for the rest of the outage, so warning
+        # per dropped call would bury every other message
+        warned = kind or "all"
+        if warned in self._warned_buffer_limits:
+            return
+        self._warned_buffer_limits.add(warned)
+        logger.warning(
+            f"The MLflow log buffer is full ({limit} entries), dropping the "
+            f"oldest '{dropped.kind}' call. Logs are buffered locally "
+            "because MLflow is unreachable. Further drops are not reported."
+        )
+
+    def log_stored_logs_to_mlflow(self) -> None:
+        """Replay the locally buffered calls to MLflow, oldest first.
+
+        Replaying stops at the first failure, leaving the remaining calls
+        buffered so that their original order is preserved. A call MLflow
+        rejects while it still accepts the call behind it is dropped
+        instead, because it would otherwise block every later log for the
+        rest of the run.
+        """
+        if not self.mlflow_initialized or not self.local_logs:
+            return
+
+        mlflow = self._mlflow()
+        while self.local_logs:
+            call = self.local_logs[0]
+            try:
+                self._perform_mlflow_call(mlflow, call)
+            except Exception as e:
+                if not self._replay_next_call(mlflow):
+                    # the server answers nothing at all, so hold off
+                    # before the next attempt
+                    self._mlflow_retry_at = (
+                        time.monotonic() + MLFLOW_RETRY_INTERVAL
+                    )
+                    logger.warning(
+                        f"Failed to re-log stored logs to MLflow: {e}"
+                    )
+                    return
+                logger.warning(
+                    f"MLflow rejected the buffered '{call.kind}' call while "
+                    f"accepting later ones, dropping it: {e}"
+                )
+            # the probe already removed the call it sent, so the one that
+            # was just handled is still the head
+            self.local_logs.pop(0)
+
+        # a later outage has to report its drops again
+        self._warned_buffer_limits.clear()
+        logger.info("Successfully re-logged stored logs to MLflow.")
+
+    def _replay_next_call(self, mlflow: ModuleType) -> bool:
+        """Send the call queued behind a failing one.
+
+        This tells a call MLflow rejects apart from an MLflow that is
+        unreachable, without reordering the calls that survive. Returns
+        whether the call went through, and removes it from the buffer
+        when it did.
+        """
+        if len(self.local_logs) < 2:
+            return False
+
+        try:
+            self._perform_mlflow_call(mlflow, self.local_logs[1])
+        except Exception:
+            return False
+
+        self.local_logs.pop(1)
+        return True
+
+    def save_logs_locally(self) -> None:
+        """Save buffered metrics, parameters, images, artifacts, and
+        matrices to the run directory.
+
+        Anything an earlier call already saved is kept, and the buffer is
+        cleared afterwards so that repeated calls neither duplicate nor
+        discard the saved data.
+        """
+        log_path = self.run_directory / "local_logs.json"
+        grouped = self._load_saved_logs(log_path)
+        # the earlier records are already on disk and keep their index
+        first_image = len(grouped["images"])
+        self._group_local_logs(grouped)
+
+        image_dir = self.run_directory / "images"
+        image_dir.mkdir(parents=True, exist_ok=True)
+
+        for idx, image in enumerate(
+            grouped["images"][first_image:], start=first_image
+        ):
+            name, data = image["name"], image["image_data"]
+            assert isinstance(name, str)
+            assert isinstance(data, np.ndarray)
+            # replace the image data with the path it was written to
+            image["image_data"] = self._save_image_locally(
+                image_dir, idx, name, data
+            )
+
+        with open(log_path, "w") as f:
+            json.dump(grouped, f, default=_json_default)
+
+        self.local_logs.clear()
+        # a later outage has to report its drops again
+        self._warned_buffer_limits.clear()
+
+        logger.info(
+            f"Logs saved locally at '{log_path}', images in {image_dir}, "
+            f"artifacts in {self.run_directory / 'artifacts'}"
+        )
+
+    @staticmethod
+    def _empty_log_groups() -> LocalLogGroups:
+        """Return the empty group structure of ``local_logs.json``."""
+        return {
+            "metrics": [],
+            "metric": [],
+            "params": {},
+            "images": [],
+            "artifacts": [],
+            "matrices": [],
+        }
+
+    def _load_saved_logs(self, log_path: Path) -> LocalLogGroups:
+        """Load an earlier local save so a later one adds to it."""
+        grouped = self._empty_log_groups()
+        if not log_path.exists():
+            return grouped
+
+        try:
+            saved = json.loads(log_path.read_text())
+        except (OSError, ValueError) as e:
+            logger.warning(
+                f"Could not read the logs saved at '{log_path}', "
+                f"they will be overwritten: {e}"
+            )
+            return grouped
+
+        for group in grouped:
+            if group in saved:
+                grouped[group] = saved[group]
+        return grouped
+
+    def _group_local_logs(
+        self, grouped: LocalLogGroups | None = None
+    ) -> LocalLogGroups:
+        """Group the buffered calls by kind for local serialization."""
+        grouped = grouped if grouped is not None else self._empty_log_groups()
+        for call in self.local_logs:
+            group, fields = _LOG_GROUPS[call.kind]
+            record = dict(zip(fields, call.args, strict=True))
+            if group == "params":
+                params = record["params"]
+                assert isinstance(params, Mapping)
+                grouped["params"].update(params)
+            else:
+                grouped[group].append(record)
+        return grouped
+
+    @staticmethod
+    def _save_image_locally(
+        image_dir: Path, idx: int, name: str, image: np.ndarray
+    ) -> str | None:
+        """Write a buffered image to ``image_dir``.
+
+        Returns the path it was written to, or ``None`` if the image
+        could not be encoded.
+        """
+        stem = re.sub(r"\W+", "_", name.removesuffix(".png")).strip("_")
+        path = image_dir / f"{idx}_{stem or 'image'}.png"
+
+        try:
+            if image.ndim == 3 and image.shape[2] == 3:
+                image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+            elif image.ndim == 3 and image.shape[2] == 4:
+                image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGRA)
+            # `imwrite` reports a full disk or a read-only directory
+            # through its return value, not through an exception
+            written = cv2.imwrite(str(path), image)
+        except Exception as e:
+            logger.warning(f"Failed to save image '{name}' locally: {e}")
+            return None
+
+        if not written:
+            logger.warning(f"Failed to write the image '{name}' to '{path}'.")
+            return None
+        return str(path)
 
     @rank_zero_only
     def log_hyperparams(
@@ -440,21 +840,30 @@ class LuxonisTracker:
     ) -> None:
         """Log a hyperparameter dictionary.
 
+        Note:
+            TensorBoard only accepts scalar hyperparameters, so values of
+            any other type are converted to strings.
+
         Args:
             params: Hyperparameter key-value pairs.
 
         """
         if self.is_tensorboard:
-            self.experiment["tensorboard"].add_hparams(
-                params,
+            self._tensorboard().add_hparams(
                 {
-                    "placeholder_metric": 0
-                },  # placeholder metric is needed due to this issue: https://github.com/tensorflow/tensorboard/issues/5476
+                    key: value
+                    if isinstance(value, (bool, int, float, str))
+                    else str(value)
+                    for key, value in params.items()
+                },
+                # placeholder metric is needed due to this issue:
+                # https://github.com/tensorflow/tensorboard/issues/5476
+                {"placeholder_metric": 0},
             )
         if self.is_wandb:
-            self.experiment["wandb"].config.update(params)
+            self._wandb_run().config.update(params)
         if self.is_mlflow:
-            self.log_to_mlflow(self.experiment["mlflow"].log_params, params)
+            self._mlflow_call("log_params", params)
 
     @rank_zero_only
     def log_metric(self, name: str, value: float, step: int) -> None:
@@ -471,16 +880,14 @@ class LuxonisTracker:
 
         """
         if self.is_tensorboard:
-            self.experiment["tensorboard"].add_scalar(name, value, step)
+            self._tensorboard().add_scalar(name, value, step)
 
         if self.is_wandb:
             # let wandb increment step to avoid calls with inconsistent steps
-            self.experiment["wandb"].log({name: value})
+            self._wandb_run().log({name: value})
 
         if self.is_mlflow:
-            self.log_to_mlflow(
-                self.experiment["mlflow"].log_metric, name, value, step
-            )
+            self._mlflow_call("log_metric", name, value, step)
 
     @rank_zero_only
     def log_metrics(self, metrics: dict[str, float], step: int) -> None:
@@ -493,13 +900,11 @@ class LuxonisTracker:
         """
         if self.is_tensorboard:
             for key, value in metrics.items():
-                self.experiment["tensorboard"].add_scalar(key, value, step)
+                self._tensorboard().add_scalar(key, value, step)
         if self.is_wandb:
-            self.experiment["wandb"].log(metrics)
+            self._wandb_run().log(metrics)
         if self.is_mlflow:
-            self.log_to_mlflow(
-                self.experiment["mlflow"].log_metrics, metrics, step
-            )
+            self._mlflow_call("log_metrics", metrics, step)
 
     @rank_zero_only
     def log_image(self, name: str, img: np.ndarray, step: int) -> None:
@@ -510,133 +915,27 @@ class LuxonisTracker:
             with inconsistent incrementation.
 
         Args:
-            name: Image caption. For MLflow, this should include a
-                slash-separated base path and image caption.
+            name: Image caption. For MLflow, a slash-separated prefix of
+                the name is used as the artifact directory.
             img: Image data of shape :math:`\left(H, W, C\right)`.
             step: Current step.
 
         """
         if self.is_tensorboard:
-            self.experiment["tensorboard"].add_image(
-                name, img, step, dataformats="HWC"
-            )
+            self._tensorboard().add_image(name, img, step, dataformats="HWC")
 
         if self.is_wandb:
-            wandb_image = self.experiment["wandb"].Image(img, caption=name)
+            wandb_image = self._wandb().Image(img, caption=name)
             # if step is added here it doesn't work correctly with wandb
-            self.experiment["wandb"].log({name: wandb_image})
+            self._wandb_run().log({name: wandb_image})
 
         if self.is_mlflow:
             # split images into separate directories based on step
-            base_path, img_caption = name.rsplit("/", 1)
-            img_path = f"{base_path}/{step}/{img_caption}.png"
-            self.log_to_mlflow(
-                self.experiment["mlflow"].log_image, img, img_path
-            )
-
-    @rank_zero_only
-    def upload_artifact(
-        self,
-        path: PathType,
-        name: str | None = None,
-        typ: str = "artifact",
-    ) -> None:
-        """Upload an artifact to the logging service.
-
-        Args:
-            path: Path to the artifact.
-            name: Artifact name. If ``None``, uses the file stem for WandB
-                and the file name for MLflow.
-            typ: The type of the artifact. Only used for WandB.
-
-        """
-        path = Path(path)
-        if self.is_wandb:
-            import wandb
-
-            artifact = wandb.Artifact(name=name or path.stem, type=typ)
-            artifact.add_file(local_path=str(path))
-            artifact.save()
-
-        if self.is_mlflow:
-            self.log_to_mlflow(self.upload_artifact_to_mlflow, path, name)
-
-    def upload_artifact_to_mlflow(
-        self,
-        path: PathType,
-        name: str | None = None,
-    ) -> None:
-        """Upload an artifact specifically to MLflow.
-
-        The artifact is always stored at the root of the run's artifact
-        directory. Only the base name of ``name`` is used, so callers
-        can pass a full local path without leaking the local directory
-        structure into the artifact store.
-
-        Args:
-            path: Path to the artifact.
-            name: Artifact name. If ``None``, uses the file name.
-
-        """
-        _ = self.experiment["mlflow"]
-        if self.project_id is None or self.run_id is None:
-            raise ValueError("MLflow experiment and run must be initialized.")
-
-        remote_path = Path(name or path).name
-        LuxonisFileSystem.upload(
-            path,
-            f"mlflow://{self.project_id}/{self.run_id}/{remote_path}",
-            tracking_uri=self.mlflow_tracking_uri,
-        )
-
-    @rank_zero_only
-    def log_matrix(
-        self,
-        matrix: np.ndarray,
-        name: str,
-        step: int,
-        extra_data: dict | None = None,
-    ) -> None:
-        r"""Log a matrix to the enabled logging services.
-
-        Args:
-            matrix: Matrix to log, usually of shape
-                :math:`\left(M, N\right)`.
-            name: Name used for the matrix artifact.
-            step: Current step.
-            extra_data: Optional dictionary of additional data to include
-                in the logged matrix artifact.
-
-        """
-        if self.is_mlflow:
-            matrix_data: dict = {
-                "flat_array": matrix.flatten().tolist(),
-                "shape": matrix.shape,
-            }
-            if extra_data is not None:
-                matrix_data.update(extra_data)
-            self.log_to_mlflow(
-                self.experiment["mlflow"].log_dict,
-                matrix_data,
-                f"{name}.json",
-            )
-
-        if self.is_tensorboard:
-            matrix_str = np.array2string(matrix, separator=", ")
-            self.experiment["tensorboard"].add_text(name, matrix_str, step)
-
-        if self.is_wandb:
-            import wandb
-
-            table = wandb.Table(
-                columns=[
-                    "Row Index",
-                    *[f"Col {i}" for i in range(matrix.shape[1])],
-                ]
-            )
-            for i, row in enumerate(matrix):
-                table.add_data(i, *row)
-            self.experiment["wandb"].log({f"{name}_table": table}, step=step)
+            base_path, _, caption = name.rpartition("/")
+            img_path = f"{step}/{caption}.png"
+            if base_path:
+                img_path = f"{base_path}/{img_path}"
+            self._mlflow_call("log_image", img, img_path)
 
     @rank_zero_only
     def log_images(self, imgs: dict[str, np.ndarray], step: int) -> None:
@@ -651,26 +950,157 @@ class LuxonisTracker:
         for caption, img in imgs.items():
             self.log_image(caption, img, step)
 
-    def _get_next_run_number(self) -> int:
-        """Return the number ID for the next run."""
+    @rank_zero_only
+    def log_matrix(
+        self,
+        matrix: np.ndarray,
+        name: str,
+        step: int,
+        extra_data: Mapping[str, LogValue] | None = None,
+    ) -> None:
+        r"""Log a matrix to the enabled logging services.
 
-        log_dirs = [
-            path.name
-            for path in self.save_directory.iterdir()
-            if path.is_dir()
-        ]
+        Args:
+            matrix: Matrix to log, usually of shape
+                :math:`\left(M, N\right)`.
+            name: Name used for the matrix artifact.
+            step: Current step.
+            extra_data: Optional dictionary of additional data to include
+                in the logged matrix artifact.
 
-        nums = [path.split("-")[0] for path in log_dirs]
-        nums = [int(num) for num in nums if num.isnumeric()]
+        """
+        if self.is_mlflow:
+            matrix_data: dict[str, LogValue] = {
+                "flat_array": matrix.flatten().tolist(),
+                "shape": matrix.shape,
+            }
+            if extra_data is not None:
+                matrix_data.update(extra_data)
+            self._mlflow_call("log_dict", matrix_data, f"{name}.json")
 
-        if len(nums) == 0:
-            return 0
-        return max(nums) + 1
+        if self.is_tensorboard:
+            matrix_str = np.array2string(
+                matrix, separator=", ", threshold=matrix.size
+            )
+            self._tensorboard().add_text(name, matrix_str, step)
 
-    def close(self) -> None:
-        """Finalize logging and save unsent logs locally."""
-        if self.is_mlflow and any(self.local_logs.values()):
-            self.save_logs_locally()
+        if self.is_wandb:
+            table = self._wandb().Table(
+                columns=[
+                    "Row Index",
+                    *[f"Col {i}" for i in range(matrix.shape[1])],
+                ]
+            )
+            for i, row in enumerate(matrix):
+                table.add_data(i, *row)
+            # let wandb increment step to avoid calls with inconsistent steps
+            self._wandb_run().log({f"{name}_table": table})
+
+    @rank_zero_only
+    def upload_artifact(
+        self,
+        path: PathType,
+        name: str | None = None,
+        typ: str = "artifact",
+    ) -> None:
+        """Upload an artifact to the logging service.
+
+        Args:
+            path: Path to the artifact.
+            name: Artifact name. If ``None``, uses the file stem for
+                WandB. MLflow always stores artifacts under their file
+                name, so there the name is only used as a label if the
+                artifact has to be saved locally instead.
+            typ: The type of the artifact. Only used for WandB.
+
+        """
+        path = Path(path)
+        if self.is_wandb:
+            artifact = self._wandb().Artifact(name=name or path.stem, type=typ)
+            artifact.add_file(local_path=str(path))
+            self._wandb_run().log_artifact(artifact)
+
+        if self.is_mlflow:
+            self.upload_artifact_to_mlflow(path, name)
+
+    @rank_zero_only
+    def upload_artifact_to_mlflow(
+        self,
+        path: PathType,
+        name: str | None = None,
+    ) -> None:
+        """Upload an artifact specifically to MLflow.
+
+        Only rank :math:`0` uploads, like every other logging method.
+        Non-zero ranks never finalize the run, so an artifact handed over
+        by one of them could neither be sent nor saved.
+
+        Args:
+            path: Path to the artifact.
+            name: Artifact name. Only used as a label if the artifact has
+                to be saved locally instead.
+
+        """
+        self._mlflow_call("log_artifact", str(path), name)
+
+    @rank_zero_only
+    def close(self, status: str = "success") -> None:
+        """Finalize the run and shut the enabled backends down.
+
+        Buffered MLflow logs are flushed to the server if it became
+        reachable again, and saved locally otherwise. Calling this more
+        than once is a no-op.
+
+        Args:
+            status: Final run status. Anything other than ``"success"``
+                or ``"finished"`` marks the run as failed.
+
+        """
+        if self._closed:
+            return
+        self._closed = True
+        succeeded = status in {"success", "finished"}
+
+        if self.is_mlflow:
+            if self.local_logs:
+                # give an MLflow server that came back up a last chance,
+                # for which the backoff has to be waived
+                self._mlflow_retry_at = 0.0
+                if not self.mlflow_initialized:
+                    self._init_mlflow()
+            self.log_stored_logs_to_mlflow()
+            if self.local_logs:
+                self._finalize_backend(
+                    "the local log fallback", self.save_logs_locally
+                )
+
+        if "tensorboard" in self._experiment:
+            # `SummaryWriter.close` flushes the pending events first
+            self._finalize_backend("TensorBoard", self._tensorboard().close)
+
+        if self.mlflow_initialized:
+            self._finalize_backend(
+                "MLflow",
+                self._mlflow().end_run,
+                "FINISHED" if succeeded else "FAILED",
+            )
+
+        if "wandb_run" in self._experiment:
+            self._finalize_backend(
+                "WandB",
+                self._wandb_run().finish,
+                0 if succeeded else 1,
+            )
+
+    @staticmethod
+    def _finalize_backend(
+        name: str, finalize: Callable[..., None], *args: str | int
+    ) -> None:
+        """Shut a backend down without letting it break the teardown."""
+        try:
+            finalize(*args)
+        except Exception as e:
+            logger.warning(f"Failed to finalize {name}: {e}")
 
     def _get_run_name(self) -> str:
         """Generate a new run name."""
@@ -678,19 +1108,67 @@ class LuxonisTracker:
         number = self._get_next_run_number()
         return f"{number}-{name_without_number}"
 
-    def _get_latest_run_name(self) -> str:
-        """Return the most recently created run name."""
-        log_dirs = [
-            path.relative_to(self.save_directory).name
+    def _get_next_run_number(self) -> int:
+        """Return the number ID for the next run."""
+        numbers = [int(name.split("-")[0]) for name in self._existing_runs()]
+        if not numbers:
+            return 0
+        return max(numbers) + 1
+
+    def _get_latest_run_name(
+        self,
+        timeout: float = 30.0,
+        poll_interval: float = 0.5,
+        grace_period: float = 1.0,
+    ) -> str:
+        """Return the name of the run the rank-zero process created.
+
+        Waits for a run directory that was not there yet, because a run
+        left over from an earlier training would otherwise be mistaken
+        for the current one. Rank zero cannot be identified with any
+        certainty from here, so once ``grace_period`` has passed without a
+        new run appearing this falls back to the newest existing one. It
+        raises ``RuntimeError`` if no run directory shows up within
+        ``timeout``.
+        """
+        known = set(self._existing_runs())
+        start = time.monotonic()
+        while True:
+            runs = self._existing_runs()
+            new_runs = [name for name in runs if name not in known]
+            if new_runs:
+                return self._newest_run(new_runs)
+
+            elapsed = time.monotonic() - start
+            if runs and elapsed >= grace_period:
+                logger.warning(
+                    f"No new run directory appeared in "
+                    f"'{self.save_directory}' within {grace_period} seconds, "
+                    f"falling back to the newest existing run. Pass "
+                    f"'run_name' explicitly to make sure all ranks use the "
+                    f"same run."
+                )
+                return self._newest_run(runs)
+
+            if elapsed >= timeout:
+                raise RuntimeError(
+                    f"No run directory found in '{self.save_directory}' "
+                    f"after {timeout} seconds. Either the rank-zero process "
+                    "did not start, or 'run_name' has to be passed explicitly."
+                )
+            time.sleep(poll_interval)
+
+    @staticmethod
+    def _newest_run(runs: list[str]) -> str:
+        """Return the run with the highest number."""
+        return max(runs, key=lambda name: int(name.split("-")[0]))
+
+    def _existing_runs(self) -> list[str]:
+        """Return the names of all numbered runs in the save
+        directory.
+        """
+        return [
+            path.name
             for path in self.save_directory.iterdir()
-            if path.is_dir()
+            if path.is_dir() and path.name.split("-")[0].isdecimal()
         ]
-        runs = []
-        for ld in log_dirs:
-            if ld.split("-")[0].isnumeric():
-                runs.append(ld)
-        runs.sort(
-            key=lambda x: (self.save_directory / x).stat().st_mtime,
-            reverse=True,
-        )
-        return runs[0]
