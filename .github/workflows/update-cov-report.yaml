@@ -76,7 +76,7 @@ jobs:
 
       - name: Download artifacts
         if: ${{ steps.ci-run.outputs.upload == 'true' }}
-        uses: dawidd6/action-download-artifact@57aa996fc1713cc1579039614f4645a7f4841fd4
+        uses: dawidd6/action-download-artifact@d63b86af1b34672e53c440b1b83979861906bad7
         with:
           run_id: ${{ steps.ci-run.outputs.run-id }}
           name: coverage-ubuntu-latest-.*
