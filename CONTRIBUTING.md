@@ -127,12 +127,14 @@ Public API docs are generated from docstrings with pydoctor using the
 Build the current checkout locally:
 
 ```bash
-uv run pydoctor luxonis_ml
+uv run --locked --only-group docs pydoctor luxonis_ml
 ```
 
-Open `apidocs/index.html` to inspect the result. CI runs the same command. The
-`[tool.pydoctor]` section of `pyproject.toml` sets the Google docstring format
-and `warnings-as-errors`, which pydoctor reads on its own.
+Open `apidocs/index.html` to inspect the result. This is the same command CI
+runs; `--locked` verifies the lockfile is current and `--only-group docs`
+installs only the documentation tooling. The `[tool.pydoctor]` section of
+`pyproject.toml` sets the Google docstring format and `warnings-as-errors`,
+which pydoctor reads on its own.
 
 > [!IMPORTANT]
 > A warning fails the build. pydoctor exits non-zero on broken markup, on a
