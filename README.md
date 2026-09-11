@@ -35,6 +35,9 @@ tracking, and utility layers that the other Luxonis tools build on.
 > [!WARNING]
 > **The project is in a beta state and might be unstable or contain bugs - please report any feedback.**
 
+For complete CLI and Python API documentation, see the
+[LuxonisML documentation and API reference](https://docs.luxonis.com/software-v3/ai-inference/model-source/training/luxonis-ml/luxonis-ml-api-reference/).
+
 <a name="quick-start"></a>
 
 ## 🚀 Quick Start
@@ -98,7 +101,6 @@ tracking, and utility layers that the other Luxonis tools build on.
   - [📈 Tracking an Experiment](#tracking-an-experiment)
 - [💻 CLI](#cli)
 - [🔑 Credentials](#credentials)
-- [📚 Documentation](#documentation)
 - [🤝 Contributing](#contributing)
 
 <a name="modules"></a>
@@ -353,23 +355,6 @@ directly in your configuration files. Instead:
 
 > [!NOTE]
 > `LuxonisML` sends no telemetry. It only provides a telemetry client that other Luxonis packages can use. To turn that client off, set `LUXONIS_TELEMETRY_ENABLED=false`. See the [`luxonis_ml.telemetry`](https://docs.luxonis.com/software-v3/ai-inference/model-source/training/luxonis-ml/luxonis-ml-api-reference/telemetry) documentation for the data an event carries.
-
-<a name="documentation"></a>
-
-## 📚 Documentation
-
-The API documentation is generated from the docstrings in the source code, and
-it is published on the Luxonis documentation portal:
-
-**<https://docs.luxonis.com/software-v3/ai-inference/model-source/training/luxonis-ml/luxonis-ml-api-reference/>**
-
-To build the documentation locally, run:
-
-```bash
-uv run pydoctor luxonis_ml
-```
-
-The command writes the site to `apidocs/index.html`.
 
 <a name="contributing"></a>
 
