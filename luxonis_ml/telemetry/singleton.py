@@ -53,6 +53,20 @@ def get_or_init(
         The existing or newly initialized telemetry instance for the
         ``(library_name, source_component)`` key.
 
+    Note:
+        A second call for the same key does not rebuild the instance,
+        and it reconciles the arguments in two different ways:
+
+            - ``config`` and ``library_version`` are immutable. A value
+              that differs from the existing one is ignored, and the
+              function logs a warning.
+            - ``context_providers`` and ``system_context_providers``
+              are additive. New providers are merged into the existing
+              instance.
+
+        This lets several integration points contribute telemetry
+        context without a rebuild of the singleton.
+
     """
     with _singleton_lock:
         existing = get_telemetry(

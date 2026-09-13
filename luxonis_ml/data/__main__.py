@@ -43,6 +43,12 @@ app = App(help="Dataset utilities.")
 
 BucketStorageT: TypeAlias = Annotated[BucketStorage, Parameter(alias="-b")]
 
+# pydoctor parses each string in an annotation as a forward reference,
+# and ".json" is not one. The extensions stay out of the annotation.
+AUG_CONFIG_VALIDATOR = validators.Path(
+    exists=True, ext={".json", ".yaml", ".yml"}
+)
+
 
 @app.command
 def info(
@@ -67,13 +73,13 @@ def delete(
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
     local: Annotated[
         bool,
-        Parameter(alias="-l", negative=""),
+        Parameter(alias="-l", negative=()),
     ] = False,
     remote: Annotated[
         bool,
-        Parameter(alias="-r", negative=""),
+        Parameter(alias="-r", negative=()),
     ] = False,
-    yes: Annotated[bool, Parameter(alias="-y", negative="")] = False,
+    yes: Annotated[bool, Parameter(alias="-y", negative=())] = False,
 ):
     """Delete a dataset from local storage, remote storage, or both.
 
@@ -188,12 +194,7 @@ def inspect(
     view: Annotated[list[str] | None, Parameter(alias="-v")] = None,
     aug_config: Annotated[
         Path | None,
-        Parameter(
-            alias="-a",
-            validator=validators.Path(
-                exists=True, ext={".json", ".yaml", ".yml"}
-            ),
-        ),
+        Parameter(alias="-a", validator=AUG_CONFIG_VALIDATOR),
     ] = None,
     size_multiplier: Annotated[
         float,
@@ -201,35 +202,35 @@ def inspect(
     ] = 1.0,
     ignore_aspect_ratio: Annotated[
         bool,
-        Parameter(alias="-i", negative=""),
+        Parameter(alias="-i", negative=()),
     ] = False,
     deterministic: Annotated[
         bool,
-        Parameter(alias="-d", negative=""),
+        Parameter(alias="-d", negative=()),
     ] = False,
     force_update: Annotated[
         bool,
-        Parameter(alias="-f", negative=""),
+        Parameter(alias="-f", negative=()),
     ] = False,
     blend_all: Annotated[
         bool,
-        Parameter(alias="-bl", negative=""),
+        Parameter(alias="-bl", negative=()),
     ] = False,
     per_instance: Annotated[
         bool,
-        Parameter(alias="-pi", negative=""),
+        Parameter(alias="-pi", negative=()),
     ] = False,
     list_augmentations: Annotated[
         bool,
-        Parameter(negative=""),
+        Parameter(negative=()),
     ] = False,
     print_sample_metadata: Annotated[
         bool,
-        Parameter(negative=""),
+        Parameter(negative=()),
     ] = True,
     skeletons: Annotated[
         bool,
-        Parameter(negative=""),
+        Parameter(negative=()),
     ] = False,
     keypoint_labels: Annotated[
         Literal["none", "numbers", "names", "full"],
@@ -435,7 +436,7 @@ def export(
         Parameter(
             name="--delete",
             alias="-d",
-            negative="",
+            negative=(),
         ),
     ] = False,
     max_partition_size_gb: Annotated[
@@ -505,7 +506,7 @@ def parse(
         Parameter(
             name="--delete",
             alias="-d",
-            negative="",
+            negative=(),
         ),
     ] = False,
     save_dir: Annotated[
@@ -762,7 +763,7 @@ def push(
     bucket_storage: BucketStorage,
     force: Annotated[
         bool,
-        Parameter(alias="-f", negative=""),
+        Parameter(alias="-f", negative=()),
     ] = False,
 ):
     """Push a local dataset to cloud storage.
@@ -811,7 +812,7 @@ def pull(
     *,
     force: Annotated[
         bool,
-        Parameter(alias="-f", negative=""),
+        Parameter(alias="-f", negative=()),
     ] = False,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
@@ -855,7 +856,7 @@ def clone(
     *,
     push: Annotated[
         bool,
-        Parameter(alias="-p", negative=""),
+        Parameter(alias="-p", negative=()),
     ] = True,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
     split: Annotated[

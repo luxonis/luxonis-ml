@@ -119,7 +119,7 @@ class LuxonisParser(Generic[T]):
                     - Local path to the dataset directory.
 
                     - Remote URL supported by L{LuxonisFileSystem}.
-                        - ``gcs://`` for Google Cloud Storage
+                        - ``gcs://`` or ``gs://`` for Google Cloud Storage
                         - ``s3://`` for Amazon S3
 
                     - ``roboflow://`` for Roboflow datasets.
@@ -277,6 +277,13 @@ class LuxonisParser(Generic[T]):
 
         If the dataset already exists, parsing will be skipped and the
         existing dataset will be returned instead.
+
+        Note:
+            When the parser reads a single split, this method sets
+            ``random_split=True`` unless you pass your own value. This
+            differs from `BaseParser.parse_split`, which declares
+            ``random_split=False``. A single split therefore gets random
+            train, val, and test splits by default.
 
         Args:
             kwargs: Parser-specific arguments.
