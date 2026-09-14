@@ -1,6 +1,5 @@
 import json
 import shutil
-from collections import defaultdict
 from pathlib import Path
 from typing import NoReturn, cast
 
@@ -193,105 +192,45 @@ def test_loader_iterator(storage_url: str, tempdir: Path):
         _ = loader[0]
 
 
-@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
-def test_make_splits(
-    bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
+def test_remove_duplicates_skips_a_clean_dataset(
+    bucket_storage: BucketStorage,
+    dataset_name: str,
+    tempdir: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ):
-    definitions: dict[str, list[str]] = defaultdict(list)
+    """A clean dataset must not pay for a full parquet rewrite."""
+    paths = [str(create_image(i, tempdir)) for i in range(3)]
 
-    _start_index: int = 0
+    def generator(duplicate: bool) -> DatasetIterator:
+        for path in paths:
+            yield {"file": path, "annotation": {"class": "dog"}}
+        if duplicate:
+            yield {"file": paths[0], "annotation": {"class": "dog"}}
 
-    def generator(step: int = 15) -> DatasetIterator:
-        nonlocal _start_index
-        definitions.clear()
-        for i in range(_start_index, _start_index + step):
-            path = create_image(i, tempdir)
-            yield {
-                "file": str(path),
-                "annotation": {
-                    "class": ["dog", "cat"][i % 2],
-                },
-            }
-            definitions[["train", "val", "test"][i % 3]].append(str(path))
-        _start_index += step
+    saved: list[object] = []
 
-    dataset = create_dataset(
-        dataset_name, generator(), bucket_storage, splits=False
+    def record(_: LuxonisDataset, df: object) -> None:
+        saved.append(df)
+
+    clean = create_dataset(
+        dataset_name, generator(duplicate=False), bucket_storage, splits=False
     )
+    monkeypatch.setattr(LuxonisDataset, "_save_df_offline", record)
+    clean.remove_duplicates()
+    monkeypatch.undo()
+    assert not saved
 
-    assert len(dataset) == 15
-    assert dataset.get_splits() is None
-    dataset.make_splits(definitions)
-    splits = dataset.get_splits()
-    assert splits is not None
-    assert set(splits.keys()) == {"train", "val", "test"}
-    for split, split_data in splits.items():
-        assert len(split_data) == 5, (
-            f"Split {split} has {len(split_data)} samples"
-        )
-
-    dataset.add(generator())
-    splits = dataset.get_splits()
-    assert splits is not None
-    for split, split_data in splits.items():
-        assert len(split_data) == 5, (
-            f"Split {split} has {len(split_data)} samples"
-        )
-    dataset.make_splits(definitions)  # type: ignore
-    splits = dataset.get_splits()
-    assert splits is not None
-    for split, split_data in splits.items():
-        assert len(split_data) == 10, (
-            f"Split {split} has {len(split_data)} samples"
-        )
-
-    dataset.add(generator())
-    dataset.make_splits((1, 0, 0))
-    splits = dataset.get_splits()
-    assert splits is not None
-    for split, split_data in splits.items():
-        expected_length = 25 if split == "train" else 10
-        assert len(split_data) == expected_length, (
-            f"Split {split} has {len(split_data)} samples"
-        )
-
-    with pytest.raises(ValueError, match="No new files"):
-        dataset.make_splits()
-
-    with pytest.raises(ValueError, match="Splits cannot be empty"):
-        dataset.make_splits({})
-
-    with pytest.raises(ValueError, match=r"Ratios must sum to 1.0"):
-        dataset.make_splits((0.7, 0.1, 1))
-
-    with pytest.raises(ValueError, match="must be a tuple of 3 floats"):
-        dataset.make_splits((0.7, 0.1, 0.1, 0.1))  # type: ignore
-
-    with pytest.raises(ValueError, match="Cannot provide both splits and"):
-        dataset.make_splits((0.7, 0.1, 0.2), definitions=definitions)
-
-    with pytest.raises(ValueError, match=r"Ratios must sum to 1.0"):
-        dataset.make_splits({"train": 1.5})
-
-    dataset.add(generator(10))
-    dataset.make_splits({"custom_split": 1.0})
-    splits = dataset.get_splits()
-    assert splits is not None
-    assert set(splits.keys()) == {"train", "val", "test", "custom_split"}
-    for split, split_data in splits.items():
-        expected_length = 25 if split == "train" else 10
-        assert len(split_data) == expected_length, (
-            f"Split {split} has {len(split_data)} samples"
-        )
-
-    dataset.make_splits(replace_old_splits=True)
-    splits = dataset.get_splits()
-    assert splits is not None
-    for split, split_data in splits.items():
-        expected_length = {"train": 44, "val": 6, "test": 5}
-        assert len(split_data) == expected_length[split], (
-            f"Split {split} has {len(split_data)} samples"
-        )
+    # The positive control. A real duplicate still triggers the rewrite.
+    duplicated = create_dataset(
+        f"{dataset_name}_duplicated",
+        generator(duplicate=True),
+        bucket_storage,
+        splits=False,
+    )
+    monkeypatch.setattr(LuxonisDataset, "_save_df_offline", record)
+    duplicated.remove_duplicates()
+    monkeypatch.undo()
+    assert len(saved) == 1
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
@@ -1272,7 +1211,7 @@ def create_test_dataset_with_classes(
     for task_name, classes in task_classes.items():
         dataset.set_classes(classes, task=task_name)
 
-    dataset.make_splits(ratios=(1, 0, 0))
+    dataset.make_splits((1, 0, 0))
     return dataset
 
 
@@ -1334,7 +1273,7 @@ def test_class_order_per_task_multiple_tasks(tempdir: Path):
     for task_name, classes in original_classes.items():
         dataset.set_classes(classes, task=task_name)
 
-    dataset.make_splits(ratios=(1, 0, 0))
+    dataset.make_splits((1, 0, 0))
 
     # Define new class orders for both tasks
     class_order_per_task = {

@@ -44,7 +44,13 @@ class TelemetryConfig:
             metadata by default.
         disable_geoip: Whether to disable PostHog GeoIP enrichment.
         allow_reserved_overrides: Whether callers and context providers
-            may override reserved telemetry control fields.
+            may override reserved telemetry control fields. The
+            reserved fields are ``$process_person_profile``,
+            ``$session_id``, ``source_product``, ``source_component``,
+            and ``sdk_version``. See
+            `luxonis_ml.telemetry.context.RESERVED_METADATA_KEYS`.
+            Keep the default unless you intend the override. The
+            PostHog backend still sets ``schema_version`` itself.
 
     """
 
@@ -67,9 +73,16 @@ class TelemetryConfig:
         """Build a config from environment variables.
 
         Reads the ``LUXONIS_TELEMETRY_*`` settings and returns a fully
-        populated ``TelemetryConfig`` instance. Environment variables
+        populated ``TelemetryConfig`` instance. The `luxonis_ml.telemetry`
+        package documentation lists the variables. Environment variables
         take precedence over product-level defaults, which in turn take
         precedence over the telemetry module's base defaults.
+
+        The ``backend`` field is the one exception. If neither
+        ``LUXONIS_TELEMETRY_BACKEND`` nor ``TelemetryDefaults.backend``
+        gives a value, the last fallback stays dynamic: the backend is
+        ``"stdout"`` when the resolved ``debug`` is True, and
+        ``"posthog"`` otherwise.
 
         Args:
             defaults: Optional product-level defaults used when a given

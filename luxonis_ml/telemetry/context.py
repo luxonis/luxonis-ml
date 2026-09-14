@@ -35,7 +35,17 @@ def is_luxonis_cloud() -> bool:
 
 
 def normalized_processor() -> str:
-    """Return a coarse processor family for telemetry."""
+    """Return a coarse processor family for telemetry.
+
+    The raw ``platform.processor`` string never leaves the machine.
+    `host_context` still sends the ``platform.machine`` value as
+    ``arch``.
+
+    Returns:
+        One of ``"arm64"``, ``"arm"``, ``"x86_64"``, ``"x86"``,
+        ``"powerpc"``, ``"riscv"``, or ``"unknown"``.
+
+    """
     raw_values = [platform.machine().lower(), platform.processor().lower()]
     for value in raw_values:
         if not value:
@@ -67,12 +77,22 @@ def base_context(
     Args:
         library_name: Name of the emitting library.
         library_version: Version string for the library.
-        session_id: Random per-process session ID.
+        session_id: Random session ID. It stays the same for the
+            lifetime of one `luxonis_ml.telemetry.Telemetry` instance,
+            not for the lifetime of the process. The PostHog backend
+            also uses it as the default ``distinct_id``.
         source_component: Optional component name for the emitter. If
             omitted, the library name is reused.
 
     Returns:
-        The shared base context attached to events.
+        The shared base context attached to events. It holds
+        ``$process_person_profile``, ``$session_id``,
+        ``source_product``, ``source_component``, and ``sdk_version``.
+
+    Note:
+        ``$process_person_profile`` is False on purpose. It keeps the
+        PostHog captures anonymous, so PostHog creates no person
+        profile. Do not change it to True.
 
     """
     return {
@@ -85,7 +105,13 @@ def base_context(
 
 
 def host_context() -> dict[str, Any]:
-    """Return coarse host metadata for optional event context."""
+    """Return coarse host metadata for optional event context.
+
+    Returns:
+        A mapping of ``os``, ``os_version``, ``arch``, and
+        ``python_version``.
+
+    """
     return {
         "os": platform.system(),
         "os_version": platform.release(),
@@ -95,7 +121,14 @@ def host_context() -> dict[str, Any]:
 
 
 def system_context() -> dict[str, Any]:
-    """Return extended runtime metadata for optional event context."""
+    """Return extended runtime metadata for optional event context.
+
+    Returns:
+        The keys of `host_context`, plus ``ci``, ``is_luxonis_cloud``,
+        ``processor`` (a coarse family from `normalized_processor`),
+        ``cpu_count``, and ``is_docker``.
+
+    """
     return {
         **host_context(),
         "ci": is_ci(),

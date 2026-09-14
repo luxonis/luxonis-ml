@@ -269,6 +269,12 @@ class COCOParser(BaseParser):
         Annotations include classification, segmentation, object detection,
         and keypoints when present.
 
+        The method also builds the skeleton metadata. It reads every
+        category that holds both a ``keypoints`` field and a ``skeleton``
+        field. It uses ``keypoints`` as the keypoint labels, and it
+        converts the ``skeleton`` pairs to edges. COCO numbers the skeleton
+        joints from 1, so the method subtracts 1 from each index.
+
         Args:
             image_dir: Directory with images.
             annotation_path: Annotation JSON file.

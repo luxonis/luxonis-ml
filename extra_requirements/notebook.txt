@@ -5,7 +5,7 @@ asttokens==3.0.2
 attrs==26.1.0
 colorama==0.4.6 ; sys_platform == 'win32'
 comm==0.2.3
-cyclopts==4.22.3
+cyclopts==4.23.3
 decorator==5.3.1 ; python_full_version < '3.11'
 docstring-parser==0.18.0
 exceptiongroup==1.3.1 ; python_full_version < '3.11'
@@ -33,12 +33,12 @@ ptyprocess==0.7.0 ; sys_platform != 'emscripten' and sys_platform != 'win32'
 pure-eval==0.2.3
 pybind11==3.1.0
 pycocotools==2.0.11
-pydantic==2.13.4
-pydantic-core==2.46.4
+pydantic==2.13.5
+pydantic-core==2.46.5
 pydantic-extra-types==2.11.1
-pydantic-settings==2.14.2
-pygments==2.20.0
-python-dotenv==1.2.2
+pydantic-settings==2.15.0
+pygments==2.21.0
+python-dotenv==1.2.3
 pyyaml==6.0.3
 rich==15.0.0
 rich-rst==2.1.0
@@ -49,7 +49,7 @@ tomli==2.4.1 ; python_full_version < '3.11'
 traitlets==5.16.1
 typeguard==4.6.0
 typing-extensions==4.16.0
-typing-inspection==0.4.2
-wcwidth==0.8.2
+typing-inspection==0.4.4
+wcwidth==0.8.3
 widgetsnbextension==4.0.15
 win32-setctime==1.2.0 ; sys_platform == 'win32'

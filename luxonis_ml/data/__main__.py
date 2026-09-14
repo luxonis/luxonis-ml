@@ -404,6 +404,13 @@ def _print_comparison_summary(
         console.print(table)
 
 
+# pydoctor parses each string in an annotation as a forward reference,
+# and ".json" is not one. The extensions stay out of the annotation.
+AUG_CONFIG_VALIDATOR = validators.Path(
+    exists=True, ext={".json", ".yaml", ".yml"}
+)
+
+
 @app.command
 def info(
     name: str,
@@ -427,13 +434,13 @@ def delete(
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
     local: Annotated[
         bool,
-        Parameter(alias="-l", negative=""),
+        Parameter(alias="-l", negative=()),
     ] = False,
     remote: Annotated[
         bool,
-        Parameter(alias="-r", negative=""),
+        Parameter(alias="-r", negative=()),
     ] = False,
-    yes: Annotated[bool, Parameter(alias="-y", negative="")] = False,
+    yes: Annotated[bool, Parameter(alias="-y", negative=())] = False,
 ):
     """Delete a dataset from local storage, remote storage, or both.
 
@@ -708,9 +715,7 @@ def inspect(
         Parameter(
             alias="-a",
             group=_AUGMENTATION_OPTIONS,
-            validator=validators.Path(
-                exists=True, ext={".json", ".yaml", ".yml"}
-            ),
+            validator=AUG_CONFIG_VALIDATOR,
         ),
     ] = None,
     size_multiplier: Annotated[
@@ -721,25 +726,25 @@ def inspect(
         bool,
         Parameter(
             alias="-i",
-            negative="",
+            negative=(),
             group=_AUGMENTATION_OPTIONS,
         ),
     ] = False,
     deterministic: Annotated[
         bool,
-        Parameter(alias="-d", negative="", group=_AUGMENTATION_OPTIONS),
+        Parameter(alias="-d", negative=(), group=_AUGMENTATION_OPTIONS),
     ] = False,
     force_update: Annotated[
         bool,
-        Parameter(alias="-f", negative="", group=_DATASET_OPTIONS),
+        Parameter(alias="-f", negative=(), group=_DATASET_OPTIONS),
     ] = False,
     blend_all: Annotated[
         bool,
-        Parameter(alias="-bl", negative="", group=_VISUALIZATION_OPTIONS),
+        Parameter(alias="-bl", negative=(), group=_VISUALIZATION_OPTIONS),
     ] = False,
     per_instance: Annotated[
         bool,
-        Parameter(alias="-pi", negative="", group=_VISUALIZATION_OPTIONS),
+        Parameter(alias="-pi", negative=(), group=_VISUALIZATION_OPTIONS),
     ] = False,
     color_by: Annotated[
         Literal["class", "instance", "task"] | None,
@@ -748,7 +753,7 @@ def inspect(
     prefetch: Annotated[int, Parameter(group=_VIEWER_OPTIONS)] = 2,
     skeletons: Annotated[
         bool,
-        Parameter(negative="", group=_KEYPOINT_OPTIONS),
+        Parameter(negative=(), group=_KEYPOINT_OPTIONS),
     ] = False,
     keypoint_labels: Annotated[
         Literal["none", "numbers", "names", "full"],
@@ -760,11 +765,11 @@ def inspect(
     ] = True,
     show_background: Annotated[
         bool,
-        Parameter(alias="-bg", negative="", group=_SEGMENTATION_OPTIONS),
+        Parameter(alias="-bg", negative=(), group=_SEGMENTATION_OPTIONS),
     ] = False,
     array_viz: Annotated[
         bool,
-        Parameter(alias="-av", negative="", group=_ARRAY_OPTIONS),
+        Parameter(alias="-av", negative=(), group=_ARRAY_OPTIONS),
     ] = False,
     array_mode: Annotated[
         Literal["tile", "overlay"],
@@ -800,11 +805,11 @@ def inspect(
     ] = True,
     fast: Annotated[
         bool,
-        Parameter(alias="-fa", negative="", group=_VISUALIZATION_OPTIONS),
+        Parameter(alias="-fa", negative=(), group=_VISUALIZATION_OPTIONS),
     ] = False,
     show_all: Annotated[
         bool,
-        Parameter(alias="-sa", negative="", group=_VISUALIZATION_OPTIONS),
+        Parameter(alias="-sa", negative=(), group=_VISUALIZATION_OPTIONS),
     ] = False,
     theme: Annotated[
         Literal["dark", "light"],
@@ -1337,19 +1342,19 @@ def compare(
     ] = 0.25,
     class_agnostic: Annotated[
         bool,
-        Parameter(negative="", group=_MATCHING_OPTIONS),
+        Parameter(negative=(), group=_MATCHING_OPTIONS),
     ] = False,
     per_class: Annotated[
         bool,
-        Parameter(alias="-pc", negative="", group=_REPORT_OPTIONS),
+        Parameter(alias="-pc", negative=(), group=_REPORT_OPTIONS),
     ] = False,
     errors_only: Annotated[
         bool,
-        Parameter(alias="-e", negative="", group=_VISUALIZATION_OPTIONS),
+        Parameter(alias="-e", negative=(), group=_VISUALIZATION_OPTIONS),
     ] = False,
     summary: Annotated[
         bool,
-        Parameter(negative="", group=_REPORT_OPTIONS),
+        Parameter(negative=(), group=_REPORT_OPTIONS),
     ] = False,
     size_multiplier: Annotated[
         float | Literal["auto"],
@@ -1368,11 +1373,11 @@ def compare(
     ] = "none",
     legend: Annotated[
         bool,
-        Parameter(alias="-lg", negative="", group=_VISUALIZATION_OPTIONS),
+        Parameter(alias="-lg", negative=(), group=_VISUALIZATION_OPTIONS),
     ] = False,
     show_background: Annotated[
         bool,
-        Parameter(alias="-bg", negative="", group=_SEGMENTATION_OPTIONS),
+        Parameter(alias="-bg", negative=(), group=_SEGMENTATION_OPTIONS),
     ] = False,
     theme: Annotated[
         Literal["dark", "light"],
@@ -1400,7 +1405,7 @@ def compare(
     ] = 5.0,
     force_update: Annotated[
         bool,
-        Parameter(alias="-f", negative="", group=_DATASET_OPTIONS),
+        Parameter(alias="-f", negative=(), group=_DATASET_OPTIONS),
     ] = False,
     bucket_storage: Annotated[
         BucketStorageT,
@@ -1817,7 +1822,7 @@ def export(
         Parameter(
             name="--delete",
             alias="-d",
-            negative="",
+            negative=(),
         ),
     ] = False,
     max_partition_size_gb: Annotated[
@@ -1887,7 +1892,7 @@ def parse(
         Parameter(
             name="--delete",
             alias="-d",
-            negative="",
+            negative=(),
         ),
     ] = False,
     save_dir: Annotated[
@@ -2234,7 +2239,7 @@ def push(
     bucket_storage: BucketStorage,
     force: Annotated[
         bool,
-        Parameter(alias="-f", negative=""),
+        Parameter(alias="-f", negative=()),
     ] = False,
 ):
     """Push a local dataset to cloud storage.
@@ -2283,7 +2288,7 @@ def pull(
     *,
     force: Annotated[
         bool,
-        Parameter(alias="-f", negative=""),
+        Parameter(alias="-f", negative=()),
     ] = False,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
@@ -2327,7 +2332,7 @@ def clone(
     *,
     push: Annotated[
         bool,
-        Parameter(alias="-p", negative=""),
+        Parameter(alias="-p", negative=()),
     ] = True,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
     split: Annotated[

@@ -23,7 +23,7 @@ dependencies = [
   "loguru~=0.7",
   "pydantic-extra-types~=2.10",
   "pydantic-settings~=2.1",
-  "pydantic~=2.7",
+  "pydantic~=2.13",
   "rich~=15.0",
   "semver~=3.0",
   "typeguard~=4.1",
@@ -208,6 +208,10 @@ black = true
 style = "google"
 wrap-summaries = 72
 wrap-descriptions = 72
+
+[tool.pydoctor]
+docformat = "google"
+warnings-as-errors = true
 
 [tool.pyright]
 pythonVersion = "3.10"

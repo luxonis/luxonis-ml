@@ -131,9 +131,25 @@ class Telemetry:
         """Register a custom backend class.
 
         Args:
-            name: Backend name used in ``TelemetryConfig.backend``.
+            name: Backend name used in ``TelemetryConfig.backend``. The
+                name is stored in lower case, so the lookup ignores
+                case.
             backend_cls: Backend class instantiated with
                 ``TelemetryConfig``.
+
+        Example:
+            Register a backend and select it through the config.
+
+            .. code-block:: python
+
+                Telemetry.register_backend("my_backend", MyBackend)
+
+                config = TelemetryConfig(backend="my_backend")
+                telemetry = Telemetry("luxonis_ml", config=config)
+
+        Note:
+            Registration replaces any backend already stored under the
+            same name.
 
         """
         TELEMETRY_BACKENDS.register(
