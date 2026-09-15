@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import cv2
@@ -57,3 +58,12 @@ def create_dataset(
     elif splits:
         dataset.make_splits(splits)
     return dataset
+
+
+def set_ldf_version(dataset: LuxonisDataset, version: str) -> LuxonisDataset:
+    """Change the stored LDF version and open the dataset again."""
+    path = dataset._metadata_path / "metadata.json"
+    dataset_metadata = json.loads(path.read_text())
+    dataset_metadata["ldf_version"] = version
+    path.write_text(json.dumps(dataset_metadata))
+    return LuxonisDataset(dataset.identifier)

@@ -98,6 +98,8 @@ class LDFDowngrader:
 
     Attributes:
         target_version: LDF version the records are rewritten to.
+        keeps_keypoint_names: Whether the target version keys the
+            keypoints by name.
 
     """
 
@@ -113,7 +115,7 @@ class LDFDowngrader:
             for path, added_in in _ADDED_ANNOTATION_FIELDS.items()
             if added_in > target_version
         ]
-        self._keeps_keypoint_names = target_version >= _KEYPOINT_NAMES_ADDED_IN
+        self.keeps_keypoint_names = target_version >= _KEYPOINT_NAMES_ADDED_IN
         self._dropped: Counter[str] = Counter()
         self._n_records = 0
 
@@ -148,7 +150,7 @@ class LDFDowngrader:
         LDF 2.2 keys the keypoints by name. An older version reads them as
         a plain list, so a mapping fails to validate there.
         """
-        if self._keeps_keypoint_names:
+        if self.keeps_keypoint_names:
             return
         keypoints = annotation.get("keypoints")
         if not isinstance(keypoints, dict):
