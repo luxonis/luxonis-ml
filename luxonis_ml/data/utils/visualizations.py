@@ -15,6 +15,7 @@ from luxonis_ml.data.utils import (
     get_task_type,
     task_type_iterator,
 )
+from luxonis_ml.ldf import KeypointMetadata
 from luxonis_ml.typing import HSV, RGB, Color, Labels
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
@@ -573,8 +574,7 @@ def visualize(
     blend_all: bool = False,
     categorical_encodings: dict[str, dict[str, int]] | None = None,
     *,
-    skeletons: dict[str, tuple[list[str], list[tuple[int, int]]]]
-    | None = None,
+    keypoint_metadata: dict[str, KeypointMetadata] | None = None,
     draw_skeletons: bool = False,
     keypoint_label_mode: Literal[
         "none", "numbers", "names", "full"
@@ -593,11 +593,13 @@ def visualize(
             tasks. Keys are full task identifiers such as
             ``"task_name/metadata/key"`` and values map string labels to
             encoded integers.
-        skeletons: Optional keypoint skeleton metadata keyed by task name.
+        keypoint_metadata: Optional keypoint definitions keyed by task name.
         draw_skeletons: Whether to draw keypoint skeleton edges.
-        keypoint_label_mode: Keypoint label mode. ``"none"`` hides keypoint
-            labels, ``"numbers"`` draws numeric indices, and ``"full"`` draws
-            skeleton keypoint names when available.
+        keypoint_label_mode: Keypoint label mode. ``"none"`` draws no
+            label. ``"numbers"`` draws the keypoint index. ``"names"``
+            draws the keypoint name. ``"full"`` draws the index and the
+            name. The two name modes draw no label for a keypoint that
+            `keypoint_metadata` does not name.
 
     Returns:
         The visualized image.
@@ -768,8 +770,9 @@ def visualize(
         task_classes = mappings[task_name]
         keypoint_names: list[str] = []
         edges: list[tuple[int, int]] = []
-        if skeletons is not None and task_name in skeletons:
-            keypoint_names, edges = skeletons[task_name]
+        if keypoint_metadata is not None and task_name in keypoint_metadata:
+            task_keypoints = keypoint_metadata[task_name]
+            keypoint_names, edges = task_keypoints.labels, task_keypoints.edges
 
         for i, kp in enumerate(arr):
             kp = kp.reshape(-1, 3)
