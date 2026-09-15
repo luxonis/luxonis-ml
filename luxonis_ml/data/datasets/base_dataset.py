@@ -121,12 +121,22 @@ class BaseDataset(
         *,
         flip_pairs: list[KeypointPair] | None = None,
         sigmas: list[float] | None = None,
-        infer_flip_pairs: bool = True,
+        infer_flip_pairs: bool | None = None,
     ) -> None:
         """Set the keypoint definitions of the tasks that use keypoints.
 
         Only the fields that you provide are replaced, so a definition can
-        be built up over several calls.
+        be built up over several calls. New labels are the exception:
+
+            - Edges, flip pairs and sigmas refer to the keypoints by
+              position. Labels that change a unique name or the number of
+              keypoints thus drop the stored values of these fields.
+            - `add` gives keypoints without names the labels ``"0"``,
+              ``"1"``, ... and joins them in a chain. Names for these
+              keypoints drop the edges of that chain, also when a record
+              or an earlier call set the same edges.
+
+        To keep a field, give it in the same call as the labels.
 
         Prefer the records. A record can carry ``edges``, ``flip_pairs``
         and ``sigmas`` beside its keypoints, and `add` moves them here.
@@ -155,10 +165,17 @@ class BaseDataset(
             task: Optional task to update. If omitted, all tasks are
                 updated.
             flip_pairs: Optional pairs of keypoints swapped by a horizontal
-                flip. Inferred from ``left``/``right`` names when omitted.
+                flip.
             sigmas: Optional per-keypoint OKS standard deviations.
-            infer_flip_pairs: Whether to infer flip pairs from the keypoint
-                names when none are known.
+            infer_flip_pairs: Whether to infer flip pairs from the
+                ``left``/``right`` keypoint names. Only a call that omits
+                ``flip_pairs`` infers them, and only for a task without
+                flip pairs. ``None`` infers them only for names that are
+                new to the task, as `add` does. An empty list of stored
+                flip pairs can mean that an earlier call turned the
+                inference off, and ``None`` keeps that list. ``True``
+                also infers them for the stored names, for example for a
+                dataset from an older luxonis-ml. ``False`` infers none.
 
         Raises:
             ValueError: If you provide none of the fields.
@@ -185,7 +202,7 @@ class BaseDataset(
         *,
         flip_pairs: list[KeypointPair] | None = None,
         sigmas: list[float] | None = None,
-        infer_flip_pairs: bool = True,
+        infer_flip_pairs: bool | None = None,
     ) -> None:
         """Set the keypoint definitions of the tasks that use keypoints.
 

@@ -21,8 +21,8 @@ def basic_metadata() -> Metadata:
 
 
 def test_merge_with_different_versions():
-    """Test that merging metadata with different LDF versions raises
-    ValueError.
+    """Test that merging metadata with different major LDF versions
+    raises ValueError.
     """
     metadata1 = Metadata(
         ldf_version="2.0.0",
@@ -34,7 +34,7 @@ def test_merge_with_different_versions():
         metadata_types={},
     )
     metadata2 = Metadata(
-        ldf_version="2.0",
+        ldf_version="1.0.0",
         source=None,
         classes={},
         tasks={},
@@ -44,9 +44,27 @@ def test_merge_with_different_versions():
     )
 
     with pytest.raises(
-        ValueError, match="Cannot merge metadata with different LDF versions"
+        ValueError,
+        match="Cannot merge metadata with different major LDF versions",
     ):
         metadata1.merge_with(metadata2)
+
+
+@pytest.mark.parametrize(
+    ("version", "other_version"),
+    [("2.1.0", "2.2.0"), ("2.2.0", "2.1"), ("2.2", "2.2.0")],
+)
+def test_merge_keeps_the_newer_minor_version(version: str, other_version: str):
+    """The merge compared the LDF versions as strings.
+
+    Datasets of one major version did not merge when the strings were
+    different. The merged metadata holds content of both datasets, so it
+    gets the newer version.
+    """
+    metadata = Metadata(source=None, ldf_version=version)
+    other = Metadata(source=None, ldf_version=other_version)
+
+    assert metadata.merge_with(other).ldf_version == "2.2.0"
 
 
 def test_merge_classes(basic_metadata: Metadata):

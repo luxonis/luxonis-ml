@@ -6,11 +6,9 @@ forbids them too, and LDF 2.2 added the keypoint task fields.
 """
 
 import json
-from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from loguru import logger
 from semver.version import Version
 
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
@@ -34,15 +32,6 @@ LDF_2_0_RECORD_FIELDS = {"file", "files", "task_name", "annotation"}
 #: The same for a keypoint annotation, which gained the task fields
 #: in 2.2.
 LDF_2_0_KEYPOINT_FIELDS = {"keypoints"}
-
-
-@pytest.fixture
-def warnings_log() -> Iterator[list[str]]:
-    """Collect loguru warnings, which pytest's caplog does not see."""
-    messages: list[str] = []
-    handler = logger.add(messages.append, level="WARNING", format="{message}")
-    yield messages
-    logger.remove(handler)
 
 
 def _generator(tempdir: Path, with_metadata: bool = True) -> DatasetIterator:

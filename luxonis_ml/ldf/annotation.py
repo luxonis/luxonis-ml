@@ -174,8 +174,13 @@ convention:
     }
 
 An annotation can name only the keypoints it has. The other keypoints get
-:math:`\left(0, 0, 0\right)`. A plain list of triplets is also accepted. The
-keypoints are then keyed by position as ``"0"``, ``"1"``, ....
+:math:`\left(0, 0, 0\right)`. Records that name different keypoints need the
+names of the task first. `LuxonisDataset.set_keypoint_metadata` or an earlier
+`LuxonisDataset.add` stores them.
+
+A plain list of triplets is also accepted. The keypoints are then keyed by
+position as ``"0"``, ``"1"``, .... A list shorter than the keypoints of the
+task holds the leading ones.
 
 Each keypoint is a `Keypoint`. It is a named tuple, so ``keypoint[2]`` and
 ``keypoint.visibility`` give the same value. Visibility defaults to
@@ -203,9 +208,17 @@ and flip pairs can refer to keypoints by name:
 
 These three fields describe the task, not the instance.
 `LuxonisDataset.add` thus moves them into a `KeypointMetadata` and keeps one
-entry for each task. If you give no flip pairs, `LuxonisDataset.add` infers
-them from ``left`` and ``right`` names. The dataset stores the keypoints of
-a task in the order that the keypoint metadata defines.
+entry for each task. When a task gets names and no record gives flip pairs,
+`LuxonisDataset.add` infers them from ``left`` and ``right`` names. An empty
+list of flip pairs turns the inference off. The dataset stores the keypoints
+of a task in the order that the keypoint metadata defines.
+
+A task without names gets the positional keys as its labels, and
+`LuxonisDataset.add` joins its keypoints in a chain of edges. Names for these
+keypoints drop the chain. The dataset does not record the source of the
+edges, so the names also drop a chain that a record of an earlier
+`LuxonisDataset.add` gave. To keep these edges, give them again with the
+names.
 
 For :math:`K` keypoints and :math:`N` instances, loader output uses shape
 :math:`\left(N, 3 \cdot K\right)`.
@@ -484,7 +497,7 @@ class KeypointMetadata(BaseModelExtraForbid):
 
     Edges and flip pairs accept keypoint names. They resolve against
     `labels` and store indices, which index into a keypoint array. The
-    fields declare indices, so pass the names through `model_validate`.
+    fields declare indices, so pass the names through ``model_validate``.
     The constructor resolves them too, but a type checker rejects a name
     there:
 
@@ -519,8 +532,23 @@ class KeypointMetadata(BaseModelExtraForbid):
         An annotation that carries a plain list of triplets is keyed
         ``"0"``, ``"1"``, ..., and `LuxonisDataset.add` stores those keys
         as the labels. They record only how many keypoints there are.
+        Labels that repeat a name cannot identify the keypoints either.
         """
-        return bool(self.labels) and not _is_positional(self.labels)
+        return (
+            bool(self.labels)
+            and not _is_positional(self.labels)
+            and not self.repeated_labels
+        )
+
+    @property
+    def repeated_labels(self) -> list[str]:
+        """The names that occur more than once in `labels`, sorted.
+
+        An older luxonis-ml stored the labels without a check, so a name
+        can repeat. Dataset metadata must still open such a dataset, so the model
+        accepts them.
+        """
+        return _repeated(self.labels)
 
     def merge_with(
         self, other: "KeypointMetadata", context: str = ""
@@ -528,7 +556,9 @@ class KeypointMetadata(BaseModelExtraForbid):
         """Merge two keypoint declarations into one.
 
         A field that one declaration leaves empty comes from the other one.
-        Two values for the same field must agree.
+        Two values for the same field must agree. Two lists of the same
+        names agree in any order. This declaration sets the order, so the
+        indices of ``other`` move to it before the comparison.
 
         Args:
             other: Keypoint metadata to merge into this one.
@@ -541,30 +571,39 @@ class KeypointMetadata(BaseModelExtraForbid):
             ValueError: If the two declarations disagree on any field.
 
         """
+        if self.labels != other.labels and set(self.labels) == set(
+            other.labels
+        ):
+            other = other.reindexed_to(self.labels)
+
         conflicts = []
         for field in KeypointMetadata.model_fields:
             mine, theirs = getattr(self, field), getattr(other, field)
-            if not mine or not theirs or mine == theirs:
-                continue
-            # A name identifies a keypoint. Two records that give the same
-            # names thus agree, even in a different order. The first
-            # declaration sets the order.
-            if field == "labels" and set(mine) == set(theirs):
-                continue
-            conflicts.append(field)
+            if mine and theirs and mine != theirs:
+                conflicts.append(field)
 
         if conflicts:
             differences = "\n".join(
                 f"    {field}: {getattr(self, field)} != {getattr(other, field)}"
                 for field in conflicts
             )
-            hint = (
-                "\nA record that annotates only some of the keypoints must "
-                "still name the full set. It can give the missing ones a "
-                "visibility of 0."
-                if "labels" in conflicts
-                else ""
-            )
+            if "labels" in conflicts:
+                hint = (
+                    "\nA record that annotates only some of the keypoints "
+                    "must still name the full set, unless the task already "
+                    "has names. It can give the missing ones a visibility "
+                    "of 0."
+                )
+            elif labels := self.labels or other.labels:
+                # `LuxonisDataset.add` moves each record to the stored
+                # names. The indices can thus differ from the indices that
+                # a record gives.
+                hint = (
+                    "\nThe indices and the sigmas follow the keypoint order "
+                    f"{', '.join(labels)}."
+                )
+            else:
+                hint = ""
             raise ValueError(
                 f"Conflicting keypoint metadata declared{_where(context)}. "
                 f"The following fields disagree:\n{differences}\n"
@@ -572,11 +611,6 @@ class KeypointMetadata(BaseModelExtraForbid):
                 "Declare them on a single record, or use "
                 f"`LuxonisDataset.set_keypoint_metadata`.{hint}"
             )
-        # `edges`, `flip_pairs` and `sigmas` index into the labels of the
-        # record that declared them. The merged labels keep the order of
-        # the first record, so move the indices of the other record.
-        if self.labels and other.labels and self.labels != other.labels:
-            other = other._reindexed_to(self.labels)
         return KeypointMetadata(
             **{
                 field: getattr(self, field) or getattr(other, field)
@@ -615,41 +649,118 @@ class KeypointMetadata(BaseModelExtraForbid):
                             f"{n_keypoints} keypoints are annotated."
                         )
 
+    def validate_labels(self, context: str = "") -> None:
+        """Check that no two keypoints have the same name.
+
+        A name keys a keypoint, so a repeated name drops a keypoint. The
+        model accepts repeated names, so the code that writes names or
+        uses them as keys runs this check.
+
+        Args:
+            context: Description of what is being checked, used in the error
+                message.
+
+        Raises:
+            ValueError: If two keypoints have the same name.
+
+        """
+        if repeated := self.repeated_labels:
+            raise ValueError(
+                f"Duplicate keypoint names{_where(context)}: "
+                f"{', '.join(repeated)}. Give each keypoint a unique name."
+            )
+
     def align(self, keypoints: Mapping[str, Keypoint]) -> dict[str, Keypoint]:
         r"""Order keypoints to match the task, padding missing ones.
 
         A keypoint that the task defines but the annotation omits gets
         :math:`\left(0, 0, 0\right)`. This is the COCO value for a keypoint
         that is not labeled. An annotation can thus name only the keypoints
-        it has.
+        it has. An annotation without names holds the leading keypoints of
+        the task.
 
         Args:
             keypoints: Keypoints keyed by name.
 
         Returns:
-            The keypoints in `labels` order.
+            The keypoints in `labels` order. The keypoints of an annotation
+            without names keep their positional keys.
 
         Raises:
-            ValueError: If a keypoint is not part of the task.
+            ValueError: If a keypoint is not part of the task, if an
+                annotation without names has more keypoints than the task,
+                or if the annotation has names and the names of the task
+                repeat.
 
         """
         if not self.labels:
             return dict(keypoints)
         # Positional keys carry only their order, so they count as already
         # in task order. A record without names can thus sit next to
-        # records that have them.
-        if len(keypoints) == len(self.labels) and _is_positional(keypoints):
-            return dict(zip(self.labels, keypoints.values(), strict=True))
-        unknown = sorted(set(keypoints) - set(self.labels))
-        if unknown:
-            raise ValueError(
-                f"Keypoints {', '.join(unknown)} are not part of the task. "
-                f"Known keypoints: {', '.join(self.labels)}."
-            )
+        # records that have them. A shorter one holds the leading keypoints
+        # and gets the same padding as a record that names a subset. Only
+        # the number of labels matters, so the labels can repeat.
+        if _is_positional(keypoints):
+            if len(keypoints) > len(self.labels):
+                raise ValueError(
+                    f"The annotation has {len(keypoints)} keypoints, but the "
+                    f"task defines only {len(self.labels)}: "
+                    f"{', '.join(self.labels)}."
+                )
+            values = list(keypoints.values())
+            values += [_UNLABELED_KEYPOINT] * (len(self.labels) - len(values))
+            return {str(i): keypoint for i, keypoint in enumerate(values)}
+        self.validate_labels()
+        _reject_unknown(keypoints, self.labels)
         return {
             label: keypoints.get(label, _UNLABELED_KEYPOINT)
             for label in self.labels
         }
+
+    def reindexed_to(self, labels: Sequence[str]) -> "KeypointMetadata":
+        """Return the keypoint metadata for a new list of names.
+
+        The new list holds every current name, in any order, and it can
+        hold more names. The edges and the flip pairs move to the new
+        indices. Each keypoint has its own sigma, so the sigmas move only
+        if the new list holds no other names.
+
+        Args:
+            labels: The new keypoint names in index order.
+
+        Returns:
+            The keypoint metadata with the new names as its labels.
+
+        Raises:
+            ValueError: If a current name is not in the new list, or if a
+                new name has no sigma.
+
+        """
+        _reject_unknown(self.labels, labels)
+        if self.sigmas and len(self.labels) < len(labels):
+            raise ValueError(
+                f"The sigmas cover only {len(self.labels)} of the "
+                f"{len(labels)} keypoints of the task: {', '.join(labels)}. "
+                "Give one sigma for each keypoint."
+            )
+        target_indices: dict[str, int] = {}
+        for index, label in enumerate(labels):
+            target_indices.setdefault(label, index)
+        source_indices: dict[str, int] = {}
+        for index, label in enumerate(self.labels):
+            source_indices.setdefault(label, index)
+
+        moved = {
+            old: target_indices[label] for old, label in enumerate(self.labels)
+        }
+        return KeypointMetadata(
+            labels=list(labels),
+            edges=[(moved[a], moved[b]) for a, b in self.edges],
+            flip_pairs=[(moved[a], moved[b]) for a, b in self.flip_pairs],
+            sigmas=[self.sigmas[source_indices[label]] for label in labels]
+            if self.sigmas
+            else [],
+        )
 
     @staticmethod
     def infer_flip_pairs(labels: Iterable[str]) -> list[tuple[int, int]]:
@@ -697,21 +808,6 @@ class KeypointMetadata(BaseModelExtraForbid):
             flip_pairs.append((min(left[0], right[0]), max(left[0], right[0])))
         return sorted(flip_pairs)
 
-    def _reindexed_to(self, labels: Sequence[str]) -> "KeypointMetadata":
-        """Return the keypoint metadata in a new keypoint order.
-
-        The new labels must be the same names as `labels`. The edges, the
-        flip pairs and the sigmas move to the new indices.
-        """
-        order = [self.labels.index(label) for label in labels]
-        moved = {old: new for new, old in enumerate(order)}
-        return KeypointMetadata(
-            labels=list(labels),
-            edges=[(moved[a], moved[b]) for a, b in self.edges],
-            flip_pairs=[(moved[a], moved[b]) for a, b in self.flip_pairs],
-            sigmas=[self.sigmas[old] for old in order] if self.sigmas else [],
-        )
-
     @model_validator(mode="before")
     @classmethod
     def _resolve_names(cls, values: Any) -> Any:
@@ -726,16 +822,6 @@ class KeypointMetadata(BaseModelExtraForbid):
 
     @model_validator(mode="after")
     def _normalize(self) -> Self:
-        # A name is the key of the keypoint, on disk and in the loader.
-        # A duplicate name thus drops a keypoint instead of failing.
-        duplicates = sorted(
-            label for label, count in Counter(self.labels).items() if count > 1
-        )
-        if duplicates:
-            raise ValueError(
-                f"Duplicate keypoint names: {', '.join(duplicates)}."
-            )
-
         # An edge has no direction, so its ends order like a flip pair.
         self.edges = sorted((min(a, b), max(a, b)) for a, b in self.edges)
 
@@ -985,7 +1071,10 @@ class Detection(BaseModelExtraForbid):
         if self.keypoints is not None:
             # The constructor clips the coordinates that the rescale pushes
             # out of the image. It does not reject them. `Keypoint` does
-            # not validate, so a value out of range is safe here.
+            # not validate, so a value out of range is safe here. The copy
+            # sets only the fields that the record sets. An empty list of
+            # flip pairs turns off their inference.
+            given = self.keypoints.model_fields_set - {"keypoints"}
             self.keypoints = KeypointAnnotation(
                 keypoints={
                     label: Keypoint(
@@ -995,9 +1084,7 @@ class Detection(BaseModelExtraForbid):
                     )
                     for label, keypoint in self.keypoints.keypoints.items()
                 },
-                edges=self.keypoints.edges,
-                flip_pairs=self.keypoints.flip_pairs,
-                sigmas=self.keypoints.sigmas,
+                **{field: getattr(self.keypoints, field) for field in given},
             )
         return self
 
@@ -1200,7 +1287,8 @@ class KeypointAnnotation(Annotation):
     normalized to :math:`\left[0, 1\right]` based on the image size.
 
     A plain list of triplets is also accepted. The keypoints are then keyed
-    by position as ``"0"``, ``"1"``, ....
+    by position as ``"0"``, ``"1"``, .... A list shorter than the keypoints
+    of the task holds the leading ones.
 
     `edges`, `flip_pairs` and `sigmas` describe the task, not the instance.
     `LuxonisDataset.add` moves them into a `KeypointMetadata`, so a stored
@@ -1223,7 +1311,8 @@ class KeypointAnnotation(Annotation):
 
         edges: Keypoint graph edges, as index pairs or as name pairs.
         flip_pairs: Pairs that a horizontal flip swaps, as index pairs or
-            as name pairs.
+            as name pairs. An empty list turns off the inference of flip
+            pairs.
         sigmas: Per-keypoint OKS standard deviations.
 
     """
@@ -1345,12 +1434,13 @@ class KeypointAnnotation(Annotation):
             return values
 
         # A stored payload is positional and carries no names. The loader
-        # supplies the names of the task when it reads one back.
-        labels = (info.context or {}).get("keypoint_labels")
+        # supplies the number of keypoints of the task when it reads one
+        # back.
+        n_keypoints = (info.context or {}).get("n_keypoints")
 
         # Coerced up front for the same reason as in `BBoxAnnotation`.
         try:
-            keypoints = cls._as_mapping(values["keypoints"], labels)
+            keypoints = cls._as_mapping(values["keypoints"], n_keypoints)
         except (LookupError, TypeError, ValueError):
             return values
 
@@ -1390,24 +1480,28 @@ class KeypointAnnotation(Annotation):
 
     @staticmethod
     def _as_mapping(
-        keypoints: Any, labels: Sequence[str] | None
+        keypoints: object, n_keypoints: int | None
     ) -> dict[str, list[Any]]:
         """Normalize keypoints into a mapping of name to ``[x, y, v]``.
 
         The keypoints can be a mapping keyed by name. They can also be a
-        sequence of ``(x, y)`` or ``(x, y, visibility)`` triplets. A
-        sequence takes its keys from ``labels``, or from the position when
-        no labels are known. The input stays unchanged.
+        sequence of ``(x, y)`` or ``(x, y, visibility)`` triplets, which
+        takes its keys from the position. A sequence shorter than
+        ``n_keypoints`` holds the leading keypoints, as in
+        `KeypointMetadata.align`. The input stays unchanged.
         """
         if isinstance(keypoints, Mapping):
             items = list(keypoints.items())
-        else:
+        elif isinstance(keypoints, Iterable):
             values = list(keypoints)
-            items = (
-                list(zip(labels, values, strict=True))
-                if labels is not None and len(labels) == len(values)
-                else [(str(i), value) for i, value in enumerate(values)]
-            )
+            if n_keypoints is not None and len(values) < n_keypoints:
+                # `add` pads only the rows of a task with names, and new
+                # names do not change the stored rows. The loader thus pads
+                # the other short rows here.
+                values += [_UNLABELED_KEYPOINT] * (n_keypoints - len(values))
+            items = [(str(i), value) for i, value in enumerate(values)]
+        else:
+            raise TypeError("Keypoints must be a mapping or a sequence.")
         return {
             str(label): KeypointAnnotation._as_triplet(value)
             for label, value in items
@@ -1434,7 +1528,12 @@ class KeypointAnnotation(Annotation):
         declared.validate_for(len(self.keypoints))
         # `KeypointMetadata` sorts the edges and orders each flip pair, so
         # take them back to keep the two in step.
-        self.edges, self.flip_pairs = declared.edges, declared.flip_pairs
+        self.edges = declared.edges
+        # An assignment adds the field to `model_fields_set`. There,
+        # `LuxonisDataset.add` finds the records that give flip pairs, so
+        # the default empty list must not get an assignment.
+        if declared.flip_pairs != self.flip_pairs:
+            self.flip_pairs = declared.flip_pairs
         return self
 
 
@@ -2058,16 +2157,17 @@ def load_annotation(
     ],
     data: Mapping[str, Any],
     *,
-    keypoint_labels: Sequence[str] | None = None,
+    n_keypoints: int | None = None,
 ) -> "Annotation":
     """Load an annotation from serialized data.
 
     Args:
         task_type: The type of the annotation task.
         data: Serialized annotation data.
-        keypoint_labels: Names of the keypoints of the task, when known.
-            A stored keypoint payload is positional. The names key the
-            keypoints by name instead of by position.
+        n_keypoints: Number of keypoints of the task, when known. A stored
+            keypoint payload has no names, so the position of a keypoint
+            gives its key. A shorter payload holds the leading keypoints,
+            and the others get ``(0, 0, 0)``.
 
     Returns:
         An instance of the appropriate `Annotation` subclass based on the task type.
@@ -2087,12 +2187,21 @@ def load_annotation(
     if task_type not in classes:
         raise ValueError(f"Unknown label type: {task_type}")
     return classes[task_type].model_validate(
-        data, context={"keypoint_labels": keypoint_labels}
+        data, context={"n_keypoints": n_keypoints}
     )
 
 
 def _where(context: str) -> str:
     return f" for {context}" if context else ""
+
+
+def _reject_unknown(names: Iterable[str], labels: Sequence[str]) -> None:
+    unknown = sorted(set(names) - set(labels))
+    if unknown:
+        raise ValueError(
+            f"Keypoints {', '.join(unknown)} are not part of the task. "
+            f"Known keypoints: {', '.join(labels)}."
+        )
 
 
 def _is_positional(labels: Iterable[str]) -> bool:
@@ -2104,6 +2213,13 @@ def _is_positional(labels: Iterable[str]) -> bool:
     """
     labels = list(labels)
     return labels == [str(i) for i in range(len(labels))]
+
+
+def _repeated(labels: Sequence[str]) -> list[str]:
+    """Return the names that occur more than once, sorted."""
+    return sorted(
+        label for label, count in Counter(labels).items() if count > 1
+    )
 
 
 def _resolve_pairs(
@@ -2120,8 +2236,8 @@ def _resolve_pairs(
         The values, with each name replaced by its index.
 
     Raises:
-        ValueError: If a name occurs but no names are known, or if a name
-            is not one of them.
+        ValueError: If a name occurs but no names are known, if the names
+            repeat, or if a name is not one of them.
 
     """
     try:
@@ -2147,6 +2263,11 @@ def _resolve_pairs(
         raise ValueError(
             "Keypoint names are required in order to refer to the edges or "
             f"the flip pairs by name. {hint}"
+        )
+    if repeated := _repeated(labels):
+        raise ValueError(
+            f"The keypoint names {', '.join(repeated)} repeat, so a name "
+            "cannot identify one keypoint. Refer to the keypoints by index."
         )
 
     indices = {label: i for i, label in enumerate(labels)}

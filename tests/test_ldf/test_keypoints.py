@@ -8,7 +8,6 @@ becomes an index. These tests pin all three in one place.
 import json
 from typing import Any
 
-import numpy as np
 import pydantic
 import pytest
 
@@ -282,26 +281,6 @@ def test_an_unknown_keypoint_is_an_error():
         annotation.to_parquet_json(KeypointMetadata(labels=["nose"]))
 
 
-def test_stored_keypoints_are_read_back_under_their_names():
-    """The loader supplies the task's names; without them they are positional."""
-    data = json.loads(
-        KeypointAnnotation.model_validate(
-            {"keypoints": [(0.1, 0.2, 2), (0.3, 0.4, 1)]}
-        ).to_parquet_json()
-    )
-
-    named = load_annotation(
-        "keypoints", data, keypoint_labels=["nose", "left_eye"]
-    )
-    positional = load_annotation("keypoints", data)
-    assert isinstance(named, KeypointAnnotation)
-    assert isinstance(positional, KeypointAnnotation)
-
-    assert list(named.keypoints) == ["nose", "left_eye"]
-    assert list(positional.keypoints) == ["0", "1"]
-    assert np.allclose(named.to_numpy(), positional.to_numpy())
-
-
 def test_positional_names_are_not_a_declaration():
     """Otherwise every unnamed record would clash with real names."""
     annotation = KeypointAnnotation.model_validate(
@@ -416,19 +395,62 @@ def test_the_task_fields_must_match_the_keypoints(
 def test_duplicate_names_are_rejected():
     """A name is the key of a keypoint, so a duplicate drops one.
 
-    An annotation cannot hit this, because its names are dict keys.
-    `set_keypoint_metadata` can, so the check belongs on construction and
-    not in `validate_for`, which only a record path calls.
+    An annotation cannot hit this, because its names are dict keys. A
+    dataset from an older luxonis-ml can, and `Metadata` must still open
+    it. The check thus runs where a name keys a keypoint, and not on
+    construction.
     """
-    with pytest.raises(pydantic.ValidationError, match="Duplicate"):
-        KeypointMetadata(labels=["a", "a"])
+    keypoint_metadata = KeypointMetadata(labels=["a", "a", "b"])
+    annotation = KeypointAnnotation.model_validate(
+        {"keypoints": {"a": (0.1, 0.2, 2), "b": (0.3, 0.4, 1)}}
+    )
+
+    assert not keypoint_metadata.has_names
+    assert keypoint_metadata.repeated_labels == ["a"]
+    with pytest.raises(ValueError, match="Duplicate keypoint names: a"):
+        annotation.to_parquet_json(keypoint_metadata)
+
+
+def test_repeated_names_still_align_a_record_without_names():
+    """A record without names needs only the number of keypoints.
+
+    The alignment rejected repeated names for such a record too. `add`
+    thus left a task from an older luxonis-ml out of the alignment, and
+    nothing checked the number of keypoints of its records.
+    """
+    keypoint_metadata = KeypointMetadata(labels=["a", "a", "b"])
+    short_list = KeypointAnnotation.model_validate(
+        {"keypoints": [(0.1, 0.2, 2), (0.3, 0.4, 1)]}
+    )
+    long_list = KeypointAnnotation.model_validate(
+        {"keypoints": [(0.1, 0.2, 2)] * 4}
+    )
+
+    assert payload(short_list, keypoint_metadata=keypoint_metadata) == {
+        "keypoints": [[0.1, 0.2, 2], [0.3, 0.4, 1], [0.0, 0.0, 0]]
+    }
+    with pytest.raises(ValueError, match="4 keypoints"):
+        long_list.to_parquet_json(keypoint_metadata)
+
+
+def test_an_edge_cannot_refer_to_a_repeated_name():
+    """A repeated name does not tell which keypoint an edge joins.
+
+    The lookup took the last keypoint with that name, and nothing warned.
+    """
+    with pytest.raises(pydantic.ValidationError, match="names point repeat"):
+        KeypointMetadata.model_validate(
+            {"labels": ["point", "point", "tip"], "edges": [("point", "tip")]}
+        )
 
 
 def test_an_annotation_may_hold_fewer_keypoints_than_the_task():
     """A sparse mapping is padded when the payload is written.
 
-    Only a mapping can be sparse. In a list the position is the identity,
-    so a short list cannot say which keypoints it holds.
+    In a list the position is the identity, so a short list holds the
+    leading keypoints. Its keys ``"0"``, ``"1"``, ... were read as unknown
+    names, and the record failed. A task can hold records with fewer
+    keypoints, so a native export of such a task did not import.
     """
     keypoint_metadata = KeypointMetadata(labels=["a", "b", "c"])
     sparse = KeypointAnnotation.model_validate(
@@ -440,11 +462,43 @@ def test_an_annotation_may_hold_fewer_keypoints_than_the_task():
     }
 
     short_list = KeypointAnnotation.model_validate(
-        {"keypoints": [(0.1, 0.2, 2)]}
+        {"keypoints": [(0.1, 0.2, 2), (0.3, 0.4, 1)]}
     )
 
-    with pytest.raises(ValueError, match="not part of the"):
-        short_list.to_parquet_json(keypoint_metadata)
+    assert payload(short_list, keypoint_metadata=keypoint_metadata) == {
+        "keypoints": [[0.1, 0.2, 2], [0.3, 0.4, 1], [0.0, 0.0, 0]]
+    }
+
+
+def test_a_list_longer_than_the_task_is_an_error():
+    """No label is left for the keypoints past the end of the task."""
+    long_list = KeypointAnnotation.model_validate(
+        {"keypoints": [(0.1, 0.2, 2)] * 4}
+    )
+
+    with pytest.raises(ValueError, match="4 keypoints"):
+        long_list.to_parquet_json(KeypointMetadata(labels=["a", "b", "c"]))
+
+
+def test_a_short_stored_row_is_read_back_padded():
+    """A row written before the task had names can be short.
+
+    Such a row holds the leading keypoints, as a short list does on the
+    write path. The loader read it under positional keys instead, so one
+    sample of the task had a narrower keypoint array than the others.
+    """
+    annotation = load_annotation(
+        "keypoints",
+        {"keypoints": [[0.1, 0.2, 2], [0.3, 0.4, 1]]},
+        n_keypoints=3,
+    )
+    assert isinstance(annotation, KeypointAnnotation)
+
+    assert list(annotation.keypoints.items()) == [
+        ("0", (0.1, 0.2, 2)),
+        ("1", (0.3, 0.4, 1)),
+        ("2", (0.0, 0.0, 0)),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -583,6 +637,104 @@ def test_merging_moves_the_other_records_indices_into_the_merged_order():
     assert merged.sigmas == [0.026, 0.025, 0.035]
 
 
+def test_merging_compares_the_task_fields_by_name():
+    """The merge compared the indices before it moved them.
+
+    Two records that give the same edge and the same sigmas in another
+    key order hold different indices. `add` thus aborted with a conflict
+    between two declarations that agree.
+    """
+    first = KeypointMetadata.model_validate(
+        {
+            "labels": ["nose", "left_eye", "right_eye"],
+            "edges": [("nose", "left_eye")],
+            "sigmas": [0.026, 0.025, 0.035],
+        }
+    )
+    second = KeypointMetadata.model_validate(
+        {
+            "labels": ["right_eye", "left_eye", "nose"],
+            "edges": [("nose", "left_eye")],
+            "sigmas": [0.035, 0.025, 0.026],
+        }
+    )
+
+    merged = first.merge_with(second, "task 'pose'")
+
+    assert merged == first
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        pytest.param({"edges": [(0, 1)]}, id="edges"),
+        pytest.param({"sigmas": [0.026, 0.025, 0.035]}, id="sigmas"),
+    ],
+)
+def test_merging_finds_a_conflict_behind_equal_indices(
+    fields: dict[str, list[tuple[int, int]] | list[float]],
+):
+    """Equal indices can name different keypoints in another key order.
+
+    The merge saw no conflict there. It kept the first record, and the
+    edge ``right_eye``-``nose`` or the sigmas of the second record were
+    lost without a warning.
+    """
+    first = KeypointMetadata.model_validate(
+        {"labels": ["nose", "left_eye", "right_eye"], **fields}
+    )
+    second = KeypointMetadata.model_validate(
+        {"labels": ["right_eye", "nose", "left_eye"], **fields}
+    )
+
+    with pytest.raises(ValueError, match="Conflicting keypoint metadata"):
+        first.merge_with(second, "task 'pose'")
+
+
+def test_reindexing_to_more_names_moves_the_pairs():
+    """A record can name a subset of the keypoints of a task.
+
+    The indices of the record point into its own names. In the names of
+    the task, the same keypoints have other indices. The move looked up
+    each name of the task among the names of the record, so a name that
+    only the task has raised ``'nose' is not in list``.
+    """
+    subset = KeypointMetadata.model_validate(
+        {
+            "labels": ["right_eye", "left_eye"],
+            "edges": [("left_eye", "right_eye")],
+            "flip_pairs": [("left_eye", "right_eye")],
+        }
+    )
+
+    assert subset.reindexed_to(
+        ["nose", "left_eye", "right_eye"]
+    ) == KeypointMetadata(
+        labels=["nose", "left_eye", "right_eye"],
+        edges=[(1, 2)],
+        flip_pairs=[(1, 2)],
+    )
+
+
+@pytest.mark.parametrize(
+    ("fields", "match"),
+    [
+        pytest.param({"labels": ["nose", "chin"]}, "chin", id="unknown"),
+        pytest.param(
+            {"labels": ["nose"], "sigmas": [0.1]}, "1 of the 3", id="sigmas"
+        ),
+    ],
+)
+def test_reindexing_rejects_what_it_cannot_move(
+    fields: dict[str, list[str] | list[float]], match: str
+):
+    """No index exists for an unknown name, and no sigma for a new one."""
+    keypoint_metadata = KeypointMetadata.model_validate(fields)
+
+    with pytest.raises(ValueError, match=match):
+        keypoint_metadata.reindexed_to(["nose", "left_eye", "right_eye"])
+
+
 def test_merging_disagreeing_metadata_is_an_error():
     with pytest.raises(ValueError, match="Conflicting keypoint metadata"):
         KeypointMetadata(labels=["a", "b"]).merge_with(
@@ -602,3 +754,20 @@ def test_the_conflict_names_the_task_and_the_fields():
     # Two records annotating different subsets land here, so the message
     # has to point at the fix rather than just at the disagreement.
     assert "name the full set" in message
+
+
+def test_a_conflict_of_indices_names_the_keypoint_order():
+    """`LuxonisDataset.add` moves each record to the stored names first.
+
+    The conflict can thus show indices that no record gives. The message
+    did not tell which keypoints the indices refer to.
+    """
+    first = KeypointMetadata(
+        labels=["nose", "left_eye", "right_eye"], edges=[(1, 2)]
+    )
+    second = KeypointMetadata(
+        labels=["nose", "left_eye", "right_eye"], edges=[(0, 2)]
+    )
+
+    with pytest.raises(ValueError, match="nose, left_eye, right_eye"):
+        first.merge_with(second, "task 'pose'")

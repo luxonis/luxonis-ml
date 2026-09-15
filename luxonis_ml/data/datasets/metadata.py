@@ -3,6 +3,7 @@ from typing import Literal
 
 from loguru import logger
 from pydantic import AliasChoices, Field
+from semver.version import Version
 
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.ldf import KeypointMetadata
@@ -41,6 +42,11 @@ class Metadata(BaseModelExtraForbid):
     metadata_types: dict[str, Literal["float", "int", "str", "Category"]] = {}
     parent_dataset: str | None = None
 
+    @property
+    def version(self) -> Version:
+        """The parsed LDF version."""
+        return Version.parse(self.ldf_version, optional_minor_and_patch=True)
+
     def set_classes(
         self, classes: list[str] | dict[str, int], task: str
     ) -> None:
@@ -61,16 +67,17 @@ class Metadata(BaseModelExtraForbid):
         Returns:
             New metadata object containing merged classes, tasks, keypoint
             metadata, categorical encodings, metadata types, and source
-            information.
+            information. It gets the newer of the two LDF versions.
 
         Raises:
-            ValueError: If the two metadata objects use different LDF
-                versions.
+            ValueError: If the two metadata objects use different major
+                LDF versions.
 
         """
-        if self.ldf_version != other.ldf_version:  # pragma: no cover
+        if self.version.major != other.version.major:
             raise ValueError(
-                "Cannot merge metadata with different LDF versions"
+                "Cannot merge metadata with different major LDF versions: "
+                f"{self.ldf_version} and {other.ldf_version}"
             )
 
         merged_classes = {}
@@ -136,7 +143,7 @@ class Metadata(BaseModelExtraForbid):
             merged_source = None
 
         return Metadata(
-            ldf_version=self.ldf_version,
+            ldf_version=str(max(self.version, other.version)),
             source=merged_source,
             classes=merged_classes,
             tasks=merged_tasks,

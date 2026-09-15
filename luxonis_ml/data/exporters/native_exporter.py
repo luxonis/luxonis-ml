@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
+from loguru import logger
 from semver.version import Version
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
@@ -15,7 +16,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
 from luxonis_ml.data.exporters.ldf_downgrade import LDFDowngrader
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.ldf import DatasetRecord, KeypointMetadata
+from luxonis_ml.ldf import DatasetRecord, Keypoint, KeypointMetadata
 from luxonis_ml.utils.path import path_to_posix
 
 
@@ -80,6 +81,16 @@ class NativeExporter(BaseExporter):
         self.ldf_version = ldf_version or LDF_VERSION
         self._metadata_attached: set[tuple[int | None, str, str]] = set()
         self._downgrade = LDFDowngrader(self.ldf_version)
+        for task, task_keypoints in self.keypoint_metadata.items():
+            if task_keypoints.repeated_labels:
+                logger.warning(
+                    f"Task '{task}' repeats the keypoint names "
+                    f"{', '.join(task_keypoints.repeated_labels)}. The export "
+                    "cannot key the keypoints by these names, so the import "
+                    "numbers the keypoints. Give each keypoint a unique name "
+                    "with `LuxonisDataset.set_keypoint_metadata(labels=...)` "
+                    "to keep the names."
+                )
 
     @staticmethod
     def get_split_names() -> dict[str, str]:
@@ -149,10 +160,12 @@ class NativeExporter(BaseExporter):
         task, not the instance. Each task and split thus carries them once,
         and not on every record. `NativeParser` passes them to
         `LuxonisDataset.add`, which moves them into the keypoint metadata
-        of the imported dataset. Every later record of the same length
-        stays positional, and the import aligns it against the names of
-        the first one. A record with fewer keypoints carries nothing,
-        because the task fields do not describe it.
+        of the imported dataset. Every other record of the split stays
+        positional, and the import aligns it against the names of that
+        record. A record with fewer keypoints holds the leading ones. The
+        import pads such a record only against names. Without names, the
+        record keeps its keypoints and carries nothing. An export to an
+        older LDF version has no names either.
         """
         for record in records:
             keypoints = record.get("annotation", {}).get("keypoints")
@@ -162,11 +175,16 @@ class NativeExporter(BaseExporter):
             task_keypoints = self.keypoint_metadata.get(task_name)
             if task_keypoints is None:
                 continue
+            labels = task_keypoints.labels
             values = keypoints["keypoints"]
-            if len(values) < len(task_keypoints.labels):
-                # A task can hold records with fewer keypoints. The task
-                # fields describe the full set, so such a record must not
-                # carry them. The import checks each record on its own.
+            named = task_keypoints.has_names and len(values) <= len(labels)
+            # The import checks the task fields against the keypoints of
+            # this record, and the fields describe every keypoint. Only the
+            # names make the import pad the shorter records, and an older
+            # LDF version drops the names.
+            if len(values) < len(labels) and not (
+                named and self._downgrade.keeps_keypoint_names
+            ):
                 continue
             # Keyed on the partition as well: rolling over starts a fresh
             # `annotations.json`, which has to carry the fields again.
@@ -174,20 +192,31 @@ class NativeExporter(BaseExporter):
             if key in self._metadata_attached:
                 continue
             self._metadata_attached.add(key)
+            # The import infers flip pairs for names without flip pairs. An
+            # empty list turns that off, so a record with names carries it.
             keypoints.update(
                 {
                     field: value
                     for field, value in task_keypoints.model_dump(
                         exclude={"labels"}
                     ).items()
-                    if value
+                    if value or (named and field == "flip_pairs")
                 }
             )
             # The names are the keys of the payload, so this one record
-            # carries them as a mapping instead of a positional list.
-            if len(task_keypoints.labels) == len(values):
+            # carries them as a mapping instead of a positional list. The
+            # record stays positional when the labels are not names. A
+            # repeated name, for example, would drop a keypoint. A shorter
+            # record gets the padding that the import gives the others.
+            if named:
+                aligned = task_keypoints.align(
+                    {
+                        str(i): Keypoint(*value)
+                        for i, value in enumerate(values)
+                    }
+                )
                 keypoints["keypoints"] = dict(
-                    zip(task_keypoints.labels, values, strict=True)
+                    zip(labels, aligned.values(), strict=True)
                 )
 
     def _maybe_roll_partition(

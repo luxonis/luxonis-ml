@@ -554,12 +554,16 @@ class LuxonisLoader(BaseLoader):
                     data["height"] = sample_img.shape[0]
                     data["points"] = [tuple(p) for p in data["points"]]
 
+                # The loader pads a short row to the names of its task, as
+                # `add` does. Without names, `self._n_keypoints` counts the
+                # edges. An older luxonis-ml wrote the same edges to every
+                # task, so that count can be too high for a row.
                 task_keypoints = self._keypoint_metadata.get(task_name)
                 annotation = load_annotation(
                     task_type,  # type: ignore[arg-type]
                     data,
-                    keypoint_labels=(
-                        task_keypoints.labels if task_keypoints else None
+                    n_keypoints=(
+                        len(task_keypoints.labels) if task_keypoints else None
                     ),
                 )
                 labels_by_task[full_task_name].append(annotation)

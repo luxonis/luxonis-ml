@@ -2,7 +2,7 @@ import inspect
 import random
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -12,7 +12,7 @@ from loguru import logger
 from luxonis_ml.data import BaseDataset, DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue, ParserIssueMessage
 from luxonis_ml.enums.enums import DatasetType
-from luxonis_ml.ldf import DatasetRecord
+from luxonis_ml.ldf import DatasetRecord, KeypointMetadata
 from luxonis_ml.typing import PathType
 
 if TYPE_CHECKING:
@@ -198,10 +198,19 @@ class BaseParser(ABC):
 
         """
         generator, keypoints, added_images = self.from_split(**kwargs)
-        self._dataset.add(self._wrap_generator(generator))
+        checked: dict[str, KeypointMetadata] = {}
+        self._dataset.add(
+            self._check_keypoints(
+                self._wrap_generator(generator), keypoints, checked
+            )
+        )
         for class_name, metadata in keypoints.items():
-            # The keys are source class names. Without the task, every
-            # class would write its keypoints to every task.
+            # A format can define keypoints for a class without keypoint
+            # annotations. Such a definition describes no rows. In a shared
+            # task, it would replace the names of the annotated class.
+            if class_name not in checked:
+                continue
+            # `_wrap_generator` found the task of each checked class.
             self._dataset.set_keypoint_metadata(
                 metadata.get("labels"),
                 metadata.get("edges"),
@@ -633,7 +642,9 @@ class BaseParser(ABC):
             if img.suffix in cv2_supported_image_formats
         ]
 
-    def _wrap_generator(self, generator: DatasetIterator) -> DatasetIterator:
+    def _wrap_generator(
+        self, generator: DatasetIterator
+    ) -> Iterator[DatasetRecord]:
         """Add configured task names to generated records.
 
         Args:
@@ -667,3 +678,57 @@ class BaseParser(ABC):
                     yield item
             else:
                 yield item
+
+    @staticmethod
+    def _check_keypoints(
+        records: Iterator[DatasetRecord],
+        keypoints: dict[str, dict],
+        checked: dict[str, KeypointMetadata],
+    ) -> Iterator[DatasetRecord]:
+        """Check the keypoints of each record against its class.
+
+        The parser learns which classes have keypoint annotations only
+        while ``add`` reads the records. ``add`` writes a record only after it
+        reads it, so a failed check stops ``add`` before the write. The
+        parser does not store the definition of a class without keypoint
+        annotations, so that definition gets no check.
+
+        Args:
+            records: The records of the split.
+            keypoints: Keypoint definitions keyed by source class name.
+            checked: Receives the checked definition of each class that
+                has keypoint annotations. A definition without values
+                describes no keypoints and gets no entry.
+
+        Raises:
+            ValueError: If a definition is not valid keypoint metadata, or
+                if a record has more keypoints than its class has names.
+
+        """
+        definitions = {
+            class_name: metadata
+            for class_name, metadata in keypoints.items()
+            if any(metadata.values())
+        }
+        for record in records:
+            annotation = record.annotation
+            if (
+                annotation is not None
+                and annotation.keypoints is not None
+                and annotation.class_name in definitions
+            ):
+                class_name = annotation.class_name
+                if class_name not in checked:
+                    definition = KeypointMetadata.model_validate(
+                        {
+                            field: value
+                            for field, value in definitions[class_name].items()
+                            if value is not None
+                        }
+                    )
+                    definition.validate_labels(f"class '{class_name}'")
+                    checked[class_name] = definition
+                # The rows must fit the names that the parser stores. `add`
+                # checks only the records of the next split against them.
+                checked[class_name].align(annotation.keypoints.keypoints)
+            yield record

@@ -51,6 +51,16 @@ class CocoExporter(BaseExporter):
             self.allow_keypoints = False
         elif len(self.keypoint_metadata) == 1:
             self.allow_keypoints = True
+            task, task_keypoints = next(iter(self.keypoint_metadata.items()))
+            if task_keypoints.repeated_labels:
+                logger.warning(
+                    f"Task '{task}' repeats the keypoint names "
+                    f"{', '.join(task_keypoints.repeated_labels)}. The export "
+                    "writes them, but the COCO import of luxonis-ml rejects "
+                    "repeated names. Give each keypoint a unique name with "
+                    "`LuxonisDataset.set_keypoint_metadata(labels=...)` "
+                    "before the export."
+                )
         else:
             self.allow_keypoints = False
             logger.warning(
