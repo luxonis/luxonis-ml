@@ -182,7 +182,7 @@ class BaseParser(ABC):
                     parser.from_split(**split_kwargs)
 
         Returns:
-            LDF generator, skeleton metadata, and added images.
+            LDF generator, keypoint metadata, and added images.
 
         """
         ...
@@ -210,7 +210,6 @@ class BaseParser(ABC):
             # task, it would replace the names of the annotated class.
             if class_name not in checked:
                 continue
-            # `_wrap_generator` found the task of each checked class.
             self._dataset.set_keypoint_metadata(
                 metadata.get("labels"),
                 metadata.get("edges"),
@@ -674,7 +673,7 @@ class BaseParser(ABC):
                                 f"Class '{class_name}' not found in task names."
                             ) from None
 
-                        item.task_name = self._task_name[class_name]
+                        item.task_name = task_name
                     yield item
             else:
                 yield item
@@ -685,25 +684,11 @@ class BaseParser(ABC):
         keypoints: dict[str, dict],
         checked: dict[str, KeypointMetadata],
     ) -> Iterator[DatasetRecord]:
-        """Check the keypoints of each record against its class.
+        """Validate keypoint definitions for classes with keypoint rows.
 
-        The parser learns which classes have keypoint annotations only
-        while ``add`` reads the records. ``add`` writes a record only after it
-        reads it, so a failed check stops ``add`` before the write. The
-        parser does not store the definition of a class without keypoint
-        annotations, so that definition gets no check.
-
-        Args:
-            records: The records of the split.
-            keypoints: Keypoint definitions keyed by source class name.
-            checked: Receives the checked definition of each class that
-                has keypoint annotations. A definition without values
-                describes no keypoints and gets no entry.
-
-        Raises:
-            ValueError: If a definition is not valid keypoint metadata, or
-                if a record has more keypoints than its class has names.
-
+        Parser formats may define keypoints for classes that have no
+        keypoint annotations. Those definitions are ignored; ``checked``
+        receives only definitions that describe rows in this split.
         """
         definitions = {
             class_name: metadata
@@ -728,7 +713,7 @@ class BaseParser(ABC):
                     )
                     definition.validate_labels(f"class '{class_name}'")
                     checked[class_name] = definition
-                # The rows must fit the names that the parser stores. `add`
-                # checks only the records of the next split against them.
+                # `add` can check later splits against stored names, but this
+                # split has not stored its parser-provided names yet.
                 checked[class_name].align(annotation.keypoints.keypoints)
             yield record

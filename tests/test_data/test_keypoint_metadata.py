@@ -59,7 +59,6 @@ def keypoint_generator(
 def positional_generator(
     tempdir: Path, counts: list[int], start: int = 0
 ) -> DatasetIterator:
-    """Yield one record of unnamed keypoints for each count."""
     for i, n_keypoints in enumerate(counts, start=start):
         yield from keypoint_generator(
             tempdir,
@@ -89,7 +88,6 @@ def keypoint_and_box_generator(
 
 
 def detection_generator(tempdir: Path) -> DatasetIterator:
-    """Yield records with a bounding box and no keypoints."""
     for i in range(4):
         yield {
             "file": str(create_image(i, tempdir)),
@@ -159,7 +157,6 @@ def repeated_names_dataset(dataset_name: str, tempdir: Path) -> LuxonisDataset:
 
 
 def dataset_without_flip_pairs(dataset_name: str) -> LuxonisDataset:
-    """Name the cameras of a new dataset with the inference turned off."""
     dataset = LuxonisDataset(dataset_name, delete_local=True)
     dataset.set_tasks({"pose": ["keypoints"]})
     dataset.set_keypoint_metadata(
@@ -194,7 +191,6 @@ def test_names_are_promoted_to_the_task_metadata(
 def test_flip_pairs_are_inferred_from_the_names(
     dataset_name: str, tempdir: Path
 ):
-    """No task fields declared at all; the names alone are enough."""
     dataset = named_dataset(dataset_name, tempdir)
 
     assert dataset.get_keypoint_metadata()["pose"].flip_pairs == [(1, 2)]

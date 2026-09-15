@@ -154,18 +154,11 @@ class NativeExporter(BaseExporter):
     def _attach_keypoint_metadata(
         self, records: list[dict[str, Any]], split: str
     ) -> None:
-        """Attach the task fields to the first keypoint record of a task.
+        """Attach each task's metadata to its first eligible record.
 
-        The names, the edges, the flip pairs and the sigmas describe the
-        task, not the instance. Each task and split thus carries them once,
-        and not on every record. `NativeParser` passes them to
-        `LuxonisDataset.add`, which moves them into the keypoint metadata
-        of the imported dataset. Every other record of the split stays
-        positional, and the import aligns it against the names of that
-        record. A record with fewer keypoints holds the leading ones. The
-        import pads such a record only against names. Without names, the
-        record keeps its keypoints and carries nothing. An export to an
-        older LDF version has no names either.
+        A short record is eligible only when its names survive the target
+        LDF version. Without names, the importer cannot tell which keypoints
+        are missing.
         """
         for record in records:
             keypoints = record.get("annotation", {}).get("keypoints")
@@ -178,16 +171,11 @@ class NativeExporter(BaseExporter):
             labels = task_keypoints.labels
             values = keypoints["keypoints"]
             named = task_keypoints.has_names and len(values) <= len(labels)
-            # The import checks the task fields against the keypoints of
-            # this record, and the fields describe every keypoint. Only the
-            # names make the import pad the shorter records, and an older
-            # LDF version drops the names.
             if len(values) < len(labels) and not (
                 named and self._downgrade.keeps_keypoint_names
             ):
                 continue
-            # Keyed on the partition as well: rolling over starts a fresh
-            # `annotations.json`, which has to carry the fields again.
+            # Each partition has its own annotations file.
             key = (self.part, split, task_name)
             if key in self._metadata_attached:
                 continue
@@ -203,11 +191,6 @@ class NativeExporter(BaseExporter):
                     if value or (named and field == "flip_pairs")
                 }
             )
-            # The names are the keys of the payload, so this one record
-            # carries them as a mapping instead of a positional list. The
-            # record stays positional when the labels are not names. A
-            # repeated name, for example, would drop a keypoint. A shorter
-            # record gets the padding that the import gives the others.
             if named:
                 aligned = task_keypoints.align(
                     {
