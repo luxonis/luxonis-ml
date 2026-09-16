@@ -165,8 +165,8 @@ def _merge_keypoint_metadata(
     """Merge the keypoint metadata of one task from two datasets.
 
     The dataset that is merged in wins. A field it leaves empty comes
-    from the other dataset. `edges`, `flip_pairs` and `sigmas` hold
-    indices into `labels`, so they only carry over if both datasets list
+    from the other dataset. ``edges``, ``flip_pairs`` and ``sigmas`` hold
+    indices into ``labels``, so they only carry over if both datasets list
     the same labels in the same order.
 
     Args:

@@ -1011,8 +1011,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     ) -> bool:
         """Whether new labels give the stored indices a new meaning.
 
-        `edges`, `flip_pairs` and `sigmas` all address a keypoint by its
-        position. New names put a different keypoint at a position, so
+        ``edges``, ``flip_pairs``, and ``sigmas`` use positional keypoint
+        indices. New names put a different keypoint at a position, so
         the stored values describe the wrong keypoints. Placeholder names
         carry no identity. A rename that keeps their count therefore only
         names the keypoints that are already there.

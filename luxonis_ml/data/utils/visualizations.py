@@ -599,7 +599,7 @@ def visualize(
             label. ``"numbers"`` draws the keypoint index. ``"names"``
             draws the keypoint name. ``"full"`` draws the index and the
             name. The two name modes draw no label for a keypoint that
-            `keypoint_metadata` does not name.
+            ``keypoint_metadata`` does not name.
 
     Returns:
         The visualized image.
