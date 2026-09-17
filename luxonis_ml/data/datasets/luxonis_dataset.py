@@ -60,6 +60,7 @@ from luxonis_ml.data.utils import (
     warn_on_duplicates,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
+from luxonis_ml.data.utils.data_utils import get_keypoint_row_widths
 from luxonis_ml.data.utils.ldf_equivalence import ldf_equivalent
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.enums.enums import DatasetType
@@ -2503,25 +2504,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             for task, entry in self._metadata.keypoint_metadata.items()
             if entry.labels
         ]
-        payload = pl.Struct({"keypoints": pl.List(pl.List(pl.Float64))})
-        widths = (
-            df.filter(
-                (pl.col("task_type") == "keypoints")
-                & ~pl.col("task_name").is_in(labelled)
-            )
-            .group_by("task_name")
-            .agg(
-                # A shard without annotations stores the column as nulls.
-                pl.col("annotation")
-                .cast(pl.String)
-                .str.json_decode(payload)
-                .struct.field("keypoints")
-                .list.len()
-                .max()
-            )
-            .collect()
+        return get_keypoint_row_widths(
+            df.filter(~pl.col("task_name").is_in(labelled))
         )
-        return dict(widths.iter_rows())
 
     @staticmethod
     def _in_stored_order(
