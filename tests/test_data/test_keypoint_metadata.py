@@ -1192,9 +1192,6 @@ def test_the_task_fields_are_not_repeated_on_every_row(
         assert json.loads(payload) == {
             "keypoints": [[0.5, 0.3, 2], [0.4, 0.2, 2], [0.6, 0.2, 1]]
         }
-        assert "edges" not in payload
-        assert "sigmas" not in payload
-        assert "nose" not in payload
 
 
 def test_records_are_stored_in_task_order(dataset_name: str, tempdir: Path):
