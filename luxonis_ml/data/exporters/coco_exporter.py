@@ -47,7 +47,7 @@ class CocoExporter(BaseExporter):
         )
         self.format = format
         self.keypoint_metadata = keypoint_metadata
-        if self.keypoint_metadata is None:
+        if not self.keypoint_metadata:
             self.allow_keypoints = False
         elif len(self.keypoint_metadata) == 1:
             self.allow_keypoints = True

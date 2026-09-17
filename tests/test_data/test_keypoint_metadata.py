@@ -1899,6 +1899,21 @@ def test_an_export_warns_that_it_loses_repeated_names(
     assert any("repeats the keypoint names point" in m for m in warnings_log)
 
 
+def test_a_coco_export_without_keypoints_does_not_warn_about_them(
+    dataset_name: str, tempdir: Path, warnings_log: list[str]
+):
+    """The COCO exporter read empty keypoint metadata as many tasks.
+
+    A dataset without keypoints thus got a warning that the export skips
+    its keypoint annotations.
+    """
+    dataset = create_dataset(dataset_name, detection_generator(tempdir))
+
+    dataset.export(tempdir / "exported_coco", DatasetType.COCO)
+
+    assert not any("single keypoint export class" in m for m in warnings_log)
+
+
 def test_new_names_replace_repeated_names(dataset_name: str, tempdir: Path):
     """Repeated names do not identify the keypoints.
 
