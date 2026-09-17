@@ -216,6 +216,7 @@ class BaseParser(ABC):
                 task=None
                 if self._task_name is None
                 else self._task_name[class_name],
+                flip_pairs=metadata.get("flip_pairs"),
                 sigmas=metadata.get("sigmas"),
             )
         return added_images

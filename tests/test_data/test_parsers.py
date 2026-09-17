@@ -6,6 +6,7 @@ from typing import Any, cast
 import pytest
 from loguru import logger
 from pydantic import SecretStr
+from typing_extensions import override
 
 from luxonis_ml.data import (
     BaseDataset,
@@ -1066,6 +1067,31 @@ def test_parser_checks_the_keypoint_metadata_before_it_adds_a_split(
     dataset.delete_dataset(delete_local=True)
 
 
+def test_parser_stores_the_flip_pairs_of_the_source(
+    dataset_name: str, tempdir: Path
+):
+    """The parser checked the flip pairs of a source, but did not store them.
+
+    `set_keypoint_metadata` then inferred flip pairs from the names. The
+    source gives an empty list, which turns the inference off, so the two
+    eyes must stay unpaired.
+    """
+    dataset_dir = tempdir / "coco_with_flip_pairs"
+    write_coco_keypoint_dataset(
+        dataset_dir, [PERSON_CATEGORY], [PERSON_ANNOTATION]
+    )
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+
+    _FlipPairsCOCOParser(dataset, DatasetType.COCO, "pose").parse_dir(
+        dataset_dir
+    )
+
+    keypoints = dataset.get_keypoint_metadata()["pose"]
+    assert keypoints.labels == KEYPOINT_LABELS
+    assert keypoints.flip_pairs == []
+    dataset.delete_dataset(delete_local=True)
+
+
 def test_solo_keypoints_get_no_invented_edges(
     dataset_name: str, tempdir: Path
 ):
@@ -1388,3 +1414,18 @@ def test_ultralytics_version_selects_an_export(
 
     assert ultralytics_requests[0]["params"] == {"v": 3}
     assert destination == tempdir / "warehouse.v3.ndjson"
+
+
+class _FlipPairsCOCOParser(COCOParser):
+    """Parse a COCO source that also defines empty flip pairs."""
+
+    @override
+    def from_split(
+        self, image_dir: Path, annotation_path: Path
+    ) -> ParserOutput:
+        generator, keypoints, added_images = super().from_split(
+            image_dir, annotation_path
+        )
+        for definition in keypoints.values():
+            definition["flip_pairs"] = []
+        return generator, keypoints, added_images
