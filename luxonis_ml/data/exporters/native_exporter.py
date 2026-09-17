@@ -15,6 +15,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
 )
 from luxonis_ml.data.exporters.ldf_downgrade import LDFDowngrader
 from luxonis_ml.data.utils.constants import LDF_VERSION
+from luxonis_ml.data.utils.data_utils import get_keypoint_row_widths
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.ldf import DatasetRecord, Keypoint, KeypointMetadata
 from luxonis_ml.utils.path import path_to_posix
@@ -100,6 +101,7 @@ class NativeExporter(BaseExporter):
         return DatasetType.NATIVE.supported_annotation_formats
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
+        self._drop_keypoint_metadata_of_wider_rows(prepared_ldf.processed_df)
         annotation_splits: dict[str, list[dict[str, Any]]] = {
             k: [] for k in self.get_split_names()
         }
@@ -201,6 +203,32 @@ class NativeExporter(BaseExporter):
                 keypoints["keypoints"] = dict(
                     zip(labels, aligned.values(), strict=True)
                 )
+
+    def _drop_keypoint_metadata_of_wider_rows(self, df: pl.DataFrame) -> None:
+        """Drop the metadata of a task with rows wider than its names.
+
+        `LuxonisDataset.set_keypoint_metadata` does not change the stored
+        rows, so new names can cover fewer keypoints than a row has. The
+        import rejects names narrower than a row of any split, so the
+        export keeps the rows and leaves out the metadata of the task.
+        """
+        widths = get_keypoint_row_widths(df.lazy())
+        kept: dict[str, KeypointMetadata] = {}
+        for task, task_keypoints in self.keypoint_metadata.items():
+            n_labels = len(task_keypoints.labels)
+            width = widths.get(task, 0)
+            if 0 < n_labels < width:
+                logger.warning(
+                    f"Task '{task}' names {n_labels} keypoints, but a row "
+                    f"has {width}. The export leaves out the keypoint "
+                    "metadata of this task, so the import numbers the "
+                    "keypoints. Give the task a name for each keypoint with "
+                    "`LuxonisDataset.set_keypoint_metadata(labels=...)` to "
+                    "keep the names."
+                )
+            else:
+                kept[task] = task_keypoints
+        self.keypoint_metadata = kept
 
     def _maybe_roll_partition(
         self,

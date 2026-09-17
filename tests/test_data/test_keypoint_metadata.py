@@ -2193,6 +2193,47 @@ def test_the_native_export_keeps_every_keypoint_of_repeated_names(
     }
 
 
+def test_the_native_export_leaves_out_names_for_fewer_keypoints_than_a_row(
+    dataset_name: str, tempdir: Path, warnings_log: list[str]
+):
+    """New names do not change the rows that a task already has.
+
+    The rows of the first `add` have five keypoints, and the names cover
+    three. The export named the keypoints of the val split. The import
+    then rejected the three names, because the train split has rows of
+    five keypoints.
+    """
+    dataset = create_dataset(
+        dataset_name, positional_generator(tempdir, [5, 5]), splits=False
+    )
+    dataset.set_keypoint_metadata(labels=LABELS, task="pose")
+    dataset.add(keypoint_generator(tempdir, NAMED_KEYPOINTS, n=1, start=2))
+    dataset.make_splits(
+        {
+            "train": [str(create_image(i, tempdir)) for i in (0, 1)],
+            "val": [str(create_image(2, tempdir))],
+        }
+    )
+    exported = dataset.export(tempdir / "exported_wider", DatasetType.NATIVE)
+    assert isinstance(exported, Path)
+
+    imported = LuxonisParser(
+        str(exported / dataset_name),
+        dataset_type=DatasetType.NATIVE,
+        dataset_name=f"{dataset_name}_imported",
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    assert any("names 3 keypoints, but a row has 5" in m for m in warnings_log)
+    assert imported.get_keypoint_metadata()["pose"].labels == [
+        str(i) for i in range(5)
+    ]
+    assert sorted(keypoint_payloads(imported)) == sorted(
+        keypoint_payloads(dataset)
+    )
+
+
 def test_a_later_add_pads_a_record_with_fewer_keypoints(
     dataset_name: str, tempdir: Path
 ):
