@@ -658,7 +658,7 @@ class BaseParser(ABC):
                                 f"Class '{class_name}' not found in task names."
                             ) from None
 
-                        item.task_name = self._task_name[class_name]
+                        item.task_name = task_name
                     yield item
             else:
                 yield item
