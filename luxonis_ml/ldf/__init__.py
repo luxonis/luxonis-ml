@@ -16,10 +16,19 @@ Example:
         from luxonis_ml.ldf import DatasetRecord
 
         record = DatasetRecord(
-            file="images/frame_001.jpg",
+            media="images/frame_001.jpg",
             annotation={
-                "class": "person",
-                "boundingbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+                "detection": [
+                    {
+                        "class": "person",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.2,
+                            "w": 0.3,
+                            "h": 0.4,
+                        },
+                    }
+                ],
             },
         )
 
@@ -28,8 +37,10 @@ Note:
     the data stack. The extra is a subset of ``luxonis-ml[data]``.
 
 See:
-    `luxonis_ml.ldf.annotation` for the record and annotation schemas and
-    `luxonis_ml.ldf.parquet` for the row they are serialized to.
+    `luxonis_ml.ldf.annotation` for the record and annotation schemas,
+    `luxonis_ml.ldf.parquet` for the row they are serialized to, and
+    `luxonis_ml.ldf.schema` for the dataset-level schema a conversion
+    needs.
 
 """
 
@@ -50,18 +61,22 @@ with guard_missing_extra("ldf"):
         KeypointMetadata,
         KeypointVisibility,
         NormalizedFloat,
+        PathOrArray,
         SegmentationAnnotation,
         load_annotation,
     )
     from .parquet import ParquetRecord
+    from .schema import SCHEMA_METADATA_KEY, DatasetSchema
 
 __all__ = [
+    "SCHEMA_METADATA_KEY",
     "Annotation",
     "ArrayAnnotation",
     "BBoxAnnotation",
     "Category",
     "ClassificationAnnotation",
     "DatasetRecord",
+    "DatasetSchema",
     "Detection",
     "InstanceSegmentationAnnotation",
     "Keypoint",
@@ -70,6 +85,7 @@ __all__ = [
     "KeypointVisibility",
     "NormalizedFloat",
     "ParquetRecord",
+    "PathOrArray",
     "SegmentationAnnotation",
     "load_annotation",
 ]

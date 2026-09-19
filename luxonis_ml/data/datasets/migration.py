@@ -2,8 +2,10 @@ from collections import defaultdict
 from typing import Any, Final, Literal, overload
 
 import polars as pl
+from semver.version import Version
 from typing_extensions import TypedDict
 
+from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 
 from .metadata import Metadata
@@ -67,14 +69,33 @@ class LDF_1_0_0_MetadataDict(TypedDict):
 
 
 @overload
-def migrate_dataframe(df: pl.LazyFrame) -> pl.LazyFrame: ...
+def migrate_dataframe(df: pl.LazyFrame, version: Version) -> pl.LazyFrame: ...
 
 
 @overload
-def migrate_dataframe(df: pl.DataFrame) -> pl.DataFrame: ...
+def migrate_dataframe(df: pl.DataFrame, version: Version) -> pl.DataFrame: ...
 
 
 def migrate_dataframe(
+    df: pl.LazyFrame | pl.DataFrame, version: Version
+) -> pl.LazyFrame | pl.DataFrame:
+    """Migrate an annotation dataframe to the layout this version reads.
+
+    Args:
+        df: Dataframe as it was stored.
+        version: LDF version the dataframe was written by.
+
+    Returns:
+        The dataframe in the current layout.
+
+    """
+    if version.major < 2:
+        return _migrate_dataframe_from_1_0(df)
+    # LDF 3.0 changed the record contract, not the rows it writes.
+    return df
+
+
+def _migrate_dataframe_from_1_0(
     df: pl.LazyFrame | pl.DataFrame,
 ) -> pl.LazyFrame | pl.DataFrame:  # pragma: no cover
     return (
@@ -126,14 +147,17 @@ def migrate_dataframe(
 
 
 def migrate_metadata(
-    metadata: LDF_1_0_0_MetadataDict, df: pl.LazyFrame | None
-) -> Metadata:  # pragma: no cover
-    """Migrate LDF ``1.0.0`` metadata to the current schema.
+    metadata: LDF_1_0_0_MetadataDict,
+    df: pl.LazyFrame | None,
+    version: Version,
+) -> Metadata:
+    """Migrate stored metadata to the schema this version reads.
 
     Args:
-        metadata: Metadata dictionary in the LDF ``1.0.0`` layout.
+        metadata: Metadata dictionary as it was stored.
         df: Optional annotation dataframe used to infer task names for
-            non-default datasets.
+            non-default datasets. Only LDF :math:`1.0.0` needs it.
+        version: LDF version the metadata was written by.
 
     Returns:
         Migrated metadata model.
@@ -143,6 +167,15 @@ def migrate_metadata(
             ``df`` is ``None``.
 
     """
+    if version.major >= 2:
+        # LDF 3.0 changed the record contract, not the metadata it keeps, so
+        # nothing stored has to move. The stamp does: a dataset that keeps
+        # its old one is never migrated, and can never merge with a dataset
+        # this version wrote.
+        return Metadata.model_validate(
+            {**metadata, "ldf_version": str(LDF_VERSION)}
+        )
+
     new_metadata = {}
     old_classes = metadata["classes"]
     if set(old_classes.keys()) <= LDF_1_0_0_TASKS:

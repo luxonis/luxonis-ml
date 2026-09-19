@@ -110,7 +110,7 @@ class YoloV4Parser(BaseParser):
 
                 # Handle image names listed with no following annotation in the line
                 if len(data) == 1:
-                    yield {"file": file, "annotation": None}
+                    yield {"media": file, "annotation": None}
                     continue
 
                 img = Image.open(file)
@@ -122,7 +122,7 @@ class YoloV4Parser(BaseParser):
 
                     bbox_xyxy = [float(i) for i in curr_ann_data[:4]]
                     yield {
-                        "file": file,
+                        "media": file,
                         "annotation": {
                             "class": class_name,
                             "boundingbox": {
@@ -137,7 +137,7 @@ class YoloV4Parser(BaseParser):
             # Images in the directory not listed in annotations file
             for img_path in self._list_images(image_dir):
                 if img_path.resolve() not in annotated_images:
-                    yield {"file": str(img_path), "annotation": None}
+                    yield {"media": str(img_path), "annotation": None}
 
         added_images = self._get_added_images(generator())
 

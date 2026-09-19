@@ -354,7 +354,7 @@ class YOLOv8Parser(BaseParser):
 
                 # Handle missing annotations
                 if not annotation_data:
-                    yield {"file": str(img_path), "annotation": None}
+                    yield {"media": str(img_path), "annotation": None}
                     continue
 
                 for instance_id, ann_line in enumerate(annotation_data):
@@ -378,7 +378,7 @@ class YOLOv8Parser(BaseParser):
                         class_name = class_names[int(class_id)]
 
                         yield {
-                            "file": str(img_path),
+                            "media": str(img_path),
                             "annotation": {
                                 "class": class_name,
                                 "instance_id": instance_id,
@@ -407,7 +407,7 @@ class YOLOv8Parser(BaseParser):
                         class_name = class_names[int(class_id)]
 
                         yield {
-                            "file": str(img_path),
+                            "media": str(img_path),
                             "annotation": {
                                 "class": class_name,
                                 "instance_id": instance_id,
@@ -442,7 +442,7 @@ class YOLOv8Parser(BaseParser):
                         ]
 
                         yield {
-                            "file": str(img_path),
+                            "media": str(img_path),
                             "annotation": {
                                 "class": class_name,
                                 "instance_id": instance_id,

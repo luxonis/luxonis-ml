@@ -134,7 +134,7 @@ class FiftyOneClassificationParser(BaseParser):
                 class_name = classes[class_idx]
 
                 yield {
-                    "file": img_path,
+                    "media": img_path,
                     "annotation": {"class": class_name},
                 }
 

@@ -209,7 +209,7 @@ def generator(base_path: Path, tempdir: Path):
                         "w": w_new,
                         "h": h_new,
                     },
-                    "array": {"path": array_path},
+                    "array": {"data": array_path},
                     "keypoints": {"keypoints": item["keypoints"]},
                     "instance_segmentation": {"mask": adjusted_mask},
                     "metadata": {
@@ -227,13 +227,13 @@ def generator(base_path: Path, tempdir: Path):
 
             for annotation in annotations_list:
                 yield {
-                    "file": combined_filepath,
+                    "media": combined_filepath,
                     "task_name": annotation["class"],
                     "annotation": annotation,
                 }
             for i, color in enumerate(["red", "green", "blue"]):
                 yield {
-                    "file": combined_filepath,
+                    "media": combined_filepath,
                     "task_name": "color",
                     "annotation": {
                         "class": color,

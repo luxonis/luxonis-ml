@@ -35,7 +35,7 @@ def test_ordering_loader_background(tempdir: Path, subtests: SubTests):
     def generator(classes_list: list[str]) -> DatasetIterator:
         for i, class_name in enumerate(classes_list):
             yield {
-                "file": create_image(i, tempdir),
+                "media": create_image(i, tempdir),
                 "annotation": {
                     "class": class_name,
                     "segmentation": segmentation,
@@ -97,11 +97,11 @@ def test_ordering_loader_no_background(tempdir: Path):
 
     def generator() -> DatasetIterator:
         yield {
-            "file": create_image(0, tempdir),
+            "media": create_image(0, tempdir),
             "annotation": {"class": "dog", "segmentation": right_seg},
         }
         yield {
-            "file": create_image(0, tempdir),
+            "media": create_image(0, tempdir),
             "annotation": {"class": "cat", "segmentation": left_seg},
         }
 
@@ -124,7 +124,7 @@ def test_ordering_dataset(
         for i, class_name in enumerate(classes):
             img = create_image(i, tempdir)
             yield {
-                "file": img,
+                "media": img,
                 "task_name": "ordering",
                 "annotation": {
                     "class": class_name,

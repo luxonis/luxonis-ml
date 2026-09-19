@@ -25,7 +25,7 @@ from luxonis_ml.typing import (
 )
 from luxonis_ml.utils import LuxonisFileSystem
 
-from .utils import create_dataset, create_image
+from .utils import create_dataset, create_image, stored_metadata
 
 AUGMENTATIONS_CONFIG: list[Params] = [  # type: ignore[reportAssignmentType]
     {
@@ -225,12 +225,12 @@ def _create_filter_task_names_dataset(
     def generator() -> DatasetIterator:
         img = create_image(0, tempdir)
         yield {
-            "file": img,
+            "media": img,
             "task_name": "animals",
             "annotation": {"class": "cat"},
         }
         yield {
-            "file": img,
+            "media": img,
             "task_name": "vehicles",
             "annotation": {
                 "class": "car",
@@ -240,7 +240,7 @@ def _create_filter_task_names_dataset(
 
         img = create_image(1, tempdir)
         yield {
-            "file": img,
+            "media": img,
             "task_name": "animals",
             "annotation": {
                 "class": "dog",
@@ -248,7 +248,7 @@ def _create_filter_task_names_dataset(
             },
         }
         yield {
-            "file": img,
+            "media": img,
             "task_name": "vehicles",
             "annotation": {
                 "class": "truck",
@@ -286,6 +286,29 @@ def test_filter_task_names(randint: int, tempdir: Path):
     ) == [[0.0, 1.0], [1.0, 0.0]]
 
 
+def test_task_filter_keeps_all_sources_of_a_negative(
+    dataset_name: str, tempdir: Path
+):
+    left = create_image(0, tempdir)
+    right = create_image(1, tempdir)
+    record = {
+        "media": {"left": left, "right": right},
+        "annotation": {
+            "animals": [{"class": "cat"}],
+            "vehicles": [],
+        },
+    }
+    dataset = create_dataset(
+        dataset_name, iter([record]), splits={"train": 1.0}
+    )
+
+    sample = LuxonisLoader(
+        dataset, view="train", filter_task_names=["vehicles"]
+    )[0]
+
+    assert set(sample.images) == {"left", "right"}
+
+
 def test_filter_task_names_rejects_unknown_task(randint: int, tempdir: Path):
     dataset = _create_filter_task_names_dataset(
         f"test_filter_task_names_rejects_unknown_task_{randint}", tempdir
@@ -295,13 +318,375 @@ def test_filter_task_names_rejects_unknown_task(randint: int, tempdir: Path):
         LuxonisLoader(dataset, filter_task_names=["missing"])
 
 
+def _two_boxes_in_reverse_instance_order(
+    tempdir: Path, metadata: dict[str, dict[str, str]] | None = None
+) -> DatasetIterator:
+    """Yield two boxes whose instance IDs run against the yield order.
+
+    The optional metadata is keyed by class name.
+    """
+    metadata = metadata or {}
+    img = create_image(0, tempdir)
+    boxes = {
+        "car": (1, {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1}),
+        "truck": (0, {"x": 0.5, "y": 0.5, "w": 0.2, "h": 0.2}),
+    }
+    for class_name, (instance_id, box) in boxes.items():
+        yield {
+            "media": img,
+            "task_name": "vehicles",
+            "annotation": {
+                "instance_id": instance_id,
+                "class": class_name,
+                "boundingbox": box,
+                "metadata": metadata.get(class_name, {}),
+            },
+        }
+
+
+def test_class_ids_follow_their_annotations(dataset_name: str, tempdir: Path):
+    """Sorting annotations by instance ID has to move the class IDs too.
+
+    Only the annotations were sorted, so two boxes yielded against their
+    instance order came back labelled with each other's class.
+    """
+    dataset = create_dataset(
+        dataset_name,
+        _two_boxes_in_reverse_instance_order(tempdir),
+        splits={"train": 1.0},
+    )
+    classes = dataset.get_classes()["vehicles"]
+
+    boxes = LuxonisLoader(dataset, view="train")[0].labels[
+        "vehicles/boundingbox"
+    ]
+
+    # Instance 0 is the truck, so it takes the first row.
+    assert boxes[0].tolist() == pytest.approx(
+        [classes["truck"], 0.5, 0.5, 0.2, 0.2]
+    )
+    assert boxes[1].tolist() == pytest.approx(
+        [classes["car"], 0.1, 0.1, 0.1, 0.1]
+    )
+
+
+def test_metadata_is_aligned_to_its_instances(
+    dataset_name: str, tempdir: Path
+):
+    """A metadata value has to land on the row of its own instance.
+
+    Metadata kept the dataframe order while the boxes were sorted by
+    instance ID, so the values described the wrong objects.
+    """
+    dataset = create_dataset(
+        dataset_name,
+        _two_boxes_in_reverse_instance_order(
+            tempdir, {"car": {"color": "red"}, "truck": {"color": "blue"}}
+        ),
+        splits={"train": 1.0},
+    )
+
+    labels = LuxonisLoader(dataset, view="train")[0].labels
+
+    assert labels["vehicles/metadata/color"].tolist() == ["blue", "red"]
+
+
+def test_metadata_leaves_a_gap_for_an_instance_without_a_value(
+    dataset_name: str, tempdir: Path
+):
+    """A value only some instances carry still belongs to its own row.
+
+    The augmentation engine drops metadata rows by bounding-box index, so a
+    shorter metadata label silently shifted onto the wrong boxes.
+    """
+
+    def generator() -> DatasetIterator:
+        img = create_image(0, tempdir)
+        for instance_id, metadata in enumerate([{}, {"color": "blue"}]):
+            yield {
+                "media": img,
+                "task_name": "vehicles",
+                "annotation": {
+                    "instance_id": instance_id,
+                    "class": "car",
+                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
+                    "metadata": metadata,
+                },
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+
+    labels = LuxonisLoader(dataset, view="train")[0].labels
+
+    assert labels["vehicles/boundingbox"].shape == (2, 5)
+    assert labels["vehicles/metadata/color"].tolist() == [None, "blue"]
+
+
+def test_metadata_finds_its_instance_across_separate_records(
+    dataset_name: str, tempdir: Path
+):
+    """One sample is often written as one record per detection.
+
+    No record sets an instance ID, so the rows of one detection are found
+    again by the number the write path gives them. Numbering each record on
+    its own would give every detection the number zero, and the sample would
+    come back as a single instance.
+    """
+
+    def generator() -> DatasetIterator:
+        img = create_image(0, tempdir)
+        for x, metadata in zip(
+            (0.1, 0.4, 0.7), [{}, {"color": "red"}, {}], strict=True
+        ):
+            yield {
+                "media": img,
+                "task_name": "vehicles",
+                "annotation": {
+                    "class": "car",
+                    "boundingbox": {"x": x, "y": 0.1, "w": 0.1, "h": 0.1},
+                    "metadata": metadata,
+                },
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+
+    labels = LuxonisLoader(dataset, view="train")[0].labels
+
+    assert labels["vehicles/boundingbox"].shape == (3, 5)
+    assert [round(row[1], 2) for row in labels["vehicles/boundingbox"]] == [
+        0.1,
+        0.4,
+        0.7,
+    ]
+    assert labels["vehicles/metadata/color"].tolist() == [None, "red", None]
+
+
+def test_an_empty_label_survives_augmentation(
+    dataset_name: str, tempdir: Path
+):
+    """A negative sample keeps a key for every task of the dataset.
+
+    The augmentation engine drops a label that has no rows, and puts back
+    only the ones grouped with a bounding box. A keypoints-only task has
+    none, so its key vanished and the two loading paths disagreed.
+    """
+
+    def generator() -> DatasetIterator:
+        yield {
+            "media": create_image(0, tempdir),
+            "task_name": "pose",
+            "annotation": {
+                "class": "person",
+                "keypoints": {"keypoints": [(0.2, 0.2, 2), (0.3, 0.3, 1)]},
+            },
+        }
+        yield {"media": create_image(1, tempdir), "task_name": "pose"}
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+
+    plain = LuxonisLoader(dataset, view="train")
+    augmented = LuxonisLoader(dataset, view="train", height=64, width=64)
+
+    for i in range(len(plain)):
+        assert sorted(augmented[i].labels) == sorted(plain[i].labels)
+        assert "pose/keypoints" in augmented[i].labels
+
+    # The split decides the order, so the negative is found by its own shape
+    # rather than by an index.
+    assert sorted(
+        augmented[i].labels["pose/keypoints"].shape[0]
+        for i in range(len(augmented))
+    ) == [0, 1]
+
+
+def test_a_declared_background_class_survives_a_round_trip(
+    dataset_name: str, tempdir: Path
+):
+    """A dataset may annotate a class it calls ``background``.
+
+    The loader synthesizes a class of that name for the pixels no class
+    claims, and rebuilding a record drops it again. Only the synthesized one
+    may be dropped, or an annotated background is deleted.
+    """
+    road = np.zeros((512, 512), dtype=np.uint8)
+    road[:256] = 1
+    background = np.zeros((512, 512), dtype=np.uint8)
+    background[256:] = 1
+
+    def generator() -> DatasetIterator:
+        image = create_image(0, tempdir)
+        for class_name, mask in [("road", road), ("background", background)]:
+            yield {
+                "media": image,
+                "task_name": "scene",
+                "annotation": {
+                    "class": class_name,
+                    "segmentation": {"mask": mask},
+                },
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+
+    sample = LuxonisLoader(dataset, view="train")[0]
+
+    assert sorted(
+        detection.class_name
+        for detection in sample.to_ldf().annotation["scene"]
+        if detection.segmentation is not None
+        and detection.class_name is not None
+    ) == ["background", "road"]
+
+
+def test_a_synthesized_background_class_is_dropped(
+    dataset_name: str, tempdir: Path
+):
+    """The loader fills the pixels no class claims.
+
+    That class is the loader's own, so a rebuilt record must not carry it.
+    """
+    road = np.zeros((512, 512), dtype=np.uint8)
+    road[:256] = 1
+    sky = np.zeros((512, 512), dtype=np.uint8)
+    sky[256:400] = 1
+
+    def generator() -> DatasetIterator:
+        image = create_image(0, tempdir)
+        for class_name, mask in [("road", road), ("sky", sky)]:
+            yield {
+                "media": image,
+                "task_name": "scene",
+                "annotation": {
+                    "class": class_name,
+                    "segmentation": {"mask": mask},
+                },
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+
+    sample = LuxonisLoader(dataset, view="train")[0]
+
+    assert sorted(
+        detection.class_name
+        for detection in sample.to_ldf().annotation["scene"]
+        if detection.segmentation is not None
+        and detection.class_name is not None
+    ) == ["road", "sky"]
+
+
+def test_an_absent_metadata_label_has_no_rows(
+    dataset_name: str, tempdir: Path
+):
+    """Metadata is per instance, so an absent one has no rows at all.
+
+    It was filled with one entry per class, which reads as that many
+    instances that were never there.
+    """
+
+    def generator() -> DatasetIterator:
+        yield {
+            "media": create_image(0, tempdir),
+            "task_name": "vehicles",
+            "annotation": {"class": "car", "metadata": {"color": "red"}},
+        }
+        yield {
+            "media": create_image(1, tempdir),
+            "task_name": "vehicles",
+            "annotation": {"class": "truck"},
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    loader = LuxonisLoader(dataset, view="train")
+
+    empty = [
+        sample.labels["vehicles/metadata/color"]
+        for sample in loader
+        if sample.labels["vehicles/metadata/color"].size == 0
+    ]
+
+    assert len(dataset.get_classes()["vehicles"]) == 2
+    assert len(empty) == 1
+    assert empty[0].shape == (0,)
+
+
+def test_a_sub_detection_uses_its_own_classes(
+    dataset_name: str, tempdir: Path
+):
+    """A sub-detection is its own task, with its own class list.
+
+    The task name was cut at the first ``"/"``, so ``"vehicle/plate"`` was
+    sized with the classes of ``"vehicle"``.
+    """
+
+    def generator() -> DatasetIterator:
+        for i, class_name in enumerate(("car", "truck", "bus")):
+            yield {
+                "media": create_image(i, tempdir),
+                "task_name": "vehicle",
+                "annotation": {
+                    "class": class_name,
+                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
+                    "sub_detections": {
+                        "plate": {
+                            "class": "plate",
+                            "boundingbox": {
+                                "x": 0.2,
+                                "y": 0.2,
+                                "w": 0.1,
+                                "h": 0.1,
+                            },
+                        }
+                    },
+                },
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+
+    labels = LuxonisLoader(dataset, view="train")[0].labels
+
+    assert len(dataset.get_classes()["vehicle"]) == 3
+    assert labels["vehicle/classification"].shape == (3,)
+    assert labels["vehicle/plate/classification"].shape == (1,)
+
+
+def test_a_true_negative_survives_a_task_filter(
+    dataset_name: str, tempdir: Path
+):
+    """A sample with no annotation is a negative for every task.
+
+    Its row carries the task name of the record that wrote it, so the task
+    filter dropped the sample instead of keeping it as a negative.
+    """
+
+    def generator() -> DatasetIterator:
+        yield {
+            "media": create_image(0, tempdir),
+            "task_name": "vehicles",
+            "annotation": {
+                "class": "car",
+                "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
+            },
+        }
+        yield {"media": create_image(1, tempdir)}
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+
+    loader = LuxonisLoader(
+        dataset, view="train", filter_task_names=["vehicles"]
+    )
+
+    assert len(loader) == 2
+    assert sorted(
+        sample.labels["vehicles/boundingbox"].shape[0] for sample in loader
+    ) == [0, 1]
+
+
 def test_loader_passes_is_validation_pipeline_to_legacy_engines(
     dataset_name: str, tempdir: Path
 ):
     def generator() -> DatasetIterator:
         img = create_image(0, tempdir)
         yield {
-            "file": img,
+            "media": img,
             "annotation": {
                 "class": "person",
                 "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
@@ -332,7 +717,7 @@ def test_loader_records_augmentations_in_sample_metadata(
     def generator() -> DatasetIterator:
         img = create_image(0, tempdir)
         yield {
-            "file": img,
+            "media": img,
             "sample_metadata": {"record_id": "sample-1"},
             "annotation": {"class": "person"},
         }
@@ -346,7 +731,7 @@ def test_loader_records_augmentations_in_sample_metadata(
         autopopulate_metadata=False,
     )
 
-    metadata = loader[0].metadata
+    metadata = stored_metadata(loader[0])
 
     assert isinstance(metadata["augmentations"], TrackedAugmentations)
     assert metadata == {
@@ -367,7 +752,7 @@ def test_loader_keeps_stored_metadata_over_the_reserved_augmentations_key(
     def generator() -> DatasetIterator:
         img = create_image(0, tempdir)
         yield {
-            "file": img,
+            "media": img,
             "sample_metadata": {
                 "augmentations": {"user_pipeline": {"run_id": 42}},
                 "record_id": "sample-1",
@@ -385,7 +770,7 @@ def test_loader_keeps_stored_metadata_over_the_reserved_augmentations_key(
     )
 
     with pytest.warns(UserWarning, match="reserved 'augmentations' key"):
-        metadata = loader[0].metadata
+        metadata = stored_metadata(loader[0])
 
     assert metadata == {
         "augmentations": {"user_pipeline": {"run_id": 42}},
@@ -405,7 +790,7 @@ def test_loader_warns_when_stored_metadata_hides_the_filenames_key(
     def generator() -> DatasetIterator:
         img = create_image(0, tempdir)
         yield {
-            "file": img,
+            "media": img,
             "sample_metadata": {"filenames": "stored-value"},
             "annotation": {"class": "person"},
         }
@@ -414,7 +799,7 @@ def test_loader_warns_when_stored_metadata_hides_the_filenames_key(
     loader = LuxonisLoader(dataset, height=512, width=512)
 
     with pytest.warns(UserWarning, match="reserved 'filenames' key"):
-        metadata = loader[0].metadata
+        metadata = stored_metadata(loader[0])
 
     assert metadata == {"filenames": "stored-value", "augmentations": {}}
 
@@ -425,7 +810,7 @@ def test_loader_preserves_metadata_for_custom_batch_engines(
     def generator() -> DatasetIterator:
         for i in range(2):
             yield {
-                "file": create_image(i, tempdir),
+                "media": create_image(i, tempdir),
                 "sample_metadata": {"record_id": i},
             }
 
@@ -461,7 +846,7 @@ def test_loader_uses_metadata_from_custom_engine_single_contributor(
     def generator() -> DatasetIterator:
         for i in range(2):
             yield {
-                "file": create_image(i, tempdir),
+                "media": create_image(i, tempdir),
                 "sample_metadata": {"record_id": i},
             }
 
@@ -511,7 +896,7 @@ def test_loader_merges_metadata_only_for_applied_batch_augmentations(
     def generator() -> DatasetIterator:
         for i in range(2):
             yield {
-                "file": create_image(i, tempdir),
+                "media": create_image(i, tempdir),
                 "sample_metadata": {"record_id": i},
             }
 
@@ -525,7 +910,7 @@ def test_loader_merges_metadata_only_for_applied_batch_augmentations(
         augmentation_config=[{"name": "MixUp", "params": {"p": probability}}],
     )
 
-    metadata = loader[0].metadata
+    metadata = stored_metadata(loader[0])
 
     assert ("batch_augmentation_metadata" in metadata) is metadata_is_merged
     if metadata_is_merged:
@@ -574,7 +959,7 @@ def test_loader_tracks_metadata_through_multiple_batch_augmentations(
     def generator() -> DatasetIterator:
         for i in range(8):
             yield {
-                "file": create_image(i, tempdir),
+                "media": create_image(i, tempdir),
                 "sample_metadata": {"record_id": i},
             }
 
@@ -822,7 +1207,7 @@ def test_edge_cases(tempdir: Path):
             ]
 
             yield {
-                "file": img,
+                "media": img,
                 "annotation": {
                     "class": "dog",
                     "boundingbox": {
@@ -1065,3 +1450,57 @@ def test_colorspace(storage_url: str, tempdir: Path):
     gray_img, _ = cast(LoaderSingleOutput, next(iter(loader)))
     assert len(gray_img.shape) == 3
     assert gray_img.shape[2] == 1
+
+
+def test_a_loaded_sample_rebuilds_into_a_record(
+    dataset_name: str, tempdir: Path
+):
+    """The arrays carry enough to rebuild the record they came from.
+
+    The sub-detections are stored as tasks of their own, so this also
+    covers putting them back under the detection they belong to.
+    """
+
+    def generator() -> DatasetIterator:
+        img = create_image(0, tempdir)
+        for instance_id, (class_name, mood) in enumerate(
+            [("person", "happy"), ("person", "sad")]
+        ):
+            yield {
+                "media": img,
+                "task_name": "driver",
+                "annotation": {
+                    "instance_id": instance_id,
+                    "class": class_name,
+                    "boundingbox": {
+                        "x": 0.1 * instance_id,
+                        "y": 0.1,
+                        "w": 0.1,
+                        "h": 0.1,
+                    },
+                    "sub_detections": {
+                        "face": {
+                            "instance_id": instance_id,
+                            "class": mood,
+                            "boundingbox": {
+                                "x": 0.1 * instance_id,
+                                "y": 0.5,
+                                "w": 0.1,
+                                "h": 0.1,
+                            },
+                        }
+                    },
+                },
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+
+    record = LuxonisLoader(dataset, view="train")[0].to_ldf()
+
+    assert set(record.annotation) == {"driver"}
+    drivers = record.annotation["driver"]
+    assert [driver.class_name for driver in drivers] == ["person", "person"]
+    assert [
+        driver.sub_detections["face"].class_name for driver in drivers
+    ] == ["happy", "sad"]
+    assert isinstance(record.file, np.ndarray)
