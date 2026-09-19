@@ -909,7 +909,7 @@ def test_a_failed_merge_writes_nothing(dataset_name: str, tempdir: Path):
     empty = LuxonisDataset(f"{dataset_name}_empty", delete_local=True)
     # A dataset of another major version opens only through a migration,
     # so the version changes in memory.
-    other._metadata.ldf_version = "3.0.0"
+    other._metadata.ldf_version = f"{LDF_VERSION.major + 1}.0.0"
     rows = target._load_df_offline(raise_when_empty=True)
     splits = target.get_splits()
 
@@ -937,7 +937,7 @@ def test_a_merge_checks_its_arguments_before_the_metadata(dataset_name: str):
     """
     target = LuxonisDataset(f"{dataset_name}_target", delete_local=True)
     other = LuxonisDataset(f"{dataset_name}_other", delete_local=True)
-    other._metadata.ldf_version = "3.0.0"
+    other._metadata.ldf_version = f"{LDF_VERSION.major + 1}.0.0"
 
     with pytest.raises(ValueError, match="must specify a name"):
         target.merge_with(other, inplace=False)
