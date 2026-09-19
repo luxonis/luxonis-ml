@@ -124,7 +124,10 @@ def test_keypoint_clipping_does_not_mutate_the_input():
     annotation = KeypointAnnotation.model_validate(values)
 
     assert values == {"keypoints": keypoints}
-    assert annotation.keypoints == [(0.5, 0.5, 2), (1.0, 0.2, 1)]
+    assert list(annotation.keypoints.values()) == [
+        (0.5, 0.5, 2),
+        (1.0, 0.2, 1),
+    ]
 
 
 @pytest.mark.parametrize(
