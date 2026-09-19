@@ -112,6 +112,24 @@ def keypoint_payloads(dataset: LuxonisDataset) -> list[str]:
     return df.filter(df["task_type"] == "keypoints")["annotation"].to_list()
 
 
+def exported_detections(annotations_path: Path) -> list[dict[str, Any]]:
+    """Return every detection of an exported ``annotations.json``.
+
+    LDF 3.0 groups the detections of a record by task name. An export to
+    an older version is flat, so the record holds its one detection
+    directly under ``annotation``.
+    """
+    detections = []
+    for record in json.loads(annotations_path.read_text()):
+        annotation = record.get("annotation") or {}
+        if "task_name" in record:
+            detections.append(annotation)
+        else:
+            for task_detections in annotation.values():
+                detections.extend(task_detections)
+    return detections
+
+
 def loaded_keypoint_shapes(dataset: LuxonisDataset) -> list[tuple[int, ...]]:
     return sorted(
         labels["pose/keypoints"].shape for _, labels in LuxonisLoader(dataset)
@@ -2098,9 +2116,7 @@ def test_a_shorter_record_without_names_does_not_get_the_task_fields(
     val_path = exported / dataset_name / "val" / "annotations.json"
     assert [
         detection["keypoints"]
-        for record in json.loads(val_path.read_text())
-        for detections in record["annotation"].values()
-        for detection in detections
+        for detection in exported_detections(val_path)
         if "keypoints" in detection
     ] == [{"keypoints": [[0.0, 0.0, 2], [0.1, 0.1, 2]]}]
     assert imported.get_keypoint_metadata()["pose"].edges == imported_edges
