@@ -87,7 +87,11 @@ def test_native_parser_resolves_paths_in_a_task_keyed_manifest(
                                 "class": "class0",
                                 "segmentation": {"mask": "masks/0.png"},
                             }
-                        ]
+                        ],
+                        "aux": {
+                            "class": "class1",
+                            "segmentation": {"mask": "masks/0.png"},
+                        },
                     },
                 }
             ],
@@ -106,6 +110,8 @@ def test_native_parser_resolves_paths_in_a_task_keyed_manifest(
     assert isinstance(parsed_record, dict)
     resolved = parsed_record["annotation"]["seg"][0]["segmentation"]["mask"]
     assert Path(resolved) == mask_path.resolve()
+    scalar = parsed_record["annotation"]["aux"]["segmentation"]["mask"]
+    assert Path(scalar) == mask_path.resolve()
 
 
 def test_yolov4_parser_keeps_unlabeled_image_with_duplicate_basename(

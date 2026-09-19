@@ -117,6 +117,14 @@ def test_such_a_task_needs_the_list_form(image: Path):
         )
 
 
+def test_a_detection_field_name_can_still_name_a_task(image: Path):
+    record = DatasetRecord.model_validate(
+        {"media": image, "annotation": {"class": [{"class": "car"}]}}
+    )
+
+    assert rows(record) == [("class", "classification", "car")]
+
+
 def test_the_deprecated_task_name_becomes_the_mapping_key(image: Path):
     record = DatasetRecord.model_validate(
         {"media": image, "task_name": "vehicles", "annotation": [CAR]}

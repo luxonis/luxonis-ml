@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, TypeAlias
@@ -9,6 +9,7 @@ from semver.version import Version
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.constants import LDF_VERSION
+from luxonis_ml.ldf.annotation import _is_task_mapping
 from luxonis_ml.typing import PathType, PrimitiveType
 from luxonis_ml.utils.path import resolve_manifest_path
 
@@ -227,28 +228,24 @@ def _walk_detections(
     detection or a list of them, are deprecated but still appear in an
     export written by an older version.
 
-    The task mapping is recognized the same way `DatasetRecord` recognizes
-    it, by every value being a list or a tuple. The two must agree, or a
-    payload the record accepts reaches this parser as something else.
+    `DatasetRecord` and the native parser must use the same task-mapping
+    rules, or paths inside a valid record may not be resolved.
     """
-    if isinstance(annotation, Mapping):
-        grouped = [
-            detections
-            for detections in annotation.values()
-            if isinstance(detections, (list, tuple))
-        ]
-        if len(grouped) == len(annotation):
-            for detections in grouped:
-                yield from (
-                    detection
-                    for detection in detections
-                    if isinstance(detection, dict)
-                )
+    if isinstance(annotation, dict):
+        if _is_task_mapping(annotation):
+            for detections in annotation.values():
+                if isinstance(detections, dict):
+                    yield detections
+                elif isinstance(detections, (list, tuple)):
+                    yield from (
+                        detection
+                        for detection in detections
+                        if isinstance(detection, dict)
+                    )
             return
         # The caller rewrites the paths in place, so the detection itself
         # is yielded, never a copy of it.
-        if isinstance(annotation, dict):
-            yield annotation
+        yield annotation
     elif isinstance(annotation, (list, tuple)):
         yield from (
             detection

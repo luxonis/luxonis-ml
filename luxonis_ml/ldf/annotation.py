@@ -2370,7 +2370,7 @@ class DatasetRecord(BaseModelExtraForbid):
             task_name = task
 
         annotation = values.get("annotation")
-        if annotation is None or cls._is_task_mapping(annotation):
+        if annotation is None or _is_task_mapping(annotation):
             grouped = {
                 task_name: list(detections)
                 if isinstance(detections, (list, tuple))
@@ -2642,25 +2642,6 @@ class DatasetRecord(BaseModelExtraForbid):
             "sample_metadata": sample_metadata,
         }
 
-    @staticmethod
-    def _is_task_mapping(annotation: Any) -> bool:
-        """Whether an annotation payload groups detections by task name."""
-        if not isinstance(annotation, Mapping):
-            return False
-        if not annotation:
-            return True
-
-        # A key that names no field of a detection can only be a task name.
-        if set(annotation) - (set(Detection.model_fields) | {"class"}):
-            return True
-
-        # Every key also names a detection field, so the values decide. No
-        # field of a detection holds a list, so a list means a task.
-        return any(
-            isinstance(detections, (list, tuple))
-            for detections in annotation.values()
-        )
-
 
 def load_annotation(
     task_type: TaskType,
@@ -2702,6 +2683,25 @@ def load_annotation(
         del data["path"]
     return classes[task_type].model_validate(
         data, context={"n_keypoints": n_keypoints}
+    )
+
+
+def _is_task_mapping(annotation: Any) -> bool:
+    """Whether an annotation payload groups detections by task name."""
+    if not isinstance(annotation, Mapping):
+        return False
+    if not annotation:
+        return True
+
+    # A key that names no field of a detection can only be a task name.
+    if set(annotation) - (set(Detection.model_fields) | {"class"}):
+        return True
+
+    # Every key also names a detection field, so the values decide. No
+    # field of a detection holds a list, so a list means a task.
+    return any(
+        isinstance(detections, (list, tuple))
+        for detections in annotation.values()
     )
 
 
