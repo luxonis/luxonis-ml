@@ -3,15 +3,112 @@ import json
 import uuid
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
-from typing import Any
+from typing import TypeAlias, cast
 
 import numpy as np
 import polars as pl
 from loguru import logger
 from pycocotools import mask as mask_utils
+from typing_extensions import TypedDict
 
 from luxonis_ml.data.utils.task_utils import task_is_metadata
 from luxonis_ml.typing import RGB
+
+
+class DuplicateUUID(TypedDict):
+    """One UUID shared by multiple dataset files."""
+
+    uuid: str
+    files: list[str]
+
+
+class DuplicateAnnotation(TypedDict):
+    """One repeated annotation and its occurrence count."""
+
+    file_name: str
+    task_name: str
+    task_type: str
+    annotation: str
+    count: int
+
+
+class DuplicateInfo(TypedDict):
+    """Structured duplicate analysis returned by dataset health checks."""
+
+    duplicate_uuids: list[DuplicateUUID]
+    duplicate_annotations: list[DuplicateAnnotation]
+
+
+class ClassDistributionRow(TypedDict):
+    """One class-count row in a dataset health distribution."""
+
+    class_name: str
+    count: int
+
+
+class _ClassDistributionRecord(ClassDistributionRow):
+    """Polars row before its task keys are used for grouping."""
+
+    task_name: str
+    task_type: str
+
+
+class HeatmapRow(TypedDict):
+    """Annotation fields required to accumulate a combined heatmap."""
+
+    task_name: str
+    task_type: str
+    annotation: str
+
+
+class ClassHeatmapRow(HeatmapRow):
+    """Heatmap input row that additionally identifies its class."""
+
+    class_name: str | None
+
+
+class _BoundingBoxAnnotation(TypedDict):
+    x: float
+    y: float
+    w: float
+    h: float
+
+
+class _KeypointAnnotation(TypedDict):
+    keypoints: list[list[float]]
+
+
+class _MaskAnnotation(TypedDict):
+    counts: str | list[int]
+    height: int
+    width: int
+
+
+_SpatialAnnotation: TypeAlias = (
+    _BoundingBoxAnnotation | _KeypointAnnotation | _MaskAnnotation
+)
+
+
+ClassDistributions: TypeAlias = dict[
+    str, dict[str, list[ClassDistributionRow]]
+]
+Heatmaps: TypeAlias = dict[str, dict[str, list[list[int]]]]
+ClassHeatmaps: TypeAlias = dict[str, dict[str, dict[str, list[list[int]]]]]
+
+
+class DatasetStatistics(TypedDict):
+    """Typed result returned by `LuxonisDataset.get_statistics`."""
+
+    duplicates: DuplicateInfo
+    missing_annotations: list[str]
+    heatmaps: Heatmaps
+    class_distributions: ClassDistributions
+
+
+class DatasetStatisticsWithClassHeatmaps(DatasetStatistics):
+    """Dataset statistics returned when per-class heatmaps are requested."""
+
+    class_heatmaps: ClassHeatmaps
 
 
 def rgb_to_bool_masks(
@@ -134,7 +231,7 @@ def infer_task(
     return old_task
 
 
-def find_duplicates(df: pl.LazyFrame) -> dict[str, list[dict[str, Any]]]:
+def find_duplicates(df: pl.LazyFrame) -> DuplicateInfo:
     """Collect duplicate UUID and annotation information.
 
     Args:
@@ -153,7 +250,7 @@ def find_duplicates(df: pl.LazyFrame) -> dict[str, list[dict[str, Any]]]:
             ``"annotation"`` (or ``"<binary mask>"`` for segmentation), and duplicate ``"count"``.
 
     """
-    result = {
+    result: DuplicateInfo = {
         "duplicate_uuids": [],
         "duplicate_annotations": [],
     }
@@ -284,7 +381,7 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
 
 def get_class_distributions(
     df: pl.LazyFrame,
-) -> dict[str, dict[str, list[dict[str, Any]]]]:
+) -> ClassDistributions:
     """Return class distribution information for non-classification
     tasks.
 
@@ -295,15 +392,18 @@ def get_class_distributions(
         Class counts grouped by task name and task type.
 
     """
-    class_distribution_raw = (
-        df.filter(pl.col("task_type") != "classification")
-        .group_by(["task_name", "task_type", "class_name"])
-        .agg(pl.count().alias("count"))
-        .sort(["task_name", "task_type", "count"], descending=True)
-        .collect()
-        .to_dicts()
+    class_distribution_raw = cast(
+        list[_ClassDistributionRecord],
+        (
+            df.filter(pl.col("task_type") != "classification")
+            .group_by(["task_name", "task_type", "class_name"])
+            .agg(pl.count().alias("count"))
+            .sort(["task_name", "task_type", "count"], descending=True)
+            .collect()
+            .to_dicts()
+        ),
     )
-    class_distributions: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    class_distributions: ClassDistributions = {}
     for record in class_distribution_raw:
         task_name = record["task_name"]
         task_type = record["task_type"]
@@ -338,7 +438,7 @@ def get_missing_annotations(df: pl.LazyFrame) -> list[str]:
     return missing_files_df["file"].to_list()
 
 
-def get_duplicates_info(df: pl.LazyFrame) -> dict[str, Any]:
+def get_duplicates_info(df: pl.LazyFrame) -> DuplicateInfo:
     """Return duplicate UUID and annotation information.
 
     Args:
@@ -374,11 +474,119 @@ def get_duplicates_info(df: pl.LazyFrame) -> dict[str, Any]:
     }
 
 
+_HEATMAP_GRID_SIZE = 15
+#: The task types with a spatial representation, i.e. the ones a heatmap can be
+#: built for. Also what ``data health`` plots at all: a class distribution is
+#: available for metadata too, but has no meaningful health plot.
+HEATMAP_TASK_TYPES = frozenset(
+    {"boundingbox", "keypoints", "segmentation", "instance_segmentation"}
+)
+
+
+def _mask_xy(
+    annotation: _MaskAnnotation, downsample_factor: int
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Return normalized ``(x, y)`` of an RLE mask's foreground pixels."""
+    rle = {
+        "counts": annotation["counts"],
+        "size": [annotation["height"], annotation["width"]],
+    }
+    mask = mask_utils.decode(rle)  # type: ignore
+    if downsample_factor > 1:
+        mask = mask[::downsample_factor, ::downsample_factor]
+    rows_idx, cols_idx = np.where(mask)
+    if rows_idx.size == 0:
+        return None
+    h_, w_ = mask.shape
+    return cols_idx / w_, rows_idx / h_
+
+
+def _annotation_xy(
+    task_type: str,
+    annotation: _SpatialAnnotation,
+    downsample_factor: int,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Return normalized ``(x, y)`` point arrays for one annotation, or ``None``.
+
+    Boxes contribute their center, keypoints their visible points, and masks
+    their foreground pixels (after optional downsampling).
+    """
+    if task_type == "boundingbox":
+        annotation = cast(_BoundingBoxAnnotation, annotation)
+        w, h = annotation["w"], annotation["h"]
+        return (
+            np.array([annotation["x"] + w / 2]),
+            np.array([annotation["y"] + h / 2]),
+        )
+    if task_type == "keypoints":
+        annotation = cast(_KeypointAnnotation, annotation)
+        kps = [
+            kp
+            for kp in annotation.get("keypoints", [])
+            if len(kp) >= 3 and kp[2] > 0
+        ]
+        if not kps:
+            return None
+        coords = np.array([(kp[0], kp[1]) for kp in kps])
+        return coords[:, 0], coords[:, 1]
+    if task_type in ("segmentation", "instance_segmentation"):
+        return _mask_xy(cast(_MaskAnnotation, annotation), downsample_factor)
+    return None
+
+
+def _annotation_grid(
+    task_type: str, annotation_str: str, edges: np.ndarray, downsample: int
+) -> np.ndarray | None:
+    """Bin one annotation's points into a ``15 x 15`` count grid, or ``None``."""
+    if task_type not in HEATMAP_TASK_TYPES or not annotation_str:
+        return None
+    try:
+        annotation = cast(_SpatialAnnotation, json.loads(annotation_str))
+    except (json.JSONDecodeError, TypeError):
+        return None
+    try:
+        xy = _annotation_xy(task_type, annotation, downsample)
+    except KeyError as e:
+        logger.warning(f"Missing key in annotation: {e}")
+        return None
+    if xy is None:
+        return None
+    size = _HEATMAP_GRID_SIZE
+    xi = np.clip(np.digitize(xy[0], edges) - 1, 0, size - 1)
+    yi = np.clip(np.digitize(xy[1], edges) - 1, 0, size - 1)
+    return np.bincount(xi * size + yi, minlength=size * size).reshape(
+        size, size
+    )
+
+
+def _heatmap_rows(
+    df: pl.LazyFrame, sample_size: int | None, *, with_class: bool
+) -> Iterable[HeatmapRow | ClassHeatmapRow]:
+    """Collect the annotation rows used for heatmaps, optionally sampled."""
+    columns = ["task_name", "task_type", "annotation"]
+    if with_class:
+        columns.append("class_name")
+    annotations_df = (
+        df.filter(
+            pl.col("task_type").is_not_null()
+            & pl.col("task_name").is_not_null()
+        )
+        .select(*columns)
+        .collect()
+    )
+    if sample_size is not None and 0 < sample_size <= len(annotations_df):
+        annotations_df = annotations_df.sample(n=sample_size, shuffle=True)
+    return cast(
+        Iterable[HeatmapRow | ClassHeatmapRow],
+        annotations_df.iter_rows(named=True),
+    )
+
+
 def get_heatmaps(
     df: pl.LazyFrame,
     sample_size: int | None = None,
     downsample_factor: int = 5,
-) -> dict[str, dict[str, list[list[int]]]]:
+) -> Heatmaps:
     r"""Generate heatmaps for boxes, keypoints, and segmentation masks.
 
     Heatmaps are accumulated on a fixed :math:`15 \times 15` grid over
@@ -397,106 +605,120 @@ def get_heatmaps(
         :math:`15 \times 15` nested list of counts.
 
     """
-    task_types = [
-        "boundingbox",
-        "keypoints",
-        "segmentation",
-        "instance_segmentation",
-    ]
-    grid_size = 15
-    x_edges = np.linspace(0, 1, grid_size + 1)
-    y_edges = np.linspace(0, 1, grid_size + 1)
-    heatmaps: dict[str, dict[str, np.ndarray]] = {}
-
-    annotations_df = df.filter(
-        pl.col("task_type").is_not_null() & pl.col("task_name").is_not_null()
+    return _heatmaps_from_rows(
+        _heatmap_rows(df, sample_size, with_class=False),
+        downsample_factor,
     )
 
-    annotations_df = annotations_df.select(
-        "task_name", "task_type", "annotation"
-    ).collect()
 
-    if sample_size is not None and sample_size > 0:
-        if sample_size > len(annotations_df):
-            sample_size = None
-        else:
-            annotations_df = annotations_df.sample(n=sample_size, shuffle=True)
-
-    rows = annotations_df.iter_rows(named=True)
+def _heatmaps_from_rows(
+    rows: Iterable[HeatmapRow | ClassHeatmapRow], downsample_factor: int
+) -> Heatmaps:
+    """Accumulate combined heatmaps from already selected annotation rows."""
+    size = _HEATMAP_GRID_SIZE
+    edges = np.linspace(0, 1, size + 1)
+    heatmaps: dict[str, dict[str, np.ndarray]] = {}
     for row in rows:
-        task_name = row["task_name"]
-        task_type = row["task_type"]
-        annotation_str = row["annotation"]
-
-        if task_type not in task_types or not annotation_str:
+        grid = _annotation_grid(
+            row["task_type"], row["annotation"], edges, downsample_factor
+        )
+        if grid is None:
             continue
+        tasks = heatmaps.setdefault(row["task_name"], {})
+        if row["task_type"] not in tasks:
+            tasks[row["task_type"]] = np.zeros((size, size), dtype=np.int64)
+        tasks[row["task_type"]] += grid
 
-        try:
-            annotation = json.loads(annotation_str)
-        except (json.JSONDecodeError, TypeError):
+    return {
+        t_name: {t_type: grid.T.tolist() for t_type, grid in tasks.items()}
+        for t_name, tasks in heatmaps.items()
+    }
+
+
+def get_class_heatmaps(
+    df: pl.LazyFrame,
+    sample_size: int | None = None,
+    downsample_factor: int = 5,
+) -> ClassHeatmaps:
+    r"""Like `get_heatmaps`, but one heatmap per class within each task type.
+
+    Same accumulation as `get_heatmaps` (a :math:`15 \times 15` grid over
+    normalized coordinates), keyed additionally by ``class_name`` so each class
+    gets its own spatial distribution. Intended for datasets with a handful of
+    classes; the per-class grids can be rendered in each class's own color.
+
+    Args:
+        df: Dataset information.
+        sample_size: Optional number of samples used to generate heatmaps.
+        downsample_factor: Factor used to downsample segmentation masks.
+
+    Returns:
+        Heatmaps grouped by task name, task type, then class name. Each heatmap
+        is a :math:`15 \times 15` nested list of counts.
+
+    """
+    return _class_heatmaps_from_rows(
+        _heatmap_rows(df, sample_size, with_class=True),
+        downsample_factor,
+    )
+
+
+def _class_heatmaps_from_rows(
+    rows: Iterable[HeatmapRow | ClassHeatmapRow], downsample_factor: int
+) -> ClassHeatmaps:
+    """Accumulate per-class heatmaps from already selected annotation rows."""
+    size = _HEATMAP_GRID_SIZE
+    edges = np.linspace(0, 1, size + 1)
+    heatmaps: dict[str, dict[str, dict[str, np.ndarray]]] = {}
+    for row in rows:
+        class_name = row.get("class_name")
+        if class_name is None:
             continue
-
-        try:
-            if task_type == "boundingbox":
-                w, h = annotation["w"], annotation["h"]
-                x = np.array([annotation["x"] + w / 2])
-                y = np.array([annotation["y"] + h / 2])
-            elif task_type == "keypoints":
-                kps = [
-                    kp
-                    for kp in annotation.get("keypoints", [])
-                    if len(kp) >= 3 and kp[2] > 0
-                ]
-                if not kps:
-                    continue
-                coords = np.array([(kp[0], kp[1]) for kp in kps])
-                x = coords[:, 0]
-                y = coords[:, 1]
-            elif task_type in ["segmentation", "instance_segmentation"]:
-                rle = {
-                    "counts": annotation["counts"],
-                    "size": [annotation["height"], annotation["width"]],
-                }
-                mask = mask_utils.decode(rle)  # type: ignore
-                if downsample_factor > 1:
-                    mask = mask[::downsample_factor, ::downsample_factor]
-                rows_idx, cols_idx = np.where(mask)
-                if rows_idx.size == 0:
-                    continue
-                h_, w_ = mask.shape
-                x = cols_idx / w_
-                y = rows_idx / h_
-            else:
-                continue
-
-            xi = np.digitize(x, x_edges) - 1
-            xi = np.clip(xi, 0, grid_size - 1)
-            yi = np.digitize(y, y_edges) - 1
-            yi = np.clip(yi, 0, grid_size - 1)
-            indices = xi * grid_size + yi
-            counts = np.bincount(
-                indices, minlength=grid_size * grid_size
-            ).reshape(grid_size, grid_size)
-
-            if task_name not in heatmaps:
-                heatmaps[task_name] = {}
-            if task_type not in heatmaps[task_name]:
-                heatmaps[task_name][task_type] = np.zeros(
-                    (grid_size, grid_size), dtype=np.int64
-                )
-            heatmaps[task_name][task_type] += counts
-
-        except KeyError as e:
-            logger.warning(f"Missing key in annotation: {e}")
+        grid = _annotation_grid(
+            row["task_type"], row["annotation"], edges, downsample_factor
+        )
+        if grid is None:
             continue
+        by_class = heatmaps.setdefault(row["task_name"], {}).setdefault(
+            row["task_type"], {}
+        )
+        if class_name not in by_class:
+            by_class[class_name] = np.zeros((size, size), dtype=np.int64)
+        by_class[class_name] += grid
 
-    result: dict[str, dict[str, list[list[int]]]] = {}
-    for t_name, tasks in heatmaps.items():
-        result[t_name] = {}
-        for t_type, grid in tasks.items():
-            result[t_name][t_type] = grid.T.tolist()
+    return {
+        t_name: {
+            t_type: {cls: grid.T.tolist() for cls, grid in by_class.items()}
+            for t_type, by_class in tasks.items()
+        }
+        for t_name, tasks in heatmaps.items()
+    }
 
-    return result
+
+def get_heatmap_statistics(
+    df: pl.LazyFrame,
+    sample_size: int | None = None,
+    downsample_factor: int = 5,
+) -> tuple[
+    Heatmaps,
+    ClassHeatmaps,
+]:
+    """Generate combined and per-class heatmaps from one shared sample.
+
+    Args:
+        df: Dataset information.
+        sample_size: Optional number of annotation rows to sample.
+        downsample_factor: Factor used to downsample segmentation masks.
+
+    Returns:
+        The combined heatmaps and their per-class breakdown.
+
+    """
+    rows = list(_heatmap_rows(df, sample_size, with_class=True))
+    return (
+        _heatmaps_from_rows(rows, downsample_factor),
+        _class_heatmaps_from_rows(rows, downsample_factor),
+    )
 
 
 def merge_uuids(uuids: Iterable[str]) -> uuid.UUID:
