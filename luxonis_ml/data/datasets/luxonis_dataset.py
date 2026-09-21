@@ -49,6 +49,7 @@ from luxonis_ml.data.utils import (
     BucketType,
     COCOFormat,
     ParquetFileManager,
+    ParquetRecord,
     UpdateMode,
     get_class_distributions,
     get_duplicates_info,
@@ -1229,26 +1230,16 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                     "Old data will be overwritten with the new data."
                 )
 
-        if overwrite_uuids:
-            pfm.remove_duplicate_uuids(overwrite_uuids)
-
-        if self.is_remote:
-            logger.info("Uploading media...")
-
-            self._fs.put_dir(
-                local_paths=paths,
-                remote_dir="media",
-                uuid_dict=dict(uuid_dict),
-            )
-            logger.info("Media uploaded")
-
+        # The rows store the array paths that this call sets.
         self._process_arrays(data_batch)
 
         task = self._progress.add_task(
             "[magenta]Processing data...", total=len(data_batch)
         )
 
-        logger.info("Saving annotations...")
+        # The media upload can raise. It runs before `remove_duplicate_uuids`
+        # and the first write, so a failed batch changes no row.
+        rows: list[tuple[str, ParquetRecord, str]] = []
         with self._progress:
             for record in data_batch:
                 file_paths = record.all_file_paths
@@ -1260,10 +1251,29 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                     if len(uuid_list) > 1
                     else str(uuid_list[0])
                 )
-                for row in record.to_parquet_rows():
-                    pfm.write(uuid_dict[row["file"]], row, group_id)
+                rows.extend(
+                    (uuid_dict[row["file"]], row, group_id)
+                    for row in record.to_parquet_rows()
+                )
                 self._progress.update(task, advance=1)
         self._progress.remove_task(task)
+
+        if self.is_remote:
+            logger.info("Uploading media...")
+
+            self._fs.put_dir(
+                local_paths=paths,
+                remote_dir="media",
+                uuid_dict=dict(uuid_dict),
+            )
+            logger.info("Media uploaded")
+
+        if overwrite_uuids:
+            pfm.remove_duplicate_uuids(overwrite_uuids)
+
+        logger.info("Saving annotations...")
+        for uuid, row, group_id in rows:
+            pfm.write(uuid, row, group_id)
 
     @override
     def add(
