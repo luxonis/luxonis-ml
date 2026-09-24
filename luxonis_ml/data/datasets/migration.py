@@ -69,35 +69,21 @@ class LDF_1_0_0_MetadataDict(TypedDict):
 
 
 @overload
-def migrate_dataframe(df: pl.LazyFrame, version: Version) -> pl.LazyFrame: ...
+def migrate_dataframe(df: pl.LazyFrame) -> pl.LazyFrame: ...
 
 
 @overload
-def migrate_dataframe(df: pl.DataFrame, version: Version) -> pl.DataFrame: ...
+def migrate_dataframe(df: pl.DataFrame) -> pl.DataFrame: ...
 
 
 def migrate_dataframe(
-    df: pl.LazyFrame | pl.DataFrame, version: Version
-) -> pl.LazyFrame | pl.DataFrame:
-    """Migrate an annotation dataframe to the layout this version reads.
-
-    Args:
-        df: Dataframe as it was stored.
-        version: LDF version the dataframe was written by.
-
-    Returns:
-        The dataframe in the current layout.
-
-    """
-    if version.major < 2:
-        return _migrate_dataframe_from_1_0(df)
-    # LDF 3.0 changed the record contract, not the rows it writes.
-    return df
-
-
-def _migrate_dataframe_from_1_0(
     df: pl.LazyFrame | pl.DataFrame,
 ) -> pl.LazyFrame | pl.DataFrame:  # pragma: no cover
+    """Migrate an LDF 1.0 annotation dataframe to the current layout.
+
+    LDF 2.0 and later write the same rows, so only a 1.0 dataset, whose
+    stamp `migrate_metadata` keeps, reaches this.
+    """
     return (
         df.rename({"class": "class_name"})
         .with_columns(

@@ -684,7 +684,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             )
 
         if attempt_migration and self.version.major != LDF_VERSION.major:
-            df = migrate_dataframe(df, self.version)
+            df = migrate_dataframe(df)
 
         return df
 

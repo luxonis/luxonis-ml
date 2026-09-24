@@ -29,8 +29,8 @@ class NativeExporter(BaseExporter):
     ``annotations.json`` file. Each annotation entry follows the same
     record-level shape accepted by `NativeParser` and `LuxonisDataset.add`.
 
-    ``sample_metadata`` is exported as a JSON object next to ``file`` or
-    ``files``. It is **record-level metadata**, not an annotation label.
+    ``sample_metadata`` is exported as a JSON object next to ``media``. It is
+    **record-level metadata**, not an annotation label.
 
     The export root also holds a ``metadata.json`` version stamp, such as
     ``{"ldf_version": "3.0.0"}``. It is not the full `Metadata` model a
@@ -38,14 +38,15 @@ class NativeExporter(BaseExporter):
 
     Passing an older ``ldf_version`` strips the fields that version does
     not know -- exporting LDF 2.0 omits ``sample_metadata`` and the
-    keypoint names, edges, flip pairs and sigmas. See `LDFDowngrader`.
+    keypoint names, edges, flip pairs and sigmas. A version before 3.0 also
+    gets the flat ``file``, ``task_name`` and ``annotation`` record. See
+    `LDFDowngrader`.
 
     Example:
         .. code-block:: json
 
             {
-              "file": "images/0.jpg",
-              "task_name": "detection",
+              "media": "images/0.jpg",
 
               "sample_metadata": {
                 "record_id": 123,
@@ -54,14 +55,18 @@ class NativeExporter(BaseExporter):
               },
 
               "annotation": {
-                "instance_id": 0,
-                "class": "person",
-                "boundingbox": {
-                  "x": 0.1,
-                  "y": 0.2,
-                  "w": 0.3,
-                  "h": 0.4
-                }
+                "detection": [
+                  {
+                    "instance_id": 0,
+                    "class": "person",
+                    "boundingbox": {
+                      "x": 0.1,
+                      "y": 0.2,
+                      "w": 0.3,
+                      "h": 0.4
+                    }
+                  }
+                ]
               }
             }
 

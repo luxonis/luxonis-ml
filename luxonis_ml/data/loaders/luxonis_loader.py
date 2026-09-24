@@ -5,7 +5,7 @@ import warnings
 from collections import defaultdict
 from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import cv2
 import numpy as np
@@ -29,7 +29,6 @@ from luxonis_ml.data.loaders.base_loader import BaseLoader
 from luxonis_ml.data.utils import get_task_group, get_task_type
 from luxonis_ml.ldf import (
     SCHEMA_METADATA_KEY,
-    Annotation,
     DatasetRecord,
     DatasetSchema,
     Detection,
@@ -535,9 +534,7 @@ class LuxonisLoader(BaseLoader):
         # every other producer of a record builds, and the shape the
         # conversion needs to pair the two by row.
         instance_order: dict[str, list[tuple[str, int]]] = defaultdict(list)
-        fields_by_instance: dict[
-            tuple[str, int], dict[str, Annotation | str | int | None]
-        ] = {}
+        fields_by_instance: dict[tuple[str, int], dict[str, Any]] = {}
         metadata_by_instance: dict[
             tuple[str, int], dict[str, int | float | str]
         ] = defaultdict(dict)
@@ -590,8 +587,6 @@ class LuxonisLoader(BaseLoader):
                     data["height"] = sample_img.shape[0]
                     data["points"] = [tuple(p) for p in data["points"]]
 
-                # The task type names the field to fill, so the detection is
-                # validated from a dictionary rather than constructed.
                 # Only labels define row width. Legacy edges can point past
                 # the keypoints that a row actually stores.
                 task_keypoints = self._keypoint_metadata.get(task_name)
@@ -603,21 +598,19 @@ class LuxonisLoader(BaseLoader):
                     ),
                 )
 
+        # `load_annotation` validated every label, and the write path the
+        # names, so neither the detections nor the record is validated again.
         detections_by_task: dict[str, list[Detection]] = {
             task_name: [
-                Detection.model_validate(
-                    {
-                        **fields_by_instance[key],
-                        "metadata": metadata_by_instance[key],
-                    }
+                Detection.model_construct(
+                    **fields_by_instance[key],
+                    metadata=metadata_by_instance[key],
                 )
                 for key in keys
             ]
             for task_name, keys in instance_order.items()
         }
 
-        # The rows are already normalized, so validating the record again
-        # would repeat that work, and its file checks, for every sample.
         record = DatasetRecord.model_construct(
             files=source_to_path,
             annotation=dict(detections_by_task),
@@ -759,8 +752,7 @@ class LuxonisLoader(BaseLoader):
             input_indices = list(range(len(metadata_batch)))
 
         # The schema is the same object for every sample of a dataset, so it
-        # is carried over rather than copied. Copying it costs 45 times as
-        # much as copying the metadata it sits in.
+        # is carried over rather than copied.
         schema = metadata_batch[0].get(SCHEMA_METADATA_KEY)
         metadata_batch = [
             {
