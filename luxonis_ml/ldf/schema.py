@@ -9,7 +9,9 @@ and how categorical metadata is encoded.
 `LuxonisLoader` attaches it to every sample under the reserved
 `SCHEMA_METADATA_KEY` of `LoaderOutput.metadata`, so `LoaderOutput.to_ldf` can
 rebuild a record without being handed the dataset. It is a read-only copy:
-the dataset stays the only writer, and the write paths strip the key.
+the dataset stays the only writer, and `LoaderOutput.to_ldf` leaves the key out
+of the record it rebuilds. A record that stores its own value under the key
+loses it to the schema, with a warning.
 """
 
 from functools import cached_property

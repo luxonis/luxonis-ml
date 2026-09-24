@@ -79,14 +79,16 @@ class LuxonisLoader(BaseLoader):
     stored on the record.
 
     Every sample also carries the dataset's `DatasetSchema` under
-    ``"schema"``, which is what lets `LoaderOutput.to_ldf` turn the arrays
-    back into a `DatasetRecord`:
+    ``"schema"``, as the plain dictionary `DatasetSchema.as_metadata`. It is
+    what lets `LoaderOutput.to_ldf` turn the arrays back into a
+    `DatasetRecord`, so it replaces a ``"schema"`` value stored on the
+    record, with a warning:
 
     .. python::
 
         record = loader[0].to_ldf()
 
-    All samples of one loader share that one schema object, so reading it is
+    All samples of one loader share that one dictionary, so reading it is
     free and writing to it would affect every sample.
 
     Label keys use ``"task_name/task_type"``. If a dataset was created

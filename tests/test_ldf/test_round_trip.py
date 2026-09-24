@@ -5,7 +5,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from luxonis_ml.ldf import Category, DatasetRecord, DatasetSchema
+from luxonis_ml.ldf import (
+    SCHEMA_METADATA_KEY,
+    Category,
+    DatasetRecord,
+    DatasetSchema,
+)
 from luxonis_ml.ldf.conversion import labels_to_record
 
 IMAGE = np.zeros((8, 8, 3), dtype=np.uint8)
@@ -513,6 +518,27 @@ def test_the_schema_travels_with_the_sample():
     assert sample.metadata["camera"] == "left"
     # The record rebuilds without being handed the schema again.
     assert sample.to_ldf().sample_metadata == {"camera": "left"}
+
+
+def test_a_stored_schema_key_is_replaced_with_a_warning():
+    """The schema takes the reserved key, even from a record that set it.
+
+    Without the schema a sample cannot be rebuilt, so it wins. The record's
+    own value was replaced without a word.
+    """
+    schema = DatasetSchema(classes={"": {"car": 0}})
+    record = DatasetRecord.model_validate(
+        {
+            "media": IMAGE,
+            "annotation": {"": [{"class": "car"}]},
+            "sample_metadata": {SCHEMA_METADATA_KEY: "v2"},
+        }
+    )
+
+    with pytest.warns(UserWarning, match="reserved 'schema' key"):
+        sample = record.to_loader_output(schema)
+
+    assert sample.metadata[SCHEMA_METADATA_KEY] == schema.as_metadata
 
 
 def test_rebuilding_without_a_schema_is_refused():

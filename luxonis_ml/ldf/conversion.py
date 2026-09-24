@@ -14,6 +14,7 @@ describes the same instance, which is the invariant the augmentation engine
 already relies on when it filters keypoints and masks by their bounding box.
 """
 
+import warnings
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
@@ -119,8 +120,18 @@ def record_to_loader_output(
                 keep_categorical_as_strings=keep_categorical_as_strings,
             )
 
-    metadata = deepcopy(record.sample_metadata)
-    metadata[SCHEMA_METADATA_KEY] = schema.as_metadata
+    if SCHEMA_METADATA_KEY in record.sample_metadata:
+        warnings.warn(
+            "Record metadata defines the reserved "
+            f"'{SCHEMA_METADATA_KEY}' key. The dataset schema replaces it.",
+            stacklevel=3,
+        )
+    # A shallow copy. The loader decodes the metadata anew for every sample,
+    # so a deep one would only repeat that work.
+    metadata = {
+        **record.sample_metadata,
+        SCHEMA_METADATA_KEY: schema.as_metadata,
+    }
     return LoaderOutput(images, labels, metadata)
 
 
