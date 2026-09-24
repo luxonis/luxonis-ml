@@ -65,6 +65,7 @@ from luxonis_ml.data.utils.ldf_equivalence import ldf_equivalent
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.ldf import (
+    ArrayAnnotation,
     Category,
     DatasetRecord,
     Detection,
@@ -1374,13 +1375,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
     def _process_arrays(self, data_batch: list[DatasetRecord]) -> None:
         logger.info("Checking arrays...")
-        task = self._progress.add_task(
-            "[magenta]Processing arrays...", total=len(data_batch)
-        )
-        self._progress.start()
-        uuid_dict = {}
+        # Checked before anything starts, so a rejected batch leaves the
+        # progress display and the caller's records as they were.
+        arrays_by_record: list[list[tuple[ArrayAnnotation, Path]]] = []
         for record in data_batch:
-            self._progress.update(task, advance=1)
+            arrays = []
             for detections in record.annotation.values():
                 for detection in _walk_detections(detections):
                     ann = detection.array
@@ -1392,12 +1391,22 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                             "which a dataset cannot store. Save it as a "
                             "'.npy' file and pass that path instead."
                         )
-                    if self.is_remote:
-                        uuid = self._fs.get_file_uuid(ann.path, local=True)
-                        uuid_dict[str(ann.path)] = uuid
-                        ann.path = Path(uuid).with_suffix(ann.path.suffix)
-                    else:
-                        ann.path = ann.path.absolute().resolve()
+                    arrays.append((ann, ann.path))
+            arrays_by_record.append(arrays)
+        task = self._progress.add_task(
+            "[magenta]Processing arrays...", total=len(data_batch)
+        )
+        self._progress.start()
+        uuid_dict = {}
+        for arrays in arrays_by_record:
+            self._progress.update(task, advance=1)
+            for ann, path in arrays:
+                if self.is_remote:
+                    uuid = self._fs.get_file_uuid(path, local=True)
+                    uuid_dict[str(path)] = uuid
+                    ann.path = Path(uuid).with_suffix(path.suffix)
+                else:
+                    ann.path = path.absolute().resolve()
         self._progress.stop()
         self._progress.remove_task(task)
         if self.is_remote:

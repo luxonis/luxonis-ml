@@ -1501,3 +1501,31 @@ def test_class_order_per_task_mismatched_classes(tempdir: Path):
         match=r"Classes for task classification do not match the classes in the dataset.",
     ):
         dataset.set_class_order_per_task(class_order_per_task)
+
+
+def test_an_in_memory_array_stops_a_batch_before_it_starts(
+    dataset_name: str, tempdir: Path
+):
+    """A dataset cannot store an in-memory array, and says so up front.
+
+    The check ran inside the loop, after the progress display started and
+    after the arrays of the earlier records were rewritten. The display
+    then kept running, with a task nothing removed.
+    """
+    array_path = tempdir / "array.npy"
+    np.save(array_path, np.zeros(3))
+
+    def generator() -> DatasetIterator:
+        for i, data in enumerate([array_path, np.ones(3)]):
+            yield {
+                "media": create_image(i, tempdir),
+                "annotation": {"class": "a", "array": {"data": data}},
+            }
+
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+
+    with pytest.raises(NotImplementedError, match="in memory"):
+        dataset.add(generator())
+
+    assert not dataset._progress.tasks
+    assert not dataset._progress.live.is_started
