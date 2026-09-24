@@ -2195,6 +2195,48 @@ class ArrayAnnotation(Annotation):
         return path
 
 
+class InstanceCounter:
+    """Give out the instance numbers of one sample.
+
+    The records of one sample arrive separately, so the numbers cannot live
+    on a record. A detection without an ID takes the next free number of
+    its task. An explicit ID is kept, unless the counter already gave that
+    number to another detection. The ID then takes a new number, and every
+    later detection with that ID takes the same one, so the rows of one
+    instance stay together and the rows of two instances stay apart.
+    """
+
+    def __init__(self) -> None:
+        self._next: dict[str, int] = defaultdict(int)
+        self._given: set[tuple[str, int]] = set()
+        self._renumbered: dict[tuple[str, int], int] = {}
+
+    def number(self, task_name: str, instance_id: int) -> int:
+        """Return the stored number of a detection.
+
+        Args:
+            task_name: Task of the detection.
+            instance_id: ID the record gives the detection, or a negative
+                number when it gives none.
+
+        Returns:
+            A number that no other instance of the task holds.
+
+        """
+        key = (task_name, instance_id)
+        if key in self._renumbered:
+            return self._renumbered[key]
+        if instance_id >= 0 and key not in self._given:
+            self._next[task_name] = max(self._next[task_name], instance_id + 1)
+            return instance_id
+        number = self._next[task_name]
+        self._next[task_name] = number + 1
+        self._given.add((task_name, number))
+        if instance_id >= 0:
+            self._renumbered[key] = number
+        return number
+
+
 class DatasetRecord(BaseModelExtraForbid):
     """Dataset record containing file paths and its annotations.
 
@@ -2478,7 +2520,7 @@ class DatasetRecord(BaseModelExtraForbid):
     def to_parquet_rows(
         self,
         keypoint_metadata: Mapping[str, KeypointMetadata] | None = None,
-        instance_counter: dict[str, int] | None = None,
+        instance_counter: InstanceCounter | None = None,
     ) -> Iterable[ParquetRecord]:
         """Recursively convert the dataset record and all its
         annotations and sub-annotations to parquet rows.
@@ -2491,13 +2533,10 @@ class DatasetRecord(BaseModelExtraForbid):
                 keyed by task name. A keypoint payload is positional. The
                 keypoint metadata thus sets the order and pads the omitted
                 keypoints.
-            instance_counter: Next instance number of each task name, shared
-                by every record of one sample. A detection that carries no
-                instance ID takes the next number and advances it, so the
-                rows of one instance can be found again when they are read
-                back. The records of one sample arrive separately, so the
-                counter cannot live on the record. Numbers are left alone
-                when this is omitted.
+            instance_counter: Instance numbers of the sample, shared by all
+                its records. The rows of one instance share its number, so
+                they can be found again when they are read back. Numbers
+                are left alone when this is omitted.
 
         Yields:
             Annotation data rows.
@@ -2566,25 +2605,20 @@ class DatasetRecord(BaseModelExtraForbid):
         sample_metadata: str,
         keypoint_metadata: Mapping[str, KeypointMetadata],
         *,
-        instance_counter: dict[str, int] | None = None,
+        instance_counter: InstanceCounter | None = None,
         instance_id: int | None = None,
     ) -> Iterable[ParquetRecord]:
         """Yield one row per task type of a detection.
 
-        ``instance_counter`` holds the next instance number of each task
-        name, as `to_parquet_rows` describes. ``instance_id`` overrides the
-        number the counter would give: a sub-detection takes the number of
-        its parent, which is what records that it belongs to it.
+        ``instance_counter`` gives the instance numbers, as
+        `to_parquet_rows` describes. ``instance_id`` overrides the number
+        the counter would give: a sub-detection takes the number of its
+        parent, which is what records that it belongs to it.
         """
         if instance_id is None:
             instance_id = annotation.instance_id
             if instance_counter is not None:
-                # An ID the record sets itself is kept, and the counter moves
-                # past it so a later detection cannot be given the same one.
-                next_id = instance_counter.get(task_name, 0)
-                if instance_id < 0:
-                    instance_id = next_id
-                instance_counter[task_name] = max(next_id, instance_id + 1)
+                instance_id = instance_counter.number(task_name, instance_id)
 
         def row(task_type: str, payload: str) -> ParquetRecord:
             return {
@@ -2836,6 +2870,7 @@ __all__ = [
     "ClassificationAnnotation",
     "DatasetRecord",
     "Detection",
+    "InstanceCounter",
     "InstanceSegmentationAnnotation",
     "Keypoint",
     "KeypointAnnotation",

@@ -68,6 +68,7 @@ from luxonis_ml.ldf import (
     Category,
     DatasetRecord,
     Detection,
+    InstanceCounter,
     KeypointMetadata,
     load_annotation,
 )
@@ -1433,7 +1434,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         pfm: ParquetFileManager,
         index: pl.DataFrame | None,
         declared_keypoint_metadata: dict[str, KeypointMetadata],
-        instance_counters: dict[str, dict[str, int]],
+        instance_counters: dict[str, InstanceCounter],
     ) -> set[tuple[str, str, str]]:
         """Write the rows of a batch.
 
@@ -1694,7 +1695,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             for name, sub_detection in ann.sub_detections.items():
                 update_state(f"{task_name}/{name}", sub_detection)
 
-        instance_counters: dict[str, dict[str, int]] = defaultdict(dict)
+        instance_counters: dict[str, InstanceCounter] = defaultdict(
+            InstanceCounter
+        )
         with ParquetFileManager(annotations_path, batch_size) as pfm:
             for record in generator:
                 if not isinstance(record, DatasetRecord):
