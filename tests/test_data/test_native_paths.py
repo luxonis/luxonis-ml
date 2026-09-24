@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from luxonis_ml.data.parsers.native_parser import NativeParser
 from luxonis_ml.data.parsers.yolov4_parser import YoloV4Parser
 from luxonis_ml.enums import DatasetType
@@ -156,7 +158,18 @@ def test_yolov4_parser_keeps_unlabeled_image_with_duplicate_basename(
     assert unlabeled_image.resolve() in files
 
 
-def test_native_parser_resolves_array_annotation_paths(tempdir: Path):
+@pytest.mark.parametrize(
+    "key",
+    [
+        pytest.param("path", id="stored-key"),
+        # The documented input name was left relative to the working
+        # directory.
+        pytest.param("data", id="input-key"),
+    ],
+)
+def test_native_parser_resolves_array_annotation_paths(
+    tempdir: Path, key: str
+):
     import numpy as np
 
     image_path = create_image(0, tempdir)
@@ -177,7 +190,7 @@ def test_native_parser_resolves_array_annotation_paths(tempdir: Path):
                     "task_name": "stereo",
                     "annotation": {
                         "class": "disparity",
-                        "array": {"path": "arrays/0.npy"},
+                        "array": {key: "arrays/0.npy"},
                     },
                 }
             ],

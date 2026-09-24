@@ -33,7 +33,7 @@ The parser rewrites the relative path of every companion file in place, so a
 _ANNOTATION_PATHS: tuple[tuple[str, str], ...] = (
     ("segmentation", "mask"),
     ("instance_segmentation", "mask"),
-    ("array", "path"),
+    ("array", "data"),
 )
 
 
@@ -204,14 +204,15 @@ def _resolve_annotation_paths(
         base_dir: Directory that relative paths are resolved against.
 
     """
+    array = annotation.get("array")
+    if isinstance(array, dict) and "path" in array and "data" not in array:
+        # The manifest keeps the stored key, which the annotation now
+        # accepts only as a deprecated name.
+        array["data"] = array.pop("path")
     for field, key in _ANNOTATION_PATHS:
         value = annotation.get(field)
         if isinstance(value, dict) and isinstance(value.get(key), PathType):
             value[key] = resolve_manifest_path(base_dir, value[key])
-            if field == "array":
-                # The manifest keeps the stored key, which the annotation
-                # now accepts only as a deprecated name.
-                value["data"] = value.pop(key)
     sub_detections = annotation.get("sub_detections")
     if isinstance(sub_detections, dict):
         for sub_detection in sub_detections.values():
