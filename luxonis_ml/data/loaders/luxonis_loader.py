@@ -539,9 +539,8 @@ class LuxonisLoader(BaseLoader):
         metadata_by_instance: dict[
             tuple[str, int], dict[str, int | float | str]
         ] = defaultdict(dict)
-        rows_seen: dict[tuple[str, str], int] = defaultdict(int)
 
-        for annotation_data in ann_rows:
+        for row_index, annotation_data in enumerate(ann_rows):
             task_name: str = annotation_data[col["task_name"]]
             class_name: str | None = annotation_data[col["class_name"]]
             instance_id: int = annotation_data[col["instance_id"]]
@@ -557,11 +556,14 @@ class LuxonisLoader(BaseLoader):
             if task_type == "array" and self.dataset.is_remote:
                 data["path"] = self.dataset._arrays_path / data["path"]
 
-            # A row that carries no instance ID belongs to the instance at
-            # its own position among the rows of the same task type.
-            position = rows_seen[task_name, task_type]
-            rows_seen[task_name, task_type] = position + 1
-            key = (task_name, instance_id if instance_id >= 0 else position)
+            # LDF 2.x stored -1 for a detection without an ID, and nothing
+            # tells which of its rows belong together. Such a row stays a
+            # detection of its own, with its own class, as it was read
+            # before. A negative key keeps it apart from every stored ID.
+            key = (
+                task_name,
+                instance_id if instance_id >= 0 else -1 - row_index,
+            )
 
             fields = fields_by_instance.get(key)
             if fields is None:
