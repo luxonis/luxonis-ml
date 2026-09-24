@@ -14,7 +14,7 @@ describes the same instance, which is the invariant the augmentation engine
 already relies on when it filters keypoints and masks by their bounding box.
 """
 
-from collections import defaultdict, deque
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 
@@ -107,13 +107,13 @@ def record_to_loader_output(
         # task before it collects the children, so that a child keeps the
         # row of its parent. Sorting again here would undo that.
         detections = annotations.get(task_name, [])
-        instance_order = _instance_order(detections)
+        instance_rows = _instance_rows(detections)
         for task_type in sorted(types):
             labels[f"{task_name}/{task_type}"] = _build_label(
                 task_name,
                 task_type,
                 detections,
-                instance_order,
+                instance_rows,
                 schema,
                 image_shape=image_shape,
                 keep_categorical_as_strings=keep_categorical_as_strings,
@@ -241,16 +241,16 @@ def _load_images(record: DatasetRecord) -> dict[str, np.ndarray]:
     return images
 
 
-def _instance_order(detections: Sequence[Detection]) -> list[int] | None:
-    """Return the instance IDs of the rows of a task, in row order."""
+def _instance_rows(detections: Sequence[Detection]) -> list[Detection] | None:
+    """Return the detections behind the rows of a task, in row order."""
     for task_type in _INSTANCE_TASK_TYPES:
-        instance_ids = [
-            detection.instance_id
+        rows = [
+            detection
             for detection in detections
             if getattr(detection, task_type) is not None
         ]
-        if instance_ids:
-            return instance_ids
+        if rows:
+            return rows
     return None
 
 
@@ -258,7 +258,7 @@ def _build_label(
     task_name: str,
     task_type: str,
     detections: Sequence[Detection],
-    instance_order: list[int] | None,
+    instance_rows: list[Detection] | None,
     schema: DatasetSchema,
     *,
     image_shape: tuple[int, ...],
@@ -269,7 +269,7 @@ def _build_label(
             task_name,
             task_type,
             detections,
-            instance_order,
+            instance_rows,
             schema,
             keep_categorical_as_strings=keep_categorical_as_strings,
         )
@@ -305,59 +305,56 @@ def _build_metadata_label(
     task_name: str,
     task_type: str,
     detections: Sequence[Detection],
-    instance_order: list[int] | None,
+    instance_rows: list[Detection] | None,
     schema: DatasetSchema,
     *,
     keep_categorical_as_strings: bool,
 ) -> np.ndarray:
     name = task_type[len(_METADATA_PREFIX) :]
-    rows = [
-        (detection.instance_id, detection.metadata[name])
-        for detection in detections
-        if name in detection.metadata
+    owners = [
+        detection for detection in detections if name in detection.metadata
     ]
-    if not rows:
+    if not owners:
         return np.zeros(0)
 
-    values = [value for _, value in rows]
+    values = [detection.metadata[name] for detection in owners]
     encoding = schema.categorical_encodings.get(f"{task_name}/{task_type}")
     if encoding is not None and not keep_categorical_as_strings:
         values = [encoding[str(value)] for value in values]
-    return _align_to_instances(
-        values, [instance_id for instance_id, _ in rows], instance_order
-    )
+    return _align_to_instances(values, owners, instance_rows)
 
 
 def _align_to_instances(
     values: Sequence[str | int | float | Category],
-    instance_ids: Sequence[int],
-    instance_order: Sequence[int] | None,
+    owners: Sequence[Detection],
+    instance_rows: Sequence[Detection] | None,
 ) -> np.ndarray:
     """Put per-instance values into the row order of their task.
 
-    ``instance_order`` holds the instance ID of each row of the task, and is
-    ``None`` when the task has no instance-shaped label to take an order
-    from. The result has one value per row, and a row whose instance carries
-    no value of this kind is filled with ``None``.
+    ``owners`` holds the detection of each value, and ``instance_rows`` the
+    detection of each row of the task. It is ``None`` when the task has no
+    instance-shaped label to take an order from, and the values then keep
+    the order of their detections. The two pair by identity, because a
+    record that was never stored gives every detection the same default
+    instance ID. The result has one value per row, and a row whose instance
+    carries no value of this kind is filled with ``None``.
     """
-    if instance_order is None:
-        order = sorted(range(len(values)), key=lambda i: instance_ids[i])
-        return np.array([values[i] for i in order])
+    if instance_rows is None:
+        return np.array(values)
 
-    free_rows: dict[int, deque[int]] = defaultdict(deque)
-    for row, instance_id in enumerate(instance_order):
-        free_rows[instance_id].append(row)
-
+    row_of = {
+        id(detection): row for row, detection in enumerate(instance_rows)
+    }
     aligned: list[str | int | float | Category | None] = [None] * len(
-        instance_order
+        instance_rows
     )
-    for value, instance_id in zip(values, instance_ids, strict=True):
-        rows = free_rows.get(instance_id)
-        if not rows:
-            # More values than rows, or an instance the task does not have.
-            # The pairing is unknown, so the values stay as they came.
+    for value, owner in zip(values, owners, strict=True):
+        row = row_of.get(id(owner))
+        if row is None:
+            # An instance the task has no row for. The pairing is unknown,
+            # so the values stay as they came.
             return np.array(values)
-        aligned[rows.popleft()] = value
+        aligned[row] = value
 
     if any(value is None for value in aligned):
         return np.array(aligned, dtype=object)

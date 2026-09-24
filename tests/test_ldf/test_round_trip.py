@@ -277,6 +277,52 @@ def test_metadata_stays_with_its_own_instance():
     assert detections[1].metadata == {"color": Category("red"), "wheels": 6}
 
 
+def test_metadata_of_unnumbered_detections_stays_on_its_own_row():
+    """A record in memory has not been given instance numbers yet.
+
+    Every detection carries the default ID, so a value paired with its row
+    by ID went to the first row, the one of the other car.
+    """
+    schema = DatasetSchema(
+        tasks={
+            "vehicles": ["boundingbox", "classification", "metadata/color"]
+        },
+        classes={"vehicles": {"car": 0}},
+    )
+    record = DatasetRecord.model_validate(
+        {
+            "media": IMAGE,
+            "annotation": {
+                "vehicles": [
+                    {
+                        "class": "car",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.2,
+                            "h": 0.2,
+                        },
+                    },
+                    {
+                        "class": "car",
+                        "boundingbox": {
+                            "x": 0.5,
+                            "y": 0.5,
+                            "w": 0.2,
+                            "h": 0.2,
+                        },
+                        "metadata": {"color": "red"},
+                    },
+                ]
+            },
+        }
+    )
+
+    labels = record.to_loader_output(schema).labels
+
+    assert labels["vehicles/metadata/color"].tolist() == [None, "red"]
+
+
 def test_a_true_negative_stays_empty():
     schema = DatasetSchema(
         tasks={"vehicles": ["boundingbox", "classification"]},
