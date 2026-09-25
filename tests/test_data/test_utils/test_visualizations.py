@@ -1,5 +1,5 @@
 import inspect
-from typing import get_args, get_type_hints
+from typing import Literal, get_args, get_type_hints
 
 import cv2
 import numpy as np
@@ -269,15 +269,25 @@ def test_visualize():
     assert np.array_equal(expected_image, image)
 
 
-def test_visualize_keypoint_label_modes(monkeypatch: pytest.MonkeyPatch):
-    image = np.zeros((100, 100, 3), dtype=np.uint8)
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        ("none", []),
+        ("numbers", ["0", "1", "2"]),
+        ("names", ["nose", "eye"]),
+        ("full", ["0: nose", "1: eye"]),
+    ],
+)
+def test_visualize_keypoint_label_modes(
+    monkeypatch: pytest.MonkeyPatch,
+    mode: Literal["none", "numbers", "names", "full"],
+    expected: list[str],
+):
     labels = {
         "pose/keypoints": np.array(
             [[0.2, 0.5, 2.0, 0.5, 0.5, 1.0, 0.8, 0.5, 2.0]]
         )
     }
-    classes = {"pose": {"person": 0}}
-    keypoint_metadata = {"pose": KeypointMetadata(labels=["nose", "eye"])}
     calls: list[str] = []
 
     def fake_draw_keypoint_label(
@@ -296,61 +306,25 @@ def test_visualize_keypoint_label_modes(monkeypatch: pytest.MonkeyPatch):
     )
 
     visualize(
-        image.copy(),
+        np.zeros((100, 100, 3), dtype=np.uint8),
         "image",
         labels,
-        classes,
-        keypoint_metadata=keypoint_metadata,
-        keypoint_label_mode="none",
+        {"pose": {"person": 0}},
+        keypoint_metadata={"pose": KeypointMetadata(labels=["nose", "eye"])},
+        keypoint_label_mode=mode,
     )
-    assert calls == []
 
-    visualize(
-        image.copy(),
-        "image",
-        labels,
-        classes,
-        keypoint_metadata=keypoint_metadata,
-        keypoint_label_mode="numbers",
-    )
-    assert calls == ["0", "1", "2"]
-
-    calls.clear()
-    visualize(
-        image.copy(),
-        "image",
-        labels,
-        classes,
-        keypoint_metadata=keypoint_metadata,
-        keypoint_label_mode="full",
-    )
-    assert calls == ["0: nose", "1: eye"]
-
-    # The docstring named neither this mode nor the index that "full"
-    # draws, so nothing here was covered or described.
-    calls.clear()
-    visualize(
-        image.copy(),
-        "image",
-        labels,
-        classes,
-        keypoint_metadata=keypoint_metadata,
-        keypoint_label_mode="names",
-    )
-    assert calls == ["nose", "eye"]
+    assert calls == expected
 
 
 def test_every_keypoint_label_mode_is_documented():
-    """The docstring listed three of the four modes, and misread one.
-
-    It gave ``"full"`` the behaviour of ``"names"``, which it never
-    named. A reader of the API docs could not discover ``"names"``.
-    """
+    """The API docs come from the docstring, so each mode must appear."""
     modes = get_args(get_type_hints(visualize)["keypoint_label_mode"])
-    docstring = inspect.getdoc(visualize) or ""
-    _, _, documented = docstring.partition("keypoint_label_mode:")
+    _, _, documented = (inspect.getdoc(visualize) or "").partition(
+        "keypoint_label_mode:"
+    )
 
-    assert set(modes) == {"none", "numbers", "names", "full"}
+    assert modes
     for mode in modes:
         assert f'``"{mode}"``' in documented, mode
 

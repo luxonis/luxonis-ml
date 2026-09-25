@@ -899,13 +899,12 @@ def test_parser_scopes_keypoint_metadata_to_the_task_of_its_class(
     dataset_name: str,
     tempdir: Path,
 ):
-    """The parser gave every task the keypoints of the last class.
+    """Each task keeps the keypoint labels of its own class.
 
-    `_parse_split` keys the parser output by source class name, but it
-    called `set_keypoint_metadata` with no task. The last keypoint
-    category thus overwrote the metadata of every task, including a task
-    that holds no keypoints. Each task must keep the keypoint labels of
-    its own class.
+    `_parse_split` keys the parser output by source class name, so it
+    gives `set_keypoint_metadata` the task of each class. Without a task,
+    the last keypoint category would overwrite every task, also a task
+    that holds no keypoints.
     """
     dataset_dir = tempdir / "coco_two_keypoint_classes"
     write_coco_keypoint_dataset(
@@ -932,7 +931,7 @@ def test_parser_scopes_keypoint_metadata_to_the_task_of_its_class(
 
 
 @pytest.mark.parametrize(
-    "hand",
+    "hand_category",
     [
         pytest.param(HAND_CATEGORY, id="hand"),
         pytest.param(
@@ -969,30 +968,29 @@ def test_parser_skips_the_keypoints_of_a_class_without_keypoints(
     task_name: str | dict[str, str] | None,
     annotations: Sequence[Mapping[str, object]],
     task: str,
-    hand: Mapping[str, object],
+    hand_category: Mapping[str, object],
 ):
-    """The parser used the keypoint definition of every category.
+    """The parser uses only the keypoint definitions of annotated classes.
 
     COCO lists each category with keypoints, also a category without
-    keypoint annotations. The definition of such a class caused these
-    problems:
+    keypoint annotations. The definition of such a class must not cause
+    these problems:
 
-        - A task mapping without the class made the lookup of its task
+        - A task mapping without the class makes the lookup of its task
           raise a bare `KeyError`.
-        - A task that the class shares got the keypoint names of the
-          class. The next split then failed, because its keypoints did
-          not fit these names.
-        - A task of the class alone got keypoint metadata, but no
+        - A task that the class shares gets the keypoint names of the
+          class. The next split then fails, because its keypoints do not
+          fit these names.
+        - A task of the class alone gets keypoint metadata, but no
           keypoints.
-        - A bad definition, such as repeated names, stopped the parse.
-          A task mapping without the class did not stop it.
+        - A bad definition, such as repeated names, stops the parse.
 
-    The `KeyError` and the failed split came after `add` wrote the first
-    split, so the dataset got no splits.
+    The `KeyError` and the failed split come after `add` writes the first
+    split, so the dataset would get no splits.
     """
     dataset_dir = tempdir / "coco_keypoint_class_without_keypoints"
     write_coco_keypoint_dataset(
-        dataset_dir, [PERSON_CATEGORY, hand], annotations
+        dataset_dir, [PERSON_CATEGORY, hand_category], annotations
     )
 
     dataset = LuxonisParser(
@@ -1045,13 +1043,12 @@ def test_parser_checks_the_keypoint_metadata_before_it_adds_a_split(
     category: Mapping[str, object],
     message: str,
 ):
-    """The parser checked the keypoint metadata after `add`.
+    """The parser checks the keypoint metadata before `add`.
 
-    The check stopped the parse, but `add` had already written the rows
-    of the split. The dataset kept those rows without their keypoint
-    names and without splits. A category with fewer names than its
-    annotations have keypoints passed the check. The next split then
-    failed in the same way.
+    A failed check must leave no rows of the split, because the dataset
+    would keep them without their keypoint names and without splits. A
+    category with fewer names than its annotations have keypoints fails
+    the check too.
     """
     dataset_dir = tempdir / "coco_bad_keypoint_class"
     write_coco_keypoint_dataset(dataset_dir, [category], [PERSON_ANNOTATION])
@@ -1067,14 +1064,29 @@ def test_parser_checks_the_keypoint_metadata_before_it_adds_a_split(
     dataset.delete_dataset(delete_local=True)
 
 
+class _FlipPairsCOCOParser(COCOParser):
+    """Parse a COCO source that also defines empty flip pairs."""
+
+    @override
+    def from_split(
+        self, image_dir: Path, annotation_path: Path
+    ) -> ParserOutput:
+        generator, keypoints, added_images = super().from_split(
+            image_dir, annotation_path
+        )
+        for definition in keypoints.values():
+            definition["flip_pairs"] = []
+        return generator, keypoints, added_images
+
+
 def test_parser_stores_the_flip_pairs_of_the_source(
     dataset_name: str, tempdir: Path
 ):
-    """The parser checked the flip pairs of a source, but did not store them.
+    """The parser stores the flip pairs of a source.
 
-    `set_keypoint_metadata` then inferred flip pairs from the names. The
-    source gives an empty list, which turns the inference off, so the two
-    eyes must stay unpaired.
+    Otherwise `set_keypoint_metadata` infers flip pairs from the names.
+    The source gives an empty list, which turns the inference off, so the
+    two eyes stay unpaired.
     """
     dataset_dir = tempdir / "coco_with_flip_pairs"
     write_coco_keypoint_dataset(
@@ -1097,11 +1109,10 @@ def test_solo_keypoints_get_no_invented_edges(
 ):
     """SOLO names its keypoints, but it defines no skeleton.
 
-    `add` runs first and writes placeholder chain edges. The parser then
-    reports what the source format holds. `set_keypoint_metadata` now
-    merges, so an omitted ``edges`` key kept the chain. An inspection
-    drew lines between unrelated keypoints, and a COCO export wrote them
-    as the category skeleton.
+    `add` runs first and writes placeholder chain edges. The names that
+    the parser gives then drop them. Otherwise an inspection draws lines
+    between unrelated keypoints, and a COCO export writes them as the
+    category skeleton.
     """
     split_dir = tempdir / "solo" / "train"
     write_solo_split(split_dir, KEYPOINT_LABELS)
@@ -1122,8 +1133,8 @@ def test_solo_skips_the_keypoints_of_a_class_without_a_task(
 ):
     """SOLO defines the keypoints for each box class.
 
-    The task mapping left out a class, so the lookup of its task raised a
-    bare `KeyError` after `add` wrote the split.
+    A class that the task mapping leaves out has no task, so the parser
+    skips its keypoints and does not raise a bare `KeyError`.
     """
     split_dir = tempdir / "solo" / "train"
     write_solo_split(split_dir, KEYPOINT_LABELS, ["person", "car"])
@@ -1142,11 +1153,11 @@ def test_solo_skips_the_keypoints_of_a_class_without_a_task(
 def test_a_solo_split_without_keypoints_gets_no_keypoint_metadata(
     dataset_name: str, tempdir: Path
 ):
-    """SOLO sent empty keypoint metadata for each class.
+    """SOLO sends empty keypoint metadata for each class.
 
-    The dataset stored an empty entry for the task. `metadata.json` thus
-    got the LDF 2.2 key ``keypoint_metadata``, and an older luxonis-ml
-    refused to open a dataset without keypoints.
+    The dataset must not store an empty entry, or `metadata.json` gets the
+    LDF 2.2 key ``keypoint_metadata``, and an older luxonis-ml refuses to
+    open a dataset without keypoints.
     """
     split_dir = tempdir / "solo" / "train"
     write_solo_split(split_dir, [])
@@ -1414,18 +1425,3 @@ def test_ultralytics_version_selects_an_export(
 
     assert ultralytics_requests[0]["params"] == {"v": 3}
     assert destination == tempdir / "warehouse.v3.ndjson"
-
-
-class _FlipPairsCOCOParser(COCOParser):
-    """Parse a COCO source that also defines empty flip pairs."""
-
-    @override
-    def from_split(
-        self, image_dir: Path, annotation_path: Path
-    ) -> ParserOutput:
-        generator, keypoints, added_images = super().from_split(
-            image_dir, annotation_path
-        )
-        for definition in keypoints.values():
-            definition["flip_pairs"] = []
-        return generator, keypoints, added_images

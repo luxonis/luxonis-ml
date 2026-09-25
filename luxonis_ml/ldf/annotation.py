@@ -616,20 +616,30 @@ class KeypointMetadata(BaseModelExtraForbid):
                 "Declare them on a single record, or use "
                 f"`LuxonisDataset.set_keypoint_metadata`.{hint}"
             )
-        return KeypointMetadata(
-            **{
-                field: getattr(self, field) or getattr(other, field)
+        return self.filled_from(other)
+
+    def filled_from(self, other: "KeypointMetadata") -> "KeypointMetadata":
+        """Return a copy that takes each empty field from ``other``."""
+        return self.model_copy(
+            update={
+                field: getattr(other, field)
                 for field in KeypointMetadata.model_fields
+                if not getattr(self, field)
             }
         )
 
-    def validate_for(self, n_keypoints: int, context: str = "") -> None:
+    def validate_for(
+        self, n_keypoints: int, context: str = "", *, check_edges: bool = True
+    ) -> None:
         """Check the keypoint metadata against a number of keypoints.
 
         Args:
             n_keypoints: Number of annotated keypoints.
             context: Description of what is being checked, used in the error
                 messages.
+            check_edges: Whether to check the edges too. An older
+                luxonis-ml stored edges without a check, so a stored entry
+                can hold edges out of range.
 
         Raises:
             ValueError: If the keypoint metadata does not describe
@@ -641,17 +651,17 @@ class KeypointMetadata(BaseModelExtraForbid):
             if value and len(value) != n_keypoints:
                 raise ValueError(
                     f"The keypoint metadata{_where(context)} defines "
-                    f"{len(value)} {field}, but the annotations contain "
-                    f"{n_keypoints} keypoints."
+                    f"{len(value)} {field} for {n_keypoints} keypoints."
                 )
-        for field in ("edges", "flip_pairs"):
+        fields = ("edges", "flip_pairs") if check_edges else ("flip_pairs",)
+        for field in fields:
             for pair in getattr(self, field):
                 for index in pair:
                     if not 0 <= index < n_keypoints:
                         raise ValueError(
                             f"The keypoint metadata{_where(context)} refers "
-                            f"to keypoint {index} in `{field}`, but only "
-                            f"{n_keypoints} keypoints are annotated."
+                            f"to keypoint {index} in `{field}`, but there "
+                            f"are only {n_keypoints} keypoints."
                         )
 
     def validate_labels(self, context: str = "") -> None:
@@ -700,11 +710,7 @@ class KeypointMetadata(BaseModelExtraForbid):
         """
         if not self.labels:
             return dict(keypoints)
-        # Positional keys carry only their order, so they count as already
-        # in task order. A record without names can thus sit next to
-        # records that have them. A shorter one holds the leading keypoints
-        # and gets the same padding as a record that names a subset. Only
-        # the number of labels matters, so the labels can repeat.
+        # Only the number of labels matters here, so they can repeat.
         if _is_positional(keypoints):
             if len(keypoints) > len(self.labels):
                 raise ValueError(
@@ -748,21 +754,14 @@ class KeypointMetadata(BaseModelExtraForbid):
                 f"{len(labels)} keypoints of the task: {', '.join(labels)}. "
                 "Give one sigma for each keypoint."
             )
-        target_indices: dict[str, int] = {}
-        for index, label in enumerate(labels):
-            target_indices.setdefault(label, index)
-        source_indices: dict[str, int] = {}
-        for index, label in enumerate(self.labels):
-            source_indices.setdefault(label, index)
-
-        moved = {
-            old: target_indices[label] for old, label in enumerate(self.labels)
-        }
+        target = _first_index(labels)
+        source = _first_index(self.labels)
+        moved = {old: target[label] for old, label in enumerate(self.labels)}
         return KeypointMetadata(
             labels=list(labels),
             edges=[(moved[a], moved[b]) for a, b in self.edges],
             flip_pairs=[(moved[a], moved[b]) for a, b in self.flip_pairs],
-            sigmas=[self.sigmas[source_indices[label]] for label in labels]
+            sigmas=[self.sigmas[source[label]] for label in labels]
             if self.sigmas
             else [],
         )
@@ -1074,10 +1073,8 @@ class Detection(BaseModelExtraForbid):
         )
 
         if self.keypoints is not None:
-            # The constructor clips the coordinates that the rescale pushes
-            # out of the image. It does not reject them. `Keypoint` does
-            # not validate, so a value out of range is safe here. The copy
-            # sets only the fields that the record sets. An empty list of
+            # The constructor clips what the rescale moves out of range.
+            # Copy only the fields that the record sets. An empty list of
             # flip pairs turns off their inference.
             given = self.keypoints.model_fields_set - {"keypoints"}
             self.keypoints = KeypointAnnotation(
@@ -1385,10 +1382,7 @@ class KeypointAnnotation(Annotation):
     def declared_metadata(self) -> KeypointMetadata | None:
         """Return the task-level metadata this annotation describes.
 
-        Keypoint names count as a declaration only if they are more than
-        the positional fallback. An annotation built from a plain list is
-        keyed ``"0"``, ``"1"``, .... Those keys give only the number of
-        keypoints, so they must not conflict with real names.
+        Positional keys are not names, so they are left out of `labels`.
 
         Returns:
             The declared metadata, or ``None`` if the annotation declares
@@ -1440,10 +1434,15 @@ class KeypointAnnotation(Annotation):
         n_keypoints = (info.context or {}).get("n_keypoints")
 
         # Coerced up front for the same reason as in `BBoxAnnotation`.
+        raw = values["keypoints"]
         try:
-            keypoints = cls._as_mapping(values["keypoints"], n_keypoints)
+            keypoints = cls._as_mapping(raw, n_keypoints)
         except (LookupError, TypeError, ValueError):
-            return values
+            # The field is a mapping, so key a list by position. Pydantic
+            # then names the keypoint that is wrong.
+            if isinstance(raw, (list, tuple)):
+                raw = {str(i): keypoint for i, keypoint in enumerate(raw)}
+            return {**values, "keypoints": raw}
 
         warn = False
         for keypoint in keypoints.values():
@@ -2214,6 +2213,14 @@ def _is_positional(labels: Iterable[str]) -> bool:
     """
     labels = list(labels)
     return labels == [str(i) for i in range(len(labels))]
+
+
+def _first_index(labels: Iterable[str]) -> dict[str, int]:
+    """Map each name to its first index. Old metadata can repeat names."""
+    indices: dict[str, int] = {}
+    for index, label in enumerate(labels):
+        indices.setdefault(label, index)
+    return indices
 
 
 def _repeated(labels: Sequence[str]) -> list[str]:

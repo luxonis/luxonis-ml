@@ -178,7 +178,8 @@ class BaseDataset(
                 dataset from an older luxonis-ml. ``False`` infers none.
 
         Raises:
-            ValueError: If you provide none of the fields.
+            ValueError: If you provide none of the fields, or if a field
+                does not fit the labels of a task.
 
         """
         ...
@@ -367,12 +368,7 @@ class BaseDataset(
             Number of keypoints keyed by task name.
 
         """
-        n_keypoints: dict[str, int] = {}
-        for task, task_keypoints in self.get_keypoint_metadata().items():
-            if task_keypoints.labels:
-                n_keypoints[task] = len(task_keypoints.labels)
-            else:
-                # A definition set from edges alone has no labels to count.
-                last = max((max(e) for e in task_keypoints.edges), default=-1)
-                n_keypoints[task] = last + 1
-        return n_keypoints
+        return {
+            task: len(task_keypoints.labels)
+            for task, task_keypoints in self.get_keypoint_metadata().items()
+        }

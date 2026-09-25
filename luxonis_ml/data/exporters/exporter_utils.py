@@ -190,22 +190,16 @@ def create_zip_output(
     return archives if len(archives) > 1 else archives[0]
 
 
-def get_single_skeleton(
-    keypoint_metadata: dict[str, KeypointMetadata] | None = None,
-) -> tuple[list[str], list[list[int]], list[float]]:
-    """Return labels, COCO-style edges and sigmas for the single task.
-
-    Edges are converted to 1-based indices per COCO spec.
-    """
-    if not keypoint_metadata:
-        return [], [], []
-    task_keypoints = next(iter(keypoint_metadata.values()))
-    return (
-        list(task_keypoints.labels),
-        # COCO expects 1-based indices in skeleton
-        [[a + 1, b + 1] for a, b in task_keypoints.edges],
-        list(task_keypoints.sigmas),
-    )
+def warn_repeated_keypoint_names(
+    task: str, task_keypoints: KeypointMetadata, consequence: str
+) -> None:
+    if repeated := task_keypoints.repeated_labels:
+        logger.warning(
+            f"Task '{task}' repeats the keypoint names "
+            f"{', '.join(repeated)}. {consequence} Give each keypoint a "
+            "unique name with "
+            "`LuxonisDataset.set_keypoint_metadata(labels=...)`."
+        )
 
 
 def decode_rle_with_pycoco(ann: dict[str, Any]) -> np.ndarray:

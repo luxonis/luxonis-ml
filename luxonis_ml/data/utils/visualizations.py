@@ -768,11 +768,10 @@ def visualize(
         curr_image = images.get(image_name, image.copy())
 
         task_classes = mappings[task_name]
-        keypoint_names: list[str] = []
-        edges: list[tuple[int, int]] = []
-        if keypoint_metadata is not None and task_name in keypoint_metadata:
-            task_keypoints = keypoint_metadata[task_name]
-            keypoint_names, edges = task_keypoints.labels, task_keypoints.edges
+        task_keypoints = (keypoint_metadata or {}).get(
+            task_name, KeypointMetadata()
+        )
+        keypoint_names, edges = task_keypoints.labels, task_keypoints.edges
 
         for i, kp in enumerate(arr):
             kp = kp.reshape(-1, 3)
