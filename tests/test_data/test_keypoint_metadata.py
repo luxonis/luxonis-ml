@@ -2279,6 +2279,25 @@ def test_only_a_task_without_names_warns_about_mixed_widths(
     assert any("mixes annotations" in m for m in warnings_log) == warns
 
 
+def test_the_mixed_width_warning_names_the_stored_keypoint_count(
+    dataset_name: str, tempdir: Path, warnings_log: list[str]
+):
+    """The warning named the widest record of the `add`.
+
+    `add` does not make a task smaller, so the rows of an earlier `add`
+    can be wider. The warning then named fewer keypoints than the
+    metadata that `add` stored.
+    """
+    dataset = create_dataset(
+        dataset_name, positional_generator(tempdir, [5]), splits=False
+    )
+
+    dataset.add(positional_generator(tempdir, [2, 3], start=1))
+
+    assert dataset.get_n_keypoints() == {"pose": 5}
+    assert any("metadata for 5 keypoints" in m for m in warnings_log)
+
+
 def test_the_loader_pads_a_short_row_to_the_names(
     dataset_name: str, tempdir: Path
 ):

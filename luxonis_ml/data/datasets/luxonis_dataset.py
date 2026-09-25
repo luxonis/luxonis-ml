@@ -1046,10 +1046,13 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         for task, sizes in num_kpts_per_task.items():
             stored = self._metadata.keypoint_metadata.get(task)
             if len(sizes) > 1 and task not in aligned:
+                # A task without names is always in `resolved`, and its
+                # labels give the keypoint count, which an earlier `add`
+                # can make larger than any record of this one.
                 logger.warning(
                     f"Task '{task}' mixes annotations with different numbers "
                     f"of keypoints ({sorted(sizes)}). Storing keypoint "
-                    f"metadata for {max(sizes)} keypoints."
+                    f"metadata for {len(resolved[task].labels)} keypoints."
                 )
             described = declared.get(task)
             if stored is None or described is None:
