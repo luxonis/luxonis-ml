@@ -11,7 +11,7 @@ from loguru import logger
 from pydantic import Field
 from typing_extensions import override
 
-from luxonis_ml.data.utils.task_utils import get_task_type, task_is_metadata
+from luxonis_ml.data.utils.task_utils import get_task_group, task_is_metadata
 from luxonis_ml.typing import ConfigItem, LoaderMultiOutput, Params
 from luxonis_ml.utils import deprecated
 
@@ -496,8 +496,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
             self._targets[target_name] = target_type
             self._target_names_to_tasks[target_name] = task
-            self._target_names_to_task_groups[target_name] = (
-                self._get_task_group(task)
+            self._target_names_to_task_groups[target_name] = get_task_group(
+                task
             )
 
         for source_name in source_names:
@@ -1163,21 +1163,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         if not isinstance(transform, A.BaseCompose):
             tracked_paths[id(transform)] = "/".join(current_path)
         return transform
-
-    @staticmethod
-    def _get_task_group(task: str) -> str:
-        """Return the complete task path without its task-type suffix.
-
-        Unlike `get_task_name`, this keeps every level of a nested task
-        name, so ``"a/b/keypoints"`` groups under ``"a/b"``. The leading
-        ``"/"`` of LDF's default task marks a name that is empty on purpose,
-        while a task with no separator at all has no name to group by and is
-        only ever grouped with itself.
-        """
-        group = task.removesuffix(get_task_type(task)).removesuffix("/")
-        if group:
-            return group
-        return "" if task.startswith("/") else task
 
     @staticmethod
     def _task_to_target_name(task: str) -> str:

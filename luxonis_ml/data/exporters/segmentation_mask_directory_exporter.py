@@ -117,13 +117,11 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
             # Ensure background exists for this split up-front
             self._ensure_background(split)
 
-            # Only semantic segmentation rows for the entire image (instance_id == -1)
+            # Only semantic segmentation, which describes the whole image.
             seg_rows = [
                 row
                 for row in entry.iter_rows(named=True)
-                if row["task_type"] == "segmentation"
-                and row["instance_id"] == -1
-                and row["annotation"]
+                if row["task_type"] == "segmentation" and row["annotation"]
             ]
             if not seg_rows:
                 continue

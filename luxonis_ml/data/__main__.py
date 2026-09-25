@@ -26,6 +26,7 @@ from luxonis_ml.data.utils.cli_utils import (
     get_tracked_augmentations,
     parse_split_ratio,
     print_info,
+    printed_sample_metadata,
 )
 from luxonis_ml.data.utils.enums import BucketStorage
 from luxonis_ml.data.utils.plot_utils import (
@@ -316,14 +317,12 @@ def inspect(
         tracked_augmentations = get_tracked_augmentations(data.metadata)
 
         if print_sample_metadata:
-            metadata = data.metadata
-            if not list_augmentations and tracked_augmentations is not None:
-                # The runtime parameters of every transformation would bury
-                # the record metadata this flag exists to show.
-                metadata = {
-                    k: v for k, v in metadata.items() if k != "augmentations"
-                }
-            print("Sample metadata:", metadata)
+            print(
+                "Sample metadata:",
+                printed_sample_metadata(
+                    data.metadata, list_augmentations=list_augmentations
+                ),
+            )
 
         current_windows = set(images_dict.keys())
         for stale_window in prev_windows - current_windows:

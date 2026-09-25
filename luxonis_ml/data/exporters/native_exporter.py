@@ -19,6 +19,7 @@ from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.data_utils import get_keypoint_row_widths
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.ldf import DatasetRecord, Keypoint, KeypointMetadata
+from luxonis_ml.typing import Params
 from luxonis_ml.utils.path import path_to_posix
 
 
@@ -29,23 +30,24 @@ class NativeExporter(BaseExporter):
     ``annotations.json`` file. Each annotation entry follows the same
     record-level shape accepted by `NativeParser` and `LuxonisDataset.add`.
 
-    ``sample_metadata`` is exported as a JSON object next to ``file`` or
-    ``files``. It is **record-level metadata**, not an annotation label.
+    ``sample_metadata`` is exported as a JSON object next to ``media``. It is
+    **record-level metadata**, not an annotation label.
 
     The export root also holds a ``metadata.json`` version stamp, such as
-    ``{"ldf_version": "2.2.0"}``. It is not the full `Metadata` model a
+    ``{"ldf_version": "3.0.0"}``. It is not the full `Metadata` model a
     dataset keeps in its own storage.
 
     Passing an older ``ldf_version`` strips the fields that version does
     not know -- exporting LDF 2.0 omits ``sample_metadata`` and the
-    keypoint names, edges, flip pairs and sigmas. See `LDFDowngrader`.
+    keypoint names, edges, flip pairs and sigmas. A version before 3.0 also
+    gets the flat ``file``, ``task_name`` and ``annotation`` record. See
+    `LDFDowngrader`.
 
     Example:
         .. code-block:: json
 
             {
-              "file": "images/0.jpg",
-              "task_name": "detection",
+              "media": "images/0.jpg",
 
               "sample_metadata": {
                 "record_id": 123,
@@ -54,14 +56,18 @@ class NativeExporter(BaseExporter):
               },
 
               "annotation": {
-                "instance_id": 0,
-                "class": "person",
-                "boundingbox": {
-                  "x": 0.1,
-                  "y": 0.2,
-                  "w": 0.3,
-                  "h": 0.4
-                }
+                "detection": [
+                  {
+                    "instance_id": 0,
+                    "class": "person",
+                    "boundingbox": {
+                      "x": 0.1,
+                      "y": 0.2,
+                      "w": 0.3,
+                      "h": 0.4
+                    }
+                  }
+                ]
               }
             }
 
@@ -161,42 +167,46 @@ class NativeExporter(BaseExporter):
         are missing.
         """
         for record in records:
-            keypoints = record.get("annotation", {}).get("keypoints")
-            if keypoints is None:
-                continue
-            task_name = record["task_name"]
-            task_keypoints = self.keypoint_metadata.get(task_name)
-            if task_keypoints is None:
-                continue
-            labels = task_keypoints.labels
-            values = keypoints["keypoints"]
-            named = task_keypoints.has_names
-            if len(values) < len(labels) and not (
-                named and self._downgrade.keeps_keypoint_names
-            ):
-                continue
-            # Each partition has its own annotations file.
-            key = (self.part, split, task_name)
-            if key in self._metadata_attached:
-                continue
-            self._metadata_attached.add(key)
-            # The import infers flip pairs for names without flip pairs. An
-            # empty list turns that off, so a record with names carries it.
-            keypoints.update(
-                {
-                    field: value
-                    for field, value in task_keypoints.model_dump(
-                        exclude={"labels"}
-                    ).items()
-                    if value or (named and field == "flip_pairs")
-                }
-            )
-            if named:
-                # COCO's value for a keypoint that is not labeled.
-                missing = [Keypoint(0.0, 0.0, 0)] * (len(labels) - len(values))
-                keypoints["keypoints"] = dict(
-                    zip(labels, values + missing, strict=True)
-                )
+            for task_name, detections in record.get("annotation", {}).items():
+                task_keypoints = self.keypoint_metadata.get(task_name)
+                if task_keypoints is None:
+                    continue
+                labels = task_keypoints.labels
+                named = task_keypoints.has_names
+                for detection in detections:
+                    keypoints = detection.get("keypoints")
+                    if keypoints is None:
+                        continue
+                    values = keypoints["keypoints"]
+                    if len(values) < len(labels) and not (
+                        named and self._downgrade.keeps_keypoint_names
+                    ):
+                        continue
+                    # Each partition has its own annotations file.
+                    key = (self.part, split, task_name)
+                    if key in self._metadata_attached:
+                        continue
+                    self._metadata_attached.add(key)
+                    # The import infers flip pairs for names without flip
+                    # pairs. An empty list turns that off, so a record with
+                    # names carries it.
+                    keypoints.update(
+                        {
+                            field: value
+                            for field, value in task_keypoints.model_dump(
+                                exclude={"labels"}
+                            ).items()
+                            if value or (named and field == "flip_pairs")
+                        }
+                    )
+                    if named:
+                        # COCO's value for a keypoint that is not labeled.
+                        missing = [Keypoint(0.0, 0.0, 0)] * (
+                            len(labels) - len(values)
+                        )
+                        keypoints["keypoints"] = dict(
+                            zip(labels, values + missing, strict=True)
+                        )
 
     def _drop_keypoint_metadata_of_wider_rows(self, df: pl.DataFrame) -> None:
         """Drop the metadata of a task with rows wider than its names.
@@ -264,17 +274,17 @@ class NativeExporter(BaseExporter):
 
         multi_source = len(source_to_file) > 1
         record: dict[str, Any] = {
-            ("files" if multi_source else "file"): (
+            "media": (
                 source_to_file
                 if multi_source
                 else source_to_file[group_source_names[0]]
             ),
-            "task_name": task_name,
             "sample_metadata": DatasetRecord.decode_metadata(
                 row.get("sample_metadata")
             ),
         }
 
+        detections: list[Params] = []
         if ann_str is not None:
             data = json.loads(ann_str)
             ann: dict[str, Any] = {
@@ -290,7 +300,12 @@ class NativeExporter(BaseExporter):
                 ann[task_type] = data
             elif task_type.startswith("metadata/"):
                 ann["metadata"] = {task_type[9:]: data}
-            record["annotation"] = ann
+            detections.append(ann)
+        # A named empty list still names the task, so a sample that is a
+        # negative for it says so. An empty name names no task, so it must
+        # not become one on the way back in.
+        if task_name or detections:
+            record["annotation"] = {task_name: detections}
 
         return record
 

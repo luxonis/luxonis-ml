@@ -56,7 +56,7 @@ def record_generator(
 ) -> DatasetIterator:
     for i in range(start, start + n):
         yield {
-            "file": str(create_image(i, tempdir)),
+            "media": str(create_image(i, tempdir)),
             "task_name": task_name,
             "annotation": {"class": "person", **annotation},
         }
@@ -116,6 +116,24 @@ def named_dataset(
 def keypoint_payloads(dataset: LuxonisDataset) -> list[str]:
     df = dataset._load_df_offline(raise_when_empty=True)
     return df.filter(df["task_type"] == "keypoints")["annotation"].to_list()
+
+
+def exported_detections(annotations_path: Path) -> list[dict[str, Any]]:
+    """Return every detection of an exported ``annotations.json``.
+
+    LDF 3.0 groups the detections of a record by task name. An export to
+    an older version is flat, so the record holds its one detection
+    directly under ``annotation``.
+    """
+    detections = []
+    for record in json.loads(annotations_path.read_text()):
+        annotation = record.get("annotation") or {}
+        if "task_name" in record:
+            detections.append(annotation)
+        else:
+            for task_detections in annotation.values():
+                detections.extend(task_detections)
+    return detections
 
 
 def loaded_keypoint_shapes(
@@ -1971,9 +1989,9 @@ def test_a_shorter_record_without_names_does_not_get_the_task_fields(
     )
     val_path = tempdir / "exported" / dataset_name / "val" / "annotations.json"
     assert [
-        record["annotation"]["keypoints"]
-        for record in json.loads(val_path.read_text())
-        if "keypoints" in record["annotation"]
+        detection["keypoints"]
+        for detection in exported_detections(val_path)
+        if "keypoints" in detection
     ] == [{"keypoints": [[0.0, 0.0, 2], [0.1, 0.1, 2]]}]
     assert imported.get_keypoint_metadata()["pose"].edges == imported_edges
 
@@ -2137,7 +2155,7 @@ def test_the_batch_size_does_not_change_a_row_of_an_earlier_add(
 
     def generator() -> DatasetIterator:
         yield {
-            "file": str(copy),
+            "media": str(copy),
             "task_name": "pose",
             "annotation": {
                 "class": "person",
@@ -2315,10 +2333,10 @@ def test_the_exported_names_are_written_once_per_task(
     counts = []
     for path in (exported / dataset_name).rglob("annotations.json"):
         keypoints = [
-            record["annotation"]["keypoints"]["keypoints"]
-            for record in json.loads(path.read_text())
+            detection["keypoints"]["keypoints"]
+            for detection in exported_detections(path)
             # Every detection also emits a classification record.
-            if "keypoints" in record.get("annotation", {})
+            if "keypoints" in detection
         ]
         if keypoints:
             named = sum(isinstance(k, dict) for k in keypoints)

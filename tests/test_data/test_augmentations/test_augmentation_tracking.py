@@ -12,7 +12,10 @@ from luxonis_ml.data.augmentations.albumentations_engine import (
     _normalize_params,
 )
 from luxonis_ml.data.augmentations.custom import TRANSFORMATIONS
-from luxonis_ml.data.utils.cli_utils import get_tracked_augmentations
+from luxonis_ml.data.utils.cli_utils import (
+    get_tracked_augmentations,
+    printed_sample_metadata,
+)
 from luxonis_ml.typing import LoaderMultiOutput, Params, TrackedAugmentations
 
 
@@ -199,6 +202,23 @@ def test_inspect_does_not_read_stored_metadata_as_augmentations():
     stored: Params = {"augmentations": {"user_pipeline": {"run_id": 42}}}
 
     assert get_tracked_augmentations(stored) is None
+
+
+def test_inspect_prints_the_record_metadata_alone():
+    """Every sample carries the whole dataset schema.
+
+    Printed once per sample, it buried the record metadata that
+    ``--print-sample-metadata`` exists to show.
+    """
+    metadata: Params = {
+        "record_id": 1,
+        "schema": {"classes": {"": {"car": 0}}},
+        "augmentations": TrackedAugmentations({"HorizontalFlip": {}}),
+    }
+
+    assert printed_sample_metadata(metadata, list_augmentations=False) == {
+        "record_id": 1
+    }
 
 
 def test_tracks_only_configured_augmentations_that_are_applied():

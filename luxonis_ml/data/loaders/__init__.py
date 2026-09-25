@@ -155,7 +155,9 @@ available as `LoaderOutput.metadata`.
     #     "camera": "left",
     # }
 
-Pass ``autopopulate_metadata=False`` to return only stored metadata:
+Pass ``autopopulate_metadata=False`` to leave out ``"filenames"``. The
+metadata then holds the stored metadata and the ``"schema"`` key described
+below:
 
 .. python::
 
@@ -179,6 +181,22 @@ as it describes the returned arrays rather than the dataset record:
 
 Both keys are reserved. A record defining one of them keeps its own value,
 and the loader warns rather than overwriting it.
+
+A third reserved key, ``"schema"``, holds the dataset's `DatasetSchema` as a
+plain dictionary: its tasks, class IDs, keypoint metadata, keypoint counts,
+categorical encodings, and the tasks whose background class the loader added.
+It is what makes a sample self-describing, so the arrays can be turned back
+into a record. It is added regardless of ``autopopulate_metadata``. A record
+that stores its own ``"schema"`` value loses it: the loader replaces it and
+warns, because the record cannot be rebuilt without the schema. Rebuild the
+record of a sample:
+
+.. python::
+
+    record = loader[0].to_ldf()
+
+The rebuilt record holds its images in memory. It can be rendered and
+inspected, but a dataset cannot store it until they are written to files.
 
 When a batch augmentation combines several samples, metadata from the input
 samples is preserved in ``"batch_augmentation_metadata"``:

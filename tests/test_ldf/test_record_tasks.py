@@ -1,0 +1,244 @@
+"""A record groups its detections by task name."""
+
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+from luxonis_ml.ldf import DatasetRecord, Detection
+
+CAR = {
+    "class": "car",
+    "boundingbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+}
+TRUCK = {
+    "class": "truck",
+    "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.2, "h": 0.2},
+}
+
+
+def rows(record: DatasetRecord) -> list[tuple[str, str | None, str | None]]:
+    """Return the task name, task type and class of each parquet row."""
+    return [
+        (row["task_name"], row["task_type"], row["class_name"])
+        for row in record.to_parquet_rows()
+    ]
+
+
+def test_a_bare_detection_lands_in_the_default_task(image: Path):
+    record = DatasetRecord.model_validate({"media": image, "annotation": CAR})
+
+    assert set(record.annotation) == {""}
+    assert record.annotation[""][0].class_name == "car"
+
+
+def test_a_detection_and_a_one_item_list_agree(image: Path):
+    single = DatasetRecord.model_validate({"media": image, "annotation": CAR})
+    listed = DatasetRecord.model_validate(
+        {"media": image, "annotation": [CAR]}
+    )
+
+    assert list(single.to_parquet_rows()) == list(listed.to_parquet_rows())
+
+
+def test_detections_are_grouped_by_task(image: Path):
+    record = DatasetRecord.model_validate(
+        {
+            "media": image,
+            "annotation": {
+                "vehicles": [CAR, TRUCK],
+                "weather": {"class": "rain"},
+            },
+        }
+    )
+
+    assert rows(record) == [
+        ("vehicles", "boundingbox", "car"),
+        ("vehicles", "classification", "car"),
+        ("vehicles", "boundingbox", "truck"),
+        ("vehicles", "classification", "truck"),
+        ("weather", "classification", "rain"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        {"boundingbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4}},
+        {"keypoints": {"keypoints": [[0.1, 0.2, 1]]}},
+        {"metadata": {"age": 3}},
+        {"sub_detections": {"face": {"class": "face"}}},
+    ],
+    ids=["boundingbox", "keypoints", "metadata", "sub_detections"],
+)
+def test_a_lone_mapping_field_stays_a_flat_detection(
+    image: Path, field: dict[str, object]
+):
+    """A detection may set one field, and that field may hold a mapping.
+
+    A task maps to a single detection now, so a mapping value no longer
+    tells the two forms apart. The keys settle it, because every key here
+    names a field of a detection.
+    """
+    record = DatasetRecord.model_validate(
+        {"media": image, "annotation": field}
+    )
+
+    assert set(record.annotation) == {""}
+    [detection] = record.annotation[""]
+    assert getattr(detection, next(iter(field))) is not None
+
+
+def test_a_task_may_carry_the_name_of_a_detection_field(image: Path):
+    """No field of a detection holds a list, so a list names a task."""
+    record = DatasetRecord.model_validate(
+        {"media": image, "annotation": {"metadata": [{"class": "x"}]}}
+    )
+
+    assert rows(record) == [("metadata", "classification", "x")]
+
+
+def test_such_a_task_needs_the_list_form(image: Path):
+    """The field wins when one detection sits under its name.
+
+    Both readings fit, so the shorthand keeps precedence. The list form
+    states the task without any doubt.
+    """
+    with pytest.raises(ValidationError, match="valid string"):
+        DatasetRecord.model_validate(
+            {"media": image, "annotation": {"class": {"class": "car"}}}
+        )
+
+
+def test_a_detection_field_name_can_still_name_a_task(image: Path):
+    record = DatasetRecord.model_validate(
+        {"media": image, "annotation": {"class": [{"class": "car"}]}}
+    )
+
+    assert rows(record) == [("class", "classification", "car")]
+
+
+def test_the_deprecated_task_name_becomes_the_mapping_key(image: Path):
+    record = DatasetRecord.model_validate(
+        {"media": image, "task_name": "vehicles", "annotation": [CAR]}
+    )
+
+    assert set(record.annotation) == {"vehicles"}
+    assert rows(record) == [
+        ("vehicles", "boundingbox", "car"),
+        ("vehicles", "classification", "car"),
+    ]
+
+
+def test_a_task_name_beside_a_mapping_has_to_match(image: Path):
+    with pytest.raises(ValidationError, match="does not match the tasks"):
+        DatasetRecord.model_validate(
+            {
+                "media": image,
+                "task_name": "weather",
+                "annotation": {"vehicles": [CAR]},
+            }
+        )
+
+
+def test_a_task_name_without_detections_declares_the_task(image: Path):
+    record = DatasetRecord.model_validate(
+        {"media": image, "task_name": "vehicles"}
+    )
+
+    assert record.annotation == {"vehicles": []}
+    assert rows(record) == [("vehicles", None, None)]
+
+
+def test_a_record_without_an_annotation_declares_nothing(image: Path):
+    record = DatasetRecord.model_validate({"media": image})
+
+    assert record.annotation == {}
+    assert rows(record) == [("", None, None)]
+
+
+def test_task_names_may_name_a_sub_detection(image: Path):
+    record = DatasetRecord.model_validate(
+        {"media": image, "annotation": {"driver/face": [{"class": "face"}]}}
+    )
+
+    assert rows(record) == [("driver/face", "classification", "face")]
+
+
+def test_an_empty_part_of_a_task_name_is_rejected(image: Path):
+    with pytest.raises(ValidationError, match="empty part"):
+        DatasetRecord.model_validate(
+            {
+                "media": image,
+                "annotation": {"driver//face": [{"class": "face"}]},
+            }
+        )
+
+
+def test_the_task_name_property_needs_a_single_task(image: Path):
+    record = DatasetRecord.model_validate(
+        {
+            "media": image,
+            "annotation": {"vehicles": [CAR], "weather": [{"class": "rain"}]},
+        }
+    )
+
+    with pytest.raises(ValueError, match="no single task name"):
+        _ = record.task_name
+
+
+def test_every_secondary_source_gets_exactly_one_empty_row(tempdir: Path):
+    """A sub-detection must not add a row to the other sources.
+
+    The rows were emitted once per detection level, so a nested detection
+    repeated the empty row of every secondary source.
+    """
+    rgb = tempdir / "rgb.png"
+    depth = tempdir / "depth.png"
+    for path in (rgb, depth):
+        path.touch()
+
+    record = DatasetRecord.model_validate(
+        {
+            "media": {"rgb": rgb, "depth": depth},
+            "annotation": {
+                "driver": [
+                    Detection(
+                        class_name="person",
+                        sub_detections={"face": Detection(class_name="face")},
+                    )
+                ]
+            },
+        }
+    )
+
+    empty = [
+        (row["source_name"], row["task_name"])
+        for row in record.to_parquet_rows()
+        if row["task_type"] is None
+    ]
+
+    # The main source is the first file in path order, so the other one
+    # carries the single empty row.
+    assert empty == [("rgb", "driver")]
+
+
+def test_detections_keep_their_own_sub_detections(image: Path):
+    record = DatasetRecord.model_validate(
+        {
+            "media": image,
+            "annotation": {
+                "driver": [
+                    Detection(
+                        class_name="person",
+                        sub_detections={"face": Detection(class_name="face")},
+                    )
+                ]
+            },
+        }
+    )
+
+    assert rows(record) == [
+        ("driver", "classification", "person"),
+        ("driver/face", "classification", "face"),
+    ]
