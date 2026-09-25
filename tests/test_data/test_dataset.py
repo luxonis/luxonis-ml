@@ -858,10 +858,14 @@ def test_datasets_of_different_minor_versions_merge(
 ):
     """The merge compared the LDF versions as strings.
 
-    A dataset of LDF 2.0 thus did not merge with a new dataset. The merge
-    raised after it wrote the rows, so the target got the new rows without
-    the new class. The rows of LDF 2.0 also have no ``sample_metadata``
-    column, and the merge could not stack them onto the new rows.
+    A dataset of an older minor version thus did not merge with a new
+    dataset. The merge raised after it wrote the rows, so the target got
+    the new rows without the new class. The rows of LDF 2.0 also have no
+    ``sample_metadata`` column, and the merge could not stack them onto
+    the new rows.
+
+    Opening a 2.x dataset stamps it with the current version, so the
+    other minor version is given in memory, as a newer install writes it.
     """
     old = ldf_2_0_dataset(
         create_dataset(
@@ -875,6 +879,8 @@ def test_datasets_of_different_minor_versions_merge(
         bbox_generator(tempdir, 3, "dog"),
         splits=(1, 0, 0),
     )
+    newer = LDF_VERSION.bump_minor()
+    new._metadata.ldf_version = str(newer)
     target, other = (old, new) if old_is_target else (new, old)
 
     target.merge_with(other)
@@ -882,9 +888,9 @@ def test_datasets_of_different_minor_versions_merge(
     merged = LuxonisDataset(target.identifier)
     assert set(merged.get_classes()[""]) == {"person", "dog"}
     assert len(merged) == 6
-    assert target.version == merged.version == LDF_VERSION
-    # The merged dataset claims the current LDF version, so each stored
-    # row needs the column.
+    assert target.version == merged.version == newer
+    # The merged dataset claims a version with the column, so each stored
+    # row needs it.
     stored = pl.read_parquet(str(merged._annotations_path / "*.parquet"))
     assert set(stored["sample_metadata"]) == {DEFAULT_METADATA}
 
