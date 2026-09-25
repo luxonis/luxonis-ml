@@ -153,13 +153,17 @@ def test_every_keypoint_field_has_a_known_ldf_version():
 def test_downgrade_removes_the_key_rather_than_emptying_it():
     """``sample_metadata: {}`` still fails ``extra="forbid"``."""
     downgraded = LDFDowngrader(Version.parse("2.0.0"))(
-        {"file": "a.jpg", "task_name": "t", "sample_metadata": {"x": 1}}
+        {
+            "media": "a.jpg",
+            "annotation": {"t": []},
+            "sample_metadata": {"x": 1},
+        }
     )
     assert "sample_metadata" not in downgraded
 
 
 def test_downgrade_to_current_version_is_a_passthrough():
-    record = {"file": "a.jpg", "sample_metadata": {"x": 1}}
+    record = {"media": "a.jpg", "sample_metadata": {"x": 1}}
     assert LDFDowngrader(LDF_VERSION)(dict(record)) == record
 
 
@@ -176,7 +180,7 @@ def test_downgrade_removes_the_keypoint_task_fields():
         "sigmas": [0.026, 0.025],
     }
     downgraded = LDFDowngrader(Version.parse("2.0.0"))(
-        {"file": "a.jpg", "annotation": {"keypoints": keypoints}}
+        {"media": "a.jpg", "annotation": {"pose": [{"keypoints": keypoints}]}}
     )
 
     assert downgraded["annotation"]["keypoints"] == {

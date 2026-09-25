@@ -170,9 +170,6 @@ class LDFDowngrader:
             flattened["task_name"] = task_name
             if detections:
                 flattened["annotation"] = detections[0]
-        elif annotation:
-            # Already flat, so it holds the one detection of the record.
-            flattened["annotation"] = annotation
 
         # The remaining fields keep the order the record had.
         flattened.update(record)
@@ -208,9 +205,8 @@ def _is_task_keyed(
 ) -> TypeGuard[Mapping[str, list[Params]]]:
     """Whether an annotation payload groups its detections by task name.
 
-    LDF 3.0 keys the detections of a record by task name. A record written
-    by an older version carries a single detection here, whose values are
-    annotation payloads rather than lists of them.
+    LDF 3.0 keys the detections of a record by task name, and the exporter
+    writes no other shape. The check narrows the type for the flattening.
     """
     return (
         isinstance(annotation, Mapping)
