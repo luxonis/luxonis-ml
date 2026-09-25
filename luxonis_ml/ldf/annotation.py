@@ -452,7 +452,7 @@ from pydantic import (
 )
 from pydantic.types import FilePath, NonNegativeInt, PositiveFloat, PositiveInt
 from pydantic_core import core_schema
-from typing_extensions import Self, TypeForm, deprecated, override
+from typing_extensions import Self, deprecated, override
 
 from luxonis_ml.ldf.parquet import ParquetRecord
 from luxonis_ml.typing import (
@@ -901,7 +901,7 @@ class Category(str):
     @classmethod
     def __get_pydantic_core_schema__(
         cls,
-        source_type: TypeForm["Category"],
+        source_type: Any,
         handler: GetCoreSchemaHandler,
     ) -> core_schema.CoreSchema:
         return core_schema.is_instance_schema(cls)
@@ -922,7 +922,7 @@ class _PathOrArraySchema:
     @classmethod
     def __get_pydantic_core_schema__(
         cls,
-        source_type: TypeForm[FilePath | np.ndarray],
+        source_type: Any,
         handler: GetCoreSchemaHandler,
     ) -> core_schema.CoreSchema:
         return core_schema.no_info_wrap_validator_function(
