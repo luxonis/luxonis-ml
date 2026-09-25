@@ -55,11 +55,10 @@ def test_merge_with_different_versions():
     [("2.1.0", "2.2.0"), ("2.2.0", "2.1"), ("2.2", "2.2.0")],
 )
 def test_merge_keeps_the_newer_minor_version(version: str, other_version: str):
-    """The merge compared the LDF versions as strings.
+    """Datasets of one major LDF version merge.
 
-    Datasets of one major version did not merge when the strings were
-    different. The merged metadata holds content of both datasets, so it
-    gets the newer version.
+    The merged metadata holds content of both datasets, so it gets the
+    newer version.
     """
     metadata = Metadata(source=None, ldf_version=version)
     other = Metadata(source=None, ldf_version=other_version)
@@ -193,25 +192,19 @@ def test_merge_keeps_keypoint_fields_the_other_dataset_omits(
 ):
     """Test that a merge fills the empty keypoint fields.
 
-    The merge kept the incoming keypoint metadata whole, so every field
-    that the incoming dataset left empty disappeared. A dataset that
-    declared edges, flip pairs and sigmas lost all three when a plainer
-    dataset merged into it. The fields hold indices into the labels, so
+    A plainer dataset that merges in must not drop the edges, flip pairs
+    and sigmas of the target. The fields hold indices into the labels, so
     they only carry over while both datasets list the same labels in the
     same order.
     """
     other_metadata = Metadata(
         source=None,
         ldf_version="2.0.0",
-        classes={},
-        tasks={},
         keypoint_metadata={
             "task1": KeypointMetadata(
                 labels=["head", "tail"], sigmas=[0.05, 0.05]
             )
         },
-        categorical_encodings={},
-        metadata_types={},
     )
 
     merged = basic_metadata.merge_with(other_metadata)
@@ -223,11 +216,10 @@ def test_merge_keeps_keypoint_fields_the_other_dataset_omits(
 
 @pytest.mark.parametrize("unnamed_side", ["mine", "theirs"])
 def test_merge_keeps_the_labels_that_only_one_dataset_has(unnamed_side: str):
-    """An empty list of labels counted as different labels.
+    """An empty list of labels is not a different list of labels.
 
-    The merge then kept the entry of the dataset that is merged in whole.
     An older luxonis-ml could store edges without labels, so a merge with
-    such a dataset dropped the names of the other one.
+    such a dataset must keep the names of the other one.
     """
     named = KeypointMetadata(labels=["head", "tail"], sigmas=[0.05, 0.05])
     unnamed = KeypointMetadata(edges=[(0, 1)])

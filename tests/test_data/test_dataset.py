@@ -832,18 +832,14 @@ def bbox_generator(
         }
 
 
-def ldf_2_0_dataset(dataset: LuxonisDataset) -> LuxonisDataset:
-    """Open the dataset again as LDF 2.0 wrote it.
-
-    LDF 2.0 has no ``sample_metadata`` column.
-    """
+def drop_sample_metadata_column(dataset: LuxonisDataset) -> None:
+    """Rewrite the rows without ``sample_metadata``, as LDF 2.0 did."""
     df = dataset._load_df_offline(raise_when_empty=True)
     for parquet_file in dataset._annotations_path.glob("*.parquet"):
         parquet_file.unlink()
     df.drop("sample_metadata").write_parquet(
         dataset._annotations_path / "0000000000.parquet"
     )
-    return set_ldf_version(dataset, "2.0.0")
 
 
 @pytest.mark.parametrize(
@@ -856,24 +852,21 @@ def ldf_2_0_dataset(dataset: LuxonisDataset) -> LuxonisDataset:
 def test_datasets_of_different_minor_versions_merge(
     dataset_name: str, tempdir: Path, old_is_target: bool
 ):
-    """The merge compared the LDF versions as strings.
+    """Datasets of one major LDF version merge in either direction.
 
-    A dataset of an older minor version thus did not merge with a new
-    dataset. The merge raised after it wrote the rows, so the target got
-    the new rows without the new class. The rows of LDF 2.0 also have no
-    ``sample_metadata`` column, and the merge could not stack them onto
-    the new rows.
+    The rows of LDF 2.0 have no ``sample_metadata`` column, so the merge
+    adds it before it stacks them onto the new rows.
 
     Opening a 2.x dataset stamps it with the current version, so the
     other minor version is given in memory, as a newer install writes it.
     """
-    old = ldf_2_0_dataset(
-        create_dataset(
-            f"{dataset_name}_old",
-            bbox_generator(tempdir, 0, "person"),
-            splits=(1, 0, 0),
-        )
+    old = create_dataset(
+        f"{dataset_name}_old",
+        bbox_generator(tempdir, 0, "person"),
+        splits=(1, 0, 0),
     )
+    drop_sample_metadata_column(old)
+    old = set_ldf_version(old, "2.0.0")
     new = create_dataset(
         f"{dataset_name}_new",
         bbox_generator(tempdir, 3, "dog"),
@@ -889,18 +882,18 @@ def test_datasets_of_different_minor_versions_merge(
     assert set(merged.get_classes()[""]) == {"person", "dog"}
     assert len(merged) == 6
     assert target.version == merged.version == newer
-    # The merged dataset claims a version with the column, so each stored
-    # row needs it.
+    # LDF 2.1 added the column. Read the files, because `_load_df_offline`
+    # fills in a missing column.
     stored = pl.read_parquet(str(merged._annotations_path / "*.parquet"))
     assert set(stored["sample_metadata"]) == {DEFAULT_METADATA}
 
 
 def test_a_failed_merge_writes_nothing(dataset_name: str, tempdir: Path):
-    """The merge checked the metadata after it wrote the data.
+    """The merge checks the metadata before it writes any data.
 
-    A failed check thus left rows that the metadata does not describe. A
-    merge into a new dataset also made the clone before it read the data,
-    so a failed read left the clone behind.
+    A failed check must leave no rows that the metadata does not
+    describe. A merge into a new dataset reads the data before it makes
+    the clone, so a failed read leaves no clone behind.
     """
     target = create_dataset(
         f"{dataset_name}_target",
@@ -936,10 +929,9 @@ def test_a_failed_merge_writes_nothing(dataset_name: str, tempdir: Path):
 
 
 def test_a_merge_checks_its_arguments_before_the_metadata(dataset_name: str):
-    """The merge combined the metadata before it checked its arguments.
+    """A merge into a new dataset without a name reports the missing name.
 
-    A merge into a new dataset without a name thus reported the different
-    LDF versions, and not the missing name.
+    The merge checks its arguments before it compares the LDF versions.
     """
     target = LuxonisDataset(f"{dataset_name}_target", delete_local=True)
     other = LuxonisDataset(f"{dataset_name}_other", delete_local=True)
@@ -1158,12 +1150,7 @@ def test_add_to_old_schema_dataset_populates_metadata_column(
         bucket_storage=BucketStorage.LOCAL,
         splits=(1, 0, 0),
     )
-    old_df = dataset._load_df_offline(raise_when_empty=True).drop(
-        "sample_metadata"
-    )
-    for parquet_file in dataset._annotations_path.glob("*.parquet"):
-        parquet_file.unlink()
-    old_df.write_parquet(dataset._annotations_path / "0000000000.parquet")
+    drop_sample_metadata_column(dataset)
 
     dataset.add(generator(1, 2))
 

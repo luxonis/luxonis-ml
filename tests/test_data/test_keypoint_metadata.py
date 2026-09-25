@@ -5,19 +5,17 @@ dataset metadata. These tests cover that move and the compatibility that
 it must keep.
 """
 
-import inspect
 import json
 import shutil
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias
 
 import pytest
 from pydantic import BaseModel
 
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
 from luxonis_ml.data.datasets.base_dataset import (
-    BaseDataset,
     DatasetIterator,
     KeypointPair,
 )
@@ -42,24 +40,39 @@ NAMED_KEYPOINTS = {
     "left_eye": (0.4, 0.2, 2),
     "right_eye": (0.6, 0.2, 1),
 }
+BOX = {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.3}
+
+Keypoints: TypeAlias = (
+    list[tuple[float, float, int]] | dict[str, tuple[float, float, int]]
+)
 
 
-def keypoint_generator(
+def record_generator(
     tempdir: Path,
-    keypoints: Any,
-    fields: dict[str, Any] | None = None,
+    annotation: dict[str, Any],
+    task_name: str = "pose",
     n: int = 4,
     start: int = 0,
 ) -> DatasetIterator:
     for i in range(start, start + n):
         yield {
             "media": str(create_image(i, tempdir)),
-            "task_name": "pose",
-            "annotation": {
-                "class": "person",
-                "keypoints": {"keypoints": keypoints, **(fields or {})},
-            },
+            "task_name": task_name,
+            "annotation": {"class": "person", **annotation},
         }
+
+
+def keypoint_generator(
+    tempdir: Path,
+    keypoints: Keypoints,
+    fields: dict[str, Any] | None = None,
+    n: int = 4,
+    start: int = 0,
+) -> DatasetIterator:
+    keypoint_annotation = {"keypoints": keypoints, **(fields or {})}
+    return record_generator(
+        tempdir, {"keypoints": keypoint_annotation}, n=n, start=start
+    )
 
 
 def positional_generator(
@@ -83,26 +96,13 @@ def keypoint_and_box_generator(
     the width of the stored keypoint count.
     """
     yield from positional_generator(tempdir, [n_keypoints], start=start)
-    yield {
-        "media": str(create_image(start + 1, tempdir)),
-        "task_name": "pose",
-        "annotation": {
-            "class": "person",
-            "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.3},
-        },
-    }
+    yield from record_generator(
+        tempdir, {"boundingbox": BOX}, n=1, start=start + 1
+    )
 
 
 def detection_generator(tempdir: Path) -> DatasetIterator:
-    for i in range(4):
-        yield {
-            "media": str(create_image(i, tempdir)),
-            "task_name": "detection",
-            "annotation": {
-                "class": "person",
-                "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.3},
-            },
-        }
+    return record_generator(tempdir, {"boundingbox": BOX}, "detection")
 
 
 def named_dataset(
@@ -136,9 +136,12 @@ def exported_detections(annotations_path: Path) -> list[dict[str, Any]]:
     return detections
 
 
-def loaded_keypoint_shapes(dataset: LuxonisDataset) -> list[tuple[int, ...]]:
+def loaded_keypoint_shapes(
+    dataset: LuxonisDataset, task: str = "pose"
+) -> list[tuple[int, ...]]:
     return sorted(
-        labels["pose/keypoints"].shape for _, labels in LuxonisLoader(dataset)
+        labels[f"{task}/keypoints"].shape
+        for _, labels in LuxonisLoader(dataset)
     )
 
 
@@ -178,6 +181,18 @@ def repeated_names_dataset(dataset_name: str, tempdir: Path) -> LuxonisDataset:
     return legacy_dataset(
         dataset, {"pose": {"labels": REPEATED_LABELS, "edges": [[0, 1]]}}
     )
+
+
+def cameras_dataset(dataset_name: str, tempdir: Path) -> LuxonisDataset:
+    dataset = create_dataset(
+        dataset_name,
+        positional_generator(tempdir, [3, 3, 3, 3]),
+        splits=(1, 0, 0),
+    )
+    dataset.set_keypoint_metadata(
+        labels=CAMERAS, task="pose", infer_flip_pairs=False
+    )
+    return dataset
 
 
 def pose_dataset(dataset_name: str, **fields: Any) -> LuxonisDataset:
@@ -222,28 +237,21 @@ def test_flip_pairs_are_inferred_from_the_names(
 def test_sub_detections_get_their_own_metadata(
     dataset_name: str, tempdir: Path
 ):
-    def generator() -> DatasetIterator:
-        for i in range(4):
-            yield {
-                "media": str(create_image(i, tempdir)),
-                "task_name": "person",
-                "annotation": {
-                    "class": "person",
-                    "sub_detections": {
-                        "face": {
-                            "class": "face",
-                            "keypoints": {
-                                "keypoints": {
-                                    "left_eye": (0.4, 0.2, 2),
-                                    "right_eye": (0.6, 0.2, 2),
-                                }
-                            },
-                        }
-                    },
-                },
+    face = {
+        "class": "face",
+        "keypoints": {
+            "keypoints": {
+                "left_eye": (0.4, 0.2, 2),
+                "right_eye": (0.6, 0.2, 2),
             }
-
-    dataset = create_dataset(dataset_name, generator())
+        },
+    }
+    dataset = create_dataset(
+        dataset_name,
+        record_generator(
+            tempdir, {"sub_detections": {"face": face}}, "person"
+        ),
+    )
 
     task_keypoints = dataset.get_keypoint_metadata()["person/face"]
     assert task_keypoints.labels == ["left_eye", "right_eye"]
@@ -266,11 +274,10 @@ def test_disagreeing_records_are_rejected(dataset_name: str, tempdir: Path):
 def test_records_in_another_key_order_agree_on_the_task_fields(
     dataset_name: str, tempdir: Path
 ):
-    """`add` compared the edges and sigmas of two records by index.
+    """Two records can give the same task fields in another key order.
 
-    The second record keys its keypoints in another order, so the same
-    edge and the same sigmas have other indices there. The whole `add`
-    failed with a conflict.
+    The same edge and the same sigmas then have other indices, but the
+    records agree, so `add` accepts them.
     """
 
     def generator() -> DatasetIterator:
@@ -315,11 +322,7 @@ def test_an_unknown_keypoint_name_is_rejected(
 def test_add_does_not_clobber_explicit_metadata(
     dataset_name: str, tempdir: Path
 ):
-    """`add` used to overwrite every entry with ``"0"``, ``"1"``, ...
-
-    Adding unnamed keypoints to a dataset whose names were set by hand has
-    to leave those names alone.
-    """
+    """Unnamed keypoints must not replace names that were set by hand."""
     dataset = pose_dataset(dataset_name, labels=LABELS, edges=[(0, 1), (0, 2)])
 
     dataset.add(
@@ -336,12 +339,11 @@ def test_add_does_not_clobber_explicit_metadata(
 def test_a_later_add_cannot_reorder_the_stored_labels(
     dataset_name: str, tempdir: Path
 ):
-    """The labels of a second `add` used to replace the stored ones.
+    """The stored labels own the column order.
 
-    The rows of the second `add` are written in the stored order, so the
-    new order renamed every column. The payload and the flip pair prove
-    it: the payload keeps the nose in column 0, and the flip pair holds
-    indices, so it must still join the two eyes.
+    `add` writes the rows of a later `add` in the stored order. The
+    payload keeps the nose in column 0, and the flip pair holds indices,
+    so it must still join the two eyes.
     """
     dataset = named_dataset(dataset_name, tempdir)
 
@@ -393,19 +395,18 @@ def test_a_later_add_moves_the_task_fields_to_the_stored_order(
     fields: dict[str, list[tuple[str, str]] | list[float]],
     expected: dict[str, list[tuple[int, int]] | list[float]],
 ):
-    """`add` kept the indices of a record for the stored names.
+    """The indices of a record point into its own keys.
 
-    The indices of a record point into its own keys. The stored names
-    have another order, so the edge joined other keypoints, and each
-    keypoint got the sigma of another keypoint.
+    The stored names have another order, so `add` moves the edges and the
+    sigmas to it. Otherwise an edge joins other keypoints, and a keypoint
+    gets the sigma of another keypoint.
     """
     dataset = named_dataset(dataset_name, tempdir)
 
     dataset.add(keypoint_generator(tempdir, keypoints, fields, n=1, start=4))
 
-    assert dataset.get_keypoint_metadata()[
-        "pose"
-    ] == KeypointMetadata.model_validate(
+    task_keypoints = dataset.get_keypoint_metadata()["pose"]
+    assert task_keypoints == KeypointMetadata.model_validate(
         {"labels": LABELS, "flip_pairs": [(1, 2)], **expected}
     )
 
@@ -413,10 +414,10 @@ def test_a_later_add_moves_the_task_fields_to_the_stored_order(
 def test_a_later_add_rejects_sigmas_for_a_subset(
     dataset_name: str, tempdir: Path
 ):
-    """`add` stored the sigmas of a record that names a subset.
+    """A record that names a subset cannot give sigmas for the task.
 
-    The stored entry then had three labels and two sigmas, and a native
-    export of the dataset did not import.
+    The stored entry would hold three labels and two sigmas, and a native
+    export of the dataset would not import.
     """
     dataset = named_dataset(dataset_name, tempdir)
 
@@ -437,12 +438,11 @@ def test_a_later_add_rejects_sigmas_for_a_subset(
 def test_records_can_name_different_subsets_of_the_stored_names(
     dataset_name: str, tempdir: Path, warnings_log: list[str]
 ):
-    """`add` merged two records before it used the stored names.
+    """Two records can name different subsets of the stored names.
 
-    Each record names a subset of the stored names, and the write pads
-    both of them. The two subsets differ, so the whole `add` failed with
-    a conflict. The padded rows all have the stored width, so the task
-    does not mix rows of different widths either.
+    `add` pads both of them to the stored names before it merges them, so
+    the subsets do not conflict. The padded rows all have the stored
+    width, so the task does not mix rows of different widths either.
     """
     dataset = named_dataset(dataset_name, tempdir)
 
@@ -472,11 +472,11 @@ def test_records_can_name_different_subsets_of_the_stored_names(
 def test_a_subset_of_the_stored_names_can_join_a_record_without_names(
     dataset_name: str, tempdir: Path
 ):
-    """`add` checked the declared names before it merged the stored names.
+    """`add` checks a declaration after it merges the stored names.
 
     The record names one of the three stored keypoints, and the other
-    record has three keypoints without names. The check compared one name
-    with three keypoints and failed after `add` wrote both rows.
+    record has three keypoints without names. Against the stored names,
+    the one name fits the three keypoints.
     """
     dataset = named_dataset(dataset_name, tempdir)
 
@@ -505,12 +505,12 @@ def test_a_subset_of_the_stored_names_can_join_a_record_without_names(
 def test_add_checks_the_keypoint_metadata_before_a_batch_is_written(
     dataset_name: str, tempdir: Path, batch_size: int, n_written: int
 ):
-    """`add` checked the keypoint metadata after it wrote every row.
+    """`add` checks the keypoint metadata before it writes a batch.
 
-    The check failed, but the rows and the classes were already on disk.
-    The tasks and the keypoint metadata were not. A check cannot undo an
-    earlier batch. Only the third record breaks the sigmas, so a batch of
-    one record keeps the first record.
+    Otherwise a failed check leaves rows and classes on disk without
+    their tasks and keypoint metadata. A check cannot undo an earlier
+    batch. Only the third record breaks the sigmas, so a batch of one
+    record keeps the first record.
     """
 
     def generator() -> DatasetIterator:
@@ -538,12 +538,11 @@ def test_add_checks_the_keypoint_metadata_before_a_batch_is_written(
 def test_add_checks_the_stored_fields_before_the_last_batch_is_written(
     dataset_name: str, tempdir: Path, batch_size: int
 ):
-    """`add` wrote a full batch before it checked the stored fields.
+    """`add` checks the stored fields before it writes the last batch.
 
     The stored sigmas cover five keypoints, and each of the four records
-    has three. With a batch of four records, the loop wrote every row
-    before the check failed. The classes and the tasks stayed as they
-    were, next to rows that they do not describe.
+    has three. With a batch of four records, the last batch holds every
+    row, so no row may reach the disk.
     """
     dataset = pose_dataset(dataset_name, sigmas=[0.1] * 5)
     before = read_dataset_metadata(dataset)
@@ -560,19 +559,18 @@ def test_add_checks_the_stored_fields_before_the_last_batch_is_written(
 def test_add_checks_the_declared_fields_against_the_stored_names(
     dataset_name: str, tempdir: Path
 ):
-    """The check before a batch ignored the number of stored names.
+    """The check before a batch counts the stored names too.
 
     `add` pads each record to the five stored names, so no later record
-    can make three sigmas fit. The check before each batch compared the
-    sigmas with the three keypoints of the records. A batch of one record
-    thus wrote the rows before the last check failed.
+    can make three sigmas fit. A batch of one record must fail before it
+    writes a row.
     """
     dataset = pose_dataset(
         dataset_name, labels=[*LABELS, "left_ear", "right_ear"]
     )
     before = read_dataset_metadata(dataset)
 
-    with pytest.raises(ValueError, match="3 sigmas, but the annotations"):
+    with pytest.raises(ValueError, match="3 sigmas for 5 keypoints"):
         dataset.add(
             keypoint_generator(
                 tempdir, [(0.1, 0.1, 2)] * 3, {"sigmas": [0.1] * 3}, n=3
@@ -600,13 +598,12 @@ def test_add_checks_a_record_against_the_stored_names_before_a_batch(
     open_dataset: Callable[[str, Path], LuxonisDataset],
     fields: dict[str, list[float]],
 ):
-    """`add` wrote the batch in front of a record wider than the stored names.
+    """A record wider than the stored names fails before its batch.
 
     The last record has four keypoints, and the task has three stored
     names. `add` does not change stored names, so no later record can make
-    the record fit. The check before a batch ignored a task without a
-    declaration, and declared sigmas for four keypoints also passed it.
-    `add` thus wrote the first two records before the alignment failed.
+    the record fit. The check also covers a task without a declaration,
+    and sigmas for four keypoints do not make the record fit.
     """
     dataset = open_dataset(dataset_name, tempdir)
     before = read_dataset_metadata(dataset)
@@ -640,7 +637,7 @@ def test_add_checks_the_names_against_the_rows_of_an_earlier_batch(
 
     dataset = LuxonisDataset(dataset_name, delete_local=True)
 
-    with pytest.raises(ValueError, match="3 labels, but the annotations"):
+    with pytest.raises(ValueError, match="3 labels for 5 keypoints"):
         dataset.add(generator(), batch_size=2)
 
     assert len(dataset) == 2
@@ -666,14 +663,14 @@ def test_add_checks_the_names_against_the_rows_of_an_earlier_add(
     batch_size: int,
     labels: list[str] | None,
 ):
-    """`add` accepted names for fewer keypoints than an earlier `add` wrote.
+    """Names must cover the rows that an earlier `add` wrote.
 
-    The first `add` writes rows of five keypoints without names. The
-    second `add` stored three names for the task, and the loader then gave
-    the samples keypoint arrays of different widths. The same records in
-    one `add` fail, so the second `add` must fail too. A batch of one
-    record must fail before it writes a row. Cleared labels do not change
-    the rows, so the names must fail there too.
+    The first `add` writes rows of five keypoints without names. Three
+    names for the task would give the samples keypoint arrays of
+    different widths. The same records in one `add` fail, so the second
+    `add` fails too, and a batch of one record fails before it writes a
+    row. Cleared labels do not change the rows, so the names fail there
+    too.
     """
     dataset = create_dataset(
         dataset_name, positional_generator(tempdir, [5, 5])
@@ -681,7 +678,7 @@ def test_add_checks_the_names_against_the_rows_of_an_earlier_add(
     dataset.set_keypoint_metadata(labels=labels, edges=[(0, 1)], task="pose")
     before = read_dataset_metadata(dataset)
 
-    with pytest.raises(ValueError, match="3 labels, but the annotations"):
+    with pytest.raises(ValueError, match="3 labels for 5 keypoints"):
         dataset.add(
             keypoint_generator(tempdir, NAMED_KEYPOINTS, n=2, start=2),
             batch_size=batch_size,
@@ -735,27 +732,26 @@ def test_a_changed_task_field_warns_once_for_each_add(
 def test_a_failed_add_keeps_the_rows_of_re_added_files(
     dataset_name: str, tempdir: Path
 ):
-    """`add` removed the old rows of a file before it built the new rows.
+    """A failed batch must change no row.
 
     The second record has more keypoints than the task, so the alignment
-    of its keypoints raised. The old rows of both files were already gone.
-    `add` still wrote the rows of the first record and the bounding box of
-    the second record. A failed batch must change no row.
+    of its keypoints raises. `add` builds the new rows before it removes
+    the old rows of the two files.
     """
     dataset = named_dataset(dataset_name, tempdir)
     before = dataset._load_df_offline(raise_when_empty=True)
 
     def generator() -> DatasetIterator:
         yield from positional_generator(tempdir, [3])
-        yield {
-            "media": str(create_image(1, tempdir)),
-            "task_name": "pose",
-            "annotation": {
-                "class": "person",
-                "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.3},
+        yield from record_generator(
+            tempdir,
+            {
+                "boundingbox": BOX,
                 "keypoints": {"keypoints": [(0.1, 0.1, 2)] * 5},
             },
-        }
+            n=1,
+            start=1,
+        )
 
     with pytest.raises(ValueError, match="task defines only 3"):
         dataset.add(generator())
@@ -766,12 +762,11 @@ def test_a_failed_add_keeps_the_rows_of_re_added_files(
 def test_a_later_add_updates_the_placeholder_count(
     dataset_name: str, tempdir: Path
 ):
-    """The stored count used to freeze at what the first `add` saw.
+    """The placeholder that `add` wrote grows with the rows.
 
-    A record of unnamed keypoints declares nothing, so the guard that
-    protects an explicit definition also skipped the placeholder that
-    `add` wrote itself. The count then contradicts the rows on disk, and
-    `LuxonisLoader` sizes an empty keypoint label to the old width.
+    A record of unnamed keypoints declares nothing, but the placeholder
+    is not an explicit definition either. A stale count contradicts the
+    rows on disk, and `LuxonisLoader` sizes an empty keypoint label to it.
     """
     dataset = create_dataset(
         dataset_name,
@@ -792,12 +787,11 @@ def test_a_later_add_updates_the_placeholder_count(
 def test_an_edges_only_declaration_still_names_the_keypoints(
     dataset_name: str, tempdir: Path
 ):
-    """A declaration of edges alone used to store ``labels=[]``.
+    """A declaration of edges alone still stores labels.
 
-    The stored entry then held no count, so `get_n_keypoints` read it off
-    the highest edge index. A task with five keypoints reported two, and
-    the loader padded a keypoint-free sample to that width. The names
-    keep the count, so the assertion on them guards the count too.
+    The labels carry the keypoint count for every reader that does not
+    scan the rows, such as luxonis-train. The assertion on the names thus
+    guards the count too.
     """
     dataset = create_dataset(
         dataset_name,
@@ -827,20 +821,18 @@ def test_a_stored_entry_without_labels_gets_the_keypoint_count(
     edges: list[KeypointPair] | None,
     sigmas: list[float] | None,
 ):
-    """`add` skipped a stored entry that had no labels.
+    """`add` gives a stored entry without labels the keypoint count.
 
-    Only the labels carry the keypoint count. `get_n_keypoints` then read
-    the count off the edges, or found no count, and `LuxonisLoader` gave
-    a sample without keypoints a narrower array than the other samples.
+    The labels carry the count for every reader that does not scan the
+    rows, such as luxonis-train.
     """
     dataset = pose_dataset(dataset_name, edges=edges, sigmas=sigmas)
 
     dataset.add(keypoint_and_box_generator(tempdir, 5))
     dataset.make_splits((1, 0, 0))
 
-    assert dataset.get_keypoint_metadata()[
-        "pose"
-    ] == KeypointMetadata.model_validate(
+    task_keypoints = dataset.get_keypoint_metadata()["pose"]
+    assert task_keypoints == KeypointMetadata.model_validate(
         {
             "labels": ["0", "1", "2", "3", "4"],
             "edges": edges or [],
@@ -853,11 +845,10 @@ def test_a_stored_entry_without_labels_gets_the_keypoint_count(
 def test_an_empty_stored_entry_gets_the_placeholder(
     dataset_name: str, tempdir: Path
 ):
-    """`add` kept the empty edges of an empty stored entry.
+    """An empty stored entry gets the same result as no entry.
 
     An empty entry describes no keypoints, and `_write_metadata` can leave
-    it out of the file. A reopened dataset thus got the chain edges, but
-    the same handle did not.
+    it out of the file. The open handle and a reopened dataset must agree.
     """
     dataset = pose_dataset(dataset_name, edges=[])
 
@@ -883,13 +874,12 @@ def test_a_task_without_labels_keeps_the_width_of_its_rows(
     edges: list[KeypointPair],
     expected_edges: list[tuple[int, int]],
 ):
-    """`add` took the keypoint count of a task without labels from the records.
+    """The rows of a task without labels set its keypoint count.
 
-    The rows of the task have seven keypoints, but the task has no labels.
-    An older luxonis-ml also stored such a task. The records of the next
-    `add` have five keypoints, and the task got five labels. The loader
-    thus gave a sample without keypoints a narrower array than the stored
-    rows.
+    The stored rows have seven keypoints, and the records of the next
+    `add` have five. An older luxonis-ml also stored tasks without labels.
+    Five labels would give a sample without keypoints a narrower array
+    than the stored rows.
     """
     dataset = create_dataset(
         dataset_name, keypoint_and_box_generator(tempdir, 7), splits=False
@@ -924,13 +914,11 @@ def test_a_wider_add_widens_placeholder_names_with_a_task_field(
     flip_pairs: list[KeypointPair] | None,
     expected_edges: list[tuple[int, int]],
 ):
-    """`add` widened only a stored entry that held nothing but placeholders.
+    """Placeholder names grow even when the entry holds a user field.
 
-    Here the entry has placeholder names and a field that the user set.
-    The second `add` has seven keypoints, but the entry kept five names.
-    `get_n_keypoints` thus returned 5, and `LuxonisLoader` gave a sample
-    without keypoints a narrower array than the other samples. The chain
-    edges that `add` generated have to grow with the names.
+    The second `add` has seven keypoints, so the entry needs seven names,
+    or the loader gives a sample without keypoints a narrower array. The
+    chain edges that `add` generated grow with the names.
     """
     dataset = create_dataset(
         dataset_name, keypoint_and_box_generator(tempdir, 5), splits=False
@@ -941,9 +929,8 @@ def test_a_wider_add_widens_placeholder_names_with_a_task_field(
     dataset.add(keypoint_and_box_generator(tempdir, 7, start=2))
     dataset.make_splits((1, 0, 0))
 
-    assert dataset.get_keypoint_metadata()[
-        "pose"
-    ] == KeypointMetadata.model_validate(
+    task_keypoints = dataset.get_keypoint_metadata()["pose"]
+    assert task_keypoints == KeypointMetadata.model_validate(
         {
             "labels": ["0", "1", "2", "3", "4", "5", "6"],
             "edges": expected_edges,
@@ -957,11 +944,11 @@ def test_a_wider_add_widens_placeholder_names_with_a_task_field(
 def test_a_wider_add_checks_the_stored_sigmas(
     dataset_name: str, tempdir: Path
 ):
-    """`add` did not check the sigmas of placeholder names.
+    """`add` checks the sigmas of placeholder names too.
 
     The sigmas cover five keypoints. A first `add` of seven keypoints
-    raised, but the same records in a second `add` passed. The entry then
-    held five sigmas for rows of seven keypoints.
+    raises, so the same records in a second `add` raise too. Otherwise
+    the entry holds five sigmas for rows of seven keypoints.
     """
     dataset = pose_dataset(dataset_name, sigmas=[0.1] * 5)
     dataset.add(positional_generator(tempdir, [5]))
@@ -985,13 +972,12 @@ def test_a_wider_add_checks_the_stored_sigmas(
 def test_stored_sigmas_must_match_the_keypoint_count(
     dataset_name: str,
     tempdir: Path,
-    keypoints: list[tuple[float, float, int]]
-    | dict[str, tuple[float, float, int]],
+    keypoints: Keypoints,
 ):
-    """`add` kept stored sigmas for another number of keypoints.
+    """Stored sigmas must fit the keypoint count of a later `add`.
 
-    The stored entry then held five sigmas for three keypoints, and
-    nothing reported the difference.
+    Otherwise the entry holds five sigmas for three keypoints, and nothing
+    reports it.
     """
     dataset = pose_dataset(dataset_name, sigmas=[0.1] * 5)
 
@@ -1004,9 +990,8 @@ def test_new_names_drop_the_placeholder_edges(
 ):
     """`add` gives keypoints without names invented chain edges.
 
-    New names kept those edges. A COCO export then wrote them as the
-    skeleton, and a visualization drew lines between unrelated
-    keypoints.
+    New names drop them. A COCO export would write them as the skeleton,
+    and a visualization would draw lines between unrelated keypoints.
     """
     dataset = create_dataset(
         dataset_name,
@@ -1027,13 +1012,12 @@ def test_a_named_add_drops_the_placeholder_edges(
     warnings_log: list[str],
     n_placeholders: int,
 ):
-    """A named `add` copied the invented chain edges into its entry.
+    """A named `add` drops the chain edges that an unnamed `add` made.
 
-    The check for placeholder values used the keypoint count of the new
-    `add`, and not the count of the stored entry. After two unnamed
-    keypoints, the stored entry did not match the placeholder of three
-    keypoints. The entry thus kept the chain edge, and a warning reported
-    the placeholder labels as a conflict.
+    The check for placeholder values uses the keypoint count of the
+    stored entry, not the count of the new `add`. The entry must not keep
+    the chain edge, and no warning reports the placeholder labels as a
+    conflict.
     """
     dataset = create_dataset(
         dataset_name, positional_generator(tempdir, [n_placeholders])
@@ -1062,13 +1046,12 @@ def test_an_add_with_task_fields_sizes_the_placeholder_to_the_widest_row(
     second: int,
     fields: dict[str, list[float] | list[tuple[int, int]]],
 ):
-    """`add` sized only the placeholder labels to the widest row.
+    """The placeholder labels and chain edges both follow the widest row.
 
     The records of the second `add` give a task field. After a wider
-    `add`, the entry got five labels, but the chain edges of three
-    keypoints. Those edges are not the chain of five keypoints, so new
-    names kept them. After a narrower `add`, the entry must keep five
-    labels, because the rows of the first `add` have five keypoints.
+    `add`, the entry gets five labels and the chain of five keypoints, so
+    new names can drop the chain. After a narrower `add`, the entry keeps
+    five labels, because the rows of the first `add` have five keypoints.
     """
     dataset = create_dataset(
         dataset_name, positional_generator(tempdir, [first])
@@ -1080,9 +1063,8 @@ def test_an_add_with_task_fields_sizes_the_placeholder_to_the_widest_row(
         )
     )
 
-    assert dataset.get_keypoint_metadata()[
-        "pose"
-    ] == KeypointMetadata.model_validate(
+    task_keypoints = dataset.get_keypoint_metadata()["pose"]
+    assert task_keypoints == KeypointMetadata.model_validate(
         {
             "labels": ["0", "1", "2", "3", "4"],
             "edges": [(0, 1), (1, 2), (2, 3), (3, 4)],
@@ -1177,6 +1159,14 @@ def test_placeholders_are_still_generated(dataset_name: str, tempdir: Path):
     assert dataset.get_keypoint_metadata() == {
         "pose": KeypointMetadata(labels=["0", "1"], edges=[(0, 1)])
     }
+    assert read_dataset_metadata(dataset)["keypoint_metadata"] == {
+        "pose": {
+            "labels": ["0", "1"],
+            "edges": [[0, 1]],
+            "flip_pairs": [],
+            "sigmas": [],
+        }
+    }
 
 
 def test_the_task_fields_are_not_repeated_on_every_row(
@@ -1188,13 +1178,9 @@ def test_the_task_fields_are_not_repeated_on_every_row(
         fields={"edges": [("nose", "left_eye")], "sigmas": [0.1, 0.2, 0.3]},
     )
 
-    payloads = keypoint_payloads(dataset)
-
-    assert payloads
-    for payload in payloads:
-        assert json.loads(payload) == {
-            "keypoints": [[0.5, 0.3, 2], [0.4, 0.2, 2], [0.6, 0.2, 1]]
-        }
+    assert set(keypoint_payloads(dataset)) == {
+        '{"keypoints":[[0.5,0.3,2],[0.4,0.2,2],[0.6,0.2,1]]}'
+    }
 
 
 def test_records_are_stored_in_task_order(dataset_name: str, tempdir: Path):
@@ -1225,8 +1211,8 @@ def test_omitted_keypoints_are_padded_on_disk(
     dataset = pose_dataset(dataset_name, labels=LABELS)
     dataset.add(keypoint_generator(tempdir, {"left_eye": (0.4, 0.2, 2)}))
 
-    assert json.loads(keypoint_payloads(dataset)[0]) == {
-        "keypoints": [[0.0, 0.0, 0], [0.4, 0.2, 2], [0.0, 0.0, 0]]
+    assert set(keypoint_payloads(dataset)) == {
+        '{"keypoints":[[0.0,0.0,0],[0.4,0.2,2],[0.0,0.0,0]]}'
     }
 
 
@@ -1250,24 +1236,6 @@ def test_opening_a_dataset_does_not_materialize_flip_pairs(
 
     assert reopened.get_keypoint_metadata()["pose"].flip_pairs == []
     assert metadata_path.read_text() == before
-
-
-def test_the_stored_metadata_holds_every_field(
-    dataset_name: str, tempdir: Path
-):
-    dataset = create_dataset(
-        dataset_name,
-        keypoint_generator(tempdir, [(0.5, 0.3, 2), (0.4, 0.2, 2)]),
-    )
-
-    assert read_dataset_metadata(dataset)["keypoint_metadata"] == {
-        "pose": {
-            "labels": ["0", "1"],
-            "edges": [[0, 1]],
-            "flip_pairs": [],
-            "sigmas": [],
-        }
-    }
 
 
 def test_a_legacy_dataset_still_loads(dataset_name: str, tempdir: Path):
@@ -1294,14 +1262,12 @@ def test_a_legacy_edge_out_of_range_does_not_stop_an_add(
     dataset_name: str,
     tempdir: Path,
     labels: list[str],
-    keypoints: list[tuple[float, float, int]]
-    | dict[str, tuple[float, float, int]],
+    keypoints: Keypoints,
 ):
-    """`add` checked the stored edges against the keypoint count.
+    """An older luxonis-ml stored the edges without a check.
 
-    An older luxonis-ml stored the edges without a check, and the dataset
-    still opens. The next `add` failed, and the error blamed the
-    annotations. The drawing code skips an edge out of range.
+    The dataset still opens, so an `add` must not fail on those edges and
+    blame the annotations. The drawing code skips an edge out of range.
     """
     dataset = legacy_dataset(
         named_dataset(dataset_name, tempdir),
@@ -1312,6 +1278,41 @@ def test_a_legacy_edge_out_of_range_does_not_stop_an_add(
 
     assert dataset.get_keypoint_metadata()["pose"].edges == [(-1, 0), (1, 3)]
     assert dataset.get_n_keypoints() == {"pose": 3}
+
+
+def test_set_keypoint_metadata_keeps_a_legacy_edge_it_is_not_given(
+    dataset_name: str, tempdir: Path
+):
+    """An older luxonis-ml stored the edges without a check."""
+    dataset = legacy_dataset(
+        named_dataset(dataset_name, tempdir),
+        {"pose": {"labels": LABELS, "edges": [[-1, 0], [1, 3]]}},
+    )
+
+    dataset.set_keypoint_metadata(sigmas=[0.1, 0.2, 0.3], task="pose")
+
+    assert dataset.get_keypoint_metadata()["pose"].edges == [(-1, 0), (1, 3)]
+
+
+@pytest.mark.parametrize(
+    ("fields", "match"),
+    [
+        pytest.param({"edges": [(0, 9)]}, "keypoint 9", id="edges"),
+        pytest.param({"flip_pairs": [(0, 9)]}, "keypoint 9", id="flip-pairs"),
+        pytest.param({"sigmas": [0.1, 0.2]}, "2 sigmas", id="sigmas"),
+    ],
+)
+def test_set_keypoint_metadata_checks_the_fields_against_the_labels(
+    dataset_name: str, tempdir: Path, fields: dict[str, Any], match: str
+):
+    """A COCO export writes the edges as the skeleton of the category."""
+    dataset = named_dataset(dataset_name, tempdir)
+    before = dataset.get_keypoint_metadata()
+
+    with pytest.raises(ValueError, match=match):
+        dataset.set_keypoint_metadata(task="pose", **fields)
+
+    assert dataset.get_keypoint_metadata() == before
 
 
 def test_the_loader_names_the_keypoints(dataset_name: str, tempdir: Path):
@@ -1327,12 +1328,11 @@ def test_the_loader_names_the_keypoints(dataset_name: str, tempdir: Path):
 def test_the_loader_builds_no_keypoint_metadata_for_each_row(
     dataset_name: str, tempdir: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """The loader keyed each stored row by the names of the task.
+    """The loader must not build a `KeypointMetadata` for each row.
 
-    Each loaded row thus built a `KeypointMetadata` from the names and
-    checked it against the row. A stored row has no edges, no flip pairs
-    and no sigmas, so the check found nothing. The build took almost all of
-    the extra load time, so the test counts the builds.
+    A stored row has no edges, no flip pairs and no sigmas, so a check
+    against the names finds nothing. The build takes almost all of the
+    extra load time, so the test counts the builds.
     """
     dataset = create_dataset(
         dataset_name,
@@ -1357,10 +1357,7 @@ def test_the_loader_builds_no_keypoint_metadata_for_each_row(
 def test_set_keypoint_metadata_updates_only_what_it_is_given(
     dataset_name: str, tempdir: Path
 ):
-    """It used to replace the whole entry, so one field wiped the rest.
-
-    It now has four fields, which makes that unacceptable.
-    """
+    """A call that sets one field keeps the other three."""
     dataset = named_dataset(dataset_name, tempdir)
 
     dataset.set_keypoint_metadata(sigmas=[0.1, 0.2, 0.3], task="pose")
@@ -1374,13 +1371,12 @@ def test_set_keypoint_metadata_updates_only_what_it_is_given(
 def test_new_labels_drop_the_indices_they_invalidate(
     dataset_name: str, tempdir: Path
 ):
-    """A relabel used to keep the stored edges, flip pairs and sigmas.
+    """Edges, flip pairs and sigmas address a keypoint by its position.
 
-    All three address a keypoint by its position. New labels put a
-    different keypoint at each position, so the stored values then
-    describe the wrong keypoints. Nothing raises, because every index
-    stays in range. The kept flip pair ``(1, 2)`` flips ``right_eye``
-    onto ``nose``.
+    New labels put a different keypoint at each position, so the stored
+    values would describe the wrong keypoints. Nothing would raise,
+    because every index stays in range: a kept flip pair ``(1, 2)`` would
+    flip ``right_eye`` onto ``nose``.
     """
     dataset = named_dataset(
         dataset_name,
@@ -1409,8 +1405,7 @@ def test_a_keypointless_dataset_omits_the_new_key(
 
     `Metadata` forbids extra fields, so the new key alone stops an older
     ``luxonis-ml`` from opening the dataset. A dataset without keypoints
-    holds nothing that LDF 2.2 added, so it must not carry the key. Every
-    write path rewrote it, even for a plain detection dataset.
+    holds nothing that LDF 2.2 added, so no write path adds the key.
     """
     dataset = create_dataset(dataset_name, detection_generator(tempdir))
 
@@ -1423,9 +1418,8 @@ def test_empty_keypoint_metadata_omits_the_new_key(
 ):
     """An entry without values describes no keypoints.
 
-    Empty lists still stored an entry for the detection task. The key
-    was left out only for a dict without entries, so the dataset got the
-    key, and an older luxonis-ml refused to open it.
+    Empty lists must not store an entry for the detection task, or the
+    dataset gets the key, and an older luxonis-ml refuses to open it.
     """
     dataset = create_dataset(dataset_name, detection_generator(tempdir))
 
@@ -1438,10 +1432,10 @@ def test_empty_keypoint_metadata_omits_the_new_key(
 def test_the_new_key_stamps_the_current_ldf_version(
     dataset_name: str, tempdir: Path
 ):
-    """No write updated the stored LDF version.
+    """A write of the new key also stamps the current LDF version.
 
-    The `add` gave a dataset of LDF 2.1 the new ``keypoint_metadata`` key,
-    which LDF 2.1 cannot read. The dataset still claimed LDF 2.1.
+    LDF 2.1 cannot read ``keypoint_metadata``, so a dataset with the key
+    must not claim LDF 2.1.
     """
     dataset = set_ldf_version(
         create_dataset(dataset_name, detection_generator(tempdir)), "2.1.0"
@@ -1458,11 +1452,10 @@ def test_the_new_key_stamps_the_current_ldf_version(
 def test_a_legacy_dataset_merges_with_a_new_dataset(
     dataset_name: str, tempdir: Path
 ):
-    """The merge compared the LDF versions as strings.
+    """Datasets of one major LDF version merge.
 
-    A dataset of LDF 2.1 thus did not merge with a new dataset. The merged
-    file stores the keypoint metadata under the new key, so it needs the
-    current LDF version.
+    The merged file stores the keypoint metadata under the new key, so it
+    needs the current LDF version.
     """
     old = legacy_dataset(
         named_dataset(f"{dataset_name}_old", tempdir),
@@ -1506,10 +1499,10 @@ def test_set_keypoint_metadata_accepts_names(dataset_name: str, tempdir: Path):
 def test_the_deprecated_skeleton_aliases_still_forward(
     dataset_name: str, tempdir: Path
 ):
-    """`get_skeletons` returned the new keypoint metadata.
+    """`get_skeletons` keeps its old return shape.
 
     A caller such as the luxonis-train loader reads the labels as
-    ``skeletons[task][0]``, so the alias must keep its old shape.
+    ``skeletons[task][0]``.
     """
     dataset = named_dataset(
         dataset_name, tempdir, fields={"edges": [("nose", "left_eye")]}
@@ -1524,7 +1517,13 @@ def test_the_deprecated_skeleton_aliases_still_forward(
     assert dataset.get_keypoint_metadata()["pose"].sigmas == [0.1, 0.2, 0.3]
 
 
-def test_flip_pair_inference_can_be_turned_off(
+def test_flip_pair_inference_can_be_turned_off(dataset_name: str):
+    dataset = pose_dataset(dataset_name, labels=LABELS, infer_flip_pairs=False)
+
+    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == []
+
+
+def test_turning_the_inference_off_keeps_the_stored_flip_pairs(
     dataset_name: str, tempdir: Path
 ):
     dataset = named_dataset(dataset_name, tempdir)
@@ -1533,25 +1532,16 @@ def test_flip_pair_inference_can_be_turned_off(
         labels=LABELS, task="pose", infer_flip_pairs=False
     )
 
-    # The `add` already inferred them. A fresh dataset below shows that
-    # the flag keeps them away.
     assert dataset.get_keypoint_metadata()["pose"].flip_pairs == [(1, 2)]
-
-    fresh = pose_dataset(
-        f"{dataset_name}_fresh", labels=LABELS, infer_flip_pairs=False
-    )
-
-    assert fresh.get_keypoint_metadata()["pose"].flip_pairs == []
 
 
 def test_a_later_add_keeps_the_flip_pairs_turned_off(
     dataset_name: str, tempdir: Path
 ):
-    """`add` inferred flip pairs for every entry without flip pairs.
+    """The stored entry does not record that the inference is off.
 
-    The stored entry does not record that the inference is off. A later
-    `add` of named records thus paired the two cameras, and a horizontal
-    flip swapped two keypoints that must not swap.
+    A later `add` of named records must not pair the two cameras, or a
+    horizontal flip swaps two keypoints that must not swap.
     """
     dataset = pose_dataset(
         dataset_name, labels=CAMERAS, infer_flip_pairs=False
@@ -1574,11 +1564,11 @@ def test_a_later_add_keeps_the_flip_pairs_turned_off(
 def test_a_later_set_keeps_the_flip_pairs_turned_off(
     dataset_name: str, labels: list[str] | None
 ):
-    """`set_keypoint_metadata` inferred flip pairs on each call.
+    """`set_keypoint_metadata` infers flip pairs only for new names.
 
-    A call that set only the sigmas thus paired the two cameras. A call
-    that gave the same names did too. Each parser gives the names again
-    after its `add`, so an import into the dataset paired them.
+    A call that sets only the sigmas must not pair the two cameras, and
+    neither must a call that gives the same names. Each parser gives the
+    names again after its `add`, so an import into the dataset does that.
     """
     dataset = pose_dataset(
         dataset_name, labels=CAMERAS, infer_flip_pairs=False
@@ -1626,10 +1616,10 @@ def test_only_an_explicit_flag_infers_flip_pairs_for_stored_names(
 def test_a_record_turns_the_inference_off_with_an_empty_list(
     dataset_name: str, tempdir: Path
 ):
-    """An empty list looked the same as a record without flip pairs.
+    """An empty list of flip pairs is not the same as no list.
 
-    `add` thus inferred flip pairs, and a record could not stop it. The
-    native export writes an empty list to keep the inference off.
+    It turns the inference off for the task. The native export writes an
+    empty list for that reason.
     """
     dataset = named_dataset(dataset_name, tempdir, fields={"flip_pairs": []})
 
@@ -1639,15 +1629,8 @@ def test_a_record_turns_the_inference_off_with_an_empty_list(
 def test_set_keypoint_metadata_keeps_an_empty_list_of_flip_pairs(
     dataset_name: str,
 ):
-    """The method must infer flip pairs only when you omit them.
-
-    The docstring says so, but the method also inferred flip pairs for an
-    empty list.
-    """
-    dataset = LuxonisDataset(dataset_name, delete_local=True)
-    dataset.set_tasks({"pose": ["keypoints"]})
-
-    dataset.set_keypoint_metadata(labels=LABELS, flip_pairs=[], task="pose")
+    """The method infers flip pairs only when you omit them."""
+    dataset = pose_dataset(dataset_name, labels=LABELS, flip_pairs=[])
 
     assert dataset.get_keypoint_metadata()["pose"].flip_pairs == []
 
@@ -1673,61 +1656,28 @@ def test_box_relative_keypoints_keep_the_fields_that_the_record_gives(
     the inference off.
     """
 
-    def generator() -> DatasetIterator:
-        for i in range(4):
-            yield {
-                "media": str(create_image(i, tempdir)),
-                "task_name": "pose",
-                "annotation": {
-                    "class": "person",
-                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.5, "h": 0.5},
-                    "keypoints": {"keypoints": NAMED_KEYPOINTS, **fields},
-                    "scale_to_boxes": True,
-                },
-            }
-
-    dataset = create_dataset(dataset_name, generator())
+    dataset = create_dataset(
+        dataset_name,
+        record_generator(
+            tempdir,
+            {
+                "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.5, "h": 0.5},
+                "keypoints": {"keypoints": NAMED_KEYPOINTS, **fields},
+                "scale_to_boxes": True,
+            },
+        ),
+    )
 
     assert dataset.get_keypoint_metadata()["pose"].flip_pairs == flip_pairs
-
-
-def test_only_the_skeleton_aliases_are_documented_as_deprecated():
-    """A body-level ``.. deprecated::`` block deprecates the whole method.
-
-    The rename left such a block on `set_keypoint_metadata`, which is the
-    replacement API. pydoctor then printed the same banner on the
-    supported setter as on the aliases that it replaces. The docstring
-    must agree with the decorator.
-    """
-    documented: set[str] = set()
-    decorated: set[str] = set()
-    for name in (
-        "set_keypoint_metadata",
-        "get_keypoint_metadata",
-        "set_skeletons",
-        "get_skeletons",
-    ):
-        method = getattr(BaseDataset, name)
-        docstring = inspect.getdoc(method) or ""
-        if any(
-            line.startswith(".. deprecated::")
-            for line in docstring.splitlines()
-        ):
-            documented.add(name)
-        if hasattr(method, "__deprecated__"):
-            decorated.add(name)
-
-    assert documented == decorated == {"set_skeletons", "get_skeletons"}
 
 
 def test_set_keypoint_metadata_rejects_duplicate_names(
     dataset_name: str, tempdir: Path
 ):
-    """A duplicate name used to pass.
+    """Duplicate names do not identify the keypoints.
 
-    The stored names then did not identify the keypoints. A record with
-    names could not join the task, and an export lost the names. The
-    failed call must leave the stored names alone.
+    A record with names could not join the task, and an export would lose
+    the names. The failed call leaves the stored names alone.
     """
     dataset = named_dataset(dataset_name, tempdir)
 
@@ -1742,25 +1692,24 @@ def test_set_keypoint_metadata_rejects_duplicate_names(
 def test_set_keypoint_metadata_changes_no_task_when_one_fails(
     dataset_name: str, tempdir: Path
 ):
-    """Without a task, the method stored each task before the next check.
+    """Without a task, the method checks every task before it stores one.
 
-    The second task has no keypoint names, so the edge names failed there.
-    The first task already held the new edge in memory, and the next
-    metadata write saved it.
+    The second task has no keypoint names, so the edge names fail there.
+    The first task must not keep the new edge in memory, or the next
+    metadata write saves it.
     """
 
     def generator() -> DatasetIterator:
         yield from keypoint_generator(
             tempdir, NAMED_KEYPOINTS, {"edges": [("nose", "left_eye")]}, n=1
         )
-        yield {
-            "media": str(create_image(1, tempdir)),
-            "task_name": "detection",
-            "annotation": {
-                "class": "car",
-                "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.3},
-            },
-        }
+        yield from record_generator(
+            tempdir,
+            {"class": "car", "boundingbox": BOX},
+            "detection",
+            n=1,
+            start=1,
+        )
 
     dataset = create_dataset(dataset_name, generator(), splits=False)
 
@@ -1776,12 +1725,12 @@ def test_set_keypoint_metadata_changes_no_task_when_one_fails(
 def test_a_dataset_with_repeated_names_still_opens_and_loads(
     dataset_name: str, tempdir: Path
 ):
-    """The check for repeated names ran each time a dataset opened.
+    """A dataset from an older luxonis-ml can repeat a keypoint name.
 
-    `Metadata` validates the stored file on open, so a dataset from an
-    older luxonis-ml did not open, and no API could rename its keypoints.
-    The loader also keyed each row by name, and a repeated name dropped a
-    keypoint from the loaded array.
+    `Metadata` validates the stored file on open, so the check for
+    repeated names cannot run there, or no API could rename the
+    keypoints. The loader reads the rows by position, so a repeated name
+    drops no keypoint from the loaded array.
     """
     dataset = repeated_names_dataset(dataset_name, tempdir)
 
@@ -1795,10 +1744,10 @@ def test_a_dataset_with_repeated_names_still_opens_and_loads(
 def test_a_later_add_keeps_every_keypoint_of_repeated_names(
     dataset_name: str, tempdir: Path
 ):
-    """`add` aligned the new rows against the stored names.
+    """A record without names keeps every keypoint next to repeated names.
 
-    The alignment keys the keypoints by name, so the repeated name
-    dropped a keypoint from each new row.
+    The names key the keypoints, so an alignment against a repeated name
+    would drop a keypoint from each new row.
     """
     dataset = repeated_names_dataset(dataset_name, tempdir)
 
@@ -1813,11 +1762,11 @@ def test_a_later_add_keeps_every_keypoint_of_repeated_names(
 def test_repeated_names_still_set_the_keypoint_count(
     dataset_name: str, tempdir: Path
 ):
-    """`add` did not align a record against repeated names.
+    """Repeated names still set the keypoint count.
 
-    A record with four keypoints thus joined a task with three. The loader
-    gave that sample a wider keypoint array than the other samples. A task
-    with unique names rejects the same record.
+    A record with four keypoints cannot join a task with three, or the
+    loader gives that sample a wider keypoint array than the others. A
+    task with unique names rejects the same record.
     """
     dataset = repeated_names_dataset(dataset_name, tempdir)
 
@@ -1843,12 +1792,12 @@ def test_a_record_with_names_cannot_join_repeated_names(
     tempdir: Path,
     keypoints: dict[str, tuple[float, float, int]],
 ):
-    """`add` let the names of a record replace repeated names.
+    """The names of a record cannot match repeated names.
 
-    The stored rows kept their order, so a stored keypoint got the name of
-    another keypoint. A subset of the names also made the task smaller
-    than its rows. The names of a record cannot match repeated names, so
-    `add` must reject the record before it writes a row.
+    The stored rows keep their order, so a stored keypoint would get the
+    name of another keypoint, and a subset of the names would make the
+    task smaller than its rows. `add` rejects the record before it writes
+    a row.
     """
     dataset = repeated_names_dataset(dataset_name, tempdir)
 
@@ -1866,10 +1815,10 @@ def test_a_record_with_names_cannot_join_repeated_names(
 def test_set_keypoint_metadata_keeps_the_repeated_names_it_is_not_given(
     dataset_name: str, tempdir: Path
 ):
-    """The check for repeated names ran on every call.
+    """The check for repeated names runs only on names that a call gives.
 
-    A call that sets only the sigmas thus failed on a dataset from an
-    older luxonis-ml. `add` stored the same sigmas without an error.
+    A call that sets only the sigmas works on a dataset from an older
+    luxonis-ml, as `add` does.
     """
     dataset = repeated_names_dataset(dataset_name, tempdir)
 
@@ -1890,7 +1839,7 @@ def test_an_export_warns_that_it_loses_repeated_names(
     warnings_log: list[str],
     dataset_type: DatasetType,
 ):
-    """No export keeps repeated names, and no export warned.
+    """No export keeps repeated names, so each export warns.
 
     The native import numbers the keypoints, and the COCO import rejects
     the names.
@@ -1905,11 +1854,7 @@ def test_an_export_warns_that_it_loses_repeated_names(
 def test_a_coco_export_without_keypoints_does_not_warn_about_them(
     dataset_name: str, tempdir: Path, warnings_log: list[str]
 ):
-    """The COCO exporter read empty keypoint metadata as many tasks.
-
-    A dataset without keypoints thus got a warning that the export skips
-    its keypoint annotations.
-    """
+    """A dataset without keypoints has no keypoint annotations to skip."""
     dataset = create_dataset(dataset_name, detection_generator(tempdir))
 
     dataset.export(tempdir / "exported_coco", DatasetType.COCO)
@@ -1938,22 +1883,12 @@ def test_new_names_replace_repeated_names(dataset_name: str, tempdir: Path):
     )
 
 
-def test_set_keypoint_metadata_needs_something_to_set(
-    dataset_name: str, tempdir: Path
-):
-    dataset = named_dataset(dataset_name, tempdir)
-
-    with pytest.raises(ValueError, match="Must provide either"):
-        dataset.set_keypoint_metadata()
-
-
 def test_native_export_round_trips_the_metadata(
     dataset_name: str, tempdir: Path
 ):
-    """Native export used to drop the keypoint metadata entirely.
+    """`test_export` covers the round trip with downloaded fixtures.
 
-    `test_export` covers the round-trip against downloaded fixtures; this
-    keeps it verifiable without them.
+    This test keeps it verifiable without them.
     """
     dataset = named_dataset(
         dataset_name,
@@ -1971,21 +1906,14 @@ def test_native_export_round_trips_the_metadata(
 def test_native_export_keeps_the_flip_pairs_turned_off(
     dataset_name: str, tempdir: Path
 ):
-    """The export left out an empty list of flip pairs.
+    """The export writes an empty list of flip pairs.
 
-    The import then saw names without flip pairs and inferred them. The
-    imported dataset paired the two cameras, and the source dataset did
-    not.
+    Without it, the import sees names without flip pairs and infers them,
+    so the imported dataset pairs the two cameras.
     """
-    dataset = create_dataset(
-        dataset_name,
-        positional_generator(tempdir, [3, 3, 3, 3]),
-        splits=(1, 0, 0),
+    imported = export_and_import(
+        cameras_dataset(dataset_name, tempdir), tempdir
     )
-    dataset.set_keypoint_metadata(
-        labels=CAMERAS, task="pose", infer_flip_pairs=False
-    )
-    imported = export_and_import(dataset, tempdir)
 
     assert imported.get_keypoint_metadata() == {
         "pose": KeypointMetadata(labels=CAMERAS)
@@ -1997,17 +1925,10 @@ def test_a_coco_import_into_the_dataset_keeps_the_flip_pairs_turned_off(
 ):
     """The parser gives the names of the source again after its `add`.
 
-    The task already had these names, but the call inferred flip pairs
-    for them. The import thus paired the two cameras of the dataset.
+    The task already has these names, so the call must not infer flip
+    pairs for them and pair the two cameras.
     """
-    dataset = create_dataset(
-        dataset_name,
-        positional_generator(tempdir, [3, 3, 3, 3]),
-        splits=(1, 0, 0),
-    )
-    dataset.set_keypoint_metadata(
-        labels=CAMERAS, task="pose", infer_flip_pairs=False
-    )
+    dataset = cameras_dataset(dataset_name, tempdir)
     exported = dataset.export(tempdir / "exported_coco", DatasetType.COCO)
     assert isinstance(exported, Path)
 
@@ -2039,18 +1960,15 @@ def test_a_shorter_record_without_names_does_not_get_the_task_fields(
     ldf_version: str | None,
     imported_edges: list[tuple[int, int]],
 ):
-    """The export used to put the task fields on a short first record.
+    """A short record without names cannot carry the task fields.
 
     A task can hold records with different numbers of keypoints. The
     edges and the sigmas describe the full set, but the import checks
-    every record against its own keypoints. The short record referred to
-    a keypoint that it does not have, so the export was unreadable.
-
-    The export then padded the short record. The import pads the other
-    short records only against names. A task without names and LDF 2.1
-    or older have no names, so the imported row had another width than
-    the source row. LDF 2.1 and older have no edges either, so their
-    import chains the keypoints.
+    each record against its own keypoints. Padding does not help: the
+    import pads short records only against names, and a task without
+    names, or LDF 2.1 and older, has none. The imported row would change
+    width. LDF 2.1 and older have no edges either, so their import chains
+    the keypoints.
     """
     dataset = create_dataset(
         dataset_name, positional_generator(tempdir, [2, 3, 3, 3]), splits=False
@@ -2083,9 +2001,9 @@ def test_a_named_task_imports_a_record_with_fewer_keypoints(
 ):
     """The export names the keypoints on one full record of the split.
 
-    The import applies those names to every record of the split. The
-    keys ``"0"``, ``"1"`` of the short record were then unknown names,
-    so the export of the task did not import.
+    The import applies those names to every record of the split, so the
+    keys ``"0"`` and ``"1"`` of the short record must not count as
+    unknown names.
     """
     dataset = create_dataset(
         dataset_name,
@@ -2105,13 +2023,12 @@ def test_a_named_task_imports_a_record_with_fewer_keypoints(
 def test_a_task_of_short_records_exports_its_names(
     dataset_name: str, tempdir: Path
 ):
-    """The export put the task fields only on a record with every keypoint.
+    """A short record with names can carry the task fields.
 
-    Every record here has fewer keypoints than the names, so no record
-    carried the fields. The import gave the task the names ``"0"`` and
-    ``"1"``, and it lost the edge, the flip pair and the sigmas. The
-    imported rows also kept two keypoints, but the source loader gives
-    three.
+    Every record here has fewer keypoints than the names. Without the
+    fields, the import names the keypoints ``"0"`` and ``"1"``, loses the
+    edge, the flip pair and the sigmas, and keeps rows of two keypoints
+    where the source loader gives three.
     """
     dataset = create_dataset(
         dataset_name,
@@ -2135,11 +2052,11 @@ def test_a_task_of_short_records_exports_its_names(
 def test_the_native_export_keeps_every_keypoint_of_repeated_names(
     dataset_name: str, tempdir: Path
 ):
-    """The export keyed the keypoints of one record by name.
+    """The export does not key the keypoints of repeated names by name.
 
-    A mapping holds one keypoint for each name, so that record lost a
-    keypoint. The import took its two names for the task, and every
-    other record of the split then had more keypoints than the task.
+    A mapping holds one keypoint for each name, so a record would lose a
+    keypoint. The import would take its two names for the task, and every
+    other record of the split would have more keypoints than the task.
     """
     dataset = repeated_names_dataset(dataset_name, tempdir)
     imported = export_and_import(dataset, tempdir)
@@ -2156,9 +2073,8 @@ def test_the_native_export_leaves_out_names_for_fewer_keypoints_than_a_row(
     """New names do not change the rows that a task already has.
 
     The rows of the first `add` have five keypoints, and the names cover
-    three. The export named the keypoints of the val split. The import
-    then rejected the three names, because the train split has rows of
-    five keypoints.
+    three. The import rejects names narrower than a row of any split, so
+    the export leaves the names out.
     """
     dataset = create_dataset(
         dataset_name, positional_generator(tempdir, [5, 5]), splits=False
@@ -2201,11 +2117,8 @@ def test_the_batch_size_does_not_change_a_short_record(
 ):
     """A small batch writes the short records before the names are known.
 
-    The default batch saw the names first and rejected the records. A
-    batch of one accepted them and stored rows of two keypoints and of
-    one keypoint. The loader, the equality of two datasets and the
-    exporters all read the stored rows, so the rows must not depend on
-    the batch size.
+    The loader, the equality of two datasets and the exporters all read
+    the stored rows, so every batch size must store the same padded rows.
     """
 
     def generator() -> DatasetIterator:
@@ -2231,11 +2144,11 @@ def test_the_batch_size_does_not_change_a_short_record(
 def test_the_batch_size_does_not_change_a_row_of_an_earlier_add(
     dataset_name: str, tempdir: Path
 ):
-    """`add` found the short rows of its earlier batches by their UUID.
+    """`add` finds the short rows of its earlier batches by file.
 
-    The UUID comes from the bytes of the image. The copy of an image from
-    an earlier `add` has another path, but the same UUID. A small batch
-    thus also padded the row of the earlier `add`, and one batch did not.
+    The UUID comes from the bytes of the image, so the copy of an image
+    from an earlier `add` has the same UUID, but another path. A small
+    batch must not pad the row of the earlier `add`.
     """
     copy = tempdir / "copy_of_img_0.jpg"
     shutil.copy(create_image(0, tempdir), copy)
@@ -2284,14 +2197,13 @@ def test_only_a_task_without_names_warns_about_mixed_widths(
     dataset_name: str,
     tempdir: Path,
     warnings_log: list[str],
-    keypoints: list[tuple[float, float, int]]
-    | dict[str, tuple[float, float, int]],
+    keypoints: Keypoints,
     warns: bool,
 ):
-    """`add` warned about mixed widths after it padded every row.
+    """Only rows without names can keep different widths.
 
-    The names of a task set the width, and `add` pads the short record to
-    it. Without names, the rows keep their own widths.
+    The names of a task set the width, and `add` pads a short record to
+    it, so a task with names does not warn.
     """
 
     def generator() -> DatasetIterator:
@@ -2306,11 +2218,10 @@ def test_only_a_task_without_names_warns_about_mixed_widths(
 def test_the_mixed_width_warning_names_the_stored_keypoint_count(
     dataset_name: str, tempdir: Path, warnings_log: list[str]
 ):
-    """The warning named the widest record of the `add`.
+    """The warning names the keypoint count that `add` stores.
 
     `add` does not make a task smaller, so the rows of an earlier `add`
-    can be wider. The warning then named fewer keypoints than the
-    metadata that `add` stored.
+    can be wider than any record of this one.
     """
     dataset = create_dataset(
         dataset_name, positional_generator(tempdir, [5]), splits=False
@@ -2327,8 +2238,8 @@ def test_the_loader_pads_a_short_row_to_the_names(
 ):
     """New names do not change the rows that a task already has.
 
-    The loader read a short row under positional keys, so the sample of
-    that row got a narrower keypoint array than the other sample.
+    The loader pads a short row to the names, so every sample of the task
+    gets a keypoint array of the same width.
     """
     dataset = create_dataset(
         dataset_name, positional_generator(tempdir, [2, 3]), splits=(1, 0, 0)
@@ -2344,27 +2255,25 @@ def test_the_loader_pads_a_short_row_to_the_names(
     ]
 
 
-def test_edges_alone_do_not_widen_a_loaded_row(
-    dataset_name: str, tempdir: Path
-):
-    """Edges do not set the width of a loaded row.
+def test_edges_do_not_set_the_keypoint_count(dataset_name: str, tempdir: Path):
+    """Edges need not reach the last keypoint, so they give no count.
 
-    Without labels, `get_n_keypoints` reads the keypoint count off the
-    highest edge index. An older luxonis-ml wrote the same edges to every
-    task, so the hand task has the edges of the pose task. The loader must
-    not give each hand three keypoints that it does not have.
+    An older luxonis-ml wrote the same edges to every task without
+    labels, so the hand task has the edges of the pose task. A task
+    without labels counts the keypoints of its widest stored row.
     """
 
     def generator() -> DatasetIterator:
-        yield from positional_generator(tempdir, [5])
-        yield {
-            "media": str(create_image(0, tempdir)),
-            "task_name": "hand",
-            "annotation": {
+        yield from positional_generator(tempdir, [5, 5])
+        yield from record_generator(
+            tempdir,
+            {
                 "class": "hand",
                 "keypoints": {"keypoints": [(0.3, 0.3, 2), (0.4, 0.4, 1)]},
             },
-        }
+            "hand",
+            n=1,
+        )
 
     dataset = legacy_dataset(
         create_dataset(dataset_name, generator(), splits=(1, 0, 0)),
@@ -2374,19 +2283,30 @@ def test_edges_alone_do_not_widen_a_loaded_row(
         },
     )
 
-    _, labels = LuxonisLoader(dataset)[0]
+    assert dataset.get_n_keypoints() == {"pose": 5, "hand": 2}
+    assert loaded_keypoint_shapes(dataset) == [(1, 15), (1, 15)]
+    assert loaded_keypoint_shapes(dataset, "hand") == [(0, 6), (1, 6)]
 
-    assert labels["pose/keypoints"].shape == (1, 15)
-    assert labels["hand/keypoints"].tolist() == [
-        [0.3, 0.3, 2.0, 0.4, 0.4, 1.0]
-    ]
+
+def test_cleared_labels_count_the_keypoints_of_the_rows(
+    dataset_name: str, tempdir: Path
+):
+    """Clearing the labels leaves the rows of the task as they are."""
+    dataset = create_dataset(
+        dataset_name, keypoint_and_box_generator(tempdir, 3), splits=(1, 0, 0)
+    )
+
+    dataset.set_keypoint_metadata(labels=[], edges=[(0, 1)], task="pose")
+
+    assert dataset.get_n_keypoints() == {"pose": 3}
+    assert loaded_keypoint_shapes(dataset) == [(0, 9), (1, 9)]
 
 
 def test_coco_export_round_trips_the_sigmas(dataset_name: str, tempdir: Path):
-    """The COCO exporter writes the sigmas, but the parser dropped them.
+    """The COCO export writes the sigmas, and the parser reads them back.
 
     OKS scoring reads the sigmas. A silent fallback to the defaults
-    changes the metric, so the round trip has to keep the exact values.
+    changes the metric, so the round trip keeps the exact values.
     """
     sigmas = [0.026, 0.025, 0.025]
     dataset = named_dataset(dataset_name, tempdir, fields={"sigmas": sigmas})

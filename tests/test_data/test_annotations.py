@@ -226,21 +226,12 @@ def test_keypoints_annotation(subtests: SubTests):
             )
 
     with subtests.test("auto_clip"):
-        kpt_ann = KeypointAnnotation.model_validate(
-            {"keypoints": [(-1.1, 1.1, 0)]}
-        )
-        assert 0 <= kpt_ann.keypoints["0"][0] <= 1
-        assert 0 <= kpt_ann.keypoints["0"][1] <= 1
-        kpt_ann = KeypointAnnotation.model_validate(
-            {"keypoints": [(0.1, 1.1, 1)]}
-        )
-        assert 0 <= kpt_ann.keypoints["0"][0] <= 1
-        assert 0 <= kpt_ann.keypoints["0"][1] <= 1
-        kpt_ann = KeypointAnnotation.model_validate(
-            {"keypoints": [(-2, 2, 2)]}
-        )
-        assert 0 <= kpt_ann.keypoints["0"][0] <= 1
-        assert 0 <= kpt_ann.keypoints["0"][1] <= 1
+        for keypoint in [(-1.1, 1.1, 0), (0.1, 1.1, 1), (-2, 2, 2)]:
+            clipped = KeypointAnnotation.model_validate(
+                {"keypoints": [keypoint]}
+            ).keypoints["0"]
+            assert 0 <= clipped.x <= 1
+            assert 0 <= clipped.y <= 1
     with subtests.test("numpy"):
         keypoints = KeypointAnnotation.model_validate(
             {"keypoints": [(0.1, 0.2, 2)]}

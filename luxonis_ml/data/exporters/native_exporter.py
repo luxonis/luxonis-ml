@@ -12,6 +12,7 @@ from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
     split_of_group,
+    warn_repeated_keypoint_names,
 )
 from luxonis_ml.data.exporters.ldf_downgrade import LDFDowngrader
 from luxonis_ml.data.utils.constants import LDF_VERSION
@@ -89,15 +90,12 @@ class NativeExporter(BaseExporter):
         self._metadata_attached: set[tuple[int | None, str, str]] = set()
         self._downgrade = LDFDowngrader(self.ldf_version)
         for task, task_keypoints in self.keypoint_metadata.items():
-            if task_keypoints.repeated_labels:
-                logger.warning(
-                    f"Task '{task}' repeats the keypoint names "
-                    f"{', '.join(task_keypoints.repeated_labels)}. The export "
-                    "cannot key the keypoints by these names, so the import "
-                    "numbers the keypoints. Give each keypoint a unique name "
-                    "with `LuxonisDataset.set_keypoint_metadata(labels=...)` "
-                    "to keep the names."
-                )
+            warn_repeated_keypoint_names(
+                task,
+                task_keypoints,
+                "The export cannot key the keypoints by these names, so "
+                "the import numbers the keypoints.",
+            )
 
     @staticmethod
     def get_split_names() -> dict[str, str]:
@@ -202,14 +200,12 @@ class NativeExporter(BaseExporter):
                         }
                     )
                     if named:
-                        aligned = task_keypoints.align(
-                            {
-                                str(i): Keypoint(*value)
-                                for i, value in enumerate(values)
-                            }
+                        # COCO's value for a keypoint that is not labeled.
+                        missing = [Keypoint(0.0, 0.0, 0)] * (
+                            len(labels) - len(values)
                         )
                         keypoints["keypoints"] = dict(
-                            zip(labels, aligned.values(), strict=True)
+                            zip(labels, values + missing, strict=True)
                         )
 
     def _drop_keypoint_metadata_of_wider_rows(self, df: pl.DataFrame) -> None:

@@ -12,8 +12,8 @@ from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
     check_group_file_correspondence,
     exporter_specific_annotation_warning,
-    get_single_skeleton,
     split_of_group,
+    warn_repeated_keypoint_names,
 )
 from luxonis_ml.data.utils import COCOFormat
 from luxonis_ml.enums import DatasetType
@@ -47,20 +47,28 @@ class CocoExporter(BaseExporter):
         )
         self.format = format
         self.keypoint_metadata = keypoint_metadata
+        self._category_keypoints: dict[str, Any] = {}
         if not self.keypoint_metadata:
             self.allow_keypoints = False
         elif len(self.keypoint_metadata) == 1:
             self.allow_keypoints = True
             task, task_keypoints = next(iter(self.keypoint_metadata.items()))
-            if task_keypoints.repeated_labels:
-                logger.warning(
-                    f"Task '{task}' repeats the keypoint names "
-                    f"{', '.join(task_keypoints.repeated_labels)}. The export "
-                    "writes them, but the COCO import of luxonis-ml rejects "
-                    "repeated names. Give each keypoint a unique name with "
-                    "`LuxonisDataset.set_keypoint_metadata(labels=...)` "
-                    "before the export."
-                )
+            warn_repeated_keypoint_names(
+                task,
+                task_keypoints,
+                "The export writes them, but the COCO import of luxonis-ml "
+                "rejects repeated names.",
+            )
+            if task_keypoints.labels:
+                # COCO numbers the ends of a skeleton edge from 1.
+                self._category_keypoints = {
+                    "keypoints": task_keypoints.labels,
+                    "skeleton": [
+                        [a + 1, b + 1] for a, b in task_keypoints.edges
+                    ],
+                }
+            if task_keypoints.sigmas:
+                self._category_keypoints["sigmas"] = task_keypoints.sigmas
         else:
             self.allow_keypoints = False
             logger.warning(
@@ -216,17 +224,7 @@ class CocoExporter(BaseExporter):
         if cname and cname not in self.class_name_to_category_id[split]:
             cid = self.last_category_id[split]
 
-            cat_entry = {"id": cid, "name": cname}
-
-            if self.allow_keypoints:
-                kp_labels, kp_skeleton, kp_sigmas = get_single_skeleton(
-                    self.keypoint_metadata
-                )
-                if kp_labels:
-                    cat_entry["keypoints"] = kp_labels
-                    cat_entry["skeleton"] = kp_skeleton
-                if kp_sigmas:
-                    cat_entry["sigmas"] = kp_sigmas
+            cat_entry = {"id": cid, "name": cname, **self._category_keypoints}
 
             annotation_splits[split]["categories"].append(cat_entry)
             self.class_name_to_category_id[split][cname] = cid

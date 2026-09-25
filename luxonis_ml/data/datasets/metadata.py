@@ -195,10 +195,4 @@ def _merge_keypoint_metadata(
             "two datasets being merged. Keeping the one from the dataset "
             "being merged in."
         )
-    return theirs.model_copy(
-        update={
-            field: getattr(mine, field)
-            for field in KeypointMetadata.model_fields
-            if not getattr(theirs, field)
-        }
-    )
+    return theirs.filled_from(mine)
