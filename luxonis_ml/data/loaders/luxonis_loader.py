@@ -250,18 +250,9 @@ class LuxonisLoader(BaseLoader):
 
         self._df = self.dataset._load_df_offline(raise_when_empty=True)
         self._classes = self.dataset.get_classes()
-        # The names as the dataset declared them, taken before this loader
-        # adds a `background` class to the tasks it fills. Rebuilding a
-        # record drops only the background this loader made up; one the
-        # dataset declares was annotated, so it is data and it stays.
-        self._declared_classes = {
-            task_name: set(classes)
-            for task_name, classes in self._classes.items()
-        }
 
-        # Cached because both are read for every loaded sample.
+        # Cached because every loaded sample reads it.
         self._keypoint_metadata = self.dataset.get_keypoint_metadata()
-        self._n_keypoints = self.dataset.get_n_keypoints()
 
         if self._filter_task_names is not None:
             if self.dataset.metadata.tasks:
@@ -334,6 +325,9 @@ class LuxonisLoader(BaseLoader):
         self._idx_to_img_paths = self._precompute_image_paths()
 
         self._tasks_without_background = set()
+        # Rebuilding a record drops only the background this loader made
+        # up. One the dataset declares was annotated, so it stays.
+        self._synthesized_background: set[str] = set()
         for task_name in self._uncovered_tasks():
             classes = self._classes[task_name]
             if len(classes) <= 1 or classes.get("background") == 0:
@@ -346,6 +340,7 @@ class LuxonisLoader(BaseLoader):
             )
             self._tasks_without_background.add(f"{task_name}/segmentation")
             if "background" not in classes:
+                self._synthesized_background.add(task_name)
                 self._classes[task_name] = {
                     "background": 0,
                     **{name: i + 1 for name, i in classes.items()},
@@ -484,7 +479,7 @@ class LuxonisLoader(BaseLoader):
 
         sample_metadata: Params = {}
         metadata_idx = col.get("sample_metadata")
-        if ann_rows and metadata_idx is not None:
+        if metadata_idx is not None:
             # Every row of a group repeats the metadata of the record it came
             # from, so the last one decides, as it always has.
             sample_metadata = DatasetRecord.decode_metadata(
@@ -613,7 +608,7 @@ class LuxonisLoader(BaseLoader):
 
         record = DatasetRecord.model_construct(
             files=source_to_path,
-            annotation=dict(detections_by_task),
+            annotation=detections_by_task,
             sample_metadata=sample_metadata,
         )
         output = record.to_loader_output(
@@ -902,19 +897,13 @@ class LuxonisLoader(BaseLoader):
             if self._filter_task_names is None
             or task_name in self._filter_task_names
         }
-        synthesized_background = {
-            task_name
-            for task_name, classes in self._classes.items()
-            if "background" in classes
-            and "background" not in self._declared_classes.get(task_name, ())
-        }
         return DatasetSchema(
             tasks=tasks,
             classes=self._classes,
             keypoint_metadata=self._keypoint_metadata,
             categorical_encodings=self.dataset.get_categorical_encodings(),
-            n_keypoints=self._n_keypoints,
-            synthesized_background=synthesized_background,
+            n_keypoints=self.dataset.get_n_keypoints(),
+            synthesized_background=self._synthesized_background,
         )
 
     @staticmethod

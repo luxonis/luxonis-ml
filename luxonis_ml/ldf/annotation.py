@@ -1839,9 +1839,7 @@ class SegmentationAnnotation(Annotation):
         """
         return [
             (
-                SegmentationAnnotation.model_validate(
-                    {"mask": mask.astype(np.uint8)}
-                ),
+                SegmentationAnnotation.model_validate({"mask": mask}),
                 class_id,
             )
             for class_id, mask in enumerate(array)
@@ -2064,9 +2062,7 @@ class InstanceSegmentationAnnotation(SegmentationAnnotation):
         """
         return [
             (
-                InstanceSegmentationAnnotation.model_validate(
-                    {"mask": mask.astype(np.uint8)}
-                ),
+                InstanceSegmentationAnnotation.model_validate({"mask": mask}),
                 None,
             )
             for mask in array
@@ -2415,10 +2411,10 @@ class DatasetRecord(BaseModelExtraForbid):
         annotation = values.get("annotation")
         if annotation is None or _is_task_mapping(annotation):
             grouped = {
-                task_name: list(detections)
+                name: list(detections)
                 if isinstance(detections, (list, tuple))
                 else [detections]
-                for task_name, detections in (annotation or {}).items()
+                for name, detections in (annotation or {}).items()
             }
             if task_name is not None and set(grouped) - {task_name}:
                 raise ValueError(
@@ -2452,14 +2448,14 @@ class DatasetRecord(BaseModelExtraForbid):
         if len(provided) > 1:
             names = " or ".join(f"'{key}'" for key in provided)
             raise ValueError(f"Provide either {names}, not both.")
-        if provided and provided != ["media"]:
+        if not provided:
+            return values
+        if provided != ["media"]:
             log_once(
                 logger.warning,
                 "The 'file' and 'files' fields are deprecated. Use 'media', "
                 "which takes one path or a mapping of source names to paths.",
             )
-        if not provided:
-            return values
 
         media = values.pop(provided[0])
         # 'file' always named one source. 'media' names one only when it is
@@ -2714,8 +2710,8 @@ def load_annotation(
     if task_type == "array" and "path" in data:
         # Stored arrays keep the old key, so reading one back must not look
         # like a caller that still uses the deprecated name.
-        data = {**data, "data": data["path"]}
-        del data["path"]
+        data = dict(data)
+        data["data"] = data.pop("path")
     return classes[task_type].model_validate(
         data, context={"n_keypoints": n_keypoints}
     )

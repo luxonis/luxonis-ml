@@ -883,8 +883,8 @@ def test_datasets_of_different_minor_versions_merge(
     assert set(merged.get_classes()[""]) == {"person", "dog"}
     assert len(merged) == 6
     assert target.version == merged.version == LDF_VERSION
-    # The merged dataset claims LDF 2.2, so each stored row needs the
-    # column.
+    # The merged dataset claims the current LDF version, so each stored
+    # row needs the column.
     stored = pl.read_parquet(str(merged._annotations_path / "*.parquet"))
     assert set(stored["sample_metadata"]) == {DEFAULT_METADATA}
 

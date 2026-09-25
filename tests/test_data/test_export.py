@@ -10,7 +10,7 @@ from luxonis_ml.data import LuxonisLoader, LuxonisParser
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.enums.enums import DatasetType
 
-from .utils import create_dataset, create_image
+from .utils import create_dataset, create_image, export_and_import
 
 # Export formats applicable to COCO_people_subset in this test module.
 # Types that require image-level masks or classification labels are
@@ -125,18 +125,7 @@ def test_native_export_import_preserves_record_metadata(
             }
 
     dataset = create_dataset(dataset_name, generator(), splits=(1, 0, 0))
-    export_path = dataset.export(
-        tempdir / "exported", dataset_type=DatasetType.NATIVE
-    )
-    assert isinstance(export_path, Path)
-    exported_dataset_path = Path(export_path) / dataset.identifier
-    imported_dataset = LuxonisParser(
-        str(exported_dataset_path),
-        dataset_type=DatasetType.NATIVE,
-        dataset_name=f"{dataset_name}_imported",
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
+    imported_dataset = export_and_import(dataset, tempdir)
     imported_dataset.make_splits((1, 0, 0), replace_old_splits=True)
 
     metadata = sorted(
@@ -177,18 +166,7 @@ def test_a_whole_image_export_keeps_its_classes(
             }
 
     dataset = create_dataset(dataset_name, generator(), splits=(1, 0, 0))
-    exported = dataset.export(
-        tempdir / f"exported_{dataset_type.value}", dataset_type=dataset_type
-    )
-    assert isinstance(exported, Path)
-
-    imported = LuxonisParser(
-        str(exported / dataset.identifier),
-        dataset_type=dataset_type,
-        dataset_name=f"{dataset_name}_imported",
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
+    imported = export_and_import(dataset, tempdir, dataset_type)
 
     imported_classes = {
         class_name
@@ -235,17 +213,7 @@ def test_native_export_does_not_invent_a_nameless_task(
         yield {"media": create_image(2, tempdir)}
 
     dataset = create_dataset(dataset_name, generator(), splits=(1, 0, 0))
-    export_path = dataset.export(
-        tempdir / "exported", dataset_type=DatasetType.NATIVE
-    )
-    assert isinstance(export_path, Path)
-    imported_dataset = LuxonisParser(
-        str(Path(export_path) / dataset.identifier),
-        dataset_type=DatasetType.NATIVE,
-        dataset_name=f"{dataset_name}_imported",
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
+    imported_dataset = export_and_import(dataset, tempdir)
 
     assert "" not in imported_dataset.get_tasks()
     assert imported_dataset.get_tasks() == dataset.get_tasks()

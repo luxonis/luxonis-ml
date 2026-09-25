@@ -41,20 +41,13 @@ from .tasks import get_task_group, get_task_type
 
 __all__ = ["labels_to_record", "record_to_loader_output"]
 
-#: Task types that describe one instance each, in the order they are trusted
-#: to define the instance order of a task.
-_INSTANCE_TASK_TYPES = (
-    "boundingbox",
-    "instance_segmentation",
-    "keypoints",
-    "array",
-)
-
-_ANNOTATION_TYPES: dict[str, type[Annotation]] = {
+#: The annotation of each task type that describes one instance. The order
+#: is the order in which they are trusted to define the instance order of a
+#: task.
+_INSTANCE_TASK_TYPES: dict[str, type[Annotation]] = {
     "boundingbox": BBoxAnnotation,
-    "keypoints": KeypointAnnotation,
-    "segmentation": SegmentationAnnotation,
     "instance_segmentation": InstanceSegmentationAnnotation,
+    "keypoints": KeypointAnnotation,
     "array": ArrayAnnotation,
 }
 
@@ -423,12 +416,10 @@ def _instance_detections(
 ) -> list[Detection]:
     """Rebuild the detections that describe one instance each."""
     split: dict[str, list[tuple[Annotation, int | None]]] = {}
-    for task_type in _INSTANCE_TASK_TYPES:
+    for task_type, annotation_type in _INSTANCE_TASK_TYPES.items():
         array = task_types.get(task_type)
         if array is not None and len(array):
-            split[task_type] = _ANNOTATION_TYPES[task_type].split_from_numpy(
-                array
-            )
+            split[task_type] = annotation_type.split_from_numpy(array)
 
     metadata = _split_metadata(task_name, task_types, schema)
     # The metadata is keyed by row index, and a row in the middle can carry

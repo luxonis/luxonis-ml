@@ -21,7 +21,6 @@ from luxonis_ml.data.parsers.base_parser import BaseParser, ParserOutput
 from luxonis_ml.data.parsers.native_parser import NativeParser
 from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.utils import environ
 
 from .utils import create_image
@@ -1443,7 +1442,7 @@ def test_task_names_group_a_record_by_class(dataset_name: str, tempdir: Path):
 
     def generator() -> DatasetIterator:
         yield {
-            "file": image,
+            "media": image,
             "annotation": [
                 {"class": "car"},
                 {"class": "rain"},
@@ -1453,7 +1452,6 @@ def test_task_names_group_a_record_by_class(dataset_name: str, tempdir: Path):
 
     (record,) = list(parser._wrap_generator(generator()))
 
-    assert isinstance(record, DatasetRecord)
     assert {
         task_name: [detection.class_name for detection in detections]
         for task_name, detections in record.annotation.items()
@@ -1465,7 +1463,7 @@ def test_task_names_reject_an_unknown_class(dataset_name: str, tempdir: Path):
     image = create_image(0, tempdir)
 
     def generator() -> DatasetIterator:
-        yield {"file": image, "annotation": [{"class": "bicycle"}]}
+        yield {"media": image, "annotation": [{"class": "bicycle"}]}
 
     with pytest.raises(ValueError, match="not found in task names"):
         list(parser._wrap_generator(generator()))
@@ -1480,15 +1478,12 @@ def test_an_unlabeled_record_is_yielded_for_every_task(
     image = create_image(0, tempdir)
 
     def generator() -> DatasetIterator:
-        yield {"file": image}
+        yield {"media": image}
 
     records = list(parser._wrap_generator(generator()))
 
     assert sorted(
-        task_name
-        for record in records
-        if isinstance(record, DatasetRecord)
-        for task_name in record.annotation
+        task_name for record in records for task_name in record.annotation
     ) == ["vehicles", "weather"]
 
 

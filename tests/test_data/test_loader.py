@@ -499,28 +499,35 @@ def test_an_empty_label_survives_augmentation(
     ) == [0, 1]
 
 
-def test_a_declared_background_class_survives_a_round_trip(
-    dataset_name: str, tempdir: Path
+@pytest.mark.parametrize(
+    ("class_name", "rows"),
+    [
+        pytest.param("background", slice(256, None), id="declared"),
+        pytest.param("sky", slice(256, 400), id="synthesized"),
+    ],
+)
+def test_only_a_synthesized_background_class_is_dropped(
+    dataset_name: str, tempdir: Path, class_name: str, rows: slice
 ):
-    """A dataset may annotate a class it calls ``background``.
+    """The loader fills the pixels no class claims with ``background``.
 
-    The loader synthesizes a class of that name for the pixels no class
-    claims, and rebuilding a record drops it again. Only the synthesized one
-    may be dropped, or an annotated background is deleted.
+    That class is the loader's own, so a rebuilt record drops it. A dataset
+    may also annotate a class it calls ``background``, and a rebuilt record
+    must keep that one.
     """
     road = np.zeros((512, 512), dtype=np.uint8)
     road[:256] = 1
-    background = np.zeros((512, 512), dtype=np.uint8)
-    background[256:] = 1
+    other = np.zeros((512, 512), dtype=np.uint8)
+    other[rows] = 1
 
     def generator() -> DatasetIterator:
         image = create_image(0, tempdir)
-        for class_name, mask in [("road", road), ("background", background)]:
+        for name, mask in [("road", road), (class_name, other)]:
             yield {
                 "media": image,
                 "task_name": "scene",
                 "annotation": {
-                    "class": class_name,
+                    "class": name,
                     "segmentation": {"mask": mask},
                 },
             }
@@ -534,43 +541,7 @@ def test_a_declared_background_class_survives_a_round_trip(
         for detection in sample.to_ldf().annotation["scene"]
         if detection.segmentation is not None
         and detection.class_name is not None
-    ) == ["background", "road"]
-
-
-def test_a_synthesized_background_class_is_dropped(
-    dataset_name: str, tempdir: Path
-):
-    """The loader fills the pixels no class claims.
-
-    That class is the loader's own, so a rebuilt record must not carry it.
-    """
-    road = np.zeros((512, 512), dtype=np.uint8)
-    road[:256] = 1
-    sky = np.zeros((512, 512), dtype=np.uint8)
-    sky[256:400] = 1
-
-    def generator() -> DatasetIterator:
-        image = create_image(0, tempdir)
-        for class_name, mask in [("road", road), ("sky", sky)]:
-            yield {
-                "media": image,
-                "task_name": "scene",
-                "annotation": {
-                    "class": class_name,
-                    "segmentation": {"mask": mask},
-                },
-            }
-
-    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
-
-    sample = LuxonisLoader(dataset, view="train")[0]
-
-    assert sorted(
-        detection.class_name
-        for detection in sample.to_ldf().annotation["scene"]
-        if detection.segmentation is not None
-        and detection.class_name is not None
-    ) == ["road", "sky"]
+    ) == sorted(["road", class_name])
 
 
 def test_an_absent_metadata_label_has_no_rows(
@@ -1463,15 +1434,13 @@ def test_a_loaded_sample_rebuilds_into_a_record(
 
     def generator() -> DatasetIterator:
         img = create_image(0, tempdir)
-        for instance_id, (class_name, mood) in enumerate(
-            [("person", "happy"), ("person", "sad")]
-        ):
+        for instance_id, mood in enumerate(["happy", "sad"]):
             yield {
                 "media": img,
                 "task_name": "driver",
                 "annotation": {
                     "instance_id": instance_id,
-                    "class": class_name,
+                    "class": "person",
                     "boundingbox": {
                         "x": 0.1 * instance_id,
                         "y": 0.1,

@@ -1,12 +1,11 @@
 """Opening a dataset written before the LDF 3.0 bump."""
 
-import json
 from pathlib import Path
 
 import numpy as np
 import polars as pl
 
-from luxonis_ml.data import LuxonisDataset, LuxonisLoader
+from luxonis_ml.data import LuxonisLoader
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.ldf import SCHEMA_METADATA_KEY, DatasetSchema
@@ -33,12 +32,7 @@ def test_a_2_x_dataset_still_loads(dataset_name: str, tempdir: Path):
         }
 
     dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
-    metadata_path = dataset._metadata_path / "metadata.json"
-    metadata = json.loads(metadata_path.read_text())
-    metadata["ldf_version"] = "2.1.0"
-    metadata_path.write_text(json.dumps(metadata))
-
-    reopened = LuxonisDataset(dataset_name)
+    reopened = set_ldf_version(dataset, "2.1.0")
 
     # The migration ran, so the dataset now reports the version it was
     # migrated to. A dataset left on its old stamp would be migrated again

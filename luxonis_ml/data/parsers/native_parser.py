@@ -131,15 +131,14 @@ class NativeParser(BaseParser):
 
         def generator() -> DatasetIterator:
             for record in data:
-                with suppress(KeyError):
-                    # An older manifest names the media with the keys a
-                    # record now accepts only as deprecated ones.
-                    for key in ("media", "file", "files"):
-                        if key in record:
-                            record["media"] = _resolve_media(
-                                record.pop(key), annotation_path.parent
-                            )
-                            break
+                # An older manifest names the media with the keys a record
+                # now accepts only as deprecated ones.
+                for key in ("media", "file", "files"):
+                    if key in record:
+                        record["media"] = _resolve_media(
+                            record.pop(key), annotation_path.parent
+                        )
+                        break
                 for detection in _walk_detections(record.get("annotation")):
                     _resolve_annotation_paths(
                         detection, annotation_path.parent
@@ -230,26 +229,20 @@ def _walk_detections(
     export written by an older version.
 
     `DatasetRecord` and the native parser must use the same task-mapping
-    rules, or paths inside a valid record may not be resolved.
+    rules, or paths inside a valid record may not be resolved. The caller
+    rewrites the paths in place, so each detection itself is yielded.
     """
-    if isinstance(annotation, dict):
-        if _is_task_mapping(annotation):
-            for detections in annotation.values():
-                if isinstance(detections, dict):
-                    yield detections
-                elif isinstance(detections, (list, tuple)):
-                    yield from (
-                        detection
-                        for detection in detections
-                        if isinstance(detection, dict)
-                    )
-            return
-        # The caller rewrites the paths in place, so the detection itself
-        # is yielded, never a copy of it.
-        yield annotation
-    elif isinstance(annotation, (list, tuple)):
-        yield from (
-            detection
-            for detection in annotation
-            if isinstance(detection, dict)
-        )
+    groups = (
+        annotation.values()
+        if isinstance(annotation, dict) and _is_task_mapping(annotation)
+        else [annotation]
+    )
+    for detections in groups:
+        if isinstance(detections, dict):
+            yield detections
+        elif isinstance(detections, list):
+            yield from (
+                detection
+                for detection in detections
+                if isinstance(detection, dict)
+            )

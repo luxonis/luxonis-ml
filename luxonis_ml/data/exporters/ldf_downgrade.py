@@ -132,7 +132,7 @@ class LDFDowngrader:
         self._n_records = 0
 
     def __call__(self, record: dict[str, Any]) -> dict[str, Any]:
-        """Rewrite one exported record in place and return it."""
+        """Rewrite one exported record and return the result."""
         self._n_records += 1
         if self._flatten_record:
             record = self._flatten(record)

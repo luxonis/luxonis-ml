@@ -17,13 +17,6 @@ TRUCK = {
 }
 
 
-@pytest.fixture
-def image(tempdir: Path) -> Path:
-    path = tempdir / "image.png"
-    path.touch()
-    return path
-
-
 def rows(record: DatasetRecord) -> list[tuple[str, str | None, str | None]]:
     """Return the task name, task type and class of each parquet row."""
     return [
@@ -219,16 +212,15 @@ def test_every_secondary_source_gets_exactly_one_empty_row(tempdir: Path):
         }
     )
 
-    emitted = [
-        (row["source_name"], row["task_name"], row["task_type"])
+    empty = [
+        (row["source_name"], row["task_name"])
         for row in record.to_parquet_rows()
+        if row["task_type"] is None
     ]
 
     # The main source is the first file in path order, so the other one
     # carries the single empty row.
-    empty = [row for row in emitted if row[2] is None]
-    assert len(empty) == 1
-    assert empty[0][1] == "driver"
+    assert empty == [("rgb", "driver")]
 
 
 def test_detections_keep_their_own_sub_detections(image: Path):

@@ -118,8 +118,6 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
             self._ensure_background(split)
 
             # Only semantic segmentation, which describes the whole image.
-            # An instance mask is a different task type, so the instance
-            # number says nothing here. Every detection carries one.
             seg_rows = [
                 row
                 for row in entry.iter_rows(named=True)

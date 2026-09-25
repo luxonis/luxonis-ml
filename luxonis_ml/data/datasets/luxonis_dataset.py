@@ -796,17 +796,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         # key, or an older luxonis-ml refuses to open it. An empty entry
         # describes no keypoints.
         exclude: set[str] = set()
-        version = self.version
         if all(
             entry == KeypointMetadata()
             for entry in self._metadata.keypoint_metadata.values()
         ):
             exclude.add("keypoint_metadata")
-        elif version.major == LDF_VERSION.major and version < LDF_VERSION:
-            # With the key, the file needs the current LDF version. Another
-            # major version keeps its number, because `_load_df_offline`
-            # migrates the rows by that number.
-            self._metadata.ldf_version = str(LDF_VERSION)
         path = self._metadata_path / "metadata.json"
         path.write_text(
             self._metadata.model_dump_json(indent=4, exclude=exclude)
@@ -1792,14 +1786,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         # An `add` sees only the records it is given. A later one that
         # carries a negative declares the task with no task type, so the
         # stored types have to survive it.
-        stored_tasks = self.get_tasks()
-        merged_tasks = {
-            task_name: set(stored_tasks.get(task_name, [])) | set(task_types)
-            for task_name, task_types in tasks.items()
-        }
-        for task_name, task_types in stored_tasks.items():
-            merged_tasks.setdefault(task_name, set(task_types))
-        self.set_tasks(merged_tasks)
+        for task_name, task_types in self.get_tasks().items():
+            tasks[task_name].update(task_types)
+        self.set_tasks(tasks)
         if sources:
             components = {
                 source_name: LuxonisComponent(

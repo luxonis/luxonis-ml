@@ -16,11 +16,13 @@ from luxonis_ml.ldf.conversion import labels_to_record
 IMAGE = np.zeros((8, 8, 3), dtype=np.uint8)
 
 
-def roundtrip(
-    record: DatasetRecord, schema: DatasetSchema, **kwargs
-) -> DatasetRecord:
+def roundtrip(record: DatasetRecord, schema: DatasetSchema) -> DatasetRecord:
     """Convert a record to loader arrays and back."""
-    return record.to_loader_output(schema, **kwargs).to_ldf()
+    return record.to_loader_output(schema).to_ldf()
+
+
+def box(x: float, y: float, w: float, h: float) -> dict[str, float]:
+    return {"x": x, "y": y, "w": w, "h": h}
 
 
 def test_boxes_keep_their_class_and_coordinates():
@@ -35,21 +37,11 @@ def test_boxes_keep_their_class_and_coordinates():
                 "vehicles": [
                     {
                         "class": "truck",
-                        "boundingbox": {
-                            "x": 0.5,
-                            "y": 0.5,
-                            "w": 0.2,
-                            "h": 0.2,
-                        },
+                        "boundingbox": box(0.5, 0.5, 0.2, 0.2),
                     },
                     {
                         "class": "car",
-                        "boundingbox": {
-                            "x": 0.1,
-                            "y": 0.1,
-                            "w": 0.2,
-                            "h": 0.2,
-                        },
+                        "boundingbox": box(0.1, 0.1, 0.2, 0.2),
                     },
                 ]
             },
@@ -81,12 +73,7 @@ def test_class_only_labels_survive_beside_boxes():
                 "vehicles": [
                     {
                         "class": "car",
-                        "boundingbox": {
-                            "x": 0.1,
-                            "y": 0.1,
-                            "w": 0.2,
-                            "h": 0.2,
-                        },
+                        "boundingbox": box(0.1, 0.1, 0.2, 0.2),
                     },
                     {"class": "truck"},
                 ]
@@ -121,12 +108,7 @@ def test_keypoints_take_the_class_of_their_instance():
                 "pose": [
                     {
                         "class": "person",
-                        "boundingbox": {
-                            "x": 0.1,
-                            "y": 0.1,
-                            "w": 0.5,
-                            "h": 0.5,
-                        },
+                        "boundingbox": box(0.1, 0.1, 0.5, 0.5),
                         "keypoints": {
                             "keypoints": [(0.2, 0.2, 2), (0.3, 0.3, 1)]
                         },
@@ -185,12 +167,7 @@ def test_instance_masks_pair_with_their_box():
                 "cars": [
                     {
                         "class": "car",
-                        "boundingbox": {
-                            "x": 0.2,
-                            "y": 0.2,
-                            "w": 0.3,
-                            "h": 0.3,
-                        },
+                        "boundingbox": box(0.2, 0.2, 0.3, 0.3),
                         "instance_segmentation": {"mask": mask},
                     }
                 ]
@@ -253,22 +230,12 @@ def test_metadata_stays_with_its_own_instance():
                 "vehicles": [
                     {
                         "class": "car",
-                        "boundingbox": {
-                            "x": 0.1,
-                            "y": 0.1,
-                            "w": 0.2,
-                            "h": 0.2,
-                        },
+                        "boundingbox": box(0.1, 0.1, 0.2, 0.2),
                         "metadata": {"color": Category("blue"), "wheels": 4},
                     },
                     {
                         "class": "car",
-                        "boundingbox": {
-                            "x": 0.5,
-                            "y": 0.5,
-                            "w": 0.2,
-                            "h": 0.2,
-                        },
+                        "boundingbox": box(0.5, 0.5, 0.2, 0.2),
                         "metadata": {"color": Category("red"), "wheels": 6},
                     },
                 ]
@@ -301,21 +268,11 @@ def test_metadata_of_unnumbered_detections_stays_on_its_own_row():
                 "vehicles": [
                     {
                         "class": "car",
-                        "boundingbox": {
-                            "x": 0.1,
-                            "y": 0.1,
-                            "w": 0.2,
-                            "h": 0.2,
-                        },
+                        "boundingbox": box(0.1, 0.1, 0.2, 0.2),
                     },
                     {
                         "class": "car",
-                        "boundingbox": {
-                            "x": 0.5,
-                            "y": 0.5,
-                            "w": 0.2,
-                            "h": 0.2,
-                        },
+                        "boundingbox": box(0.5, 0.5, 0.2, 0.2),
                         "metadata": {"color": "red"},
                     },
                 ]
@@ -358,21 +315,11 @@ def test_a_sub_detection_comes_back_nested():
                 "driver": [
                     {
                         "class": "person",
-                        "boundingbox": {
-                            "x": 0.1,
-                            "y": 0.1,
-                            "w": 0.5,
-                            "h": 0.5,
-                        },
+                        "boundingbox": box(0.1, 0.1, 0.5, 0.5),
                         "sub_detections": {
                             "face": {
                                 "class": "face",
-                                "boundingbox": {
-                                    "x": 0.2,
-                                    "y": 0.2,
-                                    "w": 0.1,
-                                    "h": 0.1,
-                                },
+                                "boundingbox": box(0.2, 0.2, 0.1, 0.1),
                             }
                         },
                     }
@@ -412,21 +359,11 @@ def test_two_levels_of_sub_detections_come_back_nested():
                 "vehicle": [
                     {
                         "class": "car",
-                        "boundingbox": {
-                            "x": 0.1,
-                            "y": 0.1,
-                            "w": 0.5,
-                            "h": 0.5,
-                        },
+                        "boundingbox": box(0.1, 0.1, 0.5, 0.5),
                         "sub_detections": {
                             "plate": {
                                 "class": "plate",
-                                "boundingbox": {
-                                    "x": 0.2,
-                                    "y": 0.2,
-                                    "w": 0.1,
-                                    "h": 0.1,
-                                },
+                                "boundingbox": box(0.2, 0.2, 0.1, 0.1),
                                 "sub_detections": {"text": {"class": "CO"}},
                             }
                         },
@@ -464,22 +401,12 @@ def test_every_parent_keeps_its_own_sub_detection():
                     {
                         "class": "person",
                         "instance_id": index,
-                        "boundingbox": {
-                            "x": 0.1 * index,
-                            "y": 0.1,
-                            "w": 0.1,
-                            "h": 0.1,
-                        },
+                        "boundingbox": box(0.1 * index, 0.1, 0.1, 0.1),
                         "sub_detections": {
                             "face": {
                                 "class": mood,
                                 "instance_id": index,
-                                "boundingbox": {
-                                    "x": 0.1 * index,
-                                    "y": 0.5,
-                                    "w": 0.1,
-                                    "h": 0.1,
-                                },
+                                "boundingbox": box(0.1 * index, 0.5, 0.1, 0.1),
                             }
                         },
                     }
@@ -578,42 +505,22 @@ def test_sub_detections_follow_their_parent_out_of_order():
                     {
                         "class": "person",
                         "instance_id": 1,
-                        "boundingbox": {
-                            "x": 0.1,
-                            "y": 0.1,
-                            "w": 0.1,
-                            "h": 0.1,
-                        },
+                        "boundingbox": box(0.1, 0.1, 0.1, 0.1),
                         "sub_detections": {
                             "face": {
                                 "class": "sad",
-                                "boundingbox": {
-                                    "x": 0.15,
-                                    "y": 0.2,
-                                    "w": 0.05,
-                                    "h": 0.05,
-                                },
+                                "boundingbox": box(0.15, 0.2, 0.05, 0.05),
                             }
                         },
                     },
                     {
                         "class": "person",
                         "instance_id": 0,
-                        "boundingbox": {
-                            "x": 0.6,
-                            "y": 0.1,
-                            "w": 0.1,
-                            "h": 0.1,
-                        },
+                        "boundingbox": box(0.6, 0.1, 0.1, 0.1),
                         "sub_detections": {
                             "face": {
                                 "class": "happy",
-                                "boundingbox": {
-                                    "x": 0.65,
-                                    "y": 0.2,
-                                    "w": 0.05,
-                                    "h": 0.05,
-                                },
+                                "boundingbox": box(0.65, 0.2, 0.05, 0.05),
                             }
                         },
                     },
@@ -647,12 +554,7 @@ def test_a_class_the_schema_does_not_define_is_refused():
                 "vehicles": [
                     {
                         "class": "van",
-                        "boundingbox": {
-                            "x": 0.1,
-                            "y": 0.1,
-                            "w": 0.1,
-                            "h": 0.1,
-                        },
+                        "boundingbox": box(0.1, 0.1, 0.1, 0.1),
                     }
                 ]
             },
@@ -693,12 +595,7 @@ def test_a_sub_task_without_a_parent_keeps_its_own_name():
                 "driver/face": [
                     {
                         "class": "happy",
-                        "boundingbox": {
-                            "x": 0.3,
-                            "y": 0.1,
-                            "w": 0.1,
-                            "h": 0.1,
-                        },
+                        "boundingbox": box(0.3, 0.1, 0.1, 0.1),
                     }
                 ]
             },

@@ -53,7 +53,7 @@ def keypoint_generator(
 ) -> DatasetIterator:
     for i in range(start, start + n):
         yield {
-            "file": str(create_image(i, tempdir)),
+            "media": str(create_image(i, tempdir)),
             "task_name": "pose",
             "annotation": {
                 "class": "person",
@@ -84,7 +84,7 @@ def keypoint_and_box_generator(
     """
     yield from positional_generator(tempdir, [n_keypoints], start=start)
     yield {
-        "file": str(create_image(start + 1, tempdir)),
+        "media": str(create_image(start + 1, tempdir)),
         "task_name": "pose",
         "annotation": {
             "class": "person",
@@ -96,7 +96,7 @@ def keypoint_and_box_generator(
 def detection_generator(tempdir: Path) -> DatasetIterator:
     for i in range(4):
         yield {
-            "file": str(create_image(i, tempdir)),
+            "media": str(create_image(i, tempdir)),
             "task_name": "detection",
             "annotation": {
                 "class": "person",
@@ -225,7 +225,7 @@ def test_sub_detections_get_their_own_metadata(
     def generator() -> DatasetIterator:
         for i in range(4):
             yield {
-                "file": str(create_image(i, tempdir)),
+                "media": str(create_image(i, tempdir)),
                 "task_name": "person",
                 "annotation": {
                     "class": "person",
@@ -748,7 +748,7 @@ def test_a_failed_add_keeps_the_rows_of_re_added_files(
     def generator() -> DatasetIterator:
         yield from positional_generator(tempdir, [3])
         yield {
-            "file": str(create_image(1, tempdir)),
+            "media": str(create_image(1, tempdir)),
             "task_name": "pose",
             "annotation": {
                 "class": "person",
@@ -1676,7 +1676,7 @@ def test_box_relative_keypoints_keep_the_fields_that_the_record_gives(
     def generator() -> DatasetIterator:
         for i in range(4):
             yield {
-                "file": str(create_image(i, tempdir)),
+                "media": str(create_image(i, tempdir)),
                 "task_name": "pose",
                 "annotation": {
                     "class": "person",
@@ -1754,7 +1754,7 @@ def test_set_keypoint_metadata_changes_no_task_when_one_fails(
             tempdir, NAMED_KEYPOINTS, {"edges": [("nose", "left_eye")]}, n=1
         )
         yield {
-            "file": str(create_image(1, tempdir)),
+            "media": str(create_image(1, tempdir)),
             "task_name": "detection",
             "annotation": {
                 "class": "car",
@@ -2242,7 +2242,7 @@ def test_the_batch_size_does_not_change_a_row_of_an_earlier_add(
 
     def generator() -> DatasetIterator:
         yield {
-            "file": str(copy),
+            "media": str(copy),
             "task_name": "pose",
             "annotation": {
                 "class": "person",
@@ -2358,7 +2358,7 @@ def test_edges_alone_do_not_widen_a_loaded_row(
     def generator() -> DatasetIterator:
         yield from positional_generator(tempdir, [5])
         yield {
-            "file": str(create_image(0, tempdir)),
+            "media": str(create_image(0, tempdir)),
             "task_name": "hand",
             "annotation": {
                 "class": "hand",
@@ -2414,9 +2414,7 @@ def test_the_exported_names_are_written_once_per_task(
     for path in (exported / dataset_name).rglob("annotations.json"):
         keypoints = [
             detection["keypoints"]["keypoints"]
-            for record in json.loads(path.read_text())
-            for detections in record.get("annotation", {}).values()
-            for detection in detections
+            for detection in exported_detections(path)
             # Every detection also emits a classification record.
             if "keypoints" in detection
         ]

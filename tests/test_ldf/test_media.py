@@ -11,13 +11,6 @@ from luxonis_ml.ldf import ArrayAnnotation, DatasetRecord
 
 
 @pytest.fixture
-def image(tempdir: Path) -> Path:
-    path = tempdir / "image.png"
-    path.touch()
-    return path
-
-
-@pytest.fixture
 def array(tempdir: Path) -> Path:
     path = tempdir / "array.npy"
     np.save(path, np.zeros(4))
