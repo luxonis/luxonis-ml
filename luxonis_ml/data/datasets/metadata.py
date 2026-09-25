@@ -167,7 +167,8 @@ def _merge_keypoint_metadata(
     The dataset that is merged in wins. A field it leaves empty comes
     from the other dataset. ``edges``, ``flip_pairs`` and ``sigmas`` hold
     indices into ``labels``, so they only carry over if both datasets list
-    the same labels in the same order.
+    the same labels in the same order. An entry without labels names no
+    keypoint, so it takes the labels of the other dataset.
 
     Args:
         mine: Keypoint metadata of the target dataset.
@@ -178,7 +179,7 @@ def _merge_keypoint_metadata(
         The merged keypoint metadata.
 
     """
-    if mine.labels != theirs.labels:
+    if mine.labels and theirs.labels and mine.labels != theirs.labels:
         logger.warning(
             f"Task '{task}' has different keypoint labels in the two "
             "datasets being merged. Keeping the ones from the dataset "

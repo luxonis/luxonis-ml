@@ -221,6 +221,29 @@ def test_merge_keeps_keypoint_fields_the_other_dataset_omits(
     )
 
 
+@pytest.mark.parametrize("unnamed_side", ["mine", "theirs"])
+def test_merge_keeps_the_labels_that_only_one_dataset_has(unnamed_side: str):
+    """An empty list of labels counted as different labels.
+
+    The merge then kept the entry of the dataset that is merged in whole.
+    An older luxonis-ml could store edges without labels, so a merge with
+    such a dataset dropped the names of the other one.
+    """
+    named = KeypointMetadata(labels=["head", "tail"], sigmas=[0.05, 0.05])
+    unnamed = KeypointMetadata(edges=[(0, 1)])
+    mine, theirs = (
+        (unnamed, named) if unnamed_side == "mine" else (named, unnamed)
+    )
+
+    merged = Metadata(
+        source=None, keypoint_metadata={"task1": mine}
+    ).merge_with(Metadata(source=None, keypoint_metadata={"task1": theirs}))
+
+    assert merged.keypoint_metadata["task1"] == KeypointMetadata(
+        labels=["head", "tail"], edges=[(0, 1)], sigmas=[0.05, 0.05]
+    )
+
+
 def test_merge_metadata_types(basic_metadata: Metadata):
     """Test merging of metadata types."""
     other_metadata = Metadata(
