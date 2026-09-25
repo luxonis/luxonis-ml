@@ -1488,16 +1488,22 @@ def test_set_keypoint_metadata_accepts_names(dataset_name: str, tempdir: Path):
 def test_the_deprecated_skeleton_aliases_still_forward(
     dataset_name: str, tempdir: Path
 ):
-    """Nothing else calls them, so they need a test of their own."""
-    dataset = named_dataset(dataset_name, tempdir)
+    """`get_skeletons` returned the new keypoint metadata.
+
+    A caller such as the luxonis-train loader reads the labels as
+    ``skeletons[task][0]``, so the alias must keep its old shape.
+    """
+    dataset = named_dataset(
+        dataset_name, tempdir, fields={"edges": [("nose", "left_eye")]}
+    )
 
     with pytest.deprecated_call():
         dataset.set_skeletons(sigmas=[0.1, 0.2, 0.3], task="pose")
     with pytest.deprecated_call():
         skeletons = dataset.get_skeletons()
 
-    assert skeletons == dataset.get_keypoint_metadata()
-    assert skeletons["pose"].sigmas == [0.1, 0.2, 0.3]
+    assert skeletons == {"pose": (LABELS, [(0, 1)])}
+    assert dataset.get_keypoint_metadata()["pose"].sigmas == [0.1, 0.2, 0.3]
 
 
 def test_flip_pair_inference_can_be_turned_off(

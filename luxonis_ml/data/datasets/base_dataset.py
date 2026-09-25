@@ -220,13 +220,21 @@ class BaseDataset(
         )
 
     @deprecated("Use `get_keypoint_metadata` instead.")
-    def get_skeletons(self) -> dict[str, KeypointMetadata]:
-        """Return the keypoint definition of each task.
+    def get_skeletons(
+        self,
+    ) -> dict[str, tuple[list[str], list[tuple[int, int]]]]:
+        """Return the keypoint labels and edges of each task.
+
+        The alias keeps the shape that it had before the keypoint
+        metadata, because callers unpack the pair.
 
         .. deprecated:: 0.10.0
             Use `get_keypoint_metadata`.
         """
-        return self.get_keypoint_metadata()
+        return {
+            task: (entry.labels, entry.edges)
+            for task, entry in self.get_keypoint_metadata().items()
+        }
 
     @abstractmethod
     def add(
