@@ -1057,15 +1057,16 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             # A placeholder field describes nothing, so a described value
             # replaces it without a warning.
             generated = self._placeholder_fields(stored)
-            for field in KeypointMetadata.model_fields:
+            for field in described.conflicting_fields(stored):
+                if field in generated:
+                    continue
                 new, old = getattr(described, field), getattr(stored, field)
-                if new and old and new != old and field not in generated:
-                    logger.warning(
-                        f"The annotations of task '{task}' describe a "
-                        f"different `{field}` than the one already stored. "
-                        f"Using the described one. Stored: {old}, "
-                        f"described: {new}."
-                    )
+                logger.warning(
+                    f"The annotations of task '{task}' describe a "
+                    f"different `{field}` than the one already stored. "
+                    f"Using the described one. Stored: {old}, "
+                    f"described: {new}."
+                )
 
         self._metadata.keypoint_metadata.update(resolved)
         self._write_metadata()

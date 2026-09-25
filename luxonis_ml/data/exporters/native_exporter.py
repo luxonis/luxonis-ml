@@ -172,7 +172,7 @@ class NativeExporter(BaseExporter):
                 continue
             labels = task_keypoints.labels
             values = keypoints["keypoints"]
-            named = task_keypoints.has_names and len(values) <= len(labels)
+            named = task_keypoints.has_names
             if len(values) < len(labels) and not (
                 named and self._downgrade.keeps_keypoint_names
             ):

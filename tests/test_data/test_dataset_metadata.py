@@ -198,7 +198,7 @@ def test_merge_keeps_keypoint_fields_the_other_dataset_omits(
     declared edges, flip pairs and sigmas lost all three when a plainer
     dataset merged into it. The fields hold indices into the labels, so
     they only carry over while both datasets list the same labels in the
-    same order. The assertion checks that both datasets contribute.
+    same order.
     """
     other_metadata = Metadata(
         source=None,

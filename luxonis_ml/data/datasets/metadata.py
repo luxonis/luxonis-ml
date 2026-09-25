@@ -187,13 +187,7 @@ def _merge_keypoint_metadata(
         )
         return theirs
 
-    conflicts = [
-        field
-        for field in KeypointMetadata.model_fields
-        if getattr(mine, field)
-        and getattr(theirs, field)
-        and getattr(mine, field) != getattr(theirs, field)
-    ]
+    conflicts = mine.conflicting_fields(theirs)
     if conflicts:
         logger.warning(
             f"Task '{task}' has a different {', '.join(conflicts)} in the "

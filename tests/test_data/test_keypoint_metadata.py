@@ -25,7 +25,12 @@ from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.ldf import KeypointMetadata
 
-from .utils import create_dataset, create_image, set_ldf_version
+from .utils import (
+    create_dataset,
+    create_image,
+    export_and_import,
+    set_ldf_version,
+)
 
 LABELS = ["nose", "left_eye", "right_eye"]
 # The names give an inferred flip pair, but a horizontal flip must not swap
@@ -47,12 +52,13 @@ def keypoint_generator(
     start: int = 0,
 ) -> DatasetIterator:
     for i in range(start, start + n):
-        annotation: dict[str, Any] = {"keypoints": keypoints}
-        annotation.update(fields or {})
         yield {
             "file": str(create_image(i, tempdir)),
             "task_name": "pose",
-            "annotation": {"class": "person", "keypoints": annotation},
+            "annotation": {
+                "class": "person",
+                "keypoints": {"keypoints": keypoints, **(fields or {})},
+            },
         }
 
 
@@ -156,12 +162,11 @@ def repeated_names_dataset(dataset_name: str, tempdir: Path) -> LuxonisDataset:
     )
 
 
-def dataset_without_flip_pairs(dataset_name: str) -> LuxonisDataset:
+def pose_dataset(dataset_name: str, **fields: Any) -> LuxonisDataset:
+    """Return an empty dataset whose pose task has the given metadata."""
     dataset = LuxonisDataset(dataset_name, delete_local=True)
     dataset.set_tasks({"pose": ["keypoints"]})
-    dataset.set_keypoint_metadata(
-        labels=CAMERAS, task="pose", infer_flip_pairs=False
-    )
+    dataset.set_keypoint_metadata(task="pose", **fields)
     return dataset
 
 
@@ -283,9 +288,7 @@ def test_records_in_another_key_order_agree_on_the_task_fields(
 def test_an_unknown_keypoint_name_is_rejected(
     dataset_name: str, tempdir: Path
 ):
-    dataset = LuxonisDataset(dataset_name, delete_local=True)
-    dataset.set_tasks({"pose": ["keypoints"]})
-    dataset.set_keypoint_metadata(labels=LABELS, task="pose")
+    dataset = pose_dataset(dataset_name, labels=LABELS)
 
     with pytest.raises(ValueError, match="not part of the task"):
         dataset.add(keypoint_generator(tempdir, {"noze": (0.5, 0.3, 2)}))
@@ -299,11 +302,7 @@ def test_add_does_not_clobber_explicit_metadata(
     Adding unnamed keypoints to a dataset whose names were set by hand has
     to leave those names alone.
     """
-    dataset = LuxonisDataset(dataset_name, delete_local=True)
-    dataset.set_tasks({"pose": ["keypoints"]})
-    dataset.set_keypoint_metadata(
-        labels=LABELS, edges=[(0, 1), (0, 2)], task="pose"
-    )
+    dataset = pose_dataset(dataset_name, labels=LABELS, edges=[(0, 1), (0, 2)])
 
     dataset.add(
         keypoint_generator(
@@ -528,9 +527,7 @@ def test_add_checks_the_stored_fields_before_the_last_batch_is_written(
     before the check failed. The classes and the tasks stayed as they
     were, next to rows that they do not describe.
     """
-    dataset = LuxonisDataset(dataset_name, delete_local=True)
-    dataset.set_tasks({"pose": ["keypoints"]})
-    dataset.set_keypoint_metadata(sigmas=[0.1] * 5, task="pose")
+    dataset = pose_dataset(dataset_name, sigmas=[0.1] * 5)
     before = read_dataset_metadata(dataset)
 
     with pytest.raises(ValueError, match="5 sigmas"):
@@ -552,10 +549,8 @@ def test_add_checks_the_declared_fields_against_the_stored_names(
     sigmas with the three keypoints of the records. A batch of one record
     thus wrote the rows before the last check failed.
     """
-    dataset = LuxonisDataset(dataset_name, delete_local=True)
-    dataset.set_tasks({"pose": ["keypoints"]})
-    dataset.set_keypoint_metadata(
-        labels=[*LABELS, "left_ear", "right_ear"], task="pose"
+    dataset = pose_dataset(
+        dataset_name, labels=[*LABELS, "left_ear", "right_ear"]
     )
     before = read_dataset_metadata(dataset)
 
@@ -687,9 +682,7 @@ def test_a_small_batch_accepts_what_a_later_record_completes(
     three. The second record completes the task. A batch of one record
     must thus accept the same `add` as one batch does.
     """
-    dataset = LuxonisDataset(dataset_name, delete_local=True)
-    dataset.set_tasks({"pose": ["keypoints"]})
-    dataset.set_keypoint_metadata(sigmas=[0.1] * 5, task="pose")
+    dataset = pose_dataset(dataset_name, sigmas=[0.1] * 5)
 
     dataset.add(positional_generator(tempdir, [3, 5]), batch_size=1)
 
@@ -822,9 +815,7 @@ def test_a_stored_entry_without_labels_gets_the_keypoint_count(
     the count off the edges, or found no count, and `LuxonisLoader` gave
     a sample without keypoints a narrower array than the other samples.
     """
-    dataset = LuxonisDataset(dataset_name, delete_local=True)
-    dataset.set_tasks({"pose": ["keypoints"]})
-    dataset.set_keypoint_metadata(edges=edges, sigmas=sigmas, task="pose")
+    dataset = pose_dataset(dataset_name, edges=edges, sigmas=sigmas)
 
     dataset.add(keypoint_and_box_generator(tempdir, 5))
     dataset.make_splits((1, 0, 0))
@@ -850,9 +841,7 @@ def test_an_empty_stored_entry_gets_the_placeholder(
     it out of the file. A reopened dataset thus got the chain edges, but
     the same handle did not.
     """
-    dataset = LuxonisDataset(dataset_name, delete_local=True)
-    dataset.set_tasks({"pose": ["keypoints"]})
-    dataset.set_keypoint_metadata(edges=[], task="pose")
+    dataset = pose_dataset(dataset_name, edges=[])
 
     dataset.add(positional_generator(tempdir, [3]))
 
@@ -956,9 +945,7 @@ def test_a_wider_add_checks_the_stored_sigmas(
     raised, but the same records in a second `add` passed. The entry then
     held five sigmas for rows of seven keypoints.
     """
-    dataset = LuxonisDataset(dataset_name, delete_local=True)
-    dataset.set_tasks({"pose": ["keypoints"]})
-    dataset.set_keypoint_metadata(sigmas=[0.1] * 5, task="pose")
+    dataset = pose_dataset(dataset_name, sigmas=[0.1] * 5)
     dataset.add(positional_generator(tempdir, [5]))
 
     with pytest.raises(ValueError, match="5 sigmas"):
@@ -988,9 +975,7 @@ def test_stored_sigmas_must_match_the_keypoint_count(
     The stored entry then held five sigmas for three keypoints, and
     nothing reported the difference.
     """
-    dataset = LuxonisDataset(dataset_name, delete_local=True)
-    dataset.set_tasks({"pose": ["keypoints"]})
-    dataset.set_keypoint_metadata(sigmas=[0.1] * 5, task="pose")
+    dataset = pose_dataset(dataset_name, sigmas=[0.1] * 5)
 
     with pytest.raises(ValueError, match="5 sigmas"):
         dataset.add(keypoint_generator(tempdir, keypoints))
@@ -1219,9 +1204,7 @@ def test_records_are_stored_in_task_order(dataset_name: str, tempdir: Path):
 def test_omitted_keypoints_are_padded_on_disk(
     dataset_name: str, tempdir: Path
 ):
-    dataset = LuxonisDataset(dataset_name, delete_local=True)
-    dataset.set_tasks({"pose": ["keypoints"]})
-    dataset.set_keypoint_metadata(labels=LABELS, task="pose")
+    dataset = pose_dataset(dataset_name, labels=LABELS)
     dataset.add(keypoint_generator(tempdir, {"left_eye": (0.4, 0.2, 2)}))
 
     assert json.loads(keypoint_payloads(dataset)[0]) == {
@@ -1271,16 +1254,10 @@ def test_the_stored_metadata_holds_every_field(
 
 def test_a_legacy_dataset_still_loads(dataset_name: str, tempdir: Path):
     """Written under the old key, and before flip pairs and sigmas."""
-    dataset = named_dataset(dataset_name, tempdir)
-    metadata_path = dataset._metadata_path / "metadata.json"
-    dataset_metadata = json.loads(metadata_path.read_text())
-    dataset_metadata["skeletons"] = dataset_metadata.pop("keypoint_metadata")
-    for entry in dataset_metadata["skeletons"].values():
-        entry.pop("flip_pairs", None)
-        entry.pop("sigmas", None)
-    metadata_path.write_text(json.dumps(dataset_metadata))
-
-    reopened = LuxonisDataset(dataset_name)
+    reopened = legacy_dataset(
+        named_dataset(dataset_name, tempdir),
+        {"pose": {"labels": LABELS, "edges": []}},
+    )
 
     assert reopened.get_keypoint_metadata()["pose"].labels == LABELS
     assert reopened.get_keypoint_metadata()["pose"].flip_pairs == []
@@ -1536,10 +1513,8 @@ def test_flip_pair_inference_can_be_turned_off(
     # the flag keeps them away.
     assert dataset.get_keypoint_metadata()["pose"].flip_pairs == [(1, 2)]
 
-    fresh = LuxonisDataset(f"{dataset_name}_fresh", delete_local=True)
-    fresh.set_tasks({"pose": ["keypoints"]})
-    fresh.set_keypoint_metadata(
-        labels=LABELS, task="pose", infer_flip_pairs=False
+    fresh = pose_dataset(
+        f"{dataset_name}_fresh", labels=LABELS, infer_flip_pairs=False
     )
 
     assert fresh.get_keypoint_metadata()["pose"].flip_pairs == []
@@ -1554,7 +1529,9 @@ def test_a_later_add_keeps_the_flip_pairs_turned_off(
     `add` of named records thus paired the two cameras, and a horizontal
     flip swapped two keypoints that must not swap.
     """
-    dataset = dataset_without_flip_pairs(dataset_name)
+    dataset = pose_dataset(
+        dataset_name, labels=CAMERAS, infer_flip_pairs=False
+    )
 
     dataset.add(
         keypoint_generator(tempdir, dict.fromkeys(CAMERAS, (0.5, 0.5, 2)))
@@ -1579,7 +1556,9 @@ def test_a_later_set_keeps_the_flip_pairs_turned_off(
     that gave the same names did too. Each parser gives the names again
     after its `add`, so an import into the dataset paired them.
     """
-    dataset = dataset_without_flip_pairs(dataset_name)
+    dataset = pose_dataset(
+        dataset_name, labels=CAMERAS, infer_flip_pairs=False
+    )
 
     dataset.set_keypoint_metadata(
         labels=labels, sigmas=[0.1, 0.2, 0.3], task="pose"
@@ -1960,16 +1939,7 @@ def test_native_export_round_trips_the_metadata(
             "sigmas": [0.026, 0.025, 0.025],
         },
     )
-    exported = dataset.export(tempdir / "exported", DatasetType.NATIVE)
-    assert isinstance(exported, Path)
-
-    imported = LuxonisParser(
-        str(exported / dataset_name),
-        dataset_type=DatasetType.NATIVE,
-        dataset_name=f"{dataset_name}_imported",
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
+    imported = export_and_import(dataset, tempdir)
 
     assert imported.get_keypoint_metadata() == dataset.get_keypoint_metadata()
 
@@ -1991,16 +1961,7 @@ def test_native_export_keeps_the_flip_pairs_turned_off(
     dataset.set_keypoint_metadata(
         labels=CAMERAS, task="pose", infer_flip_pairs=False
     )
-    exported = dataset.export(tempdir / "exported", DatasetType.NATIVE)
-    assert isinstance(exported, Path)
-
-    imported = LuxonisParser(
-        str(exported / dataset_name),
-        dataset_type=DatasetType.NATIVE,
-        dataset_name=f"{dataset_name}_imported",
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
+    imported = export_and_import(dataset, tempdir)
 
     assert imported.get_keypoint_metadata() == {
         "pose": KeypointMetadata(labels=CAMERAS)
@@ -2079,23 +2040,12 @@ def test_a_shorter_record_without_names_does_not_get_the_task_fields(
             "train": [str(create_image(i, tempdir)) for i in (1, 2, 3)],
         }
     )
-    exported = dataset.export(
-        tempdir / "exported_mixed", DatasetType.NATIVE, ldf_version=ldf_version
-    )
-    assert isinstance(exported, Path)
-
-    imported = LuxonisParser(
-        str(exported / dataset_name),
-        dataset_type=DatasetType.NATIVE,
-        dataset_name=f"{dataset_name}_imported",
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
+    imported = export_and_import(dataset, tempdir, ldf_version=ldf_version)
 
     assert sorted(keypoint_payloads(imported)) == sorted(
         keypoint_payloads(dataset)
     )
-    val_path = exported / dataset_name / "val" / "annotations.json"
+    val_path = tempdir / "exported" / dataset_name / "val" / "annotations.json"
     assert [
         record["annotation"]["keypoints"]
         for record in json.loads(val_path.read_text())
@@ -2119,16 +2069,7 @@ def test_a_named_task_imports_a_record_with_fewer_keypoints(
         splits=(1, 0, 0),
     )
     dataset.set_keypoint_metadata(labels=LABELS, task="pose")
-    exported = dataset.export(tempdir / "exported", DatasetType.NATIVE)
-    assert isinstance(exported, Path)
-
-    imported = LuxonisParser(
-        str(exported / dataset_name),
-        dataset_type=DatasetType.NATIVE,
-        dataset_name=f"{dataset_name}_imported",
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
+    imported = export_and_import(dataset, tempdir)
 
     assert imported.get_keypoint_metadata()["pose"].labels == LABELS
     assert sorted(keypoint_payloads(imported)) == [
@@ -2159,16 +2100,7 @@ def test_a_task_of_short_records_exports_its_names(
         sigmas=[0.1, 0.2, 0.3],
         task="pose",
     )
-    exported = dataset.export(tempdir / "exported_short", DatasetType.NATIVE)
-    assert isinstance(exported, Path)
-
-    imported = LuxonisParser(
-        str(exported / dataset_name),
-        dataset_type=DatasetType.NATIVE,
-        dataset_name=f"{dataset_name}_imported",
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
+    imported = export_and_import(dataset, tempdir)
 
     assert imported.get_keypoint_metadata() == dataset.get_keypoint_metadata()
     assert set(keypoint_payloads(imported)) == {
@@ -2186,18 +2118,7 @@ def test_the_native_export_keeps_every_keypoint_of_repeated_names(
     other record of the split then had more keypoints than the task.
     """
     dataset = repeated_names_dataset(dataset_name, tempdir)
-    exported = dataset.export(
-        tempdir / "exported_repeated", DatasetType.NATIVE
-    )
-    assert isinstance(exported, Path)
-
-    imported = LuxonisParser(
-        str(exported / dataset_name),
-        dataset_type=DatasetType.NATIVE,
-        dataset_name=f"{dataset_name}_imported",
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
+    imported = export_and_import(dataset, tempdir)
 
     assert imported.get_keypoint_metadata()["pose"].edges == [(0, 1)]
     assert set(keypoint_payloads(imported)) == {
@@ -2226,16 +2147,7 @@ def test_the_native_export_leaves_out_names_for_fewer_keypoints_than_a_row(
             "val": [str(create_image(2, tempdir))],
         }
     )
-    exported = dataset.export(tempdir / "exported_wider", DatasetType.NATIVE)
-    assert isinstance(exported, Path)
-
-    imported = LuxonisParser(
-        str(exported / dataset_name),
-        dataset_type=DatasetType.NATIVE,
-        dataset_name=f"{dataset_name}_imported",
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
+    imported = export_and_import(dataset, tempdir)
 
     assert any("names 3 keypoints, but a row has 5" in m for m in warnings_log)
     assert imported.get_keypoint_metadata()["pose"].labels == [
@@ -2435,16 +2347,7 @@ def test_coco_export_round_trips_the_sigmas(dataset_name: str, tempdir: Path):
     """
     sigmas = [0.026, 0.025, 0.025]
     dataset = named_dataset(dataset_name, tempdir, fields={"sigmas": sigmas})
-    exported = dataset.export(tempdir / "exported_coco", DatasetType.COCO)
-    assert isinstance(exported, Path)
-
-    imported = LuxonisParser(
-        str(exported / dataset_name),
-        dataset_type=DatasetType.COCO,
-        dataset_name=f"{dataset_name}_imported",
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
+    imported = export_and_import(dataset, tempdir, DatasetType.COCO)
 
     task_keypoints = next(iter(imported.get_keypoint_metadata().values()))
     assert task_keypoints.labels == LABELS

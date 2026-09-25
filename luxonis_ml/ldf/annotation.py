@@ -550,6 +550,16 @@ class KeypointMetadata(BaseModelExtraForbid):
         """
         return _repeated(self.labels)
 
+    def conflicting_fields(self, other: "KeypointMetadata") -> list[str]:
+        """Return the fields that both declarations set to different values."""
+        return [
+            field
+            for field in KeypointMetadata.model_fields
+            if getattr(self, field)
+            and getattr(other, field)
+            and getattr(self, field) != getattr(other, field)
+        ]
+
     def merge_with(
         self, other: "KeypointMetadata", context: str = ""
     ) -> "KeypointMetadata":
@@ -576,12 +586,7 @@ class KeypointMetadata(BaseModelExtraForbid):
         ):
             other = other.reindexed_to(self.labels)
 
-        conflicts = []
-        for field in KeypointMetadata.model_fields:
-            mine, theirs = getattr(self, field), getattr(other, field)
-            if mine and theirs and mine != theirs:
-                conflicts.append(field)
-
+        conflicts = self.conflicting_fields(other)
         if conflicts:
             differences = "\n".join(
                 f"    {field}: {getattr(self, field)} != {getattr(other, field)}"
@@ -1406,14 +1411,10 @@ class KeypointAnnotation(Annotation):
     def to_parquet_json(
         self, keypoint_metadata: KeypointMetadata | None = None
     ) -> str:
-        annotation = self
-        if keypoint_metadata is not None:
-            aligned = keypoint_metadata.align(self.keypoints)
-            # Compared as items, not as mappings. Dict equality ignores
-            # order, and the stored payload encodes only the order.
-            if list(aligned.items()) != list(self.keypoints.items()):
-                annotation = self.model_copy(update={"keypoints": aligned})
-        return annotation.model_dump_json()
+        if keypoint_metadata is None:
+            return self.model_dump_json()
+        aligned = keypoint_metadata.align(self.keypoints)
+        return self.model_copy(update={"keypoints": aligned}).model_dump_json()
 
     @model_serializer(mode="plain", when_used="json")
     def _serialize(self) -> dict[str, Any]:
