@@ -208,7 +208,15 @@ def test_arrays_keep_their_data(tempdir: Path):
     assert detection.array.to_numpy().tolist() == [1.0, 2.0, 3.0]
 
 
-def test_metadata_stays_with_its_own_instance():
+@pytest.mark.parametrize("keep_categorical_as_strings", [False, True])
+def test_metadata_stays_with_its_own_instance(
+    keep_categorical_as_strings: bool,
+):
+    """A categorical value comes back as a `Category` in both modes.
+
+    A loader that keeps the strings gave a plain `str`, and `Category`
+    is what marks a value as categorical when the record is added again.
+    """
     schema = DatasetSchema(
         tasks={
             "vehicles": [
@@ -243,10 +251,20 @@ def test_metadata_stays_with_its_own_instance():
         }
     )
 
-    detections = roundtrip(record, schema).annotation["vehicles"]
+    detections = (
+        record.to_loader_output(
+            schema, keep_categorical_as_strings=keep_categorical_as_strings
+        )
+        .to_ldf()
+        .annotation["vehicles"]
+    )
 
     assert detections[0].metadata == {"color": Category("blue"), "wheels": 4}
     assert detections[1].metadata == {"color": Category("red"), "wheels": 6}
+    assert all(
+        type(detection.metadata["color"]) is Category
+        for detection in detections
+    )
 
 
 def test_metadata_of_unnumbered_detections_stays_on_its_own_row():

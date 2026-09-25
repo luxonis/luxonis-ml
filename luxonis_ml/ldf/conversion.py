@@ -525,9 +525,13 @@ def _split_metadata(
             item = value.item() if isinstance(value, np.generic) else value
             if item is None:
                 continue
-            if decoding is not None and isinstance(item, (int, float)):
+            if decoding is not None:
+                # A loader that keeps the categorical strings gives the
+                # value itself, and any other loader gives its code.
                 per_instance[index][name] = Category(
                     decoding.get(int(item), str(item))
+                    if isinstance(item, (int, float))
+                    else item
                 )
             elif isinstance(item, (str, int, float)):
                 per_instance[index][name] = item
