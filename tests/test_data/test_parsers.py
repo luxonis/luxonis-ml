@@ -1419,7 +1419,7 @@ def test_ultralytics_version_selects_an_export(
 
 
 def native_parser(
-    dataset_name: str, task_name: dict[str, str]
+    dataset_name: str, task_name: str | dict[str, str]
 ) -> NativeParser:
     return NativeParser(
         dataset=LuxonisDataset(dataset_name, delete_local=True),
@@ -1469,12 +1469,29 @@ def test_task_names_reject_an_unknown_class(dataset_name: str, tempdir: Path):
         list(parser._wrap_generator(generator()))
 
 
+@pytest.mark.parametrize(
+    ("task_name", "expected"),
+    [
+        pytest.param(
+            {"car": "vehicles", "rain": "weather"},
+            ["vehicles", "weather"],
+            id="mapping",
+        ),
+        pytest.param("vehicles", ["vehicles"], id="string"),
+    ],
+)
 def test_an_unlabeled_record_is_yielded_for_every_task(
-    dataset_name: str, tempdir: Path
+    dataset_name: str,
+    tempdir: Path,
+    task_name: str | dict[str, str],
+    expected: list[str],
 ):
-    parser = native_parser(
-        dataset_name, {"car": "vehicles", "rain": "weather"}
-    )
+    """A single task name gave no task to an unlabeled first record.
+
+    The parser took the task names from a mapping that fills only when a
+    class is looked up. The record thus got no task, and it was lost.
+    """
+    parser = native_parser(dataset_name, task_name)
     image = create_image(0, tempdir)
 
     def generator() -> DatasetIterator:
@@ -1482,9 +1499,10 @@ def test_an_unlabeled_record_is_yielded_for_every_task(
 
     records = list(parser._wrap_generator(generator()))
 
-    assert sorted(
-        task_name for record in records for task_name in record.annotation
-    ) == ["vehicles", "weather"]
+    assert (
+        sorted(name for record in records for name in record.annotation)
+        == expected
+    )
 
 
 class _FlipPairsCOCOParser(COCOParser):

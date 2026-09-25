@@ -53,8 +53,10 @@ class BaseParser(ABC):
         self._dataset_type = dataset_type
         if isinstance(task_name, str):
             self._task_name = defaultdict(lambda: task_name)
+            self._all_task_names = {task_name}
         else:
             self._task_name = task_name
+            self._all_task_names = set((task_name or {}).values())
         self._parser_issue_messages: list[ParserIssueMessage] = []
         self._seen_parser_issue_messages: set[ParserIssueMessage] = set()
         self._full_warnings = full_warnings
@@ -669,7 +671,7 @@ class BaseParser(ABC):
                 continue
 
             if not any(item.annotation.values()):
-                for task_name in set(self._task_name.values()):
+                for task_name in self._all_task_names:
                     yield item.model_copy(
                         update={"annotation": {task_name: []}}, deep=True
                     )
