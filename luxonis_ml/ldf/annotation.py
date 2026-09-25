@@ -2237,14 +2237,16 @@ class InstanceCounter:
 class DatasetRecord(BaseModelExtraForbid):
     """Dataset record containing file paths and its annotations.
 
-    A record is the unit of ingestion for `LuxonisDataset.add`. It may point
-    to one media source through ``file`` or to multiple synchronized sources
-    through ``files``, but never both -- passing both is an error, where
-    ``files`` used to be silently discarded in favor of ``file``.
+    A record is the unit of ingestion for `LuxonisDataset.add`. Its
+    ``media`` is one source: a path, an image or an array. For synchronized
+    sources, ``media`` maps each source name to its source. ``file`` and
+    ``files`` are deprecated names of ``media``. A record that gives more
+    than one of the three is an error.
 
     Annotations are grouped by task name, so one record can carry every
-    detection of a sample. The older flat forms still work: a single
-    detection, or a list of them, together with a ``task_name``.
+    detection of a sample. The older flat forms still work, but they are
+    deprecated: a single detection, or a list of them, together with a
+    ``task_name``.
 
     ``sample_metadata`` stores **record-level metadata**. It is preserved by
     native import/export and returned by `LuxonisLoader` as
@@ -2265,7 +2267,7 @@ class DatasetRecord(BaseModelExtraForbid):
         .. code-block:: json
 
             {
-              "file": "images/frame_001.jpg",
+              "media": "images/frame_001.jpg",
 
               "sample_metadata": {
                 "record_id": 123,
