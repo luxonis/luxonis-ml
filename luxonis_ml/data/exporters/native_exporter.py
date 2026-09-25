@@ -174,14 +174,12 @@ class NativeExporter(BaseExporter):
                 if task_keypoints is None:
                     continue
                 labels = task_keypoints.labels
+                named = task_keypoints.has_names
                 for detection in detections:
                     keypoints = detection.get("keypoints")
                     if keypoints is None:
                         continue
                     values = keypoints["keypoints"]
-                    named = task_keypoints.has_names and len(values) <= len(
-                        labels
-                    )
                     if len(values) < len(labels) and not (
                         named and self._downgrade.keeps_keypoint_names
                     ):

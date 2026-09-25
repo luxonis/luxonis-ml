@@ -4,10 +4,11 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from luxonis_ml.data import LuxonisLoader
+from luxonis_ml.data import LuxonisLoader, LuxonisParser
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
 from luxonis_ml.data.utils.enums import BucketStorage
+from luxonis_ml.enums import DatasetType
 from luxonis_ml.ldf import SCHEMA_METADATA_KEY
 from luxonis_ml.typing import LoaderOutput, Params
 
@@ -78,3 +79,21 @@ def set_ldf_version(dataset: LuxonisDataset, version: str) -> LuxonisDataset:
     dataset_metadata["ldf_version"] = version
     path.write_text(json.dumps(dataset_metadata))
     return LuxonisDataset(dataset.identifier)
+
+
+def export_and_import(
+    dataset: LuxonisDataset,
+    tempdir: Path,
+    dataset_type: DatasetType = DatasetType.NATIVE,
+    **kwargs,
+) -> LuxonisDataset:
+    """Export the dataset to ``tempdir / "exported"`` and parse it back."""
+    exported = dataset.export(tempdir / "exported", dataset_type, **kwargs)
+    assert isinstance(exported, Path)
+    return LuxonisParser(
+        str(exported / dataset.identifier),
+        dataset_type=dataset_type,
+        dataset_name=f"{dataset.identifier}_imported",
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()

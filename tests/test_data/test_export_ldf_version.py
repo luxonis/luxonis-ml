@@ -224,7 +224,7 @@ def test_export_2_0_drops_the_keypoint_task_fields(
     ]
     assert keypoints
     assert all(isinstance(k["keypoints"], list) for k in keypoints)
-    assert all("edges" not in k for k in keypoints)
+    assert all(set(k) <= LDF_2_0_KEYPOINT_FIELDS for k in keypoints)
     assert [msg for msg in warnings_log if "keypoints.names" in msg]
 
 
@@ -240,11 +240,11 @@ def test_export_2_1_keeps_sample_metadata_but_drops_the_task_fields(
     records = _read_records(root)
     assert records
     assert all("sample_metadata" in record for record in records)
-    assert not [
-        record
+    assert all(
+        set(record["annotation"]["keypoints"]) <= LDF_2_0_KEYPOINT_FIELDS
         for record in records
-        if "edges" in record.get("annotation", {}).get("keypoints", {})
-    ]
+        if "keypoints" in record.get("annotation", {})
+    )
     assert _read_stamp(root) == "2.1.0"
 
 
@@ -300,13 +300,7 @@ def test_an_export_without_the_task_fields_still_imports(
     )
     root = _export(dataset, tempdir, "keypoints20_import", ldf_version="2.0")
 
-    imported = LuxonisParser(
-        str(root),
-        dataset_type=DatasetType.NATIVE,
-        dataset_name=f"{dataset_name}_imported",
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
+    imported = _import(root, f"{dataset_name}_imported", tempdir)
     imported.make_splits((1, 0, 0), replace_old_splits=True)
 
     _, labels = LuxonisLoader(imported)[0]
@@ -333,13 +327,7 @@ def test_export_2_0_round_trips(dataset_name: str, tempdir: Path):
     )
     root = _export(dataset, tempdir, "v20", ldf_version="2.0")
 
-    imported = LuxonisParser(
-        str(root),
-        dataset_type=DatasetType.NATIVE,
-        dataset_name=f"{dataset_name}_imported",
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
+    imported = _import(root, f"{dataset_name}_imported", tempdir)
     imported.make_splits((1, 0, 0), replace_old_splits=True)
 
     outputs = list(LuxonisLoader(imported))
@@ -402,8 +390,10 @@ def _stamp(export_root: Path, version: str) -> None:
     )
 
 
-def _import(export_root: Path, dataset_name: str, tempdir: Path) -> None:
-    LuxonisParser(
+def _import(
+    export_root: Path, dataset_name: str, tempdir: Path
+) -> LuxonisDataset:
+    return LuxonisParser(
         str(export_root),
         dataset_type=DatasetType.NATIVE,
         dataset_name=dataset_name,

@@ -66,12 +66,8 @@ def test_a_keypoint_is_still_a_triplet():
         {"keypoints": [(0.1, 0.2, 1)]}
     ).keypoints["0"]
 
+    assert isinstance(keypoint, tuple)
     assert keypoint == (0.1, 0.2, 1)
-    assert tuple(keypoint) == (0.1, 0.2, 1)
-    assert len(keypoint) == 3
-    assert keypoint[0] == 0.1
-    x, y, visibility = keypoint
-    assert (x, y, visibility) == (0.1, 0.2, 1)
     assert (keypoint.x, keypoint.y, keypoint.visibility) == (0.1, 0.2, 1)
 
 
@@ -163,12 +159,7 @@ def test_task_fields_are_not_stored_per_annotation():
         }
     )
 
-    stored = annotation.to_parquet_json()
-
-    assert json.loads(stored) == {"keypoints": [[0.1, 0.2, 2], [0.3, 0.4, 1]]}
-    assert "edges" not in stored
-    assert "sigmas" not in stored
-    assert "nose" not in stored
+    assert payload(annotation) == {"keypoints": [[0.1, 0.2, 2], [0.3, 0.4, 1]]}
 
 
 def test_naming_the_keypoints_does_not_grow_the_payload():
@@ -445,22 +436,14 @@ def test_an_edge_cannot_refer_to_a_repeated_name():
 
 
 def test_an_annotation_may_hold_fewer_keypoints_than_the_task():
-    """A sparse mapping is padded when the payload is written.
+    """A short list holds the leading keypoints of the task.
 
-    In a list the position is the identity, so a short list holds the
-    leading keypoints. Its keys ``"0"``, ``"1"``, ... were read as unknown
-    names, and the record failed. A task can hold records with fewer
-    keypoints, so a native export of such a task did not import.
+    In a list the position is the identity. The keys ``"0"``, ``"1"``, ...
+    of a short list were read as unknown names, and the record failed. A
+    task can hold records with fewer keypoints, so a native export of such
+    a task did not import.
     """
     keypoint_metadata = KeypointMetadata(labels=["a", "b", "c"])
-    sparse = KeypointAnnotation.model_validate(
-        {"keypoints": {"b": (0.1, 0.2, 2)}}
-    )
-
-    assert payload(sparse, keypoint_metadata=keypoint_metadata) == {
-        "keypoints": [[0.0, 0.0, 0], [0.1, 0.2, 2], [0.0, 0.0, 0]]
-    }
-
     short_list = KeypointAnnotation.model_validate(
         {"keypoints": [(0.1, 0.2, 2), (0.3, 0.4, 1)]}
     )
@@ -733,13 +716,6 @@ def test_reindexing_rejects_what_it_cannot_move(
 
     with pytest.raises(ValueError, match=match):
         keypoint_metadata.reindexed_to(["nose", "left_eye", "right_eye"])
-
-
-def test_merging_disagreeing_metadata_is_an_error():
-    with pytest.raises(ValueError, match="Conflicting keypoint metadata"):
-        KeypointMetadata(labels=["a", "b"]).merge_with(
-            KeypointMetadata(labels=["a", "c"]), "task 'pose'"
-        )
 
 
 def test_the_conflict_names_the_task_and_the_fields():

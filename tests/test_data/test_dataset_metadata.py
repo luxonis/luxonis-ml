@@ -198,7 +198,7 @@ def test_merge_keeps_keypoint_fields_the_other_dataset_omits(
     declared edges, flip pairs and sigmas lost all three when a plainer
     dataset merged into it. The fields hold indices into the labels, so
     they only carry over while both datasets list the same labels in the
-    same order. The assertion checks that both datasets contribute.
+    same order.
     """
     other_metadata = Metadata(
         source=None,
@@ -215,6 +215,29 @@ def test_merge_keeps_keypoint_fields_the_other_dataset_omits(
     )
 
     merged = basic_metadata.merge_with(other_metadata)
+
+    assert merged.keypoint_metadata["task1"] == KeypointMetadata(
+        labels=["head", "tail"], edges=[(0, 1)], sigmas=[0.05, 0.05]
+    )
+
+
+@pytest.mark.parametrize("unnamed_side", ["mine", "theirs"])
+def test_merge_keeps_the_labels_that_only_one_dataset_has(unnamed_side: str):
+    """An empty list of labels counted as different labels.
+
+    The merge then kept the entry of the dataset that is merged in whole.
+    An older luxonis-ml could store edges without labels, so a merge with
+    such a dataset dropped the names of the other one.
+    """
+    named = KeypointMetadata(labels=["head", "tail"], sigmas=[0.05, 0.05])
+    unnamed = KeypointMetadata(edges=[(0, 1)])
+    mine, theirs = (
+        (unnamed, named) if unnamed_side == "mine" else (named, unnamed)
+    )
+
+    merged = Metadata(
+        source=None, keypoint_metadata={"task1": mine}
+    ).merge_with(Metadata(source=None, keypoint_metadata={"task1": theirs}))
 
     assert merged.keypoint_metadata["task1"] == KeypointMetadata(
         labels=["head", "tail"], edges=[(0, 1)], sigmas=[0.05, 0.05]

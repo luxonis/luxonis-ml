@@ -1052,10 +1052,13 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         for task, sizes in num_kpts_per_task.items():
             stored = self._metadata.keypoint_metadata.get(task)
             if len(sizes) > 1 and task not in aligned:
+                # A task without names is always in `resolved`, and its
+                # labels give the keypoint count, which an earlier `add`
+                # can make larger than any record of this one.
                 logger.warning(
                     f"Task '{task}' mixes annotations with different numbers "
                     f"of keypoints ({sorted(sizes)}). Storing keypoint "
-                    f"metadata for {max(sizes)} keypoints."
+                    f"metadata for {len(resolved[task].labels)} keypoints."
                 )
             described = declared.get(task)
             if stored is None or described is None:
@@ -1063,15 +1066,16 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             # A placeholder field describes nothing, so a described value
             # replaces it without a warning.
             generated = self._placeholder_fields(stored)
-            for field in KeypointMetadata.model_fields:
+            for field in described.conflicting_fields(stored):
+                if field in generated:
+                    continue
                 new, old = getattr(described, field), getattr(stored, field)
-                if new and old and new != old and field not in generated:
-                    logger.warning(
-                        f"The annotations of task '{task}' describe a "
-                        f"different `{field}` than the one already stored. "
-                        f"Using the described one. Stored: {old}, "
-                        f"described: {new}."
-                    )
+                logger.warning(
+                    f"The annotations of task '{task}' describe a "
+                    f"different `{field}` than the one already stored. "
+                    f"Using the described one. Stored: {old}, "
+                    f"described: {new}."
+                )
 
         self._metadata.keypoint_metadata.update(resolved)
         self._write_metadata()
