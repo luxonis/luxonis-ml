@@ -1051,7 +1051,7 @@ def test_tracker_upload_artifact_to_mlflow(
     run's artifact root -- hence the assertion on the full artifact
     listing rather than a plain ``exists`` check.
     """
-    from luxonis_ml.tracker import LuxonisTracker
+    from luxonis_ml.tracker import LuxonisTracker, MLflowBackend
 
     experiment_id = mlflow.create_experiment(f"tracker-test-{randint}")
     export_dir = tempdir / "export" / f"tracker-run-{randint}"
@@ -1059,28 +1059,25 @@ def test_tracker_upload_artifact_to_mlflow(
     artifact = export_dir / "model.yaml"
     artifact.write_text("tracker payload")
 
-    tracker = LuxonisTracker(
+    with LuxonisTracker(
         project_id=experiment_id,
         run_name=f"tracker-run-{randint}",
         save_directory=tempdir / "output",
-        is_mlflow=True,
-        mlflow_tracking_uri=mlflow_tracking_uri,
-    )
+        backends={"mlflow": {"tracking_uri": mlflow_tracking_uri}},
+    ) as tracker:
+        with artifact.open() as file:
+            tracker.upload_artifact(file.name, name=file.name)
 
-    with artifact.open() as file:
-        tracker.upload_artifact(file.name, name=file.name)
+        backend = tracker.get_backend(MLflowBackend)
+        assert backend.experiment_id == experiment_id
+        assert backend.run_id is not None
 
-    assert tracker.project_id is not None
-    assert tracker.run_id is not None
+        fs = LuxonisFileSystem(
+            f"mlflow://{experiment_id}/{backend.run_id}",
+            tracking_uri=mlflow_tracking_uri,
+        )
+        assert set(fs.walk_dir("", recursive=True)) == {"model.yaml"}
+        assert fs.read_text("model.yaml") == "tracker payload"
 
-    fs = LuxonisFileSystem(
-        f"mlflow://{tracker.project_id}/{tracker.run_id}",
-        tracking_uri=mlflow_tracking_uri,
-    )
-    assert set(fs.walk_dir("", recursive=True)) == {"model.yaml"}
-    assert fs.read_text("model.yaml") == "tracker payload"
-
-    tracker.upload_artifact(artifact)
-    assert set(fs.walk_dir("", recursive=True)) == {"model.yaml"}
-
-    tracker.experiment["mlflow"].end_run()
+        tracker.upload_artifact(artifact)
+        assert set(fs.walk_dir("", recursive=True)) == {"model.yaml"}

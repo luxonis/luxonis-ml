@@ -1,143 +1,185 @@
-r"""Experiment tracking facade for Luxonis ML workflows.
+r"""Experiment tracking for Luxonis ML workflows.
 
-The `luxonis_ml.tracker` package exports `LuxonisTracker`, a unified logging
-interface for TensorBoard, Weights & Biases, and MLflow. Training and
-evaluation code can log metrics, hyperparameters, images, matrices, and
-artifacts through one API while choosing the enabled backends at runtime.
+`LuxonisTracker` logs a run to several tracking services at once.
+Training and evaluation code log metrics, hyperparameters, images,
+matrices, and artifacts through one API, and choose the services at
+runtime. Each service is a `TrackerBackend` in `TRACKER_BACKENDS`:
 
-Pass ``rank`` in distributed training. The rank-gated logging methods, such
-as `LuxonisTracker.log_metric`, write only on rank 0. The helpers that save
-or replay the local buffer do not check the rank.
+.. list-table:: Built-in backends
+   :header-rows: 1
+
+   * - Name
+     - Backend
+     - Extra
+     - Options
+   * - ``"tensorboard"``
+     - `TensorBoardBackend`
+     - ``tensorboard``
+     - None.
+   * - ``"wandb"``
+     - `WandbBackend`
+     - ``wandb``
+     - ``entity``
+   * - ``"mlflow"``
+     - `MLflowBackend`
+     - ``mlflow``
+     - ``tracking_uri``, ``parent_run_id``
 
 Example:
-    Start a TensorBoard-backed run and log a scalar metric.
+    Log a run to TensorBoard and MLflow.
 
     .. code-block:: python
 
         from luxonis_ml.tracker import LuxonisTracker
 
-        tracker = LuxonisTracker(
+        with LuxonisTracker(
             project_name="training",
-            run_name="baseline",
-            is_tensorboard=True,
-        )
-        tracker.log_metric("loss", 0.42, step=1)
-        tracker.close()
+            backends={
+                "tensorboard": {},
+                "mlflow": {"tracking_uri": "http://localhost:5000"},
+            },
+        ) as tracker:
+            tracker.log_hyperparams({"lr": 1e-3, "batch_size": 32})
+            tracker.log_metrics({"acc": 0.92, "loss": 0.18}, step=1)
+            tracker.upload_artifact("model.onnx", typ="model")
 
 Note:
-    The ``tracker`` extra does not install every dependency of this package.
-    The package imports ``mlflow`` and ``cv2`` at import time, so install
-    ``mlflow`` and ``opencv-python`` as well:
+    Install the extra of each backend that you enable:
 
     .. code-block:: bash
 
-        pip install "luxonis-ml[tracker,mlflow]" opencv-python
+        pip install "luxonis-ml[tracker,tensorboard,mlflow]"
 
-    Install the SDK of each remaining backend you enable:
-
-        - TensorBoard needs ``torch``, because the writer comes from
-          ``torch.utils.tensorboard``;
-        - Weights & Biases needs ``wandb``.
-
-    The tracker imports ``torch`` and ``wandb`` only when you enable those
-    backends, so an absent SDK matters only for the backends you turn on.
+    The package itself needs only the ``tracker`` extra. A backend
+    imports its SDK when it starts.
 
 .. contents:: Table of Contents
    :depth: 2
 
 
-Enabling the Backends
-=====================
+Runs and Ranks
+==============
 
-Each backend has its own flag. Turn on as many as you need in one run:
+A run without ``run_name`` gets ``<number>-<random name>``, and its local
+files go to ``<save_directory>/<run_name>``.
+
+Pass ``rank`` in distributed training. Only rank :math:`0` starts the
+backends and logs. Rank :math:`0` exports its generated run name in
+``LUXONIS_TRACKER_RUN_NAME``, so that a worker that it spawns later
+joins the same run. Pass ``run_name`` when all ranks start at the same
+time, as with ``torchrun``.
+
+
+Unreachable Services
+====================
+
+A backend that sets `TrackerBackend.buffered`, such as MLflow, does not
+stop the training while its service is down. `BufferedBackend` keeps the
+calls and sends them later. The calls that never get through go to
+``<run_directory>/unsent_logs/<backend name>/`` when the tracker closes.
+
+
+Custom Backends
+===============
+
+Subclass `TrackerBackend` and register the class in `TRACKER_BACKENDS`,
+or expose it in the ``tracker_plugins`` entry-point group. The name of
+the entry point is the name of the backend:
+
+.. code-block:: toml
+
+    [project.entry-points.tracker_plugins]
+    my_service = "my_package.tracking:MyServiceBackend"
+
+
+Migration
+=========
+
+The ``is_tensorboard``, ``is_wandb``, ``is_mlflow``, ``wandb_entity``
+and ``mlflow_tracking_uri`` arguments still work, with a
+``DeprecationWarning``. Replace them with ``backends``:
 
 .. code-block:: python
 
-    from luxonis_ml.tracker import LuxonisTracker
+    # before
+    LuxonisTracker(is_mlflow=True, mlflow_tracking_uri=uri, ...)
+    # after
+    LuxonisTracker(backends={"mlflow": {"tracking_uri": uri}}, ...)
 
-    tracker = LuxonisTracker(
-        project_name="my-project",
-        run_name="baseline",
-        is_tensorboard=True,
-        is_wandb=True,
-        wandb_entity="my-entity",
-    )
+Other changes that a caller can notice:
 
-    tracker.log_hyperparams({"lr": 1e-3, "batch_size": 32})
-    tracker.log_metrics({"acc": 0.92, "loss": 0.18}, step=1)
-    tracker.upload_artifact("model.onnx", name="model", typ="model")
-    tracker.close()
-
-Two backends need one more argument, and the constructor raises
-``ValueError`` without it:
-
-.. list-table:: Backend arguments
-   :header-rows: 1
-
-   * - Flag
-     - Also needs
-   * - ``is_tensorboard``
-     - Nothing. The writer uses
-       ``<save_directory>/tensorboard_logs/<run_name>``. A sweep run adds a
-       ``trial_<n>`` level.
-   * - ``is_wandb``
-     - ``wandb_entity``, and ``project_name`` or ``project_id``.
-   * - ``is_mlflow``
-     - ``mlflow_tracking_uri``, and ``project_name`` or ``project_id``.
-
-
-Logging API
-===========
-
-`LuxonisTracker` sends each of these calls to every enabled backend that
-supports it:
-
-    - `LuxonisTracker.log_hyperparams`;
-    - `LuxonisTracker.log_metric` and `LuxonisTracker.log_metrics`;
-    - `LuxonisTracker.log_image` and `LuxonisTracker.log_images`;
-    - `LuxonisTracker.log_matrix`;
-    - `LuxonisTracker.upload_artifact`.
-
-TensorBoard accepts no artifact, so `LuxonisTracker.upload_artifact` reaches
-Weights & Biases and MLflow only.
-
-`LuxonisTracker.close` calls no backend. It writes the unsent MLflow buffer
-to disk when you enable MLflow.
-
-The images are ``numpy`` arrays of shape :math:`\left(H, W, C\right)`.
-
-
-MLflow Notes
-============
-
-MLflow starts on the first access to `LuxonisTracker.experiment`. A failed
-MLflow call does not raise. The tracker buffers the payload and retries it
-after the next successful call.
-
-`LuxonisTracker.close` writes a buffer that is still not empty under
-``<save_directory>/<run_name>``:
-
-    - ``local_logs.json`` holds the metrics, the parameters, the matrices,
-      and the index of the saved images and artifacts;
-    - ``images/`` holds the buffered images;
-    - ``artifacts/`` holds a copy of each buffered artifact whose source
-      file still exists.
-
-Set ``MLFLOW_CLOUDFLARE_ID`` and ``MLFLOW_CLOUDFLARE_SECRET`` for an MLflow
-server behind Cloudflare Access. Register
-`LuxonisRequestHeaderProvider` in your application, because LuxonisML
-declares no MLflow entry point for it.
-
-See:
-    `luxonis_ml.tracker.tracker` for the logging implementation and
-    `luxonis_ml.tracker.mlflow_plugins` for MLflow request-header support.
+    - `LuxonisTracker.experiment` maps each backend name to its native
+      handle: an ``MlflowClient`` for MLflow, not the ``mlflow`` module,
+      and a WandB ``Run``, not the ``wandb`` module;
+    - `LuxonisTracker.close` ends the run in every backend, and the
+      tracker ignores the logging calls after it;
+    - ``run_id`` and ``project_id`` keep the values that you pass. Read
+      the MLflow identifiers from ``tracker.get_backend(MLflowBackend)``;
+    - TensorBoard writes through ``tensorboardX``, from the
+      ``tensorboard`` extra, and no longer through ``torch``;
+    - the unsent MLflow calls go to ``unsent_logs/mlflow/calls.jsonl``,
+      not to ``local_logs.json``;
+    - ``LuxonisRequestHeaderProvider`` is removed. It was never
+      registered with MLflow, and it sent the masked secret.
 
 """
+
+from importlib.metadata import entry_points
+
+from loguru import logger
 
 from luxonis_ml.guard_extras import guard_missing_extra
 
 with guard_missing_extra("tracker"):
-    from .mlflow_plugins import LuxonisRequestHeaderProvider
+    from .backends import (
+        TRACKER_BACKENDS,
+        MLflowBackend,
+        RunContext,
+        RunStatus,
+        TensorBoardBackend,
+        TrackerBackend,
+        WandbBackend,
+    )
+    from .buffer import BufferedBackend
     from .tracker import LuxonisTracker
 
-__all__ = ["LuxonisRequestHeaderProvider", "LuxonisTracker"]
+
+def _load_backend_plugins() -> None:
+    """Register the backends of the ``tracker_plugins`` entry points.
+
+    A plugin that fails to load is skipped with a warning, so that one
+    broken package does not break this import.
+    """
+    for entry_point in entry_points(group="tracker_plugins"):
+        try:
+            backend = entry_point.load()
+        except Exception as error:
+            logger.warning(
+                f"Skipping the tracker plugin '{entry_point.name}': {error}"
+            )
+            continue
+        if not (
+            isinstance(backend, type) and issubclass(backend, TrackerBackend)
+        ):
+            logger.warning(
+                f"Skipping the tracker plugin '{entry_point.name}': "
+                f"{backend!r} is not a `TrackerBackend` subclass."
+            )
+            continue
+        if entry_point.name not in TRACKER_BACKENDS:
+            TRACKER_BACKENDS.register(module=backend, name=entry_point.name)
+
+
+_load_backend_plugins()
+
+__all__ = [
+    "TRACKER_BACKENDS",
+    "BufferedBackend",
+    "LuxonisTracker",
+    "MLflowBackend",
+    "RunContext",
+    "RunStatus",
+    "TensorBoardBackend",
+    "TrackerBackend",
+    "WandbBackend",
+]

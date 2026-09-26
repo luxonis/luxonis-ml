@@ -50,3 +50,5 @@ export_requirements extra_requirements/mlflow.txt "${unhashed[@]}" --extra mlflo
 export_requirements extra_requirements/posthog.txt "${unhashed[@]}" --extra telemetry
 export_requirements extra_requirements/roboflow.txt "${unhashed[@]}" --extra roboflow
 export_requirements extra_requirements/s3.txt "${unhashed[@]}" --extra s3
+export_requirements extra_requirements/tensorboard.txt "${unhashed[@]}" --extra tensorboard
+export_requirements extra_requirements/wandb.txt "${unhashed[@]}" --extra wandb

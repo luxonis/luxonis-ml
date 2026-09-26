@@ -90,6 +90,8 @@ numpy==2.3.5 ; python_full_version >= '3.11'
 oauthlib==3.3.1
 opencv-python==4.14.0.94
 opentelemetry-api==1.44.0
+opentelemetry-exporter-otlp-proto-common==1.44.0
+opentelemetry-exporter-otlp-proto-http==1.44.0
 opentelemetry-proto==1.44.0
 opentelemetry-sdk==1.44.0
 opentelemetry-semantic-conventions==0.65b0
@@ -100,6 +102,7 @@ pi-heif==1.4.0
 pillow==12.3.0
 pillow-avif-plugin==1.6.0
 pillow-heif==1.7.0
+platformdirs==4.11.9
 polars==1.44.2
 polars-runtime-32==1.44.2
 posthog==7.56.0
@@ -147,6 +150,7 @@ sqlalchemy==2.0.54
 sqlparse==0.6.0
 starlette==1.6.0
 stringzilla==5.1.2
+tensorboardx==2.6.5
 threadpoolctl==3.7.0
 tomli==2.4.1 ; python_full_version < '3.11'
 tqdm==4.70.1
@@ -159,9 +163,11 @@ unique-names-generator==1.0.2
 urllib3==2.8.0
 uvicorn==0.53.0
 waitress==3.0.2 ; sys_platform == 'win32'
+wandb==0.30.0
 wcwidth==0.8.4
 werkzeug==3.1.8
 win32-setctime==1.2.0 ; sys_platform == 'win32'
 wrapt==1.17.3
+xxhash==4.0.1
 yarl==1.25.1
 zipp==4.1.0
