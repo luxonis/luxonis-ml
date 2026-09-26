@@ -1,4 +1,22 @@
 # pyright: strict
+"""The MLflow backend of the tracker.
+
+`MLflowBackend` logs a run to an `MLflow`_ tracking server. It turns on
+with ``LuxonisTracker(mlflow=True)``, or with a mapping of
+`MLflowOptions`, and needs the ``mlflow`` extra. It is the only built-in
+backend that `LuxonisTracker` wraps in a `BufferedBackend`, so an
+unreachable server does not stop the training.
+
+.. _MLflow:
+    https://mlflow.org/
+
+See:
+    `luxonis_ml.tracker` for what each backend does with each logging
+    call, and `luxonis_ml.tracker.buffer` for the calls that the server
+    does not take.
+
+"""
+
 import os
 from collections.abc import Mapping
 from importlib.util import find_spec
@@ -47,15 +65,23 @@ first. A sweep trial without ``parent_run_id`` nests under the last one.
 
 
 class MLflowBackend(TrackerBackend, register_name="mlflow"):
-    """Log to an `MLflow`_ tracking server.
+    """Log to an MLflow tracking server.
+
+    The ``project_id`` of the run selects an existing experiment.
+    Otherwise its ``project_name`` names the experiment, which is created
+    if it does not exist. The ``run_id`` of the run continues an existing
+    run. Otherwise the backend creates a run with the run name.
 
     The backend talks to the server through its own ``MlflowClient``,
-    so two trackers in one process do not share an active run. It logs
-    system metrics as well when ``psutil`` is installed.
+    so two trackers in one process do not share an active run. For the
+    same reason, the run is not the active run of the ``mlflow`` module.
+    Use ``mlflow://<experiment_id>/<run_id>/`` to reach its artifacts
+    through `LuxonisFileSystem`. The backend logs system metrics as well
+    when ``psutil`` is installed.
 
     `LuxonisTracker` wraps the backend in a `BufferedBackend`, so an
-    unreachable server does not stop the training. A call that the
-    server rejects with a 4xx status is dropped.
+    unreachable server does not stop the training. `is_transient` tells
+    an outage from a call that the server rejects.
 
     Unless the environment sets it already, the backend sets
     ``MLFLOW_HTTP_REQUEST_MAX_RETRIES`` to :math:`2`. The default of
@@ -63,12 +89,14 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
     would wait that long during an outage.
 
     Attributes:
+        buffered: ``True``, so that `LuxonisTracker` wraps the backend in
+            a `BufferedBackend`.
+        tracking_uri: URI of the tracking server.
+        parent_run_id: The run that this run nests under, as the caller
+            gave it.
         experiment_id: The MLflow experiment. Known once the backend is
             started.
         run_id: The MLflow run. Known once the backend is started.
-
-    .. _MLflow:
-        https://mlflow.org/
 
     """
 
@@ -78,11 +106,6 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         self, run: RunContext, **options: Unpack[MLflowOptions]
     ) -> None:
         """Check the options.
-
-        The ``project_id`` of the run selects an existing experiment.
-        Otherwise its ``project_name`` names the experiment, which is
-        created if it does not exist. The ``run_id`` of the run continues
-        an existing run.
 
         Args:
             run: The run to log to.
@@ -115,12 +138,31 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
 
     @property
     def experiment(self) -> "MlflowClient":
-        """The ``MlflowClient`` of the backend."""
+        """The ``MlflowClient`` of the backend.
+
+        Raises:
+            RuntimeError: If the backend is not started.
+
+        """
         if self._client is None:
             raise RuntimeError("The MLflow backend is not started.")
         return self._client
 
     def start(self) -> None:
+        """Open the experiment and the run.
+
+        The backend looks the experiment up by name, and creates it if it
+        does not exist. It creates a run, or continues the run of
+        ``run_id`` and marks it as running again. A sweep trial nests
+        under ``parent_run_id``, or else under the last open run of this
+        process that is not a sweep trial.
+
+        Raises:
+            ImportError: If ``mlflow`` is not installed.
+            mlflow.exceptions.MlflowException: If the server cannot be
+                reached, or it rejects the experiment or the run.
+
+        """
         with guard_missing_extra("mlflow"):
             from mlflow import MlflowClient
 
@@ -142,6 +184,16 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
             _open_runs.append(self.run_id)
 
     def log_hyperparams(self, params: Mapping[str, ParamValue]) -> None:
+        """Log the hyperparameters as the parameters of the run.
+
+        MLflow stores a parameter as a string, so each value becomes its
+        string. MLflow rejects a new value for a parameter that the run
+        already has.
+
+        Args:
+            params: The hyperparameters, keyed by name.
+
+        """
         from mlflow.entities import Param
 
         self.experiment.log_batch(
@@ -150,6 +202,13 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         )
 
     def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
+        """Log the metrics in one request.
+
+        Args:
+            metrics: The metric values, keyed by metric name.
+            step: The training step of the values.
+
+        """
         from mlflow.entities import Metric
 
         timestamp = time_ns() // 1_000_000
@@ -162,10 +221,15 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         )
 
     def log_image(self, name: str, image: npt.NDArray[Any], step: int) -> None:
-        """Log the image as ``<directory>/<step>/<caption>.png``.
+        r"""Log the image as the artifact ``<directory>/<step>/<caption>.png``.
 
-        The directory is the part of ``name`` before the last ``/``. A
-        name without a ``/`` puts the image under ``<step>/``.
+        Args:
+            name: Name of the image. The part before the last ``/`` is
+                the directory, and the rest is the caption. A name
+                without a ``/`` puts the image under ``<step>/``.
+            image: The image, of shape :math:`\left(H, W, C\right)`.
+            step: The training step of the image.
+
         """
         directory, _, caption = name.rpartition("/")
         path = f"{step}/{caption}.png"
@@ -183,10 +247,19 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         step: int,
         extra_data: Mapping[str, ParamValue],
     ) -> None:
-        """Log the matrix as ``<name>.json``.
+        """Log the matrix as the artifact ``<name>.json``.
 
-        The file holds ``flat_array``, ``shape`` and the ``extra_data``.
-        Each call replaces the file of the previous one.
+        The file holds the keys ``flat_array`` and ``shape``, and the keys
+        of ``extra_data``. Each call replaces the file of the previous
+        call with the same name, so the file holds the matrix of the last
+        step.
+
+        Args:
+            matrix: The matrix.
+            name: Name of the matrix, and of the file.
+            step: Ignored, because the file holds one matrix.
+            extra_data: More keys for the file, such as the class names.
+
         """
         data: dict[str, ParamValue] = {
             "flat_array": matrix.flatten().tolist(),
@@ -198,9 +271,13 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
     def upload_artifact(self, path: Path, name: str | None, typ: str) -> None:
         """Upload the file to the root of the run artifacts.
 
-        The file is stored under the last component of ``name``, or else
-        under its own name, so that a local directory does not leak into
-        the artifact store.
+        Args:
+            path: Path to the file.
+            name: Name to store the file under. Only the last component
+                counts, so that a local directory does not leak into the
+                artifact store. ``None`` keeps the name of the file.
+            typ: Ignored, because MLflow has no artifact types.
+
         """
         remote_name = Path(name).name if name else path.name
         LuxonisFileSystem.upload(
@@ -210,6 +287,13 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         )
 
     def close(self, status: RunStatus) -> None:
+        """Stop the system metrics, and end the run.
+
+        Args:
+            status: ``"success"`` ends the run as ``FINISHED``,
+                ``"failed"`` as ``FAILED``.
+
+        """
         if self._run_id in _open_runs:
             _open_runs.remove(self._run_id)
         if self._monitor is not None:
@@ -226,6 +310,13 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         A connection error of ``botocore``, from an S3 artifact store,
         is transient too. Any other error follows
         `TrackerBackend.is_transient`.
+
+        Args:
+            error: The error of a call to the server.
+
+        Returns:
+            ``True`` if a later attempt of the same call can succeed.
+
         """
         from mlflow.exceptions import MlflowException
         from requests import HTTPError
@@ -240,11 +331,15 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
 
     @property
     def _run_id(self) -> str:
+        """The run identifier, which only a started backend has."""
         if self.run_id is None:
             raise RuntimeError("The MLflow backend is not started.")
         return self.run_id
 
     def _get_or_create_experiment(self) -> str:
+        """Return the experiment of ``project_name``, and create it if
+        needed.
+        """
         from mlflow.exceptions import MlflowException
 
         name = self.run.project_name
@@ -264,6 +359,7 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
             return experiment.experiment_id
 
     def _create_run(self, experiment_id: str) -> str:
+        """Create the run, nested under its parent if it has one."""
         from mlflow.tracking.context.registry import (
             resolve_tags,  # pyright: ignore[reportUnknownVariableType]
         )

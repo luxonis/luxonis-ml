@@ -1,4 +1,19 @@
 # pyright: strict
+"""The base class, the registry and the run of the tracker backends.
+
+A backend connects `LuxonisTracker` to one tracking service. Each
+backend is a subclass of `TrackerBackend`. The subclass registers itself
+in `TRACKER_BACKENDS` when Python creates the class, and the name that
+it registers under is the keyword argument of `LuxonisTracker` that
+turns the backend on. Each backend receives a `RunContext`, which
+describes the run that it logs to.
+
+See:
+    `luxonis_ml.tracker` for the built-in backends and for a complete
+    example of a custom backend.
+
+"""
+
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -11,7 +26,11 @@ from luxonis_ml.typing import ParamValue
 from luxonis_ml.utils.registry import AutoRegisterMeta, Registry
 
 RunStatus: TypeAlias = Literal["success", "failed"]
-"""The final state of a run, as `TrackerBackend.close` receives it."""
+"""The final state of a run, as `TrackerBackend.close` receives it.
+
+`LuxonisTracker.close` turns ``"success"`` and ``"finished"`` into
+``"success"``, and every other status into ``"failed"``.
+"""
 
 TRACKER_BACKENDS: Registry[type["TrackerBackend"]] = Registry(
     name="tracker_backends"
@@ -19,7 +38,10 @@ TRACKER_BACKENDS: Registry[type["TrackerBackend"]] = Registry(
 """The backends that `LuxonisTracker` can create, keyed by name.
 
 Each subclass of `TrackerBackend` registers itself here when Python
-creates the class, under its ``register_name`` class argument.
+creates the class. The name is the ``register_name`` class argument, or
+else the name of the class. A later class with the same name replaces
+the earlier one. A subclass with ``register=False`` stays out of the
+registry.
 """
 
 
@@ -27,12 +49,16 @@ creates the class, under its ``register_name`` class argument.
 class RunContext:
     """The run that a backend logs to.
 
+    `LuxonisTracker` creates one `RunContext` and gives it to each of its
+    backends.
+
     Attributes:
         run_name: Name of the run.
         save_directory: Root directory of the local run outputs.
         project_name: Project name, if the caller gave one.
         project_id: Project identifier, if the caller gave one.
-        run_id: Identifier of an earlier run to continue.
+        run_id: Identifier of an earlier run to continue, if the caller
+            gave one.
         is_sweep: Whether the run is one trial of a sweep.
 
     """
@@ -53,63 +79,111 @@ class RunContext:
 class TrackerBackend(
     ABC, metaclass=AutoRegisterMeta, registry=TRACKER_BACKENDS, register=False
 ):
-    """One logging service behind `LuxonisTracker`.
+    """One tracking service behind `LuxonisTracker`.
 
-    The constructor only checks and stores the options, so a tracker can
-    be created on every rank at no cost. `start` connects to the service.
-    `LuxonisTracker` calls it once, before the first logging call, and
-    only on rank :math:`0`.
+    `LuxonisTracker` uses a backend in this order:
 
-    A subclass registers itself in `TRACKER_BACKENDS` under its
-    ``register_name``, which is the keyword argument of `LuxonisTracker`
-    that turns it on. A subclass with ``register=False`` stays out of
-    the registry:
+        1. It creates the backend on every rank, with the options of its
+           keyword argument. The constructor only checks and stores the
+           options, so it does no I/O.
+        2. It calls `start` once, on rank :math:`0` only, before the
+           first logging call.
+        3. It calls the logging methods, on rank :math:`0` only.
+        4. It calls `close` once, when the run ends.
+
+    A subclass registers itself in `TRACKER_BACKENDS`. Give it a short
+    name with the ``register_name`` class argument, because the name is
+    the keyword argument that turns the backend on:
 
     .. code-block:: python
 
-        class MyServiceBackend(TrackerBackend, register_name="my_service"):
-            def __init__(self, run: RunContext, *, api_key: str) -> None:
-                super().__init__(run)
-                self.api_key = api_key
-
-            ...
+        class MyServiceBackend(TrackerBackend, register_name="my_service"): ...
 
 
         tracker = LuxonisTracker(my_service={"api_key": key})
+
+    A subclass with ``register=False`` stays out of the registry, for
+    example a helper base class. `luxonis_ml.tracker` shows a complete
+    backend.
 
     Attributes:
         run: The run that the backend logs to.
         buffered: Whether `LuxonisTracker` wraps the backend in a
             `BufferedBackend`. Set it for a remote service that can be
-            unreachable for a while.
+            unreachable for a while. The default is ``False``.
 
     """
 
     buffered: ClassVar[bool] = False
 
     def __init__(self, run: RunContext) -> None:
+        """Store the run.
+
+        A subclass takes its options as keyword arguments, checks them,
+        and calls this constructor. It does no I/O, because the tracker
+        creates the backend on every rank.
+
+        Args:
+            run: The run that the backend logs to.
+
+        """
         self.run = run
 
     @property
     @abstractmethod
     def experiment(self) -> object:
-        """The native handle of the service, such as its client."""
+        """The native handle of the service, such as its client.
+
+        `LuxonisTracker.experiment` returns it. The built-in backends
+        raise ``RuntimeError`` when `start` did not run yet.
+        """
 
     @abstractmethod
     def start(self) -> None:
-        """Connect to the service and open the run."""
+        """Connect to the service and open the run.
+
+        `BufferedBackend` calls it again after a transient failure, so a
+        failed start must leave the backend ready for the next attempt.
+
+        Raises:
+            Exception: Any error of the service. `is_transient` tells
+                whether a later attempt can succeed.
+
+        """
 
     @abstractmethod
     def log_hyperparams(self, params: Mapping[str, ParamValue]) -> None:
-        """Log the hyperparameters of the run."""
+        """Log the hyperparameters of the run.
+
+        The tracker can call it more than once in a run, and each call
+        adds to the earlier ones.
+
+        Args:
+            params: The hyperparameters, keyed by name. A value can be
+                any value of a YAML configuration, such as a list.
+
+        """
 
     @abstractmethod
     def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
-        """Log scalar metrics at ``step``."""
+        """Log scalar metrics.
+
+        Args:
+            metrics: The metric values, keyed by metric name.
+            step: The training step of the values.
+
+        """
 
     @abstractmethod
     def log_image(self, name: str, image: npt.NDArray[Any], step: int) -> None:
-        r"""Log an image of shape :math:`\left(H, W, C\right)`."""
+        r"""Log an image.
+
+        Args:
+            name: Name of the image. It can hold ``/`` to group images.
+            image: The image, of shape :math:`\left(H, W, C\right)`.
+            step: The training step of the image.
+
+        """
 
     @abstractmethod
     def log_matrix(
@@ -119,7 +193,17 @@ class TrackerBackend(
         step: int,
         extra_data: Mapping[str, ParamValue],
     ) -> None:
-        """Log a matrix, such as a confusion matrix."""
+        r"""Log a matrix, such as a confusion matrix.
+
+        Args:
+            matrix: The matrix, usually of shape :math:`\left(M, N\right)`.
+            name: Name of the matrix.
+            step: The training step of the matrix.
+            extra_data: More data to store with the matrix, such as the
+                class names. A service that has no place for it can
+                ignore it.
+
+        """
 
     def upload_artifact(self, path: Path, name: str | None, typ: str) -> None:
         """Upload a file.
@@ -137,7 +221,12 @@ class TrackerBackend(
 
     @abstractmethod
     def close(self, status: RunStatus) -> None:
-        """Flush the pending data and end the run with ``status``."""
+        """Send the pending data and end the run.
+
+        Args:
+            status: The final state of the run.
+
+        """
 
     def is_transient(self, error: Exception) -> bool:
         """Tell whether a failed call can succeed when it is sent again.
@@ -145,8 +234,16 @@ class TrackerBackend(
         `BufferedBackend` keeps a call that failed with a transient error
         and drops the others. The default treats an ``OSError`` as
         transient, which covers the network errors of ``socket`` and
-        ``requests``, but not the errors of a local file: a missing
-        file, a denied access, or a directory in place of a file.
+        ``requests``. The errors of a local file are not transient: a
+        missing file, a denied access, or a directory in place of a
+        file.
+
+        Args:
+            error: The error of a call to the service.
+
+        Returns:
+            ``True`` if a later attempt of the same call can succeed.
+
         """
         return isinstance(error, OSError) and not isinstance(
             error,
@@ -160,8 +257,14 @@ class TrackerBackend(
 def check_options(options: Mapping[str, object], known: Iterable[str]) -> None:
     """Reject an option that a backend does not take.
 
-    ``Unpack`` of a ``TypedDict`` checks the options only for pyright. A
-    mapping from a configuration file reaches the backend unchecked.
+    A backend that takes its options as ``**options: Unpack[...]`` calls
+    it in its constructor. ``Unpack`` of a ``TypedDict`` checks the
+    options only for pyright, and a mapping from a configuration file
+    reaches the backend unchecked.
+
+    Args:
+        options: The options that the backend received.
+        known: The names of the options that the backend takes.
 
     Raises:
         TypeError: If ``options`` has a key that is not in ``known``.

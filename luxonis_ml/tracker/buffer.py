@@ -1,4 +1,18 @@
 # pyright: strict
+"""The buffer that keeps a backend running while its service is down.
+
+`LuxonisTracker` wraps each backend that sets `TrackerBackend.buffered`
+in a `BufferedBackend`. Of the built-in backends, only `MLflowBackend`
+sets it. The wrapper keeps the calls that the service does not take,
+sends them again later, and saves the calls that never get through.
+
+See:
+    `luxonis_ml.tracker` for where the saved calls go, and
+    `TrackerBackend.is_transient` for how a backend tells an outage from
+    a rejected call.
+
+"""
+
 import json
 import math
 import shutil
@@ -39,8 +53,9 @@ class BufferedBackend(TrackerBackend, register=False):
           fails at once. When a start that follows an outage is
           rejected, the wrapper keeps the calls until `close`.
 
-    The buffer holds a limited number of calls of each kind, see
-    ``_Call.limit``. A full buffer drops the oldest call of that kind.
+    The buffer holds at most 100 hyperparameter calls, 500 metric calls,
+    50 images, 500 matrices and 10 artifacts. A full buffer drops the
+    oldest call of that kind, and warns once for each outage.
 
     An artifact is buffered as a hard link, or a copy, under
     ``<run_directory>/unsent_logs/<name>/artifacts/``, because callers
@@ -56,6 +71,15 @@ class BufferedBackend(TrackerBackend, register=False):
     A signal handler can log, and close the run, while a call is sent.
     Its calls join the buffer, and its close waits until the call that
     it interrupted ends.
+
+    Attributes:
+        backend: The backend that the calls go to.
+        name: Name of the backend, used in the messages and in the path
+            of the unsent calls.
+        retry_interval: Seconds to wait after a transient failure before
+            the next attempt.
+        unsent_directory: Where `close` saves the calls that never got
+            through, ``<run_directory>/unsent_logs/<name>``.
 
     """
 
@@ -88,21 +112,53 @@ class BufferedBackend(TrackerBackend, register=False):
 
     @property
     def experiment(self) -> object:
+        """The native handle of the wrapped backend."""
         return self.backend.experiment
 
     def start(self) -> None:
+        """Start the wrapped backend, and send the buffered calls.
+
+        A transient failure only schedules the next attempt, which the
+        next call makes after ``retry_interval`` seconds.
+
+        Raises:
+            Exception: The error of the wrapped backend, if it rejects
+                the start. A wrong configuration then fails at once.
+
+        """
         if self._busy:
             return
         with self._hold():
             self._flush(raise_rejected=True)
 
     def log_hyperparams(self, params: Mapping[str, ParamValue]) -> None:
+        """Send the hyperparameters, or buffer them.
+
+        Args:
+            params: The hyperparameters, keyed by name.
+
+        """
         self._submit(_Hyperparams(params))
 
     def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
+        """Send the metrics, or buffer them.
+
+        Args:
+            metrics: The metric values, keyed by metric name.
+            step: The training step of the values.
+
+        """
         self._submit(_Metrics(metrics, step))
 
     def log_image(self, name: str, image: npt.NDArray[Any], step: int) -> None:
+        r"""Send the image, or buffer it.
+
+        Args:
+            name: Name of the image.
+            image: The image, of shape :math:`\left(H, W, C\right)`.
+            step: The training step of the image.
+
+        """
         self._submit(_Image(name, image, step))
 
     def log_matrix(
@@ -112,12 +168,44 @@ class BufferedBackend(TrackerBackend, register=False):
         step: int,
         extra_data: Mapping[str, ParamValue],
     ) -> None:
+        """Send the matrix, or buffer it.
+
+        Args:
+            matrix: The matrix.
+            name: Name of the matrix.
+            step: The training step of the matrix.
+            extra_data: More data to store with the matrix.
+
+        """
         self._submit(_Matrix(matrix, name, step, extra_data))
 
     def upload_artifact(self, path: Path, name: str | None, typ: str) -> None:
+        """Upload the file, or buffer a link or a copy of it.
+
+        Args:
+            path: Path to the file.
+            name: Name to store the file under. ``None`` keeps the name
+                of the file.
+            typ: Kind of the artifact, such as ``"weights"``.
+
+        """
         self._submit(_Artifact(path, name, typ))
 
     def close(self, status: RunStatus) -> None:
+        """Send the buffer one last time, save the rest, and end the run.
+
+        The last attempt ignores the retry interval. The calls that still
+        fail go to `unsent_directory`. The wrapped backend closes only if
+        it started.
+
+        Args:
+            status: The final state of the run.
+
+        Raises:
+            OSError: If the calls that never got through cannot be
+                saved. The run ends all the same.
+
+        """
         if self._busy:
             self._pending_close = status
             return
@@ -133,6 +221,15 @@ class BufferedBackend(TrackerBackend, register=False):
                     self.backend.close(status)
 
     def is_transient(self, error: Exception) -> bool:
+        """Ask the wrapped backend whether the error is transient.
+
+        Args:
+            error: The error of a call to the service.
+
+        Returns:
+            The answer of the wrapped backend.
+
+        """
         return self.backend.is_transient(error)
 
     @contextmanager
@@ -150,6 +247,7 @@ class BufferedBackend(TrackerBackend, register=False):
                 self.close(status)
 
     def _submit(self, call: "_Call") -> None:
+        """Send the call, or buffer it when that is not possible now."""
         if self._busy:
             # a signal handler logs while a call is sent
             self._buffer(call)
@@ -216,6 +314,7 @@ class BufferedBackend(TrackerBackend, register=False):
         return True
 
     def _back_off(self, error: Exception) -> None:
+        """Leave the service alone for ``retry_interval`` seconds."""
         self._retry_at = time.monotonic() + self.retry_interval
         logger.warning(
             f"{self.name} is unavailable: {error}. The calls are buffered, "
@@ -223,6 +322,9 @@ class BufferedBackend(TrackerBackend, register=False):
         )
 
     def _buffer(self, call: "_Call") -> None:
+        """Add the call to the buffer, and drop the oldest call of its
+        kind when the kind is over its limit.
+        """
         if isinstance(call, _Artifact):
             call = self._keep_file(call)
         self._calls.append(call)
@@ -264,6 +366,7 @@ class BufferedBackend(TrackerBackend, register=False):
         return _Artifact(target, call.name, call.typ, owned=True)
 
     def _spill(self) -> None:
+        """Save the buffered calls to `unsent_directory`."""
         if not self._calls:
             return
         self.unsent_directory.mkdir(parents=True, exist_ok=True)
@@ -288,7 +391,8 @@ class _Call(ABC):
     """How many calls of this kind the buffer holds."""
 
     @abstractmethod
-    def send(self, backend: TrackerBackend) -> None: ...
+    def send(self, backend: TrackerBackend) -> None:
+        """Make the call on ``backend``."""
 
     @abstractmethod
     def record(self, directory: Path) -> dict[str, ParamValue]:
@@ -304,6 +408,13 @@ class _Call(ABC):
 
 @dataclass(frozen=True, eq=False)
 class _Hyperparams(_Call):
+    """A buffered `TrackerBackend.log_hyperparams` call.
+
+    Attributes:
+        params: The hyperparameters.
+
+    """
+
     limit: ClassVar[int] = 100
     params: Mapping[str, ParamValue]
 
@@ -316,6 +427,14 @@ class _Hyperparams(_Call):
 
 @dataclass(frozen=True, eq=False)
 class _Metrics(_Call):
+    """A buffered `TrackerBackend.log_metrics` call.
+
+    Attributes:
+        metrics: The metric values.
+        step: The training step of the values.
+
+    """
+
     limit: ClassVar[int] = 500
     metrics: Mapping[str, float]
     step: int
@@ -333,6 +452,15 @@ class _Metrics(_Call):
 
 @dataclass(frozen=True, eq=False)
 class _Image(_Call):
+    """A buffered `TrackerBackend.log_image` call.
+
+    Attributes:
+        name: Name of the image.
+        image: The image.
+        step: The training step of the image.
+
+    """
+
     limit: ClassVar[int] = 50
     name: str
     image: npt.NDArray[Any]
@@ -355,6 +483,16 @@ class _Image(_Call):
 
 @dataclass(frozen=True, eq=False)
 class _Matrix(_Call):
+    """A buffered `TrackerBackend.log_matrix` call.
+
+    Attributes:
+        matrix: The matrix.
+        name: Name of the matrix.
+        step: The training step of the matrix.
+        extra_data: More data to store with the matrix.
+
+    """
+
     limit: ClassVar[int] = 500
     matrix: npt.NDArray[Any]
     name: str
@@ -376,12 +514,21 @@ class _Matrix(_Call):
 
 @dataclass(frozen=True, eq=False)
 class _Artifact(_Call):
+    """A buffered `TrackerBackend.upload_artifact` call.
+
+    Attributes:
+        path: Path to the file, or to the copy that the buffer keeps.
+        name: Name to store the file under.
+        typ: Kind of the artifact.
+        owned: Whether ``path`` is a copy that the buffer made.
+
+    """
+
     limit: ClassVar[int] = 10
     path: Path
     name: str | None
     typ: str
     owned: bool = False
-    """Whether ``path`` is a copy that the buffer made."""
 
     def send(self, backend: TrackerBackend) -> None:
         backend.upload_artifact(self.path, self.name, self.typ)

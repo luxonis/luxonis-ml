@@ -1,4 +1,16 @@
 # pyright: strict
+"""The tracker that logs a run to several tracking services at once.
+
+`LuxonisTracker` sends each logging call to each backend that it
+enables, names the run, and closes it. `RUN_NAME_ENV` hands a generated
+run name to the other ranks of a distributed training.
+
+See:
+    `luxonis_ml.tracker` for a guide to the tracker, and
+    `luxonis_ml.tracker.backends` for the backends.
+
+"""
+
 import atexit
 import os
 import re
@@ -31,7 +43,8 @@ from .backends.mlflow import MLflowBackend, MLflowOptions
 from .backends.wandb import WandbBackend, WandbOptions
 from .buffer import BufferedBackend
 
-B = TypeVar("B", bound=TrackerBackend)
+_BackendT = TypeVar("_BackendT", bound=TrackerBackend)
+"""The type of backend that `LuxonisTracker.get_backend` returns."""
 
 RUN_NAME_ENV = "LUXONIS_TRACKER_RUN_NAME"
 """The environment variable that hands the run name to the other ranks.
@@ -41,30 +54,49 @@ that starts later inherits the variable and joins the same run.
 """
 
 _JOIN_TIMEOUT = 30.0
+"""Seconds that a worker waits for a run before it gives up."""
+
 _JOIN_GRACE_PERIOD = 1.0
+"""Seconds that a worker waits for a new run before it joins the newest
+one.
+"""
+
 _JOIN_POLL_INTERVAL = 0.5
+"""Seconds between two looks of a worker for a new run."""
 
 
 class LuxonisTracker:
     """Log a run to several tracking services at once.
 
-    The tracker sends each logging call to each enabled backend. The
-    backends come from `TRACKER_BACKENDS`, so a plugin can add one.
+    The tracker sends each logging call to each enabled backend. Each
+    backend in `TRACKER_BACKENDS`, a plugin backend included, has a
+    keyword argument of its name:
+
+    .. code-block:: python
+
+        with LuxonisTracker(
+            project_name="training",
+            tensorboard=True,
+            mlflow={"tracking_uri": "http://localhost:5000"},
+        ) as tracker:
+            tracker.log_metrics({"loss": 0.18}, step=1)
 
     Only rank :math:`0` logs. On the other ranks every logging call does
     nothing, and no backend starts.
 
     The backends start on the first logging call, or on the first access
-    to `experiment`. `close` ends the run in each backend. Use the
-    tracker as a context manager to close it with the right status. A
-    run that is still open when the interpreter exits closes then, as
-    failed after an uncaught error.
+    to `experiment`. `close` ends the run in each backend. Use the tracker
+    as a context manager to close it with the right status. A run that is still open when the
+    interpreter exits closes then, as failed after an uncaught error.
 
     Attributes:
-        project_name: Project name.
-        project_id: Project identifier.
+        project_name: Project name, as the caller gave it.
+        project_id: Project identifier, as the caller gave it. The
+            identifiers that MLflow assigns are on
+            ``tracker.get_backend(MLflowBackend)``.
         run_name: Name of the run.
-        run_id: Identifier of an earlier run to continue.
+        run_id: Identifier of an earlier run to continue, as the caller
+            gave it.
         save_directory: Root directory of the local run outputs.
         run_directory: Local directory of the run,
             ``<save_directory>/<run_name>``.
@@ -193,6 +225,12 @@ class LuxonisTracker:
         self.run_directory.mkdir(parents=True, exist_ok=True)
 
     def __enter__(self) -> Self:
+        """Return the tracker, which `__exit__` closes.
+
+        Returns:
+            The tracker itself.
+
+        """
         return self
 
     def __exit__(
@@ -201,32 +239,60 @@ class LuxonisTracker:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
+        """Close the run, as failed if the block raised.
+
+        Args:
+            exc_type: The type of the error that the block raised, or
+                ``None``.
+            exc_value: The error that the block raised, or ``None``.
+            traceback: The traceback of the error, or ``None``.
+
+        """
         self.close("success" if exc_type is None else "failed")
 
     @property
     def name(self) -> str:
-        """The run name."""
+        """The run name, the same as `run_name`.
+
+        A Lightning logger reads it.
+        """
         return self.run_name
 
     @property
     def version(self) -> int:
-        """The number of the run, or :math:`0` for a run name without
-        one.
+        """The number of the run, such as :math:`11` for ``11-foo``.
+
+        It is :math:`0` for a run name without a number. A Lightning
+        logger reads it.
         """
         return _run_number(self.run_name) or 0
 
     @property
     def backends(self) -> Mapping[str, TrackerBackend]:
-        """The enabled backends, keyed by name."""
+        """The enabled backends, keyed by name.
+
+        A backend that sets `TrackerBackend.buffered` is here in its
+        `BufferedBackend`. The mapping is read-only.
+        """
         return MappingProxyType(self._backends)
 
-    def get_backend(self, backend_type: type[B]) -> B:
+    def get_backend(self, backend_type: type[_BackendT]) -> _BackendT:
         """Return the enabled backend of a type.
+
+        Unlike `backends`, it looks through a `BufferedBackend` to the
+        backend that it wraps.
 
         Example:
             .. code-block:: python
 
                 run_id = tracker.get_backend(MLflowBackend).run_id
+
+        Args:
+            backend_type: The class of the backend, such as
+                `MLflowBackend`. A subclass of it matches too.
+
+        Returns:
+            The first enabled backend of ``backend_type``.
 
         Raises:
             KeyError: If no backend of ``backend_type`` is enabled.
@@ -243,8 +309,10 @@ class LuxonisTracker:
     def experiment(self) -> dict[str, Any]:
         """The native handles of the started backends, keyed by name.
 
-        Reading it starts the backends. It is empty on a non-zero rank.
-        Use `get_backend` for a typed handle.
+        Each handle is the ``experiment`` of its backend: the
+        ``SummaryWriter`` of TensorBoard, the ``Run`` of WandB, and the
+        ``MlflowClient`` of MLflow. Reading it starts the backends. It is
+        empty on a non-zero rank. Use `get_backend` for a typed handle.
         """
         if not self._closed:
             self._start_backends()
@@ -255,25 +323,37 @@ class LuxonisTracker:
     @property
     @deprecated("Use `'tensorboard' in tracker.backends` instead.")
     def is_tensorboard(self) -> bool:
-        """Whether TensorBoard is enabled. Deprecated."""
+        """Whether TensorBoard is enabled.
+
+        Deprecated: use ``"tensorboard" in tracker.backends``.
+        """
         return "tensorboard" in self._backends
 
     @property
     @deprecated("Use `'wandb' in tracker.backends` instead.")
     def is_wandb(self) -> bool:
-        """Whether WandB is enabled. Deprecated."""
+        """Whether WandB is enabled.
+
+        Deprecated: use ``"wandb" in tracker.backends``.
+        """
         return "wandb" in self._backends
 
     @property
     @deprecated("Use `'mlflow' in tracker.backends` instead.")
     def is_mlflow(self) -> bool:
-        """Whether MLflow is enabled. Deprecated."""
+        """Whether MLflow is enabled.
+
+        Deprecated: use ``"mlflow" in tracker.backends``.
+        """
         return "mlflow" in self._backends
 
     @property
     @deprecated("Use `tracker.get_backend(WandbBackend).entity` instead.")
     def wandb_entity(self) -> str | None:
-        """The WandB entity, or ``None`` without WandB. Deprecated."""
+        """The WandB entity, or ``None`` without WandB.
+
+        Deprecated: use ``tracker.get_backend(WandbBackend).entity``.
+        """
         try:
             return self.get_backend(WandbBackend).entity
         except KeyError:
@@ -285,7 +365,8 @@ class LuxonisTracker:
     )
     def mlflow_tracking_uri(self) -> str | None:
         """The MLflow tracking URI, or ``None`` without MLflow.
-        Deprecated.
+
+        Deprecated: use ``tracker.get_backend(MLflowBackend).tracking_uri``.
         """
         try:
             return self.get_backend(MLflowBackend).tracking_uri
@@ -293,27 +374,48 @@ class LuxonisTracker:
             return None
 
     def log_hyperparams(self, params: Mapping[str, ParamValue]) -> None:
-        """Log the hyperparameters of the run."""
+        """Log the hyperparameters of the run.
+
+        Each call adds to the hyperparameters of the earlier calls.
+
+        Args:
+            params: The hyperparameters, keyed by name. A value can be
+                any value of a YAML configuration, such as a list.
+
+        """
         for backend in self._live_backends():
             backend.log_hyperparams(params)
 
     def log_metric(self, name: str, value: float, step: int) -> None:
-        """Log one scalar metric."""
+        """Log one scalar metric.
+
+        Args:
+            name: Name of the metric.
+            value: Value of the metric.
+            step: The training step of the value.
+
+        """
         self.log_metrics({name: value}, step)
 
     def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
-        """Log scalar metrics at ``step``."""
+        """Log scalar metrics.
+
+        Args:
+            metrics: The metric values, keyed by metric name.
+            step: The training step of the values.
+
+        """
         for backend in self._live_backends():
             backend.log_metrics(metrics, step)
 
     def log_image(self, name: str, img: npt.NDArray[Any], step: int) -> None:
-        r"""Log an image of shape :math:`\left(H, W, C\right)`.
+        r"""Log an image.
 
         Args:
-            name: Caption of the image. MLflow uses the part before the
-                last ``/`` as the directory.
-            img: The image.
-            step: Current step.
+            name: Name of the image. MLflow uses the part before the last
+                ``/`` as the directory.
+            img: The image, of shape :math:`\left(H, W, C\right)`.
+            step: The training step of the image.
 
         """
         for backend in self._live_backends():
@@ -322,7 +424,14 @@ class LuxonisTracker:
     def log_images(
         self, imgs: Mapping[str, npt.NDArray[Any]], step: int
     ) -> None:
-        """Log several images, keyed by caption."""
+        r"""Log several images.
+
+        Args:
+            imgs: The images, keyed by name. Each image has the shape
+                :math:`\left(H, W, C\right)`.
+            step: The training step of the images.
+
+        """
         for name, img in imgs.items():
             self.log_image(name, img, step)
 
@@ -338,9 +447,9 @@ class LuxonisTracker:
         Args:
             matrix: The matrix.
             name: Name of the matrix.
-            step: Current step.
-            extra_data: More data to store with the matrix. Only MLflow
-                stores it.
+            step: The training step of the matrix.
+            extra_data: More data to store with the matrix, such as the
+                class names. Only MLflow stores it.
 
         """
         for backend in self._live_backends():
@@ -388,6 +497,7 @@ class LuxonisTracker:
                 logger.warning(f"Could not close the {name} run: {error}")
 
     def _live_backends(self) -> list[TrackerBackend]:
+        """Return the started backends, and start them if needed."""
         if self._closed:
             if self.rank == 0:
                 logger.warning(
@@ -398,6 +508,7 @@ class LuxonisTracker:
         return list(self._started.values())
 
     def _start_backends(self) -> None:
+        """Start each backend that did not start yet, on rank 0 only."""
         if self.rank != 0:
             return
         for name, backend in self._backends.items():
@@ -410,6 +521,7 @@ class LuxonisTracker:
                 atexit.register(self._close_at_exit)
 
     def _close_at_exit(self) -> None:
+        """Close the run that is still open when the interpreter exits."""
         # the interpreter sets `last_value` when it prints an uncaught
         # error, and it runs the exit hooks after that
         self.close("failed" if hasattr(sys, "last_value") else "success")
@@ -462,6 +574,7 @@ def _legacy_backends(
 def _create_backend(
     name: str, run: RunContext, options: Mapping[str, object]
 ) -> TrackerBackend:
+    """Create the backend of ``name``, in a buffer if it asks for one."""
     backend = TRACKER_BACKENDS.get(name)(run, **options)
     if backend.buffered:
         return BufferedBackend(backend, name)
@@ -484,6 +597,7 @@ def _run_numbers(save_directory: Path) -> dict[str, int]:
 
 
 def _new_run_name(save_directory: Path) -> str:
+    """Return ``<next number>-<random name>`` for a new run."""
     number = max(_run_numbers(save_directory).values(), default=-1) + 1
     return f"{number}-{get_random_name(separator='-', style='lowercase')}"
 
