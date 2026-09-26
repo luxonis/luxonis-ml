@@ -76,6 +76,20 @@ def test_the_built_in_backends_have_keywords(tmp_path: Path):
     assert tracker.get_backend(WandbBackend).entity == "team"
 
 
+@pytest.mark.parametrize(
+    ("options", "unknown"),
+    [
+        ({"wandb": {"team": "luxonis"}}, "team"),
+        ({"mlflow": {"tracking_url": "sqlite:///a.db"}}, "tracking_url"),
+    ],
+)
+def test_an_unknown_option_is_rejected(
+    tmp_path: Path, options: dict[str, Any], unknown: str
+):
+    with pytest.raises(TypeError, match=f"unknown option '{unknown}'"):
+        make_tracker(tmp_path, project_name="project", fake=False, **options)
+
+
 def test_a_rejected_option_creates_no_run_directory(tmp_path: Path):
     with pytest.raises(TypeError):
         make_tracker(tmp_path, fake={"unknown": 1})

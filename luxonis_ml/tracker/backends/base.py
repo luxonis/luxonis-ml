@@ -1,6 +1,6 @@
 # pyright: strict
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar, Literal, TypeAlias
@@ -143,3 +143,18 @@ class TrackerBackend(ABC):
         return isinstance(error, OSError) and not isinstance(
             error, FileNotFoundError
         )
+
+
+def check_options(options: Mapping[str, object], known: Iterable[str]) -> None:
+    """Reject an option that a backend does not take.
+
+    ``Unpack`` of a ``TypedDict`` checks the options only for pyright. A
+    mapping from a configuration file reaches the backend unchecked.
+
+    Raises:
+        TypeError: If ``options`` has a key that is not in ``known``.
+
+    """
+    for key in options:
+        if key not in known:
+            raise TypeError(f"The backend got an unknown option '{key}'.")

@@ -10,7 +10,7 @@ from typing_extensions import Unpack
 from luxonis_ml.guard_extras import guard_missing_extra
 from luxonis_ml.typing import ParamValue
 
-from .base import RunContext, RunStatus, TrackerBackend
+from .base import RunContext, RunStatus, TrackerBackend, check_options
 
 if TYPE_CHECKING:
     from wandb.sdk.wandb_run import Run
@@ -55,10 +55,12 @@ class WandbBackend(TrackerBackend):
             **options: See `WandbOptions`.
 
         Raises:
+            TypeError: If an option is unknown.
             ValueError: If the run has no project.
 
         """
         super().__init__(run)
+        check_options(options, WandbOptions.__optional_keys__)
         project = run.project_name or run.project_id
         if project is None:
             raise ValueError("WandB needs `project_name` or `project_id`.")

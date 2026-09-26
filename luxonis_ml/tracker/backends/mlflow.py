@@ -15,7 +15,7 @@ from luxonis_ml.typing import ParamValue
 from luxonis_ml.utils.environ import environ
 from luxonis_ml.utils.filesystem import LuxonisFileSystem
 
-from .base import RunContext, RunStatus, TrackerBackend
+from .base import RunContext, RunStatus, TrackerBackend, check_options
 
 if TYPE_CHECKING:
     from mlflow import MlflowClient
@@ -89,11 +89,13 @@ class MLflowBackend(TrackerBackend):
             **options: See `MLflowOptions`.
 
         Raises:
+            TypeError: If an option is unknown.
             ValueError: If no tracking URI is known, or the run has no
                 project.
 
         """
         super().__init__(run)
+        check_options(options, MLflowOptions.__optional_keys__)
         tracking_uri = (
             options.get("tracking_uri") or environ.MLFLOW_TRACKING_URI
         )
