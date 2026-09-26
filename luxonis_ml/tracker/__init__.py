@@ -104,7 +104,9 @@ Migration
 
 The ``is_tensorboard``, ``is_wandb``, ``is_mlflow``, ``wandb_entity``
 and ``mlflow_tracking_uri`` arguments still work, with a
-``DeprecationWarning``. Replace them with the backend keywords:
+``DeprecationWarning``. ``wandb_entity`` and ``mlflow_tracking_uri``
+also fill in a backend that its keyword turns on with ``True``. Replace
+them with the backend keywords:
 
 .. code-block:: python
 
@@ -113,13 +115,22 @@ and ``mlflow_tracking_uri`` arguments still work, with a
     # after
     LuxonisTracker(mlflow={"tracking_uri": uri}, ...)
 
+The attributes of the same names are deprecated read-only properties.
+
 Other changes that a caller can notice:
 
     - `LuxonisTracker.experiment` maps each backend name to its native
       handle: an ``MlflowClient`` for MLflow, not the ``mlflow`` module,
-      and a WandB ``Run``, not the ``wandb`` module;
+      and a WandB ``Run``, not the ``wandb`` module. It is empty on a
+      non-zero rank;
+    - the MLflow run of the tracker is not the active run of the
+      ``mlflow`` module. A ``LuxonisFileSystem`` with a bare
+      ``mlflow://`` path does not reach it. Use
+      ``mlflow://<experiment_id>/<run_id>/`` with the identifiers of
+      ``tracker.get_backend(MLflowBackend)``;
     - `LuxonisTracker.close` ends the run in every backend, and the
-      tracker ignores the logging calls after it;
+      tracker ignores the logging calls after it. A run that is still
+      open when the interpreter exits closes then;
     - ``run_id`` and ``project_id`` keep the values that you pass. Read
       the MLflow identifiers from ``tracker.get_backend(MLflowBackend)``;
     - TensorBoard writes through ``tensorboardX``, from the
@@ -127,7 +138,8 @@ Other changes that a caller can notice:
     - the unsent MLflow calls go to ``unsent_logs/mlflow/calls.jsonl``,
       not to ``local_logs.json``;
     - ``LuxonisRequestHeaderProvider`` is removed. It was never
-      registered with MLflow, and it sent the masked secret.
+      registered with MLflow, and it put the ``SecretStr`` object into
+      the header, which ``requests`` rejects.
 
 """
 
