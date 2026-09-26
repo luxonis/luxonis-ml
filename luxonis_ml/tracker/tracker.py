@@ -1,6 +1,8 @@
 # pyright: strict
+import atexit
 import os
 import re
+import sys
 import time
 import warnings
 from collections.abc import Mapping
@@ -54,7 +56,9 @@ class LuxonisTracker:
 
     The backends start on the first logging call, or on the first access
     to `experiment`. `close` ends the run in each backend. Use the
-    tracker as a context manager to close it with the right status.
+    tracker as a context manager to close it with the right status. A
+    run that is still open when the interpreter exits closes then, as
+    failed after an uncaught error.
 
     Attributes:
         project_name: Project name.
@@ -373,6 +377,7 @@ class LuxonisTracker:
         if self._closed:
             return
         self._closed = True
+        atexit.unregister(self._close_at_exit)
         final: RunStatus = (
             "success" if status in {"success", "finished"} else "failed"
         )
@@ -399,6 +404,15 @@ class LuxonisTracker:
             if name not in self._started:
                 backend.start()
                 self._started[name] = backend
+                # the exit hooks run last first, so this one runs before
+                # the hooks that the SDK has just registered
+                atexit.unregister(self._close_at_exit)
+                atexit.register(self._close_at_exit)
+
+    def _close_at_exit(self) -> None:
+        # the interpreter sets `last_value` when it prints an uncaught
+        # error, and it runs the exit hooks after that
+        self.close("failed" if hasattr(sys, "last_value") else "success")
 
 
 def _legacy_backends(

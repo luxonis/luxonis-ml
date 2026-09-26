@@ -1,6 +1,7 @@
 import os
 import re
-from collections.abc import Iterator
+import sys
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -542,6 +543,64 @@ def test_the_context_manager_marks_a_failed_run(tmp_path: Path):
         raise KeyError
 
     assert fake(tracker).status == "failed"
+
+
+class FakeAtexit:
+    """Stand in for the `atexit` module."""
+
+    def __init__(self) -> None:
+        self.hooks: list[Callable[[], object]] = []
+
+    def register(self, hook: Callable[[], object]) -> None:
+        self.hooks.append(hook)
+
+    def unregister(self, hook: Callable[[], object]) -> None:
+        self.hooks = [h for h in self.hooks if h != hook]
+
+    def run(self) -> None:
+        for hook in self.hooks:
+            hook()
+
+
+@pytest.fixture
+def exit_hooks(monkeypatch: pytest.MonkeyPatch) -> FakeAtexit:
+    hooks = FakeAtexit()
+    monkeypatch.setattr(tracker_module, "atexit", hooks)
+    return hooks
+
+
+def test_an_open_run_closes_at_exit(tmp_path: Path, exit_hooks: FakeAtexit):
+    tracker = make_tracker(tmp_path)
+    tracker.log_metric("loss", 0.5, 1)
+
+    exit_hooks.run()
+
+    assert fake(tracker).status == "success"
+
+
+def test_an_uncaught_error_fails_the_run_at_exit(
+    tmp_path: Path, exit_hooks: FakeAtexit, monkeypatch: pytest.MonkeyPatch
+):
+    tracker = make_tracker(tmp_path)
+    tracker.log_metric("loss", 0.5, 1)
+    # the interpreter sets it when it prints an uncaught error
+    monkeypatch.setattr(sys, "last_value", KeyError(), raising=False)
+
+    exit_hooks.run()
+
+    assert fake(tracker).status == "failed"
+
+
+def test_a_closed_or_idle_run_leaves_no_exit_hook(
+    tmp_path: Path, exit_hooks: FakeAtexit
+):
+    make_tracker(tmp_path)
+    tracker = make_tracker(tmp_path)
+    tracker.log_metric("loss", 0.5, 1)
+
+    tracker.close()
+
+    assert exit_hooks.hooks == []
 
 
 class FakeEntryPoint:
