@@ -8,7 +8,7 @@ from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 from uuid import uuid4
 
 import numpy as np
@@ -402,10 +402,11 @@ class _Artifact(_Call):
 def _to_json(value: object) -> ParamValue:
     """Convert the values that ``json`` does not know.
 
-    A NumPy scalar or array becomes a number or a list. Any other value
-    becomes its string.
+    A mapping becomes a ``dict``, and an array, such as a NumPy scalar,
+    becomes a number or a list. Any other value becomes its string.
     """
-    array: npt.NDArray[Any] = np.asarray(value)
-    if array.dtype == object:
-        return str(value)
-    return array.tolist()
+    if isinstance(value, Mapping):
+        return dict(cast(Mapping[str, ParamValue], value))
+    if hasattr(value, "__array__"):
+        return np.asarray(value).tolist()
+    return str(value)

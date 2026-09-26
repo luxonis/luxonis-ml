@@ -1,4 +1,5 @@
 import json
+from collections import UserDict
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -589,6 +590,7 @@ def test_a_call_made_during_the_start_waits_for_it(run: RunContext):
         (np.int64(3), 3),
         (np.array([[1, 2]]), [[1, 2]]),
         (Path("a/b"), str(Path("a/b"))),
+        (UserDict({"lr": 0.1}), {"lr": 0.1}),
     ],
 )
 def test_numpy_values_become_json(value: object, expected: object):
