@@ -241,13 +241,23 @@ class MLflowBackend(TrackerBackend):
         return self.run_id
 
     def _get_or_create_experiment(self) -> str:
+        from mlflow.exceptions import MlflowException
+
         name = self.run.project_name
         # the constructor accepts no run without a project
         assert name is not None
         experiment = self.experiment.get_experiment_by_name(name)
         if experiment is not None:
             return experiment.experiment_id
-        return self.experiment.create_experiment(name)
+        try:
+            return self.experiment.create_experiment(name)
+        except MlflowException as error:
+            # another process created it after the lookup
+            if error.error_code != "RESOURCE_ALREADY_EXISTS":
+                raise
+            experiment = self.experiment.get_experiment_by_name(name)
+            assert experiment is not None
+            return experiment.experiment_id
 
     def _create_run(self, experiment_id: str) -> str:
         from mlflow.tracking.context.registry import (

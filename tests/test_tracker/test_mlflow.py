@@ -10,10 +10,12 @@ import numpy.typing as npt
 import pytest
 import requests
 from mlflow import MlflowClient
+from mlflow.entities import Experiment
 from mlflow.exceptions import MlflowException
 from mlflow.protos.databricks_pb2 import (
     INTERNAL_ERROR,
     INVALID_PARAMETER_VALUE,
+    PERMISSION_DENIED,
     REQUEST_LIMIT_EXCEEDED,
     RESOURCE_DOES_NOT_EXIST,
 )
@@ -128,6 +130,52 @@ def test_start_reuses_an_experiment_of_the_same_name(
     backend.start()
 
     assert backend.experiment_id == experiment_id
+
+
+def test_start_joins_an_experiment_that_another_process_created(
+    tmp_path: Path,
+    project: str,
+    tracking_uri: str,
+    client: MlflowClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Two trainings start the same new project at once. The second
+    one sees no experiment, and its create fails.
+    """
+    experiment_id = client.create_experiment(project)
+    lookup = MlflowClient.get_experiment_by_name
+    lookups: list[str] = []
+
+    def late_lookup(self: MlflowClient, name: str) -> Experiment | None:
+        lookups.append(name)
+        return None if len(lookups) == 1 else lookup(self, name)
+
+    monkeypatch.setattr(MlflowClient, "get_experiment_by_name", late_lookup)
+    backend = MLflowBackend(
+        make_run(tmp_path, project), tracking_uri=tracking_uri
+    )
+
+    backend.start()
+
+    assert backend.experiment_id == experiment_id
+
+
+def test_a_rejected_experiment_create_raises(
+    tmp_path: Path,
+    project: str,
+    tracking_uri: str,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    def refuse(self: MlflowClient, name: str) -> str:
+        raise MlflowException("no access", PERMISSION_DENIED)
+
+    monkeypatch.setattr(MlflowClient, "create_experiment", refuse)
+    backend = MLflowBackend(
+        make_run(tmp_path, project), tracking_uri=tracking_uri
+    )
+
+    with pytest.raises(MlflowException, match="no access"):
+        backend.start()
 
 
 def test_the_project_id_selects_the_experiment(
