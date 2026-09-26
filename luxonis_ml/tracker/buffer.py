@@ -20,7 +20,7 @@ from luxonis_ml.typing import ParamValue
 from .backends.base import RunStatus, TrackerBackend
 
 
-class BufferedBackend(TrackerBackend):
+class BufferedBackend(TrackerBackend, register=False):
     """Keep the calls that a remote backend cannot send, and send them
     later.
 

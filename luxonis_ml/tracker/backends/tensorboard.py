@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from tensorboardX import SummaryWriter
 
 
-class TensorBoardBackend(TrackerBackend):
+class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
     """Write TensorBoard event files through `tensorboardX`_.
 
     The events go to ``<save_directory>/tensorboard_logs/<run_name>``. A

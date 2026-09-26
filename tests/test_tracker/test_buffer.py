@@ -139,7 +139,7 @@ def test_a_rejected_call_is_dropped(
     assert any("fake rejected a call: bad value" in m for m in warnings_log)
 
 
-class FlakyBackend(FakeBackend):
+class FlakyBackend(FakeBackend, register=False):
     """Raise the queued errors, one for each call, then accept."""
 
     def __init__(self, run: RunContext, errors: list[BaseException]) -> None:
@@ -487,7 +487,7 @@ def test_a_start_rejected_after_an_outage_keeps_the_calls(
     assert any("fake rejected the run" in m for m in warnings_log)
 
 
-class ReentrantBackend(FakeBackend):
+class ReentrantBackend(FakeBackend, register=False):
     """Log another call while a call is being sent, as a signal handler
     can.
     """

@@ -46,7 +46,7 @@ first. A sweep trial without ``parent_run_id`` nests under the last one.
 """
 
 
-class MLflowBackend(TrackerBackend):
+class MLflowBackend(TrackerBackend, register_name="mlflow"):
     """Log to an `MLflow`_ tracking server.
 
     The backend talks to the server through its own ``MlflowClient``,

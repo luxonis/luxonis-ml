@@ -604,18 +604,13 @@ def test_a_closed_or_idle_run_leaves_no_exit_hook(
 
 
 class FakeEntryPoint:
-    def __init__(self, name: str, value: Any) -> None:
+    """Stand in for an entry point. `load` runs ``load_plugin``, as the
+    import of the plugin module would.
+    """
+
+    def __init__(self, name: str, load_plugin: Callable[[], object]) -> None:
         self.name = name
-        self.value = value
-
-    def load(self) -> Any:
-        if isinstance(self.value, Exception):
-            raise self.value
-        return self.value
-
-
-class PluginBackend(FakeBackend):
-    pass
+        self.load = load_plugin
 
 
 @pytest.fixture
@@ -631,46 +626,58 @@ def plugins(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[FakeEntryPoint]]:
     TRACKER_BACKENDS._module_dict.pop("plugin", None)
 
 
-def test_a_plugin_is_registered_under_its_entry_point_name(
-    plugins: list[FakeEntryPoint],
+def test_a_plugin_registers_itself_when_it_loads(
+    plugins: list[FakeEntryPoint], tmp_path: Path
 ):
-    plugins.append(FakeEntryPoint("plugin", PluginBackend))
+    def load_plugin() -> type[FakeBackend]:
+        class PluginBackend(FakeBackend, register_name="plugin"):
+            pass
+
+        return PluginBackend
+
+    plugins.append(FakeEntryPoint("plugin", load_plugin))
 
     tracker_package._load_backend_plugins()
+    tracker = make_tracker(tmp_path, fake=False, plugin=True)
 
-    assert TRACKER_BACKENDS.get("plugin") is PluginBackend
+    assert type(tracker.backends["plugin"]).__name__ == "PluginBackend"
 
 
-def test_a_plugin_that_registered_itself_is_kept(
-    plugins: list[FakeEntryPoint],
-):
-    plugins.append(FakeEntryPoint("fake", PluginBackend))
+def test_a_subclass_that_opts_out_is_not_registered():
+    class Helper(FakeBackend, register=False):
+        pass
 
-    tracker_package._load_backend_plugins()
+    assert "Helper" not in TRACKER_BACKENDS
+    assert "BufferedBackend" not in TRACKER_BACKENDS
 
-    assert TRACKER_BACKENDS.get("fake") is FakeBackend
+
+def raise_import_error() -> object:
+    raise ImportError("no module")
 
 
 @pytest.mark.parametrize(
-    ("value", "reason"),
+    ("load_plugin", "reason"),
     [
-        (ImportError("no module"), "no module"),
-        (object, "not a `TrackerBackend` subclass"),
-        (len, "not a `TrackerBackend` subclass"),
+        (raise_import_error, "no module"),
+        (lambda: object, "not a `TrackerBackend` subclass"),
+        (lambda: len, "not a `TrackerBackend` subclass"),
     ],
 )
 def test_a_broken_plugin_is_skipped(
     plugins: list[FakeEntryPoint],
     warnings_log: list[str],
-    value: Any,
+    load_plugin: Callable[[], object],
     reason: str,
 ):
-    plugins.append(FakeEntryPoint("plugin", value))
+    plugins.append(FakeEntryPoint("plugin", load_plugin))
 
     tracker_package._load_backend_plugins()
 
     assert "plugin" not in TRACKER_BACKENDS
-    assert any(reason in m for m in warnings_log)
+    assert any(
+        "Skipping the tracker plugin 'plugin': " in m and reason in m
+        for m in warnings_log
+    )
 
 
 @pytest.mark.parametrize(

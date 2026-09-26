@@ -8,7 +8,7 @@ from typing import Any, ClassVar, Literal, TypeAlias
 import numpy.typing as npt
 
 from luxonis_ml.typing import ParamValue
-from luxonis_ml.utils.registry import Registry
+from luxonis_ml.utils.registry import AutoRegisterMeta, Registry
 
 RunStatus: TypeAlias = Literal["success", "failed"]
 """The final state of a run, as `TrackerBackend.close` receives it."""
@@ -16,7 +16,11 @@ RunStatus: TypeAlias = Literal["success", "failed"]
 TRACKER_BACKENDS: Registry[type["TrackerBackend"]] = Registry(
     name="tracker_backends"
 )
-"""The backends that `LuxonisTracker` can create, keyed by name."""
+"""The backends that `LuxonisTracker` can create, keyed by name.
+
+Each subclass of `TrackerBackend` registers itself here when Python
+creates the class, under its ``register_name`` class argument.
+"""
 
 
 @dataclass(frozen=True)
@@ -46,7 +50,9 @@ class RunContext:
         return self.save_directory / self.run_name
 
 
-class TrackerBackend(ABC):
+class TrackerBackend(
+    ABC, metaclass=AutoRegisterMeta, registry=TRACKER_BACKENDS, register=False
+):
     """One logging service behind `LuxonisTracker`.
 
     The constructor only checks and stores the options, so a tracker can
@@ -54,13 +60,14 @@ class TrackerBackend(ABC):
     `LuxonisTracker` calls it once, before the first logging call, and
     only on rank :math:`0`.
 
-    Register a subclass in `TRACKER_BACKENDS` to make it available as
-    a keyword argument of `LuxonisTracker`:
+    A subclass registers itself in `TRACKER_BACKENDS` under its
+    ``register_name``, which is the keyword argument of `LuxonisTracker`
+    that turns it on. A subclass with ``register=False`` stays out of
+    the registry:
 
     .. code-block:: python
 
-        @TRACKER_BACKENDS.register(name="my_service")
-        class MyServiceBackend(TrackerBackend):
+        class MyServiceBackend(TrackerBackend, register_name="my_service"):
             def __init__(self, run: RunContext, *, api_key: str) -> None:
                 super().__init__(run)
                 self.api_key = api_key

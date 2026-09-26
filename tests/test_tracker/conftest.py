@@ -8,7 +8,6 @@ import pytest
 
 import luxonis_ml.tracker.backends.mlflow as mlflow_module
 from luxonis_ml.tracker import (
-    TRACKER_BACKENDS,
     RunContext,
     RunStatus,
     TrackerBackend,
@@ -41,7 +40,7 @@ class Rejected(Exception):
     """An error that `FakeBackend.is_transient` does not retry."""
 
 
-class FakeBackend(TrackerBackend):
+class FakeBackend(TrackerBackend, register_name="fake"):
     """Record each call. While `error` is set, `start` and every
     logging call raise it.
     """
@@ -100,15 +99,12 @@ class FakeBackend(TrackerBackend):
             raise self.error
 
 
-class BufferedFakeBackend(FakeBackend):
+class OtherFakeBackend(FakeBackend, register_name="other_fake"):
+    """A second fake, to see that each call reaches each backend."""
+
+
+class BufferedFakeBackend(FakeBackend, register_name="buffered_fake"):
     buffered = True
-
-
-TRACKER_BACKENDS.register(module=FakeBackend, name="fake", force=True)
-TRACKER_BACKENDS.register(module=FakeBackend, name="other_fake", force=True)
-TRACKER_BACKENDS.register(
-    module=BufferedFakeBackend, name="buffered_fake", force=True
-)
 
 
 @pytest.fixture(autouse=True)

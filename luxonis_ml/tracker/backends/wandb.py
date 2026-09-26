@@ -28,7 +28,7 @@ class WandbOptions(TypedDict, total=False):
     entity: str | None
 
 
-class WandbBackend(TrackerBackend):
+class WandbBackend(TrackerBackend, register_name="wandb"):
     """Log to `Weights & Biases`_.
 
     The local files of WandB go to ``<save_directory>/wandb_logs``.
