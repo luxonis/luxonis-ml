@@ -12,6 +12,7 @@ mdurl==0.1.2
 numpy==2.2.6 ; python_full_version < '3.11'
 numpy==2.3.5 ; python_full_version >= '3.11'
 packaging==26.3
+pillow==12.3.0
 protobuf==6.33.6
 pydantic==2.13.5
 pydantic-core==2.46.5

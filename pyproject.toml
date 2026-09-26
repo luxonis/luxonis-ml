@@ -58,9 +58,10 @@ mlflow = ["mlflow~=3.1"]
 roboflow = ["roboflow~=1.4"]
 s3 = ["s3fs==2024.6.1"]
 # Tracker backends. The `tracker` extra leaves them out, because a run
-# needs only the backends it turns on.
-tensorboard = ["tensorboardX~=2.6"]
-wandb = ["wandb~=0.21"]
+# needs only the backends it turns on. The SDKs need Pillow to log an
+# image, but they do not require it.
+tensorboard = ["pillow>=10.0", "tensorboardX~=2.6"]
+wandb = ["pillow>=10.0", "wandb~=0.21"]
 
 all = [
   "luxonis-ml[data,gcs,ldf,mlflow,nn_archive,roboflow,s3,telemetry,tensorboard,tracker,utils,wandb]",

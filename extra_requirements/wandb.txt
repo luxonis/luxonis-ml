@@ -21,6 +21,7 @@ opentelemetry-proto==1.44.0
 opentelemetry-sdk==1.44.0
 opentelemetry-semantic-conventions==0.65b0
 packaging==26.3
+pillow==12.3.0
 platformdirs==4.11.9
 protobuf==6.33.6
 pydantic==2.13.5
