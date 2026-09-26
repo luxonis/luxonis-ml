@@ -352,7 +352,7 @@ def test_a_run_that_fails_to_close_is_no_longer_a_parent(
     def unreachable(*_: object) -> None:
         raise MlflowException("connection refused")
 
-    monkeypatch.setattr(backend.experiment, "set_terminated", unreachable)
+    monkeypatch.setattr(backend.client, "set_terminated", unreachable)
 
     with pytest.raises(MlflowException):
         backend.close("success")
@@ -380,7 +380,7 @@ def test_the_client_exists_only_after_start(tmp_path: Path):
     )
 
     with pytest.raises(RuntimeError, match="not started"):
-        _ = backend.experiment
+        _ = backend.client
     assert not store.exists()
 
 

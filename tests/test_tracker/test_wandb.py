@@ -52,12 +52,12 @@ def backend(
     backend.start()
     yield backend
     # `RunSpy` may still replace `finish` on the instance
-    type(backend.experiment).finish(backend.experiment)
+    type(backend.wandb_run).finish(backend.wandb_run)
 
 
 @pytest.fixture
 def spy(backend: WandbBackend, monkeypatch: pytest.MonkeyPatch) -> RunSpy:
-    return RunSpy(backend.experiment, monkeypatch)
+    return RunSpy(backend.wandb_run, monkeypatch)
 
 
 def test_start_opens_a_run_in_the_project(
@@ -88,8 +88,8 @@ def test_a_project_is_required(tmp_path: Path):
 def test_hyperparameters_go_to_the_config(backend: WandbBackend):
     backend.log_hyperparams({"lr": 0.1, "layers": [1, 2]})
 
-    assert backend.experiment.config["lr"] == 0.1
-    assert backend.experiment.config["layers"] == [1, 2]
+    assert backend.wandb_run.config["lr"] == 0.1
+    assert backend.wandb_run.config["layers"] == [1, 2]
 
 
 def test_calls_leave_the_step_to_wandb(
@@ -149,7 +149,7 @@ def test_close_finishes_the_run(
 
 def test_the_run_exists_only_after_start(run: RunContext):
     with pytest.raises(RuntimeError, match="not started"):
-        _ = WandbBackend(run).experiment
+        _ = WandbBackend(run).wandb_run
 
 
 def test_a_missing_sdk_names_the_extra(

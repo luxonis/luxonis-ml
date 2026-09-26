@@ -84,9 +84,9 @@ class LuxonisTracker:
     Only rank :math:`0` logs. On the other ranks every logging call does
     nothing, and no backend starts.
 
-    The backends start on the first logging call, or on the first access
-    to `experiment`. `close` ends the run in each backend. Use the tracker
-    as a context manager to close it with the right status. A run that is still open when the
+    The backends start on the first logging call, or at `start`. `close`
+    ends the run in each backend. Use the tracker as a context manager to
+    close it with the right status. A run that is still open when the
     interpreter exits closes then, as failed after an uncaught error.
 
     Attributes:
@@ -305,20 +305,22 @@ class LuxonisTracker:
                 return backend
         raise KeyError(f"No {backend_type.__name__} is enabled.")
 
-    @property
-    def experiment(self) -> dict[str, Any]:
-        """The native handles of the started backends, keyed by name.
+    def start(self) -> None:
+        """Start the backends now, not at the first logging call.
 
-        Each handle is the ``experiment`` of its backend: the
-        ``SummaryWriter`` of TensorBoard, the ``Run`` of WandB, and the
-        ``MlflowClient`` of MLflow. Reading it starts the backends. It is
-        empty on a non-zero rank. Use `get_backend` for a typed handle.
+        For example, start the MLflow run of a sweep before its trials,
+        so that they nest under it. A backend that started already does
+        not start again. On a non-zero rank, and after `close`, it does
+        nothing.
+
+        Raises:
+            Exception: The error of a backend that fails to start. A
+                buffered backend raises only when the service rejects
+                the start.
+
         """
         if not self._closed:
             self._start_backends()
-        return {
-            name: backend.experiment for name, backend in self._started.items()
-        }
 
     @property
     @deprecated("Use `'tensorboard' in tracker.backends` instead.")

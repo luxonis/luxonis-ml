@@ -311,9 +311,9 @@ def test_other_ranks_never_start_or_log(
     tracker.log_image("image", image, 1)
     tracker.log_matrix(np.eye(2), "matrix", 1)
     tracker.upload_artifact(tmp_path / "missing.txt")
+    tracker.start()
     tracker.close()
 
-    assert tracker.experiment == {}
     assert fake(tracker).starts == 0
     assert fake(tracker).calls == []
     assert fake(tracker).status is None
@@ -374,16 +374,15 @@ def test_each_call_reaches_each_backend(
     assert fake(tracker, "other_fake").calls == expected
 
 
-def test_experiment_starts_the_backends_and_maps_their_handles(
-    tmp_path: Path,
-):
+def test_start_starts_each_backend_once(tmp_path: Path):
     tracker = make_tracker(tmp_path, other_fake=True)
 
-    assert tracker.experiment == {
-        "fake": fake(tracker),
-        "other_fake": fake(tracker, "other_fake"),
-    }
+    tracker.start()
+    tracker.start()
+    tracker.log_metric("loss", 0.5, 1)
+
     assert fake(tracker).starts == 1
+    assert fake(tracker, "other_fake").starts == 1
 
 
 def test_get_backend_unwraps_a_buffered_backend(tmp_path: Path):
@@ -520,11 +519,12 @@ def test_other_ranks_stay_silent_after_close(
     assert warnings_log == []
 
 
-def test_experiment_after_close_starts_nothing(tmp_path: Path):
+def test_start_after_close_starts_nothing(tmp_path: Path):
     tracker = make_tracker(tmp_path)
     tracker.close()
 
-    assert tracker.experiment == {}
+    tracker.start()
+
     assert fake(tracker).starts == 0
 
 

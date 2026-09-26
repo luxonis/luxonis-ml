@@ -137,8 +137,9 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         self._monitor: SystemMetricsMonitor | None = None
 
     @property
-    def experiment(self) -> "MlflowClient":
-        """The ``MlflowClient`` of the backend.
+    def client(self) -> "MlflowClient":
+        """The ``MlflowClient`` of the backend, for the calls that the
+        tracker does not make, such as ``set_tag``.
 
         Raises:
             RuntimeError: If the backend is not started.
@@ -177,7 +178,7 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         if self.run_id is None:
             self.run_id = self._create_run(self.experiment_id)
         else:
-            self.experiment.update_run(self.run_id, status="RUNNING")
+            self.client.update_run(self.run_id, status="RUNNING")
 
         self._start_system_metrics(self.run_id, resumed)
         if not self.run.is_sweep:
@@ -196,7 +197,7 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         """
         from mlflow.entities import Param
 
-        self.experiment.log_batch(
+        self.client.log_batch(
             self._run_id,
             params=[Param(key, str(value)) for key, value in params.items()],
         )
@@ -212,7 +213,7 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         from mlflow.entities import Metric
 
         timestamp = time_ns() // 1_000_000
-        self.experiment.log_batch(
+        self.client.log_batch(
             self._run_id,
             metrics=[
                 Metric(key, float(value), timestamp, step)
@@ -236,7 +237,7 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         if directory:
             path = f"{directory}/{path}"
         # MLflow annotates `image` with a bare `numpy.ndarray`
-        self.experiment.log_image(  # pyright: ignore[reportUnknownMemberType]
+        self.client.log_image(  # pyright: ignore[reportUnknownMemberType]
             self._run_id, image, artifact_file=path
         )
 
@@ -266,7 +267,7 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
             "shape": list(matrix.shape),
             **extra_data,
         }
-        self.experiment.log_dict(self._run_id, data, f"{name}.json")
+        self.client.log_dict(self._run_id, data, f"{name}.json")
 
     def upload_artifact(self, path: Path, name: str | None, typ: str) -> None:
         """Upload the file to the root of the run artifacts.
@@ -298,7 +299,7 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
             _open_runs.remove(self._run_id)
         if self._monitor is not None:
             self._monitor.finish()
-        self.experiment.set_terminated(
+        self.client.set_terminated(
             self._run_id, "FINISHED" if status == "success" else "FAILED"
         )
 
@@ -345,16 +346,16 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         name = self.run.project_name
         # the constructor accepts no run without a project
         assert name is not None
-        experiment = self.experiment.get_experiment_by_name(name)
+        experiment = self.client.get_experiment_by_name(name)
         if experiment is not None:
             return experiment.experiment_id
         try:
-            return self.experiment.create_experiment(name)
+            return self.client.create_experiment(name)
         except MlflowException as error:
             # another process created it after the lookup
             if error.error_code != "RESOURCE_ALREADY_EXISTS":
                 raise
-            experiment = self.experiment.get_experiment_by_name(name)
+            experiment = self.client.get_experiment_by_name(name)
             assert experiment is not None
             return experiment.experiment_id
 
@@ -371,7 +372,7 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         tags = {} if parent is None else {MLFLOW_PARENT_RUN_ID: parent}
         # `resolve_tags` adds the user, the source and the git commit, as
         # `mlflow.start_run` does. MLflow leaves its types unannotated.
-        run = self.experiment.create_run(
+        run = self.client.create_run(
             experiment_id,
             run_name=self.run.run_name,
             tags=resolve_tags(tags),  # pyright: ignore[reportUnknownArgumentType]

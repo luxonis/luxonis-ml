@@ -110,11 +110,6 @@ class BufferedBackend(TrackerBackend, register=False):
         self._retry_at = 0.0
         self._reported_drop = False
 
-    @property
-    def experiment(self) -> object:
-        """The native handle of the wrapped backend."""
-        return self.backend.experiment
-
     def start(self) -> None:
         """Start the wrapped backend, and send the buffered calls.
 

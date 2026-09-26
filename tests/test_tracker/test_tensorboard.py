@@ -47,7 +47,7 @@ def test_the_events_go_to_the_run_directory(
 ):
     log_dir = run.save_directory / "tensorboard_logs" / run.run_name
 
-    assert Path(backend.experiment.logdir) == log_dir
+    assert backend.log_dir == log_dir
     assert list(log_dir.glob("events.out.tfevents.*"))
 
 
@@ -61,8 +61,8 @@ def test_each_sweep_trial_gets_the_next_directory(tmp_path: Path):
     second = TensorBoardBackend(run)
     second.start()
 
-    assert Path(first.experiment.logdir) == log_dir / "trial_0"
-    assert Path(second.experiment.logdir) == log_dir / "trial_4"
+    assert first.log_dir == log_dir / "trial_0"
+    assert second.log_dir == log_dir / "trial_4"
 
 
 def test_the_logged_values_reach_the_event_file(
@@ -74,7 +74,7 @@ def test_the_logged_values_reach_the_event_file(
     backend.log_matrix(matrix, "matrix", 5, {"ignored": 1})
     backend.close("success")
 
-    values = read_summaries(Path(backend.experiment.logdir))
+    values = read_summaries(backend.log_dir)
     by_tag = {value.tag: (step, value) for step, value in values}
     assert by_tag["loss"][0] == 3
     assert by_tag["loss"][1].simple_value == 0.5
@@ -99,7 +99,7 @@ def test_the_hyperparameters_stay_in_the_run(
     backend.log_hyperparams({"lr": 0.1, "layers": [1, 2]})
     backend.log_hyperparams({"note": None})
     log_dir = run.save_directory / "tensorboard_logs" / run.run_name
-    backend.experiment.flush()
+    backend.writer.flush()
     assert read_summaries(log_dir) == []
 
     backend.close("success")
@@ -143,7 +143,9 @@ def test_an_artifact_is_not_stored(
 
 def test_the_writer_exists_only_after_start(run: RunContext):
     with pytest.raises(RuntimeError, match="not started"):
-        _ = TensorBoardBackend(run).experiment
+        _ = TensorBoardBackend(run).writer
+    with pytest.raises(RuntimeError, match="not started"):
+        _ = TensorBoardBackend(run).log_dir
 
 
 def test_a_missing_sdk_names_the_extra(

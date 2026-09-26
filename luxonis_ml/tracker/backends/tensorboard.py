@@ -59,8 +59,9 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
         self._hparams: dict[str, ParamValue] = {}
 
     @property
-    def experiment(self) -> "SummaryWriter":
-        """The ``SummaryWriter`` of the run.
+    def writer(self) -> "SummaryWriter":
+        """The ``SummaryWriter`` of the run, for the calls that the
+        tracker does not make, such as ``add_histogram``.
 
         Raises:
             RuntimeError: If the backend is not started.
@@ -69,6 +70,16 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
         if self._writer is None:
             raise RuntimeError("The TensorBoard backend is not started.")
         return self._writer
+
+    @property
+    def log_dir(self) -> Path:
+        """The directory of the event files.
+
+        Raises:
+            RuntimeError: If the backend is not started.
+
+        """
+        return Path(self.writer.logdir)
 
     def start(self) -> None:
         """Open the event file of the run.
@@ -112,7 +123,7 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
 
         """
         for name, value in metrics.items():
-            self.experiment.add_scalar(name, value, step)
+            self.writer.add_scalar(name, value, step)
 
     def log_image(self, name: str, image: npt.NDArray[Any], step: int) -> None:
         r"""Write the image.
@@ -123,7 +134,7 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
             step: The training step of the image.
 
         """
-        self.experiment.add_image(name, image, step, dataformats="HWC")
+        self.writer.add_image(name, image, step, dataformats="HWC")
 
     def log_matrix(
         self,
@@ -144,7 +155,7 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
 
         """
         text = np.array2string(matrix, separator=", ", threshold=matrix.size)
-        self.experiment.add_text(name, text, step)
+        self.writer.add_text(name, text, step)
 
     def close(self, status: RunStatus) -> None:
         """Write the hyperparameters, and close the event file.
@@ -155,7 +166,7 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
         """
         if self._hparams:
             self._write_hparams()
-        self.experiment.close()
+        self.writer.close()
 
     def _write_hparams(self) -> None:
         """Write the hyperparameters into the event file of the run.
@@ -173,7 +184,7 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
             for key, value in self._hparams.items()
         }
         # `add_hparams` would write into a new run directory of its own
-        file_writer = self.experiment.file_writer
+        file_writer = self.writer.file_writer
         # the constructor of the writer creates the file writer
         assert file_writer is not None
         for summary in hparams(scalars, {"placeholder_metric": 0}):

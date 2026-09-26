@@ -75,15 +75,22 @@ WandB and MLflow need ``project_name`` or ``project_id``. A backend
 rejects an option that it does not know with ``TypeError``, and so does
 the tracker for a keyword that names no backend.
 
-The backends start on the first logging call, or on the first read of
-`LuxonisTracker.experiment`. `LuxonisTracker.get_backend` returns a
-backend by its type, for example to read the MLflow run identifier:
+The backends start on the first logging call. Call
+`LuxonisTracker.start` to start them earlier, for example to create the
+MLflow run of a sweep before its trials.
+
+`LuxonisTracker.get_backend` returns a backend by its type, for example
+to read the MLflow run identifier:
 
 .. code-block:: python
 
     from luxonis_ml.tracker import MLflowBackend
 
     run_id = tracker.get_backend(MLflowBackend).run_id
+
+For a call that the tracker does not make, use the SDK handle of the
+backend: `TensorBoardBackend.writer`, `WandbBackend.wandb_run`, or
+`MLflowBackend.client`.
 
 
 Logging API
@@ -159,8 +166,7 @@ Distributed Training
 ====================
 
 Pass ``rank``. Only rank :math:`0` starts the backends and logs. On the
-other ranks each logging call does nothing, and
-`LuxonisTracker.experiment` is empty.
+other ranks `LuxonisTracker.start` and each logging call do nothing.
 
 The ranks must agree on the run name. Rank :math:`0` exports a
 generated name in ``LUXONIS_TRACKER_RUN_NAME``, and a worker that it
@@ -243,18 +249,13 @@ JSON Lines file:
 
 
     class JsonLinesBackend(TrackerBackend, register_name="jsonl"):
+        _file: IO[str]
+
         def __init__(
             self, run: RunContext, *, filename: str = "log.jsonl"
         ) -> None:
             super().__init__(run)
             self.filename = filename
-            self._file: IO[str] | None = None
-
-        @property
-        def experiment(self) -> IO[str]:
-            if self._file is None:
-                raise RuntimeError("The backend is not started.")
-            return self._file
 
         def start(self) -> None:
             path = self.run.run_directory / self.filename
@@ -282,10 +283,10 @@ JSON Lines file:
 
         def close(self, status: RunStatus) -> None:
             self._write({"status": status})
-            self.experiment.close()
+            self._file.close()
 
         def _write(self, record: dict[str, Any]) -> None:
-            self.experiment.write(json.dumps(record) + "\n")
+            self._file.write(json.dumps(record) + "\n")
 
 
     with LuxonisTracker(jsonl={"filename": "train.jsonl"}) as tracker:
@@ -293,7 +294,7 @@ JSON Lines file:
 
 The constructor runs on every rank, so it only checks and stores the
 options. `TrackerBackend.start` runs once, on rank :math:`0`, before
-the first logging call. `TrackerBackend.upload_artifact` does nothing
+the first logging call, and opens what the logging calls need. `TrackerBackend.upload_artifact` does nothing
 unless the backend overrides it.
 
 For a remote service, set `TrackerBackend.buffered` to ``True``, and

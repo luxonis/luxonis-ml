@@ -84,8 +84,9 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
         self._run: Run | None = None
 
     @property
-    def experiment(self) -> "Run":
-        """The WandB ``Run``.
+    def wandb_run(self) -> "Run":
+        """The WandB ``Run``, for the calls that the tracker does not
+        make, such as ``watch``.
 
         Raises:
             RuntimeError: If the backend is not started.
@@ -124,7 +125,7 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
 
         """
         # WandB leaves the argument of `update` unannotated
-        self.experiment.config.update(  # pyright: ignore[reportUnknownMemberType]
+        self.wandb_run.config.update(  # pyright: ignore[reportUnknownMemberType]
             dict(params)
         )
 
@@ -136,7 +137,7 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
             step: Ignored. See the class description.
 
         """
-        self.experiment.log(dict(metrics))
+        self.wandb_run.log(dict(metrics))
 
     def log_image(self, name: str, image: npt.NDArray[Any], step: int) -> None:
         r"""Log the image at the next WandB step.
@@ -149,7 +150,7 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
         """
         import wandb
 
-        self.experiment.log({name: wandb.Image(image, caption=name)})
+        self.wandb_run.log({name: wandb.Image(image, caption=name)})
 
     def log_matrix(
         self,
@@ -178,7 +179,7 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
         )
         for i, row in enumerate(rows):
             table.add_data(i, *row)
-        self.experiment.log({f"{name}_table": table})
+        self.wandb_run.log({f"{name}_table": table})
 
     def upload_artifact(self, path: Path, name: str | None, typ: str) -> None:
         """Log the file as a WandB artifact of the run.
@@ -197,7 +198,7 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
             name=Path(name).name if name else path.stem, type=typ
         )
         artifact.add_file(local_path=str(path))
-        self.experiment.log_artifact(artifact)
+        self.wandb_run.log_artifact(artifact)
 
     def close(self, status: RunStatus) -> None:
         """Finish the WandB run.
@@ -207,4 +208,4 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
                 :math:`0`, ``"failed"`` with :math:`1`.
 
         """
-        self.experiment.finish(exit_code=0 if status == "success" else 1)
+        self.wandb_run.finish(exit_code=0 if status == "success" else 1)

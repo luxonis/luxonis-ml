@@ -129,15 +129,6 @@ class TrackerBackend(
         """
         self.run = run
 
-    @property
-    @abstractmethod
-    def experiment(self) -> object:
-        """The native handle of the service, such as its client.
-
-        `LuxonisTracker.experiment` returns it. The built-in backends
-        raise ``RuntimeError`` when `start` did not run yet.
-        """
-
     @abstractmethod
     def start(self) -> None:
         """Connect to the service and open the run.

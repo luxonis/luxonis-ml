@@ -70,10 +70,9 @@ def test_a_healthy_backend_gets_each_call_at_once(
     assert not (buffered.unsent_directory / "artifacts").exists()
 
 
-def test_the_wrapper_answers_for_the_backend(
-    buffered: BufferedBackend, inner: FakeBackend
+def test_the_wrapper_asks_the_backend_what_is_transient(
+    buffered: BufferedBackend,
 ):
-    assert buffered.experiment is inner
     assert buffered.is_transient(ConnectionError())
     assert not buffered.is_transient(Rejected())
 

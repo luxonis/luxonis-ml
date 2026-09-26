@@ -53,10 +53,6 @@ class FakeBackend(TrackerBackend, register_name="fake"):
         self.status: RunStatus | None = None
         self.error: Exception | None = None
 
-    @property
-    def experiment(self) -> "FakeBackend":
-        return self
-
     def start(self) -> None:
         self._raise()
         self.starts += 1
