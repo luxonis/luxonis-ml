@@ -57,6 +57,7 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
         super().__init__(run)
         self._writer: SummaryWriter | None = None
         self._hparams: dict[str, ParamValue] = {}
+        self._flushes = 0
 
     @property
     def writer(self) -> "SummaryWriter":
@@ -156,6 +157,29 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
         """
         text = np.array2string(matrix, separator=", ", threshold=matrix.size)
         self.writer.add_text(name, text, step)
+
+    def flush(self) -> None:
+        """Write the pending events to disk.
+
+        ``tensorboardX`` writes the events from a queue in the
+        background, and only the close of the writer waits for that
+        queue. So the backend closes the writer, and opens a new event
+        file in the same directory for the later calls. TensorBoard
+        reads each event file of the directory.
+
+        The hyperparameters wait for `close`, because the dashboard reads
+        only the first set of a run.
+        """
+        from tensorboardX import SummaryWriter
+
+        log_dir = self.log_dir
+        self.writer.close()
+        self._flushes += 1
+        # the name of an event file holds the current second, so a new
+        # file of the same second would replace the one just closed
+        self._writer = SummaryWriter(
+            logdir=str(log_dir), filename_suffix=f".{self._flushes}"
+        )
 
     def close(self, status: RunStatus) -> None:
         """Write the hyperparameters, and close the event file.

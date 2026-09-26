@@ -485,6 +485,49 @@ def test_a_backend_that_fails_to_close_does_not_stop_the_others(
     assert any("Could not close the fake run" in m for m in warnings_log)
 
 
+def test_flush_reaches_each_started_backend(tmp_path: Path):
+    tracker = make_tracker(tmp_path, other_fake=True)
+    tracker.log_metric("loss", 0.5, 1)
+
+    tracker.flush()
+
+    assert fake(tracker).flushes == 1
+    assert fake(tracker, "other_fake").flushes == 1
+    assert fake(tracker).status is None
+
+
+def test_flush_leaves_a_backend_that_never_started_alone(tmp_path: Path):
+    tracker = make_tracker(tmp_path)
+
+    tracker.flush()
+    tracker.close()
+    tracker.flush()
+
+    assert fake(tracker).flushes == 0
+
+
+def test_a_backend_that_fails_to_flush_does_not_stop_the_others(
+    tmp_path: Path, warnings_log: list[str]
+):
+    tracker = make_tracker(tmp_path, other_fake=True)
+    tracker.log_metric("loss", 0.5, 1)
+    fake(tracker).error = RuntimeError("disk full")
+
+    tracker.flush()
+
+    assert fake(tracker, "other_fake").flushes == 1
+    assert any("Could not flush the fake run" in m for m in warnings_log)
+    fake(tracker).error = None
+    tracker.close()
+
+
+def test_a_backend_that_sends_each_call_at_once_flushes_nothing(
+    tmp_path: Path,
+):
+    """The default needs no started backend, because it does nothing."""
+    WandbBackend(RunContext("0-test", tmp_path, project_name="p")).flush()
+
+
 def test_close_runs_once(tmp_path: Path):
     tracker = make_tracker(tmp_path)
     tracker.log_metric("loss", 0.5, 1)

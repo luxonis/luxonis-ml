@@ -50,6 +50,7 @@ class FakeBackend(TrackerBackend, register_name="fake"):
         self.option = option
         self.calls: list[tuple[Any, ...]] = []
         self.starts = 0
+        self.flushes = 0
         self.status: RunStatus | None = None
         self.error: Exception | None = None
 
@@ -78,6 +79,10 @@ class FakeBackend(TrackerBackend, register_name="fake"):
     def upload_artifact(self, path: Path, name: str | None, typ: str) -> None:
         self._raise()
         self._record("upload_artifact", path.read_text(), name, typ)
+
+    def flush(self) -> None:
+        self._raise()
+        self.flushes += 1
 
     def close(self, status: RunStatus) -> None:
         self._raise()

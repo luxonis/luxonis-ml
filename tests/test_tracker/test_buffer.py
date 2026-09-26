@@ -582,6 +582,61 @@ def test_a_call_made_during_the_start_waits_for_it(run: RunContext):
     assert inner.calls == [metrics(99)]
 
 
+def test_flush_sends_the_buffer_and_flushes_the_backend(
+    buffered: BufferedBackend, inner: FakeBackend, clock: FakeClock
+):
+    buffered.start()
+    inner.error = ConnectionError()
+    log(buffered, 0)
+    inner.error = None
+
+    buffered.flush()
+    assert inner.calls == []
+    assert inner.flushes == 1
+
+    clock.now = RETRY_INTERVAL
+    buffered.flush()
+    assert inner.calls == [metrics(0)]
+    assert inner.flushes == 2
+    assert inner.status is None
+
+
+def test_flush_does_not_flush_a_backend_that_never_started(
+    buffered: BufferedBackend, inner: FakeBackend
+):
+    inner.error = ConnectionError()
+    buffered.start()
+
+    buffered.flush()
+
+    assert inner.flushes == 0
+
+
+class FlushingBackend(FakeBackend, register=False):
+    """Flush while a call is being sent, as a signal handler can."""
+
+    def __init__(self, run: RunContext) -> None:
+        super().__init__(run)
+        self.buffered: BufferedBackend | None = None
+
+    def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
+        if self.buffered is not None:
+            self.buffered.flush()
+        super().log_metrics(metrics, step)
+
+
+def test_a_flush_during_a_send_waits(run: RunContext, clock: FakeClock):
+    inner = FlushingBackend(run)
+    buffered = BufferedBackend(inner, "fake")
+    inner.buffered = buffered
+    buffered.start()
+
+    log(buffered, 0)
+
+    assert inner.calls == [metrics(0)]
+    assert inner.flushes == 0
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [

@@ -210,6 +210,14 @@ class TrackerBackend(
         """
         return
 
+    def flush(self) -> None:
+        """Write the pending data now, and keep the run open.
+
+        The default does nothing, for a service that receives each call
+        at once.
+        """
+        return
+
     @abstractmethod
     def close(self, status: RunStatus) -> None:
         """Send the pending data and end the run.

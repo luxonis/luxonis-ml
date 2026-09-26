@@ -189,6 +189,10 @@ Use the tracker as a context manager to close the run with the right
 status. A run that is still open when the interpreter exits closes then,
 as failed after an uncaught error.
 
+`LuxonisTracker.flush` writes the pending data and keeps the run open,
+for example the TensorBoard events that are still in memory. Call it when
+a run stays open for later calls, but its data must be on disk now.
+
 
 Unreachable Services
 ====================

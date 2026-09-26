@@ -472,6 +472,22 @@ class LuxonisTracker:
         for backend in self._live_backends():
             backend.upload_artifact(Path(path), name, typ)
 
+    def flush(self) -> None:
+        """Write the pending data of each started backend, and keep the
+        run open.
+
+        For example, TensorBoard writes its events to disk. A backend
+        that fails to flush does not stop the others. It is reported
+        instead. After `close`, and on a non-zero rank, it does nothing.
+        """
+        if self._closed:
+            return
+        for name, backend in self._started.items():
+            try:
+                backend.flush()
+            except Exception as error:
+                logger.warning(f"Could not flush the {name} run: {error}")
+
     def close(self, status: str = "success") -> None:
         """End the run in each started backend.
 

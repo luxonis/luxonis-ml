@@ -215,6 +215,18 @@ class BufferedBackend(TrackerBackend, register=False):
                 if self._started:
                     self.backend.close(status)
 
+    def flush(self) -> None:
+        """Send the buffered calls, and flush the wrapped backend.
+
+        The buffer waits for the retry interval, as at a logging call.
+        """
+        if self._busy:
+            return
+        with self._hold():
+            self._flush()
+        if self._started:
+            self.backend.flush()
+
     def is_transient(self, error: Exception) -> bool:
         """Ask the wrapped backend whether the error is transient.
 

@@ -119,6 +119,28 @@ def test_the_hyperparameters_stay_in_the_run(
     assert "_hparams_/experiment" in {value.tag for _, value in values}
 
 
+def test_flush_writes_the_events_and_keeps_the_run_open(
+    backend: TensorBoardBackend,
+):
+    backend.log_metrics({"loss": 0.5}, 1)
+    backend.log_hyperparams({"lr": 0.1})
+
+    backend.flush()
+
+    assert read_summaries(backend.log_dir)[0][1].tag == "loss"
+    backend.flush()
+    backend.log_metrics({"loss": 0.25}, 2)
+    backend.close("success")
+    values = read_summaries(backend.log_dir)
+    assert [
+        (step, v.simple_value) for step, v in values if v.tag == "loss"
+    ] == [
+        (1, 0.5),
+        (2, 0.25),
+    ]
+    assert "_hparams_/experiment" in {value.tag for _, value in values}
+
+
 def test_a_run_without_hyperparameters_writes_none(
     backend: TensorBoardBackend, run: RunContext
 ):
