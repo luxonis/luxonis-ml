@@ -1,4 +1,5 @@
 import os
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -25,7 +26,7 @@ from .conftest import BufferedFakeBackend, FakeBackend
 
 def make_tracker(save_directory: Path, **kwargs: Any) -> LuxonisTracker:
     kwargs.setdefault("run_name", "0-test")
-    kwargs.setdefault("backends", {"fake": {}})
+    kwargs.setdefault("fake", True)
     return LuxonisTracker(save_directory=save_directory, **kwargs)
 
 
@@ -55,24 +56,47 @@ class FakeClock:
 
 def test_at_least_one_backend_is_required(tmp_path: Path):
     with pytest.raises(ValueError, match="at least one backend"):
-        make_tracker(tmp_path, backends={})
+        make_tracker(tmp_path, fake=False, other_fake=None)
 
 
-def test_an_unknown_backend_is_rejected(tmp_path: Path):
-    with pytest.raises(KeyError, match="missing"):
-        make_tracker(tmp_path, backends={"missing": {}})
+def test_an_unknown_keyword_is_rejected(tmp_path: Path):
+    with pytest.raises(TypeError, match="'run_nme', and no tracker backend"):
+        make_tracker(tmp_path, run_nme="typo")
+
+    assert not (tmp_path / "0-test").exists()
 
 
 def test_backend_options_reach_the_backend(tmp_path: Path):
-    tracker = make_tracker(tmp_path, backends={"fake": {"option": "set"}})
+    tracker = make_tracker(tmp_path, fake={"option": "set"})
 
     assert fake(tracker).option == "set"
     assert fake(tracker).run.run_directory == tmp_path / "0-test"
 
 
+def test_true_turns_a_backend_on_with_its_defaults(tmp_path: Path):
+    tracker = make_tracker(tmp_path, fake=True, other_fake={})
+
+    assert fake(tracker).option == "default"
+    assert fake(tracker, "other_fake").option == "default"
+
+
+def test_the_built_in_backends_have_keywords(tmp_path: Path):
+    tracker = make_tracker(
+        tmp_path,
+        project_name="project",
+        fake=False,
+        tensorboard=True,
+        wandb={"entity": "team"},
+        mlflow={"tracking_uri": "sqlite:///unused.db"},
+    )
+
+    assert list(tracker.backends) == ["tensorboard", "wandb", "mlflow"]
+    assert tracker.get_backend(WandbBackend).entity == "team"
+
+
 def test_a_rejected_option_creates_no_run_directory(tmp_path: Path):
     with pytest.raises(TypeError):
-        make_tracker(tmp_path, backends={"fake": {"unknown": 1}})
+        make_tracker(tmp_path, fake={"unknown": 1})
 
     assert not (tmp_path / "0-test").exists()
 
@@ -94,7 +118,7 @@ def test_a_rejected_option_creates_no_run_directory(tmp_path: Path):
 def test_deprecated_flags_still_enable_backends(
     tmp_path: Path, flags: dict[str, Any], expected: dict[str, type]
 ):
-    with pytest.deprecated_call(match="backends="):
+    with pytest.deprecated_call(match="Use `"):
         tracker = LuxonisTracker(
             project_name="project",
             run_name="0-test",
@@ -123,26 +147,41 @@ def test_deprecated_flags_keep_their_options(tmp_path: Path):
     )
 
 
-def test_mlflow_without_a_tracking_uri_is_rejected(tmp_path: Path):
-    with (
-        pytest.deprecated_call(),
-        pytest.raises(ValueError, match="tracking_uri"),
-    ):
+@pytest.mark.parametrize(
+    ("flags", "replacement"),
+    [
+        (
+            {"is_tensorboard": True, "is_wandb": True},
+            "tensorboard=True, wandb=True",
+        ),
+        (
+            {"is_mlflow": True, "mlflow_tracking_uri": "sqlite:///unused.db"},
+            "mlflow={'tracking_uri': 'sqlite:///unused.db'}",
+        ),
+    ],
+)
+def test_the_warning_names_the_replacement(
+    tmp_path: Path, flags: dict[str, Any], replacement: str
+):
+    with pytest.deprecated_call(match=re.escape(f"`{replacement}`")):
         LuxonisTracker(
-            project_name="project", save_directory=tmp_path, is_mlflow=True
+            project_name="project", save_directory=tmp_path, **flags
         )
 
 
-def test_backends_override_the_deprecated_flags(tmp_path: Path):
+def test_a_backend_keyword_overrides_a_deprecated_flag(tmp_path: Path):
     with pytest.deprecated_call():
         tracker = LuxonisTracker(
             project_name="project",
             save_directory=tmp_path,
             is_wandb=True,
             wandb_entity="old",
-            backends={"wandb": {"entity": "new"}},
+            is_tensorboard=True,
+            wandb={"entity": "new"},
+            tensorboard=False,
         )
 
+    assert list(tracker.backends) == ["wandb"]
     assert tracker.get_backend(WandbBackend).entity == "new"
 
 
@@ -286,7 +325,7 @@ def test_each_call_reaches_each_backend(
 ):
     artifact = tmp_path / "model.txt"
     artifact.write_text("weights")
-    tracker = make_tracker(tmp_path, backends={"fake": {}, "other_fake": {}})
+    tracker = make_tracker(tmp_path, other_fake=True)
 
     tracker.log_hyperparams({"lr": 0.1})
     tracker.log_metric("loss", 0.5, 1)
@@ -323,7 +362,7 @@ def test_each_call_reaches_each_backend(
 def test_experiment_starts_the_backends_and_maps_their_handles(
     tmp_path: Path,
 ):
-    tracker = make_tracker(tmp_path, backends={"fake": {}, "other_fake": {}})
+    tracker = make_tracker(tmp_path, other_fake=True)
 
     assert tracker.experiment == {
         "fake": fake(tracker),
@@ -333,9 +372,7 @@ def test_experiment_starts_the_backends_and_maps_their_handles(
 
 
 def test_get_backend_unwraps_a_buffered_backend(tmp_path: Path):
-    tracker = make_tracker(
-        tmp_path, backends={"fake": {}, "buffered_fake": {}}
-    )
+    tracker = make_tracker(tmp_path, fake=True, buffered_fake=True)
 
     assert isinstance(tracker.backends["buffered_fake"], BufferedBackend)
     assert isinstance(
@@ -368,7 +405,7 @@ def test_the_deprecated_flags_read_the_backends(
         {"tracking_uri": "sqlite:///unused.db"} if backend == "mlflow" else {}
     )
     tracker = make_tracker(
-        tmp_path, project_name="project", backends={backend: options}
+        tmp_path, project_name="project", **{backend: options}
     )
     other = make_tracker(tmp_path)
 
@@ -390,7 +427,7 @@ def test_the_deprecated_flags_read_the_backends(
 def test_close_ends_each_started_run(
     tmp_path: Path, status: str, expected: str
 ):
-    tracker = make_tracker(tmp_path, backends={"fake": {}, "other_fake": {}})
+    tracker = make_tracker(tmp_path, other_fake=True)
     tracker.log_metric("loss", 0.5, 1)
 
     tracker.close(status)
@@ -410,7 +447,7 @@ def test_close_leaves_a_backend_that_never_started_alone(tmp_path: Path):
 def test_a_backend_that_fails_to_close_does_not_stop_the_others(
     tmp_path: Path, warnings_log: list[str]
 ):
-    tracker = make_tracker(tmp_path, backends={"fake": {}, "other_fake": {}})
+    tracker = make_tracker(tmp_path, other_fake=True)
     tracker.log_metric("loss", 0.5, 1)
     fake(tracker).error = RuntimeError("broken")
 
@@ -433,7 +470,7 @@ def test_close_runs_once(tmp_path: Path):
 def test_calls_after_close_are_ignored(
     tmp_path: Path, warnings_log: list[str]
 ):
-    tracker = make_tracker(tmp_path, backends={"fake": {}, "other_fake": {}})
+    tracker = make_tracker(tmp_path, other_fake=True)
     tracker.log_metric("loss", 0.5, 1)
     tracker.close()
 

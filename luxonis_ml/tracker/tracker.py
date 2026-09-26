@@ -25,6 +25,8 @@ from .backends.base import (
     RunStatus,
     TrackerBackend,
 )
+from .backends.mlflow import MLflowOptions
+from .backends.wandb import WandbOptions
 from .buffer import BufferedBackend
 
 B = TypeVar("B", bound=TrackerBackend)
@@ -82,9 +84,16 @@ class LuxonisTracker:
         mlflow_tracking_uri: str | None = None,
         rank: int = 0,
         *,
-        backends: Mapping[str, Mapping[str, ParamValue]] | None = None,
+        tensorboard: bool | None = None,
+        wandb: WandbOptions | bool | None = None,
+        mlflow: MLflowOptions | bool | None = None,
+        **plugins: Mapping[str, object] | bool | None,
     ) -> None:
         """Create a tracker.
+
+        Each backend has a keyword argument of its name. ``True`` turns
+        the backend on with its defaults, a mapping passes its options,
+        and ``None`` or ``False`` leaves it off.
 
         Args:
             project_name: Project name.
@@ -94,36 +103,54 @@ class LuxonisTracker:
                 join that run.
             run_id: Identifier of an earlier run to continue.
             save_directory: Root directory of the local run outputs.
-            is_tensorboard: Deprecated. Put ``"tensorboard"`` into
-                ``backends``.
-            is_wandb: Deprecated. Put ``"wandb"`` into ``backends``.
-            is_mlflow: Deprecated. Put ``"mlflow"`` into ``backends``.
+            is_tensorboard: Deprecated. Use ``tensorboard``.
+            is_wandb: Deprecated. Use ``wandb``.
+            is_mlflow: Deprecated. Use ``mlflow``.
             is_sweep: Whether the run is one trial of a sweep.
-            wandb_entity: Deprecated. The ``entity`` option of the
-                ``"wandb"`` backend.
-            mlflow_tracking_uri: Deprecated. The ``tracking_uri`` option
-                of the ``"mlflow"`` backend.
+            wandb_entity: Deprecated. Use the ``entity`` option of
+                ``wandb``.
+            mlflow_tracking_uri: Deprecated. Use the ``tracking_uri``
+                option of ``mlflow``.
             rank: Rank of the process in distributed training.
-            backends: The backends to enable, keyed by their name in
-                `TRACKER_BACKENDS`. Each value holds the keyword options
-                of that backend.
+            tensorboard: Whether to log to `TensorBoardBackend`.
+            wandb: `WandbBackend`, with the options of `WandbOptions`.
+            mlflow: `MLflowBackend`, with the options of `MLflowOptions`.
+            **plugins: The other backends in `TRACKER_BACKENDS`, keyed by
+                their name.
 
         Raises:
             ValueError: If no backend is enabled, or a backend rejects
                 its options.
-            KeyError: If a backend is not in `TRACKER_BACKENDS`.
+            TypeError: If a keyword argument names no backend in
+                `TRACKER_BACKENDS`.
 
         """
-        configs = {
-            **_legacy_backends(
-                is_tensorboard=is_tensorboard,
-                is_wandb=is_wandb,
-                is_mlflow=is_mlflow,
-                wandb_entity=wandb_entity,
-                mlflow_tracking_uri=mlflow_tracking_uri,
-            ),
-            **(backends or {}),
+        configs = _legacy_backends(
+            is_tensorboard=is_tensorboard,
+            is_wandb=is_wandb,
+            is_mlflow=is_mlflow,
+            wandb_entity=wandb_entity,
+            mlflow_tracking_uri=mlflow_tracking_uri,
+        )
+        requested = {
+            "tensorboard": tensorboard,
+            "wandb": wandb,
+            "mlflow": mlflow,
+            **plugins,
         }
+        for name, value in requested.items():
+            if name not in TRACKER_BACKENDS:
+                raise TypeError(
+                    "LuxonisTracker got an unexpected keyword argument "
+                    f"'{name}', and no tracker backend has that name."
+                )
+            # an explicit `False` also turns off a deprecated flag
+            if value is False:
+                configs.pop(name, None)
+            elif value is True:
+                configs[name] = {}
+            elif value is not None:
+                configs[name] = value
         if not configs:
             raise ValueError("Enable at least one backend.")
 
@@ -360,20 +387,28 @@ def _legacy_backends(
     is_mlflow: bool,
     wandb_entity: str | None,
     mlflow_tracking_uri: str | None,
-) -> dict[str, dict[str, ParamValue]]:
-    """Turn the deprecated flags into the ``backends`` mapping."""
-    backends: dict[str, dict[str, ParamValue]] = {}
+) -> dict[str, Mapping[str, object]]:
+    """Turn the deprecated flags into backend options."""
+    backends: dict[str, Mapping[str, object]] = {}
     if is_tensorboard:
         backends["tensorboard"] = {}
     if is_wandb:
-        backends["wandb"] = {"entity": wandb_entity}
+        backends["wandb"] = {"entity": wandb_entity} if wandb_entity else {}
     if is_mlflow:
-        backends["mlflow"] = {"tracking_uri": mlflow_tracking_uri}
+        backends["mlflow"] = (
+            {"tracking_uri": mlflow_tracking_uri}
+            if mlflow_tracking_uri
+            else {}
+        )
     if backends:
+        replacement = ", ".join(
+            f"{name}={dict(options) or True}"
+            for name, options in backends.items()
+        )
         warnings.warn(
             "The `is_tensorboard`, `is_wandb`, `is_mlflow`, `wandb_entity` "
             "and `mlflow_tracking_uri` arguments are deprecated. Use "
-            f"`backends={backends}` instead.",
+            f"`{replacement}` instead.",
             DeprecationWarning,
             stacklevel=3,
         )
@@ -381,7 +416,7 @@ def _legacy_backends(
 
 
 def _create_backend(
-    name: str, run: RunContext, options: Mapping[str, ParamValue]
+    name: str, run: RunContext, options: Mapping[str, object]
 ) -> TrackerBackend:
     backend = TRACKER_BACKENDS.get(name)(run, **options)
     if backend.buffered:

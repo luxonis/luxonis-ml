@@ -1,10 +1,11 @@
 # pyright: strict
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import numpy as np
 import numpy.typing as npt
+from typing_extensions import Unpack
 
 from luxonis_ml.guard_extras import guard_missing_extra
 from luxonis_ml.typing import ParamValue
@@ -13,6 +14,18 @@ from .base import RunContext, RunStatus, TrackerBackend
 
 if TYPE_CHECKING:
     from wandb.sdk.wandb_run import Run
+
+
+class WandbOptions(TypedDict, total=False):
+    """The options of `WandbBackend`.
+
+    Attributes:
+        entity: The WandB user or team. ``None`` uses the default entity
+            of the logged-in user.
+
+    """
+
+    entity: str | None
 
 
 class WandbBackend(TrackerBackend):
@@ -29,14 +42,17 @@ class WandbBackend(TrackerBackend):
 
     """
 
-    def __init__(self, run: RunContext, *, entity: str | None = None) -> None:
+    def __init__(
+        self, run: RunContext, **options: Unpack[WandbOptions]
+    ) -> None:
         """Check the options.
 
+        The ``project_name`` of the run, or else its ``project_id``,
+        names the WandB project.
+
         Args:
-            run: The run to log to. Its ``project_name``, or else its
-                ``project_id``, names the WandB project.
-            entity: The WandB user or team. ``None`` uses the default
-                entity of the logged-in user.
+            run: The run to log to.
+            **options: See `WandbOptions`.
 
         Raises:
             ValueError: If the run has no project.
@@ -47,7 +63,7 @@ class WandbBackend(TrackerBackend):
         if project is None:
             raise ValueError("WandB needs `project_name` or `project_id`.")
         self.project = project
-        self.entity = entity
+        self.entity = options.get("entity")
         self._run: Run | None = None
 
     @property

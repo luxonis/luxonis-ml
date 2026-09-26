@@ -1063,7 +1063,7 @@ def test_tracker_upload_artifact_to_mlflow(
         project_id=experiment_id,
         run_name=f"tracker-run-{randint}",
         save_directory=tempdir / "output",
-        backends={"mlflow": {"tracking_uri": mlflow_tracking_uri}},
+        mlflow={"tracking_uri": mlflow_tracking_uri},
     ) as tracker:
         with artifact.open() as file:
             tracker.upload_artifact(file.name, name=file.name)

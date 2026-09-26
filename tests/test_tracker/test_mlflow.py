@@ -75,11 +75,28 @@ def backend(tmp_path: Path, project: str, tracking_uri: str) -> MLflowBackend:
     return backend
 
 
-def test_the_options_are_checked(tmp_path: Path, tracking_uri: str):
-    with pytest.raises(ValueError, match="tracking_uri"):
-        MLflowBackend(make_run(tmp_path, "project"), tracking_uri="")
+def test_the_options_are_checked(
+    tmp_path: Path, tracking_uri: str, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "")
+    with pytest.raises(ValueError, match="MLFLOW_TRACKING_URI"):
+        MLflowBackend(make_run(tmp_path, "project"))
     with pytest.raises(ValueError, match="project_name"):
         MLflowBackend(make_run(tmp_path, None), tracking_uri=tracking_uri)
+
+
+def test_the_tracking_uri_defaults_to_the_environment(
+    tmp_path: Path, tracking_uri: str, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
+
+    tracker = LuxonisTracker(
+        project_name="project", save_directory=tmp_path, mlflow=True
+    )
+
+    backend = tracker.get_backend(MLflowBackend)
+    assert backend.tracking_uri == tracking_uri
+    assert backend.parent_run_id is None
 
 
 def test_start_creates_the_experiment_and_the_run(
@@ -433,7 +450,7 @@ def test_an_unreachable_server_does_not_stop_the_training(
         project_name="project",
         run_name="0-test",
         save_directory=tmp_path,
-        backends={"mlflow": {"tracking_uri": unreachable_uri}},
+        mlflow={"tracking_uri": unreachable_uri},
     ) as tracker:
         tracker.log_hyperparams({"lr": 0.1})
         tracker.log_metric("loss", 0.5, 1)

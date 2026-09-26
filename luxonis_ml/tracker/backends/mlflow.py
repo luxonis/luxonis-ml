@@ -4,13 +4,15 @@ from collections.abc import Mapping
 from importlib.util import find_spec
 from pathlib import Path
 from time import time_ns
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import numpy.typing as npt
 from loguru import logger
+from typing_extensions import Unpack
 
 from luxonis_ml.guard_extras import guard_missing_extra
 from luxonis_ml.typing import ParamValue
+from luxonis_ml.utils.environ import environ
 from luxonis_ml.utils.filesystem import LuxonisFileSystem
 
 from .base import RunContext, RunStatus, TrackerBackend
@@ -20,6 +22,23 @@ if TYPE_CHECKING:
     from mlflow.system_metrics.system_metrics_monitor import (
         SystemMetricsMonitor,
     )
+
+
+class MLflowOptions(TypedDict, total=False):
+    """The options of `MLflowBackend`.
+
+    Attributes:
+        tracking_uri: URI of the tracking server. ``None`` takes
+            ``MLFLOW_TRACKING_URI`` from the environment.
+        parent_run_id: The run to nest this run under. A sweep trial
+            without it nests under the last run of this process that is
+            still open and is not a sweep trial.
+
+    """
+
+    tracking_uri: str | None
+    parent_run_id: str | None
+
 
 _open_runs: list[str] = []
 """The open runs of this process that are not sweep trials, oldest
@@ -56,36 +75,37 @@ class MLflowBackend(TrackerBackend):
     buffered = True
 
     def __init__(
-        self,
-        run: RunContext,
-        *,
-        tracking_uri: str,
-        parent_run_id: str | None = None,
+        self, run: RunContext, **options: Unpack[MLflowOptions]
     ) -> None:
         """Check the options.
 
+        The ``project_id`` of the run selects an existing experiment.
+        Otherwise its ``project_name`` names the experiment, which is
+        created if it does not exist. The ``run_id`` of the run continues
+        an existing run.
+
         Args:
-            run: The run to log to. Its ``project_id`` selects an
-                existing experiment. Otherwise its ``project_name`` names
-                the experiment, which is created if it does not exist.
-                Its ``run_id`` continues an existing run.
-            tracking_uri: URI of the tracking server.
-            parent_run_id: The run to nest this run under. A sweep trial
-                without it nests under the last run of this process
-                that is still open and is not a sweep trial.
+            run: The run to log to.
+            **options: See `MLflowOptions`.
 
         Raises:
-            ValueError: If ``tracking_uri`` is empty, or the run has no
+            ValueError: If no tracking URI is known, or the run has no
                 project.
 
         """
         super().__init__(run)
+        tracking_uri = (
+            options.get("tracking_uri") or environ.MLFLOW_TRACKING_URI
+        )
         if not tracking_uri:
-            raise ValueError("MLflow needs `tracking_uri`.")
+            raise ValueError(
+                "MLflow needs `tracking_uri`, or `MLFLOW_TRACKING_URI` in "
+                "the environment."
+            )
         if run.project_name is None and run.project_id is None:
             raise ValueError("MLflow needs `project_name` or `project_id`.")
         self.tracking_uri = tracking_uri
-        self.parent_run_id = parent_run_id
+        self.parent_run_id = options.get("parent_run_id")
         self.experiment_id = run.project_id
         self.run_id = run.run_id
         self._client: MlflowClient | None = None

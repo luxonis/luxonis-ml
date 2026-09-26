@@ -54,8 +54,8 @@ class TrackerBackend(ABC):
     `LuxonisTracker` calls it once, before the first logging call, and
     only on rank :math:`0`.
 
-    Register a subclass in `TRACKER_BACKENDS` to make it available by
-    name:
+    Register a subclass in `TRACKER_BACKENDS` to make it available as
+    a keyword argument of `LuxonisTracker`:
 
     .. code-block:: python
 
@@ -68,7 +68,7 @@ class TrackerBackend(ABC):
             ...
 
 
-        tracker = LuxonisTracker(backends={"my_service": {"api_key": key}})
+        tracker = LuxonisTracker(my_service={"api_key": key})
 
     Attributes:
         run: The run that the backend logs to.

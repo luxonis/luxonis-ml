@@ -279,7 +279,7 @@ from luxonis_ml.tracker import LuxonisTracker
 tracker = LuxonisTracker(
     project_name="parking_lot",
     run_name="baseline",
-    backends={"tensorboard": {}},
+    tensorboard=True,
 )
 
 tracker.log_metric("loss", 0.42, step=1)

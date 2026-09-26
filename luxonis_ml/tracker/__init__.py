@@ -3,27 +3,29 @@ r"""Experiment tracking for Luxonis ML workflows.
 `LuxonisTracker` logs a run to several tracking services at once.
 Training and evaluation code log metrics, hyperparameters, images,
 matrices, and artifacts through one API, and choose the services at
-runtime. Each service is a `TrackerBackend` in `TRACKER_BACKENDS`:
+runtime. Each service is a `TrackerBackend` in `TRACKER_BACKENDS`, and
+each has a keyword argument of its name. ``True`` turns a backend on with
+its defaults, and a mapping passes its options:
 
 .. list-table:: Built-in backends
    :header-rows: 1
 
-   * - Name
+   * - Keyword
      - Backend
      - Extra
      - Options
-   * - ``"tensorboard"``
+   * - ``tensorboard``
      - `TensorBoardBackend`
      - ``tensorboard``
      - None.
-   * - ``"wandb"``
+   * - ``wandb``
      - `WandbBackend`
      - ``wandb``
-     - ``entity``
-   * - ``"mlflow"``
+     - `WandbOptions`
+   * - ``mlflow``
      - `MLflowBackend`
      - ``mlflow``
-     - ``tracking_uri``, ``parent_run_id``
+     - `MLflowOptions`
 
 Example:
     Log a run to TensorBoard and MLflow.
@@ -34,14 +36,14 @@ Example:
 
         with LuxonisTracker(
             project_name="training",
-            backends={
-                "tensorboard": {},
-                "mlflow": {"tracking_uri": "http://localhost:5000"},
-            },
+            tensorboard=True,
+            mlflow={"tracking_uri": "http://localhost:5000"},
         ) as tracker:
             tracker.log_hyperparams({"lr": 1e-3, "batch_size": 32})
             tracker.log_metrics({"acc": 0.92, "loss": 0.18}, step=1)
             tracker.upload_artifact("model.onnx", typ="model")
+
+    ``mlflow=True`` takes the tracking URI from ``MLFLOW_TRACKING_URI``.
 
 Note:
     Install the extra of each backend that you enable:
@@ -84,12 +86,17 @@ Custom Backends
 
 Subclass `TrackerBackend` and register the class in `TRACKER_BACKENDS`,
 or expose it in the ``tracker_plugins`` entry-point group. The name of
-the entry point is the name of the backend:
+the entry point is the name of the backend, and the keyword argument
+that turns it on:
 
 .. code-block:: toml
 
     [project.entry-points.tracker_plugins]
     my_service = "my_package.tracking:MyServiceBackend"
+
+.. code-block:: python
+
+    LuxonisTracker(project_name="training", my_service={"api_key": key})
 
 
 Migration
@@ -97,14 +104,14 @@ Migration
 
 The ``is_tensorboard``, ``is_wandb``, ``is_mlflow``, ``wandb_entity``
 and ``mlflow_tracking_uri`` arguments still work, with a
-``DeprecationWarning``. Replace them with ``backends``:
+``DeprecationWarning``. Replace them with the backend keywords:
 
 .. code-block:: python
 
     # before
     LuxonisTracker(is_mlflow=True, mlflow_tracking_uri=uri, ...)
     # after
-    LuxonisTracker(backends={"mlflow": {"tracking_uri": uri}}, ...)
+    LuxonisTracker(mlflow={"tracking_uri": uri}, ...)
 
 Other changes that a caller can notice:
 
@@ -134,11 +141,13 @@ with guard_missing_extra("tracker"):
     from .backends import (
         TRACKER_BACKENDS,
         MLflowBackend,
+        MLflowOptions,
         RunContext,
         RunStatus,
         TensorBoardBackend,
         TrackerBackend,
         WandbBackend,
+        WandbOptions,
     )
     from .buffer import BufferedBackend
     from .tracker import LuxonisTracker
@@ -177,9 +186,11 @@ __all__ = [
     "BufferedBackend",
     "LuxonisTracker",
     "MLflowBackend",
+    "MLflowOptions",
     "RunContext",
     "RunStatus",
     "TensorBoardBackend",
     "TrackerBackend",
     "WandbBackend",
+    "WandbOptions",
 ]
