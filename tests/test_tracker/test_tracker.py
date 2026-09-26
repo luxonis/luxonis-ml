@@ -181,6 +181,32 @@ def test_a_backend_keyword_overrides_a_deprecated_flag(tmp_path: Path):
     assert tracker.get_backend(WandbBackend).entity == "new"
 
 
+@pytest.mark.parametrize("flags", [{}, {"is_wandb": True, "is_mlflow": True}])
+def test_deprecated_options_fill_in_a_backend_keyword(
+    tmp_path: Path, flags: dict[str, Any]
+):
+    replacement = (
+        "`wandb={'entity': 'team'}, "
+        "mlflow={'tracking_uri': 'sqlite:///unused.db'}`"
+    )
+    with pytest.deprecated_call(match=re.escape(replacement)):
+        tracker = LuxonisTracker(
+            project_name="project",
+            save_directory=tmp_path,
+            wandb=True,
+            wandb_entity="team",
+            mlflow=True,
+            mlflow_tracking_uri="sqlite:///unused.db",
+            **flags,
+        )
+
+    assert tracker.get_backend(WandbBackend).entity == "team"
+    assert (
+        tracker.get_backend(MLflowBackend).tracking_uri
+        == "sqlite:///unused.db"
+    )
+
+
 def test_a_generated_run_name_takes_the_next_number(tmp_path: Path):
     for name in ["3-old", "10", "½-fraction", "notes"]:
         (tmp_path / name).mkdir()
@@ -394,6 +420,27 @@ def test_the_deprecated_flags_read_the_backends(
         assert getattr(tracker, flag)
     with pytest.deprecated_call():
         assert not getattr(other, flag)
+
+
+@pytest.mark.parametrize(
+    ("backend", "attribute", "options"),
+    [
+        ("wandb", "wandb_entity", {"entity": "team"}),
+        ("mlflow", "mlflow_tracking_uri", {"tracking_uri": "sqlite:///a.db"}),
+    ],
+)
+def test_the_deprecated_options_read_the_backends(
+    tmp_path: Path, backend: str, attribute: str, options: dict[str, str]
+):
+    tracker = make_tracker(
+        tmp_path, project_name="project", **{backend: options}
+    )
+    other = make_tracker(tmp_path)
+
+    with pytest.deprecated_call():
+        assert getattr(tracker, attribute) in options.values()
+    with pytest.deprecated_call():
+        assert getattr(other, attribute) is None
 
 
 @pytest.mark.parametrize(

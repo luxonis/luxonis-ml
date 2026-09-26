@@ -25,8 +25,8 @@ from .backends.base import (
     RunStatus,
     TrackerBackend,
 )
-from .backends.mlflow import MLflowOptions
-from .backends.wandb import WandbOptions
+from .backends.mlflow import MLflowBackend, MLflowOptions
+from .backends.wandb import WandbBackend, WandbOptions
 from .buffer import BufferedBackend
 
 B = TypeVar("B", bound=TrackerBackend)
@@ -125,7 +125,7 @@ class LuxonisTracker:
                 `TRACKER_BACKENDS`.
 
         """
-        configs = _legacy_backends(
+        configs, legacy_options = _legacy_backends(
             is_tensorboard=is_tensorboard,
             is_wandb=is_wandb,
             is_mlflow=is_mlflow,
@@ -148,7 +148,7 @@ class LuxonisTracker:
             if value is False:
                 configs.pop(name, None)
             elif value is True:
-                configs[name] = {}
+                configs[name] = legacy_options.get(name, {})
             elif value is not None:
                 configs[name] = value
         if not configs:
@@ -265,6 +265,28 @@ class LuxonisTracker:
     def is_mlflow(self) -> bool:
         """Whether MLflow is enabled. Deprecated."""
         return "mlflow" in self._backends
+
+    @property
+    @deprecated("Use `tracker.get_backend(WandbBackend).entity` instead.")
+    def wandb_entity(self) -> str | None:
+        """The WandB entity, or ``None`` without WandB. Deprecated."""
+        try:
+            return self.get_backend(WandbBackend).entity
+        except KeyError:
+            return None
+
+    @property
+    @deprecated(
+        "Use `tracker.get_backend(MLflowBackend).tracking_uri` instead."
+    )
+    def mlflow_tracking_uri(self) -> str | None:
+        """The MLflow tracking URI, or ``None`` without MLflow.
+        Deprecated.
+        """
+        try:
+            return self.get_backend(MLflowBackend).tracking_uri
+        except KeyError:
+            return None
 
     def log_hyperparams(self, params: Mapping[str, ParamValue]) -> None:
         """Log the hyperparameters of the run."""
@@ -386,23 +408,32 @@ def _legacy_backends(
     is_mlflow: bool,
     wandb_entity: str | None,
     mlflow_tracking_uri: str | None,
-) -> dict[str, Mapping[str, object]]:
-    """Turn the deprecated flags into backend options."""
-    backends: dict[str, Mapping[str, object]] = {}
-    if is_tensorboard:
-        backends["tensorboard"] = {}
-    if is_wandb:
-        backends["wandb"] = {"entity": wandb_entity} if wandb_entity else {}
-    if is_mlflow:
-        backends["mlflow"] = (
-            {"tracking_uri": mlflow_tracking_uri}
-            if mlflow_tracking_uri
-            else {}
-        )
-    if backends:
+) -> tuple[dict[str, Mapping[str, object]], dict[str, Mapping[str, object]]]:
+    """Turn the deprecated arguments into backend options.
+
+    Returns:
+        The backends that the flags turn on, and the options that
+        ``wandb_entity`` and ``mlflow_tracking_uri`` give. The options
+        also apply to a backend that its keyword turns on with ``True``.
+
+    """
+    options: dict[str, Mapping[str, object]] = {}
+    if wandb_entity:
+        options["wandb"] = {"entity": wandb_entity}
+    if mlflow_tracking_uri:
+        options["mlflow"] = {"tracking_uri": mlflow_tracking_uri}
+    flags = {
+        "tensorboard": is_tensorboard,
+        "wandb": is_wandb,
+        "mlflow": is_mlflow,
+    }
+    backends = {
+        name: options.get(name, {}) for name, flag in flags.items() if flag
+    }
+    if deprecated := {**backends, **options}:
         replacement = ", ".join(
-            f"{name}={dict(options) or True}"
-            for name, options in backends.items()
+            f"{name}={dict(backend_options) or True}"
+            for name, backend_options in deprecated.items()
         )
         warnings.warn(
             "The `is_tensorboard`, `is_wandb`, `is_mlflow`, `wandb_entity` "
@@ -411,7 +442,7 @@ def _legacy_backends(
             DeprecationWarning,
             stacklevel=3,
         )
-    return backends
+    return backends, options
 
 
 def _create_backend(
