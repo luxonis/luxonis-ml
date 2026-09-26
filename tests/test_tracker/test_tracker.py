@@ -573,6 +573,9 @@ def test_a_broken_plugin_is_skipped(
         (ConnectionError("reset"), True),
         (TimeoutError("slow"), True),
         (FileNotFoundError("model.txt"), False),
+        (PermissionError("model.txt"), False),
+        (IsADirectoryError("model.txt"), False),
+        (NotADirectoryError("model.txt"), False),
         (ValueError("bad value"), False),
     ],
 )

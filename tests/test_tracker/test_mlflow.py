@@ -9,6 +9,10 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 import requests
+from botocore.exceptions import (
+    ConnectionClosedError,
+    EndpointConnectionError,
+)
 from mlflow import MlflowClient
 from mlflow.entities import Experiment
 from mlflow.exceptions import MlflowException
@@ -402,8 +406,11 @@ def test_a_run_in_a_missing_experiment_is_rejected(
         (MlflowException("connection refused"), True),
         (MlflowException("server error", INTERNAL_ERROR), True),
         (FileNotFoundError("model.txt"), False),
+        (PermissionError("model.txt"), False),
         (ConnectionError("reset"), True),
         (requests.ConnectionError("refused"), True),
+        (EndpointConnectionError(endpoint_url="http://s3"), True),
+        (ConnectionClosedError(endpoint_url="http://s3"), True),
         (http_error(503), True),
         (http_error(429), True),
         (http_error(413), False),

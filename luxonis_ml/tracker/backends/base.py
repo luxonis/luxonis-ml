@@ -138,10 +138,15 @@ class TrackerBackend(ABC):
         `BufferedBackend` keeps a call that failed with a transient error
         and drops the others. The default treats an ``OSError`` as
         transient, which covers the network errors of ``socket`` and
-        ``requests``, but not a missing file.
+        ``requests``, but not the errors of a local file: a missing
+        file, a denied access, or a directory in place of a file.
         """
         return isinstance(error, OSError) and not isinstance(
-            error, FileNotFoundError
+            error,
+            FileNotFoundError
+            | PermissionError
+            | IsADirectoryError
+            | NotADirectoryError,
         )
 
 

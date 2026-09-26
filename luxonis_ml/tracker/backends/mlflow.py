@@ -223,7 +223,9 @@ class MLflowBackend(TrackerBackend):
 
         An error with an HTTP status is transient for a 5xx status and
         for 429. MLflow reports a connection failure as a status 500.
-        Any other error follows `TrackerBackend.is_transient`.
+        A connection error of ``botocore``, from an S3 artifact store,
+        is transient too. Any other error follows
+        `TrackerBackend.is_transient`.
         """
         from mlflow.exceptions import MlflowException
         from requests import HTTPError
@@ -233,7 +235,7 @@ class MLflowBackend(TrackerBackend):
         elif isinstance(error, HTTPError) and error.response is not None:
             status = error.response.status_code
         else:
-            return super().is_transient(error)
+            return _is_s3_outage(error) or super().is_transient(error)
         return status >= 500 or status == 429
 
     @property
@@ -296,3 +298,19 @@ class MLflowBackend(TrackerBackend):
             self._monitor.start()
         except Exception as error:
             logger.warning(f"Could not log the system metrics: {error}")
+
+
+def _is_s3_outage(error: Exception) -> bool:
+    """Tell whether ``botocore`` could not reach the S3 store.
+
+    Its connection errors are no ``OSError``.
+    """
+    try:
+        # botocore ships no type stubs
+        from botocore.exceptions import (  # pyright: ignore[reportMissingTypeStubs]
+            ConnectionError,
+            HTTPClientError,
+        )
+    except ImportError:
+        return False
+    return isinstance(error, ConnectionError | HTTPClientError)
