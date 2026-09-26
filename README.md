@@ -133,15 +133,15 @@ pip install luxonis-ml[data]
 
 Each module has its own extra, so you install only what you use:
 
-| Extra        | Installs the dependencies of                              |
-| ------------ | --------------------------------------------------------- |
-| `ldf`        | `luxonis_ml.ldf`                                          |
-| `data`       | `luxonis_ml.data`, and `luxonis_ml.ldf` with it           |
-| `tracker`    | `luxonis_ml.tracker`, except `mlflow` and `opencv-python` |
-| `telemetry`  | `luxonis_ml.telemetry`, with the PostHog backend          |
-| `nn_archive` | `luxonis_ml.nn_archive`                                   |
-| `utils`      | `luxonis_ml.utils`                                        |
-| `all`        | All of the above, and all of the extras below             |
+| Extra        | Installs the dependencies of                         |
+| ------------ | ---------------------------------------------------- |
+| `ldf`        | `luxonis_ml.ldf`                                     |
+| `data`       | `luxonis_ml.data`, and `luxonis_ml.ldf` with it      |
+| `tracker`    | `luxonis_ml.tracker`, without the SDK of any backend |
+| `telemetry`  | `luxonis_ml.telemetry`, with the PostHog backend     |
+| `nn_archive` | `luxonis_ml.nn_archive`                              |
+| `utils`      | `luxonis_ml.utils`                                   |
+| `all`        | All of the above, and all of the extras below        |
 
 The `data`, `ldf`, `tracker`, and `utils` modules fail on import when you do
 not install their extra. The message names the extra. `luxonis_ml.telemetry`
@@ -279,7 +279,7 @@ from luxonis_ml.tracker import LuxonisTracker
 tracker = LuxonisTracker(
     project_name="parking_lot",
     run_name="baseline",
-    is_tensorboard=True,
+    tensorboard=True,
 )
 
 tracker.log_metric("loss", 0.42, step=1)
@@ -287,7 +287,7 @@ tracker.close()
 ```
 
 > [!NOTE]
-> The `tracker` extra does not install every dependency of `luxonis_ml.tracker`. The module imports `mlflow` and `cv2` at import time, so install `mlflow` and `opencv-python` as well: `pip install "luxonis-ml[tracker,mlflow]" opencv-python`. Install `torch` for TensorBoard and `wandb` for Weights & Biases.
+> Install the extra of each backend that you enable: `tensorboard`, `wandb`, or `mlflow`. For example, `pip install "luxonis-ml[tracker,tensorboard,mlflow]"`. A backend imports its SDK only when it starts, so `luxonis_ml.tracker` imports with the `tracker` extra alone.
 
 <a name="cli"></a>
 
