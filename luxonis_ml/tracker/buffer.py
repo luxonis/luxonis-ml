@@ -85,8 +85,6 @@ class BufferedBackend(TrackerBackend):
         return self.backend.experiment
 
     def start(self) -> None:
-        # a rejected first start raises, so that a wrong configuration
-        # fails at once and not in the middle of the training
         self._flush(raise_rejected=True)
 
     def log_hyperparams(self, params: Mapping[str, ParamValue]) -> None:
@@ -113,14 +111,12 @@ class BufferedBackend(TrackerBackend):
     def close(self, status: RunStatus) -> None:
         # the last chance, whatever the backoff says
         self._retry_at = 0
+        self._flush()
         try:
-            self._flush()
+            self._spill()
         finally:
-            try:
-                self._spill()
-            finally:
-                if self._started:
-                    self.backend.close(status)
+            if self._started:
+                self.backend.close(status)
 
     def is_transient(self, error: Exception) -> bool:
         return self.backend.is_transient(error)

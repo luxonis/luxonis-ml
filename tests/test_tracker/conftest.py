@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +17,24 @@ from luxonis_ml.tracker.tracker import RUN_NAME_ENV
 from luxonis_ml.typing import ParamValue
 
 MAX_RETRIES_ENV = "MLFLOW_HTTP_REQUEST_MAX_RETRIES"
+
+
+class FakeClock:
+    """Stand in for the `time` module. `sleep` advances the clock and
+    runs ``on_sleep``.
+    """
+
+    def __init__(self, on_sleep: Callable[[], object] | None = None) -> None:
+        self.now = 0.0
+        self.on_sleep = on_sleep
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+        if self.on_sleep is not None:
+            self.on_sleep()
 
 
 class Rejected(Exception):

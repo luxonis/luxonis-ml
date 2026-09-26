@@ -209,8 +209,7 @@ class LuxonisTracker:
         """The number of the run, or :math:`0` for a run name without
         one.
         """
-        match = re.match(r"(\d+)(?:-|$)", self.run_name)
-        return int(match[1]) if match else 0
+        return _run_number(self.run_name) or 0
 
     @property
     def backends(self) -> Mapping[str, TrackerBackend]:
@@ -424,14 +423,19 @@ def _create_backend(
     return backend
 
 
+def _run_number(run_name: str) -> int | None:
+    """Return the number of ``<number>-<name>``, or ``None``."""
+    match = re.match(r"(\d+)(?:-|$)", run_name)
+    return int(match[1]) if match else None
+
+
 def _run_numbers(save_directory: Path) -> dict[str, int]:
     """Map each numbered run in ``save_directory`` to its number."""
-    runs: dict[str, int] = {}
-    for path in save_directory.iterdir():
-        match = re.match(r"(\d+)(?:-|$)", path.name)
-        if match and path.is_dir():
-            runs[path.name] = int(match[1])
-    return runs
+    return {
+        path.name: number
+        for path in save_directory.iterdir()
+        if (number := _run_number(path.name)) is not None and path.is_dir()
+    }
 
 
 def _new_run_name(save_directory: Path) -> str:

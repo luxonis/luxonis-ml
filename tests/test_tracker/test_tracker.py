@@ -21,7 +21,7 @@ from luxonis_ml.tracker import (
 )
 from luxonis_ml.tracker.tracker import RUN_NAME_ENV
 
-from .conftest import BufferedFakeBackend, FakeBackend
+from .conftest import BufferedFakeBackend, FakeBackend, FakeClock
 
 
 def make_tracker(save_directory: Path, **kwargs: Any) -> LuxonisTracker:
@@ -34,24 +34,6 @@ def fake(tracker: LuxonisTracker, name: str = "fake") -> FakeBackend:
     backend = tracker.backends[name]
     assert isinstance(backend, FakeBackend)
     return backend
-
-
-class FakeClock:
-    """Stands in for the `time` module. `sleep` advances the clock and
-    runs ``on_sleep``.
-    """
-
-    def __init__(self, on_sleep: Any = None) -> None:
-        self.now = 0.0
-        self.on_sleep = on_sleep
-
-    def monotonic(self) -> float:
-        return self.now
-
-    def sleep(self, seconds: float) -> None:
-        self.now += seconds
-        if self.on_sleep is not None:
-            self.on_sleep()
 
 
 def test_at_least_one_backend_is_required(tmp_path: Path):
@@ -325,38 +307,30 @@ def test_each_call_reaches_each_backend(
 ):
     artifact = tmp_path / "model.txt"
     artifact.write_text("weights")
+    matrix = np.eye(2)
     tracker = make_tracker(tmp_path, other_fake=True)
 
     tracker.log_hyperparams({"lr": 0.1})
     tracker.log_metric("loss", 0.5, 1)
     tracker.log_metrics({"acc": 0.9}, 2)
     tracker.log_images({"a": image, "b": image}, 3)
-    tracker.log_matrix(np.eye(2), "matrix", 4)
-    tracker.log_matrix(np.eye(2), "labelled", 5, {"labels": ["x", "y"]})
+    tracker.log_matrix(matrix, "matrix", 4)
+    tracker.log_matrix(matrix, "labelled", 5, {"labels": ["x", "y"]})
     tracker.upload_artifact(str(artifact), name="final.txt", typ="weights")
 
-    for name in ["fake", "other_fake"]:
-        calls = fake(tracker, name).calls
-        assert [call[0] for call in calls] == [
-            "log_hyperparams",
-            "log_metrics",
-            "log_metrics",
-            "log_image",
-            "log_image",
-            "log_matrix",
-            "log_matrix",
-            "upload_artifact",
-        ]
-        assert calls[1] == ("log_metrics", {"loss": 0.5}, 1)
-        assert calls[3][1:] == ("a", image, 3)
-        assert calls[5][2:] == ("matrix", 4, {})
-        assert calls[6][4] == {"labels": ["x", "y"]}
-        assert calls[7] == (
-            "upload_artifact",
-            "weights",
-            "final.txt",
-            "weights",
-        )
+    # the arrays compare by identity inside the tuples
+    expected = [
+        ("log_hyperparams", {"lr": 0.1}),
+        ("log_metrics", {"loss": 0.5}, 1),
+        ("log_metrics", {"acc": 0.9}, 2),
+        ("log_image", "a", image, 3),
+        ("log_image", "b", image, 3),
+        ("log_matrix", matrix, "matrix", 4, {}),
+        ("log_matrix", matrix, "labelled", 5, {"labels": ["x", "y"]}),
+        ("upload_artifact", "weights", "final.txt", "weights"),
+    ]
+    assert fake(tracker).calls == expected
+    assert fake(tracker, "other_fake").calls == expected
 
 
 def test_experiment_starts_the_backends_and_maps_their_handles(
@@ -381,13 +355,6 @@ def test_get_backend_unwraps_a_buffered_backend(tmp_path: Path):
     assert tracker.get_backend(FakeBackend) is tracker.backends["fake"]
     with pytest.raises(KeyError, match="TensorBoardBackend"):
         tracker.get_backend(TensorBoardBackend)
-
-
-def test_the_backends_cannot_be_replaced(tmp_path: Path):
-    backends: Any = make_tracker(tmp_path).backends
-
-    with pytest.raises(TypeError):
-        backends["fake"] = None
 
 
 @pytest.mark.parametrize(

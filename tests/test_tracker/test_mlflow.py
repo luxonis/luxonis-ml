@@ -221,22 +221,19 @@ def test_an_explicit_parent_wins(
     assert tags[MLFLOW_PARENT_RUN_ID] == parent
 
 
-def test_the_logged_values_reach_the_run(
-    backend: MLflowBackend,
-    client: MlflowClient,
-    image: npt.NDArray[np.uint8],
-    tmp_path: Path,
+def artifact_root(client: MlflowClient, run_id: str) -> Path:
+    uri = client.get_run(run_id).info.artifact_uri
+    assert uri is not None
+    # a plain prefix cut breaks `file:///C:/...` on Windows
+    return Path(local_file_uri_to_path(uri))
+
+
+def test_params_and_metrics_reach_the_run(
+    backend: MLflowBackend, client: MlflowClient
 ):
-    artifact = tmp_path / "model.txt"
-    artifact.write_text("weights")
     backend.log_hyperparams({"lr": 0.1, "note": None})
     backend.log_metrics({"loss": 0.5}, 1)
     backend.log_metrics({"loss": 0.25}, 2)
-    backend.log_image("val/image", image, 3)
-    backend.log_image("plain", image, 4)
-    backend.log_matrix(np.eye(2), "matrix", 5, {"labels": ["a", "b"]})
-    backend.upload_artifact(artifact, None, "weights")
-    backend.upload_artifact(artifact, "output/export/final.txt", "export")
     backend.close("success")
 
     assert backend.run_id is not None
@@ -246,18 +243,55 @@ def test_the_logged_values_reach_the_run(
     assert [(m.step, m.value) for m in history] == [(1, 0.5), (2, 0.25)]
     assert run.info.status == "FINISHED"
 
-    assert run.info.artifact_uri is not None
-    # a plain prefix cut breaks `file:///C:/...` on Windows
-    artifacts = Path(local_file_uri_to_path(run.info.artifact_uri))
+
+def test_an_image_goes_under_its_step(
+    backend: MLflowBackend,
+    client: MlflowClient,
+    image: npt.NDArray[np.uint8],
+):
+    backend.log_image("val/image", image, 3)
+    backend.log_image("plain", image, 4)
+
+    assert backend.run_id is not None
+    artifacts = artifact_root(client, backend.run_id)
     assert (artifacts / "val" / "3" / "image.png").is_file()
     assert (artifacts / "4" / "plain.png").is_file()
-    assert json.loads((artifacts / "matrix.json").read_text()) == {
+
+
+def test_a_matrix_goes_to_a_json_file(
+    backend: MLflowBackend, client: MlflowClient
+):
+    backend.log_matrix(np.eye(2), "matrix", 5, {"labels": ["a", "b"]})
+
+    assert backend.run_id is not None
+    matrix_file = artifact_root(client, backend.run_id) / "matrix.json"
+    assert json.loads(matrix_file.read_text()) == {
         "flat_array": [1.0, 0.0, 0.0, 1.0],
         "shape": [2, 2],
         "labels": ["a", "b"],
     }
-    assert (artifacts / "model.txt").read_text() == "weights"
-    assert (artifacts / "final.txt").read_text() == "weights"
+
+
+@pytest.mark.parametrize(
+    ("name", "stored_as"),
+    [(None, "model.txt"), ("output/export/final.txt", "final.txt")],
+)
+def test_an_artifact_goes_to_the_artifact_root(
+    backend: MLflowBackend,
+    client: MlflowClient,
+    tmp_path: Path,
+    name: str | None,
+    stored_as: str,
+):
+    artifact = tmp_path / "model.txt"
+    artifact.write_text("weights")
+
+    backend.upload_artifact(artifact, name, "weights")
+
+    assert backend.run_id is not None
+    artifacts = artifact_root(client, backend.run_id)
+    assert [path.name for path in artifacts.iterdir()] == [stored_as]
+    assert (artifacts / stored_as).read_text() == "weights"
 
 
 def test_a_run_that_fails_to_close_is_no_longer_a_parent(

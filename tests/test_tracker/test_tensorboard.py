@@ -128,8 +128,17 @@ def test_a_run_without_hyperparameters_writes_none(
     assert read_summaries(log_dir) == []
 
 
-def test_artifacts_are_ignored(backend: TensorBoardBackend, tmp_path: Path):
-    backend.upload_artifact(tmp_path / "missing.txt", None, "weights")
+def test_an_artifact_is_not_stored(
+    backend: TensorBoardBackend, run: RunContext, tmp_path: Path
+):
+    artifact = tmp_path / "model.txt"
+    artifact.write_text("weights")
+
+    backend.upload_artifact(artifact, None, "weights")
+    backend.close("success")
+
+    log_dir = run.save_directory / "tensorboard_logs" / run.run_name
+    assert read_summaries(log_dir) == []
 
 
 def test_the_writer_exists_only_after_start(run: RunContext):

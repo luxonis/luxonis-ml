@@ -10,17 +10,9 @@ import luxonis_ml.tracker.buffer as buffer_module
 from luxonis_ml.tracker import BufferedBackend, RunContext
 from luxonis_ml.tracker.buffer import _to_json
 
-from .conftest import FakeBackend, Rejected
+from .conftest import FakeBackend, FakeClock, Rejected
 
 RETRY_INTERVAL = 60.0
-
-
-class FakeClock:
-    def __init__(self) -> None:
-        self.now = 0.0
-
-    def monotonic(self) -> float:
-        return self.now
 
 
 @pytest.fixture
@@ -41,11 +33,12 @@ def buffered(inner: FakeBackend, clock: FakeClock) -> BufferedBackend:
 
 
 def metrics(step: int) -> tuple[str, dict[str, float], int]:
-    return ("log_metrics", {"loss": 1 / (step + 1)}, step)
+    """Return the call of `log`, as `FakeBackend` records it."""
+    return ("log_metrics", {"loss": float(step)}, step)
 
 
 def log(buffered: BufferedBackend, step: int) -> None:
-    buffered.log_metrics({"loss": 1 / (step + 1)}, step)
+    buffered.log_metrics({"loss": float(step)}, step)
 
 
 def test_a_healthy_backend_gets_each_call_at_once(
@@ -56,31 +49,32 @@ def test_a_healthy_backend_gets_each_call_at_once(
 ):
     artifact = tmp_path / "model.txt"
     artifact.write_text("weights")
+    matrix = np.eye(2)
     buffered.start()
 
     buffered.log_hyperparams({"lr": 0.1})
     log(buffered, 1)
     buffered.log_image("image", image, 2)
-    buffered.log_matrix(np.eye(2), "matrix", 3, {"labels": ["a", "b"]})
+    buffered.log_matrix(matrix, "matrix", 3, {"labels": ["a", "b"]})
     buffered.upload_artifact(artifact, "final.txt", "weights")
 
-    assert [call[0] for call in inner.calls] == [
-        "log_hyperparams",
-        "log_metrics",
-        "log_image",
-        "log_matrix",
-        "upload_artifact",
+    assert inner.calls == [
+        ("log_hyperparams", {"lr": 0.1}),
+        metrics(1),
+        ("log_image", "image", image, 2),
+        ("log_matrix", matrix, "matrix", 3, {"labels": ["a", "b"]}),
+        ("upload_artifact", "weights", "final.txt", "weights"),
     ]
-    assert inner.calls[4] == (
-        "upload_artifact",
-        "weights",
-        "final.txt",
-        "weights",
-    )
-    assert buffered.experiment is inner
-    assert buffered.is_transient(RuntimeError())
-    assert not buffered.is_transient(Rejected())
+    # nothing waited, so the buffer kept no copy of the artifact
     assert not (buffered.unsent_directory / "artifacts").exists()
+
+
+def test_the_wrapper_answers_for_the_backend(
+    buffered: BufferedBackend, inner: FakeBackend
+):
+    assert buffered.experiment is inner
+    assert buffered.is_transient(ConnectionError())
+    assert not buffered.is_transient(Rejected())
 
 
 def test_calls_wait_for_a_backend_that_failed_to_start(
