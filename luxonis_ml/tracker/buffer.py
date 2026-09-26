@@ -4,7 +4,8 @@ import math
 import shutil
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Generator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar
@@ -52,6 +53,10 @@ class BufferedBackend(TrackerBackend):
         - ``images/`` holds the images as ``.npy`` files, which keep the
           exact data.
 
+    A signal handler can log, and close the run, while a call is sent.
+    Its calls join the buffer, and its close waits until the call that
+    it interrupted ends.
+
     """
 
     def __init__(
@@ -76,7 +81,8 @@ class BufferedBackend(TrackerBackend):
         )
         self._calls: list[_Call] = []
         self._started = False
-        self._flushing = False
+        self._busy = False
+        self._pending_close: RunStatus | None = None
         self._retry_at = 0.0
         self._reported_drop = False
 
@@ -85,7 +91,10 @@ class BufferedBackend(TrackerBackend):
         return self.backend.experiment
 
     def start(self) -> None:
-        self._flush(raise_rejected=True)
+        if self._busy:
+            return
+        with self._hold():
+            self._flush(raise_rejected=True)
 
     def log_hyperparams(self, params: Mapping[str, ParamValue]) -> None:
         self._submit(_Hyperparams(params))
@@ -109,60 +118,82 @@ class BufferedBackend(TrackerBackend):
         self._submit(_Artifact(path, name, typ))
 
     def close(self, status: RunStatus) -> None:
+        if self._busy:
+            self._pending_close = status
+            return
         # the last chance, whatever the backoff says
         self._retry_at = 0
-        self._flush()
         try:
-            self._spill()
+            self._flush()
         finally:
-            if self._started:
-                self.backend.close(status)
+            try:
+                self._spill()
+            finally:
+                if self._started:
+                    self.backend.close(status)
 
     def is_transient(self, error: Exception) -> bool:
         return self.backend.is_transient(error)
 
+    @contextmanager
+    def _hold(self) -> Generator[None, None, None]:
+        """Keep the calls and the close of a signal handler until the
+        block ends.
+        """
+        self._busy = True
+        try:
+            yield
+        finally:
+            self._busy = False
+            if self._pending_close is not None:
+                status, self._pending_close = self._pending_close, None
+                self.close(status)
+
     def _submit(self, call: "_Call") -> None:
-        self._flush()
-        if self._flushing or self._calls or not self._started:
+        if self._busy:
+            # a signal handler logs while a call is sent
             self._buffer(call)
             return
-        try:
-            call.send(self.backend)
-        except Exception as error:
-            if not self.backend.is_transient(error):
-                logger.warning(f"{self.name} rejected a call: {error}")
+        with self._hold():
+            self._flush()
+            if self._calls or not self._started:
+                self._buffer(call)
                 return
-            self._back_off(error)
-            self._buffer(call)
+            try:
+                call.send(self.backend)
+            except Exception as error:
+                if not self.backend.is_transient(error):
+                    logger.warning(f"{self.name} rejected a call: {error}")
+                    return
+                self._back_off(error)
+                self._buffer(call)
+            except BaseException:
+                self._buffer(call)
+                raise
 
     def _flush(self, *, raise_rejected: bool = False) -> None:
-        """Start the backend if needed, and send the buffered calls.
-
-        A signal handler can log while a flush sends. Its call joins the
-        buffer, and the running flush sends it.
-        """
-        if self._flushing or time.monotonic() < self._retry_at:
+        """Start the backend if needed, and send the buffered calls."""
+        if time.monotonic() < self._retry_at:
             return
-        self._flushing = True
-        try:
-            if not self._started and not self._start(raise_rejected):
-                return
-            while self._calls:
-                call = self._calls.pop(0)
-                try:
-                    call.send(self.backend)
-                except Exception as error:
-                    if self.backend.is_transient(error):
-                        self._calls.insert(0, call)
-                        self._back_off(error)
-                        return
-                    logger.warning(
-                        f"{self.name} rejected a buffered call: {error}"
-                    )
-                call.discard()
-            self._reported_drop = False
-        finally:
-            self._flushing = False
+        if not self._started and not self._start(raise_rejected):
+            return
+        while self._calls:
+            call = self._calls.pop(0)
+            try:
+                call.send(self.backend)
+            except Exception as error:
+                if self.backend.is_transient(error):
+                    self._calls.insert(0, call)
+                    self._back_off(error)
+                    return
+                logger.warning(
+                    f"{self.name} rejected a buffered call: {error}"
+                )
+            except BaseException:
+                self._calls.insert(0, call)
+                raise
+            call.discard()
+        self._reported_drop = False
 
     def _start(self, raise_rejected: bool) -> bool:
         """Start the backend, and return whether it started."""

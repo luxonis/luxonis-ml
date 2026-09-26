@@ -141,9 +141,9 @@ def test_a_rejected_call_is_dropped(
 class FlakyBackend(FakeBackend):
     """Raise the queued errors, one for each call, then accept."""
 
-    def __init__(self, run: RunContext, errors: list[Exception]) -> None:
+    def __init__(self, run: RunContext, errors: list[BaseException]) -> None:
         super().__init__(run)
-        self.errors: list[Exception] = errors
+        self.errors: list[BaseException] = errors
 
     def _raise(self) -> None:
         if self.errors:
@@ -405,6 +405,46 @@ def test_close_ends_the_run_when_the_save_fails(
     assert inner.status == "failed"
 
 
+def test_an_interrupted_close_still_saves_the_calls(
+    run: RunContext, clock: FakeClock
+):
+    """Ctrl-C during the last flush must not lose the buffer, nor the
+    call that was being sent.
+    """
+    inner = FlakyBackend(run, [])
+    buffered = BufferedBackend(inner, "fake")
+    buffered.start()
+    inner.errors = [ConnectionError()]
+    log(buffered, 0)
+    log(buffered, 1)
+    inner.errors = [KeyboardInterrupt()]
+
+    with pytest.raises(KeyboardInterrupt):
+        buffered.close("failed")
+
+    path = buffered.unsent_directory / "calls.jsonl"
+    steps = [
+        json.loads(line)["step"] for line in path.read_text().splitlines()
+    ]
+    assert steps == [0, 1]
+    assert inner.status == "failed"
+
+
+def test_an_interrupted_call_stays_in_the_buffer(
+    run: RunContext, clock: FakeClock
+):
+    inner = FlakyBackend(run, [])
+    buffered = BufferedBackend(inner, "fake")
+    buffered.start()
+    inner.errors = [KeyboardInterrupt()]
+
+    with pytest.raises(KeyboardInterrupt):
+        log(buffered, 0)
+    buffered.close("success")
+
+    assert inner.calls == [metrics(0)]
+
+
 def test_close_saves_the_calls_of_a_run_that_was_rejected(
     buffered: BufferedBackend, inner: FakeBackend, warnings_log: list[str]
 ):
@@ -477,6 +517,69 @@ def test_a_call_made_during_a_replay_waits_its_turn(
     log(buffered, 2)
 
     assert inner.calls == [metrics(0), metrics(1), metrics(99), metrics(2)]
+
+
+class ClosingBackend(FakeBackend):
+    """Log a call and close the run while a call is being sent, as the
+    interrupt handler of a training can.
+    """
+
+    def __init__(self, run: RunContext) -> None:
+        super().__init__(run)
+        self.buffered: BufferedBackend | None = None
+
+    def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
+        if step == 0 and self.buffered is not None:
+            log(self.buffered, 99)
+            self.buffered.close("failed")
+        super().log_metrics(metrics, step)
+
+
+def test_a_close_during_a_replay_waits_for_the_replay(
+    run: RunContext, clock: FakeClock
+):
+    inner = ClosingBackend(run)
+    buffered = BufferedBackend(inner, "fake", retry_interval=RETRY_INTERVAL)
+    inner.buffered = buffered
+    inner.error = ConnectionError()
+    buffered.start()
+    log(buffered, 0)
+    log(buffered, 1)
+    inner.error = None
+
+    clock.now = RETRY_INTERVAL
+    log(buffered, 2)
+
+    assert inner.calls == [metrics(0), metrics(1), metrics(99), metrics(2)]
+    assert inner.status == "failed"
+    assert not buffered.unsent_directory.exists()
+
+
+class StartingBackend(FakeBackend):
+    """Log a call while the backend starts, as a signal handler can.
+    The tracker starts the backend again for that call.
+    """
+
+    def __init__(self, run: RunContext) -> None:
+        super().__init__(run)
+        self.buffered: BufferedBackend | None = None
+
+    def start(self) -> None:
+        if self.buffered is not None:
+            self.buffered.start()
+            log(self.buffered, 99)
+        super().start()
+
+
+def test_a_call_made_during_the_start_waits_for_it(run: RunContext):
+    inner = StartingBackend(run)
+    buffered = BufferedBackend(inner, "fake")
+    inner.buffered = buffered
+
+    buffered.start()
+
+    assert inner.starts == 1
+    assert inner.calls == [metrics(99)]
 
 
 @pytest.mark.parametrize(
