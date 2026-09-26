@@ -17,6 +17,7 @@ from mlflow.protos.databricks_pb2 import (
     REQUEST_LIMIT_EXCEEDED,
     RESOURCE_DOES_NOT_EXIST,
 )
+from mlflow.utils.file_utils import local_file_uri_to_path
 from mlflow.utils.mlflow_tags import (
     MLFLOW_PARENT_RUN_ID,
     MLFLOW_SOURCE_NAME,
@@ -246,7 +247,8 @@ def test_the_logged_values_reach_the_run(
     assert run.info.status == "FINISHED"
 
     assert run.info.artifact_uri is not None
-    artifacts = Path(run.info.artifact_uri.removeprefix("file://"))
+    # a plain prefix cut breaks `file:///C:/...` on Windows
+    artifacts = Path(local_file_uri_to_path(run.info.artifact_uri))
     assert (artifacts / "val" / "3" / "image.png").is_file()
     assert (artifacts / "4" / "plain.png").is_file()
     assert json.loads((artifacts / "matrix.json").read_text()) == {
