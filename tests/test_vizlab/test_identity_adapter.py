@@ -12,17 +12,12 @@ from luxonis_ml.ldf import (
     KeypointAnnotation,
 )
 from luxonis_ml.vizlab import Palette, RenderOptions
-from luxonis_ml.vizlab.adapters import records_to_colored_annotations
+from luxonis_ml.vizlab.adapters import record_to_colored_annotations
 
 
-def _record(
-    task_name: str,
-    detections: list[Detection],
-) -> DatasetRecord:
+def _record(**tasks: list[Detection]) -> DatasetRecord:
     return DatasetRecord.model_construct(
-        files={"image": Path("frame.jpg")},
-        annotation=detections,
-        task_name=task_name,
+        files={"image": Path("frame.jpg")}, annotation=tasks
     )
 
 
@@ -36,8 +31,8 @@ def _box(instance_id: int, *, metadata: bool = False) -> Detection:
 
 
 def test_class_coloring_keeps_palette_driven_class_identity() -> None:
-    annotations = records_to_colored_annotations(
-        [_record("left", [_box(1)]), _record("right", [_box(2)])],
+    annotations = record_to_colored_annotations(
+        _record(left=[_box(1)], right=[_box(2)]),
         color_by="class",
         options=RenderOptions(),
         identity_palette=Palette(),
@@ -49,8 +44,8 @@ def test_class_coloring_keeps_palette_driven_class_identity() -> None:
 
 
 def test_instance_coloring_distinguishes_same_class_instances() -> None:
-    annotations = records_to_colored_annotations(
-        [_record("objects", [_box(1), _box(2)])],
+    annotations = record_to_colored_annotations(
+        _record(objects=[_box(1), _box(2)]),
         color_by="instance",
         options=RenderOptions(),
         identity_palette=Palette(),
@@ -64,11 +59,8 @@ def test_instance_coloring_distinguishes_same_class_instances() -> None:
 def test_task_coloring_is_stable_within_task_and_distinct_across_tasks() -> (
     None
 ):
-    annotations = records_to_colored_annotations(
-        [
-            _record("left", [_box(1, metadata=True), _box(2)]),
-            _record("right", [_box(3)]),
-        ],
+    annotations = record_to_colored_annotations(
+        _record(left=[_box(1, metadata=True), _box(2)], right=[_box(3)]),
         color_by="task",
         options=RenderOptions(hover_metadata=True),
         identity_palette=Palette(),
@@ -85,7 +77,9 @@ def test_instance_coloring_describes_and_styles_the_whole_instance() -> None:
         class_name=None,
         instance_id=-1,
         boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.4, h=0.4),
-        keypoints=KeypointAnnotation(keypoints=[(0.2, 0.2, 2)]),
+        keypoints=KeypointAnnotation.model_validate(
+            {"keypoints": [(0.2, 0.2, 2)]}
+        ),
         instance_segmentation=InstanceSegmentationAnnotation(
             mask=np.ones((8, 8), np.uint8)  # type: ignore[arg-type]
         ),
@@ -97,8 +91,10 @@ def test_instance_coloring_describes_and_styles_the_whole_instance() -> None:
         },
         metadata={"source": "manual"},
     )
-    (root,) = records_to_colored_annotations(
-        [_record("", [detection])],
+    (root,) = record_to_colored_annotations(
+        DatasetRecord.model_construct(
+            files={"image": Path("frame.jpg")}, annotation={"": [detection]}
+        ),
         color_by="instance",
         options=RenderOptions(),
         identity_palette=Palette(),
@@ -121,10 +117,12 @@ def test_task_coloring_styles_nested_children_without_a_tooltip() -> None:
     detection = Detection(
         class_name="car",
         boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.4, h=0.4),
-        keypoints=KeypointAnnotation(keypoints=[(0.2, 0.2, 2)]),
+        keypoints=KeypointAnnotation.model_validate(
+            {"keypoints": [(0.2, 0.2, 2)]}
+        ),
     )
-    (root,) = records_to_colored_annotations(
-        [_record("pose", [detection])],
+    (root,) = record_to_colored_annotations(
+        _record(pose=[detection]),
         color_by="task",
         options=RenderOptions(hover_metadata=False),
         identity_palette=Palette(),

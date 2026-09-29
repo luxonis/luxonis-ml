@@ -85,6 +85,7 @@ Format convention): a box is ``x, y`` (top-left) plus ``w, h``; a keypoint is
 """
 
 from collections.abc import Iterator
+from itertools import chain
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -796,7 +797,7 @@ def render_compare_keypoints() -> Path:
       green and the limbs joining green to amber fade between the two;
     - **full match** — every joint lands on target, so the whole pose is green.
     """
-    from luxonis_ml.ldf import Detection
+    from luxonis_ml.ldf import Detection, KeypointMetadata
 
     w2, h2 = 260, 320
     backdrop = gradient(w2, h2, hue=0.55)
@@ -811,9 +812,12 @@ def render_compare_keypoints() -> Path:
         (0.64, 0.82, 2),
     ]
     # Skeleton limbs: head-shoulders, torso sides, hips, hips-feet. Drawing them
-    # requires ``draw_skeletons`` and a skeleton for the (empty) task name.
+    # requires ``draw_skeletons`` and keypoint metadata for the (empty) task name.
     edges = [(0, 1), (0, 2), (1, 3), (2, 4), (3, 4), (3, 5), (4, 6)]
-    options = RenderOptions(draw_skeletons=True, skeletons={"": ([], edges)})
+    options = RenderOptions(
+        draw_skeletons=True,
+        keypoint_metadata={"": KeypointMetadata(edges=edges)},
+    )
 
     def shift(
         joints: list[tuple[float, float, int]], dx: float
@@ -1022,7 +1026,10 @@ def _disparity_field(width: int, height: int) -> np.ndarray:
     ys = np.linspace(0.0, 1.0, height)[:, None]
     xs = np.linspace(0.0, 1.0, width)[None, :]
     field = 6.0 + 250.0 * np.clip(ys - 0.35, 0.0, None) ** 1.6
-    for cx, cy, radius, value in ((0.22, 0.62, 0.17, 190.0), (0.72, 0.5, 0.1, 95.0)):
+    for cx, cy, radius, value in (
+        (0.22, 0.62, 0.17, 190.0),
+        (0.72, 0.5, 0.1, 95.0),
+    ):
         inside = ((xs - cx) ** 2 + ((ys - cy) * 1.3) ** 2) < radius**2
         field = np.where(inside, value, field)
     return field
@@ -1070,7 +1077,9 @@ def render_array_fields() -> Path:
     ]
     bases = [backdrop, photo, photo, backdrop, backdrop]
     cells = [
-        Image(base).add(heat).add(
+        Image(base)
+        .add(heat)
+        .add(
             # Top-left: the sky, the one part of a driving frame with nothing
             # in it. The key must not cover what it describes.
             ColorBar.for_heatmap(
@@ -1534,7 +1543,7 @@ def render_from_record() -> Path:
     """Convert one large ``DatasetRecord``-compatible dict straight to a picture.
 
     Everything below is plain data — the exact shape a dataset generator yields
-    or a loader round-trips (see `loader_output_to_records`). A single
+    or a loader round-trips (see `LoaderOutput.to_ldf`). A single
     `DatasetRecord.model_validate` +
     `visualize_record` call turns it into the
     finished frame: boxes, an instance-segmented truck, per-object semantic
@@ -1546,13 +1555,12 @@ def render_from_record() -> Path:
     rather than drawn into the frame, so it does not show in this static figure;
     the box-less truck's metadata has nothing to hover and becomes a corner card.
     """
-    from luxonis_ml.ldf import DatasetRecord
+    from luxonis_ml.ldf import DatasetRecord, KeypointMetadata
     from luxonis_ml.vizlab import RenderOptions, visualize_record
 
     w, h = 960, 600
     record_dict = {
-        "files": {},  # the pixels are passed to visualize_record separately
-        "task_name": "scene",
+        "media": {},  # the pixels are passed to visualize_record separately
         "sample_metadata": {
             "source": "seq_014/frame_000512.jpg",
             "split": "val",
@@ -1561,118 +1569,137 @@ def render_from_record() -> Path:
             "annotator": "auto + review",
             "augmentations": ["horizontal_flip", "color_jitter"],
         },
-        "annotation": [
-            # Per-class semantic segmentation of the ground surfaces.
-            {
-                "class_name": "road",
-                "segmentation": {
-                    "points": [
-                        (0.0, 0.5),
-                        (1.0, 0.5),
-                        (1.0, 1.0),
-                        (0.0, 1.0),
-                    ],
-                    "width": w,
-                    "height": h,
-                },
-            },
-            {
-                "class_name": "sidewalk",
-                "segmentation": {
-                    "points": [
-                        (0.0, 0.6),
-                        (0.2, 0.6),
-                        (0.1, 1.0),
-                        (0.0, 1.0),
-                    ],
-                    "width": w,
-                    "height": h,
-                },
-            },
-            # An instance-segmented truck (polygon) carrying tracking metadata.
-            {
-                "class_name": "truck",
-                "instance_id": 0,
-                "instance_segmentation": {
-                    "points": [
-                        (0.60, 0.50),
-                        (0.62, 0.40),
-                        (0.87, 0.40),
-                        (0.90, 0.50),
-                        (0.90, 0.74),
-                        (0.60, 0.74),
-                    ],
-                    "width": w,
-                    "height": h,
-                },
-                "metadata": {"track_id": 11},
-            },
-            # A car with a nested license plate (its transcription in metadata,
-            # shown on hover) and driver.
-            {
-                "class_name": "car",
-                "instance_id": 1,
-                "boundingbox": {
-                    "x": 0.05,
-                    "y": 0.62,
-                    "w": 0.28,
-                    "h": 0.24,
-                },
-                "metadata": {"track_id": 4, "speed": 31.2},
-                "sub_detections": {
-                    "plate": {
-                        "class_name": "plate",
-                        "boundingbox": {
-                            "x": 0.085,
-                            "y": 0.79,
-                            "w": 0.075,
-                            "h": 0.038,
-                        },
-                        "metadata": {"text": "LJ 82-A31"},
-                    },
-                    "driver": {
-                        "class_name": "driver",
-                        "boundingbox": {
-                            "x": 0.12,
-                            "y": 0.66,
-                            "w": 0.06,
-                            "h": 0.05,
-                        },
+        "annotation": {
+            "scene": [
+                # Per-class semantic segmentation of the ground surfaces.
+                {
+                    "class_name": "road",
+                    "segmentation": {
+                        "points": [
+                            (0.0, 0.5),
+                            (1.0, 0.5),
+                            (1.0, 1.0),
+                            (0.0, 1.0),
+                        ],
+                        "width": w,
+                        "height": h,
                     },
                 },
-            },
-            # A distant car (a plain box).
-            {
-                "class_name": "car",
-                "instance_id": 2,
-                "boundingbox": {"x": 0.51, "y": 0.485, "w": 0.09, "h": 0.06},
-                "metadata": {"track_id": 9},
-            },
-            # A pedestrian with a keypoint skeleton.
-            {
-                "class_name": "person",
-                "instance_id": 3,
-                "boundingbox": {"x": 0.40, "y": 0.355, "w": 0.09, "h": 0.43},
-                "keypoints": {"keypoints": _RECORD_POSE},
-            },
-            # A traffic sign whose recognized text is carried as metadata. The
-            # LDF adapter surfaces metadata on hover rather than on the chip
-            # (see `BBox.payload` for text that is drawn on the chip itself).
-            {
-                "class_name": "sign",
-                "instance_id": 4,
-                "boundingbox": {"x": 0.33, "y": 0.33, "w": 0.06, "h": 0.085},
-                "metadata": {"text": "STOP"},
-            },
-            # Class-only detections become image-level classification tags.
-            {"class_name": "overcast"},
-            {"class_name": "urban"},
-        ],
+                {
+                    "class_name": "sidewalk",
+                    "segmentation": {
+                        "points": [
+                            (0.0, 0.6),
+                            (0.2, 0.6),
+                            (0.1, 1.0),
+                            (0.0, 1.0),
+                        ],
+                        "width": w,
+                        "height": h,
+                    },
+                },
+                # An instance-segmented truck (polygon) carrying tracking metadata.
+                {
+                    "class_name": "truck",
+                    "instance_id": 0,
+                    "instance_segmentation": {
+                        "points": [
+                            (0.60, 0.50),
+                            (0.62, 0.40),
+                            (0.87, 0.40),
+                            (0.90, 0.50),
+                            (0.90, 0.74),
+                            (0.60, 0.74),
+                        ],
+                        "width": w,
+                        "height": h,
+                    },
+                    "metadata": {"track_id": 11},
+                },
+                # A car with a nested license plate (its transcription in metadata,
+                # shown on hover) and driver.
+                {
+                    "class_name": "car",
+                    "instance_id": 1,
+                    "boundingbox": {
+                        "x": 0.05,
+                        "y": 0.62,
+                        "w": 0.28,
+                        "h": 0.24,
+                    },
+                    "metadata": {"track_id": 4, "speed": 31.2},
+                    "sub_detections": {
+                        "plate": {
+                            "class_name": "plate",
+                            "boundingbox": {
+                                "x": 0.085,
+                                "y": 0.79,
+                                "w": 0.075,
+                                "h": 0.038,
+                            },
+                            "metadata": {"text": "LJ 82-A31"},
+                        },
+                        "driver": {
+                            "class_name": "driver",
+                            "boundingbox": {
+                                "x": 0.12,
+                                "y": 0.66,
+                                "w": 0.06,
+                                "h": 0.05,
+                            },
+                        },
+                    },
+                },
+                # A distant car (a plain box).
+                {
+                    "class_name": "car",
+                    "instance_id": 2,
+                    "boundingbox": {
+                        "x": 0.51,
+                        "y": 0.485,
+                        "w": 0.09,
+                        "h": 0.06,
+                    },
+                    "metadata": {"track_id": 9},
+                },
+                # A pedestrian with a keypoint skeleton.
+                {
+                    "class_name": "person",
+                    "instance_id": 3,
+                    "boundingbox": {
+                        "x": 0.40,
+                        "y": 0.355,
+                        "w": 0.09,
+                        "h": 0.43,
+                    },
+                    "keypoints": {"keypoints": _RECORD_POSE},
+                },
+                # A traffic sign whose recognized text is carried as metadata. The
+                # LDF adapter surfaces metadata on hover rather than on the chip
+                # (see `BBox.payload` for text that is drawn on the chip itself).
+                {
+                    "class_name": "sign",
+                    "instance_id": 4,
+                    "boundingbox": {
+                        "x": 0.33,
+                        "y": 0.33,
+                        "w": 0.06,
+                        "h": 0.085,
+                    },
+                    "metadata": {"text": "STOP"},
+                },
+                # Class-only detections become image-level classification tags.
+                {"class_name": "overcast"},
+                {"class_name": "urban"},
+            ]
+        },
     }
 
     record = DatasetRecord.model_validate(record_dict)
     options = RenderOptions(
-        skeletons={"scene": (_POSE_NAMES, _POSE_EDGES)},
+        keypoint_metadata={
+            "scene": KeypointMetadata(labels=_POSE_NAMES, edges=_POSE_EDGES)
+        },
         draw_skeletons=True,
         keypoint_label_mode="none",
     )
@@ -1729,6 +1756,8 @@ def render_typography() -> Path:
 #: Reference cells are wider than the standard gallery cell so a tag's source
 #: and its rendered result fit on one line side by side.
 _MW, _MH = 500, 270
+
+
 def _markup_row(source: str) -> str:
     """Build a reference row showing a markup snippet beside its own effect.
 
@@ -2027,12 +2056,11 @@ def _batch_demo_dataset() -> tuple["LuxonisDataset", list[str]]:
 def _aug_viz_config(
     dataset: "LuxonisDataset", *, font_scale: float = 1.0
 ) -> "RenderOptions":
-    """Build `RenderOptions` sharing the dataset palette and keypoint skeletons.
+    """Build `RenderOptions` sharing the dataset palette and keypoint metadata.
 
     ``font_scale`` enlarges the class-label font; the samples are large and get
     scaled down to the display height, which otherwise leaves the labels small.
     """
-    from luxonis_ml.data.loaders.label_converter import _BACKGROUND
     from luxonis_ml.vizlab import (
         Palette,
         RenderOptions,
@@ -2045,7 +2073,7 @@ def _aug_viz_config(
         for name in dict.fromkeys(
             n for names in dataset.get_class_names().values() for n in names
         )
-        if name != _BACKGROUND
+        if name != "background"
     ]
     theme = current_options().theme
     if font_scale != 1.0:
@@ -2058,7 +2086,7 @@ def _aug_viz_config(
         )
     return RenderOptions(
         theme=theme.with_palette(Palette(class_names)),
-        skeletons=dataset.get_skeletons(),
+        keypoint_metadata=dataset.get_keypoint_metadata(),
         draw_skeletons=True,
         keypoint_label_mode="none",
     )
@@ -2083,10 +2111,7 @@ def _load_annotated(
     vizlab renders on the chip — used to show each MixUp source's blend weight.
     """
     from luxonis_ml.data import LuxonisLoader
-    from luxonis_ml.data.loaders.label_converter import (
-        loader_output_to_records,
-    )
-    from luxonis_ml.vizlab.adapters.ldf import blend_records_to_annotations
+    from luxonis_ml.vizlab.adapters.ldf import blend_record_to_annotations
 
     loader = LuxonisLoader(
         dataset,
@@ -2098,26 +2123,14 @@ def _load_annotated(
         seed=seed,
         filter_task_names=tasks,
     )
-    classes = dataset.get_classes()
-    encodings = dataset.get_categorical_encodings()
     for i, data in enumerate(loader):
         if i < index:
             continue
-        image = next(iter(data.images.values()))
-        records = loader_output_to_records(
-            data.labels, classes=classes, categorical_encodings=encodings
-        )
+        record = data.to_ldf()
         if label is not None:
-            for record in records.values():
-                for annotation in (
-                    record.annotation
-                    if isinstance(record.annotation, list)
-                    else [record.annotation]
-                ):
-                    if annotation is not None:
-                        annotation.metadata["text"] = label
-        annotations = blend_records_to_annotations(records.values(), config)
-        return image, annotations
+            for detection in chain.from_iterable(record.annotation.values()):
+                detection.metadata["text"] = label
+        return data.image, blend_record_to_annotations(record, config)
     raise RuntimeError("dataset produced no samples")
 
 

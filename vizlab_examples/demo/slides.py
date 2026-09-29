@@ -381,9 +381,8 @@ SLIDES: list[Slide] = [
         ),
         source="""
 record = DatasetRecord.model_validate({
-    "files": {},
-    "task_name": "traffic",
-    "annotation": [
+    "media": {},
+    "annotation": {"traffic": [
         {"class_name": "car",
          "boundingbox": CAR,
          "metadata": {"track": 7,
@@ -393,7 +392,7 @@ record = DatasetRecord.model_validate({
          "metadata": {"track": 12,
                       "speed_kph": 4.6}},
         {"class_name": "sunny"},
-    ],
+    ]},
 })
 
 visualize_record(

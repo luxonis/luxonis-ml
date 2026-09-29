@@ -11,11 +11,14 @@ constructor (see `BBox.from_ldf` and
 friends). This module wires those constructors together: it walks a
 ``Detection`` tree into a vizlab annotation tree, aggregates record-level
 semantic segmentation and classification, and threads the rendering context
-(class palette, skeletons, keypoint label mode) through `RenderOptions`.
+(class palette, keypoint metadata, keypoint label mode) through `RenderOptions`.
 """
 
 from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING, TypeAlias
+from itertools import chain
+from typing import TYPE_CHECKING, Any, TypeAlias
+
+import numpy as np
 
 from luxonis_ml.vizlab.annotations import (
     Annotation,
@@ -136,20 +139,17 @@ def _keypoints_annotation(
     task_name: str,
     label: str | None,
 ) -> Keypoints:
-    """Build a `Keypoints` annotation, resolving its skeleton from the options."""
-    label_mode = options.keypoint_label_mode
-    # A skeleton is needed to draw limbs and to resolve joint names.
-    needs_skeleton = options.draw_skeletons or label_mode in ("names", "full")
-    skeleton = options.skeletons.get(task_name) if needs_skeleton else None
-    names, edges = skeleton if skeleton is not None else (None, [])
-    return Keypoints.from_ldf(
+    """Build a `Keypoints` annotation with the keypoint metadata of its task."""
+    points = Keypoints.from_ldf(
         keypoints,
-        edges=edges,
-        keypoint_names=names,
-        point_labels=label_mode,
+        metadata=options.keypoint_metadata.get(task_name),
+        point_labels=options.keypoint_label_mode,
         label=label,
         palette=options.theme.palette,
     )
+    if not options.draw_skeletons:
+        points.edges = []
+    return points
 
 
 def detection_to_annotations(
@@ -169,7 +169,7 @@ def detection_to_annotations(
         detection: The LDF detection to render.
         options: Rendering context; a default is used when ``None``.
         task_name: Task name this detection belongs to (used to look up its
-            skeleton in ``options.skeletons``).
+            keypoint metadata in ``options.keypoint_metadata``).
 
     Returns:
         The vizlab annotations to draw for this detection.
@@ -185,7 +185,12 @@ def detection_to_annotations(
                 palette=options.theme.palette,
             )
         )
-    if detection.class_name is not None and not annotations:
+    # An array is drawn as a field at the record level, not as a class tag.
+    if (
+        detection.class_name is not None
+        and detection.array is None
+        and not annotations
+    ):
         annotations.append(
             Classification.from_ldf(
                 [detection.class_name], palette=options.theme.palette
@@ -194,15 +199,15 @@ def detection_to_annotations(
     return annotations
 
 
-def blend_records_to_annotations(
-    records: "Iterable[DatasetRecord]",
+def blend_record_to_annotations(
+    record: "DatasetRecord",
     options: RenderOptions | None = None,
 ) -> list[Annotation]:
-    """Merge several records' detections into one flat annotation list.
+    """Merge the detections of every task of a record into one annotation list.
 
     Use this when several tasks are drawn onto the *same* image (e.g. the
     ``--blend-all`` inspect view of a multitask dataset). Unlike converting each
-    record independently, this suppresses the image-level classification chip
+    task independently, this suppresses the image-level classification chip
     once any spatial annotation (box, keypoints, mask) is present: a standalone
     class tag only reads correctly as the sole content of an image, so blending a
     classification task together with detection/segmentation tasks would leave a
@@ -215,8 +220,8 @@ def blend_records_to_annotations(
     labeled twice per class.
 
     Args:
-        records: The records whose detections are drawn together; each record's
-            task name is used to look up its detections' skeletons in ``options``.
+        record: The record whose tasks are drawn together; each task name looks
+            up the keypoint metadata of its detections in ``options``.
         options: Rendering context; a default is used when ``None``.
 
     Returns:
@@ -228,10 +233,10 @@ def blend_records_to_annotations(
     options = options or RenderOptions()
     annotations = [
         annotation
-        for record in records
-        for detection in record._annotations()
+        for task_name, detections in record.annotation.items()
+        for detection in detections
         for annotation in detection_to_annotations(
-            detection, options, task_name=record.task_name
+            detection, options, task_name=task_name
         )
     ]
     return _prune_blended_annotations(annotations)
@@ -281,11 +286,30 @@ def _detection_source(detection: "Detection") -> "ParamValue":
     the annotation itself, ready to paste back into a dataset generator, rather
     than a rendering of it. Nested ``sub_detections`` come along, which is what
     makes a parent's JSON the whole subtree while each sub-box answers with only
-    its own.
+    its own. An array held in memory, as `LoaderOutput.to_ldf` gives it, has no
+    JSON form, so it is left out.
     """
     return detection.model_dump(
-        mode="json", exclude_none=True, exclude_defaults=True
+        mode="json",
+        exclude_none=True,
+        exclude_defaults=True,
+        exclude=_in_memory_arrays(detection),
     )
+
+
+def _in_memory_arrays(detection: "Detection") -> "dict[str, Any]":
+    """Select the in-memory arrays of a detection tree for ``exclude``."""
+    selection: dict[str, Any] = {
+        "sub_detections": {
+            name: _in_memory_arrays(sub)
+            for name, sub in detection.sub_detections.items()
+        }
+    }
+    if detection.array is not None and isinstance(
+        detection.array.path, np.ndarray
+    ):
+        selection["array"] = True
+    return selection
 
 
 def _detection_tooltip(
@@ -429,13 +453,16 @@ def to_render_annotations(
     options = options or RenderOptions()
     if isinstance(obj, DatasetRecord):
         annotations: list[Annotation] = []
-        for detection in obj._annotations():
-            annotations.extend(
-                detection_to_annotations(
-                    detection, options, task_name=obj.task_name
+        for task_name, detections in obj.annotation.items():
+            for detection in detections:
+                annotations.extend(
+                    detection_to_annotations(
+                        detection, options, task_name=task_name
+                    )
                 )
-            )
-        annotations.extend(metadata_annotations(obj._annotations()))
+        annotations.extend(
+            metadata_annotations(chain.from_iterable(obj.annotation.values()))
+        )
         return annotations
     if isinstance(obj, Detection):
         return detection_to_annotations(obj, options)
@@ -475,8 +502,7 @@ def visualize_record(
     record metadata with the same key.
 
     Args:
-        record: The LDF record to visualize (its ``annotation`` may be a single
-            `Detection` or a list of them).
+        record: The LDF record to visualize.
         image: The base image (any source accepted by `Image`).
         options: Render options (theme, palette, LDF behavior); a default is used
             when ``None``.
@@ -495,13 +521,19 @@ def visualize_record(
         >>> from luxonis_ml.vizlab import visualize_record
         >>> record = DatasetRecord.model_construct(
         ...     files={},
-        ...     annotation=[
-        ...         Detection(
-        ...             class_name="car",
-        ...             boundingbox={"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
-        ...         )
-        ...     ],
-        ...     task_name="objects",
+        ...     annotation={
+        ...         "objects": [
+        ...             Detection(
+        ...                 class_name="car",
+        ...                 boundingbox={
+        ...                     "x": 0.1,
+        ...                     "y": 0.2,
+        ...                     "w": 0.3,
+        ...                     "h": 0.4,
+        ...                 },
+        ...             )
+        ...         ]
+        ...     },
         ... )
         >>> visualize_record(
         ...     record, np.zeros((32, 48, 3), np.uint8)
@@ -513,22 +545,22 @@ def visualize_record(
 
     options = options or RenderOptions()
     img = Image(image, options=options, render_size=size)
-    task_name = record.task_name
 
     segmentations: list[tuple[str | None, SegmentationAnnotation]] = []
     class_tags: list[str] = []
     arrays: list[tuple[str, ArrayAnnotation]] = []
 
-    for detection in record._annotations():
-        _scan_detection(
-            detection,
-            options,
-            task_name,
-            img,
-            segmentations,
-            class_tags,
-            arrays,
-        )
+    for task_name, detections in record.annotation.items():
+        for detection in detections:
+            _scan_detection(
+                detection,
+                options,
+                task_name,
+                img,
+                segmentations,
+                class_tags,
+                arrays,
+            )
 
     _add_array_fields(img, arrays, options)
 
@@ -540,7 +572,9 @@ def visualize_record(
         img.add(
             Classification.from_ldf(class_tags, palette=options.theme.palette)
         )
-    for overlay in metadata_annotations(record._annotations()):
+    for overlay in metadata_annotations(
+        chain.from_iterable(record.annotation.values())
+    ):
         img.add(overlay)
 
     panel_data = _panel_data(record, panel)
@@ -557,6 +591,7 @@ def _is_pure_classification(detection: "Detection") -> bool:
         and detection.keypoints is None
         and detection.instance_segmentation is None
         and detection.segmentation is None
+        and detection.array is None
         and not detection.sub_detections
     )
 

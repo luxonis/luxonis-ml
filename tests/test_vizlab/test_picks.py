@@ -79,7 +79,9 @@ def test_a_boxed_detection_carries_the_annotation_it_was_drawn_from() -> None:
 def test_a_boxless_detection_puts_its_source_on_its_shapes() -> None:
     detection = Detection(
         class_name="face",
-        keypoints=KeypointAnnotation(keypoints=[(0.2, 0.3, 2)]),
+        keypoints=KeypointAnnotation.model_validate(
+            {"keypoints": [(0.2, 0.3, 2)]}
+        ),
     )
 
     annotations = detection_to_annotations(detection)
@@ -94,7 +96,9 @@ def test_parts_of_a_boxed_detection_defer_to_the_box() -> None:
     detection = Detection(
         class_name="face",
         boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.5, h=0.5),
-        keypoints=KeypointAnnotation(keypoints=[(0.2, 0.3, 2)]),
+        keypoints=KeypointAnnotation.model_validate(
+            {"keypoints": [(0.2, 0.3, 2)]}
+        ),
     )
 
     box = detection_to_annotations(detection)[0]

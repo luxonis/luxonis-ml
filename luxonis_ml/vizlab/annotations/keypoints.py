@@ -2,19 +2,17 @@
 
 `Keypoints` subclasses the Luxonis Data Format
 `KeypointAnnotation`, reusing its normalized
-``(x, y, visibility)`` keypoint list (COCO visibility ``0``/``1``/``2``) and
-adding rendering: joints, and — given ``edges`` — the limbs connecting them. A
-dataset's skeleton definition is a ``(labels, edges)`` pair per task (as
-``LuxonisDataset.get_skeletons`` returns); pass its ``edges`` and, for named
-point labels, its ``labels`` as ``keypoint_names``.
+``(x, y, visibility)`` keypoints keyed by name (COCO visibility ``0``/``1``/``2``)
+and its ``edges``, and adding rendering: joints, and the limbs connecting them.
+A dataset keeps the names and edges of each task as a `KeypointMetadata` (see
+``LuxonisDataset.get_keypoint_metadata``); `Keypoints.from_ldf` applies it.
 """
 
-from collections.abc import Iterable
 from typing import TYPE_CHECKING, ClassVar, Literal
 
 import numpy as np
 
-from luxonis_ml.ldf import KeypointAnnotation
+from luxonis_ml.ldf import KeypointAnnotation, KeypointMetadata
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import XY, Rect
 from luxonis_ml.vizlab.style import Palette, Style
@@ -70,8 +68,8 @@ def _stop_short(start: XY, end: XY, gap: float) -> XY | None:
 class Keypoints(KeypointAnnotation, Annotation):
     """A set of keypoints, optionally wired into a skeleton.
 
-    Reuses the normalized ``(x, y, visibility)`` ``keypoints`` list of
-    `KeypointAnnotation`.
+    Reuses the normalized ``(x, y, visibility)`` ``keypoints`` of
+    `KeypointAnnotation`, keyed by name, and its ``edges``.
 
     .. image:: TODO-HOST/masks_keypoints.png
        :alt: Keypoints alongside instance, polygon, and semantic masks.
@@ -89,10 +87,6 @@ class Keypoints(KeypointAnnotation, Annotation):
     worse than an admitted gap.
 
     Attributes:
-        edges: Pairs of keypoint indices to connect with a limb; empty draws
-            joints only.
-        keypoint_names: Optional per-keypoint names (index order), used by the
-            ``"names"``/``"full"`` point-label modes.
         visibility_threshold: Points whose visibility is ``<=`` this are hidden.
             With COCO visibility, a joint marked visible (``2``) is a bright dot
             with a white outline; one marked occluded (``1``) is a dimmer diamond
@@ -100,7 +94,7 @@ class Keypoints(KeypointAnnotation, Annotation):
         point_labels: How to label each joint — ``"none"`` (default),
             ``"numbers"`` (its index), ``"names"`` (its keypoint name), or
             ``"full"`` (``index:name``). ``"names"``/``"full"`` fall back to the
-            index when no name is available.
+            index for keypoints keyed by position.
         point_colors: Optional per-joint color overrides, index-aligned to
             ``keypoints`` (a ``None`` entry, or a short list, falls back to the
             instance color). A limb between two differently colored joints is
@@ -109,8 +103,9 @@ class Keypoints(KeypointAnnotation, Annotation):
             marks on absent joints keep the instance color either way: a joint
             neither side placed has no verdict worth painting.
 
-    See `Annotation` for the shared
-    ``label``, ``color``, ``style``, and ``palette`` fields.
+    See `KeypointAnnotation` for ``keypoints`` and ``edges``, and
+    `Annotation` for the shared ``label``, ``color``, ``style``, and
+    ``palette`` fields.
 
     Examples:
         >>> kp = Keypoints(keypoints=[(0.1, 0.2, 2), (0.3, 0.4, 0)])
@@ -124,8 +119,6 @@ class Keypoints(KeypointAnnotation, Annotation):
 
     LAYER: ClassVar[str] = "keypoint"
 
-    edges: list[tuple[int, int]] = []
-    keypoint_names: list[str] | None = None
     visibility_threshold: float = 0.0
     point_labels: PointLabelMode = "none"
     point_colors: list[ColorLike | None] | None = None
@@ -135,22 +128,22 @@ class Keypoints(KeypointAnnotation, Annotation):
         cls,
         annotation: KeypointAnnotation,
         *,
-        edges: Iterable[tuple[int, int]] = (),
-        keypoint_names: Iterable[str] | None = None,
+        metadata: KeypointMetadata | None = None,
         point_labels: PointLabelMode = "none",
         label: str | None = None,
         palette: Palette | None = None,
     ) -> "Keypoints":
         """Build renderable keypoints from an LDF `KeypointAnnotation`.
 
-        Reuses the annotation's ``keypoints`` directly; absent points (visibility
-        ``0``) are hidden by the default ``visibility_threshold``.
+        Absent points (visibility ``0``) are hidden by the default
+        ``visibility_threshold``.
 
         Args:
             annotation: The LDF keypoint annotation.
-            edges: Keypoint-index pairs to connect with limbs; empty draws only
-                joints.
-            keypoint_names: Per-keypoint names (index order) for named labels.
+            metadata: The keypoint metadata of the annotation's task. Its
+                names key the keypoints, and its edges become the limbs when
+                the annotation declares none. Stored edges that point past
+                the keypoints are dropped, as an older dataset can hold them.
             point_labels: How to label each joint (see the class ``point_labels``
                 attribute).
             label: Class label used for the palette color.
@@ -160,41 +153,49 @@ class Keypoints(KeypointAnnotation, Annotation):
             The equivalent `Keypoints`.
 
         Examples:
-            The LDF ``(x, y, visibility)`` points are reused as-is; the skeleton
-            ``edges`` and label are rendering state added on top:
+            A loader row is keyed by position. The task's metadata names the
+            keypoints and supplies the limbs:
 
-            >>> from luxonis_ml.ldf import KeypointAnnotation
+            >>> from luxonis_ml.ldf import KeypointAnnotation, KeypointMetadata
             >>> ann = KeypointAnnotation.model_validate(
             ...     {"keypoints": [(0.1, 0.2, 2), (0.3, 0.4, 0)]}
             ... )
-            >>> kp = Keypoints.from_ldf(ann, edges=[(0, 1)], label="pose")
-            >>> len(kp.keypoints)
-            2
-            >>> (
-            ...     kp.keypoints[0][2],
-            ...     kp.keypoints[1][2],
-            ... )  # visibility preserved
-            (2, 0)
+            >>> metadata = KeypointMetadata(
+            ...     labels=["nose", "eye"], edges=[(0, 1)]
+            ... )
+            >>> kp = Keypoints.from_ldf(ann, metadata=metadata, label="pose")
+            >>> list(kp.keypoints)
+            ['nose', 'eye']
             >>> (kp.edges, kp.label)
             ([(0, 1)], 'pose')
 
         """
+        keypoints = dict(annotation.keypoints)
+        edges = annotation.edges
+        if metadata is not None:
+            keypoints = metadata.align(keypoints)
+            if metadata.has_names:
+                keypoints = dict(
+                    zip(metadata.labels, keypoints.values(), strict=True)
+                )
+            count = len(keypoints)
+            edges = edges or [
+                (a, b) for a, b in metadata.edges if a < count and b < count
+            ]
         return cls(
-            **annotation.model_dump(),
-            edges=[(int(a), int(b)) for a, b in edges],
-            keypoint_names=(
-                list(keypoint_names) if keypoint_names is not None else None
-            ),
+            keypoints=keypoints,
+            edges=edges,
             point_labels=point_labels,
             label=label,
             palette=palette,
         )
 
-    def _point_label(self, index: int) -> str | None:
+    def _point_label(self, index: int, names: list[str]) -> str | None:
         """Return the label text for the keypoint at ``index``, or ``None``.
 
         Args:
             index: 0-based keypoint index.
+            names: The keypoint names, empty when the keys are positions.
 
         Returns:
             The text to draw beside the joint, or ``None`` when labels are off.
@@ -203,15 +204,11 @@ class Keypoints(KeypointAnnotation, Annotation):
         mode = self.point_labels
         if mode == "none":
             return None
-        names = self.keypoint_names
-        name = (
-            names[index] if names is not None and index < len(names) else None
-        )
-        if mode == "numbers":
+        if mode == "numbers" or not names:
             return str(index)
         if mode == "names":
-            return name if name is not None else str(index)
-        return f"{index}:{name}" if name is not None else str(index)
+            return names[index]
+        return f"{index}:{names[index]}"
 
     def _resolve(
         self, width: int, height: int
@@ -227,7 +224,7 @@ class Keypoints(KeypointAnnotation, Annotation):
             visibility array.
 
         """
-        arr = np.asarray(self.keypoints, dtype=float).reshape(-1, 3)
+        arr = self.to_numpy().reshape(-1, 3)
         xy = arr[:, :2].copy()
         xy[:, 0] *= width
         xy[:, 1] *= height
@@ -262,6 +259,8 @@ class Keypoints(KeypointAnnotation, Annotation):
         colors = self._joint_colors(color, len(xy))
         self._draw_limbs(ctx, xy, visible, colors, style)
         radius = style.keypoint_radius
+        declared = self.declared_metadata()
+        names = declared.labels if declared is not None else []
         for i in range(len(xy)):
             if not visible[i]:
                 continue
@@ -280,7 +279,7 @@ class Keypoints(KeypointAnnotation, Annotation):
                     stroke=_WHITE,
                     stroke_width=style.keypoint_outline_width,
                 )
-            text = self._point_label(i)
+            text = self._point_label(i, names)
             if text is not None:
                 canvas.markup(
                     (

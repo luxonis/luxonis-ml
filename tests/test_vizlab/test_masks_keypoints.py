@@ -285,19 +285,23 @@ def test_semantic_mask_stroke_width_zero_skips_contour() -> None:
 
 # --- Keypoints (subclass of KeypointAnnotation) -----------------------------
 
-_EDGES = [(0, 1), (1, 2), (5, 6)]
 _NAMES = ["a", "b", "c"]
 
 
 def test_keypoints_render_with_skeleton_and_names() -> None:
     base = _canvas()
     base.add(
-        Keypoints(
-            keypoints=[(0.25, 0.15, 2), (0.25, 0.5, 1), (0.5, 0.7, 0)],
-            edges=_EDGES,
-            keypoint_names=_NAMES,
-            label="pose",
-            point_labels="names",
+        Keypoints.model_validate(
+            {
+                "keypoints": {
+                    "a": (0.25, 0.15, 2),
+                    "b": (0.25, 0.5, 1),
+                    "c": (0.5, 0.7, 0),
+                },
+                "edges": [("a", "b"), ("b", "c")],
+                "label": "pose",
+                "point_labels": "names",
+            }
         )
     )
     assert base.render()[..., 3].max() > 0
@@ -307,17 +311,19 @@ def test_keypoints_point_colors_differ_from_single_color() -> None:
     # Coloring individual joints changes the pixels vs one uniform color.
     joints = [(0.25, 0.2, 2), (0.5, 0.4, 2), (0.75, 0.7, 2)]
     uniform = _canvas().add(
-        Keypoints(keypoints=joints, color="#35d6a6")  # type: ignore
+        Keypoints.model_validate({"keypoints": joints, "color": "#35d6a6"})  # type: ignore
     )
     graded = _canvas().add(
-        Keypoints(
-            keypoints=joints,  # type: ignore
-            color="#35d6a6",
-            point_colors=[
-                "#35d6a6",
-                "#ff6b6b",
-                None,
-            ],  # None -> instance color
+        Keypoints.model_validate(
+            {
+                "keypoints": joints,  # type: ignore
+                "color": "#35d6a6",
+                "point_colors": [
+                    "#35d6a6",
+                    "#ff6b6b",
+                    None,
+                ],  # None -> instance color
+            }
         )
     )
     assert not np.array_equal(uniform.render(), graded.render())
@@ -326,13 +332,17 @@ def test_keypoints_point_colors_differ_from_single_color() -> None:
 def test_keypoints_gradient_limb_between_two_colors() -> None:
     # A limb spanning two joint colors renders differently from a solid one.
     solid = _canvas().add(
-        Keypoints(keypoints=[(0.2, 0.5, 2), (0.8, 0.5, 2)], edges=[(0, 1)])
+        Keypoints.model_validate(
+            {"keypoints": [(0.2, 0.5, 2), (0.8, 0.5, 2)], "edges": [(0, 1)]}
+        )
     )
     two_tone = _canvas().add(
-        Keypoints(
-            keypoints=[(0.2, 0.5, 2), (0.8, 0.5, 2)],
-            edges=[(0, 1)],
-            point_colors=["#35d6a6", "#ff6b6b"],
+        Keypoints.model_validate(
+            {
+                "keypoints": [(0.2, 0.5, 2), (0.8, 0.5, 2)],
+                "edges": [(0, 1)],
+                "point_colors": ["#35d6a6", "#ff6b6b"],
+            }
         )
     )
     assert not np.array_equal(solid.render(), two_tone.render())
@@ -353,7 +363,7 @@ def _drop(points: list, *indices: int) -> list:
 def _placed(
     points: list, edges: list[tuple[int, int]], w: int = 100, h: int = 100
 ) -> dict:
-    kp = Keypoints(keypoints=points, edges=edges)
+    kp = Keypoints.model_validate({"keypoints": points, "edges": edges})
     xy, visibility = kp._resolve(w, h)
     return kp._absent_positions(xy, visibility > kp.visibility_threshold)
 
@@ -418,7 +428,9 @@ def test_the_mark_reaches_the_canvas_only_with_a_skeleton() -> None:
     def at_the_mark(edges: list) -> np.ndarray:
         return (
             _canvas(100, 100)
-            .add(Keypoints(keypoints=points, edges=edges))
+            .add(
+                Keypoints.model_validate({"keypoints": points, "edges": edges})
+            )
             .render()[50, 80]
         )
 
@@ -430,7 +442,9 @@ def test_the_mark_reaches_the_canvas_only_with_a_skeleton() -> None:
 def test_the_marks_leave_the_hover_region_on_the_real_joints() -> None:
     # The marks are chrome over positions the data does not carry, so they must
     # not stretch the region used for hit-testing.
-    kp = Keypoints(keypoints=_drop(_CHAIN, 3), edges=_CHAIN_EDGES)
+    kp = Keypoints.model_validate(
+        {"keypoints": _drop(_CHAIN, 3), "edges": _CHAIN_EDGES}
+    )
     assert kp.region_at(100, 100) == Rect(20.0, 50.0, 60.0, 50.0)
 
 
@@ -440,9 +454,11 @@ def test_keypoints_point_labels_numbers_render_without_skeleton() -> None:
     labeled = (
         _canvas()
         .add(
-            Keypoints(
-                keypoints=[(0.25, 0.15, 2), (0.5, 0.5, 2)],
-                point_labels="numbers",
+            Keypoints.model_validate(
+                {
+                    "keypoints": [(0.25, 0.15, 2), (0.5, 0.5, 2)],
+                    "point_labels": "numbers",
+                }
             )
         )
         .render()
@@ -451,33 +467,35 @@ def test_keypoints_point_labels_numbers_render_without_skeleton() -> None:
 
 
 def test_keypoints_point_label_text() -> None:
-    kp = Keypoints(
-        keypoints=[(0.1, 0.1, 2), (0.2, 0.2, 2)], keypoint_names=_NAMES
+    kp = Keypoints.model_validate(
+        {"keypoints": [(0.1, 0.1, 2), (0.2, 0.2, 2)]}
     )
-    assert kp._point_label(0) is None  # default "none"
-    assert (
-        Keypoints(
-            keypoints=[(0.1, 0.1, 2)], point_labels="numbers"
-        )._point_label(0)
-        == "0"
+    assert kp._point_label(0, _NAMES) is None  # default "none"
+    numbers = Keypoints.model_validate(
+        {"keypoints": [(0.1, 0.1, 2)], "point_labels": "numbers"}
     )
-    named = Keypoints(
-        keypoints=[(0.1, 0.1, 2)], keypoint_names=_NAMES, point_labels="names"
+    assert numbers._point_label(0, _NAMES) == "0"
+    named = Keypoints.model_validate(
+        {"keypoints": [(0.1, 0.1, 2)], "point_labels": "names"}
     )
-    assert named._point_label(1) == "b"
-    full = Keypoints(
-        keypoints=[(0.1, 0.1, 2)], keypoint_names=_NAMES, point_labels="full"
+    assert named._point_label(1, _NAMES) == "b"
+    full = Keypoints.model_validate(
+        {"keypoints": [(0.1, 0.1, 2)], "point_labels": "full"}
     )
-    assert full._point_label(2) == "2:c"
-    # Falls back to the index when no name is available.
-    assert named._point_label(9) == "9"
+    assert full._point_label(2, _NAMES) == "2:c"
+    # Keypoints keyed by position have no names, so the index stands in.
+    assert named._point_label(1, []) == "1"
+    assert full._point_label(1, []) == "1"
 
 
 def test_keypoints_visibility_threshold_hides_points() -> None:
     base = _canvas()
     base.add(
-        Keypoints(
-            keypoints=[(0.1, 0.1, 2), (0.4, 0.5, 0)], visibility_threshold=0.5
+        Keypoints.model_validate(
+            {
+                "keypoints": [(0.1, 0.1, 2), (0.4, 0.5, 0)],
+                "visibility_threshold": 0.5,
+            }
         )
     )
     assert base.render()[..., 3].max() > 0
@@ -489,12 +507,20 @@ def test_keypoint_occluded_renders_distinctly() -> None:
     # Mixed 2/1 is COCO-style: the visibility-1 joint is drawn as a diamond.
     mixed = (
         base.copy()
-        .add(Keypoints(keypoints=[(0.3, 0.5, 2), (0.7, 0.5, 1)]))
+        .add(
+            Keypoints.model_validate(
+                {"keypoints": [(0.3, 0.5, 2), (0.7, 0.5, 1)]}
+            )
+        )
         .render()
     )
     both_visible = (
         base.copy()
-        .add(Keypoints(keypoints=[(0.3, 0.5, 2), (0.7, 0.5, 2)]))
+        .add(
+            Keypoints.model_validate(
+                {"keypoints": [(0.3, 0.5, 2), (0.7, 0.5, 2)]}
+            )
+        )
         .render()
     )
     # Same positions, but the occluded joint's shape differs from a visible dot.
@@ -513,12 +539,20 @@ def test_every_joint_occluded_still_reads_as_occluded() -> None:
     points = [(0.3, 0.5), (0.7, 0.5)]
     occluded = (
         base.copy()
-        .add(Keypoints(keypoints=[(x, y, 1) for x, y in points]))
+        .add(
+            Keypoints.model_validate(
+                {"keypoints": [(x, y, 1) for x, y in points]}
+            )
+        )
         .render()
     )
     visible = (
         base.copy()
-        .add(Keypoints(keypoints=[(x, y, 2) for x, y in points]))
+        .add(
+            Keypoints.model_validate(
+                {"keypoints": [(x, y, 2) for x, y in points]}
+            )
+        )
         .render()
     )
     assert not np.array_equal(occluded, visible)
@@ -532,7 +566,11 @@ def test_joint_size_is_independent_of_the_visibility_value() -> None:
     def drawn(visibility: int) -> int:
         rendered = (
             base.copy()
-            .add(Keypoints(keypoints=[(0.5, 0.5, visibility)]))  # type: ignore[list-item]
+            .add(
+                Keypoints.model_validate(
+                    {"keypoints": [(0.5, 0.5, visibility)]}
+                )
+            )  # type: ignore[list-item]
             .render()
         )
         # Pixels differing from the flat canvas background.
@@ -543,13 +581,20 @@ def test_joint_size_is_independent_of_the_visibility_value() -> None:
 
 def test_keypoints_extent_is_none() -> None:
     # LDF keypoints are always normalized, so the pixel extent is unknown.
-    assert Keypoints(keypoints=[(0.1, 0.2, 2), (0.3, 0.4, 2)]).extent() is None
+    assert (
+        Keypoints.model_validate(
+            {"keypoints": [(0.1, 0.2, 2), (0.3, 0.4, 2)]}
+        ).extent()
+        is None
+    )
 
 
 def test_keypoints_from_ldf() -> None:
     from luxonis_ml.ldf import KeypointAnnotation
 
-    ann = KeypointAnnotation(keypoints=[(0.2, 0.3, 2), (0.4, 0.5, 1)])
+    ann = KeypointAnnotation.model_validate(
+        {"keypoints": [(0.2, 0.3, 2), (0.4, 0.5, 1)]}
+    )
     kp = Keypoints.from_ldf(ann, label="pose")
     assert kp.label == "pose"
     assert len(kp.keypoints) == 2
@@ -559,9 +604,11 @@ def test_keypoints_compose_with_box() -> None:
     base = _canvas()
     base.add(BBox(x=0.05, y=0.05, w=0.9, h=0.9, label="person"))
     base.add(
-        Keypoints(
-            keypoints=[(0.25, 0.25, 2), (0.5, 0.6, 2)],
-            edges=[(0, 1)],
+        Keypoints.model_validate(
+            {
+                "keypoints": [(0.25, 0.25, 2), (0.5, 0.6, 2)],
+                "edges": [(0, 1)],
+            }
         )
     )
     assert base.render()[..., 3].max() > 0
@@ -597,9 +644,11 @@ def test_confidence_keypoint_visibility_scales_joint_radius() -> None:
     rendered = (
         _canvas()
         .add(
-            Keypoints(
-                keypoints=[(0.3, 0.5, 1), (0.7, 0.5, 1)],
-                visibility_threshold=0.0,
+            Keypoints.model_validate(
+                {
+                    "keypoints": [(0.3, 0.5, 1), (0.7, 0.5, 1)],
+                    "visibility_threshold": 0.0,
+                }
             )
         )
         .render()

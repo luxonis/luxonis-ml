@@ -285,9 +285,8 @@ def build_scene(options: RenderOptions) -> Frame:
     # the wider name chips would collide — indices stay legible.
     visible = sum(1 for *_, v in POSE if v == 2)
     pose = Keypoints(
-        keypoints=POSE,
+        keypoints=dict(zip(POSE_NAMES, POSE, strict=True)),
         edges=POSE_EDGES,
-        keypoint_names=POSE_NAMES,
         point_labels="numbers",
         label="pose",
     )

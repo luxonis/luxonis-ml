@@ -1,11 +1,10 @@
 """End-to-end coverage for the ``data inspect`` command (thin viewer adapter)."""
 
 import re
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from threading import Event, get_ident
-from types import SimpleNamespace
-from typing import Literal
+from typing import Literal, cast
 
 import numpy as np
 import pytest
@@ -16,6 +15,7 @@ import luxonis_ml.vizlab.viewer as viewer_module
 from luxonis_ml.data.utils.enums import BucketStorage
 from luxonis_ml.data.utils.inspection import SampleFilterConfig
 from luxonis_ml.ldf import (
+    ArrayAnnotation,
     BBoxAnnotation,
     DatasetRecord,
     Detection,
@@ -380,24 +380,48 @@ def test_present_sample_metadata_labels_empty_inputs() -> None:
     }
 
 
+def test_present_classes_leave_out_array_fields() -> None:
+    record = DatasetRecord.model_construct(
+        files={},
+        annotation={
+            "objects": [
+                Detection(
+                    class_name=" car",
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.4),
+                )
+            ],
+            "depth": [
+                Detection(
+                    class_name="depth",
+                    array=ArrayAnnotation.model_validate(
+                        {"data": np.zeros((4, 6))}
+                    ),
+                )
+            ],
+        },
+    )
+    assert data_main._present_classes(record) == ["car"]
+
+
 def _patch_two_class_sample(monkeypatch: pytest.MonkeyPatch) -> None:
     """Point the CLI at one headless sample holding a car and a bus."""
     image = np.zeros((32, 48, 3), dtype=np.uint8)
     record = DatasetRecord.model_construct(
         files={},
-        annotation=[
-            Detection(
-                class_name="car",
-                instance_id=1,
-                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.4),
-            ),
-            Detection(
-                class_name="bus",
-                instance_id=2,
-                boundingbox=BBoxAnnotation(x=0.55, y=0.1, w=0.3, h=0.4),
-            ),
-        ],
-        task_name="objects",
+        annotation={
+            "objects": [
+                Detection(
+                    class_name="car",
+                    instance_id=1,
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.4),
+                ),
+                Detection(
+                    class_name="bus",
+                    instance_id=2,
+                    boundingbox=BBoxAnnotation(x=0.55, y=0.1, w=0.3, h=0.4),
+                ),
+            ]
+        },
     )
 
     class _Dataset:
@@ -419,19 +443,16 @@ def _patch_two_class_sample(monkeypatch: pytest.MonkeyPatch) -> None:
         def get_categorical_encodings(self) -> dict[str, object]:
             return {}
 
-        def get_skeletons(self) -> dict[str, object]:
+        def get_keypoint_metadata(self) -> dict[str, object]:
             return {}
 
     class _Loader:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
             self._augmentations = None
 
-        def __iter__(self) -> Iterator[SimpleNamespace]:
-            yield SimpleNamespace(
-                images={"image": image}, labels={}, metadata={}
-            )
+        def __iter__(self) -> Iterator[LoaderOutput]:
+            yield LoaderOutput(images={"image": image}, labels={}, metadata={})
 
-    from luxonis_ml.data.loaders import label_converter
     from luxonis_ml.vizlab.viewer import Viewer as RealViewer
 
     monkeypatch.setattr(data_main, "check_exists", _ignore_exists)
@@ -443,9 +464,7 @@ def _patch_two_class_sample(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda **_k: RealViewer(_FakeBackend(keys=[ord("x")])),
     )
     monkeypatch.setattr(
-        label_converter,
-        "loader_output_to_records",
-        lambda *_args, **_kwargs: {"objects": record},
+        LoaderOutput, "to_ldf", lambda *_args, **_kwargs: record
     )
 
 
@@ -549,10 +568,10 @@ def test_inspect_colors_instances_from_the_chosen_palette(
     from luxonis_ml.vizlab.adapters.instances import ColorBy
 
     seen: list[Palette] = []
-    real_colored = instances_module.records_to_colored_annotations
+    real_colored = instances_module.record_to_colored_annotations
 
     def capture_coloring(
-        selected_records: Sequence[DatasetRecord],
+        selected_record: DatasetRecord,
         *,
         color_by: ColorBy,
         options: RenderOptions,
@@ -560,7 +579,7 @@ def test_inspect_colors_instances_from_the_chosen_palette(
     ) -> list[Annotation]:
         seen.append(identity_palette)
         return real_colored(
-            selected_records,
+            selected_record,
             color_by=color_by,
             options=options,
             identity_palette=identity_palette,
@@ -568,7 +587,7 @@ def test_inspect_colors_instances_from_the_chosen_palette(
 
     _patch_two_class_sample(monkeypatch)
     monkeypatch.setattr(
-        samples_module, "records_to_colored_annotations", capture_coloring
+        samples_module, "record_to_colored_annotations", capture_coloring
     )
 
     try:
@@ -586,35 +605,37 @@ def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
     image = np.zeros((32, 48, 3), dtype=np.uint8)
     record = DatasetRecord.model_construct(
         files={},
-        annotation=[
-            Detection(
-                class_name="car",
-                instance_id=7,
-                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.4),
-                keypoints=KeypointAnnotation(
-                    keypoints=[(0.2, 0.2, 2), (0.3, 0.3, 2)]
+        annotation={
+            "objects": [
+                Detection(
+                    class_name="car",
+                    instance_id=7,
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.4),
+                    keypoints=KeypointAnnotation.model_validate(
+                        {"keypoints": [(0.2, 0.2, 2), (0.3, 0.3, 2)]}
+                    ),
+                    metadata={"track_id": 41},
                 ),
-                metadata={"track_id": 41},
-            ),
-            Detection(
-                class_name="car",
-                instance_id=8,
-                boundingbox=BBoxAnnotation(x=0.55, y=0.1, w=0.3, h=0.4),
-                metadata={"track_id": 42},
-            ),
-        ],
-        task_name="objects",
+                Detection(
+                    class_name="car",
+                    instance_id=8,
+                    boundingbox=BBoxAnnotation(x=0.55, y=0.1, w=0.3, h=0.4),
+                    metadata={"track_id": 42},
+                ),
+            ]
+        },
     )
     ignored_record = DatasetRecord.model_construct(
         files={},
-        annotation=[
-            Detection(
-                class_name="bus",
-                instance_id=9,
-                boundingbox=BBoxAnnotation(x=0.2, y=0.6, w=0.3, h=0.3),
-            )
-        ],
-        task_name="ignored",
+        annotation={
+            "ignored": [
+                Detection(
+                    class_name="bus",
+                    instance_id=9,
+                    boundingbox=BBoxAnnotation(x=0.2, y=0.6, w=0.3, h=0.3),
+                )
+            ]
+        },
     )
 
     class _Dataset:
@@ -636,7 +657,7 @@ def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
         def get_categorical_encodings(self) -> dict[str, object]:
             return {}
 
-        def get_skeletons(self) -> dict[str, object]:
+        def get_keypoint_metadata(self) -> dict[str, object]:
             return {}
 
     class _Loader:
@@ -648,8 +669,8 @@ def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
         ) -> tuple[dict[str, np.ndarray], dict[str, object]]:
             return {"image": image}, {}
 
-        def __iter__(self) -> Iterator[SimpleNamespace]:
-            yield SimpleNamespace(
+        def __iter__(self) -> Iterator[LoaderOutput]:
+            yield LoaderOutput(
                 images={"image": image},
                 labels={},
                 # What the loader records for an augmented sample: the applied
@@ -665,7 +686,6 @@ def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
             return object()
 
     import luxonis_ml.vizlab.adapters.instances as instances_module
-    from luxonis_ml.data.loaders import label_converter
     from luxonis_ml.vizlab import (
         LIGHT_THEME,
         Annotation,
@@ -725,12 +745,12 @@ def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
         viewer_module, "Viewer", lambda **_k: RealViewer(backend)
     )
     monkeypatch.setattr(
-        label_converter,
-        "loader_output_to_records",
-        lambda *_args, **_kwargs: {
-            "objects": record,
-            "ignored": ignored_record,
-        },
+        LoaderOutput,
+        "to_ldf",
+        lambda *_args, **_kwargs: DatasetRecord.model_construct(
+            files={},
+            annotation={**record.annotation, **ignored_record.annotation},
+        ),
     )
     monkeypatch.setattr(
         instances_module,
@@ -811,14 +831,15 @@ def test_inspect_lists_loader_augmentations_apart_from_record_metadata(
     image = np.zeros((40, 60, 3), dtype=np.uint8)
     record = DatasetRecord.model_construct(
         files={},
-        annotation=[
-            Detection(
-                class_name="car",
-                instance_id=1,
-                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.2, h=0.2),
-            )
-        ],
-        task_name="objects",
+        annotation={
+            "objects": [
+                Detection(
+                    class_name="car",
+                    instance_id=1,
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.2, h=0.2),
+                )
+            ]
+        },
     )
 
     class _Dataset:
@@ -840,15 +861,15 @@ def test_inspect_lists_loader_augmentations_apart_from_record_metadata(
         def get_categorical_encodings(self) -> dict[str, object]:
             return {}
 
-        def get_skeletons(self) -> dict[str, object]:
+        def get_keypoint_metadata(self) -> dict[str, object]:
             return {}
 
     class _Loader:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
             self._augmentations = None
 
-        def __iter__(self) -> Iterator[SimpleNamespace]:
-            yield SimpleNamespace(
+        def __iter__(self) -> Iterator[LoaderOutput]:
+            yield LoaderOutput(
                 images={"image": image},
                 labels={},
                 metadata={
@@ -857,7 +878,6 @@ def test_inspect_lists_loader_augmentations_apart_from_record_metadata(
                 },
             )
 
-    from luxonis_ml.data.loaders import label_converter
     from luxonis_ml.vizlab import (
         Frame,
         Hints,
@@ -892,9 +912,7 @@ def test_inspect_lists_loader_augmentations_apart_from_record_metadata(
         viewer_module, "Viewer", lambda **_k: RealViewer(backend)
     )
     monkeypatch.setattr(
-        label_converter,
-        "loader_output_to_records",
-        lambda *_args, **_kwargs: {"objects": record},
+        LoaderOutput, "to_ldf", lambda *_args, **_kwargs: record
     )
     monkeypatch.setattr(Frame, "with_panel", capture_panel)
 
@@ -923,22 +941,21 @@ def test_inspect_grid_renders_real_frames(
     # for real (only the window backend is faked), quitting after one sample.
     image = np.zeros((40, 60, 3), dtype=np.uint8)
 
-    def _record(task: str) -> DatasetRecord:
-        return DatasetRecord.model_construct(
-            files={},
-            sample_metadata={},
-            annotation=[
-                Detection(
-                    class_name="car",
-                    instance_id=1,
-                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
-                    metadata={"track_id": 7},
-                )
-            ],
-            task_name=task,
-        )
+    def _detections() -> list[Detection]:
+        return [
+            Detection(
+                class_name="car",
+                instance_id=1,
+                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+                metadata={"track_id": 7},
+            )
+        ]
 
-    records = {"a": _record("a"), "b": _record("b")}
+    record = DatasetRecord.model_construct(
+        files={},
+        sample_metadata={},
+        annotation={"a": _detections(), "b": _detections()},
+    )
 
     class _Dataset:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
@@ -959,21 +976,18 @@ def test_inspect_grid_renders_real_frames(
         def get_categorical_encodings(self) -> dict[str, object]:
             return {}
 
-        def get_skeletons(self) -> dict[str, object]:
+        def get_keypoint_metadata(self) -> dict[str, object]:
             return {}
 
     class _Loader:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
             self._augmentations = None
 
-        def __iter__(self) -> Iterator[SimpleNamespace]:
-            yield SimpleNamespace(
-                images={"image": image}, labels={}, metadata={}
-            )
+        def __iter__(self) -> Iterator[LoaderOutput]:
+            yield LoaderOutput(images={"image": image}, labels={}, metadata={})
 
     import luxonis_ml.vizlab.adapters.instances as instances_module
     import luxonis_ml.vizlab.adapters.samples as samples_module
-    from luxonis_ml.data.loaders import label_converter
     from luxonis_ml.vizlab import Annotation, Palette, RenderOptions
     from luxonis_ml.vizlab.adapters import ColorBy
     from luxonis_ml.vizlab.viewer import Viewer as RealViewer
@@ -981,19 +995,18 @@ def test_inspect_grid_renders_real_frames(
     backend = _FakeBackend(keys=[ord("q")])
     filtered_tasks: list[list[str]] = []
     color_modes: list[ColorBy] = []
-    real_blend = instances_module.blend_records_to_annotations
-    real_colored = instances_module.records_to_colored_annotations
+    real_blend = instances_module.blend_record_to_annotations
+    real_colored = instances_module.record_to_colored_annotations
 
     def capture_blend(
-        selected_records: Iterable[DatasetRecord],
+        selected_record: DatasetRecord,
         options: RenderOptions | None = None,
     ) -> list[Annotation]:
-        records_list = list(selected_records)
-        filtered_tasks.append([record.task_name for record in records_list])
-        return real_blend(records_list, options)
+        filtered_tasks.append(list(selected_record.annotation))
+        return real_blend(selected_record, options)
 
     def capture_coloring(
-        selected_records: Sequence[DatasetRecord],
+        selected_record: DatasetRecord,
         *,
         color_by: ColorBy,
         options: RenderOptions,
@@ -1001,7 +1014,7 @@ def test_inspect_grid_renders_real_frames(
     ) -> list[Annotation]:
         color_modes.append(color_by)
         return real_colored(
-            selected_records,
+            selected_record,
             color_by=color_by,
             options=options,
             identity_palette=identity_palette,
@@ -1014,18 +1027,16 @@ def test_inspect_grid_renders_real_frames(
         viewer_module, "Viewer", lambda **_k: RealViewer(backend)
     )
     monkeypatch.setattr(
-        label_converter,
-        "loader_output_to_records",
-        lambda *_args, **_kwargs: records,
+        LoaderOutput, "to_ldf", lambda *_args, **_kwargs: record
     )
     monkeypatch.setattr(
         instances_module,
-        "blend_records_to_annotations",
+        "blend_record_to_annotations",
         capture_blend,
     )
     monkeypatch.setattr(
         samples_module,
-        "records_to_colored_annotations",
+        "record_to_colored_annotations",
         capture_coloring,
     )
 
@@ -1158,34 +1169,36 @@ def test_inspect_sample_filters_select_whole_matching_sample(
     records = {
         0: DatasetRecord.model_construct(
             files={},
-            annotation=[
-                Detection(
-                    class_name="person",
-                    instance_id=1,
-                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.2, h=0.3),
-                    metadata={"confidence": 0.95, "quality": "approved"},
-                )
-            ],
-            task_name="objects",
+            annotation={
+                "objects": [
+                    Detection(
+                        class_name="person",
+                        instance_id=1,
+                        boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.2, h=0.3),
+                        metadata={"confidence": 0.95, "quality": "approved"},
+                    )
+                ]
+            },
         ),
         1: DatasetRecord.model_construct(
             files={},
-            annotation=[
-                Detection(
-                    class_name="car",
-                    instance_id=2,
-                    boundingbox=BBoxAnnotation(x=0.2, y=0.2, w=0.3, h=0.3),
-                    metadata={"confidence": 0.91, "quality": "approved"},
-                ),
-                # A nonmatching class remains visible because filters select
-                # whole samples instead of pruning their annotations.
-                Detection(
-                    class_name="person",
-                    instance_id=3,
-                    boundingbox=BBoxAnnotation(x=0.6, y=0.2, w=0.2, h=0.3),
-                ),
-            ],
-            task_name="objects",
+            annotation={
+                "objects": [
+                    Detection(
+                        class_name="car",
+                        instance_id=2,
+                        boundingbox=BBoxAnnotation(x=0.2, y=0.2, w=0.3, h=0.3),
+                        metadata={"confidence": 0.91, "quality": "approved"},
+                    ),
+                    # A nonmatching class remains visible because filters select
+                    # whole samples instead of pruning their annotations.
+                    Detection(
+                        class_name="person",
+                        instance_id=3,
+                        boundingbox=BBoxAnnotation(x=0.6, y=0.2, w=0.2, h=0.3),
+                    ),
+                ]
+            },
         ),
     }
     samples = [
@@ -1231,9 +1244,7 @@ def test_inspect_sample_filters_select_whole_matching_sample(
         def get_categorical_encodings(self) -> dict[str, dict[str, int]]:
             return {}
 
-        def get_skeletons(
-            self,
-        ) -> dict[str, tuple[list[str], list[tuple[int, int]]]]:
+        def get_keypoint_metadata(self) -> dict[str, object]:
             return {}
 
     class _Loader:
@@ -1251,7 +1262,6 @@ def test_inspect_sample_filters_select_whole_matching_sample(
 
     import luxonis_ml.vizlab.adapters.instances as instances_module
     import luxonis_ml.vizlab.adapters.samples as samples_module
-    from luxonis_ml.data.loaders import label_converter
     from luxonis_ml.vizlab import (
         Annotation,
         Palette,
@@ -1262,17 +1272,17 @@ def test_inspect_sample_filters_select_whole_matching_sample(
     from luxonis_ml.vizlab.viewer import Viewer as RealViewer
 
     rendered_labels: list[list[str | None]] = []
-    real_colored = instances_module.records_to_colored_annotations
+    real_colored = instances_module.record_to_colored_annotations
 
     def capture_coloring(
-        selected_records: Sequence[DatasetRecord],
+        selected_record: DatasetRecord,
         *,
         color_by: ColorBy,
         options: RenderOptions,
         identity_palette: Palette,
     ) -> list[Annotation]:
         annotations = real_colored(
-            selected_records,
+            selected_record,
             color_by=color_by,
             options=options,
             identity_palette=identity_palette,
@@ -1289,27 +1299,18 @@ def test_inspect_sample_filters_select_whole_matching_sample(
     ) -> RealViewer:
         return RealViewer(backend, hud=hud, save_dir=save_dir)
 
-    def convert_labels(
-        labels: Labels,
-        *,
-        classes: dict[str, dict[str, int]],
-        categorical_encodings: dict[str, dict[str, int]],
-        render_background: bool,
-    ) -> dict[str, DatasetRecord]:
-        return {"objects": records[int(labels["marker"][0])]}
+    def to_ldf(sample: LoaderOutput, **_kwargs: object) -> DatasetRecord:
+        record = records[int(sample.labels["marker"][0])]
+        return record.model_copy(update={"sample_metadata": sample.metadata})
 
     monkeypatch.setattr(data_main, "check_exists", _ignore_exists)
     monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
     monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
     monkeypatch.setattr(viewer_module, "Viewer", make_viewer)
-    monkeypatch.setattr(
-        label_converter,
-        "loader_output_to_records",
-        convert_labels,
-    )
+    monkeypatch.setattr(LoaderOutput, "to_ldf", to_ldf)
     monkeypatch.setattr(
         samples_module,
-        "records_to_colored_annotations",
+        "record_to_colored_annotations",
         capture_coloring,
     )
 
@@ -1344,13 +1345,14 @@ def test_inspect_prefetch_renders_the_next_frame_while_waiting_for_input(
     record = DatasetRecord.model_construct(
         files={},
         sample_metadata={},
-        annotation=[
-            Detection(
-                class_name="car",
-                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
-            )
-        ],
-        task_name="objects",
+        annotation={
+            "objects": [
+                Detection(
+                    class_name="car",
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+                )
+            ]
+        },
     )
     samples = [
         LoaderOutput(
@@ -1382,9 +1384,7 @@ def test_inspect_prefetch_renders_the_next_frame_while_waiting_for_input(
         def get_categorical_encodings(self) -> dict[str, dict[str, int]]:
             return {}
 
-        def get_skeletons(
-            self,
-        ) -> dict[str, tuple[list[str], list[tuple[int, int]]]]:
+        def get_keypoint_metadata(self) -> dict[str, object]:
             return {}
 
     class _Loader:
@@ -1400,7 +1400,6 @@ def test_inspect_prefetch_renders_the_next_frame_while_waiting_for_input(
         def __iter__(self) -> Iterator[LoaderOutput]:
             yield from samples
 
-    from luxonis_ml.data.loaders import label_converter
     from luxonis_ml.vizlab import Frame, RenderOptions, set_default_options
     from luxonis_ml.vizlab.viewer import PreparedFrame
     from luxonis_ml.vizlab.viewer import Viewer as RealViewer
@@ -1438,24 +1437,13 @@ def test_inspect_prefetch_renders_the_next_frame_while_waiting_for_input(
     ) -> RealViewer:
         return RealViewer(backend, hud=hud, save_dir=save_dir)
 
-    def convert_labels(
-        labels: Labels,
-        *,
-        classes: dict[str, dict[str, int]],
-        categorical_encodings: dict[str, dict[str, int]],
-        render_background: bool,
-    ) -> dict[str, DatasetRecord]:
-        return {"objects": record}
-
     monkeypatch.setattr(data_main, "check_exists", _ignore_exists)
     monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
     monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
     monkeypatch.setattr(viewer_module, "Viewer", make_viewer)
     monkeypatch.setattr(RealViewer, "prepare", tracked_prepare)
     monkeypatch.setattr(
-        label_converter,
-        "loader_output_to_records",
-        convert_labels,
+        LoaderOutput, "to_ldf", lambda *_args, **_kwargs: record
     )
 
     try:
@@ -1481,13 +1469,14 @@ def test_inspect_layer_key_rerenders_and_toggles_state(
     record = DatasetRecord.model_construct(
         files={},
         sample_metadata={},
-        annotation=[
-            Detection(
-                class_name="car",
-                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
-            )
-        ],
-        task_name="objects",
+        annotation={
+            "objects": [
+                Detection(
+                    class_name="car",
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+                )
+            ]
+        },
     )
 
     class _Dataset:
@@ -1506,19 +1495,16 @@ def test_inspect_layer_key_rerenders_and_toggles_state(
         def get_categorical_encodings(self) -> dict[str, object]:
             return {}
 
-        def get_skeletons(self) -> dict[str, object]:
+        def get_keypoint_metadata(self) -> dict[str, object]:
             return {}
 
     class _Loader:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
             self._augmentations = None
 
-        def __iter__(self) -> Iterator[SimpleNamespace]:
-            yield SimpleNamespace(
-                images={"image": image}, labels={}, metadata={}
-            )
+        def __iter__(self) -> Iterator[LoaderOutput]:
+            yield LoaderOutput(images={"image": image}, labels={}, metadata={})
 
-    from luxonis_ml.data.loaders import label_converter
     from luxonis_ml.vizlab.viewer import Viewer as RealViewer
 
     backend = _FakeBackend(keys=[ord("m"), ord("q")])
@@ -1534,9 +1520,7 @@ def test_inspect_layer_key_rerenders_and_toggles_state(
     monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
     monkeypatch.setattr(viewer_module, "Viewer", make_viewer)
     monkeypatch.setattr(
-        label_converter,
-        "loader_output_to_records",
-        lambda *_args, **_kwargs: {"objects": record},
+        LoaderOutput, "to_ldf", lambda *_args, **_kwargs: record
     )
 
     from luxonis_ml.vizlab import RenderOptions, set_default_options
@@ -1561,13 +1545,14 @@ def test_inspect_show_all_starts_with_decluttering_off(
     record = DatasetRecord.model_construct(
         files={},
         sample_metadata={},
-        annotation=[
-            Detection(
-                class_name="car",
-                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
-            )
-        ],
-        task_name="objects",
+        annotation={
+            "objects": [
+                Detection(
+                    class_name="car",
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+                )
+            ]
+        },
     )
 
     class _Dataset:
@@ -1586,19 +1571,16 @@ def test_inspect_show_all_starts_with_decluttering_off(
         def get_categorical_encodings(self) -> dict[str, object]:
             return {}
 
-        def get_skeletons(self) -> dict[str, object]:
+        def get_keypoint_metadata(self) -> dict[str, object]:
             return {}
 
     class _Loader:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
             self._augmentations = None
 
-        def __iter__(self) -> Iterator[SimpleNamespace]:
-            yield SimpleNamespace(
-                images={"image": image}, labels={}, metadata={}
-            )
+        def __iter__(self) -> Iterator[LoaderOutput]:
+            yield LoaderOutput(images={"image": image}, labels={}, metadata={})
 
-    from luxonis_ml.data.loaders import label_converter
     from luxonis_ml.vizlab.viewer import Viewer as RealViewer
 
     created: list[RealViewer] = []
@@ -1607,9 +1589,7 @@ def test_inspect_show_all_starts_with_decluttering_off(
     monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
     monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
     monkeypatch.setattr(
-        label_converter,
-        "loader_output_to_records",
-        lambda *_args, **_kwargs: {"objects": record},
+        LoaderOutput, "to_ldf", lambda *_args, **_kwargs: record
     )
 
     def declutter_after(*, show_all: bool) -> bool:
@@ -1637,13 +1617,14 @@ def test_inspect_fast_lightens_the_render_style(
     record = DatasetRecord.model_construct(
         files={},
         sample_metadata={},
-        annotation=[
-            Detection(
-                class_name="car",
-                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
-            )
-        ],
-        task_name="objects",
+        annotation={
+            "objects": [
+                Detection(
+                    class_name="car",
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+                )
+            ]
+        },
     )
 
     class _Dataset:
@@ -1662,19 +1643,16 @@ def test_inspect_fast_lightens_the_render_style(
         def get_categorical_encodings(self) -> dict[str, object]:
             return {}
 
-        def get_skeletons(self) -> dict[str, object]:
+        def get_keypoint_metadata(self) -> dict[str, object]:
             return {}
 
     class _Loader:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
             self._augmentations = None
 
-        def __iter__(self) -> Iterator[SimpleNamespace]:
-            yield SimpleNamespace(
-                images={"image": image}, labels={}, metadata={}
-            )
+        def __iter__(self) -> Iterator[LoaderOutput]:
+            yield LoaderOutput(images={"image": image}, labels={}, metadata={})
 
-    from luxonis_ml.data.loaders import label_converter
     from luxonis_ml.vizlab import (
         MaskOutline,
         RenderOptions,
@@ -1687,9 +1665,7 @@ def test_inspect_fast_lightens_the_render_style(
     monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
     monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
     monkeypatch.setattr(
-        label_converter,
-        "loader_output_to_records",
-        lambda *_args, **_kwargs: {"objects": record},
+        LoaderOutput, "to_ldf", lambda *_args, **_kwargs: record
     )
 
     def run(*, fast: bool = False) -> tuple[MaskOutline, bool, bool]:
@@ -1734,14 +1710,15 @@ def _compare_mocks(
         return DatasetRecord.model_construct(
             files={},
             sample_metadata={},
-            annotation=[
-                Detection(
-                    class_name="car",
-                    instance_id=1,
-                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
-                )
-            ],
-            task_name="objects",
+            annotation={
+                "objects": [
+                    Detection(
+                        class_name="car",
+                        instance_id=1,
+                        boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+                    )
+                ]
+            },
         )
 
     class _Dataset:
@@ -1760,14 +1737,14 @@ def _compare_mocks(
         def get_categorical_encodings(self) -> dict[str, object]:
             return {}
 
-        def get_skeletons(self) -> dict[str, object]:
+        def get_keypoint_metadata(self) -> dict[str, object]:
             return {}
 
     class _Loader:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
             self._augmentations = None
             self._samples = [
-                SimpleNamespace(
+                LoaderOutput(
                     images={"image": image},
                     labels={},
                     metadata={
@@ -1787,18 +1764,19 @@ def _compare_mocks(
             return len(self._samples)
 
         def get_filenames(self, index: int) -> dict[str, str]:
-            return self._samples[index].metadata["filenames"]
+            return cast(
+                "dict[str, str]", self._samples[index].metadata["filenames"]
+            )
 
-        def __iter__(self) -> Iterator[SimpleNamespace]:
+        def __iter__(self) -> Iterator[LoaderOutput]:
             raise AssertionError("compare must not eagerly decode the loader")
             yield from self._samples  # pragma: no cover
 
-        def __getitem__(self, index: int) -> SimpleNamespace:
+        def __getitem__(self, index: int) -> LoaderOutput:
             if on_load is not None:
                 on_load(index)
             return self._samples[index]
 
-    from luxonis_ml.data.loaders import label_converter
     from luxonis_ml.vizlab import Image
 
     if real_viewer is None:
@@ -1820,9 +1798,7 @@ def _compare_mocks(
         viewer_module, "Viewer", lambda **_k: real_viewer(backend)
     )
     monkeypatch.setattr(
-        label_converter,
-        "loader_output_to_records",
-        lambda *_args, **_kwargs: {"objects": _record()},
+        LoaderOutput, "to_ldf", lambda *_args, **_kwargs: _record()
     )
     monkeypatch.setattr(Image, "with_panel", capture_panel)
     return backend, panels
@@ -2025,10 +2001,10 @@ def test_compare_matches_by_filename_and_reports_unpaired_samples(
 
     image = np.zeros((40, 60, 3), dtype=np.uint8)
 
-    def sample(filename: str, label: str) -> SimpleNamespace:
-        return SimpleNamespace(
+    def sample(filename: str, label: str) -> LoaderOutput:
+        return LoaderOutput(
             images={"image": image},
-            labels={"label": label},
+            labels={"label": np.array(label)},
             metadata={"filenames": {"image": filename}},
         )
 
@@ -2064,7 +2040,7 @@ def test_compare_matches_by_filename_and_reports_unpaired_samples(
         def get_categorical_encodings(self) -> dict[str, object]:
             return {}
 
-        def get_skeletons(self) -> dict[str, object]:
+        def get_keypoint_metadata(self) -> dict[str, object]:
             return {}
 
     class _Loader:
@@ -2075,29 +2051,32 @@ def test_compare_matches_by_filename_and_reports_unpaired_samples(
             return len(self._samples)
 
         def get_filenames(self, index: int) -> dict[str, str]:
-            return self._samples[index].metadata["filenames"]
+            return cast(
+                "dict[str, str]", self._samples[index].metadata["filenames"]
+            )
 
-        def __iter__(self) -> Iterator[SimpleNamespace]:
+        def __iter__(self) -> Iterator[LoaderOutput]:
             yield from self._samples
 
-        def __getitem__(self, index: int) -> SimpleNamespace:
+        def __getitem__(self, index: int) -> LoaderOutput:
             return self._samples[index]
 
-    def record(label: str) -> DatasetRecord:
-        return DatasetRecord.model_construct(
-            files={},
-            sample_metadata={},
-            annotation=[
+    def record(sample: LoaderOutput, **_kwargs: object) -> DatasetRecord:
+        def detections() -> list[Detection]:
+            return [
                 Detection(
-                    class_name=label,
+                    class_name=str(sample.labels["label"]),
                     instance_id=1,
                     boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
                 )
-            ],
-            task_name="objects",
+            ]
+
+        return DatasetRecord.model_construct(
+            files={},
+            sample_metadata=sample.metadata,
+            annotation={"objects": detections(), "ignored": detections()},
         )
 
-    from luxonis_ml.data.loaders import label_converter
     from luxonis_ml.vizlab import Image, RenderOptions, set_default_options
     from luxonis_ml.vizlab.viewer import Viewer as RealViewer
 
@@ -2111,14 +2090,7 @@ def test_compare_matches_by_filename_and_reports_unpaired_samples(
     monkeypatch.setattr(data_main, "check_exists", lambda *_args: None)
     monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
     monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
-    monkeypatch.setattr(
-        label_converter,
-        "loader_output_to_records",
-        lambda labels, **_kwargs: {
-            "objects": record(labels["label"]),
-            "ignored": record(labels["label"]),
-        },
-    )
+    monkeypatch.setattr(LoaderOutput, "to_ldf", record)
     monkeypatch.setattr(Image, "with_panel", capture_panel)
     monkeypatch.setattr(
         viewer_module,
@@ -2165,17 +2137,17 @@ def _save_mocks(
     record = DatasetRecord.model_construct(
         files={},
         sample_metadata={"weather": "clear"},
-        annotation=[
-            Detection(
-                class_name="car",
-                instance_id=1,
-                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
-                metadata=detection_metadata or {},
-            )
-        ],
-        task_name="a",
+        annotation={
+            "a": [
+                Detection(
+                    class_name="car",
+                    instance_id=1,
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+                    metadata=detection_metadata or {},
+                )
+            ]
+        },
     )
-    records = {"a": record}
 
     class _Dataset:
         def __init__(self, *_a: object, **_k: object) -> None:
@@ -2193,30 +2165,24 @@ def _save_mocks(
         def get_categorical_encodings(self) -> dict[str, object]:
             return {}
 
-        def get_skeletons(self) -> dict[str, object]:
+        def get_keypoint_metadata(self) -> dict[str, object]:
             return {}
 
     class _Loader:
         def __init__(self, *_a: object, **_k: object) -> None:
             self._augmentations = None
 
-        def __iter__(self) -> Iterator[SimpleNamespace]:
-            yield SimpleNamespace(
+        def __iter__(self) -> Iterator[LoaderOutput]:
+            yield LoaderOutput(
                 images=dict.fromkeys(sources, image),
                 labels=labels or {},
                 metadata={},
             )
 
-    from luxonis_ml.data.loaders import label_converter
-
     monkeypatch.setattr(data_main, "check_exists", lambda *_a: None)
     monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
     monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
-    monkeypatch.setattr(
-        label_converter,
-        "loader_output_to_records",
-        lambda *_a, **_k: records,
-    )
+    monkeypatch.setattr(LoaderOutput, "to_ldf", lambda *_a, **_k: record)
 
 
 def test_inspect_save_writes_svg_and_png(

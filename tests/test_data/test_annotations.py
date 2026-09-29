@@ -68,7 +68,7 @@ def test_dataset_record(tempdir: Path):
     cv2.imwrite(str(left), np.zeros((100, 100, 3)))
     cv2.imwrite(str(right), np.zeros((100, 100, 3)))
     empty_metadata = {"sample_metadata": DEFAULT_METADATA}
-    record = DatasetRecord(file=left)  # type: ignore
+    record = DatasetRecord(media=left)  # type: ignore
     assert record.file == left
 
     compare_parquet_rows(
@@ -88,7 +88,7 @@ def test_dataset_record(tempdir: Path):
     )
 
     record = DatasetRecord(
-        file=left,  # type: ignore
+        media=left,  # type: ignore
         sample_metadata={"source": "camera-a"},
     )
     compare_parquet_rows(
@@ -108,7 +108,7 @@ def test_dataset_record(tempdir: Path):
     )
 
     record = DatasetRecord(
-        file=left,  # type: ignore
+        media=left,  # type: ignore
         annotation={
             "class": "person",
             "boundingbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
@@ -140,10 +140,12 @@ def test_dataset_record(tempdir: Path):
         ],
     )
 
-    record = DatasetRecord(
-        files={
-            "left": left,
-            "right": right,
+    record = DatasetRecord.model_validate(
+        {
+            "media": {
+                "left": left,
+                "right": right,
+            }
         }
     )
     with pytest.raises(ValueError, match="must have exactly one file"):
@@ -215,29 +217,30 @@ def test_bbox_annotation(subtests: SubTests):
 def test_keypoints_annotation(subtests: SubTests):
     with subtests.test("no_auto_clip"):
         with pytest.raises(pydantic.ValidationError):
-            KeypointAnnotation(keypoints=[(-2.1, 1.1, 0)])
+            KeypointAnnotation.model_validate({"keypoints": [(-2.1, 1.1, 0)]})
         with pytest.raises(pydantic.ValidationError):
-            KeypointAnnotation(keypoints=[(0.1, 2.1, 1)])
+            KeypointAnnotation.model_validate({"keypoints": [(0.1, 2.1, 1)]})
         with pytest.raises(pydantic.ValidationError):
-            KeypointAnnotation(keypoints=[(0.1, 1.1, 2), (0.1, 2.1, 1)])
+            KeypointAnnotation.model_validate(
+                {"keypoints": [(0.1, 1.1, 2), (0.1, 2.1, 1)]}
+            )
 
     with subtests.test("auto_clip"):
-        kpt_ann = KeypointAnnotation(keypoints=[(-1.1, 1.1, 0)])
-        assert 0 <= kpt_ann.keypoints[0][0] <= 1
-        assert 0 <= kpt_ann.keypoints[0][1] <= 1
-        kpt_ann = KeypointAnnotation(keypoints=[(0.1, 1.1, 1)])
-        assert 0 <= kpt_ann.keypoints[0][0] <= 1
-        assert 0 <= kpt_ann.keypoints[0][1] <= 1
-        kpt_ann = KeypointAnnotation(keypoints=[(-2, 2, 2)])
-        assert 0 <= kpt_ann.keypoints[0][0] <= 1
-        assert 0 <= kpt_ann.keypoints[0][1] <= 1
+        for keypoint in [(-1.1, 1.1, 0), (0.1, 1.1, 1), (-2, 2, 2)]:
+            clipped = KeypointAnnotation.model_validate(
+                {"keypoints": [keypoint]}
+            ).keypoints["0"]
+            assert 0 <= clipped.x <= 1
+            assert 0 <= clipped.y <= 1
     with subtests.test("numpy"):
-        keypoints = KeypointAnnotation(keypoints=[(0.1, 0.2, 2)])
+        keypoints = KeypointAnnotation.model_validate(
+            {"keypoints": [(0.1, 0.2, 2)]}
+        )
         assert np.allclose(keypoints.to_numpy(), np.array([0.1, 0.2, 2]))
         keypoints_list = [
             keypoints,
-            KeypointAnnotation(keypoints=[(0.2, 0.3, 0)]),
-            KeypointAnnotation(keypoints=[(0.3, 0.4, 1)]),
+            KeypointAnnotation.model_validate({"keypoints": [(0.2, 0.3, 0)]}),
+            KeypointAnnotation.model_validate({"keypoints": [(0.3, 0.4, 1)]}),
         ]
         assert np.allclose(
             KeypointAnnotation.combine_to_numpy(keypoints_list),
@@ -541,7 +544,7 @@ def test_detection(subtests: SubTests):
         )
 
         assert detection.keypoints is not None
-        assert detection.keypoints.keypoints == [
+        assert list(detection.keypoints.keypoints.values()) == [
             (0.2 * 0.5 + 0.1, 0.4 * 0.5 + 0.2, 2),
             (0.5 * 0.5 + 0.1, 0.8 * 0.5 + 0.2, 2),
         ]
@@ -558,7 +561,10 @@ def test_detection(subtests: SubTests):
         )
 
         assert detection.keypoints is not None
-        assert detection.keypoints.keypoints == [(0.2, 0.4, 2), (0.5, 0.8, 2)]
+        assert list(detection.keypoints.keypoints.values()) == [
+            (0.2, 0.4, 2),
+            (0.5, 0.8, 2),
+        ]
 
     with (
         subtests.test("invalid"),
@@ -618,10 +624,8 @@ def test_record(tempdir: Path):
     )
     filename = str((tempdir / "image.jpg").resolve())
     cv2.imwrite(filename, np.zeros((256, 256, 3), dtype=np.uint8))
-    record = DatasetRecord(
-        file=filename,  # type: ignore
-        annotation=detection,
-        task_name="test",
+    record = DatasetRecord.model_validate(
+        {"media": filename, "annotation": detection, "task_name": "test"}
     )
     common = {
         "file": filename,

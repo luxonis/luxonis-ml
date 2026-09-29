@@ -10,9 +10,9 @@ the part of the data workflow they support:
    * - Group
      - Public APIs
    * - Task keys
-     - `task_is_metadata`, `split_task`, `get_task_name`, `get_task_type`,
-       and `task_type_iterator` parse and filter ``"task_name/task_type"``
-       labels.
+     - `task_is_metadata`, `split_task`, `get_task_name`, `get_task_group`,
+       `get_task_type`, and `task_type_iterator` parse and filter
+       ``"task_name/task_type"`` labels.
    * - Storage and parser enums
      - `BucketStorage`, `BucketType`, `MediaType`, `ImageType`,
        `UpdateMode`, `ParserIssue`, and `ParserIssueMessage`.
@@ -64,6 +64,7 @@ from .remote_file_downloader import (
     download_remote_file,
 )
 from .task_utils import (
+    get_task_group,
     get_task_name,
     get_task_type,
     split_task,
@@ -91,6 +92,7 @@ __all__ = [
     "get_heatmap_statistics",
     "get_heatmaps",
     "get_missing_annotations",
+    "get_task_group",
     "get_task_name",
     "get_task_type",
     "infer_task",

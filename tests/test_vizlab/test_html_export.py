@@ -188,7 +188,11 @@ def test_page_is_a_balanced_standalone_document() -> None:
 def test_every_tooltip_region_lands_where_the_hit_map_put_it() -> None:
     image = _tile()
     image.add(BBox(x=0.7, y=0.1, w=0.2, h=0.2))  # no tooltip -> no region
-    image.add(Keypoints(keypoints=[(0.3, 0.9, 2)], tooltip=Tooltip(title="p")))
+    image.add(
+        Keypoints.model_validate(
+            {"keypoints": [(0.3, 0.9, 2)], "tooltip": Tooltip(title="p")}
+        )
+    )
 
     _, hits = image.render_hits()
     rects = _hit_rects(image.render_html())
@@ -516,7 +520,9 @@ def _layered_scene() -> "Image":
     image.add(BBox(x=0.1, y=0.1, w=0.3, h=0.4).tag("car", score=0.9))
     image.add(BBox(x=0.55, y=0.2, w=0.2, h=0.5).tag("person"))
     image.add(
-        Keypoints(keypoints=[(0.6, 0.3, 2), (0.62, 0.5, 2)]).tag("person")
+        Keypoints.model_validate(
+            {"keypoints": [(0.6, 0.3, 2), (0.62, 0.5, 2)]}
+        ).tag("person")
     )
     return image
 
@@ -881,7 +887,11 @@ def test_an_annotation_that_paints_nothing_gets_no_control() -> None:
     """
     image = _blank()
     image.add(BBox(x=0.1, y=0.1, w=0.3, h=0.3).tag("car"))
-    image.add(Keypoints(keypoints=[(0.5, 0.5, 0), (0.6, 0.6, 0)]).tag("ghost"))
+    image.add(
+        Keypoints.model_validate(
+            {"keypoints": [(0.5, 0.5, 0), (0.6, 0.6, 0)]}
+        ).tag("ghost")
+    )
     page = image.render_html()
 
     assert re.findall(r'id="vl-l-(\w+)"', page) == ["box", "label"]

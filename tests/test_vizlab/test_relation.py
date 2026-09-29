@@ -86,7 +86,9 @@ def test_mixed_endpoints_only_stand_off_from_the_shape() -> None:
     "target",
     [
         Mask(mask=np.zeros((8, 8), np.uint8)),  # type: ignore[call-arg]
-        Keypoints(keypoints=[(0.1, 0.1, 0)]),  # every joint invisible
+        Keypoints.model_validate(
+            {"keypoints": [(0.1, 0.1, 0)]}
+        ),  # every joint invisible
         Polyline(points=[]),
     ],
 )
@@ -104,7 +106,9 @@ def test_coincident_endpoints_draw_nothing() -> None:
 
 def test_any_annotation_can_be_an_anchor() -> None:
     line = Polyline(points=[(0.1, 0.1), (0.3, 0.3)])
-    keypoints = Keypoints(keypoints=[(0.7, 0.7, 2), (0.9, 0.9, 2)])
+    keypoints = Keypoints.model_validate(
+        {"keypoints": [(0.7, 0.7, 2), (0.9, 0.9, 2)]}
+    )
     arrow = Arrow(start=line, end=keypoints)
     ends = arrow._endpoints(100, 100)
     assert ends is not None

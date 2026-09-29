@@ -90,50 +90,53 @@ Examples:
     >>> from luxonis_ml.vizlab import visualize_record
     >>> record = DatasetRecord.model_validate(
     ...     {
-    ...         "files": {},  # pixels are passed to visualize_record separately
-    ...         "task_name": "traffic",
+    ...         "media": {},  # pixels are passed to visualize_record separately
     ...         "sample_metadata": {
     ...             "source": "frame_0007.jpg",
     ...             "split": "train",
     ...         },
-    ...         "annotation": [
-    ...             {
-    ...                 "class_name": "car",
-    ...                 "boundingbox": {
-    ...                     "x": 0.08,
-    ...                     "y": 0.5,
-    ...                     "w": 0.4,
-    ...                     "h": 0.32,
+    ...         "annotation": {
+    ...             "traffic": [
+    ...                 {
+    ...                     "class_name": "car",
+    ...                     "boundingbox": {
+    ...                         "x": 0.08,
+    ...                         "y": 0.5,
+    ...                         "w": 0.4,
+    ...                         "h": 0.32,
+    ...                     },
+    ...                     "sub_detections": {
+    ...                         "plate": {
+    ...                             "class_name": "plate",
+    ...                             "boundingbox": {
+    ...                                 "x": 0.13,
+    ...                                 "y": 0.73,
+    ...                                 "w": 0.13,
+    ...                                 "h": 0.05,
+    ...                             },
+    ...                             "metadata": {
+    ...                                 "text": "LJ 82-A31"
+    ...                             },  # hover meta
+    ...                         }
+    ...                     },
     ...                 },
-    ...                 "sub_detections": {
-    ...                     "plate": {
-    ...                         "class_name": "plate",
-    ...                         "boundingbox": {
-    ...                             "x": 0.13,
-    ...                             "y": 0.73,
-    ...                             "w": 0.13,
-    ...                             "h": 0.05,
-    ...                         },
-    ...                         "metadata": {
-    ...                             "text": "LJ 82-A31"
-    ...                         },  # hover meta
-    ...                     }
+    ...                 {
+    ...                     "class_name": "person",
+    ...                     "boundingbox": {
+    ...                         "x": 0.62,
+    ...                         "y": 0.38,
+    ...                         "w": 0.15,
+    ...                         "h": 0.46,
+    ...                     },
+    ...                     "keypoints": {
+    ...                         "keypoints": [(0.69, 0.44, 2), (0.69, 0.6, 2)]
+    ...                     },
     ...                 },
-    ...             },
-    ...             {
-    ...                 "class_name": "person",
-    ...                 "boundingbox": {
-    ...                     "x": 0.62,
-    ...                     "y": 0.38,
-    ...                     "w": 0.15,
-    ...                     "h": 0.46,
-    ...                 },
-    ...                 "keypoints": {
-    ...                     "keypoints": [(0.69, 0.44, 2), (0.69, 0.6, 2)]
-    ...                 },
-    ...             },
-    ...             {"class_name": "sunny"},  # a class-only image-level tag
-    ...         ],
+    ...                 {
+    ...                     "class_name": "sunny"
+    ...                 },  # a class-only image-level tag
+    ...             ]
+    ...         },
     ...     }
     ... )
     >>> image = visualize_record(record, np.zeros((360, 640, 3), np.uint8))

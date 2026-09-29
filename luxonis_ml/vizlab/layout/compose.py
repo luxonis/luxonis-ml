@@ -15,6 +15,7 @@ from typing import NamedTuple, TypeVar, overload
 
 import numpy as np
 
+from luxonis_ml.ldf import Keypoint
 from luxonis_ml.utils.color import brand
 from luxonis_ml.vizlab._util import is_sequence
 from luxonis_ml.vizlab.annotations import (
@@ -157,10 +158,10 @@ def _pad_annotation(
         clone.w *= scale_x
         clone.h *= scale_y
     elif isinstance(clone, Keypoints):
-        clone.keypoints = [
-            (x * scale_x, y * scale_y, visibility)
-            for x, y, visibility in clone.keypoints
-        ]
+        clone.keypoints = {
+            name: Keypoint(x * scale_x, y * scale_y, visibility)
+            for name, (x, y, visibility) in clone.keypoints.items()
+        }
     elif isinstance(clone, Mask):
         from luxonis_ml.ldf import SegmentationAnnotation
 

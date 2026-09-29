@@ -12,6 +12,7 @@ from luxonis_ml.ldf import (
     Detection,
     InstanceSegmentationAnnotation,
     KeypointAnnotation,
+    KeypointMetadata,
     SegmentationAnnotation,
 )
 from luxonis_ml.vizlab import (
@@ -29,6 +30,7 @@ from luxonis_ml.vizlab import (
 )
 from luxonis_ml.vizlab.adapters.ldf import (
     _metadata_to_panel_data,
+    detection_to_annotations,
     to_render_annotations,
 )
 from luxonis_ml.vizlab.annotations.base import RenderContext
@@ -50,12 +52,12 @@ def test_bbox_from_ldf():
 
 
 def test_keypoints_from_ldf_preserves_visibility():
-    ann = KeypointAnnotation(keypoints=[(0.1, 0.2, 2), (0.3, 0.4, 0)])
+    ann = KeypointAnnotation.model_validate(
+        {"keypoints": [(0.1, 0.2, 2), (0.3, 0.4, 0)]}
+    )
     kp = Keypoints.from_ldf(ann)
-    # Reuses the LDF keypoint list directly.
-    assert len(kp.keypoints) == 2
-    assert kp.keypoints[0][2] == 2
-    assert kp.keypoints[1][2] == 0
+    # Reuses the LDF keypoints directly.
+    assert [visibility for *_, visibility in kp.keypoints.values()] == [2, 0]
 
 
 def test_mask_from_ldf():
@@ -65,13 +67,45 @@ def test_mask_from_ldf():
     assert mask.to_numpy().shape == (4, 4)
 
 
-def test_keypoints_from_ldf_edges_and_names():
-    ann = KeypointAnnotation(keypoints=[(0.1, 0.2, 2), (0.3, 0.4, 2)])
-    kp = Keypoints.from_ldf(
-        ann, edges=[(0, 1)], keypoint_names=["a", "b"], point_labels="names"
+def test_keypoints_from_ldf_takes_names_and_edges_from_the_metadata():
+    ann = KeypointAnnotation.model_validate(
+        {"keypoints": [(0.1, 0.2, 2), (0.3, 0.4, 2)]}
     )
+    metadata = KeypointMetadata(labels=["a", "b"], edges=[(0, 1)])
+    kp = Keypoints.from_ldf(ann, metadata=metadata, point_labels="names")
     assert kp.edges == [(0, 1)]
-    assert kp.keypoint_names == ["a", "b"]
+    assert list(kp.keypoints) == ["a", "b"]
+
+
+def test_keypoints_from_ldf_pads_a_short_row_to_the_metadata():
+    ann = KeypointAnnotation.model_validate({"keypoints": [(0.1, 0.2, 2)]})
+    metadata = KeypointMetadata(labels=["a", "b"], edges=[(0, 1)])
+    kp = Keypoints.from_ldf(ann, metadata=metadata)
+    assert kp.keypoints["b"] == (0, 0, 0)
+
+
+def test_keypoints_from_ldf_drops_stored_edges_past_the_keypoints():
+    ann = KeypointAnnotation.model_validate(
+        {"keypoints": [(0.1, 0.2, 2), (0.3, 0.4, 2)]}
+    )
+    # An older dataset stored edges without a range check.
+    metadata = KeypointMetadata.model_construct(
+        labels=[], edges=[(0, 1), (1, 5)], flip_pairs=[], sigmas=[]
+    )
+    kp = Keypoints.from_ldf(ann, metadata=metadata)
+    assert kp.edges == [(0, 1)]
+
+
+def test_keypoints_from_ldf_keeps_the_edges_the_annotation_declares():
+    ann = KeypointAnnotation.model_validate(
+        {
+            "keypoints": [(0.1, 0.2, 2), (0.3, 0.4, 2), (0.5, 0.6, 2)],
+            "edges": [(1, 2)],
+        }
+    )
+    metadata = KeypointMetadata(edges=[(0, 1)])
+    kp = Keypoints.from_ldf(ann, metadata=metadata)
+    assert kp.edges == [(1, 2)]
 
 
 def test_semantic_mask_from_ldf_builds_id_map():
@@ -132,7 +166,7 @@ def test_image_add_detection_attaches_instance_mask() -> None:
 def test_image_add_individual_annotation_models():
     img = Image(np.zeros((20, 20, 3), np.uint8))
     img.add(BBoxAnnotation(x=0.1, y=0.1, w=0.2, h=0.2))
-    img.add(KeypointAnnotation(keypoints=[(0.5, 0.5, 2)]))
+    img.add(KeypointAnnotation.model_validate({"keypoints": [(0.5, 0.5, 2)]}))
     assert isinstance(img.annotations[0], BBox)
     assert isinstance(img.annotations[1], Keypoints)
 
@@ -156,14 +190,15 @@ def test_image_add_individual_mask_annotation_models() -> None:
 def test_to_render_annotations_expands_dataset_record() -> None:
     record = DatasetRecord.model_construct(
         files={},
-        annotation=[
-            Detection(
-                class_name="car",
-                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.2, h=0.2),
-                metadata={"id": 7},
-            )
-        ],
-        task_name="objects",
+        annotation={
+            "objects": [
+                Detection(
+                    class_name="car",
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.2, h=0.2),
+                    metadata={"id": 7},
+                )
+            ]
+        },
     )
 
     annotations = to_render_annotations(record)
@@ -183,8 +218,7 @@ def test_visualize_record_renders_with_panel():
     )
     record = DatasetRecord.model_construct(
         files={},
-        annotation=[det],
-        task_name="det",
+        annotation={"det": [det]},
         sample_metadata={"frame": 3},
     )
     options = RenderOptions(theme=DARK_THEME.with_palette(Palette(["car"])))
@@ -198,8 +232,7 @@ def test_visualize_record_renders_with_panel():
 def test_visualize_record_merges_explicit_panel_data() -> None:
     record = DatasetRecord.model_construct(
         files={},
-        annotation=[],
-        task_name="empty",
+        annotation={"empty": []},
         sample_metadata={},
     )
 
@@ -242,7 +275,7 @@ def test_visualize_record_collects_nested_record_annotations(
             "scene": Detection(class_name="outdoor"),
         },
     )
-    record = _record("det", root)
+    record = _record(det=[root])
     image = visualize_record(record, np.zeros((32, 32, 3), np.uint8))
     assert isinstance(image, Image)
 
@@ -264,16 +297,17 @@ def test_visualize_record_collects_nested_record_annotations(
     )
 
     array_record = _record(
-        "det",
-        Detection(
-            sub_detections={
-                "features": Detection(
-                    class_name=None,
-                    array=ArrayAnnotation(path=array_path),
-                )
-            },
-            class_name=None,
-        ),
+        det=[
+            Detection(
+                sub_detections={
+                    "features": Detection(
+                        class_name=None,
+                        array=ArrayAnnotation(path=array_path),
+                    )
+                },
+                class_name=None,
+            )
+        ]
     )
     # An array on its own adds no side panel: reporting its shape as text was
     # a stand-in for not being able to draw it, and the field annotations
@@ -314,7 +348,9 @@ def test_metadata_annotations_from_boxless_detections():
 
     boxless = Detection(
         class_name="pose",
-        keypoints=KeypointAnnotation(keypoints=[(0.3, 0.3, 2)]),
+        keypoints=KeypointAnnotation.model_validate(
+            {"keypoints": [(0.3, 0.3, 2)]}
+        ),
         metadata={"action": "running"},
     )
     boxed = Detection(
@@ -366,7 +402,9 @@ def test_metadata_annotations_treats_all_metadata_uniformly():
 
     det = Detection(
         class_name="ocr",
-        keypoints=KeypointAnnotation(keypoints=[(0.5, 0.5, 2)]),
+        keypoints=KeypointAnnotation.model_validate(
+            {"keypoints": [(0.5, 0.5, 2)]}
+        ),
         metadata={"text": "HELLO", "conf": 0.9},
     )
     cards = metadata_annotations([det])
@@ -396,32 +434,31 @@ def test_metadata_annotations_recurses_sub_detections():
     assert cards[0].rows == ["note: AB123"]
 
 
-def _record(task_name: str, *detections: Detection) -> DatasetRecord:
-    return DatasetRecord.model_construct(
-        files={}, annotation=list(detections), task_name=task_name
-    )
+def _record(**tasks: list[Detection]) -> DatasetRecord:
+    return DatasetRecord.model_construct(files={}, annotation=tasks)
 
 
 def test_blend_drops_classification_chip_next_to_spatial() -> None:
     """Blending a classification task with a detection drops the corner chip."""
-    from luxonis_ml.vizlab.adapters.ldf import blend_records_to_annotations
+    from luxonis_ml.vizlab.adapters.ldf import blend_record_to_annotations
 
-    classification = _record("classification", Detection(class_name="car"))
-    detection = _record(
-        "detection",
-        Detection(
-            class_name="car",
-            boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
-        ),
+    record = _record(
+        classification=[Detection(class_name="car")],
+        detection=[
+            Detection(
+                class_name="car",
+                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+            )
+        ],
     )
-    blended = blend_records_to_annotations([classification, detection])
+    blended = blend_record_to_annotations(record)
     assert not any(isinstance(a, Classification) for a in blended)
     assert any(isinstance(a, BBox) for a in blended)
 
 
 def test_blend_drops_mask_chip_for_a_class_a_box_already_labels() -> None:
     """A semantic mask's chip is dropped when a box shares its class."""
-    from luxonis_ml.vizlab.adapters.ldf import blend_records_to_annotations
+    from luxonis_ml.vizlab.adapters.ldf import blend_record_to_annotations
 
     car = np.zeros((20, 30), np.uint8)
     car[2:8, 2:12] = 1
@@ -429,21 +466,21 @@ def test_blend_drops_mask_chip_for_a_class_a_box_already_labels() -> None:
     road[12:18, 2:28] = 1
     car_seg = SegmentationAnnotation(mask=car)  # type: ignore[call-arg]
     road_seg = SegmentationAnnotation(mask=road)  # type: ignore[call-arg]
-    detection = _record(
-        "detection",
-        Detection(
-            class_name="car",
-            boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
-        ),
-    )
-    segmentation = _record(
-        "segmentation",
-        Detection(class_name="car", segmentation=car_seg),
-        Detection(class_name="road", segmentation=road_seg),
+    record = _record(
+        detection=[
+            Detection(
+                class_name="car",
+                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+            )
+        ],
+        segmentation=[
+            Detection(class_name="car", segmentation=car_seg),
+            Detection(class_name="road", segmentation=road_seg),
+        ],
     )
     palette = Palette(["car", "road"])
     options = RenderOptions(theme=DARK_THEME.with_palette(palette))
-    blended = blend_records_to_annotations([detection, segmentation], options)
+    blended = blend_record_to_annotations(record, options)
 
     masks = {m.label: m for m in blended if isinstance(m, Mask)}
     assert set(masks) == {"car", "road"}  # both masks keep their label...
@@ -484,16 +521,16 @@ def test_mask_label_chip_false_hides_chip_but_still_draws(
 
 def test_blend_keeps_mask_chip_when_no_box_labels_its_class() -> None:
     """Without a box of the same class, the mask keeps its own chip."""
-    from luxonis_ml.vizlab.adapters.ldf import blend_records_to_annotations
+    from luxonis_ml.vizlab.adapters.ldf import blend_record_to_annotations
 
     road = np.zeros((20, 30), np.uint8)
     road[12:18, 2:28] = 1
     road_seg = SegmentationAnnotation(mask=road)  # type: ignore[call-arg]
-    segmentation = _record(
-        "segmentation",
-        Detection(class_name="road", segmentation=road_seg),
+    blended = blend_record_to_annotations(
+        _record(
+            segmentation=[Detection(class_name="road", segmentation=road_seg)]
+        )
     )
-    blended = blend_records_to_annotations([segmentation])
     assert all(
         m.label_chip for m in blended if isinstance(m, Mask)
     )  # chip kept
@@ -502,13 +539,13 @@ def test_blend_keeps_mask_chip_when_no_box_labels_its_class() -> None:
 
 def test_blend_keeps_classification_when_it_is_the_only_content() -> None:
     """With nothing but class tags, the classification chips are kept."""
-    from luxonis_ml.vizlab.adapters.ldf import blend_records_to_annotations
+    from luxonis_ml.vizlab.adapters.ldf import blend_record_to_annotations
 
-    blended = blend_records_to_annotations(
-        [
-            _record("car", Detection(class_name="car")),
-            _record("motorbike", Detection(class_name="motorbike")),
-        ]
+    blended = blend_record_to_annotations(
+        _record(
+            car=[Detection(class_name="car")],
+            motorbike=[Detection(class_name="motorbike")],
+        )
     )
     assert len(blended) == 2
     assert all(isinstance(a, Classification) for a in blended)
@@ -520,11 +557,13 @@ def test_visualize_record_adds_metadata_card():
 
     det = Detection(
         class_name="scene",
-        keypoints=KeypointAnnotation(keypoints=[(0.5, 0.5, 2)]),
+        keypoints=KeypointAnnotation.model_validate(
+            {"keypoints": [(0.5, 0.5, 2)]}
+        ),
         metadata={"weather": "sunny"},
     )
     record = DatasetRecord.model_construct(
-        files={}, annotation=[det], task_name="scene"
+        files={}, annotation={"scene": [det]}
     )
     img = visualize_record(record, np.zeros((60, 60, 3), np.uint8))
     assert isinstance(img, Image)
@@ -539,11 +578,10 @@ def test_visualize_record_keeps_every_array_detection(
     np.save(paths[0], np.zeros((4, 6), np.float32))
     np.save(paths[1], np.ones((4, 6), np.float32))
     record = _record(
-        "det",
-        *(
+        det=[
             Detection(class_name=None, array=ArrayAnnotation(path=path))
             for path in paths
-        ),
+        ]
     )
     drawn = visualize_record(
         record,
@@ -553,3 +591,30 @@ def test_visualize_record_keeps_every_array_detection(
     assert isinstance(drawn, Image)
     fields = [a for a in drawn.annotations if isinstance(a, ArrayField)]
     assert len(fields) == 2
+
+
+def test_an_array_detection_draws_no_class_tag() -> None:
+    """`LoaderOutput.to_ldf` names each array by its class; that is no tag."""
+    detection = Detection(
+        class_name="depth",
+        array=ArrayAnnotation.model_validate({"data": np.zeros((4, 6))}),
+    )
+    assert detection_to_annotations(detection) == []
+    drawn = visualize_record(
+        _record(depth=[detection]), np.zeros((32, 48, 3), np.uint8)
+    )
+    assert isinstance(drawn, Image)
+    assert not any(isinstance(a, Classification) for a in drawn.annotations)
+
+
+def test_a_clicked_detection_leaves_out_its_in_memory_array() -> None:
+    box = {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}
+    detection = Detection.model_validate(
+        {
+            "class_name": "car",
+            "boundingbox": box,
+            "array": {"data": np.zeros((2, 3))},
+        }
+    )
+    (root,) = detection_to_annotations(detection)
+    assert root.source == {"class_name": "car", "boundingbox": box}

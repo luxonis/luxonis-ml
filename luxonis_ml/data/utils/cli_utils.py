@@ -10,6 +10,7 @@ from rich.table import Table
 
 from luxonis_ml.data import LuxonisDataset
 from luxonis_ml.data.utils.enums import BucketStorage
+from luxonis_ml.ldf import SCHEMA_METADATA_KEY
 from luxonis_ml.typing import Params, TrackedAugmentations, check_type
 
 
@@ -26,6 +27,23 @@ def get_tracked_augmentations(
     if isinstance(augmentations, TrackedAugmentations):
         return augmentations
     return None
+
+
+def printed_sample_metadata(
+    metadata: Params, *, list_augmentations: bool
+) -> Params:
+    """Return the part of a sample's metadata that ``inspect`` prints.
+
+    The dataset schema, and the runtime parameters of every transformation
+    unless they are listed, would bury the record metadata.
+    """
+    hidden = {SCHEMA_METADATA_KEY}
+    if (
+        not list_augmentations
+        and get_tracked_augmentations(metadata) is not None
+    ):
+        hidden.add("augmentations")
+    return {k: v for k, v in metadata.items() if k not in hidden}
 
 
 def parse_split_ratio(

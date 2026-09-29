@@ -1,6 +1,6 @@
 """Render LDF records with colors keyed by class, instance, or task identity."""
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from dataclasses import replace
 from typing import Literal, TypeAlias
 
@@ -13,7 +13,7 @@ from luxonis_ml.vizlab.tooltip import Tooltip
 
 from .ldf import (
     _prune_blended_annotations,
-    blend_records_to_annotations,
+    blend_record_to_annotations,
     detection_to_annotations,
 )
 
@@ -24,13 +24,11 @@ ColorBy: TypeAlias = Literal["class", "instance", "task"]
 """Identity dimensions supported by dataset-inspection coloring."""
 
 
-def spatial_instances(
-    records: Iterable[DatasetRecord],
-) -> list[InstanceDetection]:
+def spatial_instances(record: DatasetRecord) -> list[InstanceDetection]:
     """Collect detections that have instance-level spatial annotations.
 
     Args:
-        records: LDF records to inspect.
+        record: LDF record to inspect.
 
     Returns:
         ``(task_name, detection)`` pairs for detections carrying a bounding box,
@@ -38,9 +36,9 @@ def spatial_instances(
 
     """
     return [
-        (record.task_name, detection)
-        for record in records
-        for detection in record._annotations()
+        (task_name, detection)
+        for task_name, detections in record.annotation.items()
+        for detection in detections
         if detection.boundingbox is not None
         or detection.keypoints is not None
         or detection.instance_segmentation is not None
@@ -87,14 +85,14 @@ def instances_to_annotations(
     return annotations
 
 
-def records_to_colored_annotations(
-    records: Sequence[DatasetRecord],
+def record_to_colored_annotations(
+    record: DatasetRecord,
     *,
     color_by: ColorBy,
     options: RenderOptions,
     identity_palette: Palette,
 ) -> list[Annotation]:
-    """Convert records using the selected visual identity.
+    """Convert a record using the selected visual identity.
 
     ``class`` delegates to the standard blended adapter. ``instance`` keeps only
     spatial instances and gives every one an identity tooltip. ``task`` keeps
@@ -102,35 +100,35 @@ def records_to_colored_annotations(
     originating from the same task.
     """
     if color_by == "class":
-        return blend_records_to_annotations(records, options)
+        return blend_record_to_annotations(record, options)
     if color_by == "instance":
         return instances_to_annotations(
-            spatial_instances(records),
+            spatial_instances(record),
             options=options,
             palette=identity_palette,
         )
     return _task_annotations(
-        records,
+        record,
         options=options,
         palette=identity_palette,
     )
 
 
 def _task_annotations(
-    records: Sequence[DatasetRecord],
+    record: DatasetRecord,
     *,
     options: RenderOptions,
     palette: Palette,
 ) -> list[Annotation]:
-    """Convert records while assigning one explicit color per task."""
+    """Convert a record while assigning one explicit color per task."""
     annotations: list[Annotation] = []
-    for record in records:
-        color = palette.color_for(record.task_name)
-        for detection in record._annotations():
+    for task_name, detections in record.annotation.items():
+        color = palette.color_for(task_name)
+        for detection in detections:
             converted = detection_to_annotations(
                 detection,
                 options,
-                task_name=record.task_name,
+                task_name=task_name,
             )
             for annotation in converted:
                 _style_task_tree(annotation, color)

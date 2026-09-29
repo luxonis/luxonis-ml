@@ -200,7 +200,7 @@ def _keypoints_of(
         return None
     return [
         (float(x), float(y), int(visibility))
-        for x, y, visibility in keypoints.keypoints
+        for x, y, visibility in keypoints.keypoints.values()
     ]
 
 
@@ -273,7 +273,13 @@ def _with_keypoint_verdicts(
     points, colors = _grade_keypoints(pred_kps, gt_kps, bounds)
     # Rebuild the pose with the graded points (keeping its edges/names), then
     # attach the per-joint colors; model_copy skips the invariant-list check.
-    graded = pose.model_copy(update={"keypoints": points})
+    # A ground truth wider than the prediction adds joints the pose has no
+    # name for, so those are keyed by position.
+    names = list(pose.keypoints)
+    names += [str(i) for i in range(len(names), len(points))]
+    graded = pose.model_copy(
+        update={"keypoints": dict(zip(names, points, strict=False))}
+    )
     graded.point_colors = list(colors)
     if pose is root:
         return [graded, *annotations[1:]]

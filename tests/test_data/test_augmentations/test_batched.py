@@ -666,9 +666,8 @@ def test_standalone_labels_survive_bboxes_from_another_task_group() -> None:
 def test_compaction_handles_all_filtered_bboxes() -> None:
     """Associated labels stay present but empty when no bbox survives.
 
-    Dropping the task keys entirely would let
-    ``LuxonisLoader._add_empty_annotations`` refill metadata with
-    ``n_classes`` phantom rows.
+    Dropping the task keys entirely would lose them, because the loader
+    puts back only the labels that were empty before augmentation.
     """
     targets = {
         "task/boundingbox": "boundingbox",

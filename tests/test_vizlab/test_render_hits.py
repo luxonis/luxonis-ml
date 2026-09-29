@@ -81,7 +81,9 @@ def test_chip_less_box_with_tooltip_still_hits() -> None:
 
 def test_keypoints_without_tooltip_emit_no_hit() -> None:
     img = _blank(60, 100).add(
-        Keypoints(keypoints=[(0.3, 0.3, 2), (0.6, 0.6, 2)], label="pose")
+        Keypoints.model_validate(
+            {"keypoints": [(0.3, 0.3, 2), (0.6, 0.6, 2)], "label": "pose"}
+        )
     )
     _, hits = img.render_hits()
     assert hits.items == []
@@ -90,7 +92,9 @@ def test_keypoints_without_tooltip_emit_no_hit() -> None:
 def test_keypoints_tooltip_hits_over_the_joints() -> None:
     tip = Tooltip(title="pose", rows=(("id", "3"),))
     img = _blank(60, 100).add(
-        Keypoints(keypoints=[(0.3, 0.3, 2), (0.6, 0.6, 2)], tooltip=tip)
+        Keypoints.model_validate(
+            {"keypoints": [(0.3, 0.3, 2), (0.6, 0.6, 2)], "tooltip": tip}
+        )
     )
     _, hits = img.render_hits()
     assert len(hits.items) == 1
@@ -104,10 +108,12 @@ def test_keypoints_hit_ignores_occluded_only_sets() -> None:
     # All points below the visibility threshold -> nothing visible -> no region.
     tip = Tooltip(title="pose")
     img = _blank(60, 100).add(
-        Keypoints(
-            keypoints=[(0.3, 0.3, 0), (0.6, 0.6, 0)],
-            visibility_threshold=0.0,
-            tooltip=tip,
+        Keypoints.model_validate(
+            {
+                "keypoints": [(0.3, 0.3, 0), (0.6, 0.6, 0)],
+                "visibility_threshold": 0.0,
+                "tooltip": tip,
+            }
         )
     )
     _, hits = img.render_hits()

@@ -239,7 +239,9 @@ def _bounds(obj: "Detectionish") -> Rect | None:
         return Rect(box.x, box.y, box.x + box.w, box.y + box.h)
     keypoints = obj.keypoints
     if keypoints is not None and keypoints.keypoints:
-        visible = [(p[0], p[1]) for p in keypoints.keypoints if p[2] > 0]
+        visible = [
+            (p[0], p[1]) for p in keypoints.keypoints.values() if p[2] > 0
+        ]
         return bounding_rect(visible) if visible else None
     return None
 

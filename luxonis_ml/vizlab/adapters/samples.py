@@ -1,7 +1,7 @@
-"""Composing whole dataset samples — images, arrays, records — into frames.
+"""Composing whole dataset samples — images, arrays, a record — into frames.
 
 `SampleComposer` is the rendering half of dataset inspection: given one
-sample's image sources, array labels, `DatasetRecord` trees, and metadata
+sample's image sources, array labels, `DatasetRecord`, and metadata
 panel, it builds the tiles, sizes them for a screen or a file, and frames
 them with the side panel. The CLI (or any other caller) keeps only the data
 side: loading samples, filtering them, and deciding what to do with the
@@ -10,6 +10,7 @@ finished frames.
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from itertools import chain
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -24,7 +25,7 @@ from luxonis_ml.vizlab.style import Palette
 from .arrays import array_annotations
 from .instances import (
     ColorBy,
-    records_to_colored_annotations,
+    record_to_colored_annotations,
     spatial_instances,
 )
 from .ldf import metadata_annotations, visualize_record
@@ -87,16 +88,14 @@ class SampleComposer:
     reserve_task: str = ""
     panel_width: float = 400.0
 
-    def fallback_color_by(
-        self, records: "Mapping[str, DatasetRecord]"
-    ) -> ColorBy:
+    def fallback_color_by(self, record: "DatasetRecord") -> ColorBy:
         """Resolve this sample's coloring mode.
 
         Instance coloring needs spatial annotations to color; a sample with
         none falls back to class colors. The caller can compare the result
         with `color_by` to tell the user about the fallback.
         """
-        if self.color_by != "instance" or spatial_instances(records.values()):
+        if self.color_by != "instance" or spatial_instances(record):
             return self.color_by
         return "class"
 
@@ -211,13 +210,13 @@ class SampleComposer:
     def _blend(
         self,
         image: np.ndarray,
-        records: "Mapping[str, DatasetRecord]",
+        record: "DatasetRecord",
         layers: "LayerState",
         *,
         color_by: ColorBy,
         arrays: "Mapping[str, np.ndarray] | None" = None,
     ) -> Image:
-        """Draw every record's annotations onto one image, layer toggles applied.
+        """Draw the annotations of every task onto one image, layer toggles applied.
 
         Shared by the interactive single/blended view and the headless save path.
         Detections from all tasks are blended together (a redundant classification
@@ -227,8 +226,8 @@ class SampleComposer:
         """
         viz = Image(image, options=self.options)
         self._overlay_arrays(viz, arrays or {}, layers)
-        detections = records_to_colored_annotations(
-            list(records.values()),
+        detections = record_to_colored_annotations(
+            record,
             color_by=color_by,
             options=self.options,
             identity_palette=self.identity_palette,
@@ -239,7 +238,7 @@ class SampleComposer:
             viz.add(annotation)
         if color_by != "instance":
             for overlay in metadata_annotations(
-                [d for r in records.values() for d in r._annotations()],
+                chain.from_iterable(record.annotation.values()),
                 lone_object_card=True,
             ):
                 viz.add(overlay)
@@ -250,7 +249,7 @@ class SampleComposer:
         source_name: str,
         image: np.ndarray,
         arrays: "Mapping[str, np.ndarray]",
-        records: "Mapping[str, DatasetRecord]",
+        record: "DatasetRecord",
         layers: "LayerState",
         color_by: ColorBy,
     ) -> "tuple[list[Renderable], list[str]]":
@@ -258,34 +257,47 @@ class SampleComposer:
 
         Usually one — the source with every task's detections blended onto it.
         A multi-task dataset in the default class-color mode instead gets one
-        tile per record, so the tasks stay legible side by side.
+        tile per task, so the tasks stay legible side by side.
         """
         # The viewer's interactive layer toggles (masks/keypoints/labels, a class
         # focus) filter what is drawn without disturbing the metadata cards,
         # legend, or panel — `_blend` applies them to the detections.
-        if color_by != "class" or self.blend_all or len(records) <= 1:
+        if (
+            color_by != "class"
+            or self.blend_all
+            or len(record.annotation) <= 1
+        ):
             return [
                 self._blend(
-                    image, records, layers, color_by=color_by, arrays=arrays
+                    image, record, layers, color_by=color_by, arrays=arrays
                 )
             ], [source_name]
         tiles: list[Renderable] = []
-        for record in records.values():
-            tile = visualize_record(record, image, options=self.options)
-            # Grid tiles carry no per-record panel here, so they are plain images
-            # whose annotations the layer toggles filter.
+        # The fields come from the array labels (see `tiles`), so a task tile
+        # does not draw the array detections of the record again.
+        options = self.options.replace(array_view="off")
+        for task_name, detections in record.annotation.items():
+            # Without its metadata, a task tile gets no panel: it is a plain
+            # image whose annotations the layer toggles filter.
+            task_record = record.model_copy(
+                update={
+                    "annotation": {task_name: detections},
+                    "sample_metadata": {},
+                }
+            )
+            tile = visualize_record(task_record, image, options=options)
             if isinstance(tile, Image):
                 tile.annotations[:] = layers.apply_layers(
                     tile.annotations, self.options.theme.palette
                 )
             tiles.append(tile)
-        return tiles, [f"{source_name} · {task}" for task in records]
+        return tiles, [f"{source_name} · {task}" for task in record.annotation]
 
     def tiles(
         self,
         images: "Mapping[str, np.ndarray]",
         arrays: "Mapping[str, np.ndarray]",
-        records: "Mapping[str, DatasetRecord]",
+        record: "DatasetRecord",
         layers: "LayerState",
         color_by: ColorBy,
     ) -> "tuple[list[Renderable], list[str]]":
@@ -305,7 +317,7 @@ class SampleComposer:
                 source_name,
                 source_image.astype(np.uint8),
                 arrays if source_name == overlay_source else {},
-                records,
+                record,
                 layers,
                 color_by,
             )
@@ -413,7 +425,7 @@ class SampleComposer:
         self,
         images: "Mapping[str, np.ndarray]",
         arrays: "Mapping[str, np.ndarray]",
-        records: "Mapping[str, DatasetRecord]",
+        record: "DatasetRecord",
         panel: "Mapping[str, PanelData]",
         layers: "LayerState",
         color_by: ColorBy,
@@ -428,19 +440,19 @@ class SampleComposer:
         """
         reserve = self.panel_width if self.panel else 0.0
         frame = self._compose(
-            *self.tiles(images, arrays, records, layers, color_by), reserve
+            *self.tiles(images, arrays, record, layers, color_by), reserve
         )
         if not self.panel:
             return frame
         return frame.with_panel(
-            self.sidebar(panel, layers, task_names=tuple(records))
+            self.sidebar(panel, layers, task_names=tuple(record.annotation))
         )
 
     def render(
         self,
         images: "Mapping[str, np.ndarray]",
         arrays: "Mapping[str, np.ndarray]",
-        records: "Mapping[str, DatasetRecord]",
+        record: "DatasetRecord",
         panel: "Mapping[str, PanelData]",
         layers: "LayerState",
         color_by: ColorBy,
@@ -452,7 +464,7 @@ class SampleComposer:
         metadata panel (without the interactive controls) unless the panel is
         off. Draws the same pixels whether the caller writes stills or a clip.
         """
-        tiles, titles = self.tiles(images, arrays, records, layers, color_by)
+        tiles, titles = self.tiles(images, arrays, record, layers, color_by)
         if not tiles:
             return None
         if len(tiles) == 1:
@@ -465,7 +477,7 @@ class SampleComposer:
                 self.sidebar(
                     panel,
                     layers,
-                    task_names=tuple(records),
+                    task_names=tuple(record.annotation),
                     controls=False,
                 ),
             )

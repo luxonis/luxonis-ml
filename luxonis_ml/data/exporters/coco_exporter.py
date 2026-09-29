@@ -12,11 +12,12 @@ from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
     check_group_file_correspondence,
     exporter_specific_annotation_warning,
-    get_single_skeleton,
     split_of_group,
+    warn_repeated_keypoint_names,
 )
 from luxonis_ml.data.utils import COCOFormat
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.ldf import KeypointMetadata
 
 
 class CocoExporter(BaseExporter):
@@ -24,7 +25,7 @@ class CocoExporter(BaseExporter):
 
     Attributes:
         format: COCO output layout variant.
-        skeletons: Optional keypoint skeleton metadata.
+        keypoint_metadata: Optional keypoint definitions per task.
         allow_keypoints: Whether keypoint annotations can be exported.
         class_name_to_category_id: Category IDs per split and class name.
         last_category_id: Last assigned category ID per split.
@@ -39,21 +40,39 @@ class CocoExporter(BaseExporter):
         max_partition_size_gb: float | None,
         format: COCOFormat = COCOFormat.ROBOFLOW,
         *,
-        skeletons: dict[str, Any] | None = None,
+        keypoint_metadata: dict[str, KeypointMetadata] | None = None,
     ):
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
         self.format = format
-        self.skeletons = skeletons
-        if self.skeletons is None:
+        self.keypoint_metadata = keypoint_metadata
+        self._category_keypoints: dict[str, Any] = {}
+        if not self.keypoint_metadata:
             self.allow_keypoints = False
-        elif len(self.skeletons) == 1:
+        elif len(self.keypoint_metadata) == 1:
             self.allow_keypoints = True
+            task, task_keypoints = next(iter(self.keypoint_metadata.items()))
+            warn_repeated_keypoint_names(
+                task,
+                task_keypoints,
+                "The export writes them, but the COCO import of luxonis-ml "
+                "rejects repeated names.",
+            )
+            if task_keypoints.labels:
+                # COCO numbers the ends of a skeleton edge from 1.
+                self._category_keypoints = {
+                    "keypoints": task_keypoints.labels,
+                    "skeleton": [
+                        [a + 1, b + 1] for a, b in task_keypoints.edges
+                    ],
+                }
+            if task_keypoints.sigmas:
+                self._category_keypoints["sigmas"] = task_keypoints.sigmas
         else:
             self.allow_keypoints = False
             logger.warning(
-                "Skipping keypoint annotations because COCO only supports a single keypoint export class."
+                "Skipping keypoint annotations because COCO only supports a single keypoint export class. "
                 "To export multiple keypoint classes please use the Luxonis native export format"
             )
 
@@ -205,15 +224,7 @@ class CocoExporter(BaseExporter):
         if cname and cname not in self.class_name_to_category_id[split]:
             cid = self.last_category_id[split]
 
-            cat_entry = {"id": cid, "name": cname}
-
-            if self.allow_keypoints:
-                kp_labels, kp_skeleton = get_single_skeleton(
-                    self.allow_keypoints, self.skeletons
-                )
-                if kp_labels:
-                    cat_entry["keypoints"] = kp_labels
-                    cat_entry["skeleton"] = kp_skeleton
+            cat_entry = {"id": cid, "name": cname, **self._category_keypoints}
 
             annotation_splits[split]["categories"].append(cat_entry)
             self.class_name_to_category_id[split][cname] = cid

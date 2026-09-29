@@ -1,26 +1,177 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 from loguru import logger
 from pydantic import SecretStr
+from typing_extensions import override
 
 from luxonis_ml.data import (
     BaseDataset,
+    DatasetIterator,
+    LuxonisDataset,
     LuxonisLoader,
     LuxonisParser,
     ParserIssue,
 )
-from luxonis_ml.data.parsers import luxonis_parser
+from luxonis_ml.data.parsers import COCOParser, SOLOParser, luxonis_parser
 from luxonis_ml.data.parsers.base_parser import BaseParser, ParserOutput
+from luxonis_ml.data.parsers.native_parser import NativeParser
 from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.ldf import DatasetRecord, Detection
 from luxonis_ml.utils import environ
 
 from .utils import create_image
+
+KEYPOINT_LABELS = ["nose", "left_eye", "right_eye"]
+PERSON_CATEGORY = {
+    "id": 1,
+    "name": "person",
+    "keypoints": KEYPOINT_LABELS,
+    "skeleton": [[1, 2], [1, 3]],
+}
+HAND_CATEGORY = {
+    "id": 2,
+    "name": "hand",
+    "keypoints": ["thumb", "index"],
+    "skeleton": [[1, 2]],
+}
+PERSON_ANNOTATION = {
+    "id": 1,
+    "image_id": 1,
+    "category_id": 1,
+    "bbox": [128, 128, 256, 256],
+    "keypoints": [256, 200, 2, 230, 180, 2, 280, 180, 2],
+}
+HAND_ANNOTATION = {
+    "id": 2,
+    "image_id": 1,
+    "category_id": 2,
+    "bbox": [10, 10, 60, 60],
+    "keypoints": [20, 20, 2, 50, 50, 2],
+}
+HAND_BOX_ANNOTATION = {
+    "id": 3,
+    "image_id": 1,
+    "category_id": 2,
+    "bbox": [10, 10, 60, 60],
+}
+SOLO_BBOX_TYPE = "type.unity.com/unity.solo.BoundingBox2DAnnotation"
+SOLO_KEYPOINT_TYPE = "type.unity.com/unity.solo.KeypointAnnotation"
+
+
+def write_coco_keypoint_dataset(
+    dataset_dir: Path,
+    categories: Sequence[Mapping[str, object]],
+    annotations: Sequence[Mapping[str, object]],
+) -> None:
+    """Write a Roboflow COCO dataset with one image in each of two
+    splits.
+    """
+    for split, index in [("train", 16), ("valid", 17)]:
+        split_dir = dataset_dir / split
+        split_dir.mkdir(parents=True)
+        image = create_image(index, split_dir)
+        (split_dir / "_annotations.coco.json").write_text(
+            json.dumps(
+                {
+                    "images": [
+                        {
+                            "id": 1,
+                            "file_name": image.name,
+                            "width": 512,
+                            "height": 512,
+                        }
+                    ],
+                    "annotations": annotations,
+                    "categories": categories,
+                }
+            )
+        )
+
+
+def write_solo_split(
+    split_dir: Path,
+    keypoint_labels: list[str],
+    class_names: Sequence[str] = ("person",),
+) -> None:
+    """Write a SOLO split with one person.
+
+    The split defines a box class for each name in ``class_names``. The
+    person has keypoints only if the split defines keypoint names.
+    """
+    sequence_dir = split_dir / "sequence.0"
+    sequence_dir.mkdir(parents=True)
+    image = create_image(0, sequence_dir)
+    definitions: list[dict[str, object]] = [
+        {
+            "@type": SOLO_BBOX_TYPE,
+            "spec": [
+                {"label_id": i, "label_name": name}
+                for i, name in enumerate(class_names)
+            ],
+        }
+    ]
+    annotations: list[dict[str, object]] = [
+        {
+            "@type": SOLO_BBOX_TYPE,
+            "values": [
+                {
+                    "labelName": "person",
+                    "instanceId": 1,
+                    "origin": [10, 10],
+                    "dimension": [100, 100],
+                }
+            ],
+        }
+    ]
+    if keypoint_labels:
+        definitions.append(
+            {
+                "@type": SOLO_KEYPOINT_TYPE,
+                "template": {
+                    "keypoints": [
+                        {"index": i, "label": label}
+                        for i, label in enumerate(keypoint_labels)
+                    ]
+                },
+            }
+        )
+        annotations.append(
+            {
+                "@type": SOLO_KEYPOINT_TYPE,
+                "values": [
+                    {
+                        "instanceId": 1,
+                        "keypoints": [
+                            {"location": [20 + 10 * i, 30], "state": 2}
+                            for i in range(len(keypoint_labels))
+                        ],
+                    }
+                ],
+            }
+        )
+
+    (split_dir / "annotation_definitions.json").write_text(
+        json.dumps({"annotationDefinitions": definitions}), encoding="utf-8"
+    )
+    (sequence_dir / "step0.frame_data.json").write_text(
+        json.dumps(
+            {
+                "step": 0,
+                "captures": [
+                    {
+                        "filename": image.name,
+                        "dimension": [512, 512],
+                        "annotations": annotations,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 @pytest.mark.parametrize(
@@ -516,12 +667,11 @@ class _WarningParser(BaseParser):
         *,
         reason: str = "dummy skipped annotation",
         full_warnings: bool = False,
-        task_name: str | dict[str, str] | None = None,
     ):
         super().__init__(
             cast(BaseDataset, _DummyDataset()),
             DatasetType.COCO,
-            task_name,
+            None,
             full_warnings=full_warnings,
         )
         self.warning_count = warning_count
@@ -544,67 +694,6 @@ class _WarningParser(BaseParser):
                 annotation_id=annotation_id,
             )
         return iter(()), {}, []
-
-
-@pytest.mark.parametrize(
-    ("task_names", "expected"),
-    [
-        (
-            {"cat": "animals", "dog": "animals"},
-            {"animals": ["cat", "dog"]},
-        ),
-        (
-            {"cat": "felines", "dog": "canines"},
-            {"felines": ["cat"], "canines": ["dog"]},
-        ),
-    ],
-)
-def test_wrap_generator_groups_list_annotations_by_task(
-    tmp_path: Path,
-    task_names: dict[str, str],
-    expected: dict[str, list[str]],
-) -> None:
-    image = tmp_path / "image.jpg"
-    image.write_bytes(b"x")
-    record = DatasetRecord(
-        file=image,  # type: ignore[call-arg]
-        annotation=[
-            Detection(class_name="cat"),
-            Detection(class_name="dog"),
-        ],
-    )
-    parser = _WarningParser(0, task_name=task_names)
-
-    wrapped = list(parser._wrap_generator(iter([record])))
-    records = [cast(DatasetRecord, item) for item in wrapped]
-
-    assert {
-        item.task_name: [
-            annotation.class_name for annotation in item._annotations()
-        ]
-        for item in records
-    } == expected
-    assert [annotation.class_name for annotation in record._annotations()] == [
-        "cat",
-        "dog",
-    ]
-
-
-def test_wrap_generator_keeps_empty_list_for_each_mapped_task(
-    tmp_path: Path,
-) -> None:
-    image = tmp_path / "negative.jpg"
-    image.write_bytes(b"x")
-    record = DatasetRecord(file=image, annotation=[])  # type: ignore[call-arg]
-    parser = _WarningParser(0, task_name={"cat": "felines", "dog": "canines"})
-
-    wrapped = [
-        cast(DatasetRecord, item)
-        for item in parser._wrap_generator(iter([record]))
-    ]
-
-    assert [item.task_name for item in wrapped] == ["felines", "canines"]
-    assert [item.annotation for item in wrapped] == [[], []]
 
 
 def test_skipped_annotation_warnings_are_capped():
@@ -806,6 +895,284 @@ def test_ultralytics_ndjson_remote_urls_parser_rejects_existing_remote_dir_when_
             delete_local=True,
             save_dir=tempdir,
         ).parse(reuse_cached=False)
+
+
+def test_parser_scopes_keypoint_metadata_to_the_task_of_its_class(
+    dataset_name: str,
+    tempdir: Path,
+):
+    """Each task keeps the keypoint labels of its own class.
+
+    `_parse_split` keys the parser output by source class name, so it
+    gives `set_keypoint_metadata` the task of each class. Without a task,
+    the last keypoint category would overwrite every task, also a task
+    that holds no keypoints.
+    """
+    dataset_dir = tempdir / "coco_two_keypoint_classes"
+    write_coco_keypoint_dataset(
+        dataset_dir,
+        [PERSON_CATEGORY, HAND_CATEGORY],
+        [PERSON_ANNOTATION, HAND_ANNOTATION],
+    )
+
+    dataset = LuxonisParser(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        dataset_type=DatasetType.COCO,
+        task_name={"person": "pose", "hand": "hands"},
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+    try:
+        keypoint_metadata = dataset.get_keypoint_metadata()
+        assert keypoint_metadata["pose"].labels == KEYPOINT_LABELS
+        assert keypoint_metadata["hands"].labels == ["thumb", "index"]
+        assert dataset.get_n_keypoints() == {"pose": 3, "hands": 2}
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
+@pytest.mark.parametrize(
+    "hand_category",
+    [
+        pytest.param(HAND_CATEGORY, id="hand"),
+        pytest.param(
+            {**HAND_CATEGORY, "keypoints": ["tip", "tip"]}, id="bad-hand"
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    ("task_name", "annotations", "task"),
+    [
+        pytest.param(
+            {"person": "pose"}, [PERSON_ANNOTATION], "pose", id="no-task"
+        ),
+        pytest.param(
+            {"person": "pose", "hand": "hands"},
+            [PERSON_ANNOTATION],
+            "pose",
+            id="own-task",
+        ),
+        pytest.param("pose", [PERSON_ANNOTATION], "pose", id="shared-task"),
+        pytest.param(None, [PERSON_ANNOTATION], "", id="no-task-names"),
+        pytest.param(
+            "pose",
+            [PERSON_ANNOTATION, HAND_BOX_ANNOTATION],
+            "pose",
+            id="boxes-only",
+        ),
+    ],
+)
+def test_parser_skips_the_keypoints_of_a_class_without_keypoints(
+    dataset_name: str,
+    tempdir: Path,
+    *,
+    task_name: str | dict[str, str] | None,
+    annotations: Sequence[Mapping[str, object]],
+    task: str,
+    hand_category: Mapping[str, object],
+):
+    """The parser uses only the keypoint definitions of annotated classes.
+
+    COCO lists each category with keypoints, also a category without
+    keypoint annotations. The definition of such a class must not cause
+    these problems:
+
+        - A task mapping without the class makes the lookup of its task
+          raise a bare `KeyError`.
+        - A task that the class shares gets the keypoint names of the
+          class. The next split then fails, because its keypoints do not
+          fit these names.
+        - A task of the class alone gets keypoint metadata, but no
+          keypoints.
+        - A bad definition, such as repeated names, stops the parse.
+
+    The `KeyError` and the failed split come after `add` writes the first
+    split, so the dataset would get no splits.
+    """
+    dataset_dir = tempdir / "coco_keypoint_class_without_keypoints"
+    write_coco_keypoint_dataset(
+        dataset_dir, [PERSON_CATEGORY, hand_category], annotations
+    )
+
+    dataset = LuxonisParser(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        dataset_type=DatasetType.COCO,
+        task_name=task_name,
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+    try:
+        keypoint_metadata = dataset.get_keypoint_metadata()
+        assert list(keypoint_metadata) == [task]
+        assert keypoint_metadata[task].labels == KEYPOINT_LABELS
+        assert dataset.get_n_keypoints() == {task: 3}
+        splits = dataset.get_splits()
+        assert splits is not None
+        assert sum(len(group_ids) for group_ids in splits.values()) == 2
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
+@pytest.mark.parametrize(
+    ("category", "message"),
+    [
+        pytest.param(
+            {**PERSON_CATEGORY, "sigmas": [0.1, 0.0, 0.1]},
+            "greater than 0",
+            id="zero-sigma",
+        ),
+        pytest.param(
+            {**PERSON_CATEGORY, "keypoints": ["nose", "eye", "eye"]},
+            "Duplicate keypoint names",
+            id="repeated-names",
+        ),
+        pytest.param(
+            {
+                **PERSON_CATEGORY,
+                "keypoints": ["nose", "eye"],
+                "skeleton": [[1, 2]],
+            },
+            "3 keypoints, but the task defines only 2",
+            id="fewer-names",
+        ),
+    ],
+)
+def test_parser_checks_the_keypoint_metadata_before_it_adds_a_split(
+    dataset_name: str,
+    tempdir: Path,
+    category: Mapping[str, object],
+    message: str,
+):
+    """The parser checks the keypoint metadata before `add`.
+
+    A failed check must leave no rows of the split, because the dataset
+    would keep them without their keypoint names and without splits. A
+    category with fewer names than its annotations have keypoints fails
+    the check too.
+    """
+    dataset_dir = tempdir / "coco_bad_keypoint_class"
+    write_coco_keypoint_dataset(dataset_dir, [category], [PERSON_ANNOTATION])
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+
+    with pytest.raises(ValueError, match=message):
+        COCOParser(dataset, DatasetType.COCO, {"person": "pose"}).parse_dir(
+            dataset_dir
+        )
+
+    assert len(dataset) == 0
+    assert dataset.get_keypoint_metadata() == {}
+    dataset.delete_dataset(delete_local=True)
+
+
+class _FlipPairsCOCOParser(COCOParser):
+    """Parse a COCO source that also defines empty flip pairs."""
+
+    @override
+    def from_split(
+        self, image_dir: Path, annotation_path: Path
+    ) -> ParserOutput:
+        generator, keypoints, added_images = super().from_split(
+            image_dir, annotation_path
+        )
+        for definition in keypoints.values():
+            definition["flip_pairs"] = []
+        return generator, keypoints, added_images
+
+
+def test_parser_stores_the_flip_pairs_of_the_source(
+    dataset_name: str, tempdir: Path
+):
+    """The parser stores the flip pairs of a source.
+
+    Otherwise `set_keypoint_metadata` infers flip pairs from the names.
+    The source gives an empty list, which turns the inference off, so the
+    two eyes stay unpaired.
+    """
+    dataset_dir = tempdir / "coco_with_flip_pairs"
+    write_coco_keypoint_dataset(
+        dataset_dir, [PERSON_CATEGORY], [PERSON_ANNOTATION]
+    )
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+
+    _FlipPairsCOCOParser(dataset, DatasetType.COCO, "pose").parse_dir(
+        dataset_dir
+    )
+
+    keypoints = dataset.get_keypoint_metadata()["pose"]
+    assert keypoints.labels == KEYPOINT_LABELS
+    assert keypoints.flip_pairs == []
+    dataset.delete_dataset(delete_local=True)
+
+
+def test_solo_keypoints_get_no_invented_edges(
+    dataset_name: str, tempdir: Path
+):
+    """SOLO names its keypoints, but it defines no skeleton.
+
+    `add` runs first and writes placeholder chain edges. The names that
+    the parser gives then drop them. Otherwise an inspection draws lines
+    between unrelated keypoints, and a COCO export writes them as the
+    category skeleton.
+    """
+    split_dir = tempdir / "solo" / "train"
+    write_solo_split(split_dir, KEYPOINT_LABELS)
+
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    SOLOParser(dataset, DatasetType.SOLO, "pose").parse_split(
+        split_path=split_dir
+    )
+
+    keypoints = dataset.get_keypoint_metadata()["pose"]
+    assert keypoints.labels == KEYPOINT_LABELS
+    assert keypoints.edges == []
+    dataset.delete_dataset(delete_local=True)
+
+
+def test_solo_skips_the_keypoints_of_a_class_without_a_task(
+    dataset_name: str, tempdir: Path
+):
+    """SOLO defines the keypoints for each box class.
+
+    A class that the task mapping leaves out has no task, so the parser
+    skips its keypoints and does not raise a bare `KeyError`.
+    """
+    split_dir = tempdir / "solo" / "train"
+    write_solo_split(split_dir, KEYPOINT_LABELS, ["person", "car"])
+
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    SOLOParser(dataset, DatasetType.SOLO, {"person": "pose"}).parse_split(
+        split_path=split_dir
+    )
+
+    keypoint_metadata = dataset.get_keypoint_metadata()
+    assert list(keypoint_metadata) == ["pose"]
+    assert keypoint_metadata["pose"].labels == KEYPOINT_LABELS
+    dataset.delete_dataset(delete_local=True)
+
+
+def test_a_solo_split_without_keypoints_gets_no_keypoint_metadata(
+    dataset_name: str, tempdir: Path
+):
+    """SOLO sends empty keypoint metadata for each class.
+
+    The dataset must not store an empty entry, or `metadata.json` gets the
+    LDF 2.2 key ``keypoint_metadata``, and an older luxonis-ml refuses to
+    open a dataset without keypoints.
+    """
+    split_dir = tempdir / "solo" / "train"
+    write_solo_split(split_dir, [])
+
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    SOLOParser(dataset, DatasetType.SOLO, None).parse_split(
+        split_path=split_dir
+    )
+
+    assert dataset.get_keypoint_metadata() == {}
+    metadata_path = dataset._metadata_path / "metadata.json"
+    assert "keypoint_metadata" not in json.loads(metadata_path.read_text())
+    dataset.delete_dataset(delete_local=True)
 
 
 def test_partial_split_clsdir_is_preserved(
@@ -1060,3 +1427,90 @@ def test_ultralytics_version_selects_an_export(
 
     assert ultralytics_requests[0]["params"] == {"v": 3}
     assert destination == tempdir / "warehouse.v3.ndjson"
+
+
+def native_parser(
+    dataset_name: str, task_name: str | dict[str, str]
+) -> NativeParser:
+    return NativeParser(
+        dataset=LuxonisDataset(dataset_name, delete_local=True),
+        dataset_type=DatasetType.NATIVE,
+        task_name=task_name,
+    )
+
+
+def test_task_names_group_a_record_by_class(dataset_name: str, tempdir: Path):
+    """A record's detections split across the tasks their classes name.
+
+    A record used to carry one detection, so the parser could set a single
+    task name on it. Now the detections of one record can belong to
+    different tasks, and each has to land in its own group.
+    """
+    parser = native_parser(
+        dataset_name, {"car": "vehicles", "rain": "weather"}
+    )
+    image = create_image(0, tempdir)
+
+    def generator() -> DatasetIterator:
+        yield {
+            "media": image,
+            "annotation": [
+                {"class": "car"},
+                {"class": "rain"},
+                {"boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1}},
+            ],
+        }
+
+    (record,) = list(parser._wrap_generator(generator()))
+
+    assert {
+        task_name: [detection.class_name for detection in detections]
+        for task_name, detections in record.annotation.items()
+    } == {"vehicles": ["car"], "weather": ["rain"], "": [None]}
+
+
+def test_task_names_reject_an_unknown_class(dataset_name: str, tempdir: Path):
+    parser = native_parser(dataset_name, {"car": "vehicles"})
+    image = create_image(0, tempdir)
+
+    def generator() -> DatasetIterator:
+        yield {"media": image, "annotation": [{"class": "bicycle"}]}
+
+    with pytest.raises(ValueError, match="not found in task names"):
+        list(parser._wrap_generator(generator()))
+
+
+@pytest.mark.parametrize(
+    ("task_name", "expected"),
+    [
+        pytest.param(
+            {"car": "vehicles", "rain": "weather"},
+            ["vehicles", "weather"],
+            id="mapping",
+        ),
+        pytest.param("vehicles", ["vehicles"], id="string"),
+    ],
+)
+def test_an_unlabeled_record_is_yielded_for_every_task(
+    dataset_name: str,
+    tempdir: Path,
+    task_name: str | dict[str, str],
+    expected: list[str],
+):
+    """A single task name gave no task to an unlabeled first record.
+
+    The parser took the task names from a mapping that fills only when a
+    class is looked up. The record thus got no task, and it was lost.
+    """
+    parser = native_parser(dataset_name, task_name)
+    image = create_image(0, tempdir)
+
+    def generator() -> DatasetIterator:
+        yield {"media": image}
+
+    records = list(parser._wrap_generator(generator()))
+
+    assert (
+        sorted(name for record in records for name in record.annotation)
+        == expected
+    )

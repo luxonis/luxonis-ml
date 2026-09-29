@@ -319,7 +319,7 @@ def test_blend_pads_mismatched_sizes_and_is_pure() -> None:
 
 def test_blend_transforms_annotations_for_padded_images() -> None:
     box = BBox(x=0.5, y=0.3, w=0.4, h=0.5, label="small")
-    box.add(Keypoints(keypoints=[(0.75, 0.6, 2)]))
+    box.add(Keypoints.model_validate({"keypoints": [(0.75, 0.6, 2)]}))
     box.add(Mask(mask=np.ones((10, 20), dtype=np.uint8)))  # type: ignore
     small = Image(np.zeros((10, 20, 3), np.uint8)).add(box)
     large = Image(np.zeros((30, 40, 3), np.uint8))
@@ -336,7 +336,7 @@ def test_blend_transforms_annotations_for_padded_images() -> None:
     keypoints = next(
         child for child in transformed.children if isinstance(child, Keypoints)
     )
-    assert np.allclose(keypoints.keypoints, [(0.375, 0.2, 2)])
+    assert np.allclose(list(keypoints.keypoints.values()), [(0.375, 0.2, 2)])
     mask = next(
         child for child in transformed.children if isinstance(child, Mask)
     )

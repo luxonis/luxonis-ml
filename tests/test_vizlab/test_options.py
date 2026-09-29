@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from luxonis_ml.ldf import Detection, KeypointAnnotation
+from luxonis_ml.ldf import Detection, KeypointAnnotation, KeypointMetadata
 from luxonis_ml.vizlab import (
     DARK_THEME,
     LIGHT_THEME,
@@ -44,11 +44,16 @@ def test_default_options_scope_restores_on_exit() -> None:
     assert current_options() is before
 
 
+_POSE_METADATA = {"pose": KeypointMetadata(labels=["a", "b"], edges=[(0, 1)])}
+
+
 def _pose(options: RenderOptions) -> Keypoints:
     """Build the `Keypoints` the LDF adapter makes for a two-joint pose."""
     detection = Detection(
         class_name="person",
-        keypoints=KeypointAnnotation(keypoints=[(0.2, 0.5, 2), (0.0, 0.0, 0)]),
+        keypoints=KeypointAnnotation.model_validate(
+            {"keypoints": [(0.2, 0.5, 2), (0.0, 0.0, 0)]}
+        ),
     )
     annotations = detection_to_annotations(
         detection, options, task_name="pose"
@@ -62,14 +67,19 @@ def test_skeleton_edges_reach_the_annotation() -> None:
     # The edges are what let an absent joint be marked rather than dropped, so
     # they have to survive the trip from the options to the annotation.
     options = RenderOptions(
-        skeletons={"pose": (["a", "b"], [(0, 1)])}, draw_skeletons=True
+        keypoint_metadata=_POSE_METADATA, draw_skeletons=True
     )
     assert _pose(options).edges == [(0, 1)]
 
 
 def test_skeleton_edges_withheld_when_skeletons_are_off() -> None:
-    options = RenderOptions(skeletons={"pose": (["a", "b"], [(0, 1)])})
+    options = RenderOptions(keypoint_metadata=_POSE_METADATA)
     assert _pose(options).edges == []
+
+
+def test_keypoint_names_reach_the_annotation() -> None:
+    options = RenderOptions(keypoint_metadata=_POSE_METADATA)
+    assert list(_pose(options).keypoints) == ["a", "b"]
 
 
 def test_default_options_nesting() -> None:

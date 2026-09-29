@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from luxonis_ml.data.parsers.native_parser import NativeParser
 from luxonis_ml.data.parsers.yolov4_parser import YoloV4Parser
 from luxonis_ml.enums import DatasetType
@@ -47,12 +49,71 @@ def test_native_parser_accepts_windows_style_file_paths(tempdir: Path):
 
     parsed_record = next(iter(generator))
     parsed_file = (
-        parsed_record["file"]
+        parsed_record["media"]
         if isinstance(parsed_record, dict)
         else parsed_record.file
     )
     assert parsed_file == copied_image.resolve()
     assert added_images == [copied_image.resolve()]
+
+
+def test_native_parser_resolves_paths_in_a_task_keyed_manifest(
+    tempdir: Path,
+):
+    """A manifest groups its detections by task name.
+
+    That is the shape an export writes, so the companion mask path inside
+    it has to be resolved. Only the deprecated flat shapes were, and the
+    record then failed to validate against the process directory.
+    """
+    image_path = create_image(0, tempdir)
+    split_dir = tempdir / "train"
+    image_dir = split_dir / "images"
+    mask_dir = split_dir / "masks"
+    image_dir.mkdir(parents=True)
+    mask_dir.mkdir(parents=True)
+    copied_image = image_dir / image_path.name
+    copied_image.write_bytes(image_path.read_bytes())
+    mask_path = mask_dir / "0.png"
+    mask_path.write_bytes(image_path.read_bytes())
+
+    annotations_path = split_dir / "annotations.json"
+    annotations_path.write_text(
+        json.dumps(
+            [
+                {
+                    "media": f"images/{image_path.name}",
+                    "annotation": {
+                        "seg": [
+                            {
+                                "class": "class0",
+                                "segmentation": {"mask": "masks/0.png"},
+                            }
+                        ],
+                        "aux": {
+                            "class": "class1",
+                            "segmentation": {"mask": "masks/0.png"},
+                        },
+                    },
+                }
+            ],
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    generator, _, _ = NativeParser(
+        dataset=None,  # type: ignore[arg-type]
+        dataset_type=DatasetType.NATIVE,
+        task_name=None,
+    ).from_split(annotation_path=annotations_path)
+
+    parsed_record = next(iter(generator))
+    assert isinstance(parsed_record, dict)
+    resolved = parsed_record["annotation"]["seg"][0]["segmentation"]["mask"]
+    assert Path(resolved) == mask_path.resolve()
+    scalar = parsed_record["annotation"]["aux"]["segmentation"]["mask"]
+    assert Path(scalar) == mask_path.resolve()
 
 
 def test_yolov4_parser_keeps_unlabeled_image_with_duplicate_basename(
@@ -86,7 +147,9 @@ def test_yolov4_parser_keeps_unlabeled_image_with_duplicate_basename(
     records = list(generator)
     files = {
         Path(
-            record["file"] if isinstance(record, dict) else record.file
+            record["media"]
+            if isinstance(record, dict)
+            else next(iter(record.file_paths.values()))
         ).resolve()
         for record in records
     }
@@ -95,11 +158,18 @@ def test_yolov4_parser_keeps_unlabeled_image_with_duplicate_basename(
     assert unlabeled_image.resolve() in files
 
 
-def test_native_parser_resolves_array_annotation_paths(tempdir: Path):
-    # An array annotation points at a companion .npy the same way a mask points
-    # at a companion image. Before this was resolved against the manifest, a
-    # relative path was validated against the process's CWD instead, so any
-    # portable dataset carrying arrays failed to parse at all.
+@pytest.mark.parametrize(
+    "key",
+    [
+        pytest.param("path", id="stored-key"),
+        # The documented input name was left relative to the working
+        # directory.
+        pytest.param("data", id="input-key"),
+    ],
+)
+def test_native_parser_resolves_array_annotation_paths(
+    tempdir: Path, key: str
+):
     import numpy as np
 
     image_path = create_image(0, tempdir)
@@ -120,7 +190,7 @@ def test_native_parser_resolves_array_annotation_paths(tempdir: Path):
                     "task_name": "stereo",
                     "annotation": {
                         "class": "disparity",
-                        "array": {"path": "arrays/0.npy"},
+                        "array": {key: "arrays/0.npy"},
                     },
                 }
             ],
@@ -136,16 +206,13 @@ def test_native_parser_resolves_array_annotation_paths(tempdir: Path):
     ).from_split(annotation_path=annotations_path)
 
     record = next(iter(generator))
-    assert isinstance(record, dict)  # the parser yields raw manifest records
-    assert record["annotation"]["array"]["path"] == array_path.resolve()
+    assert isinstance(record, dict)
+    assert record["annotation"]["array"]["data"] == array_path.resolve()
 
 
 def test_native_parser_resolves_paths_for_a_list_of_annotations(
     tempdir: Path,
 ):
-    # `annotation` may be a single detection or a list of them. Indexing the
-    # list as if it were a detection used to raise TypeError, which the
-    # surrounding suppress(KeyError) did not catch.
     image_path = create_image(0, tempdir)
     split_dir = tempdir / "train"
     (split_dir / "images").mkdir(parents=True)
@@ -183,7 +250,7 @@ def test_native_parser_resolves_paths_for_a_list_of_annotations(
     ).from_split(annotation_path=annotations_path)
 
     record = next(iter(generator))
-    assert isinstance(record, dict)  # the parser yields raw manifest records
+    assert isinstance(record, dict)
     resolved = record["annotation"][0]["segmentation"]["mask"]
     assert resolved == mask_path.resolve()
 

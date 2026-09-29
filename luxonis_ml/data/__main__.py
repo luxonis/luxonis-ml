@@ -33,6 +33,7 @@ from luxonis_ml.data.utils.cli_utils import (
     get_tracked_augmentations,
     parse_split_ratio,
     print_info,
+    printed_sample_metadata,
 )
 from luxonis_ml.data.utils.data_utils import HEATMAP_TASK_TYPES
 from luxonis_ml.data.utils.enums import BucketStorage
@@ -66,7 +67,7 @@ if TYPE_CHECKING:
 
     _InspectionSample: TypeAlias = tuple[
         LoaderOutput,
-        dict[str, DatasetRecord],
+        DatasetRecord,
         dict[str, PanelData],
     ]
 
@@ -112,7 +113,6 @@ _PaletteName: TypeAlias = Literal[
     "tol-muted",
     "tol-vibrant",
 ]
-_ClassMappings: TypeAlias = dict[str, dict[str, int]]
 _NO_SAMPLE_FILTERS = SampleFilterConfig()
 _DATASET_OPTIONS = Group("Dataset options", sort_key=10)
 _SAMPLE_FILTERS = Group("Sample filters", sort_key=20)
@@ -145,8 +145,6 @@ def _deduped_class_names(
     toggled; background (never drawn for detection/classification) is appended only
     when ``show_background`` renders its segmentation mask.
     """
-    from luxonis_ml.data.loaders.label_converter import _BACKGROUND
-
     stripped = list(
         dict.fromkeys(
             name.strip()
@@ -154,41 +152,47 @@ def _deduped_class_names(
             for name in names
         )
     )
-    classes = [n for n in stripped if n != _BACKGROUND]
-    if show_background and _BACKGROUND in stripped:
-        classes.append(_BACKGROUND)
+    classes = [n for n in stripped if n != "background"]
+    if show_background and "background" in stripped:
+        classes.append("background")
     return classes
 
 
-def _present_classes(records: "Iterable[DatasetRecord]") -> list[str]:
-    """Class names present in ``records``, first-seen order, stripped.
+def _present_classes(record: "DatasetRecord") -> list[str]:
+    """Class names present in ``record``, first-seen order, stripped.
 
     Drives which classes the inspector's ``c`` key cycles focus through, so it
     only offers what is actually on screen. Matches the loader's rendered names
     (``class_name.strip()``) and skips blank names.
     """
     seen: dict[str, None] = {}
-    for record in records:
-        for detection in record._annotations():
-            name = (detection.class_name or "").strip()
-            if name:
-                seen.setdefault(name, None)
+    for detection in chain.from_iterable(record.annotation.values()):
+        # An array is drawn as a field in its own colors, not its class color.
+        if detection.array is not None:
+            continue
+        name = (detection.class_name or "").strip()
+        if name:
+            seen.setdefault(name, None)
     return list(seen)
 
 
-def _filter_records_by_task(
-    records: "Mapping[str, DatasetRecord]",
+def _filter_record_by_task(
+    record: "DatasetRecord",
     task_names: frozenset[str] | None,
     mode: NameFilterMode = "include",
-) -> "dict[str, DatasetRecord]":
+) -> "DatasetRecord":
     """Apply an inclusive or exclusive complete-task-name filter."""
     if task_names is None:
-        return dict(records)
-    return {
-        name: record
-        for name, record in records.items()
-        if (name in task_names) == (mode == "include")
-    }
+        return record
+    return record.model_copy(
+        update={
+            "annotation": {
+                name: detections
+                for name, detections in record.annotation.items()
+                if (name in task_names) == (mode == "include")
+            }
+        }
+    )
 
 
 def _array_labels(
@@ -1052,17 +1056,11 @@ def inspect(
             seed=42 if deterministic else None,
         )
 
-    classes = dataset.get_classes()
     # Class names per task, so an array whose channels ride the LDF class
     # axis comes back with those channels named rather than numbered.
     array_class_names = dataset.get_class_names()
-    categorical_encodings = dataset.get_categorical_encodings()
-    keypoint_skeletons = dataset.get_skeletons()
 
     try:
-        from luxonis_ml.data.loaders.label_converter import (
-            loader_output_to_records,
-        )
         from luxonis_ml.vizlab import (
             DARK_THEME,
             LIGHT_THEME,
@@ -1107,7 +1105,7 @@ def inspect(
     class_palette = Palette(class_names, generator=color_generator)
     options = RenderOptions(
         theme=viz_theme.with_palette(class_palette),
-        skeletons=keypoint_skeletons,
+        keypoint_metadata=dataset.get_keypoint_metadata(),
         keypoint_label_mode=keypoint_labels,
         draw_skeletons=skeletons,
         hover_metadata=True,
@@ -1157,12 +1155,9 @@ def inspect(
 
     def build_panel(sample_metadata: "Params") -> "dict[str, PanelData]":
         tracked_augmentations = get_tracked_augmentations(sample_metadata)
-        if tracked_augmentations is not None:
-            sample_metadata = {
-                key: value
-                for key, value in sample_metadata.items()
-                if key != "augmentations"
-            }
+        sample_metadata = printed_sample_metadata(
+            sample_metadata, list_augmentations=False
+        )
         panel = (
             dict(_present_sample_metadata(sample_metadata))
             if sample_metadata
@@ -1174,27 +1169,17 @@ def inspect(
             )
         return panel
 
-    def records_from_labels(labels: "Labels") -> "dict[str, DatasetRecord]":
-        """Convert loader labels and apply the command's task-name filter."""
-        records = loader_output_to_records(
-            labels,
-            classes=classes,
-            categorical_encodings=categorical_encodings,
-            render_background=show_background,
-        )
-        return _filter_records_by_task(
-            records,
-            task_filter,
-            filters.task_name_mode,
-        )
-
     def prepared_samples() -> "Iterable[_InspectionSample]":
         """Convert, filter, and snapshot panel data in loader order."""
         for data in loader:
-            records = records_from_labels(data.labels)
+            record = _filter_record_by_task(
+                data.to_ldf(keep_background=show_background),
+                task_filter,
+                filters.task_name_mode,
+            )
             if not query.matches(
-                records,
-                data.metadata,
+                record,
+                record.sample_metadata,
                 extra_annotation_types=_loader_annotation_types(
                     data.labels,
                     task_filter,
@@ -1206,13 +1191,11 @@ def inspect(
             # provenance belongs to the current output and may be replaced by
             # the next augmentation call on the prefetch thread.
             panel = build_panel(data.metadata)
-            yield data, records, panel
+            yield data, record, panel
 
-    def sample_color_mode(
-        records: "Mapping[str, DatasetRecord]",
-    ) -> "ColorBy":
+    def sample_color_mode(record: "DatasetRecord") -> "ColorBy":
         """Resolve per-sample fallback for unsupported instance coloring."""
-        color_by = composer.fallback_color_by(records)
+        color_by = composer.fallback_color_by(record)
         if color_by != effective_color_by:
             print(
                 "[yellow]Warning: Instance coloring is not supported for this "
@@ -1229,8 +1212,8 @@ def inspect(
             a clip and a directory show exactly the same pixels.
             """
             layers = LayerState(declutter=not show_all)
-            for data, records, panel in prepared_samples():
-                layers.update_classes(_present_classes(records.values()))
+            for data, record, panel in prepared_samples():
+                layers.update_classes(_present_classes(record))
                 arrays = _array_labels(
                     data.labels, task_filter, filters.task_name_mode
                 )
@@ -1238,10 +1221,10 @@ def inspect(
                 viz = composer.render(
                     data.images,
                     arrays,
-                    records,
+                    record,
                     panel,
                     layers,
-                    sample_color_mode(records),
+                    sample_color_mode(record),
                 )
                 if viz is not None:
                     yield next(iter(data.images), "image"), viz
@@ -1271,18 +1254,18 @@ def inspect(
 
     def viewer_samples() -> "Iterable[ViewerSample]":
         """Bind each sample to its own frame builder, in loader order."""
-        for data, records, panel in prepared_samples():
+        for data, record, panel in prepared_samples():
             arrays = _array_labels(
                 data.labels, task_filter, filters.task_name_mode
             )
-            color_by = sample_color_mode(records)
+            color_by = sample_color_mode(record)
 
             def render(
                 layers: "LayerState",
                 *,
                 sources: "Mapping[str, np.ndarray]" = data.images,
                 sample_arrays: "Mapping[str, np.ndarray]" = arrays,
-                sample_records: "Mapping[str, DatasetRecord]" = records,
+                sample_record: "DatasetRecord" = record,
                 sample_panel: "Mapping[str, PanelData]" = panel,
                 identity: "ColorBy" = color_by,
             ) -> "Frame":
@@ -1291,7 +1274,7 @@ def inspect(
                 return composer.frame(
                     sources,
                     sample_arrays,
-                    sample_records,
+                    sample_record,
                     sample_panel,
                     layers,
                     identity,
@@ -1299,7 +1282,7 @@ def inspect(
 
             yield ViewerSample(
                 render=render,
-                classes=_present_classes(records.values()),
+                classes=_present_classes(record),
                 has_arrays=bool(arrays),
                 save_as=_sample_stem(data.metadata),
                 wait=bool(data.images),
@@ -1525,15 +1508,8 @@ def compare(
         )
 
     gt_loader, pred_loader = _loader(gt_dataset), _loader(pred_dataset)
-    gt_classes = gt_dataset.get_classes()
-    gt_categorical = gt_dataset.get_categorical_encodings()
-    pred_classes = pred_dataset.get_classes()
-    pred_categorical = pred_dataset.get_categorical_encodings()
 
     try:
-        from luxonis_ml.data.loaders.label_converter import (
-            loader_output_to_records,
-        )
         from luxonis_ml.vizlab import (
             DARK_THEME,
             LIGHT_THEME,
@@ -1572,7 +1548,7 @@ def compare(
     )
     options = RenderOptions(
         theme=viz_theme.with_palette(class_palette),
-        skeletons=gt_dataset.get_skeletons(),
+        keypoint_metadata=gt_dataset.get_keypoint_metadata(),
         keypoint_label_mode=keypoint_labels,
         draw_skeletons=skeletons,
     )
@@ -1608,34 +1584,21 @@ def compare(
         scale=size_multiplier,
     )
 
-    def records_for(
-        data: "LoaderOutput",
-        classes: _ClassMappings,
-        categorical: _ClassMappings,
-    ) -> "dict[str, DatasetRecord]":
-        records = loader_output_to_records(
-            data.labels,
-            classes=classes,
-            categorical_encodings=categorical,
-            render_background=show_background,
-        )
-        return _filter_records_by_task(
-            records,
+    def record_for(data: "LoaderOutput") -> "DatasetRecord":
+        return _filter_record_by_task(
+            data.to_ldf(keep_background=show_background),
             task_filter,
             filters.task_name_mode,
         )
 
-    def sample_matches(
-        data: "LoaderOutput",
-        classes: _ClassMappings,
-        categorical: _ClassMappings,
-    ) -> bool:
+    def sample_matches(data: "LoaderOutput") -> bool:
         """Whether one side of a comparison pair passes sample filters."""
         if not query.active:
             return True
+        record = record_for(data)
         return query.matches(
-            records_for(data, classes, categorical),
-            data.metadata,
+            record,
+            record.sample_metadata,
             extra_annotation_types=_loader_annotation_types(
                 data.labels,
                 task_filter,
@@ -1656,34 +1619,17 @@ def compare(
         print(f"[yellow]{description} ({len(ordered)}): {preview}.[/yellow]")
 
     def index_side(
-        loader: LuxonisLoader,
-        dataset_name: str,
-        classes: _ClassMappings,
-        categorical: _ClassMappings,
+        loader: LuxonisLoader, dataset_name: str
     ) -> "tuple[dict[SampleIdentity, int], dict[SampleIdentity, bool]]":
         """Index one side's identities, applying the sample filters."""
         return identity_index(
             loader,
             dataset_name,
-            matches=(
-                (lambda data: sample_matches(data, classes, categorical))
-                if query.active
-                else None
-            ),
+            matches=sample_matches if query.active else None,
         )
 
-    gt_indices, gt_selected = index_side(
-        gt_loader,
-        name,
-        gt_classes,
-        gt_categorical,
-    )
-    pred_indices, pred_selected = index_side(
-        pred_loader,
-        predictions,
-        pred_classes,
-        pred_categorical,
-    )
+    gt_indices, gt_selected = index_side(gt_loader, name)
+    pred_indices, pred_selected = index_side(pred_loader, predictions)
     gt_identities = set(gt_indices)
     pred_identities = set(pred_indices)
     report_unpaired(
@@ -1726,10 +1672,7 @@ def compare(
             gt_data = gt_loader[gt_indices[identity]]
             pred_data = pred_loader[pred_indices[identity]]
             report.add(
-                composer.match(
-                    records_for(gt_data, gt_classes, gt_categorical),
-                    records_for(pred_data, pred_classes, pred_categorical),
-                ),
+                composer.match(record_for(gt_data), record_for(pred_data)),
                 name=identity_label(identity),
             )
         _print_comparison_summary(report, name, predictions, per_class)
@@ -1740,15 +1683,11 @@ def compare(
 
     def paired(
         identity: "SampleIdentity",
-    ) -> "tuple[LoaderOutput, Mapping[str, DatasetRecord], Mapping[str, DatasetRecord]]":
+    ) -> "tuple[LoaderOutput, DatasetRecord, DatasetRecord]":
         """Load one paired sample: its images, then both sides' records."""
         gt_data = gt_loader[gt_indices[identity]]
         pred_data = pred_loader[pred_indices[identity]]
-        return (
-            gt_data,
-            records_for(gt_data, gt_classes, gt_categorical),
-            records_for(pred_data, pred_classes, pred_categorical),
-        )
+        return gt_data, record_for(gt_data), record_for(pred_data)
 
     if save is not None:
 
@@ -1762,11 +1701,11 @@ def compare(
             resolves every hover region from the scene itself.
             """
             for identity in shared:
-                gt_data, gt_records, pred_records = paired(identity)
+                gt_data, gt_record, pred_record = paired(identity)
                 yield (
                     next(iter(gt_data.images), "image"),
                     composer.frame(
-                        gt_data.images, gt_records, pred_records
+                        gt_data.images, gt_record, pred_record
                     ).image,
                 )
 
@@ -1788,10 +1727,10 @@ def compare(
     print(_PICK_HINT)
     composer = replace(composer, screen=viewer.screen)
     for identity in shared:
-        gt_data, gt_records, pred_records = paired(identity)
+        gt_data, gt_record, pred_record = paired(identity)
         viewer.show(
             name,
-            composer.frame(gt_data.images, gt_records, pred_records),
+            composer.frame(gt_data.images, gt_record, pred_record),
             # The window is titled with the dataset; a saved frame is named
             # after the pair of images it actually shows.
             save_as="-".join(Path(file).stem for _, file in identity),

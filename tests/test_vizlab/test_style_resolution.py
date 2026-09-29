@@ -129,7 +129,9 @@ def test_unlabeled_annotation_resolves_the_same_color_every_rebuild() -> None:
         canvas=Canvas.blank(2, 2), theme=LIGHT_THEME.with_palette(palette)
     )
     colors = {
-        Keypoints(keypoints=[(0.5, 0.5, 2)]).resolve_color(ctx)
+        Keypoints.model_validate({"keypoints": [(0.5, 0.5, 2)]}).resolve_color(
+            ctx
+        )
         for _ in range(5)
     }
     assert len(colors) == 1

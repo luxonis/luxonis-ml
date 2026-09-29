@@ -14,17 +14,16 @@ normalized before they are written to LDF parquet shards.
 Record Model
 ============
 
-Dataset ingestion starts with `DatasetRecord`. A record points to media,
-optionally assigns a task name, and optionally carries an annotation payload
-validated by `Detection`.
+Dataset ingestion starts with `DatasetRecord`. A record points to media and
+groups its annotation payloads, each validated by `Detection`, under the task
+name they belong to.
 
-Single-source records use ``"file"``:
+A single source is named by ``"media"``:
 
 .. code-block:: json
 
     {
-      "file": "path/to/image.jpg",
-      "task_name": "detection",
+      "media": "path/to/image.jpg",
 
       "sample_metadata": {
         "record_id": 123,
@@ -33,26 +32,29 @@ Single-source records use ``"file"``:
       },
 
       "annotation": {
-        "class": "car",
-        "boundingbox": {
-          "x": 0.1,
-          "y": 0.2,
-          "w": 0.3,
-          "h": 0.4
-        }
+        "detection": [
+          {
+            "class": "car",
+            "boundingbox": {
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            }
+          }
+        ]
       }
     }
 
-Multi-source records use ``"files"``:
+Several synchronized sources are named by the same key:
 
 .. code-block:: json
 
     {
-      "files": {
+      "media": {
         "rgb": "path/to/rgb.png",
         "depth": "path/to/depth.png"
       },
-      "task_name": "detection",
 
       "sample_metadata": {
         "sequence": "loading_dock_07",
@@ -60,13 +62,17 @@ Multi-source records use ``"files"``:
       },
 
       "annotation": {
-        "class": "person",
-        "boundingbox": {
-          "x": 0.1,
-          "y": 0.1,
-          "w": 0.3,
-          "h": 0.4
-        }
+        "detection": [
+          {
+            "class": "person",
+            "boundingbox": {
+              "x": 0.1,
+              "y": 0.1,
+              "w": 0.3,
+              "h": 0.4
+            }
+          }
+        ]
       }
     }
 
@@ -82,10 +88,25 @@ consumed by training code as annotation labels.
 **Frontend note:** ``sample_metadata`` is sample data, not an annotation
 target.
 
-Task names group annotations that should be consumed together. If no
-``task_name`` is provided, the empty string ``""`` is used. Loader label keys
-therefore follow ``"task_name/task_type"`` and default-task keys start with
-``"/"``.
+Task names group annotations that should be consumed together. The empty
+string ``""`` names the default task, so loader label keys follow
+``"task_name/task_type"`` and default-task keys start with ``"/"``.
+
+An empty ``annotation`` mapping marks a true negative. Such a sample counts as
+a negative for every task of the dataset. A task mapped to an empty list is a
+true negative that also declares the task, which is how a dataset can hold a
+task that has no positive sample yet.
+
+The flat form, a single detection or a list of them beside a ``task_name``, is
+deprecated but still accepted:
+
+.. code-block:: json
+
+    {
+      "file": "path/to/image.jpg",
+      "task_name": "detection",
+      "annotation": {"class": "car"}
+    }
 
 
 Coordinates and Instances
@@ -152,8 +173,9 @@ Loader output combines boxes into :math:`\left(N, 5\right)` arrays with rows
 Keypoints
 =========
 
-`KeypointAnnotation` stores keypoints as ``(x, y, visibility)`` triplets.
-Coordinates are normalized and visibility follows the COCO convention:
+`KeypointAnnotation` stores keypoints as ``(x, y, visibility)`` triplets keyed
+by name. Coordinates are normalized and visibility follows the COCO
+convention:
 
     - :math:`0`: not visible or not labeled.
     - :math:`1`: occluded.
@@ -165,12 +187,59 @@ Coordinates are normalized and visibility follows the COCO convention:
         "class": "car",
         "instance_id": 17,
         "keypoints": {
-            "keypoints": [
-                (0.10, 0.20, 2),
-                (0.30, 0.40, 1),
-            ],
+            "keypoints": {
+                "front_left_wheel": (0.10, 0.20, 2),
+                "front_right_wheel": (0.30, 0.40, 1),
+            },
         },
     }
+
+An annotation can name only the keypoints it has. The other keypoints get
+:math:`\left(0, 0, 0\right)`. Records that name different keypoints need the
+names of the task first. `LuxonisDataset.set_keypoint_metadata` or an earlier
+`LuxonisDataset.add` stores them.
+
+A plain list of triplets is also accepted. The keypoints are then keyed by
+position as ``"0"``, ``"1"``, .... A list shorter than the keypoints of the
+task holds the leading ones.
+
+Each keypoint is a `Keypoint`. It is a named tuple, so ``keypoint[2]`` and
+``keypoint.visibility`` give the same value. Visibility defaults to
+:math:`2`.
+
+An annotation can also carry three task-level fields: the edges between the
+keypoints, the pairs that a horizontal flip swaps, and the OKS sigmas. Edges
+and flip pairs can refer to keypoints by name:
+
+.. python::
+
+    {
+        "class": "person",
+        "keypoints": {
+            "keypoints": {
+                "nose": (0.50, 0.30, 2),
+                "left_eye": (0.40, 0.20, 2),
+                "right_eye": (0.60, 0.20, 1),
+            },
+            "edges": [("nose", "left_eye"), ("nose", "right_eye")],
+            "flip_pairs": [("left_eye", "right_eye")],
+            "sigmas": [0.026, 0.025, 0.025],
+        },
+    }
+
+These three fields describe the task, not the instance.
+`LuxonisDataset.add` thus moves them into a `KeypointMetadata` and keeps one
+entry for each task. When a task gets names and no record gives flip pairs,
+`LuxonisDataset.add` infers them from ``left`` and ``right`` names. An empty
+list of flip pairs turns the inference off. The dataset stores the keypoints
+of a task in the order that the keypoint metadata defines.
+
+A task without names gets the positional keys as its labels, and
+`LuxonisDataset.add` joins its keypoints in a chain of edges. Names for these
+keypoints drop the chain. The dataset does not record the source of the
+edges, so the names also drop a chain that a record of an earlier
+`LuxonisDataset.add` gave. To keep these edges, give them again with the
+names.
 
 For :math:`K` keypoints and :math:`N` instances, loader output uses shape
 :math:`\left(N, 3 \cdot K\right)`.
@@ -274,12 +343,16 @@ sample:
     {
         "class": "embedding",
         "array": {
-            "path": "path/to/embedding.npy",
+            "data": "path/to/embedding.npy",
         },
     }
 
 Arrays are useful for modality-specific targets or auxiliary data that should
 be stored with the dataset but does not fit standard spatial schemas.
+
+``data`` also takes the array itself, for a record that was never on disk.
+Such a record can be rendered but not stored. The stored key stays ``path``,
+which is deprecated as an input name.
 
 
 Metadata and Categories
@@ -344,11 +417,23 @@ Important:
 """
 
 import json
+import re
 import warnings
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping
+from collections import Counter, defaultdict
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Annotated, Any, Literal, Optional, TypeAlias, TypedDict
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Final,
+    Literal,
+    NamedTuple,
+    Optional,
+    TypeAlias,
+    TypedDict,
+)
 
 import numpy as np
 import pycocotools.mask
@@ -358,11 +443,14 @@ from pydantic import (
     AliasChoices,
     Field,
     GetCoreSchemaHandler,
+    PlainSerializer,
+    ValidationInfo,
     field_serializer,
     field_validator,
+    model_serializer,
     model_validator,
 )
-from pydantic.types import FilePath, PositiveInt
+from pydantic.types import FilePath, NonNegativeInt, PositiveFloat, PositiveInt
 from pydantic_core import core_schema
 from typing_extensions import Self, deprecated, override
 
@@ -371,9 +459,15 @@ from luxonis_ml.typing import (
     BaseModelExtraForbid,
     Params,
     PathType,
+    TaskType,
     check_type,
 )
 from luxonis_ml.utils.logging import log_once
+
+if TYPE_CHECKING:
+    from luxonis_ml.typing import LoaderOutput
+
+    from .schema import DatasetSchema
 
 KeypointVisibility: TypeAlias = Literal[0, 1, 2]
 """Keypoint visibility following the COCO convention.
@@ -386,6 +480,406 @@ The values indicate the visibility of a keypoint in an image:
 """
 NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
 """A float value normalized to the range [0, 1]."""
+
+
+class Keypoint(NamedTuple):
+    r"""A single keypoint.
+
+    It is a named tuple, not a model. It compares, unpacks and converts to
+    NumPy as a plain :math:`\left(x, y, \text{visibility}\right)` triplet
+    does.
+
+    Example:
+        >>> keypoint = Keypoint(0.1, 0.2)
+        >>> keypoint.visibility
+        2
+        >>> keypoint == (0.1, 0.2, 2)
+        True
+
+    Attributes:
+        x: Normalized x coordinate.
+        y: Normalized y coordinate.
+        visibility: Visibility following the COCO convention.
+
+    """
+
+    x: NormalizedFloat
+    y: NormalizedFloat
+    visibility: KeypointVisibility = 2
+
+
+#: A keypoint the task defines but an annotation leaves out.
+_UNLABELED_KEYPOINT: Final[Keypoint] = Keypoint(0.0, 0.0, 0)
+
+#: Side markers recognized when inferring flip pairs from keypoint names.
+_SIDE_MARKERS: Final = {
+    "left": "left",
+    "l": "left",
+    "right": "right",
+    "r": "right",
+}
+
+
+class KeypointMetadata(BaseModelExtraForbid):
+    r"""Task-level description of a set of keypoints.
+
+    It describes the keypoints of a whole task, not those of one instance.
+    A `KeypointAnnotation` carries the same values as flat fields, and
+    `LuxonisDataset.add` moves them here. A dataset keeps one entry for
+    each task.
+
+    Edges and flip pairs accept keypoint names. They resolve against
+    `labels` and store indices, which index into a keypoint array. The
+    fields declare indices, so pass the names through ``model_validate``.
+    The constructor resolves them too, but a type checker rejects a name
+    there:
+
+    Example:
+        >>> KeypointMetadata.model_validate(
+        ...     {
+        ...         "labels": ["nose", "left_eye", "right_eye"],
+        ...         "edges": [("nose", "left_eye"), ("nose", "right_eye")],
+        ...         "flip_pairs": [("left_eye", "right_eye")],
+        ...     }
+        ... )
+        KeypointMetadata(labels=['nose', 'left_eye', 'right_eye'], edges=[(0, 1), (0, 2)], flip_pairs=[(1, 2)], sigmas=[])
+
+    Attributes:
+        labels: Keypoint names in index order.
+        edges: Keypoint graph edges as :math:`0`-based index pairs.
+        flip_pairs: Index pairs swapped by a horizontal flip, used to keep
+            symmetric keypoints such as left and right eyes consistent.
+        sigmas: Per-keypoint OKS standard deviations.
+
+    """
+
+    labels: list[str] = []
+    edges: list[tuple[int, int]] = []
+    flip_pairs: list[tuple[NonNegativeInt, NonNegativeInt]] = []
+    sigmas: list[PositiveFloat] = []
+
+    @property
+    def has_names(self) -> bool:
+        """Whether the labels are chosen names.
+
+        An annotation that carries a plain list of triplets is keyed
+        ``"0"``, ``"1"``, ..., and `LuxonisDataset.add` stores those keys
+        as the labels. They record only how many keypoints there are.
+        Labels that repeat a name cannot identify the keypoints either.
+        """
+        return (
+            bool(self.labels)
+            and not _is_positional(self.labels)
+            and not self.repeated_labels
+        )
+
+    @property
+    def repeated_labels(self) -> list[str]:
+        """The names that occur more than once in `labels`, sorted.
+
+        An older luxonis-ml stored the labels without a check, so a name
+        can repeat. Dataset metadata must still open such a dataset, so the model
+        accepts them.
+        """
+        return _repeated(self.labels)
+
+    def conflicting_fields(self, other: "KeypointMetadata") -> list[str]:
+        """Return the fields that both declarations set to different values."""
+        return [
+            field
+            for field in KeypointMetadata.model_fields
+            if getattr(self, field)
+            and getattr(other, field)
+            and getattr(self, field) != getattr(other, field)
+        ]
+
+    def merge_with(
+        self, other: "KeypointMetadata", context: str = ""
+    ) -> "KeypointMetadata":
+        """Merge two keypoint declarations into one.
+
+        A field that one declaration leaves empty comes from the other one.
+        Two values for the same field must agree. Two lists of the same
+        names agree in any order. This declaration sets the order, so the
+        indices of ``other`` move to it before the comparison.
+
+        Args:
+            other: Keypoint metadata to merge into this one.
+            context: Description of the merge, used in the error message.
+
+        Returns:
+            The merged keypoint metadata.
+
+        Raises:
+            ValueError: If the two declarations disagree on any field.
+
+        """
+        if self.labels != other.labels and set(self.labels) == set(
+            other.labels
+        ):
+            other = other.reindexed_to(self.labels)
+
+        conflicts = self.conflicting_fields(other)
+        if conflicts:
+            differences = "\n".join(
+                f"    {field}: {getattr(self, field)} != {getattr(other, field)}"
+                for field in conflicts
+            )
+            if "labels" in conflicts:
+                hint = (
+                    "\nA record that annotates only some of the keypoints "
+                    "must still name the full set, unless the task already "
+                    "has names. It can give the missing ones a visibility "
+                    "of 0."
+                )
+            elif labels := self.labels or other.labels:
+                # `LuxonisDataset.add` moves each record to the stored
+                # names. The indices can thus differ from the indices that
+                # a record gives.
+                hint = (
+                    "\nThe indices and the sigmas follow the keypoint order "
+                    f"{', '.join(labels)}."
+                )
+            else:
+                hint = ""
+            raise ValueError(
+                f"Conflicting keypoint metadata declared{_where(context)}. "
+                f"The following fields disagree:\n{differences}\n"
+                "All records of a task must describe the same keypoints. "
+                "Declare them on a single record, or use "
+                f"`LuxonisDataset.set_keypoint_metadata`.{hint}"
+            )
+        return self.filled_from(other)
+
+    def filled_from(self, other: "KeypointMetadata") -> "KeypointMetadata":
+        """Return a copy that takes each empty field from ``other``."""
+        return self.model_copy(
+            update={
+                field: getattr(other, field)
+                for field in KeypointMetadata.model_fields
+                if not getattr(self, field)
+            }
+        )
+
+    def validate_for(
+        self, n_keypoints: int, context: str = "", *, check_edges: bool = True
+    ) -> None:
+        """Check the keypoint metadata against a number of keypoints.
+
+        Args:
+            n_keypoints: Number of annotated keypoints.
+            context: Description of what is being checked, used in the error
+                messages.
+            check_edges: Whether to check the edges too. An older
+                luxonis-ml stored edges without a check, so a stored entry
+                can hold edges out of range.
+
+        Raises:
+            ValueError: If the keypoint metadata does not describe
+                ``n_keypoints`` keypoints.
+
+        """
+        for field in ("labels", "sigmas"):
+            value = getattr(self, field)
+            if value and len(value) != n_keypoints:
+                raise ValueError(
+                    f"The keypoint metadata{_where(context)} defines "
+                    f"{len(value)} {field} for {n_keypoints} keypoints."
+                )
+        fields = ("edges", "flip_pairs") if check_edges else ("flip_pairs",)
+        for field in fields:
+            for pair in getattr(self, field):
+                for index in pair:
+                    if not 0 <= index < n_keypoints:
+                        raise ValueError(
+                            f"The keypoint metadata{_where(context)} refers "
+                            f"to keypoint {index} in `{field}`, but there "
+                            f"are only {n_keypoints} keypoints."
+                        )
+
+    def validate_labels(self, context: str = "") -> None:
+        """Check that no two keypoints have the same name.
+
+        A name keys a keypoint, so a repeated name drops a keypoint. The
+        model accepts repeated names, so the code that writes names or
+        uses them as keys runs this check.
+
+        Args:
+            context: Description of what is being checked, used in the error
+                message.
+
+        Raises:
+            ValueError: If two keypoints have the same name.
+
+        """
+        if repeated := self.repeated_labels:
+            raise ValueError(
+                f"Duplicate keypoint names{_where(context)}: "
+                f"{', '.join(repeated)}. Give each keypoint a unique name."
+            )
+
+    def align(self, keypoints: Mapping[str, Keypoint]) -> dict[str, Keypoint]:
+        r"""Order keypoints to match the task, padding missing ones.
+
+        A keypoint that the task defines but the annotation omits gets
+        :math:`\left(0, 0, 0\right)`. This is the COCO value for a keypoint
+        that is not labeled. An annotation can thus name only the keypoints
+        it has. An annotation without names holds the leading keypoints of
+        the task.
+
+        Args:
+            keypoints: Keypoints keyed by name.
+
+        Returns:
+            The keypoints in `labels` order. The keypoints of an annotation
+            without names keep their positional keys.
+
+        Raises:
+            ValueError: If a keypoint is not part of the task, if an
+                annotation without names has more keypoints than the task,
+                or if the annotation has names and the names of the task
+                repeat.
+
+        """
+        if not self.labels:
+            return dict(keypoints)
+        # Only the number of labels matters here, so they can repeat.
+        if _is_positional(keypoints):
+            if len(keypoints) > len(self.labels):
+                raise ValueError(
+                    f"The annotation has {len(keypoints)} keypoints, but the "
+                    f"task defines only {len(self.labels)}: "
+                    f"{', '.join(self.labels)}."
+                )
+            values = list(keypoints.values())
+            values += [_UNLABELED_KEYPOINT] * (len(self.labels) - len(values))
+            return {str(i): keypoint for i, keypoint in enumerate(values)}
+        self.validate_labels()
+        _reject_unknown(keypoints, self.labels)
+        return {
+            label: keypoints.get(label, _UNLABELED_KEYPOINT)
+            for label in self.labels
+        }
+
+    def reindexed_to(self, labels: Sequence[str]) -> "KeypointMetadata":
+        """Return the keypoint metadata for a new list of names.
+
+        The new list holds every current name, in any order, and it can
+        hold more names. The edges and the flip pairs move to the new
+        indices. Each keypoint has its own sigma, so the sigmas move only
+        if the new list holds no other names.
+
+        Args:
+            labels: The new keypoint names in index order.
+
+        Returns:
+            The keypoint metadata with the new names as its labels.
+
+        Raises:
+            ValueError: If a current name is not in the new list, or if a
+                new name has no sigma.
+
+        """
+        _reject_unknown(self.labels, labels)
+        if self.sigmas and len(self.labels) < len(labels):
+            raise ValueError(
+                f"The sigmas cover only {len(self.labels)} of the "
+                f"{len(labels)} keypoints of the task: {', '.join(labels)}. "
+                "Give one sigma for each keypoint."
+            )
+        target = _first_index(labels)
+        source = _first_index(self.labels)
+        moved = {old: target[label] for old, label in enumerate(self.labels)}
+        return KeypointMetadata(
+            labels=list(labels),
+            edges=[(moved[a], moved[b]) for a, b in self.edges],
+            flip_pairs=[(moved[a], moved[b]) for a, b in self.flip_pairs],
+            sigmas=[self.sigmas[source[label]] for label in labels]
+            if self.sigmas
+            else [],
+        )
+
+    @staticmethod
+    def infer_flip_pairs(labels: Iterable[str]) -> list[tuple[int, int]]:
+        """Infer horizontal flip pairs from ``left``/``right`` names.
+
+        A name must carry a ``left``/``right`` or ``l``/``r`` marker at the
+        start or at the end, and a separator must delimit it. The rest of
+        the two names must match exactly. A keypoint on the midline, such
+        as ``nose``, stays unpaired. So does a keypoint with no partner.
+        The match is narrow on purpose. A wrong flip pair mirrors the wrong
+        keypoints and never fails.
+
+        Args:
+            labels: Keypoint names in index order.
+
+        Returns:
+            Flip pairs as :math:`0`-based index pairs.
+
+        Example:
+            >>> KeypointMetadata.infer_flip_pairs(
+            ...     ["nose", "left_eye", "right_eye", "l_ear", "r_ear"]
+            ... )
+            [(1, 2), (3, 4)]
+
+        """
+        sides: dict[str, dict[str, list[int]]] = defaultdict(
+            lambda: {"left": [], "right": []}
+        )
+        for index, label in enumerate(labels):
+            if (marker := _split_side(label)) is not None:
+                side, name = marker
+                sides[name][side].append(index)
+
+        flip_pairs = []
+        for name, by_side in sides.items():
+            left, right = by_side["left"], by_side["right"]
+            if not left or not right:
+                continue
+            if len(left) > 1 or len(right) > 1:
+                logger.warning(
+                    f"Cannot infer a flip pair for keypoint '{name}': it "
+                    f"matches {len(left)} left and {len(right)} right names."
+                )
+                continue
+            flip_pairs.append((min(left[0], right[0]), max(left[0], right[0])))
+        return sorted(flip_pairs)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _resolve_names(cls, values: Any) -> Any:
+        if not isinstance(values, Mapping):
+            return values
+        labels = values.get("labels")
+        return _resolve_pairs(
+            values,
+            labels if check_type(labels, list[str]) else None,
+            "Provide `labels`, or refer to the keypoints by index.",
+        )
+
+    @model_validator(mode="after")
+    def _normalize(self) -> Self:
+        # An edge has no direction, so its ends order like a flip pair.
+        self.edges = sorted((min(a, b), max(a, b)) for a, b in self.edges)
+
+        seen: dict[int, tuple[int, int]] = {}
+        flip_pairs = []
+        for a, b in self.flip_pairs:
+            if a == b:
+                raise ValueError(
+                    f"Flip pair ({a}, {b}) flips keypoint {a} onto itself."
+                )
+            for index in (a, b):
+                if index in seen:
+                    raise ValueError(
+                        f"Keypoint {index} appears in both flip pairs "
+                        f"{seen[index]} and {(a, b)}. "
+                        "Flip pairs must be disjoint."
+                    )
+            seen[a] = seen[b] = (a, b)
+            flip_pairs.append((min(a, b), max(a, b)))
+        self.flip_pairs = sorted(flip_pairs)
+        return self
 
 
 class _SerializedRLE(TypedDict):
@@ -405,9 +899,53 @@ class Category(str):
 
     @classmethod
     def __get_pydantic_core_schema__(
-        cls, source_type: Any, handler: GetCoreSchemaHandler
+        cls,
+        source_type: Any,
+        handler: GetCoreSchemaHandler,
     ) -> core_schema.CoreSchema:
         return core_schema.is_instance_schema(cls)
+
+
+def _serialize_path_or_array(value: FilePath | np.ndarray) -> str:
+    if not isinstance(value, np.ndarray):
+        return str(value)
+    raise ValueError(
+        f"Cannot serialize an in-memory array of shape {value.shape}. "
+        "Save it to a file and reference that path instead."
+    )
+
+
+class _PathOrArraySchema:
+    """Accept an array without naming the union branches in the errors."""
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: GetCoreSchemaHandler,
+    ) -> core_schema.CoreSchema:
+        return core_schema.no_info_wrap_validator_function(
+            cls._validate, handler.generate_schema(FilePath)
+        )
+
+    @staticmethod
+    def _validate(
+        value: PathType | np.ndarray,
+        handler: core_schema.ValidatorFunctionWrapHandler,
+    ) -> FilePath | np.ndarray:
+        return value if isinstance(value, np.ndarray) else handler(value)
+
+
+PathOrArray: TypeAlias = Annotated[
+    FilePath | np.ndarray,
+    _PathOrArraySchema,
+    PlainSerializer(_serialize_path_or_array, when_used="json"),
+]
+"""A path to a file, or the data itself held in memory.
+
+A record that holds data in memory can be rendered and converted, but not
+stored. Save the data to a file and reference that path to store it.
+"""
 
 
 #: The `Detection` fields holding a single `Annotation`, in parquet row order.
@@ -547,7 +1085,11 @@ class Detection(BaseModelExtraForbid):
     )
     instance_id: int = -1
 
-    metadata: dict[str, int | float | str | Category] = {}
+    # A literal default is deep-copied into every instance, which the
+    # loader pays for once per annotation row.
+    metadata: dict[str, int | float | str | Category] = Field(
+        default_factory=dict
+    )
 
     boundingbox: Optional["BBoxAnnotation"] = None
     keypoints: Optional["KeypointAnnotation"] = None
@@ -557,7 +1099,7 @@ class Detection(BaseModelExtraForbid):
 
     scale_to_boxes: bool = False
 
-    sub_detections: dict[str, "Detection"] = {}
+    sub_detections: dict[str, "Detection"] = Field(default_factory=dict)
 
     def get_task_types(self) -> set[str]:
         """Get all the task type associated with this detection.
@@ -612,11 +1154,20 @@ class Detection(BaseModelExtraForbid):
         )
 
         if self.keypoints is not None:
+            # The constructor clips what the rescale moves out of range.
+            # Copy only the fields that the record sets. An empty list of
+            # flip pairs turns off their inference.
+            given = self.keypoints.model_fields_set - {"keypoints"}
             self.keypoints = KeypointAnnotation(
-                keypoints=[
-                    (x + w * kp[0], y + h * kp[1], kp[2])
-                    for kp in self.keypoints.keypoints
-                ]
+                keypoints={
+                    label: Keypoint(
+                        x + w * keypoint.x,
+                        y + h * keypoint.y,
+                        keypoint.visibility,
+                    )
+                    for label, keypoint in self.keypoints.keypoints.items()
+                },
+                **{field: getattr(self.keypoints, field) for field in given},
             )
         return self
 
@@ -634,6 +1185,22 @@ class Detection(BaseModelExtraForbid):
 class Annotation(ABC, BaseModelExtraForbid):
     """Base class for an annotation."""
 
+    def to_parquet_json(
+        self, keypoint_metadata: KeypointMetadata | None = None
+    ) -> str:
+        """Serialize the annotation into its stored parquet payload.
+
+        Args:
+            keypoint_metadata: Keypoint metadata of the task, when known.
+                A keypoint payload is positional, so the keypoint metadata
+                sets the order. Every other annotation ignores it.
+
+        Returns:
+            The serialized annotation.
+
+        """
+        return self.model_dump_json()
+
     @staticmethod
     @abstractmethod
     def combine_to_numpy(
@@ -648,6 +1215,28 @@ class Annotation(ABC, BaseModelExtraForbid):
 
         Returns:
             Combined annotation representation.
+
+        """
+        ...
+
+    @staticmethod
+    @abstractmethod
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["Annotation", int | None]]:
+        """Split a combined array back into single annotations.
+
+        This is the inverse of `combine_to_numpy`. Only some layouts carry
+        the class of each annotation, so the class ID is optional: keypoints
+        and instance masks are stored without one, and the caller has to
+        take it from another annotation of the same instance.
+
+        Args:
+            array: Array in the layout `combine_to_numpy` produces.
+
+        Returns:
+            One annotation per instance, each with its class ID when the
+            layout carries one.
 
         """
         ...
@@ -688,6 +1277,26 @@ class ClassificationAnnotation(Annotation):
         for i in range(len(annotations)):
             classify_vector[classes[i]] = 1
         return classify_vector
+
+    @staticmethod
+    @override
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["ClassificationAnnotation", int]]:
+        r"""Split a multi-hot label vector into one annotation per class.
+
+        Args:
+            array: Multi-hot class vector of shape
+                :math:`\left(C,\right)`.
+
+        Returns:
+            One annotation per class the vector marks, with its class ID.
+
+        """
+        return [
+            (ClassificationAnnotation(), int(class_id))
+            for class_id in np.flatnonzero(array)
+        ]
 
 
 class BBoxAnnotation(Annotation):
@@ -746,6 +1355,34 @@ class BBoxAnnotation(Annotation):
             boxes[i] = ann.to_numpy(classes[i])
         return boxes
 
+    @staticmethod
+    @override
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["BBoxAnnotation", int]]:
+        r"""Split bounding box rows into single annotations.
+
+        Args:
+            array: Rows of shape :math:`\left(N, 5\right)`, each in the
+                format ``[class_id, x, y, w, h]``.
+
+        Returns:
+            One bounding box per row, with the class ID of its first column.
+
+        """
+        return [
+            (
+                BBoxAnnotation(
+                    x=float(row[1]),
+                    y=float(row[2]),
+                    w=float(row[3]),
+                    h=float(row[4]),
+                ),
+                int(row[0]),
+            )
+            for row in array
+        ]
+
     @model_validator(mode="before")
     @classmethod
     def _validate_values(cls, values: Any) -> Any:
@@ -798,22 +1435,45 @@ class BBoxAnnotation(Annotation):
 class KeypointAnnotation(Annotation):
     r"""Keypoint annotation.
 
-    The coordinates are normalized to :math:`\left[0, 1\right]`
-    based on the image size.
+    Keypoints are keyed by name, so an annotation can say which keypoints
+    it holds instead of relying on their position. The coordinates are
+    normalized to :math:`\left[0, 1\right]` based on the image size.
+
+    A plain list of triplets is also accepted. The keypoints are then keyed
+    by position as ``"0"``, ``"1"``, .... A list shorter than the keypoints
+    of the task holds the leading ones.
+
+    `edges`, `flip_pairs` and `sigmas` describe the task, not the instance.
+    `LuxonisDataset.add` moves them into a `KeypointMetadata`, so a stored
+    payload holds only the coordinates. Edges and flip pairs accept
+    keypoint names, which resolve against the names of `keypoints`.
+
+    Example:
+        >>> KeypointAnnotation(
+        ...     keypoints={"nose": (0.5, 0.3, 2), "left_eye": (0.4, 0.2, 1)}
+        ... ).to_numpy()
+        array([0.5, 0.3, 2. , 0.4, 0.2, 1. ])
 
     Attributes:
-        keypoints: Keypoints in ``(x, y, visibility)`` format.
-            Visibility follows the COCO convention:
+        keypoints: Keypoints in ``(x, y, visibility)`` format, keyed by
+            name. Visibility follows the COCO convention:
 
                 - :math:`0`: Not visible or not labeled.
                 - :math:`1`: Occluded.
                 - :math:`2`: Visible.
 
+        edges: Keypoint graph edges, as index pairs or as name pairs.
+        flip_pairs: Pairs that a horizontal flip swaps, as index pairs or
+            as name pairs. An empty list turns off the inference of flip
+            pairs.
+        sigmas: Per-keypoint OKS standard deviations.
+
     """
 
-    keypoints: list[
-        tuple[NormalizedFloat, NormalizedFloat, KeypointVisibility]
-    ]
+    keypoints: dict[str, Keypoint]
+    edges: list[tuple[int, int]] = []
+    flip_pairs: list[tuple[NonNegativeInt, NonNegativeInt]] = []
+    sigmas: list[PositiveFloat] = []
 
     def to_numpy(self) -> np.ndarray:
         r"""Convert the keypoint annotation to flattened row format.
@@ -826,7 +1486,7 @@ class KeypointAnnotation(Annotation):
             of the :math:`i`-th keypoint.
 
         """
-        return np.array(self.keypoints).reshape((-1, 3)).flatten()
+        return np.array(list(self.keypoints.values()), dtype=float).reshape(-1)
 
     @staticmethod
     @override
@@ -852,31 +1512,123 @@ class KeypointAnnotation(Annotation):
             where :math:`\left(x_i, y_i, v_i\right)` are the coordinates and visibility
             of the :math:`i`-th keypoint.
 
+        Raises:
+            ValueError: If the annotations do not all have the same number
+                of keypoints.
+
         """
-        keypoints = np.empty(
-            (len(annotations), len(annotations[0].keypoints) * 3)
-        )
+        n_keypoints = len(annotations[0].keypoints)
+        keypoints = np.empty((len(annotations), n_keypoints * 3))
         for i, ann in enumerate(annotations):
+            if len(ann.keypoints) != n_keypoints:
+                raise ValueError(
+                    "Cannot combine keypoint annotations with different "
+                    f"numbers of keypoints ({n_keypoints} and "
+                    f"{len(ann.keypoints)}). All annotations of a task must "
+                    "describe the same keypoints."
+                )
             keypoints[i] = ann.to_numpy()
         return keypoints
 
+    @staticmethod
+    @override
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["KeypointAnnotation", None]]:
+        r"""Split flattened keypoint rows into single annotations.
+
+        Args:
+            array: Rows of shape :math:`\left(N, 3K\right)`.
+
+        Returns:
+            One keypoint annotation per row. The layout carries no class,
+            so every class ID is ``None``.
+
+        """
+        return [
+            (
+                # Validated rather than constructed: visibility is a literal
+                # that the float array cannot carry.
+                KeypointAnnotation.model_validate(
+                    {
+                        "keypoints": [
+                            (float(x), float(y), round(float(visibility)))
+                            for x, y, visibility in row.reshape(-1, 3)
+                        ]
+                    }
+                ),
+                None,
+            )
+            for row in array
+        ]
+
+    def declared_metadata(self) -> KeypointMetadata | None:
+        """Return the task-level metadata this annotation describes.
+
+        Positional keys are not names, so they are left out of `labels`.
+
+        Returns:
+            The declared metadata, or ``None`` if the annotation declares
+            nothing.
+
+        """
+        labels = list(self.keypoints)
+        if _is_positional(labels):
+            labels = []
+        if not (labels or self.edges or self.flip_pairs or self.sigmas):
+            return None
+        return KeypointMetadata(
+            labels=labels,
+            edges=self.edges,
+            flip_pairs=self.flip_pairs,
+            sigmas=self.sigmas,
+        )
+
+    @override
+    def to_parquet_json(
+        self, keypoint_metadata: KeypointMetadata | None = None
+    ) -> str:
+        if keypoint_metadata is None:
+            return self.model_dump_json()
+        aligned = keypoint_metadata.align(self.keypoints)
+        return self.model_copy(update={"keypoints": aligned}).model_dump_json()
+
+    @model_serializer(mode="plain", when_used="json")
+    def _serialize(self) -> dict[str, Any]:
+        # The payload is positional. The names, the edges, the flip pairs
+        # and the sigmas describe the task, not the instance.
+        # `LuxonisDataset.add` thus keeps them in the dataset metadata and
+        # not on every row.
+        return {
+            "keypoints": [
+                list(keypoint) for keypoint in self.keypoints.values()
+            ]
+        }
+
     @model_validator(mode="before")
     @classmethod
-    def _validate_values(cls, values: Any) -> Any:
+    def _validate_values(cls, values: Any, info: ValidationInfo) -> Any:
         if not isinstance(values, Mapping) or "keypoints" not in values:
             return values
 
+        # A stored payload is positional and carries no names. The loader
+        # supplies the number of keypoints of the task when it reads one
+        # back.
+        n_keypoints = (info.context or {}).get("n_keypoints")
+
         # Coerced up front for the same reason as in `BBoxAnnotation`.
+        raw = values["keypoints"]
         try:
-            keypoints = [
-                [float(keypoint[0]), float(keypoint[1]), *list(keypoint)[2:]]
-                for keypoint in values["keypoints"]
-            ]
+            keypoints = cls._as_mapping(raw, n_keypoints)
         except (LookupError, TypeError, ValueError):
-            return values
+            # The field is a mapping, so key a list by position. Pydantic
+            # then names the keypoint that is wrong.
+            if isinstance(raw, (list, tuple)):
+                raw = {str(i): keypoint for i, keypoint in enumerate(raw)}
+            return {**values, "keypoints": raw}
 
         warn = False
-        for keypoint in keypoints:
+        for keypoint in keypoints.values():
             x, y = keypoint[0], keypoint[1]
             if (x < -2 or x > 2) or (y < -2 or y > 2):
                 raise ValueError(
@@ -894,10 +1646,78 @@ class KeypointAnnotation(Annotation):
             logger.warning(
                 "Keypoint annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
             )
-        return {
+
+        values = {
             **values,
-            "keypoints": [tuple(keypoint) for keypoint in keypoints],
+            "keypoints": {
+                label: tuple(keypoint) for label, keypoint in keypoints.items()
+            },
         }
+        names = list(keypoints)
+        return _resolve_pairs(
+            values,
+            None if _is_positional(names) else names,
+            "Pass the keypoints as a mapping keyed by name, or refer to "
+            "them by index.",
+        )
+
+    @staticmethod
+    def _as_mapping(
+        keypoints: object, n_keypoints: int | None
+    ) -> dict[str, list[Any]]:
+        """Normalize keypoints into a mapping of name to ``[x, y, v]``.
+
+        The keypoints can be a mapping keyed by name. They can also be a
+        sequence of ``(x, y)`` or ``(x, y, visibility)`` triplets, which
+        takes its keys from the position. A sequence shorter than
+        ``n_keypoints`` holds the leading keypoints, as in
+        `KeypointMetadata.align`. The input stays unchanged.
+        """
+        if isinstance(keypoints, Mapping):
+            items = list(keypoints.items())
+        elif isinstance(keypoints, Iterable):
+            values = list(keypoints)
+            if n_keypoints is not None and len(values) < n_keypoints:
+                # `add` pads only the rows of a task with names, and new
+                # names do not change the stored rows. The loader thus pads
+                # the other short rows here.
+                values += [_UNLABELED_KEYPOINT] * (n_keypoints - len(values))
+            items = [(str(i), value) for i, value in enumerate(values)]
+        else:
+            raise TypeError("Keypoints must be a mapping or a sequence.")
+        return {
+            str(label): KeypointAnnotation._as_triplet(value)
+            for label, value in items
+        }
+
+    @staticmethod
+    def _as_triplet(keypoint: Any) -> list[Any]:
+        """Return the coordinates as a list, which the caller can clip.
+
+        `Keypoint` supplies the default visibility when the keypoint
+        omits it. A keypoint with too many values passes through to
+        pydantic, which names the value that does not belong.
+        """
+        if isinstance(keypoint, Mapping):
+            keypoint = Keypoint(**keypoint)
+        x, y, *rest = keypoint
+        return [float(x), float(y), *rest]
+
+    @model_validator(mode="after")
+    def _validate_declared_metadata(self) -> Self:
+        declared = self.declared_metadata()
+        if declared is None:
+            return self
+        declared.validate_for(len(self.keypoints))
+        # `KeypointMetadata` sorts the edges and orders each flip pair, so
+        # take them back to keep the two in step.
+        self.edges = declared.edges
+        # An assignment adds the field to `model_fields_set`. There,
+        # `LuxonisDataset.add` finds the records that give flip pairs, so
+        # the default empty list must not get an assignment.
+        if declared.flip_pairs != self.flip_pairs:
+            self.flip_pairs = declared.flip_pairs
+        return self
 
 
 class SegmentationAnnotation(Annotation):
@@ -999,6 +1819,31 @@ class SegmentationAnnotation(Annotation):
             assigned_pixels |= mask.astype(bool)
 
         return segmentation
+
+    @staticmethod
+    @override
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["SegmentationAnnotation", int]]:
+        r"""Split class masks into one annotation per class.
+
+        Args:
+            array: Semantic masks of shape :math:`\left(C, H, W\right)`.
+
+        Returns:
+            One annotation per class that has any pixel, with its class ID.
+            The combination gave each pixel to one class, and the split does
+            not restore the overlaps.
+
+        """
+        return [
+            (
+                SegmentationAnnotation.model_validate({"mask": mask}),
+                class_id,
+            )
+            for class_id, mask in enumerate(array)
+            if mask.any()
+        ]
 
     @field_serializer("counts", when_used="json")
     def _serialize_counts(self, counts: bytes) -> str:
@@ -1199,21 +2044,52 @@ class InstanceSegmentationAnnotation(SegmentationAnnotation):
         """
         return np.stack([ann.to_numpy() for ann in annotations])
 
+    @staticmethod
+    @override
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["InstanceSegmentationAnnotation", None]]:
+        r"""Split instance masks into single annotations.
+
+        Args:
+            array: Instance masks of shape :math:`\left(N, H, W\right)`.
+
+        Returns:
+            One annotation per mask. The layout carries no class, so every
+            class ID is ``None``.
+
+        """
+        return [
+            (
+                InstanceSegmentationAnnotation.model_validate({"mask": mask}),
+                None,
+            )
+            for mask in array
+        ]
+
 
 class ArrayAnnotation(Annotation):
-    """Custom annotation backed by an array file.
+    """Custom annotation backed by an array file or an in-memory array.
 
     All instances of this annotation must have the same shape.
 
     Attributes:
-        path: Path to the array saved as a ``.npy`` file.
+        path: Path to the array saved as a ``.npy`` file, or the array
+            itself. An in-memory array cannot be stored; save it to a file
+            and reference that path instead.
+
+            .. deprecated:: 0.10.0
+                The ``path`` input name is deprecated. Use ``data``, which
+                also accepts the array itself. The stored key stays ``path``.
 
     """
 
-    path: FilePath
+    path: PathOrArray
 
     def to_numpy(self) -> np.ndarray:
-        """Load the array from the file path."""
+        """Return the array, and load it from the file when needed."""
+        if isinstance(self.path, np.ndarray):
+            return self.path
         return np.load(self.path)
 
     @staticmethod
@@ -1236,20 +2112,66 @@ class ArrayAnnotation(Annotation):
             :math:`N` is the number of instances.
 
         """
-        out_arr = np.zeros(
-            (len(annotations), n_classes, *np.load(annotations[0].path).shape)
-        )
-        for i, ann in enumerate(annotations):
-            out_arr[i, classes[i]] = np.load(ann.path)
+        arrays = [ann.to_numpy() for ann in annotations]
+        out_arr = np.zeros((len(arrays), n_classes, *arrays[0].shape))
+        for i, array in enumerate(arrays):
+            out_arr[i, classes[i]] = array
         return out_arr
 
-    @field_serializer("path", when_used="json")
-    def _serialize_path(self, value: FilePath) -> str:
-        return str(value)
+    @staticmethod
+    @override
+    def split_from_numpy(
+        array: np.ndarray,
+    ) -> list[tuple["ArrayAnnotation", int | None]]:
+        r"""Split class-indexed arrays into single annotations.
+
+        Args:
+            array: Arrays of shape :math:`\left(N, C, \ldots\right)`, where
+                every instance fills the slot of its own class.
+
+        Returns:
+            One annotation per instance, holding the data of its class slot.
+            An instance whose data is all zeros has no slot to tell apart, so
+            it takes the first one and reports no class ID.
+
+        """
+        annotations: list[tuple[ArrayAnnotation, int | None]] = []
+        for instance in array:
+            class_id = next(
+                (i for i, slot in enumerate(instance) if slot.any()), None
+            )
+            slot = instance[class_id or 0]
+            annotations.append(
+                (ArrayAnnotation.model_validate({"data": slot}), class_id)
+            )
+        return annotations
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_data(cls, values: Any) -> Any:
+        """Accept the array under either the old or the new name."""
+        if not isinstance(values, Mapping):
+            return values
+        if "data" in values:
+            if "path" in values:
+                raise ValueError("Provide either 'path' or 'data', not both.")
+            values = dict(values)
+            values["path"] = values.pop("data")
+        elif "path" in values:
+            log_once(
+                logger.warning,
+                "The 'path' field of an array annotation is deprecated. "
+                "Use 'data', which also accepts the array itself.",
+            )
+        return values
 
     @field_validator("path")
     @classmethod
-    def _validate_path(cls, path: FilePath) -> FilePath:
+    def _validate_path(
+        cls, path: FilePath | np.ndarray
+    ) -> FilePath | np.ndarray:
+        if isinstance(path, np.ndarray):
+            return path
         if path.suffix != ".npy":
             raise ValueError(
                 f"Array annotation file must be a .npy file. Got {path}"
@@ -1269,13 +2191,67 @@ class ArrayAnnotation(Annotation):
         return path
 
 
-class DatasetRecord(BaseModelExtraForbid):
-    """Dataset record containing file paths and an optional annotation.
+class InstanceCounter:
+    """Give out the instance numbers of one sample.
 
-    A record is the unit of ingestion for `LuxonisDataset.add`. It may point
-    to one media source through ``file`` or to multiple synchronized sources
-    through ``files``, but never both -- passing both is an error, where
-    ``files`` used to be silently discarded in favor of ``file``.
+    The records of one sample arrive separately, so the numbers cannot live
+    on a record. A detection without an ID takes the next free number of
+    its task. An explicit ID is kept, unless another detection already
+    holds that number. The ID then takes a new number, and every later
+    detection with that ID takes the same one, so the rows of one instance
+    stay together and the rows of two instances stay apart. A sub-detection
+    without an ID asks for the number of its parent under the same rule,
+    but it never joins an explicit ID of the same value.
+    """
+
+    def __init__(self) -> None:
+        self._next: dict[str, int] = defaultdict(int)
+        self._held: set[tuple[str, int]] = set()
+        self._number_of: dict[tuple[str, int, bool], int] = {}
+
+    def number(
+        self, task_name: str, instance_id: int, *, inherited: bool = False
+    ) -> int:
+        """Return the stored number of a detection.
+
+        Args:
+            task_name: Task of the detection.
+            instance_id: ID the record gives the detection, or a negative
+                number when it gives none.
+            inherited: Whether ``instance_id`` is the number of the parent
+                of a sub-detection.
+
+        Returns:
+            A number that no other instance of the task holds.
+
+        """
+        key = (task_name, instance_id, inherited)
+        if key in self._number_of:
+            return self._number_of[key]
+        if instance_id >= 0 and (task_name, instance_id) not in self._held:
+            number = instance_id
+        else:
+            number = self._next[task_name]
+        self._next[task_name] = max(self._next[task_name], number + 1)
+        self._held.add((task_name, number))
+        if instance_id >= 0:
+            self._number_of[key] = number
+        return number
+
+
+class DatasetRecord(BaseModelExtraForbid):
+    """Dataset record containing file paths and its annotations.
+
+    A record is the unit of ingestion for `LuxonisDataset.add`. Its
+    ``media`` is one source: a path, an image or an array. For synchronized
+    sources, ``media`` maps each source name to its source. ``file`` and
+    ``files`` are deprecated names of ``media``. A record that gives more
+    than one of the three is an error.
+
+    Annotations are grouped by task name, so one record can carry every
+    detection of a sample. The older flat forms still work, but they are
+    deprecated: a single detection, or a list of them, together with a
+    ``task_name``.
 
     ``sample_metadata`` stores **record-level metadata**. It is preserved by
     native import/export and returned by `LuxonisLoader` as
@@ -1284,10 +2260,10 @@ class DatasetRecord(BaseModelExtraForbid):
 
     Attributes:
         files: File paths keyed by source name.
-        annotation: Optional detections associated with the dataset record.
-            Validation also accepts a single `Detection` and stores it as a
-            one-element list, so the model always carries ``list[Detection]``.
-        task_name: The name of the task to which the record belongs.
+        annotation: Detections grouped by task name. An empty mapping marks a
+            true negative, which counts as a negative for every task of the
+            dataset. A task with an empty list is a true negative that also
+            declares the task itself.
         sample_metadata: JSON-like metadata for the whole sample. Values
             should be JSON-serializable. Missing metadata defaults to an empty
             dictionary.
@@ -1296,8 +2272,7 @@ class DatasetRecord(BaseModelExtraForbid):
         .. code-block:: json
 
             {
-              "file": "images/frame_001.jpg",
-              "task_name": "detection",
+              "media": "images/frame_001.jpg",
 
               "sample_metadata": {
                 "record_id": 123,
@@ -1306,34 +2281,29 @@ class DatasetRecord(BaseModelExtraForbid):
               },
 
               "annotation": {
-                "class": "person",
-                "boundingbox": {
-                  "x": 0.1,
-                  "y": 0.2,
-                  "w": 0.3,
-                  "h": 0.4
-                }
+                "detection": [
+                  {
+                    "class": "person",
+                    "boundingbox": {
+                      "x": 0.1,
+                      "y": 0.2,
+                      "w": 0.3,
+                      "h": 0.4
+                    }
+                  }
+                ]
               }
             }
 
     """
 
-    files: dict[str, FilePath]
-    annotation: list[Detection] | None = None
-    task_name: str = ""
+    files: dict[str, PathOrArray]
+    annotation: dict[str, list[Detection]] = Field(default_factory=dict)
     sample_metadata: Params = Field(default_factory=dict)
 
-    def _annotations(self) -> list[Detection]:
-        """Return this record's detections as a list.
-
-        ``annotation`` is ``None`` on an annotation-free record; this
-        normalizes it to an empty list for iteration.
-        """
-        return self.annotation or []
-
     @property
-    def file(self) -> FilePath:
-        """The file path of the dataset record.
+    def file(self) -> FilePath | np.ndarray:
+        """The single file of the dataset record.
 
         This property is provided for convenience when the dataset record has
         exactly one file.
@@ -1347,8 +2317,34 @@ class DatasetRecord(BaseModelExtraForbid):
         return next(iter(self.files.values()))
 
     @property
+    def file_paths(self) -> dict[str, FilePath]:
+        """The record's files, guaranteed to be paths on disk.
+
+        Use this wherever a record is about to be stored, because anything
+        that writes the record needs somewhere to read the media from.
+
+        Raises:
+            NotImplementedError: If any source holds an in-memory image.
+
+        """
+        paths: dict[str, FilePath] = {}
+        in_memory: list[str] = []
+        for source, file in self.files.items():
+            if isinstance(file, np.ndarray):
+                in_memory.append(source)
+            else:
+                paths[source] = file
+        if in_memory:
+            raise NotImplementedError(
+                f"Sources {sorted(in_memory)} hold an in-memory image "
+                "instead of a file path. A dataset cannot store those: write "
+                "the image to a file and reference that path instead."
+            )
+        return paths
+
+    @property
     @deprecated("Use `list(record.files.values())` instead.")
-    def all_file_paths(self) -> list[FilePath]:
+    def all_file_paths(self) -> list[FilePath | np.ndarray]:
         """All file paths associated with the dataset record.
 
         .. deprecated:: 0.9.0
@@ -1356,30 +2352,99 @@ class DatasetRecord(BaseModelExtraForbid):
         """
         return list(self.files.values())
 
+    @property
+    @deprecated("Use the keys of `record.annotation` instead.")
+    def task_name(self) -> str:
+        """The task name of a record that carries exactly one task.
+
+        .. deprecated:: 0.10.0
+            Group the detections by task name in ``annotation`` instead.
+
+        Raises:
+            ValueError: If the record carries more than one task.
+
+        """
+        if not self.annotation:
+            return ""
+        if len(self.annotation) > 1:
+            raise ValueError(
+                "A record with several tasks has no single task name. "
+                "Read the keys of `record.annotation` instead."
+            )
+        return next(iter(self.annotation))
+
     @model_validator(mode="after")
-    def validate_task_name_valid_identifier(self) -> Self:
-        Detection._check_valid_identifier(self.task_name, label="Task name")
+    def validate_task_names(self) -> Self:
+        for task_name in self.annotation:
+            if not task_name:
+                continue
+            for part in task_name.split("/"):
+                if not part:
+                    raise ValueError(
+                        f"Task name '{task_name}' has an empty part."
+                    )
+                Detection._check_valid_identifier(part, label="Task name")
         return self
 
     @model_validator(mode="before")
     @classmethod
-    def validate_task_name(cls, values: Any) -> Any:
-        if not isinstance(values, Mapping) or "task" not in values:
+    def normalize_annotation(cls, values: Any) -> Any:
+        """Group the record's detections by task name.
+
+        The deprecated flat forms are accepted and normalized: a single
+        detection, a list of detections, and a ``task_name`` or ``task``
+        beside them.
+        """
+        if not isinstance(values, Mapping):
             return values
 
         values = dict(values)
-        task = values.pop("task")
-        if values.get("task_name", task) != task:
+        task = values.pop("task", None)
+        task_name = values.pop("task_name", None)
+        if task is not None and task_name is not None and task != task_name:
             raise ValueError(
                 "Conflicting values for 'task' and 'task_name'. "
-                "Use only 'task_name'."
+                "Group the detections by task name in 'annotation' instead."
             )
+        if task is not None or task_name is not None:
+            log_once(
+                logger.warning,
+                "The 'task' and 'task_name' fields are deprecated. Group "
+                "the detections by task name in 'annotation' instead.",
+            )
+        if task_name is None:
+            task_name = task
 
-        log_once(
-            logger.warning,
-            "The 'task' field is deprecated. Use 'task_name' instead.",
+        annotation = values.get("annotation")
+        if annotation is None or _is_task_mapping(annotation):
+            grouped = {
+                name: list(detections)
+                if isinstance(detections, (list, tuple))
+                else [detections]
+                for name, detections in (annotation or {}).items()
+            }
+            if task_name is not None and set(grouped) - {task_name}:
+                raise ValueError(
+                    f"The task name '{task_name}' does not match the tasks "
+                    f"of the annotation mapping: {sorted(grouped)}."
+                )
+            # A task name on its own declares a task that has no positives.
+            # An empty name names no task.
+            if not grouped and task_name:
+                grouped = {task_name: []}
+            values["annotation"] = grouped
+            return values
+
+        detections = (
+            list(annotation)
+            if isinstance(annotation, (list, tuple))
+            else [annotation]
         )
-        values["task_name"] = task
+        # An empty list with no task name names no task either.
+        if detections or task_name:
+            values["annotation"] = {task_name or "": detections}
+        else:
+            values["annotation"] = {}
         return values
 
     @model_validator(mode="before")
@@ -1391,125 +2456,138 @@ class DatasetRecord(BaseModelExtraForbid):
         # A shallow copy is enough: nothing below mutates a nested value,
         # and deep-copying would duplicate any mask the payload carries.
         values = dict(values)
-        if "file" in values:
-            if "files" in values:
-                raise ValueError("Provide either 'file' or 'files', not both.")
-            values["files"] = {"image": values.pop("file")}
-        if "files" in values:
-            files = values["files"]
-            # Anything else is left untouched for pydantic to report
-            # against `files` instead of failing on the paths below.
-            if isinstance(files, Mapping) and all(
-                isinstance(path, PathType) for path in files.values()
-            ):
-                values["files"] = {
-                    key: Path(path).absolute() for key, path in files.items()
-                }
+        provided = [key for key in ("media", "file", "files") if key in values]
+        if len(provided) > 1:
+            names = " or ".join(f"'{key}'" for key in provided)
+            raise ValueError(f"Provide either {names}, not both.")
+        if not provided:
+            return values
+        if provided != ["media"]:
+            log_once(
+                logger.warning,
+                "The 'file' and 'files' fields are deprecated. Use 'media', "
+                "which takes one path or a mapping of source names to paths.",
+            )
+
+        media = values.pop(provided[0])
+        # 'file' always named one source. 'media' names one only when it is
+        # a file itself, so that it can also take the mapping 'files' took.
+        if provided[0] == "file" or (
+            provided[0] == "media"
+            and isinstance(media, (PathType, np.ndarray))
+        ):
+            media = {"image": media}
+        # Anything else is left untouched for pydantic to report against
+        # `files` instead of failing on the paths below.
+        if isinstance(media, Mapping):
+            media = {
+                source: Path(file).absolute()
+                if isinstance(file, PathType)
+                else file
+                for source, file in media.items()
+            }
+        values["files"] = media
         return values
 
-    @field_validator("annotation", mode="before")
-    @classmethod
-    def validate_annotation(cls, value: Any) -> Any:
-        # Tuples pass through: pydantic itself coerces them to a list.
-        if value is None or isinstance(value, (list, tuple)):
-            return value
-        return [value]
+    def to_loader_output(
+        self,
+        schema: "DatasetSchema",
+        *,
+        images: dict[str, np.ndarray] | None = None,
+        keep_categorical_as_strings: bool = False,
+        include_empty: bool = True,
+    ) -> "LoaderOutput":
+        """Convert this record into the arrays a loader returns.
 
-    def to_parquet_rows(self) -> Iterable[ParquetRecord]:
+        Args:
+            schema: Schema of the dataset this record belongs to. It supplies
+                what a record cannot: the class IDs, the number of classes of
+                a segmentation task, and the keypoint count of an empty
+                keypoint label.
+            images: Images keyed by source name. Read from the record's files
+                when omitted.
+            keep_categorical_as_strings: Whether categorical metadata keeps
+                its string values instead of the encoded integers.
+            include_empty: Whether every task of the schema gets a label, even
+                when this record has no annotation for it.
+
+        Returns:
+            The images, one label per task and task type, and this record's
+            metadata with the schema attached.
+
+        """
+        from luxonis_ml.ldf.conversion import record_to_loader_output
+
+        return record_to_loader_output(
+            self,
+            schema,
+            images=images,
+            keep_categorical_as_strings=keep_categorical_as_strings,
+            include_empty=include_empty,
+        )
+
+    def to_parquet_rows(
+        self,
+        keypoint_metadata: Mapping[str, KeypointMetadata] | None = None,
+        instance_counter: InstanceCounter | None = None,
+    ) -> Iterable[ParquetRecord]:
         """Recursively convert the dataset record and all its
         annotations and sub-annotations to parquet rows.
 
-        Every detection in ``annotation`` is flattened into the same parquet
-        rows, so the on-disk format does not depend on how the record was
-        grouped. Each secondary media source still receives exactly one
-        null-annotation row (not one per detection).
+        Every detection is flattened into the rows of the main source. Each
+        secondary source gets a single row with no annotation.
+
+        Args:
+            keypoint_metadata: Keypoint metadata of the written tasks,
+                keyed by task name. A keypoint payload is positional. The
+                keypoint metadata thus sets the order and pads the omitted
+                keypoints.
+            instance_counter: Instance numbers of the sample, shared by all
+                its records. The rows of one instance share its number, so
+                they can be found again when they are read back. Numbers
+                are left alone when this is omitted.
 
         Yields:
             Annotation data rows.
 
         """
-        yield from self._rows_for_task(self._annotations(), self.task_name)
-
-    def _rows_for_task(
-        self, annotations: list[Detection], task_name: str
-    ) -> Iterable[ParquetRecord]:
-        # Serialized once here rather than per row: every row of the record
-        # carries the same metadata.
+        keypoint_metadata = keypoint_metadata or {}
         sample_metadata = json.dumps(self.sample_metadata)
-        file_items = sorted(self.files.items(), key=lambda x: str(x[1]))
+        annotations_by_task = self.annotation or {"": []}
+        # A record of one task keeps naming it on the rows of its secondary
+        # sources. Several tasks have no single name to put there.
+        secondary_task = (
+            next(iter(annotations_by_task))
+            if len(annotations_by_task) == 1
+            else ""
+        )
+
+        file_items = sorted(self.file_paths.items(), key=lambda x: str(x[1]))
         for i, (source, file_path) in enumerate(file_items):
-            is_main = i == 0
-            if not is_main or not annotations:
-                yield self._null_row(
-                    source, file_path, task_name, sample_metadata
+            if i > 0:
+                yield self._empty_row(
+                    source, file_path, secondary_task, sample_metadata
                 )
-            else:
+                continue
+
+            for task_name, annotations in annotations_by_task.items():
+                if not annotations:
+                    yield self._empty_row(
+                        source, file_path, task_name, sample_metadata
+                    )
                 for annotation in annotations:
                     yield from self._detection_rows(
                         annotation,
+                        task_name,
                         source,
                         file_path,
-                        task_name,
                         sample_metadata,
+                        keypoint_metadata,
+                        instance_counter=instance_counter,
                     )
 
-    def _null_row(
-        self,
-        source: str,
-        file_path: FilePath,
-        task_name: str,
-        sample_metadata: str,
-    ) -> ParquetRecord:
-        return {
-            "file": str(file_path),
-            "source_name": source,
-            "task_name": task_name,
-            "class_name": None,
-            "instance_id": None,
-            "task_type": None,
-            "annotation": None,
-            "sample_metadata": sample_metadata,
-        }
-
-    def _detection_rows(
-        self,
-        annotation: Detection,
-        source: str,
-        file_path: FilePath,
-        task_name: str,
-        sample_metadata: str,
-    ) -> Iterable[ParquetRecord]:
-        def row(task_type: str, payload: str) -> ParquetRecord:
-            return {
-                "file": str(file_path),
-                "source_name": source,
-                "task_name": task_name,
-                "class_name": annotation.class_name,
-                "instance_id": annotation.instance_id,
-                "task_type": task_type,
-                "annotation": payload,
-                "sample_metadata": sample_metadata,
-            }
-
-        for task_type in _LABEL_TASK_TYPES:
-            label: Annotation | None = getattr(annotation, task_type)
-            if label is not None:
-                yield row(task_type, label.model_dump_json())
-        for key, data in annotation.metadata.items():
-            yield row(f"metadata/{key}", json.dumps(data))
-        if annotation.class_name is not None:
-            yield row("classification", "{}")
-        for name, detection in annotation.sub_detections.items():
-            yield from self._detection_rows(
-                detection,
-                source,
-                file_path,
-                f"{task_name}/{name}",
-                sample_metadata,
-            )
-
     @staticmethod
-    def decode_metadata(value: object) -> Params:
+    def decode_metadata(value: Any) -> Params:
         """Decode serialized record metadata into a dictionary.
 
         Args:
@@ -1527,23 +2605,103 @@ class DatasetRecord(BaseModelExtraForbid):
             value = json.loads(value)
         return value if isinstance(value, dict) else {}
 
+    def _detection_rows(
+        self,
+        annotation: Detection,
+        task_name: str,
+        source: str,
+        file_path: FilePath,
+        sample_metadata: str,
+        keypoint_metadata: Mapping[str, KeypointMetadata],
+        *,
+        instance_counter: InstanceCounter | None = None,
+        parent_number: int | None = None,
+    ) -> Iterable[ParquetRecord]:
+        """Yield one row per task type of a detection.
+
+        ``instance_counter`` gives the instance numbers, as
+        `to_parquet_rows` describes. A sub-detection without an ID asks
+        for ``parent_number``, the number of its parent.
+        """
+        instance_id = annotation.instance_id
+        inherited = False
+        if parent_number is not None and instance_id < 0:
+            instance_id, inherited = parent_number, True
+        if instance_counter is not None:
+            instance_id = instance_counter.number(
+                task_name, instance_id, inherited=inherited
+            )
+
+        def row(task_type: str, payload: str) -> ParquetRecord:
+            return {
+                "file": str(file_path),
+                "source_name": source,
+                "task_name": task_name,
+                "class_name": annotation.class_name,
+                "instance_id": instance_id,
+                "task_type": task_type,
+                "annotation": payload,
+                "sample_metadata": sample_metadata,
+            }
+
+        for task_type in _LABEL_TASK_TYPES:
+            label: Annotation | None = getattr(annotation, task_type)
+            if label is not None:
+                yield row(
+                    task_type,
+                    label.to_parquet_json(keypoint_metadata.get(task_name)),
+                )
+        for key, data in annotation.metadata.items():
+            yield row(f"metadata/{key}", json.dumps(data))
+        if annotation.class_name is not None:
+            yield row("classification", "{}")
+        for name, detection in annotation.sub_detections.items():
+            yield from self._detection_rows(
+                detection,
+                f"{task_name}/{name}",
+                source,
+                file_path,
+                sample_metadata,
+                keypoint_metadata,
+                instance_counter=instance_counter,
+                parent_number=instance_id,
+            )
+
+    @staticmethod
+    def _empty_row(
+        source: str,
+        file_path: FilePath,
+        task_name: str,
+        sample_metadata: str,
+    ) -> ParquetRecord:
+        """Return the row of a source that carries no annotation."""
+        return {
+            "file": str(file_path),
+            "source_name": source,
+            "task_name": task_name,
+            "class_name": None,
+            "instance_id": None,
+            "task_type": None,
+            "annotation": None,
+            "sample_metadata": sample_metadata,
+        }
+
 
 def load_annotation(
-    task_type: Literal[
-        "classification",
-        "boundingbox",
-        "keypoints",
-        "segmentation",
-        "instance_segmentation",
-        "array",
-    ],
-    data: Mapping[str, object],
+    task_type: TaskType,
+    data: Mapping[str, Any],
+    *,
+    n_keypoints: int | None = None,
 ) -> "Annotation":
     """Load an annotation from serialized data.
 
     Args:
         task_type: The type of the annotation task.
         data: Serialized annotation data.
+        n_keypoints: Number of keypoints of the task, when known. A stored
+            keypoint payload has no names, so the position of a keypoint
+            gives its key. A shorter payload holds the leading keypoints,
+            and the others get ``(0, 0, 0)``.
 
     Returns:
         An instance of the appropriate `Annotation` subclass based on the task type.
@@ -1562,7 +2720,162 @@ def load_annotation(
     }
     if task_type not in classes:
         raise ValueError(f"Unknown label type: {task_type}")
-    return classes[task_type].model_validate(data)
+    if task_type == "array" and "path" in data:
+        # Stored arrays keep the old key, so reading one back must not look
+        # like a caller that still uses the deprecated name.
+        data = dict(data)
+        data["data"] = data.pop("path")
+    return classes[task_type].model_validate(
+        data, context={"n_keypoints": n_keypoints}
+    )
+
+
+def _is_task_mapping(annotation: Any) -> bool:
+    """Whether an annotation payload groups detections by task name."""
+    if not isinstance(annotation, Mapping):
+        return False
+    if not annotation:
+        return True
+
+    # A key that names no field of a detection can only be a task name.
+    if set(annotation) - (set(Detection.model_fields) | {"class"}):
+        return True
+
+    # Every key also names a detection field, so the values decide. No
+    # field of a detection holds a list, so a list means a task.
+    return any(
+        isinstance(detections, (list, tuple))
+        for detections in annotation.values()
+    )
+
+
+def _where(context: str) -> str:
+    return f" for {context}" if context else ""
+
+
+def _reject_unknown(names: Iterable[str], labels: Sequence[str]) -> None:
+    unknown = sorted(set(names) - set(labels))
+    if unknown:
+        raise ValueError(
+            f"Keypoints {', '.join(unknown)} are not part of the task. "
+            f"Known keypoints: {', '.join(labels)}."
+        )
+
+
+def _is_positional(labels: Iterable[str]) -> bool:
+    """Whether keypoint names are the ``"0"``, ``"1"``, ... fallback.
+
+    A plain list of triplets gives its keypoints keys by position. Those
+    keys give only the number of keypoints. They are never labels that a
+    user chose.
+    """
+    labels = list(labels)
+    return labels == [str(i) for i in range(len(labels))]
+
+
+def _first_index(labels: Iterable[str]) -> dict[str, int]:
+    """Map each name to its first index. Old metadata can repeat names."""
+    indices: dict[str, int] = {}
+    for index, label in enumerate(labels):
+        indices.setdefault(label, index)
+    return indices
+
+
+def _repeated(labels: Sequence[str]) -> list[str]:
+    """Return the names that occur more than once, sorted."""
+    return sorted(
+        label for label, count in Counter(labels).items() if count > 1
+    )
+
+
+def _resolve_pairs(
+    values: Mapping[str, Any], labels: Sequence[str] | None, hint: str
+) -> Mapping[str, Any]:
+    """Replace every keypoint name in ``edges`` and ``flip_pairs``.
+
+    Args:
+        values: Raw input values.
+        labels: Keypoint names in index order, when they are known.
+        hint: Sentence that tells the caller how to supply the names.
+
+    Returns:
+        The values, with each name replaced by its index.
+
+    Raises:
+        ValueError: If a name occurs but no names are known, if the names
+            repeat, or if a name is not one of them.
+
+    """
+    try:
+        pairs_by_field = {
+            field: [list(pair) for pair in values[field]]
+            for field in ("edges", "flip_pairs")
+            if isinstance(values.get(field), Iterable)
+            and not isinstance(values[field], (str, bytes))
+        }
+    except TypeError:
+        # Malformed input. Let pydantic report it against the field type.
+        return values
+
+    if not any(
+        isinstance(endpoint, str)
+        for pairs in pairs_by_field.values()
+        for pair in pairs
+        for endpoint in pair
+    ):
+        return values
+
+    if not labels:
+        raise ValueError(
+            "Keypoint names are required in order to refer to the edges or "
+            f"the flip pairs by name. {hint}"
+        )
+    if repeated := _repeated(labels):
+        raise ValueError(
+            f"The keypoint names {', '.join(repeated)} repeat, so a name "
+            "cannot identify one keypoint. Refer to the keypoints by index."
+        )
+
+    indices = {label: i for i, label in enumerate(labels)}
+    resolved = dict(values)
+    for field, pairs in pairs_by_field.items():
+        resolved[field] = [
+            [_resolve_endpoint(endpoint, indices) for endpoint in pair]
+            for pair in pairs
+        ]
+    return resolved
+
+
+def _resolve_endpoint(endpoint: Any, indices: Mapping[str, int]) -> Any:
+    if not isinstance(endpoint, str):
+        return endpoint
+    if endpoint not in indices:
+        raise ValueError(
+            f"Unknown keypoint name '{endpoint}'. "
+            f"Known keypoints: {', '.join(indices)}."
+        )
+    return indices[endpoint]
+
+
+def _split_side(label: str) -> tuple[str, str] | None:
+    """Split a keypoint name into its side marker and the remainder.
+
+    A separator must delimit the marker. Thus ``bright_spot`` is not a
+    right-side keypoint.
+
+    Returns:
+        The side and the remaining name, or ``None`` if the name carries no
+        side marker.
+
+    """
+    parts = re.split(r"[_\-\s]+", label.strip().lower())
+    if len(parts) < 2:
+        return None
+    if (side := _SIDE_MARKERS.get(parts[0])) is not None:
+        return side, "_".join(parts[1:])
+    if (side := _SIDE_MARKERS.get(parts[-1])) is not None:
+        return side, "_".join(parts[:-1])
+    return None
 
 
 # Also keeps the API docs rooted here: pydoctor moves a re-exported name to
@@ -1575,10 +2888,14 @@ __all__ = [
     "ClassificationAnnotation",
     "DatasetRecord",
     "Detection",
+    "InstanceCounter",
     "InstanceSegmentationAnnotation",
+    "Keypoint",
     "KeypointAnnotation",
+    "KeypointMetadata",
     "KeypointVisibility",
     "NormalizedFloat",
+    "PathOrArray",
     "SegmentationAnnotation",
     "load_annotation",
 ]

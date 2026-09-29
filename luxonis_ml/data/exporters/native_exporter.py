@@ -5,17 +5,21 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
+from loguru import logger
 from semver.version import Version
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
     split_of_group,
+    warn_repeated_keypoint_names,
 )
 from luxonis_ml.data.exporters.ldf_downgrade import LDFDowngrader
 from luxonis_ml.data.utils.constants import LDF_VERSION
+from luxonis_ml.data.utils.data_utils import get_keypoint_row_widths
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.ldf import DatasetRecord
+from luxonis_ml.ldf import DatasetRecord, Keypoint, KeypointMetadata
+from luxonis_ml.typing import Params
 from luxonis_ml.utils.path import path_to_posix
 
 
@@ -26,23 +30,24 @@ class NativeExporter(BaseExporter):
     ``annotations.json`` file. Each annotation entry follows the same
     record-level shape accepted by `NativeParser` and `LuxonisDataset.add`.
 
-    ``sample_metadata`` is exported as a JSON object next to ``file`` or
-    ``files``. It is **record-level metadata**, not an annotation label.
+    ``sample_metadata`` is exported as a JSON object next to ``media``. It is
+    **record-level metadata**, not an annotation label.
 
     The export root also holds a ``metadata.json`` version stamp, such as
-    ``{"ldf_version": "2.1.0"}``. It is not the full `Metadata` model a
+    ``{"ldf_version": "3.0.0"}``. It is not the full `Metadata` model a
     dataset keeps in its own storage.
 
     Passing an older ``ldf_version`` strips the fields that version does
-    not know -- exporting LDF 2.0 omits ``sample_metadata``. See
+    not know -- exporting LDF 2.0 omits ``sample_metadata`` and the
+    keypoint names, edges, flip pairs and sigmas. A version before 3.0 also
+    gets the flat ``file``, ``task_name`` and ``annotation`` record. See
     `LDFDowngrader`.
 
     Example:
         .. code-block:: json
 
             {
-              "file": "images/0.jpg",
-              "task_name": "detection",
+              "media": "images/0.jpg",
 
               "sample_metadata": {
                 "record_id": 123,
@@ -51,14 +56,18 @@ class NativeExporter(BaseExporter):
               },
 
               "annotation": {
-                "instance_id": 0,
-                "class": "person",
-                "boundingbox": {
-                  "x": 0.1,
-                  "y": 0.2,
-                  "w": 0.3,
-                  "h": 0.4
-                }
+                "detection": [
+                  {
+                    "instance_id": 0,
+                    "class": "person",
+                    "boundingbox": {
+                      "x": 0.1,
+                      "y": 0.2,
+                      "w": 0.3,
+                      "h": 0.4
+                    }
+                  }
+                ]
               }
             }
 
@@ -70,13 +79,23 @@ class NativeExporter(BaseExporter):
         output_path: Path,
         max_partition_size_gb: float | None,
         *,
+        keypoint_metadata: dict[str, KeypointMetadata] | None = None,
         ldf_version: Version | None = None,
     ):
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
+        self.keypoint_metadata = keypoint_metadata or {}
         self.ldf_version = ldf_version or LDF_VERSION
+        self._metadata_attached: set[tuple[int | None, str, str]] = set()
         self._downgrade = LDFDowngrader(self.ldf_version)
+        for task, task_keypoints in self.keypoint_metadata.items():
+            warn_repeated_keypoint_names(
+                task,
+                task_keypoints,
+                "The export cannot key the keypoints by these names, so "
+                "the import numbers the keypoints.",
+            )
 
     @staticmethod
     def get_split_names() -> dict[str, str]:
@@ -86,6 +105,7 @@ class NativeExporter(BaseExporter):
         return DatasetType.NATIVE.supported_annotation_formats
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
+        self._drop_keypoint_metadata_of_wider_rows(prepared_ldf.processed_df)
         annotation_splits: dict[str, list[dict[str, Any]]] = {
             k: [] for k in self.get_split_names()
         }
@@ -129,10 +149,90 @@ class NativeExporter(BaseExporter):
                     shutil.copy(p, data_path / f"{idx}{p.suffix}")
                     self.current_size += p.stat().st_size
 
-            annotation_splits[split].extend(records)
+            # The downgrade runs last: the fields attached here are
+            # themselves fields an older LDF version does not know.
+            self._attach_keypoint_metadata(records, split)
+            annotation_splits[split].extend(map(self._downgrade, records))
 
         self._dump_annotations(annotation_splits, self.output_path, self.part)
         self._downgrade.log_summary()
+
+    def _attach_keypoint_metadata(
+        self, records: list[dict[str, Any]], split: str
+    ) -> None:
+        """Attach each task's metadata to its first eligible record.
+
+        A short record is eligible only when its names survive the target
+        LDF version. Without names, the importer cannot tell which keypoints
+        are missing.
+        """
+        for record in records:
+            for task_name, detections in record.get("annotation", {}).items():
+                task_keypoints = self.keypoint_metadata.get(task_name)
+                if task_keypoints is None:
+                    continue
+                labels = task_keypoints.labels
+                named = task_keypoints.has_names
+                for detection in detections:
+                    keypoints = detection.get("keypoints")
+                    if keypoints is None:
+                        continue
+                    values = keypoints["keypoints"]
+                    if len(values) < len(labels) and not (
+                        named and self._downgrade.keeps_keypoint_names
+                    ):
+                        continue
+                    # Each partition has its own annotations file.
+                    key = (self.part, split, task_name)
+                    if key in self._metadata_attached:
+                        continue
+                    self._metadata_attached.add(key)
+                    # The import infers flip pairs for names without flip
+                    # pairs. An empty list turns that off, so a record with
+                    # names carries it.
+                    keypoints.update(
+                        {
+                            field: value
+                            for field, value in task_keypoints.model_dump(
+                                exclude={"labels"}
+                            ).items()
+                            if value or (named and field == "flip_pairs")
+                        }
+                    )
+                    if named:
+                        # COCO's value for a keypoint that is not labeled.
+                        missing = [Keypoint(0.0, 0.0, 0)] * (
+                            len(labels) - len(values)
+                        )
+                        keypoints["keypoints"] = dict(
+                            zip(labels, values + missing, strict=True)
+                        )
+
+    def _drop_keypoint_metadata_of_wider_rows(self, df: pl.DataFrame) -> None:
+        """Drop the metadata of a task with rows wider than its names.
+
+        `LuxonisDataset.set_keypoint_metadata` does not change the stored
+        rows, so new names can cover fewer keypoints than a row has. The
+        import rejects names narrower than a row of any split, so the
+        export keeps the rows and leaves out the metadata of the task.
+        """
+        widths = get_keypoint_row_widths(df.lazy())
+        kept: dict[str, KeypointMetadata] = {}
+        for task, task_keypoints in self.keypoint_metadata.items():
+            n_labels = len(task_keypoints.labels)
+            width = widths.get(task, 0)
+            if 0 < n_labels < width:
+                logger.warning(
+                    f"Task '{task}' names {n_labels} keypoints, but a row "
+                    f"has {width}. The export leaves out the keypoint "
+                    "metadata of this task, so the import numbers the "
+                    "keypoints. Give the task a name for each keypoint with "
+                    "`LuxonisDataset.set_keypoint_metadata(labels=...)` to "
+                    "keep the names."
+                )
+            else:
+                kept[task] = task_keypoints
+        self.keypoint_metadata = kept
 
     def _maybe_roll_partition(
         self,
@@ -174,17 +274,17 @@ class NativeExporter(BaseExporter):
 
         multi_source = len(source_to_file) > 1
         record: dict[str, Any] = {
-            ("files" if multi_source else "file"): (
+            "media": (
                 source_to_file
                 if multi_source
                 else source_to_file[group_source_names[0]]
             ),
-            "task_name": task_name,
             "sample_metadata": DatasetRecord.decode_metadata(
                 row.get("sample_metadata")
             ),
         }
 
+        detections: list[Params] = []
         if ann_str is not None:
             data = json.loads(ann_str)
             ann: dict[str, Any] = {
@@ -200,9 +300,14 @@ class NativeExporter(BaseExporter):
                 ann[task_type] = data
             elif task_type.startswith("metadata/"):
                 ann["metadata"] = {task_type[9:]: data}
-            record["annotation"] = ann
+            detections.append(ann)
+        # A named empty list still names the task, so a sample that is a
+        # negative for it says so. An empty name names no task, so it must
+        # not become one on the way back in.
+        if task_name or detections:
+            record["annotation"] = {task_name: detections}
 
-        return self._downgrade(record)
+        return record
 
     def _dump_annotations(
         self,

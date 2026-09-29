@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
+from itertools import chain
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from luxonis_ml.ldf import DatasetRecord, Detection
@@ -231,7 +232,7 @@ class InspectionQuery:
 
     def matches(
         self,
-        records: Mapping[str, DatasetRecord],
+        record: DatasetRecord,
         sample_metadata: Params,
         *,
         extra_annotation_types: frozenset[
@@ -239,7 +240,7 @@ class InspectionQuery:
         ] = frozenset(),
     ) -> bool:
         """Return whether one converted loader sample satisfies this query."""
-        detections = list(_record_detections(records.values()))
+        detections = list(_record_detections(record))
         if self.unlabeled_only and (
             extra_annotation_types or _has_annotations(detections)
         ):
@@ -268,7 +269,7 @@ class InspectionQuery:
         ):
             return False
         return not self.search or _matches_search(
-            self.search, records, detections, sample_metadata
+            self.search, record, detections, sample_metadata
         )
 
 
@@ -334,13 +335,10 @@ def identity_index(
     return indexed, selected
 
 
-def _record_detections(
-    records: Iterable[DatasetRecord],
-) -> Iterator[Detection]:
-    """Yield every top-level and nested detection from a record collection."""
-    for record in records:
-        for detection in record._annotations():
-            yield from _detection_tree(detection)
+def _record_detections(record: DatasetRecord) -> Iterator[Detection]:
+    """Yield every top-level and nested detection of a record."""
+    for detection in chain.from_iterable(record.annotation.values()):
+        yield from _detection_tree(detection)
 
 
 def _detection_tree(detection: Detection) -> Iterator[Detection]:
@@ -427,13 +425,13 @@ def _detection_confidence(detection: Detection) -> float | None:
 
 def _matches_search(
     query: str,
-    records: Mapping[str, DatasetRecord],
+    record: DatasetRecord,
     detections: Sequence[Detection],
     sample_metadata: Params,
 ) -> bool:
     """Case-insensitive substring search over identity, labels, and metadata."""
     needle = query.casefold()
-    values = [*records]
+    values = [*record.annotation]
     values.extend(
         detection.class_name
         for detection in detections

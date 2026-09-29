@@ -1,7 +1,7 @@
 """Composing whole compared samples into display- or file-ready frames.
 
 `ComparisonComposer` is the presentation half of dataset comparison: it
-matches one paired sample's records, draws every image source in the chosen
+matches one paired sample's detections, draws every image source in the chosen
 layout, tiles the sources, and attaches the metrics panel. The caller keeps
 the data side — pairing samples across loaders and deciding what to do with
 the finished frames.
@@ -9,6 +9,7 @@ the finished frames.
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from itertools import chain
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -72,18 +73,12 @@ class ComparisonComposer:
     panel_width: float = 400.0
 
     def match(
-        self,
-        gt_records: "Mapping[str, DatasetRecord]",
-        pred_records: "Mapping[str, DatasetRecord]",
+        self, gt_record: "DatasetRecord", pred_record: "DatasetRecord"
     ) -> ComparisonResult:
         """Match one paired sample's detections, without drawing anything."""
-        gt_dets = [d for r in gt_records.values() for d in r._annotations()]
-        pred_dets = [
-            d for r in pred_records.values() for d in r._annotations()
-        ]
         return match_detections(
-            gt_dets,
-            pred_dets,
+            list(chain.from_iterable(gt_record.annotation.values())),
+            list(chain.from_iterable(pred_record.annotation.values())),
             iou_threshold=self.iou_threshold,
             score_threshold=self.score_threshold,
             class_aware=self.class_aware,
@@ -142,15 +137,15 @@ class ComparisonComposer:
     def frame(
         self,
         images: "Mapping[str, np.ndarray]",
-        gt_records: "Mapping[str, DatasetRecord]",
-        pred_records: "Mapping[str, DatasetRecord]",
+        gt_record: "DatasetRecord",
+        pred_record: "DatasetRecord",
     ) -> Frame:
         """Match GT vs predictions and compose every source into one `Frame`.
 
         A multi-source sample is tiled rather than given a window per source,
         so the metrics panel is attached once and the sources stay side by side.
         """
-        result = self.match(gt_records, pred_records)
+        result = self.match(gt_record, pred_record)
         scenes = [
             self._scene(image.astype(np.uint8), result)
             for image in images.values()

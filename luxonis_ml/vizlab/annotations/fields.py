@@ -134,7 +134,8 @@ class ArrayField(ArrayAnnotation, Annotation):
         """Accept a missing path; otherwise apply LDF's own file checks."""
         if path is None:
             return None
-        return ArrayAnnotation._validate_path(path)
+        ArrayAnnotation._validate_path(path)
+        return path
 
     @field_serializer("path", when_used="json")
     def _serialize_path(self, value: "FilePath | None") -> str | None:

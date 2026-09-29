@@ -15,7 +15,7 @@ from luxonis_ml.ldf import BBoxAnnotation, DatasetRecord, Detection
 from luxonis_ml.typing import Params
 
 
-def _records() -> dict[str, DatasetRecord]:
+def _record() -> DatasetRecord:
     child = Detection(class_name="plate", metadata={"text": "ABC-123"})
     detection = Detection(
         class_name="car",
@@ -24,13 +24,14 @@ def _records() -> dict[str, DatasetRecord]:
         metadata={"confidence": 0.86, "quality": "approved"},
         sub_detections={"plate": child},
     )
-    return {
-        "objects": DatasetRecord.model_construct(
-            files={"image": Path("frame.jpg")},
-            annotation=[detection],
-            task_name="objects",
-        )
-    }
+    return DatasetRecord.model_construct(
+        files={"image": Path("frame.jpg")},
+        annotation={"objects": [detection]},
+    )
+
+
+def _empty_record() -> DatasetRecord:
+    return DatasetRecord.model_construct(files={}, annotation={})
 
 
 def test_sample_filter_config_validates_and_builds_query() -> None:
@@ -52,7 +53,7 @@ def test_sample_filter_config_validates_and_builds_query() -> None:
 
     assert config.task_filter == frozenset({"objects"})
     assert config.query().matches(
-        _records(),
+        _record(),
         {
             "filenames": {"image": "frame_0042.jpg"},
             "camera": {"side": "left"},
@@ -89,7 +90,7 @@ def test_query_matches_supported_sample_filters(
         "filenames": {"image": "frame_0042.jpg"},
         "camera": {"side": "left"},
     }
-    assert query.matches(_records(), metadata)
+    assert query.matches(_record(), metadata)
 
 
 @pytest.mark.parametrize(
@@ -116,20 +117,20 @@ def test_query_rejects_nonmatching_samples(query: InspectionQuery) -> None:
         "filenames": {"image": "frame_0042.jpg"},
         "camera": {"side": "left"},
     }
-    assert not query.matches(_records(), metadata)
+    assert not query.matches(_record(), metadata)
 
 
 def test_unlabeled_query_accepts_an_empty_sample() -> None:
-    assert InspectionQuery(unlabeled_only=True).matches({}, {})
+    assert InspectionQuery(unlabeled_only=True).matches(_empty_record(), {})
 
 
 def test_array_filter_uses_loader_only_annotation_type() -> None:
     array_type: frozenset[InspectionAnnotationType] = frozenset({"array"})
     assert InspectionQuery(annotation_types=array_type).matches(
-        {}, {}, extra_annotation_types=array_type
+        _empty_record(), {}, extra_annotation_types=array_type
     )
     assert not InspectionQuery(unlabeled_only=True).matches(
-        {},
+        _empty_record(),
         {},
         extra_annotation_types=array_type,
     )
@@ -142,7 +143,7 @@ def test_repeated_metadata_predicates_are_conjunctive() -> None:
             MetadataPredicate.from_pair("quality", "rejected"),
         )
     )
-    assert not query.matches(_records(), {"camera": {"side": "left"}})
+    assert not query.matches(_record(), {"camera": {"side": "left"}})
 
 
 @pytest.mark.parametrize("path", ["", ".", " . "])
@@ -169,7 +170,7 @@ def test_query_rejects_invalid_filter_combinations() -> None:
         class_names=frozenset({"car"}),
         class_name_mode="exclude",
         unlabeled_only=True,
-    ).matches({}, {})
+    ).matches(_empty_record(), {})
 
 
 @pytest.mark.parametrize(

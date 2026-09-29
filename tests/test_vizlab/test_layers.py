@@ -22,7 +22,7 @@ PALETTE = Palette(["car", "person"])
 def _detection(label: str = "car") -> BBox:
     """Return a box carrying one keypoint child and one mask child."""
     box = BBox(x=0.1, y=0.1, w=0.5, h=0.5, label=label, score=0.9)
-    box.add(Keypoints(keypoints=[(0.2, 0.2, 2)]))  # type: ignore[list-item]
+    box.add(Keypoints.model_validate({"keypoints": [(0.2, 0.2, 2)]}))  # type: ignore[list-item]
     box.add(Mask(mask=np.ones((8, 8), np.uint8)))  # type: ignore[arg-type]
     return box
 
@@ -344,7 +344,11 @@ def test_unlabeled_annotations_keep_one_stable_palette_slot() -> None:
     """
     palette = Palette()
     colors = {
-        _resolved_color(Keypoints(keypoints=[(0.5, 0.5, 2)]), palette, None)
+        _resolved_color(
+            Keypoints.model_validate({"keypoints": [(0.5, 0.5, 2)]}),
+            palette,
+            None,
+        )
         for _ in range(5)
     }
     assert len(colors) == 1
@@ -353,8 +357,8 @@ def test_unlabeled_annotations_keep_one_stable_palette_slot() -> None:
 
 def test_unlabeled_palette_key_is_per_type_not_per_instance() -> None:
     first, second = (
-        Keypoints(keypoints=[(0.5, 0.5, 2)]),
-        Keypoints(keypoints=[(0.1, 0.1, 2)]),
+        Keypoints.model_validate({"keypoints": [(0.5, 0.5, 2)]}),
+        Keypoints.model_validate({"keypoints": [(0.1, 0.1, 2)]}),
     )
     assert first.unlabeled_color_key() == second.unlabeled_color_key()
     # Distinct from any class name, so it cannot collide with a real label.

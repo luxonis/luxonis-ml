@@ -2,8 +2,8 @@
 
 `RenderOptions` gathers everything a render falls back to that is not set on an
 individual annotation: the `Theme` (style + palette + background), the default
-`Gradient` for heatmaps, and the behavior of the LDF adapter (skeletons, keypoint
-labels, metadata handling). Pass it explicitly (``Image(options=...)``,
+`Gradient` for heatmaps, and the behavior of the LDF adapter (keypoint
+metadata, keypoint labels, metadata handling). Pass it explicitly (``Image(options=...)``,
 ``visualize_record(..., options=...)``), or install one for a scope with
 `default_options` / `set_default_options` — a `ContextVar`, so it is thread-safe
 and test-isolated rather than a mutable module global.
@@ -24,14 +24,13 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from typing import Literal, TypeAlias
 
+from luxonis_ml.ldf import KeypointMetadata
+
 from .gradient import DEFAULT_GRADIENT, Gradient
 from .style import DARK_THEME, Theme
 
 KeypointLabelMode = Literal["none", "numbers", "names", "full"]
 """How keypoints are labeled: nothing, index, name, or ``index:name``."""
-
-SkeletonDef = tuple[list[str], list[tuple[int, int]]]
-"""A keypoint skeleton as ``(labels, edges)`` — ``get_skeletons()``'s shape."""
 
 ArrayView = Literal["off", "tile", "overlay"]
 """How an array label is shown: not at all, in its own tile, or over the photo."""
@@ -63,7 +62,7 @@ RenderOptionValue: TypeAlias = (
     Theme
     | Gradient
     | str
-    | Mapping[str, SkeletonDef]
+    | Mapping[str, KeypointMetadata]
     | ArrayKinds
     | bool
     | float
@@ -80,11 +79,12 @@ class RenderOptions:
         theme: The look bundle (style + palette + background) an annotation falls
             back to. Pin class colors via `Theme.with_class_colors`.
         gradient: Default colormap for heatmaps that do not set their own.
-        skeletons: Keypoint skeletons keyed by task name, in LDF's ``(labels,
-            edges)`` shape (pass ``LuxonisDataset.get_skeletons()`` directly).
+        keypoint_metadata: Keypoint names and edges keyed by task name (pass
+            ``LuxonisDataset.get_keypoint_metadata()`` directly). A task without
+            an entry uses what its annotations declare.
         keypoint_label_mode: How to label keypoints.
         draw_skeletons: Whether to draw skeleton limbs between keypoints. The
-            skeleton is also what lets a joint the data never placed be marked
+            edges are also what let a joint the data never placed be marked
             rather than silently dropped — see `Keypoints`.
         hover_metadata: When ``True``, a boxed detection's metadata is attached as
             a hover `Tooltip` instead of crowding the frame.
@@ -125,7 +125,9 @@ class RenderOptions:
 
     theme: Theme = DARK_THEME
     gradient: Gradient | str = DEFAULT_GRADIENT
-    skeletons: Mapping[str, SkeletonDef] = field(default_factory=dict)
+    keypoint_metadata: Mapping[str, KeypointMetadata] = field(
+        default_factory=dict
+    )
     keypoint_label_mode: KeypointLabelMode = "numbers"
     draw_skeletons: bool = False
     hover_metadata: bool = False

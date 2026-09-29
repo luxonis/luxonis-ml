@@ -149,10 +149,11 @@ def _keypoint_labels(text: str) -> np.ndarray:
     return (
         Image(_bg())
         .add(
-            Keypoints(
-                keypoints=[(0.3, 0.3, 2), (0.6, 0.6, 2)],
-                keypoint_names=[text, "other"],
-                point_labels="names",
+            Keypoints.model_validate(
+                {
+                    "keypoints": {text: (0.3, 0.3, 2), "other": (0.6, 0.6, 2)},
+                    "point_labels": "names",
+                }
             )
         )
         .render()
@@ -183,7 +184,7 @@ SITES = [
     ("Legend.entries overflowing", _legend_overflowing),
     ("grid titles", _grid_title),
     ("with_panel title", _panel_title),
-    ("Keypoints.keypoint_names", _keypoint_labels),
+    ("Keypoints.keypoints", _keypoint_labels),
     ("ClassDistribution.probabilities", _distribution_names),
     ("ClassDistribution.title", _distribution_title),
 ]
