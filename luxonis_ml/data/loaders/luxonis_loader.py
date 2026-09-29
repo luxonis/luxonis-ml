@@ -793,21 +793,17 @@ class LuxonisLoader(BaseLoader):
         if height is None or width is None:
             return None
 
-        dataset_tasks = self.dataset.get_tasks()
-
+        # The schema holds the tasks that the filter kept.
+        tasks = self._schema.tasks
+        n_classes_by_task = self.dataset.get_n_classes()
         targets = {
             f"{task_name}/{task_type}": task_type
-            for task_name, task_types in dataset_tasks.items()
-            if self._filter_task_names is None
-            or task_name in self._filter_task_names
+            for task_name, task_types in tasks.items()
             for task_type in task_types
         }
-
         n_classes = {
-            f"{task_name}/{task_type}": self.dataset.get_n_classes()[task_name]
-            for task_name, task_types in dataset_tasks.items()
-            if self._filter_task_names is None
-            or task_name in self._filter_task_names
+            f"{task_name}/{task_type}": n_classes_by_task[task_name]
+            for task_name, task_types in tasks.items()
             for task_type in task_types
         }
         pipeline_stage = self._get_augmentation_pipeline_stage()
