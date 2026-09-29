@@ -499,6 +499,36 @@ def test_an_empty_label_survives_augmentation(
     ) == [0, 1]
 
 
+def test_augmentation_never_turns_a_label_into_a_negative(
+    dataset_name: str, tempdir: Path
+):
+    """The engine augments only the tasks that the metadata lists.
+
+    An older release replaced the stored tasks at each `add`, so a dataset
+    can hold the rows of a task that its metadata lost. The engine has no
+    target for such a label, and the loader put it back with no rows.
+    """
+    box = {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}
+
+    def generator() -> DatasetIterator:
+        yield {
+            "media": create_image(0, tempdir),
+            "annotation": {
+                "vehicles": [{"class": "car", "boundingbox": box}],
+                "people": [{"class": "person", "boundingbox": box}],
+            },
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    dataset.set_tasks({"vehicles": ["boundingbox", "classification"]})
+
+    loader = LuxonisLoader(dataset, view="train", height=64, width=64)
+    labels = loader[0].labels
+
+    assert len(labels["vehicles/boundingbox"]) == 1
+    assert "people/boundingbox" not in labels
+
+
 @pytest.mark.parametrize(
     ("class_name", "rows"),
     [

@@ -673,9 +673,10 @@ class LuxonisLoader(BaseLoader):
         # and the augmented path would then disagree with the plain one.
         image_shape = next(iter(img_dict.values())).shape[:2]
         for key, array in loaded_anns[0][1].items():
-            if key in labels:
+            # The engine also skips a label that it has no target for, and
+            # such a label must not come back as a negative.
+            if key in labels or len(array) > 0:
                 continue
-            # Only an empty label is ever dropped, so the row count is zero.
             # A mask carries the image shape, which augmentation changed.
             shape = (
                 (0, *image_shape) if array.ndim == 3 else (0, *array.shape[1:])
