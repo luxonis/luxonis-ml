@@ -157,6 +157,24 @@ def test_a_record_without_an_annotation_declares_nothing(image: Path):
     assert rows(record) == [("", None, None)]
 
 
+@pytest.mark.parametrize(
+    "fields",
+    [
+        pytest.param({"task_name": ""}, id="empty-task-name"),
+        pytest.param({"annotation": []}, id="empty-list"),
+    ],
+)
+def test_an_empty_flat_record_declares_no_task(image: Path, fields: dict):
+    """A 2.x native export writes ``"task_name": ""`` beside each negative.
+
+    `LuxonisDataset.add` registers every key of the annotation, so a
+    ``{"": []}`` gave the imported dataset a task without a name.
+    """
+    record = DatasetRecord.model_validate({"media": image, **fields})
+
+    assert record.annotation == {}
+
+
 def test_task_names_may_name_a_sub_detection(image: Path):
     record = DatasetRecord.model_validate(
         {"media": image, "annotation": {"driver/face": [{"class": "face"}]}}

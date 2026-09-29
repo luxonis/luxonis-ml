@@ -2423,7 +2423,8 @@ class DatasetRecord(BaseModelExtraForbid):
                     f"of the annotation mapping: {sorted(grouped)}."
                 )
             # A task name on its own declares a task that has no positives.
-            if not grouped and task_name is not None:
+            # An empty name names no task.
+            if not grouped and task_name:
                 grouped = {task_name: []}
             values["annotation"] = grouped
             return values
@@ -2433,7 +2434,11 @@ class DatasetRecord(BaseModelExtraForbid):
             if isinstance(annotation, (list, tuple))
             else [annotation]
         )
-        values["annotation"] = {task_name or "": detections}
+        # An empty list with no task name names no task either.
+        if detections or task_name:
+            values["annotation"] = {task_name or "": detections}
+        else:
+            values["annotation"] = {}
         return values
 
     @model_validator(mode="before")
