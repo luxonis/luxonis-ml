@@ -529,6 +529,30 @@ def test_augmentation_never_turns_a_label_into_a_negative(
     assert "people/boundingbox" not in labels
 
 
+def test_a_task_named_metadata_keeps_its_boxes(
+    dataset_name: str, tempdir: Path
+):
+    """The loader read the task type back from ``"metadata/boundingbox"``.
+
+    That string also names the ``boundingbox`` metadata of the default
+    task, so the box went to the metadata path.
+    """
+
+    box = {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}
+
+    def generator() -> DatasetIterator:
+        yield {
+            "media": create_image(0, tempdir),
+            "annotation": {"metadata": [{"class": "car", "boundingbox": box}]},
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+
+    labels = LuxonisLoader(dataset, view="train")[0].labels
+
+    assert len(labels["metadata/boundingbox"]) == 1
+
+
 @pytest.mark.parametrize(
     ("class_name", "rows"),
     [

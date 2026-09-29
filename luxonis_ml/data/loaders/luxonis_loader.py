@@ -26,7 +26,7 @@ from luxonis_ml.data.datasets import (
     load_annotation,
 )
 from luxonis_ml.data.loaders.base_loader import BaseLoader
-from luxonis_ml.data.utils import get_task_group, get_task_type
+from luxonis_ml.data.utils import get_task_group
 from luxonis_ml.ldf import (
     SCHEMA_METADATA_KEY,
     DatasetRecord,
@@ -545,8 +545,6 @@ class LuxonisLoader(BaseLoader):
                 continue
 
             data = json.loads(ann_str)
-            full_task_name = f"{task_name}/{task_type}"
-            task_type = get_task_type(full_task_name)
             if task_type == "array" and self.dataset.is_remote:
                 data["path"] = self.dataset._arrays_path / data["path"]
 
