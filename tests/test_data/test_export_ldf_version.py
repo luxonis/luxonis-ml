@@ -176,6 +176,31 @@ def test_downgrade_to_current_version_is_a_passthrough():
     assert LDFDowngrader(LDF_VERSION)(dict(record)) == record
 
 
+@pytest.mark.parametrize(
+    ("payload", "instance_id"),
+    [
+        pytest.param({}, -1, id="classification"),
+        pytest.param({"segmentation": {"counts": ""}}, -1, id="segmentation"),
+        pytest.param({"boundingbox": {"x": 0.1}}, 0, id="boundingbox"),
+        pytest.param({"metadata": {"color": "red"}}, 0, id="metadata"),
+    ],
+)
+def test_downgrade_gives_a_whole_image_label_no_number(
+    payload: dict, instance_id: int
+):
+    """LDF 2.x tells a whole-image label by its ID of -1.
+
+    Its classification and segmentation exporters keep only such rows. LDF
+    3.0 numbers every detection, so without the -1 they skip the sample.
+    """
+    detection = {"instance_id": 0, "class": "car", **payload}
+    downgraded = LDFDowngrader(Version.parse("2.2.0"))(
+        {"media": "a.jpg", "annotation": {"t": [detection]}}
+    )
+
+    assert downgraded["annotation"]["instance_id"] == instance_id
+
+
 def test_downgrade_removes_the_keypoint_task_fields():
     """They sit inside the annotation, not on the record.
 

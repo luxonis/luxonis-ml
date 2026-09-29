@@ -51,6 +51,11 @@ _KEYPOINT_NAMES_ADDED_IN: Final[Version] = _parse("2.2")
 #: older reads the flat ``file``/``task_name``/``annotation`` shape.
 _TASK_KEYED_RECORDS: Final[Version] = _parse("3.0")
 
+#: The fields of a detection that labels the whole image.
+_WHOLE_IMAGE_FIELDS: Final[frozenset[str]] = frozenset(
+    {"instance_id", "class", "segmentation"}
+)
+
 #: LDF versions the native exporter can write, newest first.
 SUPPORTED_EXPORT_VERSIONS: Final[tuple[Version, ...]] = (
     LDF_VERSION,
@@ -155,7 +160,9 @@ class LDFDowngrader:
         """Rewrite a record into the flat shape older LDF versions read.
 
         The exporter writes one detection per record, so the task-keyed
-        mapping always holds a single task and at most one detection.
+        mapping always holds a single task and at most one detection. LDF
+        3.0 numbers every detection, so a whole-image label gets back the
+        -1 that an older version expects.
         """
         flattened: Params = {}
         media = record.pop("media", None)
@@ -169,7 +176,10 @@ class LDFDowngrader:
             task_name, detections = next(iter(annotation.items()))
             flattened["task_name"] = task_name
             if detections:
-                flattened["annotation"] = detections[0]
+                detection = detections[0]
+                if detection.keys() <= _WHOLE_IMAGE_FIELDS:
+                    detection["instance_id"] = -1
+                flattened["annotation"] = detection
 
         # The remaining fields keep the order the record had.
         flattened.update(record)
