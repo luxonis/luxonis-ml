@@ -2196,40 +2196,46 @@ class InstanceCounter:
 
     The records of one sample arrive separately, so the numbers cannot live
     on a record. A detection without an ID takes the next free number of
-    its task. An explicit ID is kept, unless the counter already gave that
-    number to another detection. The ID then takes a new number, and every
-    later detection with that ID takes the same one, so the rows of one
-    instance stay together and the rows of two instances stay apart.
+    its task. An explicit ID is kept, unless another detection already
+    holds that number. The ID then takes a new number, and every later
+    detection with that ID takes the same one, so the rows of one instance
+    stay together and the rows of two instances stay apart. A sub-detection
+    without an ID asks for the number of its parent under the same rule,
+    but it never joins an explicit ID of the same value.
     """
 
     def __init__(self) -> None:
         self._next: dict[str, int] = defaultdict(int)
-        self._given: set[tuple[str, int]] = set()
-        self._renumbered: dict[tuple[str, int], int] = {}
+        self._held: set[tuple[str, int]] = set()
+        self._number_of: dict[tuple[str, int, bool], int] = {}
 
-    def number(self, task_name: str, instance_id: int) -> int:
+    def number(
+        self, task_name: str, instance_id: int, *, inherited: bool = False
+    ) -> int:
         """Return the stored number of a detection.
 
         Args:
             task_name: Task of the detection.
             instance_id: ID the record gives the detection, or a negative
                 number when it gives none.
+            inherited: Whether ``instance_id`` is the number of the parent
+                of a sub-detection.
 
         Returns:
             A number that no other instance of the task holds.
 
         """
-        key = (task_name, instance_id)
-        if key in self._renumbered:
-            return self._renumbered[key]
-        if instance_id >= 0 and key not in self._given:
-            self._next[task_name] = max(self._next[task_name], instance_id + 1)
-            return instance_id
-        number = self._next[task_name]
-        self._next[task_name] = number + 1
-        self._given.add((task_name, number))
+        key = (task_name, instance_id, inherited)
+        if key in self._number_of:
+            return self._number_of[key]
+        if instance_id >= 0 and (task_name, instance_id) not in self._held:
+            number = instance_id
+        else:
+            number = self._next[task_name]
+        self._next[task_name] = max(self._next[task_name], number + 1)
+        self._held.add((task_name, number))
         if instance_id >= 0:
-            self._renumbered[key] = number
+            self._number_of[key] = number
         return number
 
 
@@ -2609,19 +2615,22 @@ class DatasetRecord(BaseModelExtraForbid):
         keypoint_metadata: Mapping[str, KeypointMetadata],
         *,
         instance_counter: InstanceCounter | None = None,
-        instance_id: int | None = None,
+        parent_number: int | None = None,
     ) -> Iterable[ParquetRecord]:
         """Yield one row per task type of a detection.
 
         ``instance_counter`` gives the instance numbers, as
-        `to_parquet_rows` describes. ``instance_id`` overrides the number
-        the counter would give: a sub-detection takes the number of its
-        parent, which is what records that it belongs to it.
+        `to_parquet_rows` describes. A sub-detection without an ID asks
+        for ``parent_number``, the number of its parent.
         """
-        if instance_id is None:
-            instance_id = annotation.instance_id
-            if instance_counter is not None:
-                instance_id = instance_counter.number(task_name, instance_id)
+        instance_id = annotation.instance_id
+        inherited = False
+        if parent_number is not None and instance_id < 0:
+            instance_id, inherited = parent_number, True
+        if instance_counter is not None:
+            instance_id = instance_counter.number(
+                task_name, instance_id, inherited=inherited
+            )
 
         def row(task_type: str, payload: str) -> ParquetRecord:
             return {
@@ -2655,9 +2664,7 @@ class DatasetRecord(BaseModelExtraForbid):
                 sample_metadata,
                 keypoint_metadata,
                 instance_counter=instance_counter,
-                instance_id=(
-                    instance_id if detection.instance_id < 0 else None
-                ),
+                parent_number=instance_id,
             )
 
     @staticmethod

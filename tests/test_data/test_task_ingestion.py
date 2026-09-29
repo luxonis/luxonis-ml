@@ -1,6 +1,8 @@
 from collections import defaultdict
 from pathlib import Path
 
+import pytest
+
 from luxonis_ml.data import (
     BucketStorage,
     LuxonisDataset,
@@ -100,6 +102,50 @@ def test_an_explicit_id_never_joins_a_generated_one(
         [classes["dog"], 0.5],
     ]
     assert labels["animals/metadata/color"].tolist() == [None, "red"]
+
+
+BOX = {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}
+FACE = {"class": "face", "boundingbox": BOX}
+DRIVER = {
+    "class": "person",
+    "boundingbox": BOX,
+    "sub_detections": {"face": FACE},
+}
+NESTED_FACE = {"driver": [DRIVER]}
+FLAT_FACE = {"driver/face": [FACE]}
+EXPLICIT_FACE = {
+    "driver": [
+        DRIVER,
+        {**DRIVER, "sub_detections": {"face": {**FACE, "instance_id": 0}}},
+    ]
+}
+
+
+@pytest.mark.parametrize(
+    "annotations",
+    [
+        pytest.param([NESTED_FACE, FLAT_FACE], id="flat-face-after"),
+        pytest.param([FLAT_FACE, NESTED_FACE], id="flat-face-before"),
+        pytest.param([EXPLICIT_FACE], id="explicit-face-id"),
+    ],
+)
+def test_an_inherited_number_is_not_given_twice(
+    dataset_name: str, tempdir: Path, annotations: list[dict]
+):
+    """A sub-detection without an ID takes the number of its parent.
+
+    The counter did not know of that number, so another face of the
+    sub-task could get it too, and the loader then read two faces as one.
+    """
+    image = create_image(0, tempdir)
+
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    dataset.add({"media": image, "annotation": a} for a in annotations)
+    dataset.make_splits({"train": [image]})
+
+    labels = LuxonisLoader(dataset, view="train")[0].labels
+
+    assert len(labels["driver/face/boundingbox"]) == 2
 
 
 def test_task_ingestion(
