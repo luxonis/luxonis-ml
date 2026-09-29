@@ -1442,11 +1442,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             generator: The generator should yield either
                 dictionaries that can be converted to
                 ``DatasetRecord`` objects or actual ``DatasetRecord``
-                instances. Each record must contain at least a
-                file path and can optionally include an annotation
-                and a task name. Use ``sample_metadata`` for values
-                attached to the whole sample rather than to one
-                annotation.
+                instances. Each record must contain at least its
+                media, and it can group its annotations by task
+                name. Use ``sample_metadata`` for values attached
+                to the whole sample rather than to one annotation.
 
                 For example:
 
@@ -1454,7 +1453,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
                     def record_generator():
                         yield {
-                            "file": "/path/to/image.jpg",
+                            "media": "/path/to/image.jpg",
 
                             "sample_metadata": {
                                 "record_id": 123,

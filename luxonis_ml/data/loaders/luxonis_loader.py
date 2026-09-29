@@ -374,8 +374,8 @@ class LuxonisLoader(BaseLoader):
     def get_keypoint_metadata(self) -> dict[str, KeypointMetadata]:
         """Return the keypoint definition of each task.
 
-        It describes the dataset, not one sample. It is thus not part of
-        the loader output.
+        It describes the dataset, not one sample. Each sample also carries
+        it as plain data, in ``metadata["schema"]["keypoint_metadata"]``.
 
         Returns:
             Keypoint metadata keyed by task name.
