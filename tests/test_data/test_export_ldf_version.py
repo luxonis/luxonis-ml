@@ -5,11 +5,9 @@ made every 2.1 export unreadable by an older luxonis-ml.
 """
 
 import json
-from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from loguru import logger
 from semver.version import Version
 
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
@@ -28,15 +26,6 @@ from .utils import create_dataset, create_image
 #: Fields a pre-2.1 `DatasetRecord` accepts. Anything else trips
 #: ``extra="forbid"`` on an older install.
 LDF_2_0_RECORD_FIELDS = {"file", "files", "task_name", "annotation"}
-
-
-@pytest.fixture
-def warnings_log() -> Iterator[list[str]]:
-    """Collect loguru warnings, which pytest's caplog does not see."""
-    messages: list[str] = []
-    handler = logger.add(messages.append, level="WARNING", format="{message}")
-    yield messages
-    logger.remove(handler)
 
 
 def _generator(tempdir: Path, with_metadata: bool = True) -> DatasetIterator:

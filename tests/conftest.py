@@ -4,7 +4,7 @@ import shutil
 import sys
 import time
 import zipfile
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
 from contextlib import suppress
 from enum import Enum
 from pathlib import Path
@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from _pytest.fixtures import SubRequest
+from loguru import logger
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset
 from luxonis_ml.typing import Params
@@ -156,6 +157,15 @@ def tempdir(base_tempdir: Path, randint: int) -> Generator[Path, None, None]:
     yield path
 
     shutil.rmtree(path, ignore_errors=True)
+
+
+@pytest.fixture
+def warnings_log() -> Iterator[list[str]]:
+    """Collect loguru warnings, which pytest's caplog does not see."""
+    messages: list[str] = []
+    handler = logger.add(messages.append, level="WARNING", format="{message}")
+    yield messages
+    logger.remove(handler)
 
 
 @pytest.fixture(scope="session")

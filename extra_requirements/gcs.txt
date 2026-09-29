@@ -10,28 +10,29 @@ certifi==2026.7.22
 cffi==2.1.1 ; platform_python_implementation != 'PyPy'
 charset-normalizer==3.5.1
 colorama==0.4.6 ; sys_platform == 'win32'
-cryptography==49.0.0
-cyclopts==4.23.3
+cryptography==50.0.1
+cyclopts==4.25.3
 decorator==5.3.1
 docstring-parser==0.18.0
 frozenlist==1.8.0
 fsspec==2024.6.1
 gcsfs==2024.6.1
-google-api-core==2.34.0
-google-auth==2.57.0
+google-api-core==2.38.0
+google-auth==2.58.0
 google-auth-oauthlib==1.4.1
 google-cloud-core==2.7.0
-google-cloud-storage==3.13.1
+google-cloud-storage==3.14.1
 google-crc32c==1.8.0
 google-resumable-media==2.10.2
-googleapis-common-protos==1.75.2
-idna==3.19
+googleapis-common-protos==1.75.3
+idna==3.20
 loguru==0.7.3
 markdown-it-py==4.2.0
 mdurl==0.1.2
-multidict==6.7.1
+multidict==6.8.0
 oauthlib==3.3.1
-propcache==0.5.2
+opentelemetry-api==1.44.0
+propcache==0.5.4
 proto-plus==1.28.4
 protobuf==6.33.6
 pyasn1==0.6.4
@@ -48,11 +49,11 @@ requests==2.34.2
 requests-oauthlib==2.0.0
 rich==15.0.0
 rich-rst==2.1.0
-semver==3.0.4
+semver==3.1.0
 tomli==2.4.1 ; python_full_version < '3.11'
 typeguard==4.6.0
 typing-extensions==4.16.0
 typing-inspection==0.4.4
-urllib3==2.7.0
+urllib3==2.8.0
 win32-setctime==1.2.0 ; sys_platform == 'win32'
-yarl==1.24.5
+yarl==1.25.1

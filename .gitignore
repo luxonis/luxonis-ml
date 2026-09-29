@@ -121,3 +121,5 @@ apidocs/
 
 AGENTS.md
 CLAUDE.md
+.claude/*
+.pi/*

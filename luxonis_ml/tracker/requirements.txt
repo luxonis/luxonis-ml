@@ -3,7 +3,7 @@
 annotated-types==0.8.0
 attrs==26.1.0
 colorama==0.4.6 ; sys_platform == 'win32'
-cyclopts==4.23.3
+cyclopts==4.25.3
 docstring-parser==0.18.0
 fsspec==2024.6.1
 loguru==0.7.3
@@ -20,7 +20,7 @@ python-dotenv==1.2.3
 pyyaml==6.0.3
 rich==15.0.0
 rich-rst==2.1.0
-semver==3.0.4
+semver==3.1.0
 tomli==2.4.1 ; python_full_version < '3.11'
 typeguard==4.6.0
 typing-extensions==4.16.0

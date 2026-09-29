@@ -796,6 +796,46 @@ def test_merge_datasets_specific_split(
     merged_dataset.delete_dataset(delete_local=True, delete_remote=True)
 
 
+def bbox_generator(
+    tempdir: Path, start: int, class_name: str
+) -> DatasetIterator:
+    for i in range(start, start + 3):
+        yield {
+            "file": create_image(i, tempdir),
+            "annotation": {
+                "class": class_name,
+                "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
+            },
+        }
+
+
+def test_a_failed_media_upload_keeps_the_rows_of_a_re_added_file(
+    dataset_name: str, tempdir: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """`add` removed the old rows of a file before it uploaded the media.
+
+    The upload of a remote dataset failed, so the re-added file lost its
+    rows and got no new rows.
+    """
+    dataset = create_dataset(
+        dataset_name, bbox_generator(tempdir, 0, "person"), splits=False
+    )
+    rows = dataset._load_df_offline(raise_when_empty=True)
+
+    def put_dir(*, remote_dir: str, **_: object) -> None:
+        if remote_dir == "media":
+            raise OSError("The upload failed.")
+
+    # Only a remote dataset uploads the media.
+    monkeypatch.setattr(LuxonisDataset, "is_remote", property(lambda _: True))
+    monkeypatch.setattr(dataset._fs, "put_dir", put_dir)
+
+    with pytest.raises(OSError, match="The upload failed"):
+        dataset.add(bbox_generator(tempdir, 2, "dog"))
+
+    assert dataset._load_df_offline(raise_when_empty=True).equals(rows)
+
+
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_clone_dataset_specific_split(
     bucket_storage: BucketStorage,

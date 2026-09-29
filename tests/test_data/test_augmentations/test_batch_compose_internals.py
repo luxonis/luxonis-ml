@@ -1,24 +1,12 @@
-from collections.abc import Iterator
-
 import albumentations as A
 import numpy as np
 import pytest
-from loguru import logger
 
 from luxonis_ml.data.augmentations import BatchCompose, BatchTransform, MixUp
 
 from .helpers import KeepFirstSample
 
 IMAGE = np.zeros((16, 16, 3), dtype=np.uint8)
-
-
-@pytest.fixture
-def warnings_log() -> Iterator[list[str]]:
-    """Collect loguru warnings, which pytest's caplog does not see."""
-    messages: list[str] = []
-    handler = logger.add(messages.append, level="WARNING", format="{message}")
-    yield messages
-    logger.remove(handler)
 
 
 class PushFirstBoxOutOfFrame(KeepFirstSample):
