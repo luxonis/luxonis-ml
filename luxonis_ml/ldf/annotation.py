@@ -420,11 +420,10 @@ from pydantic import (
     ValidationInfo,
     field_serializer,
     field_validator,
-    model_serializer,
     model_validator,
 )
 from pydantic.types import FilePath, NonNegativeInt, PositiveFloat, PositiveInt
-from pydantic_core import core_schema
+from pydantic_core import core_schema, to_json
 from typing_extensions import Self, deprecated, override
 
 from luxonis_ml.ldf.parquet import ParquetRecord
@@ -1405,22 +1404,18 @@ class KeypointAnnotation(Annotation):
     def to_parquet_json(
         self, keypoint_metadata: KeypointMetadata | None = None
     ) -> str:
-        if keypoint_metadata is None:
-            return self.model_dump_json()
-        aligned = keypoint_metadata.align(self.keypoints)
-        return self.model_copy(update={"keypoints": aligned}).model_dump_json()
-
-    @model_serializer(mode="plain", when_used="json")
-    def _serialize(self) -> dict[str, Any]:
         # The payload is positional. The names, the edges, the flip pairs
         # and the sigmas describe the task, not the instance.
         # `LuxonisDataset.add` thus keeps them in the dataset metadata and
         # not on every row.
-        return {
-            "keypoints": [
-                list(keypoint) for keypoint in self.keypoints.values()
-            ]
-        }
+        keypoints = (
+            self.keypoints
+            if keypoint_metadata is None
+            else keypoint_metadata.align(self.keypoints)
+        )
+        return to_json(
+            {"keypoints": [list(keypoint) for keypoint in keypoints.values()]}
+        ).decode()
 
     @model_validator(mode="before")
     @classmethod
