@@ -72,6 +72,8 @@ class Metadata(BaseModelExtraForbid):
         Raises:
             ValueError: If the two metadata objects use different major
                 LDF versions.
+            ValueError: If the two metadata objects give a task different
+                keypoint names.
 
         """
         if self.version.major != other.version.major:
@@ -164,29 +166,40 @@ def _merge_keypoint_metadata(
 ) -> KeypointMetadata:
     """Merge the keypoint metadata of one task from two datasets.
 
-    The dataset that is merged in wins. A field it leaves empty comes
-    from the other dataset. ``edges``, ``flip_pairs`` and ``sigmas`` hold
-    indices into ``labels``, so they only carry over if both datasets list
-    the same labels in the same order. An entry without labels names no
-    keypoint, so it takes the labels of the other dataset.
+    The target dataset keeps its keypoint order. The same names in
+    another order move the fields of the other dataset to that order, and
+    `LuxonisDataset.merge_with` moves its rows. The dataset that is merged
+    in wins a field that both set, and a field it leaves empty comes from
+    the target. An entry without labels names no keypoint, so it takes the
+    labels of the other dataset.
 
     Args:
         mine: Keypoint metadata of the target dataset.
         theirs: Keypoint metadata of the dataset that is merged in.
-        task: Name of the task, used in the warnings.
+        task: Name of the task, used in the messages.
 
     Returns:
         The merged keypoint metadata.
 
+    Raises:
+        ValueError: If the two datasets give the task different keypoint
+            names. The positional names of keypoints without names count
+            as names.
+
     """
     if mine.labels and theirs.labels and mine.labels != theirs.labels:
-        logger.warning(
-            f"Task '{task}' has different keypoint labels in the two "
-            "datasets being merged. Keeping the ones from the dataset "
-            "being merged in. They now describe the keypoints of the "
-            "other dataset too, which gave them a different order."
-        )
-        return theirs
+        # A repeated name has no single position to move a column to.
+        if (
+            sorted(mine.labels) != sorted(theirs.labels)
+            or mine.repeated_labels
+        ):
+            raise ValueError(
+                f"Task '{task}' has different keypoint names in the two "
+                f"datasets being merged: {', '.join(mine.labels)} and "
+                f"{', '.join(theirs.labels)}. Give both datasets the same "
+                "names with `LuxonisDataset.set_keypoint_metadata`."
+            )
+        theirs = theirs.reindexed_to(mine.labels)
 
     conflicts = mine.conflicting_fields(theirs)
     if conflicts:

@@ -118,6 +118,22 @@ def keypoint_payloads(dataset: LuxonisDataset) -> list[str]:
     return df.filter(df["task_type"] == "keypoints")["annotation"].to_list()
 
 
+def stored_keypoints_by_name(
+    dataset: LuxonisDataset, task: str = "pose"
+) -> list[dict[str, tuple[float, float, int]]]:
+    """Read each stored row the way the loader does: by the task labels."""
+    labels = dataset.get_keypoint_metadata()[task].labels
+    return [
+        {
+            label: tuple(keypoint)
+            for label, keypoint in zip(
+                labels, json.loads(payload)["keypoints"], strict=True
+            )
+        }
+        for payload in keypoint_payloads(dataset)
+    ]
+
+
 def loaded_keypoint_shapes(
     dataset: LuxonisDataset, task: str = "pose"
 ) -> list[tuple[int, ...]]:
@@ -1461,6 +1477,47 @@ def test_a_legacy_dataset_merges_with_a_new_dataset(
             labels=LABELS, flip_pairs=[(1, 2)], sigmas=[0.1, 0.2, 0.3]
         )
     }
+
+
+def test_a_merge_moves_the_other_rows_to_the_target_order(
+    dataset_name: str, tempdir: Path
+):
+    """The merge concatenates positional rows, so it must move them first."""
+    target = named_dataset(
+        f"{dataset_name}_target", tempdir, fields={"sigmas": [0.1, 0.2, 0.3]}
+    )
+    other = create_dataset(
+        f"{dataset_name}_other",
+        keypoint_generator(
+            tempdir,
+            dict(reversed(NAMED_KEYPOINTS.items())),
+            fields={"sigmas": [0.3, 0.2, 0.1]},
+            start=4,
+        ),
+    )
+
+    target.merge_with(other)
+
+    merged = LuxonisDataset(target.identifier)
+    assert merged.get_keypoint_metadata()["pose"] == KeypointMetadata(
+        labels=LABELS, flip_pairs=[(1, 2)], sigmas=[0.1, 0.2, 0.3]
+    )
+    assert stored_keypoints_by_name(merged) == [NAMED_KEYPOINTS] * 8
+
+
+def test_a_merge_rejects_other_keypoint_names(
+    dataset_name: str, tempdir: Path
+):
+    """No order of the rows fits both, and that includes no names at all."""
+    target = named_dataset(f"{dataset_name}_target", tempdir)
+    other = create_dataset(
+        f"{dataset_name}_other", positional_generator(tempdir, [3, 3], start=4)
+    )
+
+    with pytest.raises(ValueError, match="different keypoint names"):
+        target.merge_with(other)
+
+    assert len(LuxonisDataset(target.identifier)) == 4
 
 
 def test_set_keypoint_metadata_accepts_names(dataset_name: str, tempdir: Path):
