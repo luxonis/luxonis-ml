@@ -5,6 +5,13 @@ The default implementation is `AlbumentationsEngine`, which adapts LDF labels
 to Albumentations targets before transformation and converts them back after
 transformation.
 
+.. contents:: Table of Contents
+   :depth: 2
+
+
+Configuration
+=============
+
 Augmentation configuration is a list of records. Each record contains a
 ``name`` identifying an Albumentations transform or a transform registered in
 `TRANSFORMATIONS`, optional ``params``, optional ``use_for_resizing``, and
@@ -128,6 +135,99 @@ A custom engine should subclass `AugmentationEngine` and implement:
 
 Engines may also override `AugmentationEngine.applied_augmentations` to
 report the configured paths and runtime parameters of their latest call.
+
+
+Tips and Tricks
+===============
+
+Rotated Bounding Boxes Are Too Large
+------------------------------------
+
+``Affine``, ``Rotate``, ``SafeRotate``, and ``ShiftScaleRotate`` can leave
+bounding boxes much larger than the objects in them once they rotate or shear
+the image. Tall and wide objects, such as standing people, show it the most.
+
+.. figure::
+   https://raw.githubusercontent.com/luxonis/luxonis-ml/main/luxonis_ml/data/augmentations/media/bbox_rotation_original.png
+   :width: 600px
+   :loading: embed
+
+   The sample before augmentation.
+
+.. figure::
+   https://raw.githubusercontent.com/luxonis/luxonis-ml/main/luxonis_ml/data/augmentations/media/bbox_rotation_largest_box.png
+   :width: 600px
+   :loading: embed
+
+   Rotated with the default ``rotate_method="largest_box"``.
+
+.. figure::
+   https://raw.githubusercontent.com/luxonis/luxonis-ml/main/luxonis_ml/data/augmentations/media/bbox_rotation_ellipse.png
+   :width: 600px
+   :loading: embed
+
+   The same rotation with ``rotate_method="ellipse"``.
+
+The boxes are not wrong. A box says nothing about the shape of the object
+inside it, so the true box after a rotation or a shear cannot be known.
+Albumentations has to guess, and the ``rotate_method`` parameter of these
+transforms selects how:
+
+``"largest_box"`` (default)
+    Assumes the object fills the whole box, corners included, and takes the
+    box around its four transformed corners. The box is often too large but
+    never too small, which suits rectangular objects such as cars, signs,
+    and screens. A :math:`w \times h` box rotated by :math:`\theta` becomes
+    :math:`w \left|\cos\theta\right| + h \left|\sin\theta\right|` wide.
+
+``"ellipse"``
+    Assumes the object is the ellipse inscribed in the box, and takes the
+    box around the transformed ellipse. The box is close but can be too
+    small, which suits round or irregular objects such as people, animals,
+    and balls. The same box becomes
+    :math:`\sqrt{w^2 \cos^2\theta + h^2 \sin^2\theta}` wide.
+
+A :math:`120 \times 315` person box rotated by 20° becomes 221 pixels wide
+with ``"largest_box"`` and 156 with ``"ellipse"``. Without rotation and shear
+the two methods agree; scaling, translation, and flips are not affected.
+
+``"largest_box"`` is the default because it never cuts off part of the
+object. ``"ellipse"`` has two drawbacks:
+
+- It cuts off the corners of objects that fill their box. A square object
+  rotated by 45° spans :math:`1.41 w`, but ``"ellipse"`` gives :math:`w`.
+- It changes the training labels of an existing configuration, so compare
+  metrics only between runs that use the same method.
+
+Prefer ``"ellipse"`` when most objects are round or irregular, which holds
+for most natural images. Oversized boxes can make a detector worse than
+training without rotation at all.
+
+.. python::
+
+    [
+        {
+            "name": "Affine",
+            "params": {
+                "rotate": [-30, 30],
+                "shear": [-15, 15],
+                "rotate_method": "ellipse",
+            },
+        },
+    ]
+
+Check the augmented boxes before you train:
+
+.. code-block:: bash
+
+    luxonis_ml data inspect <dataset> --aug-config augmentations.yaml
+
+``--list-augmentations`` shows the sampled rotation and scale of ``Affine``,
+but not the sampled shear, which Albumentations does not report.
+
+See:
+    `Towards Rotation Invariance in Object Detection
+    <https://arxiv.org/abs/2109.13488>`_.
 """
 
 from .albumentations_engine import AlbumentationsEngine
