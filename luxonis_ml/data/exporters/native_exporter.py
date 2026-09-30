@@ -99,7 +99,7 @@ class NativeExporter(BaseExporter):
         return DatasetType.NATIVE.supported_annotation_formats
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
-        self._drop_keypoint_metadata_of_wider_rows(prepared_ldf.processed_df)
+        self._fit_keypoint_metadata_to_rows(prepared_ldf.processed_df)
         annotation_splits: dict[str, list[dict[str, Any]]] = {
             k: [] for k in self.get_split_names()
         }
@@ -201,13 +201,16 @@ class NativeExporter(BaseExporter):
                 }
             )
 
-    def _drop_keypoint_metadata_of_wider_rows(self, df: pl.DataFrame) -> None:
-        """Drop the metadata of a task with rows wider than its names.
+    def _fit_keypoint_metadata_to_rows(self, df: pl.DataFrame) -> None:
+        """Leave out the keypoint metadata that the import would reject.
 
         `LuxonisDataset.set_keypoint_metadata` does not change the stored
         rows, so new names can cover fewer keypoints than a row has. The
         import rejects names narrower than a row of any split, so the
         export keeps the rows and leaves out the metadata of the task.
+
+        An older luxonis-ml stored the edges without a check. The import
+        rejects an edge out of range, so the export leaves out that edge.
         """
         widths = get_keypoint_row_widths(df.lazy())
         kept: dict[str, KeypointMetadata] = {}
@@ -223,8 +226,22 @@ class NativeExporter(BaseExporter):
                     "`LuxonisDataset.set_keypoint_metadata(labels=...)` to "
                     "keep the names."
                 )
-            else:
-                kept[task] = task_keypoints
+                continue
+            n_keypoints = n_labels or width
+            edges = [
+                edge
+                for edge in task_keypoints.edges
+                if all(0 <= index < n_keypoints for index in edge)
+            ]
+            if n_keypoints and edges != task_keypoints.edges:
+                logger.warning(
+                    f"Task '{task}' has edges out of range for its "
+                    f"{n_keypoints} keypoints. The export leaves them out."
+                )
+                task_keypoints = task_keypoints.model_copy(
+                    update={"edges": edges}
+                )
+            kept[task] = task_keypoints
         self.keypoint_metadata = kept
 
     def _maybe_roll_partition(

@@ -1292,6 +1292,20 @@ def test_set_keypoint_metadata_keeps_a_legacy_edge_it_is_not_given(
     assert dataset.get_keypoint_metadata()["pose"].edges == [(-1, 0), (1, 3)]
 
 
+def test_the_native_export_leaves_out_a_legacy_edge_out_of_range(
+    dataset_name: str, tempdir: Path
+):
+    """The import checks the edges, so such an edge would stop it."""
+    dataset = legacy_dataset(
+        named_dataset(dataset_name, tempdir),
+        {"pose": {"labels": LABELS, "edges": [[-1, 0], [0, 1], [1, 3]]}},
+    )
+
+    imported = export_and_import(dataset, tempdir)
+
+    assert imported.get_keypoint_metadata()["pose"].edges == [(0, 1)]
+
+
 @pytest.mark.parametrize(
     ("fields", "match"),
     [
