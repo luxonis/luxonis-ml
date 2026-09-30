@@ -150,21 +150,18 @@ the image. Tall or wide objects, such as standing people, show it the most.
 .. figure::
    https://raw.githubusercontent.com/luxonis/luxonis-ml/30a7530c1725538e1e9816b3d188e9df400db636/luxonis_ml/data/augmentations/media/bbox_rotation_original.png
    :width: 600px
-   :loading: embed
 
    The sample before augmentation.
 
 .. figure::
    https://raw.githubusercontent.com/luxonis/luxonis-ml/30a7530c1725538e1e9816b3d188e9df400db636/luxonis_ml/data/augmentations/media/bbox_rotation_largest_box.png
    :width: 600px
-   :loading: embed
 
    Rotated with the default ``rotate_method="largest_box"``.
 
 .. figure::
    https://raw.githubusercontent.com/luxonis/luxonis-ml/30a7530c1725538e1e9816b3d188e9df400db636/luxonis_ml/data/augmentations/media/bbox_rotation_ellipse.png
    :width: 600px
-   :loading: embed
 
    The same rotation with ``rotate_method="ellipse"``.
 
