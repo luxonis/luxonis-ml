@@ -2356,14 +2356,15 @@ def test_coco_export_round_trips_the_sigmas(dataset_name: str, tempdir: Path):
     assert task_keypoints.sigmas == sigmas
 
 
-def test_the_exported_names_are_written_once_per_task(
+def test_the_exported_task_fields_are_written_once_per_task(
     dataset_name: str, tempdir: Path
 ):
-    """Naming every record would balloon ``annotations.json``.
+    """One record per task and split carries the task fields.
 
-    One record per task and split carries the names as a mapping. Every
-    other record stays a positional list. Each split gets its own file, so
-    each one needs its own named record.
+    Every record names its keypoints, so an import into a dataset with
+    another keypoint order moves each record by its names. Each split
+    gets its own file, so each one needs its own record with the task
+    fields.
     """
     dataset = named_dataset(dataset_name, tempdir, n=8)
     exported = dataset.export(tempdir / "exported_once", DatasetType.NATIVE)
@@ -2372,15 +2373,42 @@ def test_the_exported_names_are_written_once_per_task(
     counts = []
     for path in (exported / dataset_name).rglob("annotations.json"):
         keypoints = [
-            record["annotation"]["keypoints"]["keypoints"]
+            record["annotation"]["keypoints"]
             for record in json.loads(path.read_text())
             # Every detection also emits a classification record.
             if "keypoints" in record.get("annotation", {})
         ]
         if keypoints:
-            named = sum(isinstance(k, dict) for k in keypoints)
-            counts.append((len(keypoints), named))
+            assert all(isinstance(k["keypoints"], dict) for k in keypoints)
+            counts.append(
+                (len(keypoints), sum("flip_pairs" in k for k in keypoints))
+            )
 
     assert counts
-    assert all(n_named == 1 for _, n_named in counts)
+    assert all(n_with_fields == 1 for _, n_with_fields in counts)
     assert any(n_keypoints > 1 for n_keypoints, _ in counts)
+
+
+def test_a_native_import_moves_every_record_to_the_stored_order(
+    dataset_name: str, tempdir: Path
+):
+    reversed_keypoints = dict(reversed(NAMED_KEYPOINTS.items()))
+    source = create_dataset(
+        f"{dataset_name}_source",
+        keypoint_generator(tempdir, reversed_keypoints),
+        splits=(1, 0, 0),
+    )
+    target = named_dataset(dataset_name, tempdir, n=1, start=4)
+    exported = source.export(tempdir / "exported_order", DatasetType.NATIVE)
+    assert isinstance(exported, Path)
+
+    LuxonisParser(
+        str(exported / source.identifier),
+        dataset_type=DatasetType.NATIVE,
+        dataset_name=target.identifier,
+        save_dir=tempdir,
+    ).parse()
+
+    imported = LuxonisDataset(target.identifier)
+    assert imported.get_keypoint_metadata()["pose"].labels == LABELS
+    assert stored_keypoints_by_name(imported) == [NAMED_KEYPOINTS] * 5

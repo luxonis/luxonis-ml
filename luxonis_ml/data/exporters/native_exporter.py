@@ -154,11 +154,14 @@ class NativeExporter(BaseExporter):
     def _attach_keypoint_metadata(
         self, records: list[dict[str, Any]], split: str
     ) -> None:
-        """Attach each task's metadata to its first eligible record.
+        """Name the keypoints of each record, and attach the task fields.
 
-        A short record is eligible only when its names survive the target
-        LDF version. Without names, the importer cannot tell which keypoints
-        are missing.
+        Each record carries the names, so an import into a dataset with
+        another keypoint order moves each record by them. The first
+        eligible record of each task and split carries the task fields. A
+        short record is eligible only when its names survive the target
+        LDF version. Without names, the importer cannot tell which
+        keypoints are missing.
         """
         for record in records:
             keypoints = record.get("annotation", {}).get("keypoints")
@@ -175,6 +178,12 @@ class NativeExporter(BaseExporter):
                 named and self._downgrade.keeps_keypoint_names
             ):
                 continue
+            if named:
+                # COCO's value for a keypoint that is not labeled.
+                missing = [Keypoint(0.0, 0.0, 0)] * (len(labels) - len(values))
+                keypoints["keypoints"] = dict(
+                    zip(labels, values + missing, strict=True)
+                )
             # Each partition has its own annotations file.
             key = (self.part, split, task_name)
             if key in self._metadata_attached:
@@ -191,12 +200,6 @@ class NativeExporter(BaseExporter):
                     if value or (named and field == "flip_pairs")
                 }
             )
-            if named:
-                # COCO's value for a keypoint that is not labeled.
-                missing = [Keypoint(0.0, 0.0, 0)] * (len(labels) - len(values))
-                keypoints["keypoints"] = dict(
-                    zip(labels, values + missing, strict=True)
-                )
 
     def _drop_keypoint_metadata_of_wider_rows(self, df: pl.DataFrame) -> None:
         """Drop the metadata of a task with rows wider than its names.
