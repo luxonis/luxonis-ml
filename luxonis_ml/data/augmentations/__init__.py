@@ -145,7 +145,7 @@ Rotated Bounding Boxes Are Too Large
 
 ``Affine``, ``Rotate``, ``SafeRotate``, and ``ShiftScaleRotate`` can leave
 bounding boxes much larger than the objects in them once they rotate or shear
-the image. Tall and wide objects, such as standing people, show it the most.
+the image. Tall or wide objects, such as standing people, show it the most.
 
 .. figure::
    https://raw.githubusercontent.com/luxonis/luxonis-ml/30a7530c1725538e1e9816b3d188e9df400db636/luxonis_ml/data/augmentations/media/bbox_rotation_original.png
@@ -168,40 +168,32 @@ the image. Tall and wide objects, such as standing people, show it the most.
 
    The same rotation with ``rotate_method="ellipse"``.
 
-The boxes are not wrong. A box says nothing about the shape of the object
-inside it, so the true box after a rotation or a shear cannot be known.
-Albumentations has to guess, and the ``rotate_method`` parameter of these
-transforms selects how:
+A box says nothing about the shape of the object inside it, so after a
+rotation or a shear Albumentations has to guess the new box. The
+``rotate_method`` parameter of these transforms selects the guess:
 
 ``"largest_box"`` (default)
-    Assumes the object fills the whole box, corners included, and takes the
-    box around its four transformed corners. The box is often too large but
-    never too small, which suits rectangular objects such as cars, signs,
-    and screens. A :math:`w \times h` box rotated by :math:`\theta` becomes
+    Takes the box around the four transformed corners, as if the object
+    filled its whole box. The box is never too small, but often too large.
+    A :math:`w \times h` box rotated by :math:`\theta` becomes
     :math:`w \left|\cos\theta\right| + h \left|\sin\theta\right|` wide.
 
 ``"ellipse"``
-    Assumes the object is the ellipse inscribed in the box, and takes the
-    box around the transformed ellipse. The box is close but can be too
-    small, which suits round or irregular objects such as people, animals,
-    and balls. The same box becomes
+    Takes the box around the transformed ellipse inscribed in the box. The
+    box is tighter, but cuts off the corners of objects that fill their box.
+    The same box becomes
     :math:`\sqrt{w^2 \cos^2\theta + h^2 \sin^2\theta}` wide.
 
 A :math:`120 \times 315` person box rotated by 20° becomes 221 pixels wide
-with ``"largest_box"`` and 156 with ``"ellipse"``. Without rotation and shear
-the two methods agree; scaling, translation, and flips are not affected.
+with ``"largest_box"`` and 156 with ``"ellipse"``. A square object rotated
+by 45° spans :math:`1.41 w`, but ``"ellipse"`` gives it :math:`w`. Without
+rotation or shear, both methods give the same box.
 
-``"largest_box"`` is the default because it never cuts off part of the
-object. ``"ellipse"`` has two drawbacks:
-
-- It cuts off the corners of objects that fill their box. A square object
-  rotated by 45° spans :math:`1.41 w`, but ``"ellipse"`` gives :math:`w`.
-- It changes the training labels of an existing configuration, so compare
-  metrics only between runs that use the same method.
-
-Prefer ``"ellipse"`` when most objects are round or irregular, which holds
-for most natural images. Oversized boxes can make a detector worse than
-training without rotation at all.
+Use ``"ellipse"`` when objects do not reach the corners of their boxes, as
+with people or animals. Keep ``"largest_box"`` for rectangular objects such
+as cars or screens. `Towards Rotation Invariance in Object Detection
+<https://arxiv.org/abs/2109.13488>`_ shows that oversized boxes can make a
+detector worse than training without rotation at all.
 
 .. python::
 
@@ -222,12 +214,8 @@ Check the augmented boxes before you train:
 
     luxonis_ml data inspect <dataset> --aug-config augmentations.yaml
 
-``--list-augmentations`` shows the sampled rotation and scale of ``Affine``,
-but not the sampled shear, which Albumentations does not report.
-
-See:
-    `Towards Rotation Invariance in Object Detection
-    <https://arxiv.org/abs/2109.13488>`_.
+Add ``--list-augmentations`` to print the sampled rotation and scale of
+each ``Affine``. Albumentations does not report the sampled shear.
 """
 
 from .albumentations_engine import AlbumentationsEngine
