@@ -40,9 +40,14 @@ from .metrics import (
 )
 
 DistributionMode = Literal["bars", "chips", "gauge", "stacked", "pie", "donut"]
-
+"""The look of a `ClassDistribution`, which its class docstring describes."""
 
 ValueFormat = Literal["percent", "count", "count+percent"]
+"""How a `ClassDistribution` labels each value.
+
+``"percent"`` shows a share, ``"count"`` a raw integer, and ``"count+percent"``
+both.
+"""
 
 
 @dataclass(frozen=True)
@@ -71,7 +76,7 @@ class _CardBox:
 
 
 class ClassDistribution(CornerStack):
-    """A predicted probability distribution over classes, in one of four looks.
+    """A predicted probability distribution over classes, in one of six looks.
 
     Feed it a distribution (a ``{name: probability}`` mapping, or ``(name, prob)``
     pairs) and it draws a corner panel. ``mode`` selects one of six looks:
@@ -497,7 +502,7 @@ class ClassDistribution(CornerStack):
     def _key_rows(
         self, data: _SegmentData
     ) -> list[tuple[str, str, TextMetrics]]:
-        """Measure one ``"<name>  <value>"`` legend row per key segment."""
+        """Measure one legend row, a name and its value, per key segment."""
         rows = []
         for name, value in data.keys:
             label = self._value_label(value, data.total)

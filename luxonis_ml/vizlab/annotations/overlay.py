@@ -61,6 +61,14 @@ def shade_outline(fill: Color, surface: Color) -> Color:
 
     A lighter (on a dark ``surface``) or darker (on a light one) shade of
     ``fill``, so wedges/bars/segments get a crisp rim without a foreign color.
+
+    Args:
+        fill: The fill color of the shape.
+        surface: The color of the surface behind the shape.
+
+    Returns:
+        The edge color.
+
     """
     return fill.lighten(0.45) if _on_dark(surface) else fill.darken(0.4)
 
@@ -71,6 +79,13 @@ def swatch_outline(surface: Color) -> Color:
     Unlike `shade_outline` this is not color-matched: every swatch on a card gets
     the same subtle light (on dark) or dark (on light) ring so the key reads as a
     set. The choice follows ``surface``.
+
+    Args:
+        surface: The color of the card behind the swatch.
+
+    Returns:
+        A translucent white on a dark surface, a translucent black otherwise.
+
     """
     return (
         Color(255, 255, 255, 150) if _on_dark(surface) else Color(0, 0, 0, 130)
@@ -84,9 +99,13 @@ CellDraw = Callable[[Canvas, Rect], None]
 class Corner(Enum):
     """Which image corner an overlay stack is anchored to."""
 
+    #: The upper-left corner.
     TOP_LEFT = "top-left"
+    #: The upper-right corner.
     TOP_RIGHT = "top-right"
+    #: The lower-left corner.
     BOTTOM_LEFT = "bottom-left"
+    #: The lower-right corner.
     BOTTOM_RIGHT = "bottom-right"
 
 
@@ -196,7 +215,8 @@ class CornerStack(Annotation):
     margin: float = 14.0
     gap: float = 8.0
 
-    #: Image-level chrome: reserved before, and drawn on top of, everything else.
+    #: Image-level chrome. It reserves its space before everything else and
+    #: draws on top of everything else.
     OVERLAY: ClassVar[bool] = True
 
     @abstractmethod
@@ -204,11 +224,24 @@ class CornerStack(Annotation):
         """Return the cells to stack, top to bottom."""
 
     def resolve_color(self, ctx: RenderContext) -> Color:
-        """Overlays color their own content, so no single color is resolved."""
+        """Return white, because an overlay colors its own content.
+
+        Args:
+            ctx: The current render context.
+
+        Returns:
+            White.
+
+        """
         return _WHITE
 
     def extent(self) -> Rect | None:
-        """Image-level overlays have no local extent."""
+        """Return ``None``, because an image-level overlay has no local extent.
+
+        Returns:
+            Always ``None``.
+
+        """
         return None
 
     def content_size(
@@ -293,7 +326,13 @@ class CornerStack(Annotation):
         return _offset_positioned(positioned, offset)
 
     def reserve(self, ctx: RenderContext) -> None:
-        """Reserve each cell's rect so spatial labels avoid the corner."""
+        """Reserve each cell's rect so spatial labels avoid the corner.
+
+        Args:
+            ctx: The current render context, whose layout records the
+                reservations.
+
+        """
         if ctx.layout is None:
             return
         positioned = self._avoid_reserved(

@@ -168,7 +168,17 @@ class Placement:
 
 
 class LabelLayout:
-    """Tracks placed label chips and places new ones to minimize overlap."""
+    """Tracks placed label chips and places new ones to minimize overlap.
+
+    Attributes:
+        width: Canvas width in pixels.
+        height: Canvas height in pixels.
+        placed: The rectangles of the chips placed so far.
+        overlay_positions: The rectangles each corner stack reserved for its
+            cells, keyed by the identity of the stack. The stack draws its
+            cells there, so a reservation and the drawing agree.
+
+    """
 
     def __init__(self, width: int, height: int) -> None:
         """Create a layout for a ``width`` x ``height`` canvas.

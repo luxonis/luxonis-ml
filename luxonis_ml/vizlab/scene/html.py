@@ -454,7 +454,16 @@ _ID_REF = re.compile(r'(href="#|url\(#)([^")]+)')
 
 
 def slug(value: str) -> str:
-    """Reduce a class name to something usable in a CSS class."""
+    """Reduce a class name to something usable in a CSS class.
+
+    Args:
+        value: The class name.
+
+    Returns:
+        The name in lower case with each run of other characters turned into
+        one hyphen, or ``"unnamed"`` when nothing is left.
+
+    """
     cleaned = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
     return cleaned or "unnamed"
 
@@ -466,6 +475,12 @@ def class_slugs(names: "Iterable[str]") -> dict[str, str]:
     say), which would emit two inputs with the same ``id`` — the browser then
     binds both labels to the first one and the second control goes dead. A
     collision gets a numeric suffix instead, in input order.
+
+    Args:
+        names: The class names, in the order the controls appear.
+
+    Returns:
+        The unique slug of each name.
 
     Examples:
         >>> class_slugs(["Car", "car"])
@@ -486,7 +501,7 @@ def class_slugs(names: "Iterable[str]") -> dict[str, str]:
 
 
 def _scope_ids(body: str, prefix: str) -> str:
-    """Namespace a fragment's ``id``s and the references pointing at them.
+    """Namespace the ``id`` attributes of a fragment and their references.
 
     Every fragment is emitted by a fresh skia canvas that restarts its counter,
     so ``cl_3`` means something different in each one. SVG ids are document
@@ -829,5 +844,6 @@ def draws_anything(svg: bytes) -> bool:
     return bool(_MARKS.search(split_svg(svg)[1]))
 
 
-#: A blit counts: a fill-only layer draws nothing but its own ``<use>``.
+#: The elements that draw something. A ``<use>`` blit counts too, because a
+#: fill-only layer draws nothing but its own ``<use>``.
 _MARKS = re.compile(r"<(?:path|circle|ellipse|line|polygon|text|image|use)\b")

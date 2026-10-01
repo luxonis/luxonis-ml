@@ -291,6 +291,13 @@ _UNIT_TOLERANCE = 0.1
 def normalize_task_name(task_name: str) -> str:
     """Fold a task name to the form `RESERVED_TASK_NAMES` is keyed by.
 
+    Args:
+        task_name: The task name to fold.
+
+    Returns:
+        The name in lower case, with runs of spaces and hyphens turned into one
+        underscore.
+
     Examples:
         >>> from luxonis_ml.vizlab.adapters.arrays import normalize_task_name
         >>> normalize_task_name("Flow-Field")
@@ -302,6 +309,13 @@ def normalize_task_name(task_name: str) -> str:
 
 def reserved_array_kind(task_name: str) -> "ArrayKind | None":
     """Read the kind a task name declares, if it declares one.
+
+    Args:
+        task_name: The task name to read.
+
+    Returns:
+        The kind of a reserved task name, or ``None``. The name must match a
+        reserved name exactly, after `normalize_task_name`.
 
     Examples:
         >>> from luxonis_ml.vizlab.adapters.arrays import reserved_array_kind
@@ -380,7 +394,18 @@ def infer_array_kind(payload: ArrayPayload) -> "ArrayKind | None":
 def explicit_array_kind(
     task_name: str, kinds: "ArrayKinds"
 ) -> "ArrayKind | None":
-    """Find the kind pinned for a task, comparing names leniently."""
+    """Find the kind pinned for a task, comparing names leniently.
+
+    Args:
+        task_name: The task to look up.
+        kinds: Explicit ``(task_name, kind)`` pins, as
+            `RenderOptions.array_kinds`.
+
+    Returns:
+        The pinned kind, or ``None`` when no pin matches. Names are compared
+        after `normalize_task_name`.
+
+    """
     wanted = normalize_task_name(task_name)
     for name, kind in kinds:
         if normalize_task_name(name) == wanted:
@@ -474,10 +499,10 @@ def is_image_compatible(
     return abs(ratio - 1.0) <= tolerance
 
 
-#: Opacity for a field blended over a photo. Translucent on purpose: the point
-#: of an overlay is to check the field against the image content underneath, so
-#: it has to stay visible. A standalone tile has nothing to show through and is
-#: drawn opaque.
+#: Opacity for a field blended over a photo. It is translucent on purpose,
+#: because an overlay exists to check the field against the image content
+#: underneath, so that content has to stay visible. A standalone tile has
+#: nothing to show through and is drawn opaque.
 OVERLAY_ALPHA = 0.6
 
 #: Corner the generated keys sit in, matching the other image-level chrome.
@@ -504,7 +529,12 @@ class ArrayDrawing:
     key: "Annotation | None" = None
 
     def annotations(self) -> "list[Annotation]":
-        """Return the annotations to add, field first so the key draws over it."""
+        """Return the annotations to add, field first so the key draws over it.
+
+        Returns:
+            The field, followed by its key when it has one.
+
+        """
         return [self.field] if self.key is None else [self.field, self.key]
 
 

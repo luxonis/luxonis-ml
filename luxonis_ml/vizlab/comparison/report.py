@@ -21,7 +21,7 @@ from .match import (
 if TYPE_CHECKING:
     from luxonis_ml.ldf import Detection
 
-    #: A matchable detection: a vizlab box or a full LDF detection tree.
+    #: A matchable detection, either a vizlab box or a full LDF detection tree.
     Detectionish = BBox | Detection
 
 #: Verdict colors, tuned for the dark composite background. Themeable later.
@@ -36,6 +36,13 @@ class ComparisonReport:
     row/column for misses and false alarms), running mean IoU, and the worst
     images by error count. Counts follow COCO: a class error is one false
     positive (its predicted class) plus one false negative (its true class).
+
+    Attributes:
+        n_images: The number of results added.
+        n_tp: The number of true positives over all results.
+        n_fp: The number of false positives over all results.
+        n_fn: The number of false negatives over all results.
+
     """
 
     n_images: int = 0
@@ -51,7 +58,14 @@ class ComparisonReport:
     def add(
         self, result: ComparisonResult, *, name: str | None = None
     ) -> None:
-        """Accumulate one image's ``result`` (optionally tagged ``name``)."""
+        """Accumulate the result of one image.
+
+        Args:
+            result: The comparison result of the image.
+            name: A name for the image. Only a named image can be listed by
+                `worst`.
+
+        """
         self.n_images += 1
         self.n_tp += result.n_tp
         self.n_fp += result.n_fp
@@ -113,7 +127,12 @@ class ComparisonReport:
         return self._iou_sum / self._n_localized if self._n_localized else 0.0
 
     def classes(self) -> list[str]:
-        """Sorted class names seen (excluding the `NONE_LABEL` background)."""
+        """Sorted class names seen (excluding the `NONE_LABEL` background).
+
+        Returns:
+            The class names, in sorted order.
+
+        """
         names = {n for n in self._class if n != NONE_LABEL}
         for gt, pred in self._confusion:
             names.discard(NONE_LABEL)
@@ -124,7 +143,12 @@ class ComparisonReport:
         return sorted(names)
 
     def per_class(self) -> dict[str, dict[str, float | int]]:
-        """Per-class ``{precision, recall, tp, fp, fn}`` across the dataset."""
+        """Per-class ``{precision, recall, tp, fp, fn}`` across the dataset.
+
+        Returns:
+            The metrics of each class, keyed by class name in sorted order.
+
+        """
         return {
             name: _metric_row(counts)
             for name, counts in sorted(self._class.items())
@@ -132,10 +156,14 @@ class ComparisonReport:
         }
 
     def confusion_matrix(self) -> tuple[list[str], list[list[int]]]:
-        """Return ``(labels, matrix)`` with ``matrix[gt][pred]`` counts.
+        """Return the confusion matrix of the detections.
 
         ``labels`` are the classes followed by `NONE_LABEL`; a row is the ground
         truth, a column the prediction. The ``(NONE, NONE)`` cell is always zero.
+
+        Returns:
+            ``(labels, matrix)``, with ``matrix[gt][pred]`` counts.
+
         """
         labels = [*self.classes(), NONE_LABEL]
         matrix = [
@@ -145,11 +173,26 @@ class ComparisonReport:
         return labels, matrix
 
     def worst(self, n: int = 10) -> list[tuple[int, str]]:
-        """Return the ``n`` images with the most errors as ``(count, name)``."""
+        """Return the images with the most errors.
+
+        Args:
+            n: How many images to return.
+
+        Returns:
+            Up to ``n`` ``(error count, name)`` pairs, the most errors first.
+
+        """
         return sorted(self._worst, reverse=True)[:n]
 
     def summary(self) -> dict[str, str | int]:
-        """Aggregate metrics as a display-ready mapping."""
+        """Aggregate metrics as a display-ready mapping.
+
+        Returns:
+            The image count, precision, recall, F1 and mean IoU as text with
+            three decimals, and the counts of true positives, false positives
+            and false negatives.
+
+        """
         return {
             "images": self.n_images,
             "precision": f"{self.precision:.3f}",

@@ -195,6 +195,7 @@ class Annotation(BaseModel):
 
     """
 
+    #: Pydantic configuration. It allows fields of any type, such as arrays.
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     label: str | None = None

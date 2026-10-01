@@ -89,7 +89,7 @@ class LayerMask:
         return self.classes is None or label in self.classes
 
 
-#: The mask in effect outside any `layer_scope`: everything draws.
+#: The mask in effect outside any `layer_scope`, under which everything draws.
 EVERYTHING = LayerMask()
 
 _LAYERS: ContextVar[LayerMask] = ContextVar(
@@ -98,7 +98,12 @@ _LAYERS: ContextVar[LayerMask] = ContextVar(
 
 
 def current_layers() -> LayerMask:
-    """Return the `LayerMask` in effect for the current context."""
+    """Return the `LayerMask` in effect for the current context.
+
+    Returns:
+        The mask of the innermost `layer_scope`, or `EVERYTHING` outside one.
+
+    """
     return _LAYERS.get()
 
 
@@ -112,9 +117,9 @@ def layer_scope(
 ) -> "Generator[LayerMask, None, None]":
     """Restrict what renders inside a ``with`` block.
 
-    A `ContextVar` scope, like `luxonis_ml.vizlab.Style.override`, so it needs
-    no argument threading and reaches every annotation the block draws however
-    deeply it is nested.
+    A ``ContextVar`` scope, like `luxonis_ml.vizlab.Style.override`, so it
+    needs no argument threading and reaches every annotation the block draws
+    however deeply it is nested.
 
     Args:
         kinds: Layers allowed to draw, or ``None`` for all of them.
@@ -154,7 +159,13 @@ _INVENTORY: ContextVar["dict[tuple[str, str | None], None] | None"] = (
 
 
 def record_layer(layer: str, label: "str | None") -> None:
-    """Note that ``layer``/``label`` drew, when an inventory is being taken."""
+    """Note that ``layer``/``label`` drew, when an inventory is being taken.
+
+    Args:
+        layer: The layer that drew.
+        label: The class label of the annotation that drew, or ``None``.
+
+    """
     found = _INVENTORY.get()
     if found is not None:
         found.setdefault((layer, label), None)
@@ -192,7 +203,12 @@ _PLAN: ContextVar["dict[tuple[int, int], Placement] | None"] = ContextVar(
 
 
 def current_label_plan() -> "dict[tuple[int, int], Placement] | None":
-    """Return the chip placements to reuse, or ``None`` outside a `label_plan`."""
+    """Return the chip placements to reuse, or ``None`` outside a `label_plan`.
+
+    Returns:
+        The placements keyed by chip occurrence, or ``None``.
+
+    """
     return _PLAN.get()
 
 
@@ -230,6 +246,13 @@ class RenderEnvironment:
     through the whole scene. An annotation therefore never observes a different
     scope halfway through a render, and cache keys depend on the same state that
     drawing consumes.
+
+    Attributes:
+        default_style: The scoped default style, or ``None`` to use the style
+            of the theme.
+        style_overrides: The scoped style overrides, layered over the default.
+        layers: The layers, classes, and parts allowed to draw.
+
     """
 
     default_style: Style | None
@@ -238,7 +261,13 @@ class RenderEnvironment:
 
     @classmethod
     def current(cls) -> "RenderEnvironment":
-        """Capture the style state in effect for the current context."""
+        """Capture the style state in effect for the current context.
+
+        Returns:
+            The snapshot of the scoped default style, style overrides, and
+            layers.
+
+        """
         return cls(
             default_style=current_default_style(),
             style_overrides=dict(current_style_overrides()),

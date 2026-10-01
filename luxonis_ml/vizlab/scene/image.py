@@ -199,7 +199,15 @@ class Renderable:
         raise NotImplementedError
 
     def copy(self) -> "Renderable":
-        """Return an independent clone that renders the same scene."""
+        """Return an independent clone that renders the same scene.
+
+        Returns:
+            The clone.
+
+        Raises:
+            NotImplementedError: Always; each subclass implements its own copy.
+
+        """
         raise NotImplementedError
 
     @property
@@ -578,7 +586,12 @@ class Renderable:
         return io.export(self.render(), mode)
 
     def to_pil(self) -> "PILImage.Image":
-        """Render and return the scene as a Pillow RGBA image."""
+        """Render and return the scene as a Pillow RGBA image.
+
+        Returns:
+            The rendered scene.
+
+        """
         return io.to_pil(self.render())
 
     def show(self) -> None:
@@ -1146,9 +1159,9 @@ class Image(Renderable):
         return f"Image(size={self.width}x{self.height}, annotations={len(self._annotations)})"
 
 
-#: A composite's scene painter: draws the whole layout, at natural coordinates,
-#: onto the canvas it is given (child images via their own `Image._draw_onto`,
-#: chrome via vector primitives).
+#: A composite's scene painter. It draws the whole layout, at natural
+#: coordinates, onto the canvas it is given (child images via their own
+#: `Image._draw_onto`, chrome via vector primitives).
 ScenePaint = Callable[
     ["Canvas", RenderEnvironment, InteractionCapture | None],
     None,
@@ -1236,7 +1249,13 @@ class Composite(Renderable):
         self._capture_carried(capture, x, y, size)
 
     def copy(self) -> "Composite":
-        """Return a clone sharing the scene painter but with its own state."""
+        """Return a clone sharing the scene painter but with its own state.
+
+        Returns:
+            A new `Composite` with the same painter, size, and interaction
+            regions.
+
+        """
         clone = Composite(self._size, self._scene, options=self._options)
         clone._render_size = self._render_size
         clone._hits = self._hits

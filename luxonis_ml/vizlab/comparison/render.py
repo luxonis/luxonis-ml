@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from luxonis_ml.vizlab.layout.panel import PanelData
     from luxonis_ml.vizlab.scene.image import Image, Renderable
 
-    #: A matchable detection: a vizlab box or a full LDF detection tree.
+    #: A matchable detection, either a vizlab box or a full LDF detection tree.
     Detectionish = BBox | Detection
 
 #: Verdict colors, tuned for the dark composite background. Themeable later.
@@ -61,6 +61,8 @@ _IDENTITY_COLORS = (
 )
 
 
+#: The distance within which a predicted joint grades as correct, as a fraction
+#: of the diagonal of the bounds of the matched detection.
 KEYPOINT_TOLERANCE = 0.1
 
 

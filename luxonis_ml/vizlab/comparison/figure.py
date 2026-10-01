@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from luxonis_ml.vizlab.render.canvas import Canvas
     from luxonis_ml.vizlab.scene.image import Image
 
-    #: A matchable detection: a vizlab box or a full LDF detection tree.
+    #: A matchable detection, either a vizlab box or a full LDF detection tree.
     Detectionish = BBox | Detection
 
 #: Verdict colors, tuned for the dark composite background. Themeable later.

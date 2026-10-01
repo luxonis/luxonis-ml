@@ -125,6 +125,7 @@ PanelContainer: TypeAlias = (
 PanelData: TypeAlias = (
     Mapping[PanelKey, "PanelData"] | Sequence["PanelData"] | PanelLeaf
 )
+"""Anything a panel shows, a leaf value or a nested container of them."""
 
 # Nominal metrics at the style-reference resolution; scaled up on larger images
 # so the panel's type tracks the picture size instead of shrinking against it.
@@ -144,7 +145,7 @@ _LEGEND_COLS = 2
 _TITLE_SCALE = 1.3
 _TITLE_WEIGHT = 700
 _TITLE_TRACKING = 0.08  # letter-spacing as a fraction of the title size
-#: Framing metrics: the image and the panel are drawn as separate rounded
+#: Framing metrics. The image and the panel are drawn as separate rounded
 #: surfaces floating on the composite background — a uniform outer margin, a gap
 #: between them, rounded corners, a hairline border, and the breathing room
 #: above/below each in-panel section rule.
@@ -170,7 +171,8 @@ _HEADER_TRACKING = 0.16  # letter-spacing as a fraction of the header size
 # dark or light composite background.
 
 
-# One logical line: (depth, prefix, prefix_is_key, body).
+#: One logical line of a formatted panel, as ``(depth, prefix, prefix_is_key,
+#: body)``.
 Line = tuple[int, str, bool, str]
 
 
@@ -369,8 +371,11 @@ class Section(NamedTuple):
     ``controls`` (interactive-control rows).
     """
 
+    #: The group key of a headed field, or ``None`` for top-level scalars.
     heading: str | None
+    #: The text rows of the section.
     lines: list[Line]
+    #: Whether ``lines`` holds one bare value that is drawn as a block.
     block: bool = False
     #: (color, label, enabled) per legend swatch.
     swatches: tuple[tuple[Color, str, bool], ...] | None = None
@@ -378,6 +383,7 @@ class Section(NamedTuple):
     swatch_reserve: str = ""
     #: Whether the legend exposes class-toggle click regions.
     swatches_interactive: bool = True
+    #: (key, name, value, active) per interactive-control row.
     controls: tuple[tuple[str, str, str, bool | None], ...] | None = None
     #: (label, detail) per hoverable row; the detail rides in a `Tooltip`.
     hints: tuple[tuple[str, "ParamValue"], ...] | None = None
@@ -892,8 +898,8 @@ def _control_key_width(
     )
 
 
-#: The legend's master switch, beside the CLASSES heading: shows the action it
-#: performs — "hide all" when every class is on, "show all" when any is off.
+#: The legend's master switch, beside the CLASSES heading. It shows the action
+#: it performs — "hide all" when every class is on, "show all" when any is off.
 #: Both strings share a length, so the reserved width does not shift on toggle.
 _LEGEND_HIDE_ALL = "hide all"
 _LEGEND_SHOW_ALL = "show all"
@@ -1403,11 +1409,27 @@ def compose_panel(
     rasterized here: a `Composite` is returned that draws the image (via its own
     `Image._draw_onto`, so its annotations stay vector in an SVG) and the panel
     chrome (rounded cards, title, key/value rows, legend) to raster or SVG.
-    Also returns the ``(dx, dy)`` the source image was translated by (so a caller
-    carrying a hover `HitMap` can shift it to stay aligned), the ``(region,
-    action)`` click targets of the panel's controls and legend swatches, and the
-    ``(region, tooltip)`` hover targets of its `Hints` rows, in
-    composed-image pixels (see `luxonis_ml.vizlab.interaction.frame.Frame.with_panel`).
+
+    Args:
+        image: The image to annotate.
+        data: JSON-like metadata (mapping/sequence/scalar, nested arbitrarily),
+            whose strings are inline markup.
+        side: Which edge to attach the panel to: ``"right"`` (default),
+            ``"left"``, or ``"bottom"``.
+        width: Panel width in pixels for every side; ``None`` auto-sizes from
+            the content.
+        title: Optional bold heading drawn above the tree.
+        style: Style whose ``font_size`` scales the panel's type and spacing.
+        bg: Panel background color; defaults to the image's theme background.
+
+    Returns:
+        The `Composite`; the ``(dx, dy)`` the source image was translated by
+        (so a caller carrying a hover `HitMap` can shift it to stay aligned);
+        the ``(region, action)`` click targets of the panel's controls and
+        legend swatches; and the ``(region, tooltip)`` hover targets of its
+        `Hints` rows. The regions are in composed-image pixels (see
+        `luxonis_ml.vizlab.interaction.frame.Frame.with_panel`).
+
     """
     style = style or DEFAULT_STYLE
     # The image is placed at its display (render_at) size, not its source size.

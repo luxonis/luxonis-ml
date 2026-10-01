@@ -1,4 +1,4 @@
-"""Painters for each `"ClassDistribution"` mode: bars, stacked, pie, verdict.
+"""Painters for each `ClassDistribution` mode: bars, stacked, pie, verdict.
 
 Each takes a laid-out cell plus its resolved colours and draws it. They know
 nothing about the annotation that chose them, so a mode can be read, changed
