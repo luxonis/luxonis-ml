@@ -122,7 +122,7 @@ def _unwrap_loader_axes(
     exactly zero, so a sum recovers the populated slice including its negative
     values, which a max would silently floor to ``0.0``.
     """
-    populated = arr.any(axis=tuple(range(2, arr.ndim)))
+    populated = np.asarray(arr.any(axis=tuple(range(2, arr.ndim))))
     slots = [np.flatnonzero(row) for row in populated]
     filled = [int(slot[0]) for slot in slots if len(slot) == 1]
     # A row with *no* populated slot carries no information about which class it
