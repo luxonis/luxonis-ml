@@ -552,7 +552,12 @@ class Canvas:
             self._canvas.restore()
 
     def draw_base(self, rgba: np.ndarray) -> None:
-        """Draw an RGBA raster scaled to fill the whole canvas (the base layer)."""
+        """Draw an RGBA raster scaled to fill the whole canvas (the base layer).
+
+        Args:
+            rgba: The ``(H, W, 4)`` uint8 raster.
+
+        """
         self.blit_scaled(rgba, 0.0, 0.0, self.width, self.height)
 
     @contextlib.contextmanager

@@ -125,9 +125,10 @@ _SIZE_NAMES = {
 def escape(text: object) -> str:
     """Escape ``text`` so it renders verbatim rather than as markup.
 
-    The counterpart to `parse`, and the right thing to call on any string vizlab
-    did not author — dataset metadata, class names, file paths — before it is
-    interpolated into text that will be parsed.
+    The counterpart to `luxonis_ml.vizlab.render.markup.parse`, and the right
+    thing to call on any string vizlab did not author — dataset metadata, class
+    names, file paths — before it is interpolated into text that will be
+    parsed.
 
     Args:
         text: The value to escape; non-strings are stringified first.

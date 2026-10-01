@@ -43,7 +43,12 @@ class RegionMap(Generic[PayloadT]):
 
     @classmethod
     def empty(cls) -> Self:
-        """Return a map with no entries."""
+        """Return a map with no entries.
+
+        Returns:
+            An empty map of this class.
+
+        """
         return cls([])
 
     def hit(self, x: float, y: float) -> PayloadT | None:
@@ -68,7 +73,16 @@ class RegionMap(Generic[PayloadT]):
         return best
 
     def offset(self, dx: float, dy: float) -> Self:
-        """Return a copy with every rectangle shifted by ``(dx, dy)`` pixels."""
+        """Return a copy with every rectangle shifted by ``(dx, dy)`` pixels.
+
+        Args:
+            dx: The horizontal shift in pixels.
+            dy: The vertical shift in pixels.
+
+        Returns:
+            The shifted map. This map is not changed.
+
+        """
         return type(self)(
             [
                 (Rect(r.left + dx, r.top + dy, r.right + dx, r.bottom + dy), p)
@@ -77,7 +91,16 @@ class RegionMap(Generic[PayloadT]):
         )
 
     def scaled(self, factor_x: float, factor_y: float | None = None) -> Self:
-        """Return a copy with rectangles scaled about the origin on each axis."""
+        """Return a copy with rectangles scaled about the origin on each axis.
+
+        Args:
+            factor_x: The horizontal scale.
+            factor_y: The vertical scale; ``None`` uses ``factor_x``.
+
+        Returns:
+            The scaled map. This map is not changed.
+
+        """
         if factor_y is None:
             factor_y = factor_x
         return type(self)(
@@ -96,7 +119,15 @@ class RegionMap(Generic[PayloadT]):
         )
 
     def merge(self, other: Self) -> Self:
-        """Return a new map with this map's entries followed by ``other``'s."""
+        """Return a new map with this map's entries followed by ``other``'s.
+
+        Args:
+            other: The map whose entries come second.
+
+        Returns:
+            The merged map. Neither map is changed.
+
+        """
         return type(self)([*self.items, *other.items])
 
     def __or__(self, other: Self) -> Self:
@@ -124,8 +155,8 @@ class PickMap(RegionMap["ParamValue"]):
 
     The payload is JSON-like — for a dataset detection, the LDF annotation it was
     rendered from — so a viewer can print or copy it when the annotation is
-    clicked. A `None` payload is never stored, which is what lets `RegionMap.hit`
-    report a miss as ``None``.
+    clicked. A ``None`` payload is never stored, which is what lets
+    `RegionMap.hit` report a miss as ``None``.
     """
 
 
@@ -137,6 +168,17 @@ class InteractionCapture:
     to the final output pixels. Nested composites derive child captures instead
     of manually offsetting maps after rendering, so interaction regions follow
     the same placement and scaling path as their pixels.
+
+    Attributes:
+        hover: Hover regions in output pixels, each with its tooltip.
+        clicks: Click regions in output pixels, each with its action string.
+        picks: Pick regions in output pixels, each with the source data of the
+            annotation drawn there.
+        scale_x: Horizontal scale from scene coordinates to output pixels.
+        scale_y: Vertical scale from scene coordinates to output pixels.
+        offset_x: Horizontal offset of the scene in output pixels.
+        offset_y: Vertical offset of the scene in output pixels.
+
     """
 
     hover: list[tuple[Rect, Tooltip]] = field(default_factory=list)
@@ -154,7 +196,22 @@ class InteractionCapture:
         scale_x: float = 1.0,
         scale_y: float | None = None,
     ) -> "InteractionCapture":
-        """Return a view that maps child-local coordinates into this capture."""
+        """Return a view that maps child-local coordinates into this capture.
+
+        The view shares the region lists of this capture, so a region added to
+        the view lands here.
+
+        Args:
+            x: The horizontal position of the child, in scene coordinates.
+            y: The vertical position of the child, in scene coordinates.
+            scale_x: The horizontal scale of the child.
+            scale_y: The vertical scale of the child; ``None`` uses
+                ``scale_x``.
+
+        Returns:
+            The child capture.
+
+        """
         if scale_y is None:
             scale_y = scale_x
         return InteractionCapture(
@@ -176,28 +233,61 @@ class InteractionCapture:
         )
 
     def add_hover(self, rect: Rect, tooltip: Tooltip) -> None:
-        """Add a hover region expressed in the current scene's coordinates."""
+        """Add a hover region expressed in the current scene's coordinates.
+
+        Args:
+            rect: The region, in scene coordinates.
+            tooltip: The tooltip shown over the region.
+
+        """
         self.hover.append((self._rect(rect), tooltip))
 
     def add_click(self, rect: Rect, action: str) -> None:
-        """Add a click region expressed in the current scene's coordinates."""
+        """Add a click region expressed in the current scene's coordinates.
+
+        Args:
+            rect: The region, in scene coordinates.
+            action: The action string a click on the region reports.
+
+        """
         self.clicks.append((self._rect(rect), action))
 
     def add_pick(self, rect: Rect, source: "ParamValue") -> None:
-        """Add a pickable region expressed in the current scene's coordinates."""
+        """Add a pickable region expressed in the current scene's coordinates.
+
+        Args:
+            rect: The region, in scene coordinates.
+            source: The source data of the annotation drawn in the region.
+
+        """
         self.picks.append((self._rect(rect), source))
 
     def add_hitmap(self, hitmap: HitMap) -> None:
-        """Add every entry from ``hitmap`` using the current transform."""
+        """Add every entry from ``hitmap`` using the current transform.
+
+        Args:
+            hitmap: Hover regions in scene coordinates.
+
+        """
         for rect, tooltip in hitmap.items:
             self.add_hover(rect, tooltip)
 
     def add_clickmap(self, clickmap: ClickMap) -> None:
-        """Add every entry from ``clickmap`` using the current transform."""
+        """Add every entry from ``clickmap`` using the current transform.
+
+        Args:
+            clickmap: Click regions in scene coordinates.
+
+        """
         for rect, action in clickmap.items:
             self.add_click(rect, action)
 
     def add_pickmap(self, pickmap: PickMap) -> None:
-        """Add every entry from ``pickmap`` using the current transform."""
+        """Add every entry from ``pickmap`` using the current transform.
+
+        Args:
+            pickmap: Pick regions in scene coordinates.
+
+        """
         for rect, source in pickmap.items:
             self.add_pick(rect, source)

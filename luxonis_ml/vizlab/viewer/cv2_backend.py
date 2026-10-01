@@ -1,4 +1,4 @@
-"""The OpenCV (`cv2`) window backend.
+"""The OpenCV (``cv2``) window backend.
 
 ``cv2`` is imported lazily inside each method — never at module import — so that
 ``import luxonis_ml.vizlab.viewer`` stays free of the heavy OpenCV import until an
@@ -10,7 +10,7 @@ from typing import Protocol, cast
 
 import numpy as np
 
-from .backend import KeyHandler, MouseHandler
+from .backend import KeyHandler, MouseHandler, WindowBackend
 
 
 class _TkRoot(Protocol):
@@ -25,19 +25,25 @@ class _TkRoot(Protocol):
     def destroy(self) -> None: ...
 
 
-class Cv2Backend:
+class Cv2Backend(WindowBackend):
     """A `WindowBackend` backed by OpenCV's highgui windows."""
 
     def __init__(self) -> None:
+        """Create a backend with no open windows."""
         self._live: set[str] = set()
         # cv2 may drop a callback that is not referenced from Python, so keep one.
         self._callbacks: dict[str, object] = {}
 
     def screen_size(self) -> tuple[int, int] | None:
-        """Best-effort screen resolution via Tk, or ``None`` if unavailable.
+        """Return the screen resolution, read through Tk.
 
-        Uses Tk (standard library); returns ``None`` on any failure (headless
-        session, Tk missing), letting the viewer skip scaling and centering.
+        Uses Tk (standard library), so a viewer can skip scaling and centering
+        when the size is unknown.
+
+        Returns:
+            The screen ``(width, height)`` in pixels, or ``None`` on any
+            failure (a headless session, or Tk missing).
+
         """
         root: _TkRoot | None = None
         try:

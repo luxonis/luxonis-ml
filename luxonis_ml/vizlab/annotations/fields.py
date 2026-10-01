@@ -117,6 +117,7 @@ class ArrayField(ArrayAnnotation, Annotation):
 
     """
 
+    #: Pydantic configuration. It allows the ``values`` array as a field.
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     path: FilePath | None = None
@@ -150,7 +151,13 @@ class ArrayField(ArrayAnnotation, Annotation):
         return self
 
     def to_numpy(self) -> np.ndarray:
-        """Return the array, preferring the in-memory one over a reload."""
+        """Return the array, preferring the in-memory one over a reload.
+
+        Returns:
+            ``values`` when it is set, otherwise the array loaded from
+            ``path``.
+
+        """
         if self.values is not None:
             return np.asarray(self.values)
         return super().to_numpy()
@@ -162,6 +169,10 @@ class ArrayField(ArrayAnnotation, Annotation):
         built straight from loader output — still carrying the
         ``(N, n_classes, ...)`` prefix — draws the same as one built from a bare
         ``.npy``.
+
+        Returns:
+            The unwrapped array, or ``None`` when its shape cannot be drawn.
+
         """
         from luxonis_ml.vizlab.adapters.arrays import array_payload
 
@@ -184,17 +195,37 @@ class ArrayField(ArrayAnnotation, Annotation):
         raise NotImplementedError
 
     def resolve_color(self, ctx: RenderContext) -> Color:
-        """Array fields color per value, so no single color applies."""
+        """Return white, because an array field colors each value itself.
+
+        Args:
+            ctx: The current render context.
+
+        Returns:
+            White.
+
+        """
         return _WHITE
 
     def extent(self) -> Rect | None:
-        """Array fields cover the whole image and have no local extent."""
+        """Return ``None``, because an array field covers the whole image.
+
+        Returns:
+            Always ``None``.
+
+        """
         return None
 
     def draw_fill(
         self, ctx: RenderContext, style: Style, color: Color
     ) -> None:
-        """Blit the field over the image (first, raster pass)."""
+        """Blit the field over the image (first, raster pass).
+
+        Args:
+            ctx: The current render context.
+            style: The resolved style.
+            color: Unused, because the field colors each value itself.
+
+        """
         data = self.field()
         if data is None:
             return
@@ -208,7 +239,14 @@ class ArrayField(ArrayAnnotation, Annotation):
             canvas.blit_scaled(rgba, 0, 0, canvas.width, canvas.height)
 
     def draw(self, ctx: RenderContext, style: Style, color: Color) -> None:
-        """Array fields have no sharp vector layer; everything is the fill."""
+        """Draw nothing, because the whole field is drawn as the fill.
+
+        Args:
+            ctx: The current render context.
+            style: The resolved style.
+            color: Unused, because the field colors each value itself.
+
+        """
 
 
 class ScalarField(ArrayField):
@@ -245,7 +283,13 @@ class ScalarField(ArrayField):
     weight_by_value: bool = False
 
     def value_range(self) -> "tuple[float, float]":
-        """Report the values the gradient's two ends stand for."""
+        """Report the values the gradient's two ends stand for.
+
+        Returns:
+            The ``(low, high)`` values that `field_range` reports for this
+            field and its settings.
+
+        """
         data = self.field()
         return field_range(
             np.zeros(0) if data is None else data,
@@ -261,6 +305,15 @@ class ScalarField(ArrayField):
         A signed field read through a sequential colormap hides its sign: the
         midpoint lands on whatever color happens to sit halfway. Centering only
         pays off against a gradient with a neutral middle.
+
+        Args:
+            ctx: The current render context, which supplies the default
+                gradient.
+
+        Returns:
+            ``gradient`` when it is set, a diverging gradient for a centered
+            field, and the gradient of the context otherwise.
+
         """
         if self.gradient is not None:
             return self.gradient
@@ -316,7 +369,13 @@ class FlowField(ArrayField):
     max_magnitude: float | None = None
 
     def peak_magnitude(self) -> float:
-        """Return the displacement mapped to full saturation."""
+        """Return the displacement mapped to full saturation.
+
+        Returns:
+            ``max_magnitude`` when it is set, otherwise the largest finite
+            displacement in the field, or ``0.0`` without two channels.
+
+        """
         if self.max_magnitude is not None:
             return float(self.max_magnitude)
         data = self.field()
@@ -453,7 +512,12 @@ class SegmentationScores(ArrayField):
     weight_by_confidence: bool = False
 
     def labels(self) -> np.ndarray:
-        """Resolve the stack to the winning class index per pixel."""
+        """Resolve the stack to the winning class index per pixel.
+
+        Returns:
+            An ``(H, W)`` array of class indices.
+
+        """
         data = self.field()
         if data is None:
             return np.zeros((0, 0), np.int32)
@@ -471,6 +535,13 @@ class SegmentationScores(ArrayField):
         sum to one per pixel is taken as-is; anything else is softmaxed, since a
         bare logit of ``9.0`` says nothing on its own — only its size *relative
         to the other classes* does.
+
+        Args:
+            data: The ``(C, H, W)`` score stack.
+
+        Returns:
+            A ``(C, H, W)`` array whose channels sum to one per pixel.
+
         """
         scores = np.nan_to_num(data)
         totals = scores.sum(axis=0)
@@ -585,13 +656,27 @@ class SegmentationScores(ArrayField):
     def draw_fill(
         self, ctx: RenderContext, style: Style, color: Color
     ) -> None:
-        """Fill each class region, flat or weighted by certainty."""
+        """Fill each class region, flat or weighted by certainty.
+
+        Args:
+            ctx: The current render context.
+            style: The resolved style.
+            color: Passed to the class mask, which colors each class itself.
+
+        """
         if self.weight_by_confidence:
             self._weighted_fill(ctx, style)
         else:
             self._mask().draw_fill(ctx, style, color)
 
     def draw(self, ctx: RenderContext, style: Style, color: Color) -> None:
-        """Stroke the class outlines, delegating to `SemanticMask`."""
+        """Stroke the class outlines, delegating to `SemanticMask`.
+
+        Args:
+            ctx: The current render context.
+            style: The resolved style.
+            color: Passed to the class mask, which colors each class itself.
+
+        """
         if self.contour:
             self._mask().draw(ctx, style, color)

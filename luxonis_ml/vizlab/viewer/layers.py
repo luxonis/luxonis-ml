@@ -117,13 +117,20 @@ class LayerState:
     classes: tuple[str, ...] = field(default_factory=tuple)
     arrays: bool = True
     has_arrays: bool = False
-    #: Cursor for the ``c`` isolate cycle: ``None`` = all shown, else the index
-    #: in ``classes`` of the one class kept. A legend click clears it (the manual
-    #: visibility no longer matches the cycle), so the next ``c`` restarts it.
+    #: Cursor for the ``c`` isolate cycle. ``None`` means all classes show,
+    #: otherwise it is the index in ``classes`` of the one class kept. A legend
+    #: click clears it (the manual visibility no longer matches the cycle), so
+    #: the next ``c`` restarts it.
     _focus: int | None = None
 
     def copy(self) -> "LayerState":
-        """Return an independent snapshot suitable for render-ahead work."""
+        """Return an independent snapshot suitable for render-ahead work.
+
+        Returns:
+            A new state with the same toggles. Changing it does not change this
+            one.
+
+        """
         return LayerState(
             masks=self.masks,
             keypoints=self.keypoints,
@@ -138,7 +145,12 @@ class LayerState:
         )
 
     def is_default(self) -> bool:
-        """Whether nothing is toggled (so `apply_layers` can skip its work)."""
+        """Whether nothing is toggled (so `apply_layers` can skip its work).
+
+        Returns:
+            ``True`` when every layer shows and no class is hidden.
+
+        """
         return (
             self.masks
             and self.keypoints
@@ -252,10 +264,14 @@ class LayerState:
     def controls(self) -> list[Control]:
         """Describe the current controls, for the panel's controls section.
 
-        Returns one `Control` per key: the layer toggles carry their on/off state,
-        and the class control shows ``all`` or ``N off``. It deliberately does not
+        The class control shows ``all`` or ``N off``. It deliberately does not
         name the isolated class — the legend already shows which classes are on,
         and a variable-length class name would make the panel width jump.
+
+        Returns:
+            One `Control` for each key. The layer toggles carry their on/off
+            state.
+
         """
 
         def toggle(key: str, name: str, on: bool) -> Control:

@@ -19,7 +19,15 @@ def draw_card_background(
     style: Style,
     chrome: brand.Chrome,
 ) -> None:
-    """Paint the standard theme-aware annotation card surface."""
+    """Paint the standard theme-aware annotation card surface.
+
+    Args:
+        canvas: The canvas to paint on.
+        rect: The card rectangle, in canvas pixels.
+        style: The resolved style; it decides the shadow.
+        chrome: The chrome colors of the background the card sits on.
+
+    """
     canvas.rounded_rect(
         rect,
         radius=9.0,

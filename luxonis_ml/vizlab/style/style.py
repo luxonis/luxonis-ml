@@ -14,7 +14,10 @@ from enum import Enum
 from typing import Literal, TypeAlias
 
 FontFamily = Literal["sans", "mono"]
-"""Which bundled family a label uses: proportional Inter or monospace JetBrains Mono."""
+"""Which bundled font family a label uses.
+
+``"sans"`` is the proportional Inter, ``"mono"`` the monospace JetBrains Mono.
+"""
 
 
 class LabelPlacement(Enum):
@@ -180,9 +183,10 @@ class Style:
     def as_default(self) -> "Generator[Style, None, None]":
         """Use this style as the scope's default within a ``with`` block.
 
-        A `ContextVar`-scoped replacement for the theme's style: every annotation
-        rendered inside the block that does not override its own style falls back
-        to this one instead of the active theme's. Nesting and threads are safe.
+        A ``ContextVar``-scoped replacement for the theme's style: every
+        annotation rendered inside the block that does not override its own
+        style falls back to this one instead of the active theme's. Nesting and
+        threads are safe.
 
         Yields:
             This style.
@@ -246,12 +250,22 @@ _AMBIENT_OVERRIDES: ContextVar[StyleOverrides | None] = ContextVar(
 
 
 def current_default_style() -> Style | None:
-    """Return the scope's default style from `Style.as_default`, or ``None``."""
+    """Return the scope's default style from `Style.as_default`, or ``None``.
+
+    Returns:
+        The default style of the innermost scope, or ``None`` outside one.
+
+    """
     return _AMBIENT_STYLE.get()
 
 
 def current_style_overrides() -> StyleOverrides:
-    """Return the scope's accumulated `Style.override` fields (possibly empty)."""
+    """Return the scope's accumulated `Style.override` fields.
+
+    Returns:
+        The override fields of all enclosing scopes, or an empty mapping.
+
+    """
     return _AMBIENT_OVERRIDES.get() or {}
 
 

@@ -12,11 +12,25 @@ if TYPE_CHECKING:
     from luxonis_ml.data.loaders.luxonis_loader import LuxonisLoader
 
 SampleIdentity: TypeAlias = tuple[tuple[str, str], ...]
-"""A sample's identity across datasets: its sorted ``(source, filename)`` pairs."""
+"""The identity of a sample across datasets.
+
+The sorted ``(source, filename)`` pairs of its files.
+"""
 
 
 def sample_identity(filenames: "Mapping[str, str]") -> SampleIdentity:
-    """Stable sample identity from a source-name/filename map."""
+    """Stable sample identity from a source-name/filename map.
+
+    Args:
+        filenames: The file name of each source, keyed by source name.
+
+    Returns:
+        The sorted ``(source, filename)`` pairs.
+
+    Raises:
+        ValueError: If ``filenames`` is empty.
+
+    """
     if not filenames:
         raise ValueError(
             "Dataset comparison requires loader filename metadata to match "
@@ -31,7 +45,15 @@ def sample_identity(filenames: "Mapping[str, str]") -> SampleIdentity:
 
 
 def identity_label(identity: SampleIdentity) -> str:
-    """Human-readable form of an identity, for reports and error messages."""
+    """Human-readable form of an identity, for reports and error messages.
+
+    Args:
+        identity: The identity to show.
+
+    Returns:
+        The pairs as ``source=filename``, joined with commas.
+
+    """
     return ", ".join(f"{source}={filename}" for source, filename in identity)
 
 

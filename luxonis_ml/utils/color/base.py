@@ -396,11 +396,14 @@ class Color:
         return _INK if self.is_light else _PAPER
 
 
-#: The two candidates `Color.readable_text_color` chooses between: a soft
+#: The dark candidate `Color.readable_text_color` chooses. It is a soft
 #: near-black rather than pure black, which reads less harshly on a chip.
 _INK = Color(17, 17, 17)
+#: The light candidate `Color.readable_text_color` chooses.
 _PAPER = Color(255, 255, 255)
 
 ColorLike: TypeAlias = str | int | tuple[int, ...] | Color
-"""Anything `Color.parse` accepts: a hex string or color name, a grayscale int,
-an RGB/RGBA tuple, or a `Color`."""
+"""Anything `Color.parse` accepts.
+
+A hex string or color name, a grayscale int, an RGB/RGBA tuple, or a `Color`.
+"""

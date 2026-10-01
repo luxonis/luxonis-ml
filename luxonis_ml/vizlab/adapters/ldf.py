@@ -50,8 +50,9 @@ if TYPE_CHECKING:
     from luxonis_ml.vizlab.layout.panel import PanelData
     from luxonis_ml.vizlab.scene.image import Image, Renderable
 
-    #: Any LDF object `Image.add`/`to_render_annotations` renders: a whole
-    #: record, a detection tree, or a single spatial annotation model.
+    #: Any LDF object that `Image.add` and `to_render_annotations` render,
+    #: which is a whole record, a detection tree, or a single spatial
+    #: annotation model.
     RenderableLDF: TypeAlias = (
         DatasetRecord
         | Detection

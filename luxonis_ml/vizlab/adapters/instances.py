@@ -98,6 +98,17 @@ def record_to_colored_annotations(
     spatial instances and gives every one an identity tooltip. ``task`` keeps
     the standard annotation mix but assigns one color to every annotation tree
     originating from the same task.
+
+    Args:
+        record: The record to convert.
+        color_by: What a color identifies.
+        options: Render options passed to the standard LDF adapter.
+        identity_palette: Palette for instance and task identities. Reuse it
+            across samples so the same identity keeps its color.
+
+    Returns:
+        The vizlab annotations to draw.
+
     """
     if color_by == "class":
         return blend_record_to_annotations(record, options)

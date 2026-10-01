@@ -1,12 +1,13 @@
 """`RenderOptions`: one bundle of render-wide look and behavior.
 
-`RenderOptions` gathers everything a render falls back to that is not set on an
-individual annotation: the `Theme` (style + palette + background), the default
-`Gradient` for heatmaps, and the behavior of the LDF adapter (keypoint
-metadata, keypoint labels, metadata handling). Pass it explicitly (``Image(options=...)``,
-``visualize_record(..., options=...)``), or install one for a scope with
-`default_options` / `set_default_options` — a `ContextVar`, so it is thread-safe
-and test-isolated rather than a mutable module global.
+`RenderOptions` gathers everything a render falls back to that is not set on
+an individual annotation: the `Theme` (style + palette + background), the
+default `Gradient` for heatmaps, and the behavior of the LDF adapter (keypoint
+metadata, keypoint labels, metadata handling). Pass it explicitly
+(``Image(options=...)``, ``visualize_record(..., options=...)``), or install
+one for a scope with `default_options` / `set_default_options` — a
+``ContextVar``, so it is thread-safe and test-isolated rather than a mutable
+module global.
 
 The palette lives inside ``theme`` (there is no separate ``palette`` field), so a
 class keeps one source of truth for its color; pin classes with
@@ -30,10 +31,18 @@ from .gradient import DEFAULT_GRADIENT, Gradient
 from .style import DARK_THEME, Theme
 
 KeypointLabelMode = Literal["none", "numbers", "names", "full"]
-"""How keypoints are labeled: nothing, index, name, or ``index:name``."""
+"""How keypoints are labeled, with nothing, the index, the name, or both.
+
+``"none"`` draws nothing, ``"numbers"`` the index, ``"names"`` the name, and
+``"full"`` draws ``index:name``.
+"""
 
 ArrayView = Literal["off", "tile", "overlay"]
-"""How an array label is shown: not at all, in its own tile, or over the photo."""
+"""How an array label is shown.
+
+``"off"`` hides it, ``"tile"`` draws it in its own tile, and ``"overlay"``
+blends it over the photo.
+"""
 
 ArrayKind = Literal[
     "scalar",
@@ -142,7 +151,15 @@ class RenderOptions:
     array_center: float | None = None
 
     def replace(self, **changes: RenderOptionValue) -> "RenderOptions":
-        """Return a copy with the given fields replaced."""
+        """Return a copy with the given fields replaced.
+
+        Args:
+            **changes: New values, keyed by field name.
+
+        Returns:
+            The new options. This object is not changed.
+
+        """
         return replace(self, **changes)
 
 
@@ -154,7 +171,13 @@ _CURRENT: ContextVar[RenderOptions | None] = ContextVar(
 
 
 def current_options() -> RenderOptions:
-    """Return the `RenderOptions` in effect for the current scope."""
+    """Return the `RenderOptions` in effect for the current scope.
+
+    Returns:
+        The options installed by the innermost `default_options` or
+        `set_default_options`, or the library default.
+
+    """
     options = _CURRENT.get()
     return options if options is not None else _DEFAULT_OPTIONS
 
@@ -189,8 +212,8 @@ def set_default_options(options: RenderOptions) -> None:
     """Install ``options`` as the default for the rest of this context.
 
     Unscoped counterpart to `default_options`, for a "set once at the top of a
-    script/notebook" workflow. Still a `ContextVar` under the hood (not a mutable
-    module global), so separate threads and tests stay isolated.
+    script/notebook" workflow. Still a ``ContextVar`` under the hood (not a
+    mutable module global), so separate threads and tests stay isolated.
 
     Args:
         options: The options to make current.

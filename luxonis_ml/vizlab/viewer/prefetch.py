@@ -10,6 +10,7 @@ from typing import Generic, TypeVar
 
 from typing_extensions import Self
 
+#: The type of the items a `PrefetchIterator` yields.
 ItemT = TypeVar("ItemT")
 
 
@@ -45,14 +46,19 @@ class PrefetchIterator(Iterator[ItemT]):
     rendering from outliving its viewer. The worker inherits the caller's context
     variables, so scoped render options and styles remain in effect when
     rendering is prefetched.
-
-    Args:
-        source: Iterable whose items should be loaded ahead.
-        capacity: Maximum number of completed items retained in memory.
-
     """
 
     def __init__(self, source: Iterable[ItemT], *, capacity: int) -> None:
+        """Start the worker thread that advances ``source``.
+
+        Args:
+            source: Iterable whose items should be loaded ahead.
+            capacity: Maximum number of completed items retained in memory.
+
+        Raises:
+            ValueError: If ``capacity`` is less than ``1``.
+
+        """
         if capacity < 1:
             raise ValueError("Prefetch capacity must be at least 1.")
         self._source = iter(source)
@@ -68,9 +74,21 @@ class PrefetchIterator(Iterator[ItemT]):
         self._thread.start()
 
     def __iter__(self) -> Self:
+        """Return this iterator."""
         return self
 
     def __next__(self) -> ItemT:
+        """Return the next item of the source, in source order.
+
+        Returns:
+            The next item.
+
+        Raises:
+            StopIteration: When the source is exhausted or the iterator is
+                closed.
+            Exception: Whatever the source raised while advancing to this item.
+
+        """
         if self._closed:
             raise StopIteration
         item = self._queue.get()
@@ -84,6 +102,7 @@ class PrefetchIterator(Iterator[ItemT]):
         raise StopIteration
 
     def __enter__(self) -> Self:
+        """Return this iterator, which `__exit__` closes."""
         return self
 
     def __exit__(
@@ -92,6 +111,14 @@ class PrefetchIterator(Iterator[ItemT]):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
+        """Close the iterator. See `close`.
+
+        Args:
+            exc_type: The type of the exception that ended the block, if any.
+            exc_value: The exception that ended the block, if any.
+            traceback: The traceback of that exception, if any.
+
+        """
         self.close()
 
     def close(self) -> None:
