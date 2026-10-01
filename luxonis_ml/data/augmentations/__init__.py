@@ -5,6 +5,13 @@ The default implementation is `AlbumentationsEngine`, which adapts LDF labels
 to Albumentations targets before transformation and converts them back after
 transformation.
 
+.. contents:: Table of Contents
+   :depth: 2
+
+
+Configuration
+=============
+
 Augmentation configuration is a list of records. Each record contains a
 ``name`` identifying an Albumentations transform or a transform registered in
 `TRANSFORMATIONS`, optional ``params``, optional ``use_for_resizing``, and
@@ -128,6 +135,84 @@ A custom engine should subclass `AugmentationEngine` and implement:
 
 Engines may also override `AugmentationEngine.applied_augmentations` to
 report the configured paths and runtime parameters of their latest call.
+
+
+Tips and Tricks
+===============
+
+Rotated Bounding Boxes Are Too Large
+------------------------------------
+
+``Affine``, ``Rotate``, ``SafeRotate``, and ``ShiftScaleRotate`` can leave
+bounding boxes much larger than the objects in them once they rotate or shear
+the image. Tall or wide objects, such as standing people, show it the most.
+
+.. figure::
+   https://raw.githubusercontent.com/luxonis/luxonis-ml/30a7530c1725538e1e9816b3d188e9df400db636/luxonis_ml/data/augmentations/media/bbox_rotation_original.png
+   :width: 600px
+
+   The sample before augmentation.
+
+.. figure::
+   https://raw.githubusercontent.com/luxonis/luxonis-ml/30a7530c1725538e1e9816b3d188e9df400db636/luxonis_ml/data/augmentations/media/bbox_rotation_largest_box.png
+   :width: 600px
+
+   Rotated with the default ``rotate_method="largest_box"``.
+
+.. figure::
+   https://raw.githubusercontent.com/luxonis/luxonis-ml/30a7530c1725538e1e9816b3d188e9df400db636/luxonis_ml/data/augmentations/media/bbox_rotation_ellipse.png
+   :width: 600px
+
+   The same rotation with ``rotate_method="ellipse"``.
+
+A box says nothing about the shape of the object inside it, so after a
+rotation or a shear Albumentations has to guess the new box. The
+``rotate_method`` parameter of these transforms selects the guess:
+
+``"largest_box"`` (default)
+    Takes the box around the four transformed corners, as if the object
+    filled its whole box. The box is never too small, but often too large.
+    A :math:`w \times h` box rotated by :math:`\theta` becomes
+    :math:`w \left|\cos\theta\right| + h \left|\sin\theta\right|` wide.
+
+``"ellipse"``
+    Takes the box around the transformed ellipse inscribed in the box. The
+    box is tighter, but cuts off the corners of objects that fill their box.
+    The same box becomes
+    :math:`\sqrt{w^2 \cos^2\theta + h^2 \sin^2\theta}` wide.
+
+A :math:`120 \times 315` person box rotated by 20° becomes 221 pixels wide
+with ``"largest_box"`` and 156 with ``"ellipse"``. A square object rotated
+by 45° spans :math:`1.41 w`, but ``"ellipse"`` gives it :math:`w`. Without
+rotation or shear, both methods give the same box.
+
+Use ``"ellipse"`` when objects do not reach the corners of their boxes, as
+with people or animals. Keep ``"largest_box"`` for rectangular objects such
+as cars or screens. `Towards Rotation Invariance in Object Detection
+<https://arxiv.org/abs/2109.13488>`_ shows that oversized boxes can make a
+detector worse than training without rotation at all.
+
+.. python::
+
+    [
+        {
+            "name": "Affine",
+            "params": {
+                "rotate": [-30, 30],
+                "shear": [-15, 15],
+                "rotate_method": "ellipse",
+            },
+        },
+    ]
+
+Check the augmented boxes before you train:
+
+.. code-block:: bash
+
+    luxonis_ml data inspect <dataset> --aug-config augmentations.yaml
+
+Add ``--list-augmentations`` to print the sampled rotation and scale of
+each ``Affine``. Albumentations does not report the sampled shear.
 """
 
 from .albumentations_engine import AlbumentationsEngine
