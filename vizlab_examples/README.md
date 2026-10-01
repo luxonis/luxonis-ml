@@ -82,8 +82,8 @@ dataset:
 ```bash
 luxonis_ml data inspect <dataset>
 luxonis_ml data inspect <dataset> --color-by instance --skeletons --array-viz
-luxonis_ml data inspect <dataset> --class-name person --min-instances 3 --save contact.png
+luxonis_ml data inspect <dataset> --save contact.png
 ```
 
-See `luxonis_ml data inspect --help` for the filters, array-reading options, and
-the `--save` targets (PNG, HTML, or a video clip).
+See `luxonis_ml data inspect --help` for the array-reading options and the
+`--save` targets (PNG, HTML, or a video clip).

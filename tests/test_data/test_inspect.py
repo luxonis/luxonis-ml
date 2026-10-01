@@ -13,7 +13,6 @@ from rich.console import Console
 import luxonis_ml.data.__main__ as data_main
 import luxonis_ml.vizlab.viewer as viewer_module
 from luxonis_ml.data.utils.enums import BucketStorage
-from luxonis_ml.data.utils.inspection import SampleFilterConfig
 from luxonis_ml.ldf import (
     ArrayAnnotation,
     BBoxAnnotation,
@@ -34,50 +33,6 @@ def _ignore_exists(
     _bucket_storage: BucketStorage,
 ) -> None:
     """Stand in for the CLI's dataset-existence guard."""
-
-
-def test_filter_config_has_flat_options_on_inspect_and_compare() -> None:
-    _, inspect_arguments, inspect_ignored = data_main.app.parse_args(
-        [
-            "inspect",
-            "dataset",
-            "--task-name",
-            "objects",
-            "--task-name-mode",
-            "exclude",
-            "--metadata-filter",
-            "camera.side",
-            "left",
-        ],
-        exit_on_error=False,
-    )
-    _, compare_arguments, compare_ignored = data_main.app.parse_args(
-        [
-            "compare",
-            "ground-truth",
-            "predictions",
-            "--class-name",
-            "car",
-            "--class-name-mode",
-            "exclude",
-            "--search",
-            "0042",
-        ],
-        exit_on_error=False,
-    )
-
-    assert inspect_arguments.arguments["filters"] == SampleFilterConfig(
-        task_name=["objects"],
-        task_name_mode="exclude",
-        metadata_filter=[("camera.side", "left")],
-    )
-    assert compare_arguments.arguments["filters"] == SampleFilterConfig(
-        class_name=["car"],
-        class_name_mode="exclude",
-        search="0042",
-    )
-    assert inspect_ignored == {}
-    assert compare_ignored == {}
 
 
 @pytest.mark.parametrize("command", ["inspect", "compare"])
@@ -126,7 +81,6 @@ def test_inspect_and_compare_help_group_related_options() -> None:
 
     for group in (
         "Dataset options",
-        "Sample filters",
         "Augmentation options",
         "Visualization options",
         "Keypoint options",
@@ -139,7 +93,6 @@ def test_inspect_and_compare_help_group_related_options() -> None:
 
     for group in (
         "Dataset options",
-        "Sample filters",
         "Matching options",
         "Visualization options",
         "Keypoint options",
@@ -272,8 +225,6 @@ def test_present_sample_metadata_splits_batch_into_labelled_samples() -> None:
 
 
 def test_array_labels_keep_complete_nested_task_paths() -> None:
-    # The one place deciding which labels are arrays and how --task-name scopes
-    # them, so the renderer and the annotation-type filter cannot disagree.
     labels = {
         "parent/depth/array": np.zeros((2, 3)),
         "parent/flow/array": np.zeros((4, 5, 2)),
@@ -283,12 +234,6 @@ def test_array_labels_keep_complete_nested_task_paths() -> None:
         "parent/depth",
         "parent/flow",
     ]
-    assert sorted(
-        data_main._array_labels(labels, frozenset({"parent/depth"}))
-    ) == ["parent/depth"]
-    assert sorted(
-        data_main._array_labels(labels, frozenset({"parent/depth"}), "exclude")
-    ) == ["parent/flow"]
 
 
 def test_present_sample_metadata_collapses_single_input() -> None:
@@ -625,18 +570,6 @@ def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
             ]
         },
     )
-    ignored_record = DatasetRecord.model_construct(
-        files={},
-        annotation={
-            "ignored": [
-                Detection(
-                    class_name="bus",
-                    instance_id=9,
-                    boundingbox=BBoxAnnotation(x=0.2, y=0.6, w=0.3, h=0.3),
-                )
-            ]
-        },
-    )
 
     class _Dataset:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
@@ -745,12 +678,7 @@ def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
         viewer_module, "Viewer", lambda **_k: RealViewer(backend)
     )
     monkeypatch.setattr(
-        LoaderOutput,
-        "to_ldf",
-        lambda *_args, **_kwargs: DatasetRecord.model_construct(
-            files={},
-            annotation={**record.annotation, **ignored_record.annotation},
-        ),
+        LoaderOutput, "to_ldf", lambda *_args, **_kwargs: record
     )
     monkeypatch.setattr(
         instances_module,
@@ -768,7 +696,6 @@ def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
             per_instance=True,
             theme="light",
             legend=True,
-            filters=SampleFilterConfig(task_name=["objects"]),
         )
         # The chosen theme becomes the scope default (with the dataset palette
         # pinned onto it, so it is a light-background theme, not LIGHT_THEME itself).
@@ -1044,62 +971,15 @@ def test_inspect_grid_renders_real_frames(
 
     try:
         data_main.inspect("dataset", legend=True)
-        data_main.inspect(
-            "dataset",
-            legend=True,
-            filters=SampleFilterConfig(task_name=["a"]),
-        )
         data_main.inspect("dataset", legend=True, color_by="task")
-        data_main.inspect(
-            "dataset",
-            legend=True,
-            filters=SampleFilterConfig(
-                task_name=["a"],
-                task_name_mode="exclude",
-            ),
-        )
     finally:
         set_default_options(RenderOptions())
 
-    # The first run uses the two-task grid. Filtering to one task takes the
-    # single-record blend path. Include and exclude modes keep opposite tasks.
-    assert backend.shown == ["dataset", "dataset", "dataset", "dataset"]
-    assert filtered_tasks == [["a"], ["b"]]
-    assert color_modes == ["class", "task", "class"]
-
-
-def test_inspect_rejects_unknown_task_name(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class _Dataset:
-        def __init__(
-            self,
-            name: str,
-            *,
-            bucket_storage: BucketStorage,
-        ) -> None:
-            pass
-
-        def __len__(self) -> int:
-            return 1
-
-        def get_task_names(self) -> list[str]:
-            return ["objects", "pose"]
-
-    monkeypatch.setattr(data_main, "check_exists", _ignore_exists)
-    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
-
-    with pytest.raises(
-        ValueError,
-        match=(
-            r"Unknown task name\(s\): 'missing'. "
-            r"Available task names: 'objects', 'pose'."
-        ),
-    ):
-        data_main.inspect(
-            "dataset",
-            filters=SampleFilterConfig(task_name=["missing"]),
-        )
+    # The class-colored run draws one tile per task, so it blends nothing.
+    # Task coloring blends both tasks onto one scene.
+    assert backend.shown == ["dataset", "dataset"]
+    assert filtered_tasks == []
+    assert color_modes == ["task"]
 
 
 def test_inspect_rejects_conflicting_instance_color_options(
@@ -1126,216 +1006,6 @@ def test_inspect_rejects_conflicting_instance_color_options(
             per_instance=True,
             color_by="task",
         )
-
-
-def test_inspect_rejects_unknown_class_name(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class _Dataset:
-        def __init__(
-            self,
-            name: str,
-            *,
-            bucket_storage: BucketStorage,
-        ) -> None:
-            pass
-
-        def __len__(self) -> int:
-            return 1
-
-        def get_class_names(self) -> dict[str, list[str]]:
-            return {"objects": ["car", "person"]}
-
-    monkeypatch.setattr(data_main, "check_exists", _ignore_exists)
-    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
-
-    with pytest.raises(
-        ValueError,
-        match=(
-            r"Unknown class name\(s\): 'bus'. "
-            r"Available class names: 'car', 'person'."
-        ),
-    ):
-        data_main.inspect(
-            "dataset",
-            filters=SampleFilterConfig(class_name=["bus"]),
-        )
-
-
-def test_inspect_sample_filters_select_whole_matching_sample(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    image = np.zeros((32, 48, 3), dtype=np.uint8)
-    records = {
-        0: DatasetRecord.model_construct(
-            files={},
-            annotation={
-                "objects": [
-                    Detection(
-                        class_name="person",
-                        instance_id=1,
-                        boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.2, h=0.3),
-                        metadata={"confidence": 0.95, "quality": "approved"},
-                    )
-                ]
-            },
-        ),
-        1: DatasetRecord.model_construct(
-            files={},
-            annotation={
-                "objects": [
-                    Detection(
-                        class_name="car",
-                        instance_id=2,
-                        boundingbox=BBoxAnnotation(x=0.2, y=0.2, w=0.3, h=0.3),
-                        metadata={"confidence": 0.91, "quality": "approved"},
-                    ),
-                    # A nonmatching class remains visible because filters select
-                    # whole samples instead of pruning their annotations.
-                    Detection(
-                        class_name="person",
-                        instance_id=3,
-                        boundingbox=BBoxAnnotation(x=0.6, y=0.2, w=0.2, h=0.3),
-                    ),
-                ]
-            },
-        ),
-    }
-    samples = [
-        LoaderOutput(
-            images={"image": image},
-            labels={"marker": np.array([0])},
-            metadata={
-                "filenames": {"image": "warehouse_0001.jpg"},
-                "camera": {"side": "right"},
-            },
-        ),
-        LoaderOutput(
-            images={"image": image},
-            labels={"marker": np.array([1])},
-            metadata={
-                "filenames": {"image": "warehouse_0042.jpg"},
-                "camera": {"side": "left"},
-            },
-        ),
-    ]
-
-    class _Dataset:
-        def __init__(
-            self,
-            name: str,
-            *,
-            bucket_storage: BucketStorage,
-        ) -> None:
-            pass
-
-        def __len__(self) -> int:
-            return len(samples)
-
-        def get_classes(self) -> dict[str, dict[str, int]]:
-            return {"objects": {"car": 0, "person": 1}}
-
-        def get_class_names(self) -> dict[str, list[str]]:
-            return {"objects": ["car", "person"]}
-
-        def get_task_names(self) -> list[str]:
-            return ["objects"]
-
-        def get_categorical_encodings(self) -> dict[str, dict[str, int]]:
-            return {}
-
-        def get_keypoint_metadata(self) -> dict[str, object]:
-            return {}
-
-    class _Loader:
-        def __init__(
-            self,
-            dataset: _Dataset,
-            *,
-            view: list[str],
-            update_mode: str,
-        ) -> None:
-            self._augmentations = None
-
-        def __iter__(self) -> Iterator[LoaderOutput]:
-            yield from samples
-
-    import luxonis_ml.vizlab.adapters.instances as instances_module
-    import luxonis_ml.vizlab.adapters.samples as samples_module
-    from luxonis_ml.vizlab import (
-        Annotation,
-        Palette,
-        RenderOptions,
-        set_default_options,
-    )
-    from luxonis_ml.vizlab.adapters import ColorBy
-    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
-
-    rendered_labels: list[list[str | None]] = []
-    real_colored = instances_module.record_to_colored_annotations
-
-    def capture_coloring(
-        selected_record: DatasetRecord,
-        *,
-        color_by: ColorBy,
-        options: RenderOptions,
-        identity_palette: Palette,
-    ) -> list[Annotation]:
-        annotations = real_colored(
-            selected_record,
-            color_by=color_by,
-            options=options,
-            identity_palette=identity_palette,
-        )
-        rendered_labels.append(
-            [annotation.label for annotation in annotations]
-        )
-        return annotations
-
-    backend = _FakeBackend(keys=[ord("q")])
-
-    def make_viewer(
-        *, hud: bool, save_dir: "str | Path | None" = None
-    ) -> RealViewer:
-        return RealViewer(backend, hud=hud, save_dir=save_dir)
-
-    def to_ldf(sample: LoaderOutput, **_kwargs: object) -> DatasetRecord:
-        record = records[int(sample.labels["marker"][0])]
-        return record.model_copy(update={"sample_metadata": sample.metadata})
-
-    monkeypatch.setattr(data_main, "check_exists", _ignore_exists)
-    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
-    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
-    monkeypatch.setattr(viewer_module, "Viewer", make_viewer)
-    monkeypatch.setattr(LoaderOutput, "to_ldf", to_ldf)
-    monkeypatch.setattr(
-        samples_module,
-        "record_to_colored_annotations",
-        capture_coloring,
-    )
-
-    try:
-        data_main.inspect(
-            "dataset",
-            filters=SampleFilterConfig(
-                class_name=["car"],
-                annotation_type=["boundingbox"],
-                metadata_filter=[
-                    ("camera.side", "left"),
-                    ("quality", "approved"),
-                ],
-                min_confidence=0.9,
-                min_instances=2,
-                max_instances=2,
-                search="0042",
-            ),
-            prefetch=1,
-        )
-    finally:
-        set_default_options(RenderOptions())
-
-    assert backend.shown == ["dataset"]
-    assert rendered_labels == [["car", "person"]]
 
 
 def test_inspect_prefetch_renders_the_next_frame_while_waiting_for_input(
@@ -2074,7 +1744,7 @@ def test_compare_matches_by_filename_and_reports_unpaired_samples(
         return DatasetRecord.model_construct(
             files={},
             sample_metadata=sample.metadata,
-            annotation={"objects": detections(), "ignored": detections()},
+            annotation={"objects": detections()},
         )
 
     from luxonis_ml.vizlab import Image, RenderOptions, set_default_options
@@ -2099,21 +1769,12 @@ def test_compare_matches_by_filename_and_reports_unpaired_samples(
     )
 
     try:
-        data_main.compare(
-            "gt",
-            "pred",
-            filters=SampleFilterConfig(
-                task_name=["ignored"],
-                task_name_mode="exclude",
-                class_name=["bus"],
-                class_name_mode="exclude",
-            ),
-        )
+        data_main.compare("gt", "pred")
     finally:
         set_default_options(RenderOptions())
 
-    assert [item["TP"] for item in metrics] == [1]
-    assert [item["class errors"] for item in metrics] == [0]
+    assert [item["TP"] for item in metrics] == [1, 1]
+    assert [item["class errors"] for item in metrics] == [0, 0]
     output = capsys.readouterr().out
     assert "Missing prediction samples (1): image=missing.jpg" in output
     assert "Extra prediction samples (1): image=extra.jpg" in output
