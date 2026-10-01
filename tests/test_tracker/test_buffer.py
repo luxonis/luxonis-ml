@@ -445,6 +445,24 @@ def test_an_interrupted_call_stays_in_the_buffer(
     assert inner.calls == [metrics(0)]
 
 
+def test_an_interrupted_replay_keeps_the_new_call(
+    run: RunContext, clock: FakeClock
+):
+    inner = FlakyBackend(run, [])
+    buffered = BufferedBackend(inner, "fake", retry_interval=RETRY_INTERVAL)
+    buffered.start()
+    inner.errors = [ConnectionError()]
+    log(buffered, 0)
+    clock.now = RETRY_INTERVAL
+    inner.errors = [KeyboardInterrupt()]
+
+    with pytest.raises(KeyboardInterrupt):
+        log(buffered, 1)
+    buffered.close("success")
+
+    assert inner.calls == [metrics(0), metrics(1)]
+
+
 def test_close_saves_the_calls_of_a_run_that_was_rejected(
     buffered: BufferedBackend, inner: FakeBackend, warnings_log: list[str]
 ):
@@ -555,6 +573,25 @@ def test_a_close_during_a_replay_waits_for_the_replay(
     assert not buffered.unsent_directory.exists()
 
 
+def test_a_waiting_close_that_fails_does_not_reach_the_call(
+    run: RunContext, monkeypatch: pytest.MonkeyPatch, warnings_log: list[str]
+):
+    inner = ClosingBackend(run)
+    buffered = BufferedBackend(inner, "fake")
+    inner.buffered = buffered
+    buffered.start()
+
+    def refuse(status: str) -> None:
+        raise ConnectionError("down")
+
+    monkeypatch.setattr(inner, "close", refuse)
+
+    log(buffered, 0)
+
+    assert inner.calls == [metrics(0), metrics(99)]
+    assert any("Could not close the fake run" in m for m in warnings_log)
+
+
 class StartingBackend(FakeBackend):
     """Log a call while the backend starts, as a signal handler can.
     The tracker starts the backend again for that call.
@@ -580,6 +617,34 @@ def test_a_call_made_during_the_start_waits_for_it(run: RunContext):
 
     assert inner.starts == 1
     assert inner.calls == [metrics(99)]
+
+
+def test_a_buffered_call_keeps_the_values_of_the_caller(
+    buffered: BufferedBackend,
+    inner: FakeBackend,
+    clock: FakeClock,
+    image: npt.NDArray[np.uint8],
+):
+    """A caller can reuse its arrays and mappings after the call."""
+    buffered.start()
+    inner.error = ConnectionError()
+    params = {"lr": 0.1}
+    matrix = np.eye(2)
+    original_image = image.copy()
+    buffered.log_hyperparams(params)
+    buffered.log_matrix(matrix, "matrix", 0, {})
+    buffered.log_image("image", image, 0)
+    params["lr"] = 0.2
+    matrix[:] = 0
+    image[:] = 0
+    inner.error = None
+
+    clock.now = RETRY_INTERVAL
+    buffered.flush()
+
+    assert inner.calls[0] == ("log_hyperparams", {"lr": 0.1})
+    np.testing.assert_array_equal(inner.calls[1][1], np.eye(2))
+    np.testing.assert_array_equal(inner.calls[2][2], original_image)
 
 
 def test_flush_sends_the_buffer_and_flushes_the_backend(

@@ -59,7 +59,9 @@ class BufferedBackend(TrackerBackend, register=False):
 
     An artifact is buffered as a hard link, or a copy, under
     ``<run_directory>/unsent_logs/<name>/artifacts/``, because callers
-    often delete the file right after they hand it over.
+    often delete the file right after they hand it over. The other calls
+    keep a copy of their arrays and mappings, because a caller can
+    change them before a buffered call is sent.
 
     `close` tries the buffer one last time. What is still left goes to
     ``<run_directory>/unsent_logs/<name>/``:
@@ -70,7 +72,7 @@ class BufferedBackend(TrackerBackend, register=False):
 
     A signal handler can log, and close the run, while a call is sent.
     Its calls join the buffer, and its close waits until the call that
-    it interrupted ends.
+    it interrupted ends. A failure of that close gives a warning.
 
     Attributes:
         backend: The backend that the calls go to.
@@ -251,7 +253,12 @@ class BufferedBackend(TrackerBackend, register=False):
             self._busy = False
             if self._pending_close is not None:
                 status, self._pending_close = self._pending_close, None
-                self.close(status)
+                try:
+                    self.close(status)
+                except Exception as error:
+                    logger.warning(
+                        f"Could not close the {self.name} run: {error}"
+                    )
 
     def _submit(self, call: "_Call") -> None:
         """Send the call, or buffer it when that is not possible now."""
@@ -260,7 +267,12 @@ class BufferedBackend(TrackerBackend, register=False):
             self._buffer(call)
             return
         with self._hold():
-            self._flush()
+            try:
+                self._flush()
+            except BaseException:
+                # an interrupt of the replay keeps the new call too
+                self._buffer(call)
+                raise
             if self._calls or not self._started:
                 self._buffer(call)
                 return
@@ -332,6 +344,7 @@ class BufferedBackend(TrackerBackend, register=False):
         """Add the call to the buffer, and drop the oldest call of its
         kind when the kind is over its limit.
         """
+        call = call.copy()
         if isinstance(call, _Artifact):
             call = self._keep_file(call)
         self._calls.append(call)
@@ -412,6 +425,12 @@ class _Call(ABC):
         """Delete the files that the call owns."""
         return
 
+    def copy(self) -> "_Call":
+        """Return the call with its own copy of the arrays and mappings
+        of the caller.
+        """
+        return self
+
 
 @dataclass(frozen=True, eq=False)
 class _Hyperparams(_Call):
@@ -430,6 +449,9 @@ class _Hyperparams(_Call):
 
     def record(self, directory: Path) -> dict[str, ParamValue]:
         return {"call": "log_hyperparams", "params": dict(self.params)}
+
+    def copy(self) -> "_Hyperparams":
+        return _Hyperparams(dict(self.params))
 
 
 @dataclass(frozen=True, eq=False)
@@ -455,6 +477,9 @@ class _Metrics(_Call):
             "metrics": dict(self.metrics),
             "step": self.step,
         }
+
+    def copy(self) -> "_Metrics":
+        return _Metrics(dict(self.metrics), self.step)
 
 
 @dataclass(frozen=True, eq=False)
@@ -487,6 +512,9 @@ class _Image(_Call):
             "image": str(path),
         }
 
+    def copy(self) -> "_Image":
+        return _Image(self.name, self.image.copy(), self.step)
+
 
 @dataclass(frozen=True, eq=False)
 class _Matrix(_Call):
@@ -517,6 +545,11 @@ class _Matrix(_Call):
             "matrix": self.matrix.tolist(),
             "extra_data": dict(self.extra_data),
         }
+
+    def copy(self) -> "_Matrix":
+        return _Matrix(
+            self.matrix.copy(), self.name, self.step, dict(self.extra_data)
+        )
 
 
 @dataclass(frozen=True, eq=False)
