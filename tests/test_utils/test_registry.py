@@ -108,3 +108,35 @@ def test_autoregistry(registry: Registry):
 
         class _(metaclass=AutoRegisterMeta, register=True):
             pass
+
+
+def test_autoregistry_keeps_class_over_same_named_subclass(
+    registry: Registry,
+):
+    class Base(metaclass=AutoRegisterMeta, registry=registry, register=False):
+        pass
+
+    class Node(Base):
+        pass
+
+    # The tracer of `torch.export` wraps a module in a subclass of the
+    # module class, under the same name.
+    class Proxy:
+        pass
+
+    proxy = type("Node", (Proxy, Node), {})
+
+    assert issubclass(proxy, Node)
+    assert registry.get("Node") is Node
+
+
+def test_autoregistry_replaces_redefined_class(registry: Registry):
+    class Base(metaclass=AutoRegisterMeta, registry=registry, register=False):
+        pass
+
+    # `importlib.reload` defines the class again, without inheritance.
+    first = type("Node", (Base,), {})
+    second = type("Node", (Base,), {})
+
+    assert first is not second
+    assert registry.get("Node") is second

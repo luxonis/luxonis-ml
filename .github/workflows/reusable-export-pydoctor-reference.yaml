@@ -1,0 +1,87 @@
+name: Reusable Export pydoctor Reference
+
+# Shared by every Luxonis repository. Call it from a thin
+# `Export pydoctor reference` workflow, as
+# `.github/workflows/export-pydoctor-reference.yaml` in this repository does.
+
+on:
+  workflow_call:
+    inputs:
+      package-id:
+        description: "Package ID in the manifest of luxonis/docs-content"
+        type: string
+        required: true
+    secrets:
+      DOCS_CONTENT_SSH_KEY:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (startsWith(github.head_ref, 'release/') &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Checkout pydoctor reference tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: luxonis/docs-content
+          ref: main
+          path: docs-content
+          sparse-checkout: tools/pydoctor_reference
+          persist-credentials: false
+          ssh-key: ${{ secrets.DOCS_CONTENT_SSH_KEY }}
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: docs-content/tools/pydoctor_reference/requirements.txt
+
+      - name: Install exporter dependencies
+        run: >-
+          python -m pip install
+          -r docs-content/tools/pydoctor_reference/requirements.txt
+
+      - name: Export API reference
+        env:
+          PACKAGE_ID: ${{ inputs.package-id }}
+        run: |
+          python docs-content/tools/pydoctor_reference/workflow.py export \
+            --manifest docs-content/tools/pydoctor_reference/packages.toml \
+            --package-id "$PACKAGE_ID" \
+            --source-root "$GITHUB_WORKSPACE" \
+            --output-dir "$RUNNER_TEMP/$PACKAGE_ID-reference" \
+            --source-ref "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" \
+            --source-sha "$(git rev-parse HEAD)"
+
+      - name: Upload API reference
+        id: artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ inputs.package-id }}-api-reference
+          path: ${{ runner.temp }}/${{ inputs.package-id }}-reference
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Add artifact link to job summary
+        env:
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+          PACKAGE_ID: ${{ inputs.package-id }}
+        run: |
+          {
+            echo "### Generated API reference"
+            echo
+            echo "[Download $PACKAGE_ID-api-reference]($ARTIFACT_URL)"
+          } >> "$GITHUB_STEP_SUMMARY"

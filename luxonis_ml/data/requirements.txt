@@ -33,7 +33,7 @@ numpy==2.3.5 ; python_full_version >= '3.11'
 opencv-python==4.14.0.94
 packaging==26.3
 pillow==12.3.0
-pillow-heif==1.7.0
+pillow-heif==1.8.0
 polars==1.44.2
 polars-runtime-32==1.44.2
 pyarrow==23.0.1
@@ -43,7 +43,7 @@ pydantic-core==2.46.5
 pydantic-extra-types==2.11.1
 pydantic-settings==2.15.0
 pygments==2.21.0
-pyparsing==3.3.2
+pyparsing==3.3.3
 pysocks==1.7.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.3
@@ -57,7 +57,7 @@ scipy==1.18.1 ; python_full_version >= '3.12'
 semver==3.1.0
 simsimd==6.5.16
 six==1.17.0
-soupsieve==2.9.2
+soupsieve==2.10
 stringzilla==5.1.2
 tomli==2.4.1 ; python_full_version < '3.11'
 tqdm==4.70.1
