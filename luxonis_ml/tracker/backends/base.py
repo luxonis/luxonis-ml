@@ -173,6 +173,23 @@ class TrackerBackend(
 
         """
 
+    def log_metric(self, name: str, value: float, step: int) -> None:
+        """Log one scalar metric.
+
+        The default calls `log_metrics`.
+
+        Args:
+            name: Name of the metric.
+            value: Value of the metric.
+            step: The training step of the value.
+
+        Raises:
+            Exception: Any error of the service. `is_transient` tells
+                whether a later attempt can succeed.
+
+        """
+        self.log_metrics({name: value}, step)
+
     @abstractmethod
     def log_image(self, name: str, image: npt.NDArray[Any], step: int) -> None:
         r"""Log an image.
@@ -187,6 +204,27 @@ class TrackerBackend(
                 whether a later attempt can succeed.
 
         """
+
+    def log_images(
+        self, images: Mapping[str, npt.NDArray[Any]], step: int
+    ) -> None:
+        r"""Log several images.
+
+        The default calls `log_image` for each image. A service that
+        takes several images in one request can override it.
+
+        Args:
+            images: The images, keyed by name. Each image has the shape
+                :math:`\left(H, W, C\right)`.
+            step: The training step of the images.
+
+        Raises:
+            Exception: Any error of the service. `is_transient` tells
+                whether a later attempt can succeed.
+
+        """
+        for name, image in images.items():
+            self.log_image(name, image, step)
 
     @abstractmethod
     def log_matrix(

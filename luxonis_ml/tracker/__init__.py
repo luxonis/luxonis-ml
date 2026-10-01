@@ -102,7 +102,9 @@ tracker does not make, use the SDK handle of the backend:
 Logging API
 ===========
 
-`LuxonisTracker` sends each logging call to each backend that is on.
+`LuxonisTracker` has the logging methods of `TrackerBackend`, and sends
+each call to each backend that is on. A backend that fails a call gives
+a warning, and the other backends still get the call.
 Each backend stores the call in the form that its service knows:
 
 .. list-table:: What each backend does with a call
@@ -306,7 +308,10 @@ JSON Lines file:
 
 The constructor runs on every rank, so it only checks and stores the
 options. `TrackerBackend.start` runs once, on rank :math:`0`, before
-the first logging call, and opens what the logging calls need. `TrackerBackend.upload_artifact` does nothing
+the first logging call, and opens what the logging calls need.
+`TrackerBackend.log_metric` and `TrackerBackend.log_images` call
+`TrackerBackend.log_metrics` and `TrackerBackend.log_image`, unless the
+backend overrides them. `TrackerBackend.upload_artifact` does nothing
 unless the backend overrides it.
 
 For a remote service, set `TrackerBackend.buffered` to ``True``, and

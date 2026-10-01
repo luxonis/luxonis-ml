@@ -1,7 +1,7 @@
 import os
 import re
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,15 @@ from .conftest import (
     FakeClock,
     backend_of,
 )
+
+
+class BatchingBackend(FakeBackend, register_name="batching_fake"):
+    """Take several images in one call."""
+
+    def log_images(
+        self, images: Mapping[str, npt.NDArray[Any]], step: int
+    ) -> None:
+        self._record("log_images", list(images), step)
 
 
 def make_tracker(save_directory: Path, **kwargs: Any) -> LuxonisTracker:
@@ -392,6 +401,40 @@ def test_each_call_reaches_each_backend(
     ]
     assert fake(tracker).calls == expected
     assert fake(tracker, "other_fake").calls == expected
+
+
+def test_a_backend_that_fails_to_log_does_not_stop_the_others(
+    tmp_path: Path, warnings_log: list[str]
+):
+    tracker = make_tracker(tmp_path, other_fake=True)
+    tracker.start()
+    fake(tracker).error = RuntimeError("disk full")
+
+    tracker.log_metric("loss", 0.5, 1)
+
+    assert fake(tracker, "other_fake").calls == [
+        ("log_metrics", {"loss": 0.5}, 1)
+    ]
+    assert any(
+        "Could not log to the fake run: disk full" in m for m in warnings_log
+    )
+    fake(tracker).error = None
+
+
+def test_a_backend_can_take_several_images_in_one_call(
+    tmp_path: Path, image: npt.NDArray[np.uint8]
+):
+    tracker = make_tracker(tmp_path, batching_fake=True)
+
+    tracker.log_images({"a": image, "b": image}, 3)
+
+    assert fake(tracker).calls == [
+        ("log_image", "a", image, 3),
+        ("log_image", "b", image, 3),
+    ]
+    assert fake(tracker, "batching_fake").calls == [
+        ("log_images", ["a", "b"], 3)
+    ]
 
 
 def test_start_starts_each_backend_once(tmp_path: Path):

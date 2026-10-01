@@ -17,7 +17,7 @@ import re
 import sys
 import time
 import warnings
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import MappingProxyType, TracebackType
 from typing import Any, TypeVar
@@ -87,8 +87,10 @@ class LuxonisTracker:
     Only rank :math:`0` logs. On the other ranks every logging call does
     nothing, and no backend starts.
 
-    `tensorboard`, `wandb` and `mlflow` give the built-in backends, and
-    `backends` gives each enabled backend by its keyword.
+    The logging methods are those of `TrackerBackend`. A backend that
+    fails a call gives a warning, and the other backends still get the
+    call. `tensorboard`, `wandb` and `mlflow` give the built-in backends,
+    and `backends` gives each enabled backend by its keyword.
 
     The backends start on the first logging call, at `start`, or when
     code reads `tensorboard`, `wandb` or `mlflow`. `close` ends the run
@@ -425,13 +427,12 @@ class LuxonisTracker:
                 any value of a YAML configuration, such as a list.
 
         Raises:
-            Exception: The error of a backend that fails to start or to
-                log. A buffered backend raises only when the service
-                rejects the start.
+            Exception: The error of a backend that fails to start. A
+                buffered backend raises only when the service rejects
+                the start.
 
         """
-        for backend in self._live_backends():
-            backend.log_hyperparams(params)
+        self._send(lambda backend: backend.log_hyperparams(params))
 
     def log_metric(self, name: str, value: float, step: int) -> None:
         """Log one scalar metric.
@@ -442,12 +443,12 @@ class LuxonisTracker:
             step: The training step of the value.
 
         Raises:
-            Exception: The error of a backend that fails to start or to
-                log. A buffered backend raises only when the service
-                rejects the start.
+            Exception: The error of a backend that fails to start. A
+                buffered backend raises only when the service rejects
+                the start.
 
         """
-        self.log_metrics({name: value}, step)
+        self._send(lambda backend: backend.log_metric(name, value, step))
 
     def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
         """Log scalar metrics.
@@ -457,50 +458,47 @@ class LuxonisTracker:
             step: The training step of the values.
 
         Raises:
-            Exception: The error of a backend that fails to start or to
-                log. A buffered backend raises only when the service
-                rejects the start.
+            Exception: The error of a backend that fails to start. A
+                buffered backend raises only when the service rejects
+                the start.
 
         """
-        for backend in self._live_backends():
-            backend.log_metrics(metrics, step)
+        self._send(lambda backend: backend.log_metrics(metrics, step))
 
-    def log_image(self, name: str, img: npt.NDArray[Any], step: int) -> None:
+    def log_image(self, name: str, image: npt.NDArray[Any], step: int) -> None:
         r"""Log an image.
 
         Args:
             name: Name of the image. MLflow uses the part before the last
                 ``/`` as the directory.
-            img: The image, of shape :math:`\left(H, W, C\right)`.
+            image: The image, of shape :math:`\left(H, W, C\right)`.
             step: The training step of the image.
 
         Raises:
-            Exception: The error of a backend that fails to start or to
-                log. A buffered backend raises only when the service
-                rejects the start.
+            Exception: The error of a backend that fails to start. A
+                buffered backend raises only when the service rejects
+                the start.
 
         """
-        for backend in self._live_backends():
-            backend.log_image(name, img, step)
+        self._send(lambda backend: backend.log_image(name, image, step))
 
     def log_images(
-        self, imgs: Mapping[str, npt.NDArray[Any]], step: int
+        self, images: Mapping[str, npt.NDArray[Any]], step: int
     ) -> None:
         r"""Log several images.
 
         Args:
-            imgs: The images, keyed by name. Each image has the shape
+            images: The images, keyed by name. Each image has the shape
                 :math:`\left(H, W, C\right)`.
             step: The training step of the images.
 
         Raises:
-            Exception: The error of a backend that fails to start or to
-                log. A buffered backend raises only when the service
-                rejects the start.
+            Exception: The error of a backend that fails to start. A
+                buffered backend raises only when the service rejects
+                the start.
 
         """
-        for name, img in imgs.items():
-            self.log_image(name, img, step)
+        self._send(lambda backend: backend.log_images(images, step))
 
     def log_matrix(
         self,
@@ -519,13 +517,15 @@ class LuxonisTracker:
                 class names. Only MLflow stores it.
 
         Raises:
-            Exception: The error of a backend that fails to start or to
-                log. A buffered backend raises only when the service
-                rejects the start.
+            Exception: The error of a backend that fails to start. A
+                buffered backend raises only when the service rejects
+                the start.
 
         """
-        for backend in self._live_backends():
-            backend.log_matrix(matrix, name, step, extra_data or {})
+        data = extra_data or {}
+        self._send(
+            lambda backend: backend.log_matrix(matrix, name, step, data)
+        )
 
     def upload_artifact(
         self, path: PathType, name: str | None = None, typ: str = "artifact"
@@ -539,13 +539,13 @@ class LuxonisTracker:
             typ: Kind of the artifact. Only WandB uses it.
 
         Raises:
-            Exception: The error of a backend that fails to start or to
-                log. A buffered backend raises only when the service
-                rejects the start.
+            Exception: The error of a backend that fails to start. A
+                buffered backend raises only when the service rejects
+                the start.
 
         """
-        for backend in self._live_backends():
-            backend.upload_artifact(Path(path), name, typ)
+        file = Path(path)
+        self._send(lambda backend: backend.upload_artifact(file, name, typ))
 
     def flush(self) -> None:
         """Write the pending data of each started backend, and keep the
@@ -607,11 +607,13 @@ class LuxonisTracker:
         except Exception as error:
             logger.warning(f"Could not close the {name} run: {error}")
 
-    def _live_backends(self) -> Iterator[TrackerBackend]:
-        """Yield the started backends, and start them if needed.
+    def _send(self, call: Callable[[TrackerBackend], object]) -> None:
+        """Make a logging call on each started backend, and start the
+        backends first if needed.
 
-        A signal handler can close the run during a call. The backends
-        after that point then do not get the call.
+        A backend that fails gives a warning, and the other backends
+        still get the call. A signal handler can close the run during a
+        call. The backends after that point then do not get the call.
         """
         if self._closed:
             if self.rank == 0:
@@ -620,10 +622,13 @@ class LuxonisTracker:
                 )
             return
         self._start_backends()
-        for backend in list(self._started.values()):
+        for name, backend in list(self._started.items()):
             if self._closed:
                 return
-            yield backend
+            try:
+                call(backend)
+            except Exception as error:
+                logger.warning(f"Could not log to the {name} run: {error}")
 
     def _builtin(self, name: str, backend_type: type[_BackendT]) -> _BackendT:
         """Return the backend of ``name``, and start the backends."""

@@ -55,7 +55,10 @@ class BufferedBackend(TrackerBackend, register=False):
 
     The buffer holds at most 100 hyperparameter calls, 500 metric calls,
     50 images, 500 matrices and 10 artifacts. A full buffer drops the
-    oldest call of that kind, and warns once for each outage.
+    oldest call of that kind, and warns once for each outage. The wrapper
+    keeps the default `TrackerBackend.log_metric` and
+    `TrackerBackend.log_images`, so it sends them as `log_metrics` and
+    `log_image` calls.
 
     An artifact is buffered as a hard link, or a copy, under
     ``<run_directory>/unsent_logs/<name>/artifacts/``, because callers
