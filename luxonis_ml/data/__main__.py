@@ -117,6 +117,10 @@ _PaletteName: TypeAlias = Literal[
 _NO_SAMPLE_FILTERS = SampleFilterConfig()
 _DATASET_OPTIONS = Group("Dataset options", sort_key=10)
 _SAMPLE_FILTERS = Group("Sample filters", sort_key=20)
+# A name of "*" flattens the fields of the filter configuration into
+# options of the command. Kept out of the annotation, where pydoctor would
+# read the string as a type.
+_SAMPLE_FILTER_PARAMETER = Parameter(name="*", group=_SAMPLE_FILTERS)
 _AUGMENTATION_OPTIONS = Group("Augmentation options", sort_key=30)
 _MATCHING_OPTIONS = Group("Matching options", sort_key=30)
 _VISUALIZATION_OPTIONS = Group("Visualization options", sort_key=40)
@@ -702,7 +706,7 @@ def inspect(
     ] = None,
     filters: Annotated[
         SampleFilterConfig,
-        Parameter(name="*", group=_SAMPLE_FILTERS),
+        _SAMPLE_FILTER_PARAMETER,
     ] = _NO_SAMPLE_FILTERS,
     aug_config: Annotated[
         Path | None,
@@ -1290,7 +1294,7 @@ def compare(
     ] = None,
     filters: Annotated[
         SampleFilterConfig,
-        Parameter(name="*", group=_SAMPLE_FILTERS),
+        _SAMPLE_FILTER_PARAMETER,
     ] = _NO_SAMPLE_FILTERS,
     layout: Annotated[
         Literal["overlay", "dual", "triple"],
