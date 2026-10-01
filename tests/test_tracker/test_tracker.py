@@ -166,6 +166,24 @@ def test_the_warning_names_the_replacement(
         )
 
 
+@pytest.mark.parametrize(
+    ("flags", "advice"),
+    [
+        ({"is_tensorboard": True}, "Use `tensorboard=True` instead."),
+        ({"tensorboard": True}, "turn on no backend"),
+    ],
+)
+def test_the_warning_leaves_out_a_backend_that_stays_off(
+    tmp_path: Path, flags: dict[str, Any], advice: str
+):
+    with pytest.deprecated_call(match=re.escape(advice)):
+        LuxonisTracker(
+            save_directory=tmp_path,
+            mlflow_tracking_uri="sqlite:///unused.db",
+            **flags,
+        )
+
+
 def test_a_backend_keyword_overrides_a_deprecated_flag(tmp_path: Path):
     with pytest.deprecated_call():
         tracker = LuxonisTracker(

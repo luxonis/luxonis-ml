@@ -168,6 +168,7 @@ class LuxonisTracker:
             wandb_entity=wandb_entity,
             mlflow_tracking_uri=mlflow_tracking_uri,
         )
+        legacy_names = configs.keys() | legacy_options.keys()
         requested = {
             "tensorboard": tensorboard,
             "wandb": wandb,
@@ -189,6 +190,8 @@ class LuxonisTracker:
                 configs[name] = value
         if not configs:
             raise ValueError("Enable at least one backend.")
+        if legacy_names:
+            _warn_deprecated(configs, legacy_names)
 
         self.project_name = project_name
         self.project_id = project_id
@@ -612,19 +615,35 @@ def _legacy_backends(
     backends = {
         name: options.get(name, {}) for name, flag in flags.items() if flag
     }
-    if deprecated := {**backends, **options}:
-        replacement = ", ".join(
-            f"{name}={dict(backend_options) or True}"
-            for name, backend_options in deprecated.items()
-        )
-        warnings.warn(
-            "The `is_tensorboard`, `is_wandb`, `is_mlflow`, `wandb_entity` "
-            "and `mlflow_tracking_uri` arguments are deprecated. Use "
-            f"`{replacement}` instead.",
-            DeprecationWarning,
-            stacklevel=3,
-        )
     return backends, options
+
+
+def _warn_deprecated(
+    configs: Mapping[str, Mapping[str, object]], names: set[str]
+) -> None:
+    """Warn about the deprecated arguments, and name the backend
+    keywords that replace them.
+
+    The replacement holds each backend of ``names`` that stays on, with
+    its final options. An option of a backend that stays off has no
+    effect, so the replacement leaves it out.
+    """
+    replacement = ", ".join(
+        f"{name}={dict(options) or True}"
+        for name, options in configs.items()
+        if name in names
+    )
+    advice = (
+        f"Use `{replacement}` instead."
+        if replacement
+        else "Remove them, because they turn on no backend."
+    )
+    warnings.warn(
+        "The `is_tensorboard`, `is_wandb`, `is_mlflow`, `wandb_entity` "
+        f"and `mlflow_tracking_uri` arguments are deprecated. {advice}",
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 
 def _create_backend(
