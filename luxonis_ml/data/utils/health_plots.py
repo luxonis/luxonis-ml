@@ -217,11 +217,9 @@ def _class_heatmaps_panel(
         palette: Palette mapping class names to their colors.
 
     Returns:
-        A renderable grid of per-class heatmap tiles, or a placeholder when empty.
+        A renderable grid of per-class heatmap tiles.
 
     """
-    if not class_matrices:
-        return _placeholder("no heatmap", theme=theme, width=side, height=side)
     names = sorted(
         class_matrices, key=lambda name: (name == NO_CLASS_KEY, name)
     )

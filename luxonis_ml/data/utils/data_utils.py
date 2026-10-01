@@ -566,9 +566,7 @@ def _annotation_xy(
             return None
         coords = np.array([(kp[0], kp[1]) for kp in kps])
         return coords[:, 0], coords[:, 1]
-    if task_type in ("segmentation", "instance_segmentation"):
-        return _mask_xy(cast(_MaskAnnotation, annotation), downsample_factor)
-    return None
+    return _mask_xy(cast(_MaskAnnotation, annotation), downsample_factor)
 
 
 def _annotation_grid(

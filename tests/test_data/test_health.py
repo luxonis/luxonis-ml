@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterable
 from pathlib import Path
 from typing import TypeAlias
@@ -6,8 +7,8 @@ import numpy as np
 import polars as pl
 import pytest
 
-from luxonis_ml.data import DatasetIterator, LuxonisParser
-from luxonis_ml.data.utils import NO_CLASS_KEY
+from luxonis_ml.data import DatasetIterator, LuxonisDataset, LuxonisParser
+from luxonis_ml.data.utils import NO_CLASS_KEY, data_utils
 from luxonis_ml.data.utils.data_utils import (
     ClassDistributionRow,
     ClassHeatmapRow,
@@ -217,8 +218,6 @@ def test_per_class_heatmaps_share_sample(
     dataset = create_dataset(
         f"heatmap_shared_sample_{tempdir.name}", generator()
     )
-
-    from luxonis_ml.data.utils import data_utils
 
     original_heatmap_rows = data_utils._heatmap_rows
     sample_calls = 0
@@ -517,3 +516,102 @@ def test_build_health_grid_theme_style_options() -> None:
         class_dist, heatmaps, theme=LIGHT_THEME, scale=0.6
     ).render()
     assert rendered.shape[0] > smaller.shape[0]
+
+
+def _mask_payload(top: int, left: int, size: int = 4) -> str:
+    from pycocotools import mask as mask_utils
+
+    mask = np.zeros((20, 20), np.uint8, order="F")
+    mask[top : top + size, left : left + size] = 1
+    counts = mask_utils.encode(mask)["counts"]
+    if isinstance(counts, bytes):
+        counts = counts.decode()
+    return json.dumps({"counts": counts, "height": 20, "width": 20})
+
+
+def test_class_heatmaps_bin_every_spatial_type_and_skip_the_rest() -> None:
+    def row(
+        task_type: str, annotation: str, class_name: str | None
+    ) -> ClassHeatmapRow:
+        return {
+            "task_name": "t",
+            "task_type": task_type,
+            "annotation": annotation,
+            "class_name": class_name,
+        }
+
+    rows = [
+        # Two visible keypoints and one that is not labeled.
+        row(
+            "keypoints",
+            json.dumps(
+                {"keypoints": [[0.1, 0.1, 2], [0.9, 0.9, 1], [0, 0, 0]]}
+            ),
+            "person",
+        ),
+        row("keypoints", json.dumps({"keypoints": [[0, 0, 0]]}), "person"),
+        row("instance_segmentation", _mask_payload(0, 0), "car"),
+        row("instance_segmentation", _mask_payload(16, 16), None),
+        # An empty mask, an unreadable payload and a payload without its
+        # fields add nothing.
+        row("segmentation", _mask_payload(0, 0, size=0), "road"),
+        row("boundingbox", "not json", "car"),
+        row("boundingbox", json.dumps({"x": 0.1}), "car"),
+        row("classification", "{}", "car"),
+    ]
+
+    heatmaps = data_utils._class_heatmaps_from_rows(rows, downsample_factor=2)
+
+    grids = {
+        task_type: {name: int(np.sum(grid)) for name, grid in by_class.items()}
+        for task_type, by_class in heatmaps["t"].items()
+    }
+    assert grids == {
+        "keypoints": {"person": 2},
+        "instance_segmentation": {"car": 4, NO_CLASS_KEY: 4},
+    }
+
+
+def test_get_class_heatmaps_reads_the_dataset_rows(tempdir: Path) -> None:
+    def generator() -> DatasetIterator:
+        for i, class_name in enumerate(["person", "car", "car"]):
+            yield {
+                "media": str(create_image(i, tempdir)),
+                "annotation": {
+                    "objects": [
+                        {
+                            "class": class_name,
+                            "boundingbox": {
+                                "x": 0.1,
+                                "y": 0.1,
+                                "w": 0.2,
+                                "h": 0.2,
+                            },
+                        }
+                    ]
+                },
+            }
+
+    dataset = create_dataset(f"class_heatmaps_{tempdir.name}", generator())
+    df = dataset._load_df_offline(lazy=True)
+    assert df is not None
+
+    heatmaps = data_utils.get_class_heatmaps(df)
+
+    counts = {
+        name: int(np.sum(grid))
+        for name, grid in heatmaps["objects"]["boundingbox"].items()
+    }
+    assert counts == {"person": 1, "car": 2}
+
+
+def test_an_empty_dataset_has_empty_per_class_heatmaps(
+    dataset_name: str,
+) -> None:
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+
+    stats = dataset.get_statistics(per_class_heatmaps=True)
+
+    assert stats["class_heatmaps"] == {}
+    assert stats["heatmaps"] == {}
+    assert stats["missing_annotations"] == []
