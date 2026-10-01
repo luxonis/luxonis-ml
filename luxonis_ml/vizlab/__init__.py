@@ -4,7 +4,9 @@
 boxes, instance and semantic masks, keypoints, classification tags, nested
 detections, and image-level metadata with a shared palette and collision-aware
 label layout. Install the optional renderer with
-``pip install luxonis-ml[viz]``.
+``pip install luxonis-ml[viz]``. On Linux, the renderer also needs the system
+libraries ``libegl1`` and ``libegl-mesa0`` (for example, ``apt-get install
+libegl1 libegl-mesa0``).
 
 The main entry point is `Image`. It accepts NumPy arrays, Pillow images, Torch
 tensors, and image paths. Add either native vizlab annotations or LDF
