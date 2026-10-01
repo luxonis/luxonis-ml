@@ -693,6 +693,28 @@ def test_a_flush_during_a_send_waits(run: RunContext, clock: FakeClock):
     assert inner.flushes == 0
 
 
+def test_a_close_during_a_flush_waits_for_the_backend_flush(
+    run: RunContext, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+):
+    inner = ClosingBackend(run)
+    buffered = BufferedBackend(inner, "fake", retry_interval=RETRY_INTERVAL)
+    inner.wrapper = buffered
+    inner.error = ConnectionError()
+    buffered.start()
+    log(buffered, 0)
+    inner.error = None
+    status_at_flush: list[str | None] = []
+    monkeypatch.setattr(
+        inner, "flush", lambda: status_at_flush.append(inner.status)
+    )
+
+    clock.now = RETRY_INTERVAL
+    buffered.flush()
+
+    assert status_at_flush == [None]
+    assert inner.status == "failed"
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [

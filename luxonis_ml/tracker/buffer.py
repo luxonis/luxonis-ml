@@ -234,8 +234,8 @@ class BufferedBackend(TrackerBackend, register=False):
             return
         with self._hold():
             self._flush()
-        if self._started:
-            self.backend.flush()
+            if self._started:
+                self.backend.flush()
 
     def is_transient(self, error: Exception) -> bool:
         """Ask the wrapped backend whether the error is transient.
