@@ -38,6 +38,10 @@ from luxonis_ml.data.utils.cli_utils import (
 )
 from luxonis_ml.data.utils.data_utils import HEATMAP_TASK_TYPES
 from luxonis_ml.data.utils.enums import BucketStorage
+from luxonis_ml.data.utils.inspection import (
+    InspectionAnnotationType,
+    SampleFilterConfig,
+)
 from luxonis_ml.data.utils.sample_identity import (
     SampleIdentity,
     identity_index,
@@ -110,7 +114,13 @@ _PaletteName: TypeAlias = Literal[
     "tol-muted",
     "tol-vibrant",
 ]
+_NO_SAMPLE_FILTERS = SampleFilterConfig()
 _DATASET_OPTIONS = Group("Dataset options", sort_key=10)
+_SAMPLE_FILTERS = Group("Sample filters", sort_key=20)
+# A name of "*" flattens the fields of the filter configuration into
+# options of the command. Kept out of the annotation, where pydoctor would
+# read the string as a type.
+_SAMPLE_FILTER_PARAMETER = Parameter(name="*", group=_SAMPLE_FILTERS)
 _AUGMENTATION_OPTIONS = Group("Augmentation options", sort_key=30)
 _MATCHING_OPTIONS = Group("Matching options", sort_key=30)
 _VISUALIZATION_OPTIONS = Group("Visualization options", sort_key=40)
@@ -171,14 +181,49 @@ def _present_classes(record: "DatasetRecord") -> list[str]:
     return list(seen)
 
 
-def _array_labels(labels: "Labels") -> dict[str, np.ndarray]:
-    """Return array labels keyed by complete task path."""
+def _filter_record_by_task(
+    record: "DatasetRecord", filters: SampleFilterConfig
+) -> "DatasetRecord":
+    """Keep the tasks of a record that pass the task filter."""
+    if filters.task_filter is None:
+        return record
+    return record.model_copy(
+        update={
+            "annotation": {
+                name: detections
+                for name, detections in record.annotation.items()
+                if filters.accepts_task(name)
+            }
+        }
+    )
+
+
+def _array_labels(
+    labels: "Labels", filters: SampleFilterConfig = _NO_SAMPLE_FILTERS
+) -> dict[str, np.ndarray]:
+    """Return array labels keyed by complete task path, scoped by task.
+
+    The one place that decides which labels are arrays, so the annotation-type
+    filter and the renderer can never disagree about what ``--task-name``
+    scopes.
+    """
     suffix = "/array"
     return {
         key[: -len(suffix)]: value
         for key, value in labels.items()
-        if get_task_type(key) == "array" and key.endswith(suffix)
+        if get_task_type(key) == "array"
+        and key.endswith(suffix)
+        and filters.accepts_task(key[: -len(suffix)])
     }
+
+
+def _loader_annotation_types(
+    labels: "Labels", filters: SampleFilterConfig
+) -> frozenset[InspectionAnnotationType]:
+    """Annotation families present only in raw loader labels."""
+    return (
+        frozenset({"array"}) if _array_labels(labels, filters) else frozenset()
+    )
 
 
 def _panel_value(value: "ParamValue") -> "PanelData":
@@ -589,9 +634,9 @@ def _write_renders(
             for _, render in renders:
                 clip.add(render)
         finally:
-            # Reporting an empty run is the command's job, not the writer's: an
-            # empty view deserves the same note the directory form prints
-            # rather than a traceback about the file it skipped.
+            # Reporting an empty run is the command's job, not the writer's: a
+            # filter that matched nothing deserves the same note the directory
+            # form prints rather than a traceback about the file it skipped.
             clip.close(quiet=True)
         written = len(clip)
         size = clip.size
@@ -659,6 +704,10 @@ def inspect(
         list[str] | None,
         Parameter(alias="-v", group=_DATASET_OPTIONS),
     ] = None,
+    filters: Annotated[
+        SampleFilterConfig,
+        _SAMPLE_FILTER_PARAMETER,
+    ] = _NO_SAMPLE_FILTERS,
     aug_config: Annotated[
         Path | None,
         Parameter(
@@ -817,6 +866,8 @@ def inspect(
         name: Name of the dataset to inspect.
         view: Which splits of the dataset to inspect.
             If not provided, the "train" split will be inspected by default.
+        filters: Shared task, class, annotation, metadata, confidence,
+            instance-count, unlabeled, and text-search sample filters.
         aug_config: Path to a JSON or YAML config defining
             augmentations to apply when inspecting the dataset.
             If not provided, no augmentations will be applied.
@@ -956,6 +1007,24 @@ def inspect(
             f"{', '.join(given)} requires --array-viz, which is off by default."
         )
 
+    available_tasks = (
+        dataset.get_task_names() if filters.task_name is not None else ()
+    )
+    available_classes = (
+        (
+            candidate
+            for names in dataset.get_class_names().values()
+            for candidate in names
+        )
+        if filters.class_name is not None
+        else ()
+    )
+    filters.validate(
+        available_tasks=available_tasks,
+        available_classes=available_classes,
+    )
+    query = filters.query()
+
     loader = LuxonisLoader(
         dataset,
         view=view,
@@ -1094,9 +1163,19 @@ def inspect(
         return panel
 
     def prepared_samples() -> "Iterable[_InspectionSample]":
-        """Convert and snapshot panel data in loader order."""
+        """Convert, filter, and snapshot panel data in loader order."""
         for data in loader:
-            record = data.to_ldf(keep_background=show_background)
+            record = _filter_record_by_task(
+                data.to_ldf(keep_background=show_background), filters
+            )
+            if not query.matches(
+                record,
+                record.sample_metadata,
+                extra_annotation_types=_loader_annotation_types(
+                    data.labels, filters
+                ),
+            ):
+                continue
             # Build this before advancing the loader again: augmentation
             # provenance belongs to the current output and may be replaced by
             # the next augmentation call on the prefetch thread.
@@ -1124,7 +1203,7 @@ def inspect(
             layers = LayerState(declutter=not show_all)
             for data, record, panel in prepared_samples():
                 layers.update_classes(_present_classes(record))
-                arrays = _array_labels(data.labels)
+                arrays = _array_labels(data.labels, filters)
                 layers.has_arrays = bool(arrays)
                 viz = composer.render(
                     data.images,
@@ -1144,7 +1223,7 @@ def inspect(
             fps=fps,
             background=viz_theme.background,
             theme=viz_theme,
-            empty_note="The dataset view has no samples.",
+            empty_note="No samples matched the inspection filters.",
         )
         return
 
@@ -1163,7 +1242,7 @@ def inspect(
     def viewer_samples() -> "Iterable[ViewerSample]":
         """Bind each sample to its own frame builder, in loader order."""
         for data, record, panel in prepared_samples():
-            arrays = _array_labels(data.labels)
+            arrays = _array_labels(data.labels, filters)
             color_by = sample_color_mode(record)
 
             def render(
@@ -1195,7 +1274,11 @@ def inspect(
             )
 
     try:
-        viewer.present(name, viewer_samples(), prefetch=prefetch)
+        shown = viewer.present(name, viewer_samples(), prefetch=prefetch)
+        if shown == 0 and query.active:
+            print(
+                "[yellow]No samples matched the inspection filters.[/yellow]"
+            )
     finally:
         viewer.close()
 
@@ -1209,6 +1292,10 @@ def compare(
         list[str] | None,
         Parameter(alias="-v", group=_DATASET_OPTIONS),
     ] = None,
+    filters: Annotated[
+        SampleFilterConfig,
+        _SAMPLE_FILTER_PARAMETER,
+    ] = _NO_SAMPLE_FILTERS,
     layout: Annotated[
         Literal["overlay", "dual", "triple"],
         Parameter(alias="-l", group=_VISUALIZATION_OPTIONS),
@@ -1307,6 +1394,10 @@ def compare(
         name: Name of the ground-truth dataset.
         predictions: Name of the dataset to treat as predictions.
         view: Which splits to compare (default: the "train" split).
+        filters: Shared task, class, annotation, metadata, confidence,
+            instance-count, unlabeled, and text-search sample filters. A paired
+            sample is selected when either its ground-truth or prediction side
+            matches. Task names scope annotations on both sides.
         layout: ``overlay`` (verdict colors on one frame, hoverable), ``dual``
             (ground truth beside prediction, colored by identity), or ``triple``
             (ground truth | prediction | verdict diff).
@@ -1368,6 +1459,30 @@ def compare(
         raise ValueError(f"Dataset '{name}' is empty.")
     if len(pred_dataset) == 0:
         raise ValueError(f"Prediction dataset '{predictions}' is empty.")
+
+    available_tasks = (
+        (
+            *gt_dataset.get_task_names(),
+            *pred_dataset.get_task_names(),
+        )
+        if filters.task_name is not None
+        else ()
+    )
+    available_classes = (
+        (
+            candidate
+            for dataset in (gt_dataset, pred_dataset)
+            for names in dataset.get_class_names().values()
+            for candidate in names
+        )
+        if filters.class_name is not None
+        else ()
+    )
+    filters.validate(
+        available_tasks=available_tasks,
+        available_classes=available_classes,
+    )
+    query = filters.query()
 
     def _loader(dataset: LuxonisDataset) -> LuxonisLoader:
         return LuxonisLoader(
@@ -1454,7 +1569,22 @@ def compare(
     )
 
     def record_for(data: "LoaderOutput") -> "DatasetRecord":
-        return data.to_ldf(keep_background=show_background)
+        return _filter_record_by_task(
+            data.to_ldf(keep_background=show_background), filters
+        )
+
+    def sample_matches(data: "LoaderOutput") -> bool:
+        """Whether one side of a comparison pair passes sample filters."""
+        if not query.active:
+            return True
+        record = record_for(data)
+        return query.matches(
+            record,
+            record.sample_metadata,
+            extra_annotation_types=_loader_annotation_types(
+                data.labels, filters
+            ),
+        )
 
     def report_unpaired(
         identities: "set[SampleIdentity]", *, description: str
@@ -1468,26 +1598,51 @@ def compare(
             preview += f", and {remainder} more"
         print(f"[yellow]{description} ({len(ordered)}): {preview}.[/yellow]")
 
-    gt_indices = identity_index(gt_loader, name)
-    pred_indices = identity_index(pred_loader, predictions)
+    def index_side(
+        loader: LuxonisLoader, dataset_name: str
+    ) -> "tuple[dict[SampleIdentity, int], dict[SampleIdentity, bool]]":
+        """Index one side's identities, applying the sample filters."""
+        return identity_index(
+            loader,
+            dataset_name,
+            matches=sample_matches if query.active else None,
+        )
+
+    gt_indices, gt_selected = index_side(gt_loader, name)
+    pred_indices, pred_selected = index_side(pred_loader, predictions)
     gt_identities = set(gt_indices)
     pred_identities = set(pred_indices)
     report_unpaired(
-        gt_identities - pred_identities,
+        {
+            identity
+            for identity in gt_identities - pred_identities
+            if gt_selected[identity]
+        },
         description="Missing prediction samples",
     )
     report_unpaired(
-        pred_identities - gt_identities,
+        {
+            identity
+            for identity in pred_identities - gt_identities
+            if pred_selected[identity]
+        },
         description="Extra prediction samples",
     )
-    shared = sorted(
+    shared_identities = sorted(
         gt_identities & pred_identities, key=lambda item: gt_indices[item]
     )
-    if not shared:
+    if not shared_identities:
         raise ValueError(
             "The ground-truth and prediction datasets have no samples in "
             "common by source filename."
         )
+    shared = [
+        identity
+        for identity in shared_identities
+        if gt_selected[identity] or pred_selected[identity]
+    ]
+    if not shared:
+        raise ValueError("No paired samples matched the comparison filters.")
 
     # ``--summary``: iterate the whole view headlessly, accumulate a report,
     # print it, and write a confusion-matrix figure — no interactive window.
@@ -1541,7 +1696,7 @@ def compare(
             fps=fps,
             background=viz_theme.background,
             theme=viz_theme,
-            empty_note="The datasets have no paired samples.",
+            empty_note="No paired samples matched the comparison filters.",
         )
         return
 

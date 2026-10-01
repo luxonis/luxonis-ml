@@ -5,11 +5,12 @@ when both name the same source files. A sample's identity is thus its sorted
 ``(source, filename)`` pairs.
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, TypeAlias
 
 if TYPE_CHECKING:
     from luxonis_ml.data.loaders.luxonis_loader import LuxonisLoader
+    from luxonis_ml.typing import LoaderOutput
 
 SampleIdentity: TypeAlias = tuple[tuple[str, str], ...]
 """The identity of a sample across datasets.
@@ -58,16 +59,21 @@ def identity_label(identity: SampleIdentity) -> str:
 
 
 def identity_index(
-    loader: "LuxonisLoader", dataset_name: str
-) -> dict[SampleIdentity, int]:
-    """Map unique identities to loader indices.
+    loader: "LuxonisLoader",
+    dataset_name: str,
+    *,
+    matches: "Callable[[LoaderOutput], bool] | None" = None,
+) -> tuple[dict[SampleIdentity, int], dict[SampleIdentity, bool]]:
+    """Map unique identities to loader indices and filter decisions.
 
     Args:
         loader: The loader whose samples are indexed.
         dataset_name: Name reported when a duplicate identity is found.
+        matches: Optional sample filter; without one every sample is selected.
 
     Returns:
-        The ``identity -> loader index`` map.
+        The ``identity -> loader index`` map, and the ``identity -> selected``
+        decisions.
 
     Raises:
         ValueError: If two samples share an identity, which would make the
@@ -75,6 +81,7 @@ def identity_index(
 
     """
     indexed: dict[SampleIdentity, int] = {}
+    selected: dict[SampleIdentity, bool] = {}
     for index in range(len(loader)):
         identity = sample_identity(loader.get_filenames(index))
         if identity in indexed:
@@ -83,4 +90,7 @@ def identity_index(
                 f"identity: {identity_label(identity)}."
             )
         indexed[identity] = index
-    return indexed
+        selected[identity] = (
+            matches(loader[index]) if matches is not None else True
+        )
+    return indexed, selected
