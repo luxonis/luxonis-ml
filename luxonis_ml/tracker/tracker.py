@@ -553,11 +553,15 @@ class LuxonisTracker:
 
         For example, TensorBoard writes its events to disk. A backend
         that fails to flush gives a warning, and the others still flush.
-        After `close`, and on a non-zero rank, it does nothing.
+        After `close`, and on a non-zero rank, it does nothing. A signal
+        handler can close the run during a flush. The backends after
+        that point then do not get the flush.
         """
         if self._closed:
             return
         for name, backend in self._started.items():
+            if self._closed:
+                return
             try:
                 backend.flush()
             except Exception as error:

@@ -659,6 +659,19 @@ def test_a_close_during_a_call_stops_the_call(
     assert fake(tracker, "other_fake").calls == []
 
 
+def test_a_close_during_a_flush_stops_the_flush(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A signal handler can close the run while a backend flushes."""
+    tracker = make_tracker(tmp_path, fake=True, other_fake=True)
+    tracker.start()
+    monkeypatch.setattr(fake(tracker), "flush", tracker.close)
+
+    tracker.flush()
+
+    assert fake(tracker, "other_fake").flushes == 0
+
+
 def test_a_close_during_a_start_closes_that_backend(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
