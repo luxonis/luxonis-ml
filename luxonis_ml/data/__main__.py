@@ -41,6 +41,8 @@ from luxonis_ml.data.utils.inspection import (
     InspectionAnnotationType,
     NameFilterMode,
     SampleFilterConfig,
+)
+from luxonis_ml.data.utils.sample_identity import (
     SampleIdentity,
     identity_index,
     identity_label,
