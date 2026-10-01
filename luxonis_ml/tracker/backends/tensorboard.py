@@ -122,6 +122,9 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
                 the tag of the scalar.
             step: The training step of the values.
 
+        Raises:
+            RuntimeError: If the backend has not started.
+
         """
         for name, value in metrics.items():
             self.writer.add_scalar(name, value, step)
@@ -136,6 +139,9 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
             name: Name of the image, which is its tag.
             image: The image, of shape :math:`\left(H, W, C\right)`.
             step: The training step of the image.
+
+        Raises:
+            RuntimeError: If the backend has not started.
 
         """
         if image.dtype != np.uint8:
@@ -160,6 +166,9 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
             step: The training step of the matrix.
             extra_data: Ignored, because the text has no place for it.
 
+        Raises:
+            RuntimeError: If the backend has not started.
+
         """
         text = np.array2string(matrix, separator=", ", threshold=matrix.size)
         self.writer.add_text(name, text, step)
@@ -175,6 +184,10 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
 
         The hyperparameters wait for `close`, because the dashboard reads
         only the first set of a run.
+
+        Raises:
+            RuntimeError: If the backend has not started.
+
         """
         from tensorboardX import SummaryWriter
 
@@ -192,6 +205,9 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
 
         Args:
             status: Ignored, because TensorBoard has no run status.
+
+        Raises:
+            RuntimeError: If the backend has not started.
 
         """
         if self._hparams:

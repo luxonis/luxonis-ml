@@ -221,6 +221,10 @@ class BufferedBackend(TrackerBackend, register=False):
         """Send the buffered calls, and flush the wrapped backend.
 
         The buffer waits for the retry interval, as at a logging call.
+
+        Raises:
+            Exception: The error of the flush of the wrapped backend.
+
         """
         if self._busy:
             return

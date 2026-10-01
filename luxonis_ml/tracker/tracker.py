@@ -155,10 +155,12 @@ class LuxonisTracker:
                 their name.
 
         Raises:
-            ValueError: If no backend is enabled, or a backend rejects
-                its options.
+            ValueError: If no backend is enabled, or a backend lacks an
+                option that it needs, such as the MLflow tracking URI.
             TypeError: If a keyword argument names no backend in
-                `TRACKER_BACKENDS`.
+                `TRACKER_BACKENDS`, or a backend gets an unknown option.
+            RuntimeError: If ``run_name`` is omitted on a non-zero rank,
+                and no run appears within 30 seconds.
 
         """
         configs, legacy_options = _legacy_backends(
@@ -390,6 +392,11 @@ class LuxonisTracker:
             params: The hyperparameters, keyed by name. A value can be
                 any value of a YAML configuration, such as a list.
 
+        Raises:
+            Exception: The error of a backend that fails to start or to
+                log. A buffered backend raises only when the service
+                rejects the start.
+
         """
         for backend in self._live_backends():
             backend.log_hyperparams(params)
@@ -402,6 +409,11 @@ class LuxonisTracker:
             value: Value of the metric.
             step: The training step of the value.
 
+        Raises:
+            Exception: The error of a backend that fails to start or to
+                log. A buffered backend raises only when the service
+                rejects the start.
+
         """
         self.log_metrics({name: value}, step)
 
@@ -411,6 +423,11 @@ class LuxonisTracker:
         Args:
             metrics: The metric values, keyed by metric name.
             step: The training step of the values.
+
+        Raises:
+            Exception: The error of a backend that fails to start or to
+                log. A buffered backend raises only when the service
+                rejects the start.
 
         """
         for backend in self._live_backends():
@@ -425,6 +442,11 @@ class LuxonisTracker:
             img: The image, of shape :math:`\left(H, W, C\right)`.
             step: The training step of the image.
 
+        Raises:
+            Exception: The error of a backend that fails to start or to
+                log. A buffered backend raises only when the service
+                rejects the start.
+
         """
         for backend in self._live_backends():
             backend.log_image(name, img, step)
@@ -438,6 +460,11 @@ class LuxonisTracker:
             imgs: The images, keyed by name. Each image has the shape
                 :math:`\left(H, W, C\right)`.
             step: The training step of the images.
+
+        Raises:
+            Exception: The error of a backend that fails to start or to
+                log. A buffered backend raises only when the service
+                rejects the start.
 
         """
         for name, img in imgs.items():
@@ -459,6 +486,11 @@ class LuxonisTracker:
             extra_data: More data to store with the matrix, such as the
                 class names. Only MLflow stores it.
 
+        Raises:
+            Exception: The error of a backend that fails to start or to
+                log. A buffered backend raises only when the service
+                rejects the start.
+
         """
         for backend in self._live_backends():
             backend.log_matrix(matrix, name, step, extra_data or {})
@@ -473,6 +505,11 @@ class LuxonisTracker:
             name: Name to store the file under. ``None`` keeps the name
                 of the file.
             typ: Kind of the artifact. Only WandB uses it.
+
+        Raises:
+            Exception: The error of a backend that fails to start or to
+                log. A buffered backend raises only when the service
+                rejects the start.
 
         """
         for backend in self._live_backends():

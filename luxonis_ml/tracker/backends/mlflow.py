@@ -199,6 +199,11 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         Args:
             params: The hyperparameters, keyed by name.
 
+        Raises:
+            RuntimeError: If the backend has not started.
+            mlflow.exceptions.MlflowException: If the server rejects the
+                call or cannot be reached.
+
         """
         from mlflow.entities import Param
 
@@ -213,6 +218,11 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         Args:
             metrics: The metric values, keyed by metric name.
             step: The training step of the values.
+
+        Raises:
+            RuntimeError: If the backend has not started.
+            mlflow.exceptions.MlflowException: If the server rejects the
+                call or cannot be reached.
 
         """
         from mlflow.entities import Metric
@@ -235,6 +245,11 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
                 without a ``/`` puts the image under ``<step>/``.
             image: The image, of shape :math:`\left(H, W, C\right)`.
             step: The training step of the image.
+
+        Raises:
+            RuntimeError: If the backend has not started.
+            mlflow.exceptions.MlflowException: If the server rejects the
+                call or cannot be reached.
 
         """
         directory, _, caption = name.rpartition("/")
@@ -266,6 +281,11 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
             step: Ignored, because the file holds one matrix.
             extra_data: More keys for the file, such as the class names.
 
+        Raises:
+            RuntimeError: If the backend has not started.
+            mlflow.exceptions.MlflowException: If the server rejects the
+                call or cannot be reached.
+
         """
         data: dict[str, ParamValue] = {
             "flat_array": matrix.flatten().tolist(),
@@ -284,6 +304,11 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
                 artifact store. ``None`` keeps the name of the file.
             typ: Ignored, because MLflow has no artifact types.
 
+        Raises:
+            RuntimeError: If the backend has not started.
+            Exception: The error of the artifact store, such as an
+                ``OSError`` or an error of ``botocore``.
+
         """
         remote_name = Path(name).name if name else path.name
         LuxonisFileSystem.upload(
@@ -298,6 +323,11 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         Args:
             status: ``"success"`` ends the run as ``FINISHED``,
                 ``"failed"`` as ``FAILED``.
+
+        Raises:
+            RuntimeError: If the backend has not started.
+            mlflow.exceptions.MlflowException: If the server rejects the
+                call or cannot be reached.
 
         """
         if self._run_id in _open_runs:

@@ -153,6 +153,10 @@ class TrackerBackend(
             params: The hyperparameters, keyed by name. A value can be
                 any value of a YAML configuration, such as a list.
 
+        Raises:
+            Exception: Any error of the service. `is_transient` tells
+                whether a later attempt can succeed.
+
         """
 
     @abstractmethod
@@ -162,6 +166,10 @@ class TrackerBackend(
         Args:
             metrics: The metric values, keyed by metric name.
             step: The training step of the values.
+
+        Raises:
+            Exception: Any error of the service. `is_transient` tells
+                whether a later attempt can succeed.
 
         """
 
@@ -173,6 +181,10 @@ class TrackerBackend(
             name: Name of the image. It can hold ``/`` to group images.
             image: The image, of shape :math:`\left(H, W, C\right)`.
             step: The training step of the image.
+
+        Raises:
+            Exception: Any error of the service. `is_transient` tells
+                whether a later attempt can succeed.
 
         """
 
@@ -193,6 +205,10 @@ class TrackerBackend(
             extra_data: More data to store with the matrix, such as the
                 class names. A service that has no place for it can
                 ignore it.
+
+        Raises:
+            Exception: Any error of the service. `is_transient` tells
+                whether a later attempt can succeed.
 
         """
 
@@ -224,6 +240,10 @@ class TrackerBackend(
 
         Args:
             status: The final state of the run.
+
+        Raises:
+            Exception: Any error of the service. `is_transient` tells
+                whether a later attempt can succeed.
 
         """
 

@@ -123,6 +123,9 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
         Args:
             params: The hyperparameters, keyed by name.
 
+        Raises:
+            RuntimeError: If the backend has not started.
+
         """
         # WandB leaves the argument of `update` unannotated
         self.wandb_run.config.update(  # pyright: ignore[reportUnknownMemberType]
@@ -136,6 +139,9 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
             metrics: The metric values, keyed by metric name.
             step: Ignored. See the class description.
 
+        Raises:
+            RuntimeError: If the backend has not started.
+
         """
         self.wandb_run.log(dict(metrics))
 
@@ -146,6 +152,9 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
             name: Name of the image, which is its key and its caption.
             image: The image, of shape :math:`\left(H, W, C\right)`.
             step: Ignored. See the class description.
+
+        Raises:
+            RuntimeError: If the backend has not started.
 
         """
         import wandb
@@ -170,6 +179,9 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
             step: Ignored. See the class description.
             extra_data: Ignored, because the table has no place for it.
 
+        Raises:
+            RuntimeError: If the backend has not started.
+
         """
         import wandb
 
@@ -191,6 +203,9 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
                 the file.
             typ: The type of the WandB artifact.
 
+        Raises:
+            RuntimeError: If the backend has not started.
+
         """
         import wandb
 
@@ -206,6 +221,9 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
         Args:
             status: ``"success"`` finishes the run with the exit code
                 :math:`0`, ``"failed"`` with :math:`1`.
+
+        Raises:
+            RuntimeError: If the backend has not started.
 
         """
         self.wandb_run.finish(exit_code=0 if status == "success" else 1)
