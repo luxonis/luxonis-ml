@@ -13,7 +13,6 @@ import luxonis_ml.tracker as tracker_package
 import luxonis_ml.tracker.tracker as tracker_module
 from luxonis_ml.tracker import (
     TRACKER_BACKENDS,
-    BufferedBackend,
     LuxonisTracker,
     MLflowBackend,
     RunContext,
@@ -22,7 +21,12 @@ from luxonis_ml.tracker import (
 )
 from luxonis_ml.tracker.tracker import RUN_NAME_ENV
 
-from .conftest import BufferedFakeBackend, FakeBackend, FakeClock
+from .conftest import (
+    BufferedFakeBackend,
+    FakeBackend,
+    FakeClock,
+    backend_of,
+)
 
 
 def make_tracker(save_directory: Path, **kwargs: Any) -> LuxonisTracker:
@@ -32,9 +36,7 @@ def make_tracker(save_directory: Path, **kwargs: Any) -> LuxonisTracker:
 
 
 def fake(tracker: LuxonisTracker, name: str = "fake") -> FakeBackend:
-    backend = tracker.backends[name]
-    assert isinstance(backend, FakeBackend)
-    return backend
+    return backend_of(tracker, name, FakeBackend)
 
 
 def test_at_least_one_backend_is_required(tmp_path: Path):
@@ -74,7 +76,7 @@ def test_the_built_in_backends_have_keywords(tmp_path: Path):
     )
 
     assert list(tracker.backends) == ["tensorboard", "wandb", "mlflow"]
-    assert tracker.get_backend(WandbBackend).entity == "team"
+    assert backend_of(tracker, "wandb", WandbBackend).entity == "team"
 
 
 @pytest.mark.parametrize(
@@ -108,7 +110,7 @@ def test_a_rejected_option_creates_no_run_directory(tmp_path: Path):
         ),
         (
             {"is_mlflow": True, "mlflow_tracking_uri": "sqlite:///unused.db"},
-            {"mlflow": BufferedBackend},
+            {"mlflow": MLflowBackend},
         ),
     ],
 )
@@ -137,9 +139,9 @@ def test_deprecated_flags_keep_their_options(tmp_path: Path):
             mlflow_tracking_uri="sqlite:///unused.db",
         )
 
-    assert tracker.get_backend(WandbBackend).entity == "team"
+    assert backend_of(tracker, "wandb", WandbBackend).entity == "team"
     assert (
-        tracker.get_backend(MLflowBackend).tracking_uri
+        backend_of(tracker, "mlflow", MLflowBackend).tracking_uri
         == "sqlite:///unused.db"
     )
 
@@ -197,7 +199,7 @@ def test_a_backend_keyword_overrides_a_deprecated_flag(tmp_path: Path):
         )
 
     assert list(tracker.backends) == ["wandb"]
-    assert tracker.get_backend(WandbBackend).entity == "new"
+    assert backend_of(tracker, "wandb", WandbBackend).entity == "new"
 
 
 @pytest.mark.parametrize("flags", [{}, {"is_wandb": True, "is_mlflow": True}])
@@ -219,9 +221,9 @@ def test_deprecated_options_fill_in_a_backend_keyword(
             **flags,
         )
 
-    assert tracker.get_backend(WandbBackend).entity == "team"
+    assert backend_of(tracker, "wandb", WandbBackend).entity == "team"
     assert (
-        tracker.get_backend(MLflowBackend).tracking_uri
+        backend_of(tracker, "mlflow", MLflowBackend).tracking_uri
         == "sqlite:///unused.db"
     )
 
@@ -403,16 +405,54 @@ def test_start_starts_each_backend_once(tmp_path: Path):
     assert fake(tracker, "other_fake").starts == 1
 
 
-def test_get_backend_unwraps_a_buffered_backend(tmp_path: Path):
-    tracker = make_tracker(tmp_path, fake=True, buffered_fake=True)
+def test_the_backends_hold_the_wrapped_backend(tmp_path: Path):
+    tracker = make_tracker(tmp_path, buffered_fake=True)
 
-    assert isinstance(tracker.backends["buffered_fake"], BufferedBackend)
-    assert isinstance(
-        tracker.get_backend(BufferedFakeBackend), BufferedFakeBackend
+    backend = tracker.backends["buffered_fake"]
+
+    assert type(backend) is BufferedFakeBackend
+
+
+def test_a_backend_property_starts_the_backends(tmp_path: Path):
+    tracker = make_tracker(tmp_path, tensorboard=True)
+
+    writer = tracker.tensorboard.writer
+
+    assert writer.logdir == str(tmp_path / "tensorboard_logs" / "0-test")
+    assert fake(tracker).starts == 1
+    tracker.close()
+
+
+def test_a_backend_property_after_close_starts_nothing(tmp_path: Path):
+    tracker = make_tracker(tmp_path, tensorboard=True)
+    tracker.close()
+
+    with pytest.raises(RuntimeError, match="not started"):
+        _ = tracker.tensorboard.writer
+
+
+@pytest.mark.parametrize("name", ["tensorboard", "wandb", "mlflow"])
+def test_the_property_of_a_backend_that_is_off_raises(
+    tmp_path: Path, name: str
+):
+    tracker = make_tracker(tmp_path)
+
+    with pytest.raises(AttributeError, match=f"`{name}=True`"):
+        getattr(tracker, name)
+
+    assert fake(tracker).starts == 0
+
+
+def test_the_property_of_a_replaced_backend_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setitem(
+        TRACKER_BACKENDS._module_dict, "tensorboard", FakeBackend
     )
-    assert tracker.get_backend(FakeBackend) is tracker.backends["fake"]
-    with pytest.raises(KeyError, match="TensorBoardBackend"):
-        tracker.get_backend(TensorBoardBackend)
+    tracker = make_tracker(tmp_path, tensorboard=True)
+
+    with pytest.raises(TypeError, match=r"backends\['tensorboard'\]"):
+        _ = tracker.tensorboard
 
 
 @pytest.mark.parametrize(

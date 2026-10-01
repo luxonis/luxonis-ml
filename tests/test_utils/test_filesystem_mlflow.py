@@ -1051,7 +1051,7 @@ def test_tracker_upload_artifact_to_mlflow(
     run's artifact root -- hence the assertion on the full artifact
     listing rather than a plain ``exists`` check.
     """
-    from luxonis_ml.tracker import LuxonisTracker, MLflowBackend
+    from luxonis_ml.tracker import LuxonisTracker
 
     experiment_id = mlflow.create_experiment(f"tracker-test-{randint}")
     export_dir = tempdir / "export" / f"tracker-run-{randint}"
@@ -1068,14 +1068,10 @@ def test_tracker_upload_artifact_to_mlflow(
         with artifact.open() as file:
             tracker.upload_artifact(file.name, name=file.name)
 
-        backend = tracker.get_backend(MLflowBackend)
-        assert backend.experiment_id == experiment_id
-        assert backend.run_id is not None
+        assert tracker.mlflow.experiment_id == experiment_id
+        assert tracker.mlflow.run_id is not None
 
-        fs = LuxonisFileSystem(
-            f"mlflow://{experiment_id}/{backend.run_id}",
-            tracking_uri=mlflow_tracking_uri,
-        )
+        fs = tracker.mlflow.artifacts
         assert set(fs.walk_dir("", recursive=True)) == {"model.yaml"}
         assert fs.read_text("model.yaml") == "tracker payload"
 

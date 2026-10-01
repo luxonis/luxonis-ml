@@ -40,11 +40,14 @@ from .backends.base import (
     TrackerBackend,
 )
 from .backends.mlflow import MLflowBackend, MLflowOptions
+from .backends.tensorboard import TensorBoardBackend
 from .backends.wandb import WandbBackend, WandbOptions
 from .buffer import BufferedBackend
 
 _BackendT = TypeVar("_BackendT", bound=TrackerBackend)
-"""The type of backend that `LuxonisTracker.get_backend` returns."""
+"""The type of a built-in backend that a property of `LuxonisTracker`
+returns.
+"""
 
 RUN_NAME_ENV = "LUXONIS_TRACKER_RUN_NAME"
 """The environment variable that hands the run name to the other ranks.
@@ -84,16 +87,19 @@ class LuxonisTracker:
     Only rank :math:`0` logs. On the other ranks every logging call does
     nothing, and no backend starts.
 
-    The backends start on the first logging call, or at `start`. `close`
-    ends the run in each backend. Use the tracker as a context manager to
-    close it with the right status. A run that is still open when the
-    interpreter exits closes then, as failed after an uncaught error.
+    `tensorboard`, `wandb` and `mlflow` give the built-in backends, and
+    `backends` gives each enabled backend by its keyword.
+
+    The backends start on the first logging call, at `start`, or when
+    code reads `tensorboard`, `wandb` or `mlflow`. `close` ends the run
+    in each backend. Use the tracker as a context manager to close it
+    with the right status. A run that is still open when the interpreter
+    exits closes then, as failed after an uncaught error.
 
     Attributes:
         project_name: Project name, as the caller gave it.
         project_id: Project identifier, as the caller gave it. The
-            identifiers that MLflow assigns are on
-            ``tracker.get_backend(MLflowBackend)``.
+            identifiers that MLflow assigns are on `mlflow`.
         run_name: Name of the run.
         run_id: Identifier of an earlier run to continue, as the caller
             gave it.
@@ -279,39 +285,69 @@ class LuxonisTracker:
     def backends(self) -> Mapping[str, TrackerBackend]:
         """The enabled backends, keyed by name.
 
-        A backend that sets `TrackerBackend.buffered` is here in its
-        `BufferedBackend`. The mapping is read-only.
+        A plugin backend is here under its keyword, for example
+        ``tracker.backends["my_service"]``. Unlike `tensorboard`,
+        `wandb` and `mlflow`, the mapping does not start the backends.
+        A backend that sets `TrackerBackend.buffered` is here itself, not
+        its `BufferedBackend`. The mapping is read-only.
         """
-        return MappingProxyType(self._backends)
+        return MappingProxyType(
+            {
+                name: _unwrap(backend)
+                for name, backend in self._backends.items()
+            }
+        )
 
-    def get_backend(self, backend_type: type[_BackendT]) -> _BackendT:
-        """Return the enabled backend of a type.
-
-        Unlike `backends`, it looks through a `BufferedBackend` to the
-        backend that it wraps.
+    @property
+    def tensorboard(self) -> TensorBoardBackend:
+        """The TensorBoard backend, started.
 
         Example:
             .. code-block:: python
 
-                run_id = tracker.get_backend(MLflowBackend).run_id
-
-        Args:
-            backend_type: The class of the backend, such as
-                `MLflowBackend`. A subclass of it matches too.
-
-        Returns:
-            The first enabled backend of ``backend_type``.
+                writer = tracker.tensorboard.writer
 
         Raises:
-            KeyError: If no backend of ``backend_type`` is enabled.
+            AttributeError: If TensorBoard is not enabled.
+            Exception: The error of a backend that fails to start.
 
         """
-        for backend in self._backends.values():
-            if isinstance(backend, BufferedBackend):
-                backend = backend.backend
-            if isinstance(backend, backend_type):
-                return backend
-        raise KeyError(f"No {backend_type.__name__} is enabled.")
+        return self._builtin("tensorboard", TensorBoardBackend)
+
+    @property
+    def wandb(self) -> WandbBackend:
+        """The WandB backend, started.
+
+        Example:
+            .. code-block:: python
+
+                run = tracker.wandb.wandb_run
+
+        Raises:
+            AttributeError: If WandB is not enabled.
+            Exception: The error of a backend that fails to start.
+
+        """
+        return self._builtin("wandb", WandbBackend)
+
+    @property
+    def mlflow(self) -> MLflowBackend:
+        """The MLflow backend, started.
+
+        Example:
+            .. code-block:: python
+
+                run_id = tracker.mlflow.run_id
+                tracker.mlflow.artifacts.put_file("model.onnx", "model.onnx")
+
+        Raises:
+            AttributeError: If MLflow is not enabled.
+            Exception: The error of a backend that fails to start. A
+                buffered backend raises only when the service rejects
+                the start.
+
+        """
+        return self._builtin("mlflow", MLflowBackend)
 
     def start(self) -> None:
         """Start the backends now, not at the first logging call.
@@ -358,30 +394,26 @@ class LuxonisTracker:
         return "mlflow" in self._backends
 
     @property
-    @deprecated("Use `tracker.get_backend(WandbBackend).entity` instead.")
+    @deprecated("Use `tracker.wandb.entity` instead.")
     def wandb_entity(self) -> str | None:
         """The WandB entity, or ``None`` without WandB.
 
-        Deprecated: use ``tracker.get_backend(WandbBackend).entity``.
+        Deprecated: use ``tracker.wandb.entity``.
         """
-        try:
-            return self.get_backend(WandbBackend).entity
-        except KeyError:
-            return None
+        backend = self.backends.get("wandb")
+        return backend.entity if isinstance(backend, WandbBackend) else None
 
     @property
-    @deprecated(
-        "Use `tracker.get_backend(MLflowBackend).tracking_uri` instead."
-    )
+    @deprecated("Use `tracker.mlflow.tracking_uri` instead.")
     def mlflow_tracking_uri(self) -> str | None:
         """The MLflow tracking URI, or ``None`` without MLflow.
 
-        Deprecated: use ``tracker.get_backend(MLflowBackend).tracking_uri``.
+        Deprecated: use ``tracker.mlflow.tracking_uri``.
         """
-        try:
-            return self.get_backend(MLflowBackend).tracking_uri
-        except KeyError:
-            return None
+        backend = self.backends.get("mlflow")
+        if isinstance(backend, MLflowBackend):
+            return backend.tracking_uri
+        return None
 
     def log_hyperparams(self, params: Mapping[str, ParamValue]) -> None:
         """Log the hyperparameters of the run.
@@ -593,6 +625,23 @@ class LuxonisTracker:
                 return
             yield backend
 
+    def _builtin(self, name: str, backend_type: type[_BackendT]) -> _BackendT:
+        """Return the backend of ``name``, and start the backends."""
+        backend = self.backends.get(name)
+        if backend is None:
+            raise AttributeError(
+                f"The {name} backend is not enabled. Pass `{name}=True`, or "
+                "its options, to LuxonisTracker."
+            )
+        # a plugin with the name of a built-in backend can replace it
+        if not isinstance(backend, backend_type):
+            raise TypeError(
+                f"The {name} backend is a {type(backend).__name__}, not a "
+                f"{backend_type.__name__}. Use `tracker.backends['{name}']`."
+            )
+        self.start()
+        return backend
+
     def _start_backends(self) -> None:
         """Start each backend that did not start yet, on rank 0 only."""
         if self.rank != 0:
@@ -691,6 +740,11 @@ def _create_backend(
     if backend.buffered:
         return BufferedBackend(backend, name)
     return backend
+
+
+def _unwrap(backend: TrackerBackend) -> TrackerBackend:
+    """Return the backend that a `BufferedBackend` wraps."""
+    return backend.backend if isinstance(backend, BufferedBackend) else backend
 
 
 def _run_number(run_name: str) -> int | None:

@@ -33,6 +33,8 @@ from mlflow.utils.mlflow_tags import (
 import luxonis_ml.tracker.backends.mlflow as mlflow_module
 from luxonis_ml.tracker import LuxonisTracker, MLflowBackend, RunContext
 
+from .conftest import backend_of
+
 
 def http_error(status: int) -> requests.HTTPError:
     response = requests.Response()
@@ -101,9 +103,26 @@ def test_the_tracking_uri_defaults_to_the_environment(
         project_name="project", save_directory=tmp_path, mlflow=True
     )
 
-    backend = tracker.get_backend(MLflowBackend)
+    backend = backend_of(tracker, "mlflow", MLflowBackend)
     assert backend.tracking_uri == tracking_uri
     assert backend.parent_run_id is None
+
+
+def test_the_artifacts_are_a_file_system_of_the_run(
+    tmp_path: Path, project: str, tracking_uri: str
+):
+    artifact = tmp_path / "model.txt"
+    artifact.write_text("weights")
+    tracker = LuxonisTracker(
+        project_name=project,
+        save_directory=tmp_path,
+        mlflow={"tracking_uri": tracking_uri},
+    )
+
+    tracker.mlflow.artifacts.put_file(artifact, "export/model.txt")
+
+    assert tracker.mlflow.artifacts.read_text("export/model.txt") == "weights"
+    tracker.close()
 
 
 def test_start_creates_the_experiment_and_the_run(

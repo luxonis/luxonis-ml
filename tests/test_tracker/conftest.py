@@ -1,6 +1,6 @@
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -8,6 +8,7 @@ import pytest
 
 import luxonis_ml.tracker.backends.mlflow as mlflow_module
 from luxonis_ml.tracker import (
+    LuxonisTracker,
     RunContext,
     RunStatus,
     TrackerBackend,
@@ -16,6 +17,17 @@ from luxonis_ml.tracker.tracker import RUN_NAME_ENV
 from luxonis_ml.typing import ParamValue
 
 MAX_RETRIES_ENV = "MLFLOW_HTTP_REQUEST_MAX_RETRIES"
+
+_BackendT = TypeVar("_BackendT", bound=TrackerBackend)
+
+
+def backend_of(
+    tracker: LuxonisTracker, name: str, kind: type[_BackendT]
+) -> _BackendT:
+    """Return the backend of ``name`` without a start, as ``kind``."""
+    backend = tracker.backends[name]
+    assert isinstance(backend, kind)
+    return backend
 
 
 class FakeClock:

@@ -78,9 +78,8 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
     The backend talks to the server through its own ``MlflowClient``,
     so two trackers in one process do not share an active run. For the
     same reason, the run is not the active run of the ``mlflow`` module.
-    Use ``mlflow://<experiment_id>/<run_id>/`` to reach its artifacts
-    through `LuxonisFileSystem`. The backend logs system metrics as well
-    when ``psutil`` is installed.
+    `artifacts` gives a `LuxonisFileSystem` of the artifacts of the run.
+    The backend logs system metrics as well when ``psutil`` is installed.
 
     `LuxonisTracker` wraps the backend in a `BufferedBackend`, so an
     unreachable server does not stop the training. `is_transient` tells
@@ -151,6 +150,27 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         if self._client is None:
             raise RuntimeError("The MLflow backend is not started.")
         return self._client
+
+    @property
+    def artifacts(self) -> LuxonisFileSystem:
+        """A file system for the artifacts of the run.
+
+        Its root is the artifact root of the run, and it uses the
+        tracking URI of the backend.
+
+        Example:
+            .. code-block:: python
+
+                tracker.mlflow.artifacts.put_file("model.onnx", "model.onnx")
+
+        Raises:
+            RuntimeError: If the backend is not started.
+
+        """
+        return LuxonisFileSystem(
+            f"mlflow://{self.experiment_id}/{self._run_id}",
+            tracking_uri=self.tracking_uri,
+        )
 
     def start(self) -> None:
         """Open the experiment and the run.

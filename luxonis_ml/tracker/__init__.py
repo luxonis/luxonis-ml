@@ -79,17 +79,23 @@ The backends start on the first logging call. Call
 `LuxonisTracker.start` to start them earlier, for example to create the
 MLflow run of a sweep before its trials.
 
-`LuxonisTracker.get_backend` returns a backend by its type, for example
-to read the MLflow run identifier:
+Each built-in backend is a property of the tracker:
+`LuxonisTracker.tensorboard`, `LuxonisTracker.wandb` and
+`LuxonisTracker.mlflow`. The property starts the backends first, so a
+handle of the SDK is ready to use:
 
 .. code-block:: python
 
-    from luxonis_ml.tracker import MLflowBackend
+    run_id = tracker.mlflow.run_id
+    tracker.mlflow.client.set_tag(run_id, "stage", "export")
+    tracker.mlflow.artifacts.put_file("model.onnx", "model.onnx")
+    writer = tracker.tensorboard.writer
 
-    run_id = tracker.get_backend(MLflowBackend).run_id
-
-For a call that the tracker does not make, use the SDK handle of the
-backend: `TensorBoardBackend.writer`, `WandbBackend.wandb_run`, or
+The property of a backend that is off raises ``AttributeError``.
+`LuxonisTracker.backends` gives each enabled backend by its keyword, a
+plugin backend included, and does not start them. For a call that the
+tracker does not make, use the SDK handle of the backend:
+`TensorBoardBackend.writer`, `WandbBackend.wandb_run`, or
 `MLflowBackend.client`.
 
 
@@ -295,6 +301,8 @@ JSON Lines file:
 
     with LuxonisTracker(jsonl={"filename": "train.jsonl"}) as tracker:
         tracker.log_metrics({"loss": 0.18}, step=1)
+
+``tracker.backends["jsonl"]`` gives the backend itself.
 
 The constructor runs on every rank, so it only checks and stores the
 options. `TrackerBackend.start` runs once, on rank :math:`0`, before
