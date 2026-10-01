@@ -129,12 +129,18 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
     def log_image(self, name: str, image: npt.NDArray[Any], step: int) -> None:
         r"""Write the image.
 
+        An image that is not ``uint8`` holds values from :math:`0` to
+        :math:`1`. A value outside that range becomes white or black.
+
         Args:
             name: Name of the image, which is its tag.
             image: The image, of shape :math:`\left(H, W, C\right)`.
             step: The training step of the image.
 
         """
+        if image.dtype != np.uint8:
+            # tensorboardX scales without a clip, so 1.02 would wrap to 4
+            image = (image * 255).clip(0, 255).astype(np.uint8)
         self.writer.add_image(name, image, step, dataformats="HWC")
 
     def log_matrix(

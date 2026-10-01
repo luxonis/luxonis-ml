@@ -1,3 +1,4 @@
+import io
 import struct
 import sys
 from pathlib import Path
@@ -5,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 import pytest
+from PIL import Image
 
 # the generated protobuf modules have no stubs
 from tensorboardX.proto.event_pb2 import (
@@ -63,6 +65,19 @@ def test_each_sweep_trial_gets_the_next_directory(tmp_path: Path):
 
     assert first.log_dir == log_dir / "trial_0"
     assert second.log_dir == log_dir / "trial_4"
+
+
+def test_a_float_image_saturates(backend: TensorBoardBackend):
+    """A value just outside [0, 1] becomes white or black."""
+    image = np.array([[[1.02] * 3, [-0.01] * 3]], dtype=np.float32)
+    log_dir = backend.log_dir
+
+    backend.log_image("image", image, 0)
+    backend.close("success")
+
+    [(_, value)] = read_summaries(log_dir)
+    png = Image.open(io.BytesIO(value.image.encoded_image_string))
+    assert np.asarray(png).tolist() == [[[255] * 3, [0] * 3]]
 
 
 def test_the_logged_values_reach_the_event_file(
