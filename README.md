@@ -152,15 +152,17 @@ backend.
 
 These extras add support for specific cloud services and integrations:
 
-| Extra      | Adds support for                     |
-| ---------- | ------------------------------------ |
-| `gcs`      | Google Cloud Storage                 |
-| `s3`       | AWS S3                               |
-| `roboflow` | Dataset downloads from Roboflow      |
-| `mlflow`   | MLflow tracking and artifact storage |
+| Extra         | Adds support for                       |
+| ------------- | -------------------------------------- |
+| `gcs`         | Google Cloud Storage                   |
+| `s3`          | AWS S3                                 |
+| `roboflow`    | Dataset downloads from Roboflow        |
+| `mlflow`      | MLflow tracking and artifact storage   |
+| `tensorboard` | The TensorBoard backend of the tracker |
+| `wandb`       | The WandB backend of the tracker       |
 
 > [!NOTE]
-> `LuxonisML` installs these four dependencies for you on first use. If you open a `gs://`, `gcs://`, `s3://`, `mlflow://`, or `roboflow://` path and the package is absent, `LuxonisML` installs it and continues. Install the extra yourself when you want a reproducible environment or an offline machine.
+> `LuxonisML` installs the `gcs`, `s3`, `roboflow`, and `mlflow` dependencies for you on first use. If you open a `gs://`, `gcs://`, `s3://`, `mlflow://`, or `roboflow://` path and the package is absent, `LuxonisML` installs it and continues. Install the extra yourself when you want a reproducible environment or an offline machine. A tracker backend does not install its SDK. It fails at the start, and the message names the extra.
 
 **Examples**:
 
