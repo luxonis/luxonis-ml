@@ -69,7 +69,16 @@ class SampleFilterConfig:
         return frozenset(self.task_name) if self.task_name else None
 
     def accepts_task(self, task_name: str) -> bool:
-        """Whether one task passes the include or exclude task filter."""
+        """Whether one task passes the include or exclude task filter.
+
+        Args:
+            task_name: The complete name of the task.
+
+        Returns:
+            ``True`` when no task filter is set, or when the task passes it
+            under ``task_name_mode``.
+
+        """
         names = self.task_filter
         if names is None:
             return True
@@ -81,7 +90,18 @@ class SampleFilterConfig:
         available_tasks: Iterable[str] = (),
         available_classes: Iterable[str] = (),
     ) -> None:
-        """Reject requested task or class names outside the given scope."""
+        """Reject requested task or class names outside the given scope.
+
+        Args:
+            available_tasks: The task names that exist.
+            available_classes: The class names that exist. They are compared
+                after surrounding whitespace is removed.
+
+        Raises:
+            ValueError: If a requested task name or class name does not exist.
+                The message lists the available names.
+
+        """
         _reject_unknown_names(
             "task name", self.task_name or (), available_tasks
         )
@@ -92,7 +112,17 @@ class SampleFilterConfig:
         )
 
     def query(self) -> "InspectionQuery":
-        """Build the immutable matcher consumed by inspect and compare."""
+        """Build the immutable matcher consumed by inspect and compare.
+
+        Returns:
+            The query of the class, annotation-type, metadata, confidence,
+            instance-count, unlabeled and search filters. The task filter is
+            not part of it; apply it with `accepts_task`.
+
+        Raises:
+            ValueError: If the filters are out of range or cannot be combined.
+
+        """
         search = self.search.strip() if self.search else ""
         return InspectionQuery(
             class_names=frozenset(self._requested_classes()),
@@ -127,7 +157,20 @@ class MetadataPredicate:
 
     @classmethod
     def from_pair(cls, path: str, expected: str) -> "MetadataPredicate":
-        """Build a predicate from the CLI's separate path and value tokens."""
+        """Build a predicate from the CLI's separate path and value tokens.
+
+        Args:
+            path: The metadata path. Dots separate the keys of nested metadata.
+            expected: The value to compare with.
+
+        Returns:
+            The predicate, with whitespace removed around each key and the
+            value.
+
+        Raises:
+            ValueError: If ``path`` has no key.
+
+        """
         parts = tuple(part.strip() for part in path.split(".") if part.strip())
         if not parts:
             raise ValueError("Metadata filter paths cannot be empty.")
@@ -138,7 +181,19 @@ class MetadataPredicate:
         sample_metadata: Params,
         detections: Sequence[Detection],
     ) -> bool:
-        """Whether sample or detection metadata contains the expected value."""
+        """Whether sample or detection metadata contains the expected value.
+
+        Args:
+            sample_metadata: The metadata of the sample, which the full path
+                addresses.
+            detections: The detections of the sample, sub-detections included.
+                A single-key path also matches their metadata.
+
+        Returns:
+            ``True`` when the value at the path equals the expected value. A
+            number compares numerically, and text compares without case.
+
+        """
         found, value = _metadata_path(sample_metadata, self.path)
         if found and _metadata_equal(value, self.expected):
             return True
@@ -225,7 +280,18 @@ class InspectionQuery:
             InspectionAnnotationType
         ] = frozenset(),
     ) -> bool:
-        """Return whether one converted loader sample satisfies this query."""
+        """Return whether one converted loader sample satisfies this query.
+
+        Args:
+            record: The record of the sample.
+            sample_metadata: The metadata of the sample.
+            extra_annotation_types: Annotation families that the loader labels
+                hold but the record does not, such as arrays.
+
+        Returns:
+            ``True`` when the sample passes every filter of the query.
+
+        """
         detections = list(_record_detections(record))
         if self.unlabeled_only and (
             extra_annotation_types or _has_annotations(detections)
