@@ -388,7 +388,7 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
     @property
     def _run_id(self) -> str:
         """The run identifier, which only a started backend has."""
-        if self.run_id is None:
+        if self._client is None or self.run_id is None:
             raise RuntimeError("The MLflow backend is not started.")
         return self.run_id
 

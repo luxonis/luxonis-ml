@@ -430,6 +430,18 @@ def test_the_client_exists_only_after_start(tmp_path: Path):
     assert not store.exists()
 
 
+def test_the_artifacts_of_a_given_run_need_a_start(tmp_path: Path):
+    backend = MLflowBackend(
+        make_run(tmp_path, "project", run_id="abc"),
+        tracking_uri="sqlite:///unused.db",
+    )
+
+    with pytest.raises(RuntimeError, match="not started"):
+        _ = backend.artifacts
+    with pytest.raises(RuntimeError, match="not started"):
+        backend.upload_artifact(tmp_path / "model.txt", None, "weights")
+
+
 def test_a_run_in_a_missing_experiment_is_rejected(
     tmp_path: Path, tracking_uri: str
 ):
