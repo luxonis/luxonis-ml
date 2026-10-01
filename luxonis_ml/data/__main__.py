@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Annotated,
-    Any,
     Literal,
     TypeAlias,
     TypeVar,
@@ -49,6 +48,7 @@ from luxonis_ml.enums import DatasetType
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from luxonis_ml.data.utils.data_utils import ClassDistributionRow
     from luxonis_ml.ldf import DatasetRecord
     from luxonis_ml.typing import Labels, LoaderOutput, Params, ParamValue
     from luxonis_ml.vizlab import (
@@ -1766,6 +1766,10 @@ def health(
         float,
         Parameter(alias="-c"),
     ] = 1.0,
+    per_class: Annotated[
+        bool,
+        Parameter(alias="-p"),
+    ] = False,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
     """Plot class distributions and heatmaps for every task type and
@@ -1785,7 +1789,7 @@ def health(
             will be saved. If not provided, the plots are shown in
             interactive OpenCV windows instead.
         theme: Visual theme of the plots: ``dark`` or ``light``.
-        palette: Which colors the class bars and chips are
+        palette: Which colors the class bars, chips, and per-class heatmaps are
             drawn in, picked independently of ``--theme``: ``default`` keeps the
             theme's own distinct-hue scheme, while ``okabe-ito``,
             ``tol-bright``, ``tol-high-contrast``, ``tol-vibrant``,
@@ -1798,12 +1802,17 @@ def health(
             the ``stacked`` proportion strip, or a ``pie``/``donut`` chart.
         scale: Font and mark scale for the plots (``1.0`` is nominal;
             increase for larger text and marks).
+        per_class: Render one heatmap per class (each in its class color)
+            instead of a single combined heatmap. Best for datasets with a
+            handful of classes.
         bucket_storage: Storage type of the dataset.
 
     """
     check_exists(name, bucket_storage)
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
-    stats = dataset.get_statistics(sample_size=sample_size, view=view)
+    stats = dataset.get_statistics(
+        sample_size=sample_size, view=view, per_class_heatmaps=per_class
+    )
     console = Console()
 
     missing_annotations = stats["missing_annotations"]
@@ -1934,6 +1943,9 @@ def health(
     for task_name in all_task_names:
         class_dist_by_type = stats["class_distributions"].get(task_name, {})
         heatmaps_by_type = stats["heatmaps"].get(task_name, {})
+        class_heatmaps_by_type = stats.get("class_heatmaps", {}).get(
+            task_name, {}
+        )
         if HEATMAP_TASK_TYPES.isdisjoint(
             set(class_dist_by_type) | set(heatmaps_by_type)
         ):
@@ -1942,14 +1954,20 @@ def health(
 
         def render_grid(
             s: float,
-            _dist: "Mapping[str, list[dict[str, Any]]]" = (class_dist_by_type),
+            _dist: "Mapping[str, list[ClassDistributionRow]]" = (
+                class_dist_by_type
+            ),
             _heat: "Mapping[str, Sequence[Sequence[float]] | None]" = (
                 heatmaps_by_type
             ),
+            _cls: (
+                "Mapping[str, Mapping[str, Sequence[Sequence[float]]]]"
+            ) = class_heatmaps_by_type,
         ) -> "Renderable":
             return health_plots.build_health_grid(
                 _dist,
                 _heat,
+                class_heatmaps_by_type=_cls or None,
                 theme=plot_theme,
                 gradient=gradient,
                 mode=distribution,
