@@ -81,8 +81,10 @@ MLflow run of a sweep before its trials.
 
 Each built-in backend is a property of the tracker:
 `LuxonisTracker.tensorboard`, `LuxonisTracker.wandb` and
-`LuxonisTracker.mlflow`. The property starts the backends first, so a
-handle of the SDK is ready to use:
+`LuxonisTracker.mlflow`. The property starts the backends first. On
+rank :math:`0`, the SDK handle of the backend is then ready for a call
+that the tracker does not make: `TensorBoardBackend.writer`,
+`WandbBackend.wandb_run`, or `MLflowBackend.client`.
 
 .. code-block:: python
 
@@ -93,10 +95,7 @@ handle of the SDK is ready to use:
 
 The property of a backend that is off raises ``AttributeError``.
 `LuxonisTracker.backends` gives each enabled backend by its keyword, a
-plugin backend included, and does not start them. For a call that the
-tracker does not make, use the SDK handle of the backend:
-`TensorBoardBackend.writer`, `WandbBackend.wandb_run`, or
-`MLflowBackend.client`.
+plugin backend included, and does not start them.
 
 
 Logging API

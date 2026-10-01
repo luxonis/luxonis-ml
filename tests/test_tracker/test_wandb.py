@@ -95,19 +95,24 @@ def test_hyperparameters_go_to_the_config(backend: WandbBackend):
 def test_calls_leave_the_step_to_wandb(
     backend: WandbBackend, spy: RunSpy, image: npt.NDArray[np.uint8]
 ):
+    # `RunSpy` records `log` with `list.append`, which takes no `step`
     backend.log_metrics({"loss": 0.5}, 7)
     backend.log_image("val/image", image, 8)
-    backend.log_matrix(np.array([[1, 2], [3, 4]]), "matrix", 9, {})
-    backend.log_matrix(np.array([5, 6, 7]), "vector", 9, {})
 
     assert spy.logged[0] == {"loss": 0.5}
     wandb_image = spy.logged[1]["val/image"]
     assert isinstance(wandb_image, wandb.Image)
     assert wandb_image._caption == "val/image"
-    table = spy.logged[2]["matrix_table"]
+
+
+def test_a_matrix_becomes_a_table(backend: WandbBackend, spy: RunSpy):
+    backend.log_matrix(np.array([[1, 2], [3, 4]]), "matrix", 9, {})
+    backend.log_matrix(np.array([5, 6, 7]), "vector", 9, {})
+
+    table = spy.logged[0]["matrix_table"]
     assert table.columns == ["Row Index", "Col 0", "Col 1"]
     assert table.data == [[0, 1, 2], [1, 3, 4]]
-    assert spy.logged[3]["vector_table"].data == [[0, 5, 6, 7]]
+    assert spy.logged[1]["vector_table"].data == [[0, 5, 6, 7]]
 
 
 @pytest.mark.parametrize(

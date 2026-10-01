@@ -141,9 +141,9 @@ def test_a_rejected_call_is_dropped(
 class FlakyBackend(FakeBackend, register=False):
     """Raise the queued errors, one for each call, then accept."""
 
-    def __init__(self, run: RunContext, errors: list[BaseException]) -> None:
+    def __init__(self, run: RunContext) -> None:
         super().__init__(run)
-        self.errors: list[BaseException] = errors
+        self.errors: list[BaseException] = []
 
     def _raise(self) -> None:
         if self.errors:
@@ -153,10 +153,10 @@ class FlakyBackend(FakeBackend, register=False):
 def test_the_replay_stops_at_an_outage_and_skips_a_rejected_call(
     run: RunContext, clock: FakeClock
 ):
-    inner = FlakyBackend(run, [])
+    inner = FlakyBackend(run)
     buffered = BufferedBackend(inner, "fake", retry_interval=RETRY_INTERVAL)
     buffered.start()
-    inner.errors = [ConnectionError(), ConnectionError()]
+    inner.errors = [ConnectionError()]
     log(buffered, 0)
     log(buffered, 1)
 
@@ -181,7 +181,8 @@ def test_a_full_buffer_drops_the_oldest_call_of_the_kind(
     buffered.start()
     inner.error = ConnectionError()
     buffered.log_hyperparams({"lr": 0.1})
-    for step in range(52):
+    limit = buffer_module._Image.limit
+    for step in range(limit + 2):
         buffered.log_image(f"image_{step}", image, step)
     log(buffered, 0)
     inner.error = None
@@ -190,7 +191,7 @@ def test_a_full_buffer_drops_the_oldest_call_of_the_kind(
     buffered.close("success")
 
     names = [call[1] for call in inner.calls if call[0] == "log_image"]
-    assert names == [f"image_{step}" for step in range(2, 52)]
+    assert names == [f"image_{step}" for step in range(2, limit + 2)]
     assert inner.calls[0] == ("log_hyperparams", {"lr": 0.1})
     assert inner.calls[-1] == metrics(0)
     drops = [m for m in warnings_log if "dropping the oldest" in m]
@@ -207,7 +208,7 @@ def test_each_outage_reports_its_drops(
     buffered.start()
     for outage in range(2):
         inner.error = ConnectionError()
-        for step in range(51):
+        for step in range(buffer_module._Image.limit + 1):
             buffered.log_image("image", image, step)
         inner.error = None
         clock.now += RETRY_INTERVAL
@@ -391,7 +392,7 @@ def test_a_second_save_appends(run: RunContext, clock: FakeClock):
 def test_close_ends_the_run_when_the_save_fails(
     run: RunContext, clock: FakeClock
 ):
-    inner = FlakyBackend(run, [])
+    inner = FlakyBackend(run)
     buffered = BufferedBackend(inner, "fake")
     buffered.start()
     inner.errors = [ConnectionError(), ConnectionError()]
@@ -411,7 +412,7 @@ def test_an_interrupted_close_still_saves_the_calls(
     """Ctrl-C during the last flush must not lose the buffer, nor the
     call that was being sent.
     """
-    inner = FlakyBackend(run, [])
+    inner = FlakyBackend(run)
     buffered = BufferedBackend(inner, "fake")
     buffered.start()
     inner.errors = [ConnectionError()]
@@ -433,7 +434,7 @@ def test_an_interrupted_close_still_saves_the_calls(
 def test_an_interrupted_call_stays_in_the_buffer(
     run: RunContext, clock: FakeClock
 ):
-    inner = FlakyBackend(run, [])
+    inner = FlakyBackend(run)
     buffered = BufferedBackend(inner, "fake")
     buffered.start()
     inner.errors = [KeyboardInterrupt()]
@@ -448,7 +449,7 @@ def test_an_interrupted_call_stays_in_the_buffer(
 def test_an_interrupted_replay_keeps_the_new_call(
     run: RunContext, clock: FakeClock
 ):
-    inner = FlakyBackend(run, [])
+    inner = FlakyBackend(run)
     buffered = BufferedBackend(inner, "fake", retry_interval=RETRY_INTERVAL)
     buffered.start()
     inner.errors = [ConnectionError()]
@@ -509,13 +510,11 @@ class ReentrantBackend(FakeBackend, register=False):
     can.
     """
 
-    def __init__(self, run: RunContext) -> None:
-        super().__init__(run)
-        self.buffered: BufferedBackend | None = None
+    wrapper: BufferedBackend
 
     def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
-        if step == 0 and self.buffered is not None:
-            log(self.buffered, 99)
+        if step == 0:
+            log(self.wrapper, 99)
         super().log_metrics(metrics, step)
 
 
@@ -524,7 +523,7 @@ def test_a_call_made_during_a_replay_waits_its_turn(
 ):
     inner = ReentrantBackend(run)
     buffered = BufferedBackend(inner, "fake", retry_interval=RETRY_INTERVAL)
-    inner.buffered = buffered
+    inner.wrapper = buffered
     inner.error = ConnectionError()
     buffered.start()
     log(buffered, 0)
@@ -537,19 +536,17 @@ def test_a_call_made_during_a_replay_waits_its_turn(
     assert inner.calls == [metrics(0), metrics(1), metrics(99), metrics(2)]
 
 
-class ClosingBackend(FakeBackend):
+class ClosingBackend(FakeBackend, register=False):
     """Log a call and close the run while a call is being sent, as the
     interrupt handler of a training can.
     """
 
-    def __init__(self, run: RunContext) -> None:
-        super().__init__(run)
-        self.buffered: BufferedBackend | None = None
+    wrapper: BufferedBackend
 
     def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
-        if step == 0 and self.buffered is not None:
-            log(self.buffered, 99)
-            self.buffered.close("failed")
+        if step == 0:
+            log(self.wrapper, 99)
+            self.wrapper.close("failed")
         super().log_metrics(metrics, step)
 
 
@@ -558,7 +555,7 @@ def test_a_close_during_a_replay_waits_for_the_replay(
 ):
     inner = ClosingBackend(run)
     buffered = BufferedBackend(inner, "fake", retry_interval=RETRY_INTERVAL)
-    inner.buffered = buffered
+    inner.wrapper = buffered
     inner.error = ConnectionError()
     buffered.start()
     log(buffered, 0)
@@ -578,7 +575,7 @@ def test_a_waiting_close_that_fails_does_not_reach_the_call(
 ):
     inner = ClosingBackend(run)
     buffered = BufferedBackend(inner, "fake")
-    inner.buffered = buffered
+    inner.wrapper = buffered
     buffered.start()
 
     def refuse(status: str) -> None:
@@ -592,26 +589,23 @@ def test_a_waiting_close_that_fails_does_not_reach_the_call(
     assert any("Could not close the fake run" in m for m in warnings_log)
 
 
-class StartingBackend(FakeBackend):
+class StartingBackend(FakeBackend, register=False):
     """Log a call while the backend starts, as a signal handler can.
     The tracker starts the backend again for that call.
     """
 
-    def __init__(self, run: RunContext) -> None:
-        super().__init__(run)
-        self.buffered: BufferedBackend | None = None
+    wrapper: BufferedBackend
 
     def start(self) -> None:
-        if self.buffered is not None:
-            self.buffered.start()
-            log(self.buffered, 99)
+        self.wrapper.start()
+        log(self.wrapper, 99)
         super().start()
 
 
 def test_a_call_made_during_the_start_waits_for_it(run: RunContext):
     inner = StartingBackend(run)
     buffered = BufferedBackend(inner, "fake")
-    inner.buffered = buffered
+    inner.wrapper = buffered
 
     buffered.start()
 
@@ -680,20 +674,17 @@ def test_flush_does_not_flush_a_backend_that_never_started(
 class FlushingBackend(FakeBackend, register=False):
     """Flush while a call is being sent, as a signal handler can."""
 
-    def __init__(self, run: RunContext) -> None:
-        super().__init__(run)
-        self.buffered: BufferedBackend | None = None
+    wrapper: BufferedBackend
 
     def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
-        if self.buffered is not None:
-            self.buffered.flush()
+        self.wrapper.flush()
         super().log_metrics(metrics, step)
 
 
 def test_a_flush_during_a_send_waits(run: RunContext, clock: FakeClock):
     inner = FlushingBackend(run)
     buffered = BufferedBackend(inner, "fake")
-    inner.buffered = buffered
+    inner.wrapper = buffered
     buffered.start()
 
     log(buffered, 0)

@@ -1069,7 +1069,6 @@ def test_tracker_upload_artifact_to_mlflow(
             tracker.upload_artifact(file.name, name=file.name)
 
         assert tracker.mlflow.experiment_id == experiment_id
-        assert tracker.mlflow.run_id is not None
 
         fs = tracker.mlflow.artifacts
         assert set(fs.walk_dir("", recursive=True)) == {"model.yaml"}

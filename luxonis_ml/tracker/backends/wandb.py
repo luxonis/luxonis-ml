@@ -81,7 +81,7 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
             raise ValueError("WandB needs `project_name` or `project_id`.")
         self.project = project
         self.entity = options.get("entity")
-        self._run: Run | None = None
+        self._wandb_run: Run | None = None
 
     @property
     def wandb_run(self) -> "Run":
@@ -92,9 +92,9 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
             RuntimeError: If the backend is not started.
 
         """
-        if self._run is None:
+        if self._wandb_run is None:
             raise RuntimeError("The WandB backend is not started.")
-        return self._run
+        return self._wandb_run
 
     def start(self) -> None:
         """Start the WandB run.
@@ -110,7 +110,7 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
 
         log_dir = self.run.save_directory / "wandb_logs"
         log_dir.mkdir(parents=True, exist_ok=True)
-        self._run = wandb.init(
+        self._wandb_run = wandb.init(
             project=self.project,
             entity=self.entity,
             dir=log_dir,

@@ -53,8 +53,8 @@ class Rejected(Exception):
 
 
 class FakeBackend(TrackerBackend, register_name="fake"):
-    """Record each call. While `error` is set, `start` and every
-    logging call raise it.
+    """Record each call. While `error` is set, `start`, `flush`,
+    `close` and every logging call raise it.
     """
 
     def __init__(self, run: RunContext, *, option: str = "default") -> None:

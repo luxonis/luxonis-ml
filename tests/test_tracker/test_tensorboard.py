@@ -114,7 +114,7 @@ def test_the_hyperparameters_stay_in_the_run(
     backend.log_hyperparams({"lr": 0.1, "layers": [1, 2]})
     backend.log_hyperparams({"note": None})
     log_dir = run.save_directory / "tensorboard_logs" / run.run_name
-    backend.writer.flush()
+    backend.flush()
     assert read_summaries(log_dir) == []
 
     backend.close("success")

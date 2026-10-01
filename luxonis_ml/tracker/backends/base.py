@@ -15,7 +15,7 @@ See:
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping
+from collections.abc import Container, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar, Literal, TypeAlias
@@ -89,7 +89,8 @@ class TrackerBackend(
         2. It calls `start` once, on rank :math:`0` only, before the
            first logging call.
         3. It calls the logging methods, on rank :math:`0` only.
-        4. It calls `close` once, when the run ends.
+        4. It calls `close` once, when the run ends, if `start`
+           succeeded.
 
     A subclass registers itself in `TRACKER_BACKENDS`. Give it a short
     name with the ``register_name`` class argument, because the name is
@@ -311,7 +312,9 @@ class TrackerBackend(
         )
 
 
-def check_options(options: Mapping[str, object], known: Iterable[str]) -> None:
+def check_options(
+    options: Mapping[str, object], known: Container[str]
+) -> None:
     """Reject an option that a backend does not take.
 
     A backend that takes its options as ``**options: Unpack[...]`` calls

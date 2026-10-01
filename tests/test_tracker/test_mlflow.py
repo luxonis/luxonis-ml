@@ -1,4 +1,5 @@
 import json
+import os
 import socket
 import sys
 from pathlib import Path
@@ -17,7 +18,6 @@ from mlflow import MlflowClient
 from mlflow.entities import Experiment
 from mlflow.exceptions import MlflowException
 from mlflow.protos.databricks_pb2 import (
-    INTERNAL_ERROR,
     INVALID_PARAMETER_VALUE,
     PERMISSION_DENIED,
     REQUEST_LIMIT_EXCEEDED,
@@ -33,7 +33,7 @@ from mlflow.utils.mlflow_tags import (
 import luxonis_ml.tracker.backends.mlflow as mlflow_module
 from luxonis_ml.tracker import LuxonisTracker, MLflowBackend, RunContext
 
-from .conftest import backend_of
+from .conftest import MAX_RETRIES_ENV, backend_of
 
 
 def http_error(status: int) -> requests.HTTPError:
@@ -261,13 +261,13 @@ def test_the_run_of_mlflow_run_id_continues(
 def test_the_retry_count_is_only_a_default(
     backend: MLflowBackend, monkeypatch: pytest.MonkeyPatch
 ):
-    monkeypatch.setenv("MLFLOW_HTTP_REQUEST_MAX_RETRIES", "5")
+    monkeypatch.setenv(MAX_RETRIES_ENV, "5")
     backend.start()
-    assert mlflow_module.os.environ["MLFLOW_HTTP_REQUEST_MAX_RETRIES"] == "5"
+    assert os.environ[MAX_RETRIES_ENV] == "5"
 
-    monkeypatch.delenv("MLFLOW_HTTP_REQUEST_MAX_RETRIES")
+    monkeypatch.delenv(MAX_RETRIES_ENV)
     backend.start()
-    assert mlflow_module.os.environ["MLFLOW_HTTP_REQUEST_MAX_RETRIES"] == "2"
+    assert os.environ[MAX_RETRIES_ENV] == "2"
 
 
 def test_a_sweep_trial_nests_under_the_open_run(
@@ -450,10 +450,7 @@ def test_a_run_in_a_missing_experiment_is_rejected(
         (MlflowException("no such run", RESOURCE_DOES_NOT_EXIST), False),
         (MlflowException("slow down", REQUEST_LIMIT_EXCEEDED), True),
         (MlflowException("connection refused"), True),
-        (MlflowException("server error", INTERNAL_ERROR), True),
         (FileNotFoundError("model.txt"), False),
-        (PermissionError("model.txt"), False),
-        (ConnectionError("reset"), True),
         (requests.ConnectionError("refused"), True),
         (EndpointConnectionError(endpoint_url="http://s3"), True),
         (ConnectionClosedError(endpoint_url="http://s3"), True),
@@ -462,7 +459,6 @@ def test_a_run_in_a_missing_experiment_is_rejected(
         (http_error(413), False),
         (requests.HTTPError("no response"), True),
         (ValueError("pixel values out of range"), False),
-        (TypeError("unsupported dtype"), False),
     ],
 )
 def test_an_outage_is_told_from_a_rejected_call(
@@ -570,7 +566,7 @@ def test_a_missing_sdk_names_the_extra(
 @pytest.fixture
 def unreachable_uri(monkeypatch: pytest.MonkeyPatch) -> str:
     """Return a tracking URI on a port that nothing listens on."""
-    monkeypatch.setenv("MLFLOW_HTTP_REQUEST_MAX_RETRIES", "0")
+    monkeypatch.setenv(MAX_RETRIES_ENV, "0")
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]

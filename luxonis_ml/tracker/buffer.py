@@ -204,6 +204,7 @@ class BufferedBackend(TrackerBackend, register=False):
         Raises:
             OSError: If the calls that never got through cannot be
                 saved. The run ends all the same.
+            Exception: The error of the close of the wrapped backend.
 
         """
         if self._busy:
@@ -359,7 +360,7 @@ class BufferedBackend(TrackerBackend, register=False):
         if len(same_kind) <= call.limit:
             return
         oldest = same_kind[0]
-        self._calls = [c for c in self._calls if c is not oldest]
+        self._calls.remove(oldest)
         oldest.discard()
         if not self._reported_drop:
             self._reported_drop = True
@@ -441,12 +442,7 @@ class _Call(ABC):
 
 @dataclass(frozen=True, eq=False)
 class _Hyperparams(_Call):
-    """A buffered `TrackerBackend.log_hyperparams` call.
-
-    Attributes:
-        params: The hyperparameters.
-
-    """
+    """A buffered `TrackerBackend.log_hyperparams` call."""
 
     limit: ClassVar[int] = 100
     params: Mapping[str, ParamValue]
@@ -463,13 +459,7 @@ class _Hyperparams(_Call):
 
 @dataclass(frozen=True, eq=False)
 class _Metrics(_Call):
-    """A buffered `TrackerBackend.log_metrics` call.
-
-    Attributes:
-        metrics: The metric values.
-        step: The training step of the values.
-
-    """
+    """A buffered `TrackerBackend.log_metrics` call."""
 
     limit: ClassVar[int] = 500
     metrics: Mapping[str, float]
@@ -491,14 +481,7 @@ class _Metrics(_Call):
 
 @dataclass(frozen=True, eq=False)
 class _Image(_Call):
-    """A buffered `TrackerBackend.log_image` call.
-
-    Attributes:
-        name: Name of the image.
-        image: The image.
-        step: The training step of the image.
-
-    """
+    """A buffered `TrackerBackend.log_image` call."""
 
     limit: ClassVar[int] = 50
     name: str
@@ -525,15 +508,7 @@ class _Image(_Call):
 
 @dataclass(frozen=True, eq=False)
 class _Matrix(_Call):
-    """A buffered `TrackerBackend.log_matrix` call.
-
-    Attributes:
-        matrix: The matrix.
-        name: Name of the matrix.
-        step: The training step of the matrix.
-        extra_data: More data to store with the matrix.
-
-    """
+    """A buffered `TrackerBackend.log_matrix` call."""
 
     limit: ClassVar[int] = 500
     matrix: npt.NDArray[Any]

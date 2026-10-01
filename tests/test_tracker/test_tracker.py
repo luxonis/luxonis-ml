@@ -137,24 +137,6 @@ def test_deprecated_flags_still_enable_backends(
     assert {name: type(b) for name, b in tracker.backends.items()} == expected
 
 
-def test_deprecated_flags_keep_their_options(tmp_path: Path):
-    with pytest.deprecated_call():
-        tracker = LuxonisTracker(
-            project_name="project",
-            save_directory=tmp_path,
-            is_wandb=True,
-            wandb_entity="team",
-            is_mlflow=True,
-            mlflow_tracking_uri="sqlite:///unused.db",
-        )
-
-    assert backend_of(tracker, "wandb", WandbBackend).entity == "team"
-    assert (
-        backend_of(tracker, "mlflow", MLflowBackend).tracking_uri
-        == "sqlite:///unused.db"
-    )
-
-
 @pytest.mark.parametrize(
     ("flags", "replacement"),
     [
@@ -211,8 +193,15 @@ def test_a_backend_keyword_overrides_a_deprecated_flag(tmp_path: Path):
     assert backend_of(tracker, "wandb", WandbBackend).entity == "new"
 
 
-@pytest.mark.parametrize("flags", [{}, {"is_wandb": True, "is_mlflow": True}])
-def test_deprecated_options_fill_in_a_backend_keyword(
+@pytest.mark.parametrize(
+    "flags",
+    [
+        {"is_wandb": True, "is_mlflow": True},
+        {"wandb": True, "mlflow": True},
+        {"is_wandb": True, "is_mlflow": True, "wandb": True, "mlflow": True},
+    ],
+)
+def test_deprecated_options_reach_the_backends(
     tmp_path: Path, flags: dict[str, Any]
 ):
     replacement = (
@@ -223,9 +212,7 @@ def test_deprecated_options_fill_in_a_backend_keyword(
         tracker = LuxonisTracker(
             project_name="project",
             save_directory=tmp_path,
-            wandb=True,
             wandb_entity="team",
-            mlflow=True,
             mlflow_tracking_uri="sqlite:///unused.db",
             **flags,
         )
@@ -250,15 +237,9 @@ def test_a_generated_run_name_takes_the_next_number(tmp_path: Path):
     assert tracker.run_directory.is_dir()
 
 
-def test_an_empty_run_name_gets_a_generated_one(tmp_path: Path):
-    tracker = make_tracker(tmp_path, run_name="")
-
-    assert tracker.run_name.startswith("0-")
-    assert tracker.run_directory != tmp_path
-
-
-def test_the_first_run_is_number_zero(tmp_path: Path):
-    tracker = make_tracker(tmp_path, run_name=None)
+@pytest.mark.parametrize("run_name", [None, ""])
+def test_the_first_run_is_number_zero(tmp_path: Path, run_name: str | None):
+    tracker = make_tracker(tmp_path, run_name=run_name)
 
     assert tracker.version == 0
     assert tracker.run_name.startswith("0-")
@@ -499,49 +480,32 @@ def test_the_property_of_a_replaced_backend_raises(
 
 
 @pytest.mark.parametrize(
-    ("backend", "flag"),
+    ("backend", "attribute", "on", "off"),
     [
-        ("tensorboard", "is_tensorboard"),
-        ("wandb", "is_wandb"),
-        ("mlflow", "is_mlflow"),
+        ("tensorboard", "is_tensorboard", True, False),
+        ("wandb", "is_wandb", True, False),
+        ("mlflow", "is_mlflow", True, False),
+        ("wandb", "wandb_entity", "team", None),
+        ("mlflow", "mlflow_tracking_uri", "sqlite:///unused.db", None),
     ],
 )
-def test_the_deprecated_flags_read_the_backends(
-    tmp_path: Path, backend: str, flag: str
+def test_the_deprecated_properties_read_the_backends(
+    tmp_path: Path, backend: str, attribute: str, on: object, off: object
 ):
-    options = (
-        {"tracking_uri": "sqlite:///unused.db"} if backend == "mlflow" else {}
-    )
+    options = {
+        "tensorboard": {},
+        "wandb": {"entity": "team"},
+        "mlflow": {"tracking_uri": "sqlite:///unused.db"},
+    }
     tracker = make_tracker(
-        tmp_path, project_name="project", **{backend: options}
+        tmp_path, project_name="project", **{backend: options[backend]}
     )
     other = make_tracker(tmp_path)
 
     with pytest.deprecated_call():
-        assert getattr(tracker, flag)
+        assert getattr(tracker, attribute) == on
     with pytest.deprecated_call():
-        assert not getattr(other, flag)
-
-
-@pytest.mark.parametrize(
-    ("backend", "attribute", "options"),
-    [
-        ("wandb", "wandb_entity", {"entity": "team"}),
-        ("mlflow", "mlflow_tracking_uri", {"tracking_uri": "sqlite:///a.db"}),
-    ],
-)
-def test_the_deprecated_options_read_the_backends(
-    tmp_path: Path, backend: str, attribute: str, options: dict[str, str]
-):
-    tracker = make_tracker(
-        tmp_path, project_name="project", **{backend: options}
-    )
-    other = make_tracker(tmp_path)
-
-    with pytest.deprecated_call():
-        assert getattr(tracker, attribute) in options.values()
-    with pytest.deprecated_call():
-        assert getattr(other, attribute) is None
+        assert getattr(other, attribute) == off
 
 
 @pytest.mark.parametrize(

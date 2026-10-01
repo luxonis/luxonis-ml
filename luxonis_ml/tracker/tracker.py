@@ -45,9 +45,6 @@ from .backends.wandb import WandbBackend, WandbOptions
 from .buffer import BufferedBackend
 
 _BackendT = TypeVar("_BackendT", bound=TrackerBackend)
-"""The type of a built-in backend that a property of `LuxonisTracker`
-returns.
-"""
 
 RUN_NAME_ENV = "LUXONIS_TRACKER_RUN_NAME"
 """The environment variable that hands the run name to the other ranks.
@@ -302,7 +299,7 @@ class LuxonisTracker:
 
     @property
     def tensorboard(self) -> TensorBoardBackend:
-        """The TensorBoard backend, started.
+        """The TensorBoard backend, started on rank :math:`0`.
 
         Example:
             .. code-block:: python
@@ -311,6 +308,7 @@ class LuxonisTracker:
 
         Raises:
             AttributeError: If TensorBoard is not enabled.
+            TypeError: If a plugin replaced the backend.
             Exception: The error of a backend that fails to start.
 
         """
@@ -318,7 +316,7 @@ class LuxonisTracker:
 
     @property
     def wandb(self) -> WandbBackend:
-        """The WandB backend, started.
+        """The WandB backend, started on rank :math:`0`.
 
         Example:
             .. code-block:: python
@@ -327,6 +325,7 @@ class LuxonisTracker:
 
         Raises:
             AttributeError: If WandB is not enabled.
+            TypeError: If a plugin replaced the backend.
             Exception: The error of a backend that fails to start.
 
         """
@@ -334,7 +333,7 @@ class LuxonisTracker:
 
     @property
     def mlflow(self) -> MLflowBackend:
-        """The MLflow backend, started.
+        """The MLflow backend, started on rank :math:`0`.
 
         Example:
             .. code-block:: python
@@ -344,6 +343,7 @@ class LuxonisTracker:
 
         Raises:
             AttributeError: If MLflow is not enabled.
+            TypeError: If a plugin replaced the backend.
             Exception: The error of a backend that fails to start. A
                 buffered backend raises only when the service rejects
                 the start.
@@ -552,8 +552,8 @@ class LuxonisTracker:
         run open.
 
         For example, TensorBoard writes its events to disk. A backend
-        that fails to flush does not stop the others. It is reported
-        instead. After `close`, and on a non-zero rank, it does nothing.
+        that fails to flush gives a warning, and the others still flush.
+        After `close`, and on a non-zero rank, it does nothing.
         """
         if self._closed:
             return
@@ -569,9 +569,9 @@ class LuxonisTracker:
     def close(self, status: str = "success") -> None:
         """End the run in each started backend.
 
-        A backend that fails to close does not stop the others. It is
-        reported instead. A second call does nothing, and the tracker
-        ignores the logging calls that come after it.
+        A backend that fails to close gives a warning, and the others
+        still close. A second call does nothing, and the tracker ignores
+        the logging calls that come after it.
 
         Args:
             status: ``"success"`` or ``"finished"`` for a run that
@@ -622,7 +622,7 @@ class LuxonisTracker:
                 )
             return
         self._start_backends()
-        for name, backend in list(self._started.items()):
+        for name, backend in self._started.items():
             if self._closed:
                 return
             try:
