@@ -14,6 +14,10 @@ from typing_extensions import TypedDict
 from luxonis_ml.data.utils.task_utils import task_is_metadata
 from luxonis_ml.typing import RGB
 
+#: The class name under which dataset statistics count the annotations that
+#: have no class.
+NO_CLASS_KEY = ""
+
 
 class DuplicateUUID(TypedDict):
     """One UUID shared by multiple dataset files."""
@@ -40,7 +44,10 @@ class DuplicateInfo(TypedDict):
 
 
 class ClassDistributionRow(TypedDict):
-    """One class-count row in a dataset health distribution."""
+    """One class-count row in a dataset health distribution.
+
+    The annotations without a class are counted under `NO_CLASS_KEY`.
+    """
 
     class_name: str
     count: int
@@ -389,13 +396,15 @@ def get_class_distributions(
         df: Dataset information.
 
     Returns:
-        Class counts grouped by task name and task type.
+        Class counts grouped by task name and task type. The annotations
+        without a class are counted under `NO_CLASS_KEY`.
 
     """
     class_distribution_raw = cast(
         list[_ClassDistributionRecord],
         (
             df.filter(pl.col("task_type") != "classification")
+            .with_columns(pl.col("class_name").fill_null(NO_CLASS_KEY))
             .group_by(["task_name", "task_type", "class_name"])
             .agg(pl.count().alias("count"))
             .sort(["task_name", "task_type", "count"], descending=True)
@@ -682,7 +691,9 @@ def get_class_heatmaps(
 
     Returns:
         Heatmaps grouped by task name, task type, then class name. Each heatmap
-        is a :math:`15 \times 15` nested list of counts.
+        is a :math:`15 \times 15` nested list of counts. The annotations
+        without a class are under `NO_CLASS_KEY`, so the grids of one task
+        type sum to its combined heatmap.
 
     """
     return _class_heatmaps_from_rows(
@@ -699,9 +710,7 @@ def _class_heatmaps_from_rows(
     edges = np.linspace(0, 1, size + 1)
     heatmaps: dict[str, dict[str, dict[str, np.ndarray]]] = {}
     for row in rows:
-        class_name = row.get("class_name")
-        if class_name is None:
-            continue
+        class_name = row.get("class_name") or NO_CLASS_KEY
         grid = _annotation_grid(
             row["task_type"], row["annotation"], edges, downsample_factor
         )

@@ -36,6 +36,7 @@ present.
 """
 
 from .data_utils import (
+    NO_CLASS_KEY,
     find_duplicates,
     get_class_distributions,
     get_class_heatmaps,
@@ -73,6 +74,7 @@ from .task_utils import (
 )
 
 __all__ = [
+    "NO_CLASS_KEY",
     "BucketStorage",
     "BucketType",
     "COCOFormat",

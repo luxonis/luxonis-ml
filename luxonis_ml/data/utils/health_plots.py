@@ -21,8 +21,10 @@ import numpy as np
 
 from luxonis_ml.data.utils.data_utils import (
     HEATMAP_TASK_TYPES,
+    NO_CLASS_KEY,
     ClassDistributionRow,
 )
+from luxonis_ml.utils.color import brand
 from luxonis_ml.vizlab import (
     Caption,
     ClassDistribution,
@@ -61,6 +63,10 @@ _CLASSES_DESC = "Class distribution"
 _HEATMAP_DESC = "Spatial density"
 _PER_CLASS_DESC = "Per-class density"
 
+#: Markup that names the annotations without a class. Class names are
+#: escaped, so no class can render as this label or share its palette key.
+_NO_CLASS_LABEL = "<i>no class</i>"
+
 
 def _panel_title(task_type: str, descriptor: str) -> str:
     """Build a styled two-line panel title: a heading over the task type.
@@ -76,6 +82,16 @@ def _panel_title(task_type: str, descriptor: str) -> str:
         if task_type
         else escape(descriptor)
     )
+
+
+def _class_label(class_name: str) -> str:
+    """Return the markup that names a class in the bars and the tile titles.
+
+    The label is also the palette key, so a class has one color in both.
+    """
+    if class_name == NO_CLASS_KEY:
+        return _NO_CLASS_LABEL
+    return escape(class_name)
 
 
 def _panel_bg(width: float, height: float, color: Color) -> np.ndarray:
@@ -117,7 +133,8 @@ def _distribution_panel(
     if not task_data:
         return _placeholder("no class data", theme=theme)
     pairs = [
-        (str(row["class_name"]), float(row["count"])) for row in task_data
+        (_class_label(row["class_name"]), float(row["count"]))
+        for row in task_data
     ]
     dist = ClassDistribution(
         probabilities=pairs,
@@ -194,6 +211,7 @@ def _class_heatmaps_panel(
 
     Args:
         class_matrices: ``{class_name: 15x15 density grid}`` for one task type.
+            The grid under `NO_CLASS_KEY` gets the last tile.
         side: Target side length that the whole panel should roughly fill.
         theme: The theme supplying background and style.
         palette: Palette mapping class names to their colors.
@@ -204,7 +222,10 @@ def _class_heatmaps_panel(
     """
     if not class_matrices:
         return _placeholder("no heatmap", theme=theme, width=side, height=side)
-    names = sorted(class_matrices)
+    names = sorted(
+        class_matrices, key=lambda name: (name == NO_CLASS_KEY, name)
+    )
+    labels = [_class_label(name) for name in names]
     cols = max(1, math.ceil(math.sqrt(len(names))))
     mini = max(_MIN_MINI, side // cols)
     tiles = [
@@ -214,20 +235,20 @@ def _class_heatmaps_panel(
         ).add(
             Heatmap(
                 values=np.asarray(class_matrices[name], dtype=float),
-                gradient=_class_gradient(palette.color_for(name)),
+                gradient=_class_gradient(palette.color_for(label)),
                 weight_by_value=False,
                 vmin=0.0,
                 alpha=1.0,
             )
         )
-        for name in names
+        for name, label in zip(names, labels, strict=True)
     ]
     # Subordinate titles: these class names sit inside the outer grid's big
     # "… — per-class heatmaps" heading, so keep them small rather than emphasized.
     return grid(
         tiles,
         ncols=cols,
-        titles=names,
+        titles=labels,
         bg=theme.background,
         style=theme.style,
         emphasize_titles=False,
@@ -257,6 +278,9 @@ def build_health_grid(
     When ``class_heatmaps_by_type`` is given, the heatmap column instead shows one
     small, class-colored heatmap per class.
 
+    The annotations without a class (`NO_CLASS_KEY`) show as *no class*, in
+    the brand steel gray. The theme's palette gets a pin for that label.
+
     Args:
         class_dist_by_type: Class counts per task type.
         heatmaps_by_type: Density matrices per task type (``None`` when absent).
@@ -274,6 +298,10 @@ def build_health_grid(
     """
     theme = theme if theme is not None else current_options().theme
     theme = theme.with_style(theme.style.scaled(_BASE_SCALE * scale))
+    # The no-class entry takes a brand neutral, not a class hue. The pin goes
+    # on the theme's own palette, because a copy would drop the class colors
+    # that this grid assigns, and the next task's grid would reassign them.
+    theme.palette.pin(_NO_CLASS_LABEL, brand.STEEL)
     # Only annotations with a spatial representation are plotted. Class
     # distributions may also include metadata, which must not create a
     # placeholder plot in the health view. Keying off the task type rather than

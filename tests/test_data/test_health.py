@@ -7,6 +7,7 @@ import polars as pl
 import pytest
 
 from luxonis_ml.data import DatasetIterator, LuxonisParser
+from luxonis_ml.data.utils import NO_CLASS_KEY
 from luxonis_ml.data.utils.data_utils import (
     ClassDistributionRow,
     ClassHeatmapRow,
@@ -243,6 +244,61 @@ def test_per_class_heatmaps_share_sample(
     np.testing.assert_array_equal(combined, class_sum)
 
 
+def _cars_and_boxes_without_a_class(tempdir: Path) -> DatasetIterator:
+    """Yield three images, each with a car and two boxes without a class."""
+    car, first, second = (
+        {"x": x, "y": x, "w": 0.2, "h": 0.2} for x in (0.1, 0.4, 0.7)
+    )
+    for i in range(3):
+        yield {
+            "media": str(create_image(i, tempdir)),
+            "annotation": {
+                "objects": [
+                    {"class": "car", "boundingbox": car},
+                    {"boundingbox": first},
+                    {"boundingbox": second},
+                ]
+            },
+        }
+
+
+def test_per_class_heatmaps_keep_boxes_without_a_class(
+    dataset_name: str,
+    tempdir: Path,
+) -> None:
+    """Boxes without a class get a grid; the grids sum to the combined one."""
+    dataset = create_dataset(
+        dataset_name, _cars_and_boxes_without_a_class(tempdir)
+    )
+
+    stats = dataset.get_statistics(per_class_heatmaps=True)
+
+    per_class = stats["class_heatmaps"]["objects"]["boundingbox"]
+    assert set(per_class) == {"car", NO_CLASS_KEY}
+    assert np.asarray(per_class[NO_CLASS_KEY]).sum() == 6
+    combined = np.asarray(stats["heatmaps"]["objects"]["boundingbox"])
+    class_sum = sum(np.asarray(grid) for grid in per_class.values())
+    np.testing.assert_array_equal(combined, class_sum)
+
+
+def test_class_distribution_counts_boxes_without_a_class(
+    dataset_name: str,
+    tempdir: Path,
+) -> None:
+    """Boxes without a class are counted in one row under ``NO_CLASS_KEY``."""
+    dataset = create_dataset(
+        dataset_name, _cars_and_boxes_without_a_class(tempdir)
+    )
+
+    stats = dataset.get_statistics()
+
+    rows = stats["class_distributions"]["objects"]["boundingbox"]
+    assert rows == [
+        {"class_name": NO_CLASS_KEY, "count": 6},
+        {"class_name": "car", "count": 3},
+    ]
+
+
 def test_build_health_grid_per_class_heatmaps() -> None:
     """Per-class heatmaps render one class-colored tile per class."""
     pytest.importorskip("luxonis_ml.vizlab")
@@ -272,6 +328,46 @@ def test_build_health_grid_per_class_heatmaps() -> None:
     assert rendered.shape != combined.shape or not np.array_equal(
         rendered, combined
     )
+
+
+def test_build_health_grid_draws_no_class_in_steel_gray() -> None:
+    """The no-class bar and tile are steel gray and take no palette hue."""
+    pytest.importorskip("luxonis_ml.vizlab")
+    from luxonis_ml.data.utils.health_plots import build_health_grid
+    from luxonis_ml.utils.color import brand
+    from luxonis_ml.vizlab import DARK_THEME, Palette
+
+    ramp = [[i + j for j in range(15)] for i in range(15)]
+
+    def render(third_class: str) -> tuple[np.ndarray, Palette]:
+        class_dist: ClassDistributionsByType = {
+            "boundingbox": [
+                {"class_name": "person", "count": 100},
+                {"class_name": "car", "count": 40},
+                {"class_name": third_class, "count": 30},
+            ]
+        }
+        class_heatmaps = {
+            "boundingbox": {"person": ramp, "car": ramp, third_class: ramp}
+        }
+        palette = Palette()
+        rendered = build_health_grid(
+            class_dist,
+            {"boundingbox": ramp},
+            class_heatmaps_by_type=class_heatmaps,
+            theme=DARK_THEME.with_palette(palette),
+        ).render()
+        return rendered, palette
+
+    with_no_class, palette = render(NO_CLASS_KEY)
+    with_truck, truck_palette = render("truck")
+
+    # A pinned color takes no palette slot, so only the classes take one.
+    assert len(palette) == 2
+    assert len(truck_palette) == 3
+    steel = brand.STEEL.rgb
+    assert np.all(with_no_class[..., :3] == steel, axis=-1).any()
+    assert not np.all(with_truck[..., :3] == steel, axis=-1).any()
 
 
 def test_build_health_grid_renders() -> None:
