@@ -1,5 +1,6 @@
 """End-to-end coverage for the ``data inspect`` command (thin viewer adapter)."""
 
+import io
 import re
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
@@ -100,7 +101,11 @@ def test_plain_is_tri_state_on_both_commands(
 
 
 def _command_help(command: str) -> str:
-    console = Console(record=True, width=120)
+    # On Windows, rich swaps the rounded panel boxes for square ones unless
+    # legacy_windows is off. _help_panels reads the rounded corners.
+    console = Console(
+        file=io.StringIO(), record=True, width=120, legacy_windows=False
+    )
     data_main.app.help_print([command], console=console)
     return console.export_text()
 
