@@ -310,10 +310,14 @@ def test_export_2_2_flattens_the_record_but_keeps_the_keypoint_fields(
         if "keypoints" in record.get("annotation", {})
     ]
     assert keypoints
-    named = [k for k in keypoints if isinstance(k["keypoints"], dict)]
-    assert len(named) == 1
-    assert set(named[0]["keypoints"]) == {"nose", "left_eye", "right_eye"}
-    assert named[0]["edges"]
+    # Every record names its keypoints, and one carries the task fields.
+    assert all(
+        set(k["keypoints"]) == {"nose", "left_eye", "right_eye"}
+        for k in keypoints
+    )
+    with_fields = [k for k in keypoints if "edges" in k]
+    assert len(with_fields) == 1
+    assert with_fields[0]["edges"]
 
 
 def test_an_export_without_the_task_fields_still_imports(

@@ -2449,6 +2449,15 @@ def test_inspect_save_writes_a_clip_when_given_a_clip_extension(
     assert not (tmp_path / "preview").exists()  # no stray directory
 
 
+def _read_image(path: Path) -> np.ndarray:
+    """Decode a saved still."""
+    import cv2
+
+    image = cv2.imread(str(path))
+    assert image is not None, path
+    return image
+
+
 def _first_clip_frame(path: Path) -> np.ndarray:
     """Decode a clip's opening frame."""
     import cv2
@@ -2466,7 +2475,6 @@ def test_inspect_save_clip_drops_the_panel_unless_asked_to_keep_it(
     # A clip has one fixed canvas but the panel's width follows each sample's
     # metadata, so --plain is the default there. --no-plain restores it, and
     # the directory form keeps the panel either way.
-    import cv2
 
     from luxonis_ml.vizlab import RenderOptions, set_default_options
 
@@ -2480,7 +2488,7 @@ def test_inspect_save_clip_drops_the_panel_unless_asked_to_keep_it(
 
     bare = _first_clip_frame(tmp_path / "bare.mp4")
     full = _first_clip_frame(tmp_path / "full.mp4")
-    directory = cv2.imread(str(tmp_path / "stills" / "0000_frame01.png"))
+    directory = _read_image(tmp_path / "stills" / "0000_frame01.png")
     assert bare.shape[1] == 60  # the source image alone, no panel, no surround
     assert full.shape[1] > bare.shape[1]  # --no-plain put the panel back
     assert directory.shape[1] > bare.shape[1]  # a directory still gets one
@@ -2507,7 +2515,6 @@ def test_inspect_save_writes_an_animation_too(
 def test_inspect_save_plain_drops_the_panel(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import cv2
 
     from luxonis_ml.vizlab import RenderOptions, set_default_options
 
@@ -2522,8 +2529,8 @@ def test_inspect_save_plain_drops_the_panel(
     finally:
         set_default_options(RenderOptions())
 
-    paneled = cv2.imread(str(tmp_path / "panel" / "0000_frame01.png"))
-    plain = cv2.imread(str(tmp_path / "plain" / "0000_frame01.png"))
+    paneled = _read_image(tmp_path / "panel" / "0000_frame01.png")
+    plain = _read_image(tmp_path / "plain" / "0000_frame01.png")
     assert plain.shape[1] == 60  # just the source image, no panel
     assert paneled.shape[1] > plain.shape[1]  # the panel widened it
 
@@ -2590,11 +2597,10 @@ def test_inspect_auto_size_reserves_space_for_controls_panel(
 
 def _rendered_width(directory: Path) -> int:
     """Width of the single render a headless save wrote."""
-    import cv2
 
     written = sorted(directory.iterdir())
     assert len(written) == 1, [p.name for p in written]
-    return cv2.imread(str(written[0])).shape[1]
+    return _read_image(written[0]).shape[1]
 
 
 def _stereo_array() -> "Labels":
@@ -2658,7 +2664,6 @@ def test_inspect_array_overlay_keeps_one_tile_and_targets_one_source(
 ) -> None:
     # An overlay paints onto a source rather than adding a tile, and only onto
     # the reference view -- a disparity map does not describe the other one.
-    import cv2
 
     from luxonis_ml.vizlab import RenderOptions, set_default_options
 
@@ -2677,7 +2682,7 @@ def test_inspect_array_overlay_keeps_one_tile_and_targets_one_source(
         set_default_options(RenderOptions())
 
     written = sorted((tmp_path / "over").iterdir())
-    rendered = cv2.imread(str(written[0]))
+    rendered = _read_image(written[0])
     # Two source tiles, no third: an overlay does not add one.
     assert rendered.shape[1] < 3 * 60
     left, right = rendered[:, :60], rendered[:, -60:]
