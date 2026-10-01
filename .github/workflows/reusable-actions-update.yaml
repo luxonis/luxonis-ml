@@ -1,0 +1,37 @@
+name: Reusable Actions Update
+
+# Shared by every Luxonis repository. Call it from a thin
+# `GitHub Actions Version Updater` workflow, as
+# `.github/workflows/actions_autoupdate.yaml` in this repository does.
+
+on:
+  workflow_call:
+    inputs:
+      pull-request-labels:
+        description: "Comma-separated labels of the pull request"
+        type: string
+        default: automated
+    secrets:
+      WORKFLOW_SECRET:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  update-github-actions:
+    runs-on: ubuntu-latest
+    steps:
+      # `persist-credentials` must stay enabled: the updater below pushes its
+      # branch with a plain `git push`, relying on the token this step writes
+      # into the local git config.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # zizmor: ignore[artipacked]
+        with:
+          token: ${{ secrets.WORKFLOW_SECRET }}
+
+      - name: Run GitHub Actions Version Updater
+        uses: saadmk11/github-actions-version-updater@d8781caf11d11168579c8e5e94f62b068038f442
+        with:
+          token: ${{ secrets.WORKFLOW_SECRET }}
+          update_version_with: "release-commit-sha"
+          pull_request_labels: ${{ inputs.pull-request-labels }}

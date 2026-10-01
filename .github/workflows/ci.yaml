@@ -9,26 +9,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  auto-assigner:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Auto-assign
-        uses: toshimaru/auto-author-assign@a78a94b219445cece8ccf0d45fec60af449f212a
-
-  labeler:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ github.head_ref }}
-
-      - name: Labeler
-        uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13
-        with:
-          configuration-path: .github/labeler.yaml
+  metadata:
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/reusable-metadata.yaml
 
   pre-commit:
     runs-on: ubuntu-latest
@@ -90,51 +75,7 @@ jobs:
 
   semgrep:
     needs: pre-commit
-    runs-on: ubuntu-latest
-    container:
-      image: returntocorp/semgrep
-    permissions:
-      security-events: write
-      actions: read
-      contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-
-      - name: Perform Semgrep Analysis
-        run: semgrep scan -q --sarif --config auto --config "p/secrets" . > semgrep-results.sarif
-
-      - name: Pretty-Print SARIF Output
-        run: |
-          jq . semgrep-results.sarif > formatted-semgrep-results.sarif || echo "{}"
-          echo "Formatted SARIF Output (First 20 lines):"
-          head -n 20 formatted-semgrep-results.sarif || echo "{}"
-
-      - name: Validate JSON Output
-        run: |
-          if ! jq empty formatted-semgrep-results.sarif > /dev/null 2>&1; then
-            echo "⚠️ Semgrep output is not valid JSON. Skipping annotations."
-            exit 0
-          fi
-
-      - name: Add PR Annotations for Semgrep Findings
-        run: |
-          total_issues=$(jq '.runs[0].results | length' formatted-semgrep-results.sarif)
-          if [[ "$total_issues" -eq 0 ]]; then
-            echo "✅ No Semgrep issues found!"
-            exit 0
-          fi
-
-          jq -c '.runs[0].results[]' formatted-semgrep-results.sarif | while IFS= read -r issue; do
-            file=$(echo "$issue" | jq -r '.locations[0].physicalLocation.artifactLocation.uri')
-            line=$(echo "$issue" | jq -r '.locations[0].physicalLocation.region.startLine')
-            message=$(echo "$issue" | jq -r '.message.text')
-
-            if [[ -n "$file" && -n "$line" && -n "$message" ]]; then
-              echo "::error file=$file,line=$line,title=Semgrep Issue::${message}"
-            fi
-          done
+    uses: ./.github/workflows/reusable-semgrep.yaml
 
   tests:
     strategy:
