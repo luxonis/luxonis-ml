@@ -161,6 +161,26 @@ def test_task_fields_are_not_stored_per_annotation():
     assert payload(annotation) == {"keypoints": [[0.1, 0.2, 2], [0.3, 0.4, 1]]}
 
 
+def test_a_json_round_trip_keeps_the_task_fields():
+    """Only the stored payload is positional."""
+    annotation = KeypointAnnotation.model_validate(
+        {
+            "keypoints": {"nose": (0.1, 0.2, 2), "left_eye": (0.3, 0.4, 1)},
+            "edges": [("nose", "left_eye")],
+            "sigmas": [0.1, 0.2],
+        }
+    )
+
+    restored = KeypointAnnotation.model_validate_json(
+        annotation.model_dump_json()
+    )
+
+    assert restored == annotation
+    assert restored.declared_metadata() == KeypointMetadata(
+        labels=["nose", "left_eye"], edges=[(0, 1)], sigmas=[0.1, 0.2]
+    )
+
+
 def test_combine_to_numpy_gives_one_flat_row_per_annotation():
     """The loader output contract, and the augmentation stride of three."""
     annotation = KeypointAnnotation.model_validate(
