@@ -788,6 +788,27 @@ def test_a_plugin_registers_itself_when_it_loads(
     assert type(tracker.backends["plugin"]).__name__ == "PluginBackend"
 
 
+def test_a_plugin_replaces_the_backend_that_it_extends(
+    plugins: list[FakeEntryPoint],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setitem(TRACKER_BACKENDS._module_dict, "fake", FakeBackend)
+
+    def load_plugin() -> type[FakeBackend]:
+        class BetterFakeBackend(FakeBackend, register_name="fake"):
+            pass
+
+        return BetterFakeBackend
+
+    plugins.append(FakeEntryPoint("fake", load_plugin))
+
+    tracker_package._load_backend_plugins()
+    tracker = make_tracker(tmp_path)
+
+    assert type(tracker.backends["fake"]).__name__ == "BetterFakeBackend"
+
+
 def test_a_subclass_that_opts_out_is_not_registered():
     class Helper(FakeBackend, register=False):
         pass

@@ -39,9 +39,9 @@ TRACKER_BACKENDS: Registry[type["TrackerBackend"]] = Registry(
 
 Each subclass of `TrackerBackend` registers itself here when Python
 creates the class. The name is the ``register_name`` class argument, or
-else the name of the class. A later class with the same name replaces
-the earlier one. A subclass with ``register=False`` stays out of the
-registry.
+else the name of the class. A plugin of the ``tracker_plugins`` entry
+points replaces the backend of the same name. A subclass with
+``register=False`` stays out of the registry.
 """
 
 

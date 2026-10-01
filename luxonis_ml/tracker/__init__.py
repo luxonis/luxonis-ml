@@ -308,16 +308,17 @@ that the service rejects. `LuxonisTracker` then wraps the backend in a
 
 A package makes its backend available through the ``tracker_plugins``
 entry-point group. Importing ``luxonis_ml.tracker`` loads each entry
-point of the group, and the class registers itself. Name the entry point
-after the ``register_name`` of the class:
+point of the group, and registers the class under the name of the entry
+point. Name the entry point after the ``register_name`` of the class:
 
 .. code-block:: toml
 
     [project.entry-points.tracker_plugins]
     jsonl = "my_package.tracking:JsonLinesBackend"
 
-A plugin that fails to load is skipped with a warning. A backend with
-the ``register_name`` of a built-in backend replaces the built-in one.
+A plugin that fails to load is skipped with a warning. A plugin with the
+name of a built-in backend replaces the built-in one, also when it is a
+subclass of it.
 
 See:
     `LuxonisTracker` for the arguments of the tracker,
@@ -349,12 +350,14 @@ with guard_missing_extra("tracker"):
 
 
 def _load_backend_plugins() -> None:
-    """Import the backends of the ``tracker_plugins`` entry points.
+    """Load the backends of the ``tracker_plugins`` entry points.
 
-    A `TrackerBackend` subclass registers itself when Python creates it,
-    so loading the entry point is enough. A plugin that fails to load, or
-    that is not a `TrackerBackend` subclass, is skipped with a warning,
-    so that one broken package does not break this import.
+    Each plugin is registered under the name of its entry point.
+    `AutoRegisterMeta` keeps a registered class over a subclass of the
+    same name, so without this a plugin that extends a built-in backend
+    would not replace it. A plugin that fails to load, or that is not a
+    `TrackerBackend` subclass, is skipped with a warning, so that one
+    broken package does not break this import.
     """
     for entry_point in entry_points(group="tracker_plugins"):
         try:
@@ -371,6 +374,10 @@ def _load_backend_plugins() -> None:
                 f"Skipping the tracker plugin '{entry_point.name}': "
                 f"{backend!r} is not a `TrackerBackend` subclass."
             )
+            continue
+        TRACKER_BACKENDS.register(
+            module=backend, name=entry_point.name, force=True
+        )
 
 
 _load_backend_plugins()
