@@ -40,7 +40,6 @@ from luxonis_ml.data.utils.data_utils import HEATMAP_TASK_TYPES
 from luxonis_ml.data.utils.enums import BucketStorage
 from luxonis_ml.data.utils.inspection import (
     InspectionAnnotationType,
-    NameFilterMode,
     SampleFilterConfig,
 )
 from luxonis_ml.data.utils.sample_identity import (
@@ -179,30 +178,26 @@ def _present_classes(record: "DatasetRecord") -> list[str]:
 
 
 def _filter_record_by_task(
-    record: "DatasetRecord",
-    task_names: frozenset[str] | None,
-    mode: NameFilterMode = "include",
+    record: "DatasetRecord", filters: SampleFilterConfig
 ) -> "DatasetRecord":
-    """Apply an inclusive or exclusive complete-task-name filter."""
-    if task_names is None:
+    """Keep the tasks of a record that pass the task filter."""
+    if filters.task_filter is None:
         return record
     return record.model_copy(
         update={
             "annotation": {
                 name: detections
                 for name, detections in record.annotation.items()
-                if (name in task_names) == (mode == "include")
+                if filters.accepts_task(name)
             }
         }
     )
 
 
 def _array_labels(
-    labels: "Labels",
-    task_names: frozenset[str] | None = None,
-    mode: NameFilterMode = "include",
+    labels: "Labels", filters: SampleFilterConfig = _NO_SAMPLE_FILTERS
 ) -> dict[str, np.ndarray]:
-    """Return array labels keyed by complete, optionally filtered task path.
+    """Return array labels keyed by complete task path, scoped by task.
 
     The one place that decides which labels are arrays, so the annotation-type
     filter and the renderer can never disagree about what ``--task-name``
@@ -214,23 +209,16 @@ def _array_labels(
         for key, value in labels.items()
         if get_task_type(key) == "array"
         and key.endswith(suffix)
-        and (
-            task_names is None
-            or (key[: -len(suffix)] in task_names) == (mode == "include")
-        )
+        and filters.accepts_task(key[: -len(suffix)])
     }
 
 
 def _loader_annotation_types(
-    labels: "Labels",
-    task_names: frozenset[str] | None = None,
-    mode: NameFilterMode = "include",
+    labels: "Labels", filters: SampleFilterConfig
 ) -> frozenset[InspectionAnnotationType]:
     """Annotation families present only in raw loader labels."""
     return (
-        frozenset({"array"})
-        if _array_labels(labels, task_names, mode)
-        else frozenset()
+        frozenset({"array"}) if _array_labels(labels, filters) else frozenset()
     )
 
 
@@ -1031,7 +1019,6 @@ def inspect(
         available_tasks=available_tasks,
         available_classes=available_classes,
     )
-    task_filter = filters.task_filter
     query = filters.query()
 
     loader = LuxonisLoader(
@@ -1175,17 +1162,13 @@ def inspect(
         """Convert, filter, and snapshot panel data in loader order."""
         for data in loader:
             record = _filter_record_by_task(
-                data.to_ldf(keep_background=show_background),
-                task_filter,
-                filters.task_name_mode,
+                data.to_ldf(keep_background=show_background), filters
             )
             if not query.matches(
                 record,
                 record.sample_metadata,
                 extra_annotation_types=_loader_annotation_types(
-                    data.labels,
-                    task_filter,
-                    filters.task_name_mode,
+                    data.labels, filters
                 ),
             ):
                 continue
@@ -1216,9 +1199,7 @@ def inspect(
             layers = LayerState(declutter=not show_all)
             for data, record, panel in prepared_samples():
                 layers.update_classes(_present_classes(record))
-                arrays = _array_labels(
-                    data.labels, task_filter, filters.task_name_mode
-                )
+                arrays = _array_labels(data.labels, filters)
                 layers.has_arrays = bool(arrays)
                 viz = composer.render(
                     data.images,
@@ -1257,9 +1238,7 @@ def inspect(
     def viewer_samples() -> "Iterable[ViewerSample]":
         """Bind each sample to its own frame builder, in loader order."""
         for data, record, panel in prepared_samples():
-            arrays = _array_labels(
-                data.labels, task_filter, filters.task_name_mode
-            )
+            arrays = _array_labels(data.labels, filters)
             color_by = sample_color_mode(record)
 
             def render(
@@ -1499,7 +1478,6 @@ def compare(
         available_tasks=available_tasks,
         available_classes=available_classes,
     )
-    task_filter = filters.task_filter
     query = filters.query()
 
     def _loader(dataset: LuxonisDataset) -> LuxonisLoader:
@@ -1588,9 +1566,7 @@ def compare(
 
     def record_for(data: "LoaderOutput") -> "DatasetRecord":
         return _filter_record_by_task(
-            data.to_ldf(keep_background=show_background),
-            task_filter,
-            filters.task_name_mode,
+            data.to_ldf(keep_background=show_background), filters
         )
 
     def sample_matches(data: "LoaderOutput") -> bool:
@@ -1602,9 +1578,7 @@ def compare(
             record,
             record.sample_metadata,
             extra_annotation_types=_loader_annotation_types(
-                data.labels,
-                task_filter,
-                filters.task_name_mode,
+                data.labels, filters
             ),
         )
 

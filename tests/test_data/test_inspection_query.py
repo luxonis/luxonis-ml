@@ -1,5 +1,6 @@
-"""Focused tests for typed dataset-inspection sample filters."""
+"""Tests for the dataset-inspection sample filters."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -8,30 +9,17 @@ from luxonis_ml.data.utils.inspection import (
     InspectionAnnotationType,
     InspectionQuery,
     MetadataPredicate,
+    NameFilterMode,
     SampleFilterConfig,
     _metadata_equal,
 )
 from luxonis_ml.ldf import BBoxAnnotation, DatasetRecord, Detection
 from luxonis_ml.typing import Params
 
-
-def _record() -> DatasetRecord:
-    child = Detection(class_name="plate", metadata={"text": "ABC-123"})
-    detection = Detection(
-        class_name="car",
-        instance_id=7,
-        boundingbox=BBoxAnnotation(x=0.1, y=0.2, w=0.3, h=0.4),
-        metadata={"confidence": 0.86, "quality": "approved"},
-        sub_detections={"plate": child},
-    )
-    return DatasetRecord.model_construct(
-        files={"image": Path("frame.jpg")},
-        annotation={"objects": [detection]},
-    )
-
-
-def _empty_record() -> DatasetRecord:
-    return DatasetRecord.model_construct(files={}, annotation={})
+SAMPLE_METADATA: Params = {
+    "filenames": {"image": "frame_0042.jpg"},
+    "camera": {"side": "left"},
+}
 
 
 def test_sample_filter_config_validates_and_builds_query() -> None:
@@ -52,13 +40,58 @@ def test_sample_filter_config_validates_and_builds_query() -> None:
     )
 
     assert config.task_filter == frozenset({"objects"})
-    assert config.query().matches(
-        _record(),
-        {
-            "filenames": {"image": "frame_0042.jpg"},
-            "camera": {"side": "left"},
-        },
-    )
+    assert config.query().matches(_record(), SAMPLE_METADATA)
+
+
+@pytest.mark.parametrize(
+    ("mode", "accepted", "rejected"),
+    [("include", "objects", "other"), ("exclude", "other", "objects")],
+)
+def test_task_name_mode_decides_which_tasks_pass(
+    mode: NameFilterMode, accepted: str, rejected: str
+) -> None:
+    """`task_filter` alone loses the mode, so `accepts_task` applies it."""
+    config = SampleFilterConfig(task_name=["objects"], task_name_mode=mode)
+    assert config.accepts_task(accepted)
+    assert not config.accepts_task(rejected)
+
+
+def test_task_filter_accepts_everything_when_unset() -> None:
+    config = SampleFilterConfig()
+    assert config.task_filter is None
+    assert config.accepts_task("anything")
+
+
+def test_requested_class_names_are_trimmed() -> None:
+    """Available and stored class names are trimmed, so requests must be too."""
+    config = SampleFilterConfig(class_name=["  car  "])
+    config.validate(available_classes=["car"])
+    assert config.query().class_names == frozenset({"car"})
+
+
+@pytest.mark.parametrize(
+    ("config", "message"),
+    [
+        (
+            SampleFilterConfig(task_name=["missing"]),
+            "Unknown task name(s): 'missing'. "
+            "Available task names: 'objects', 'seg'.",
+        ),
+        (
+            SampleFilterConfig(class_name=["missing"]),
+            "Unknown class name(s): 'missing'. "
+            "Available class names: 'car', 'person'.",
+        ),
+    ],
+)
+def test_validate_lists_the_unknown_name_and_the_available_scope(
+    config: SampleFilterConfig, message: str
+) -> None:
+    with pytest.raises(ValueError, match=re.escape(message)):
+        config.validate(
+            available_tasks=["seg", "objects"],
+            available_classes=["person", "car"],
+        )
 
 
 @pytest.mark.parametrize(
@@ -81,16 +114,13 @@ def test_sample_filter_config_validates_and_builds_query() -> None:
         ),
         InspectionQuery(search="abc-123"),
         InspectionQuery(search="FRAME_0042"),
+        InspectionQuery(search="objects"),
     ],
 )
 def test_query_matches_supported_sample_filters(
     query: InspectionQuery,
 ) -> None:
-    metadata: Params = {
-        "filenames": {"image": "frame_0042.jpg"},
-        "camera": {"side": "left"},
-    }
-    assert query.matches(_record(), metadata)
+    assert query.matches(_record(), SAMPLE_METADATA)
 
 
 @pytest.mark.parametrize(
@@ -113,11 +143,36 @@ def test_query_matches_supported_sample_filters(
     ],
 )
 def test_query_rejects_nonmatching_samples(query: InspectionQuery) -> None:
-    metadata: Params = {
-        "filenames": {"image": "frame_0042.jpg"},
-        "camera": {"side": "left"},
-    }
-    assert not query.matches(_record(), metadata)
+    assert not query.matches(_record(), SAMPLE_METADATA)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        InspectionQuery(class_names=frozenset({"car"})),
+        InspectionQuery(annotation_types=frozenset({"boundingbox"})),
+        InspectionQuery(
+            metadata=(MetadataPredicate.from_pair("quality", "approved"),)
+        ),
+        InspectionQuery(min_confidence=0.5),
+        InspectionQuery(min_instances=0),  # a bound of zero still filters
+        InspectionQuery(max_instances=0),
+        InspectionQuery(unlabeled_only=True),
+        InspectionQuery(search="car"),
+    ],
+)
+def test_a_single_filter_makes_the_query_active(
+    query: InspectionQuery,
+) -> None:
+    assert query.active
+
+
+@pytest.mark.parametrize(
+    "query",
+    [InspectionQuery(), InspectionQuery(class_name_mode="exclude")],
+)
+def test_a_query_without_filters_is_inactive(query: InspectionQuery) -> None:
+    assert not query.active
 
 
 def test_unlabeled_query_accepts_an_empty_sample() -> None:
@@ -166,11 +221,16 @@ def test_query_rejects_invalid_filter_combinations() -> None:
             class_names=frozenset({"car"}),
             unlabeled_only=True,
         )
-    assert InspectionQuery(
+
+
+def test_unlabeled_only_allows_an_exclusive_class_filter() -> None:
+    """Excluding a class narrows unlabeled samples instead of contradicting."""
+    query = InspectionQuery(
         class_names=frozenset({"car"}),
         class_name_mode="exclude",
         unlabeled_only=True,
-    ).matches(_empty_record(), {})
+    )
+    assert query.matches(_empty_record(), {})
 
 
 @pytest.mark.parametrize(
@@ -218,3 +278,22 @@ def test_bool_metadata_still_matches_by_name_not_by_number() -> None:
 def test_string_metadata_still_compares_case_insensitively() -> None:
     assert _metadata_equal("Approved", "approved")
     assert not _metadata_equal("approved", "rejected")
+
+
+def _record() -> DatasetRecord:
+    child = Detection(class_name="plate", metadata={"text": "ABC-123"})
+    detection = Detection(
+        class_name="car",
+        instance_id=7,
+        boundingbox=BBoxAnnotation(x=0.1, y=0.2, w=0.3, h=0.4),
+        metadata={"confidence": 0.86, "quality": "approved"},
+        sub_detections={"plate": child},
+    )
+    return DatasetRecord.model_construct(
+        files={"image": Path("frame.jpg")},
+        annotation={"objects": [detection]},
+    )
+
+
+def _empty_record() -> DatasetRecord:
+    return DatasetRecord.model_construct(files={}, annotation={})

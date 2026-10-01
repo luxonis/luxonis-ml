@@ -283,12 +283,16 @@ def test_array_labels_keep_complete_nested_task_paths() -> None:
         "parent/depth",
         "parent/flow",
     ]
-    assert sorted(
-        data_main._array_labels(labels, frozenset({"parent/depth"}))
-    ) == ["parent/depth"]
-    assert sorted(
-        data_main._array_labels(labels, frozenset({"parent/depth"}), "exclude")
-    ) == ["parent/flow"]
+    depth_only = SampleFilterConfig(task_name=["parent/depth"])
+    assert sorted(data_main._array_labels(labels, depth_only)) == [
+        "parent/depth"
+    ]
+    all_but_depth = SampleFilterConfig(
+        task_name=["parent/depth"], task_name_mode="exclude"
+    )
+    assert sorted(data_main._array_labels(labels, all_but_depth)) == [
+        "parent/flow"
+    ]
 
 
 def test_present_sample_metadata_collapses_single_input() -> None:
