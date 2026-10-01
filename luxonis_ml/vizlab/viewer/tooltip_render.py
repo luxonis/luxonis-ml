@@ -255,6 +255,15 @@ def blit_rgba_on_bgr(
 
     For a card drawn once (the controls HUD). A card drawn repeatedly should go
     through `TooltipCard`, which keeps the weights this folds on every call.
+
+    Args:
+        frame: The BGR frame to composite onto, in place.
+        rgba: The ``(H, W, 4)`` uint8 card.
+        x: The left edge of the card in frame pixels.
+        y: The top edge of the card in frame pixels.
+        blur: The blur sigma behind the body of the card, in pixels; ``0``
+            draws no blur.
+
     """
     _CardArrays(rgba, blur).blit(frame, x, y)
 
@@ -331,6 +340,15 @@ class TooltipCard:
     def __init__(
         self, tooltip: Tooltip, rgba: np.ndarray, blur: float
     ) -> None:
+        """Wrap a rendered card. Use `prepare_tooltip` to build one.
+
+        Args:
+            tooltip: The tooltip the card was rendered from.
+            rgba: The rendered card as an ``(H, W, 4)`` uint8 array.
+            blur: The blur sigma of the frosted backdrop behind the card, in
+                pixels.
+
+        """
         self.tooltip = tooltip
         self._card = _CardArrays(rgba, blur)
 
@@ -396,6 +414,12 @@ def draw_tooltip(
     The card is clamped to stay fully in-bounds and skipped entirely if it would
     not fit within the frame. Drawing the same tooltip repeatedly (following the
     cursor) should keep a `prepare_tooltip` card instead of re-rendering here.
+
+    Args:
+        frame: The BGR frame to draw onto, in place.
+        tooltip: The tooltip to draw.
+        at: The cursor position in frame pixels.
+
     """
     card = prepare_tooltip(frame, tooltip)
     if card is not None:

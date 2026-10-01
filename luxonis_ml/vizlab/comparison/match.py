@@ -23,26 +23,37 @@ from luxonis_ml.vizlab.geometry import Rect, bounding_rect
 if TYPE_CHECKING:
     from luxonis_ml.ldf import Detection
 
-    #: A matchable detection: a vizlab box or a full LDF detection tree.
+    #: A matchable detection, either a vizlab box or a full LDF detection tree.
     Detectionish = BBox | Detection
 
-# Verdict colors, tuned for the dark composite background. Themeable later.
+# Verdict colors, tuned for the dark composite background. A miss outranks a
+# false alarm: a missed object can never be recovered downstream, while a false
+# alarm is at least visible. So red marks the miss.
+
+#: The color of a true positive, a prediction that matches the ground truth.
 TP_COLOR = Color.parse("#35d6a6")
-# A miss outranks a false alarm: a missed object can never be recovered
-# downstream, while a false alarm is at least visible. So red marks the miss.
+#: The color of a false negative, a ground-truth object no prediction found.
 FN_COLOR = Color.parse("#ff6b6b")
+#: The color of a false positive, a prediction with no ground-truth match.
 FP_COLOR = Color.parse("#ffc24b")
+#: The color of a class error, a localized match with the wrong class.
 CLASS_ERROR_COLOR = Color.parse("#ff9142")
 
+#: One keypoint as ``(x, y, visibility)``, with normalized coordinates.
 ComparisonKeypoint = tuple[float, float, int]
 
 
 class Verdict(Enum):
     """The outcome of matching one detection against the ground truth."""
 
+    #: A prediction that matches a ground-truth object of the same class.
     TP = "true_positive"
+    #: A prediction that matches no ground-truth object.
     FP = "false_positive"
+    #: A ground-truth object that no prediction matches.
     FN = "false_negative"
+    #: A prediction that overlaps a ground-truth object of another class. It
+    #: still counts as one false positive and one false negative.
     CLASS_ERROR = "class_error"
 
 
@@ -189,7 +200,14 @@ class ComparisonResult:
         }
 
     def summary(self) -> dict[str, str | int]:
-        """Aggregate metrics as a panel-ready mapping."""
+        """Aggregate metrics as a panel-ready mapping.
+
+        Returns:
+            Precision, recall, F1 and mean IoU as text with two decimals, and
+            the counts of true positives, false positives, false negatives and
+            class errors.
+
+        """
         return {
             "precision": f"{self.precision:.2f}",
             "recall": f"{self.recall:.2f}",
@@ -202,7 +220,12 @@ class ComparisonResult:
         }
 
     def per_class_panel(self) -> dict[str, str]:
-        """Per-class metrics as compact ``{class: "P .. R .. (tp/fp/fn)"}`` rows."""
+        """Per-class metrics as compact panel rows.
+
+        Returns:
+            ``{class: "P .. R .. (tp/fp/fn)"}``, one row for each class.
+
+        """
         return {
             name: f"P {v['precision']:.2f}  R {v['recall']:.2f}  "
             f"({v['tp']}/{v['fp']}/{v['fn']})"
@@ -397,4 +420,6 @@ def _fmt_class(obj: "Detectionish | None") -> str:
     return label or "object"
 
 
+#: The confusion-matrix label for "no object", the predicted class of a miss
+#: and the true class of a false alarm.
 NONE_LABEL = "∅"

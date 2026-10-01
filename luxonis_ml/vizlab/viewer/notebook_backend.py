@@ -16,7 +16,7 @@ from typing import Protocol, TypedDict, cast
 
 import numpy as np
 
-from .backend import KeyHandler, MouseHandler
+from .backend import KeyHandler, MouseHandler, WindowBackend
 
 #: Where the notebook viewer's optional dependencies live.
 _EXTRA = "the 'notebook' extra (pip install 'luxonis-ml[notebook]')"
@@ -149,20 +149,13 @@ def _relative_to_frame(
     return int(rel_x * frame_w / rect_w), int(rel_y * frame_h / rect_h)
 
 
-class NotebookBackend:
+class NotebookBackend(WindowBackend):
     """Show vizlab frames in a notebook via ipywidgets — a push backend.
 
     Use it with `Viewer.run`: present frames with `Viewer.show`, then hand off to
     the notebook's own event loop. The control buttons deliver keys to the
     viewer's ``on_key`` (their labels map to the characters given in
     ``controls``), and mouse-move over a frame drives hover tooltips.
-
-    Args:
-        screen: Optional ``(width, height)`` budget so the viewer shrinks large
-            frames to fit; ``None`` renders at native size.
-        controls: ``{label: key_char}`` for the navigation buttons; each click
-            delivers ``key_char`` as if it were pressed.
-
     """
 
     def __init__(
@@ -171,6 +164,15 @@ class NotebookBackend:
         screen: tuple[int, int] | None = None,
         controls: dict[str, str] | None = None,
     ) -> None:
+        """Create a backend that shows its windows in the notebook output.
+
+        Args:
+            screen: Optional ``(width, height)`` budget so the viewer shrinks
+                large frames to fit; ``None`` renders at native size.
+            controls: ``{label: key_char}`` for the navigation buttons; each
+                click delivers ``key_char`` as if it were pressed.
+
+        """
         self._screen = screen
         self._controls = controls or {
             "◀ Prev": "p",
@@ -185,6 +187,13 @@ class NotebookBackend:
         self._stack: _ContainerWidget | None = None
 
     def screen_size(self) -> tuple[int, int] | None:
+        """Return the size budget given to the constructor.
+
+        Returns:
+            The ``(width, height)`` budget, or ``None`` to render at native
+            size.
+
+        """
         return self._screen
 
     def create_window(self, name: str) -> None:
@@ -223,15 +232,38 @@ class NotebookBackend:
     def center(
         self, name: str, width: int, height: int, screen: tuple[int, int]
     ) -> None:
-        pass  # a notebook has no free-floating window to place
+        """Do nothing, because a notebook has no free-floating window to place.
+
+        Args:
+            name: The name of the window.
+            width: The width of the window in pixels.
+            height: The height of the window in pixels.
+            screen: The ``(width, height)`` of the screen in pixels.
+
+        """
 
     def set_mouse_handler(self, name: str, handler: MouseHandler) -> None:
         self._mouse[name] = handler
 
     def poll_key(self, timeout_ms: int) -> int:
-        return -1  # push backend: keys arrive via buttons / set_key_handler
+        """Return ``-1`` at once. The keys arrive through `set_key_handler`.
+
+        Args:
+            timeout_ms: Ignored.
+
+        Returns:
+            Always ``-1``.
+
+        """
+        return -1
 
     def set_key_handler(self, handler: KeyHandler) -> None:
+        """Route the clicks on the control buttons to a handler.
+
+        Args:
+            handler: Called with the key code of the button that was clicked.
+
+        """
         self._key_handler = handler
 
     def close(self) -> None:

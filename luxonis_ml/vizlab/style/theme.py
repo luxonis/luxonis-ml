@@ -63,7 +63,15 @@ class Theme:
     background: Color = _DARK_BG
 
     def with_style(self, style: Style) -> "Theme":
-        """Return a copy of this theme using ``style`` as its default style."""
+        """Return a copy of this theme using ``style`` as its default style.
+
+        Args:
+            style: The new default style.
+
+        Returns:
+            The new theme. This theme is not changed.
+
+        """
         return replace(self, style=style)
 
     def with_palette(self, palette: "Palette | str") -> "Theme":
@@ -108,9 +116,11 @@ class Theme:
         return replace(self, palette=self.palette.with_colors(colors))
 
 
+#: The default theme, with soft shadows, translucent fills, and a dark
+#: composite background.
 DARK_THEME = Theme()
-"""The default theme: soft shadows, translucent fills, a dark composite background."""
 
+#: The light-background counterpart to `DARK_THEME`.
 LIGHT_THEME = Theme(
     style=Style(fill_alpha=0.20),
     # Slightly darker, punchier colors that hold up on light photos/backgrounds.
@@ -119,4 +129,3 @@ LIGHT_THEME = Theme(
     ),
     background=_LIGHT_BG,
 )
-"""A light-background counterpart to :data:`DARK_THEME`."""

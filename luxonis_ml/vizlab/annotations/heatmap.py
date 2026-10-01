@@ -141,7 +141,21 @@ def normalize_field(
     Invalid pixels land at ``0`` rather than propagating: without this a single
     ``NaN`` makes the whole normalized field ``NaN``, which the gradient then
     casts to arbitrary bytes. Callers make them transparent, so they are never
-    read as a real low value.
+    read as a real low value. The range comes from `field_range`, which
+    explains how the arguments combine.
+
+    Args:
+        values: The field to scale.
+        vmin: Pin the low end of the range.
+        vmax: Pin the high end of the range.
+        normalize: When ``False`` and neither bound is pinned, the field is
+            treated as already normalized.
+        center: Value to center an automatic range on.
+        ignore_value: A "no data" sentinel, treated as invalid.
+
+    Returns:
+        A float array of the shape of ``values``, in ``[0, 1]``.
+
     """
     v = np.asarray(values, dtype=np.float64)
     low, high = field_range(

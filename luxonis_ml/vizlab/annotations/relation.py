@@ -27,7 +27,10 @@ from .base import Annotation, RenderContext
 from .chip import place_label
 
 Endpoint: TypeAlias = tuple[float, float] | Annotation
-"""Where an arrow ends: a normalized ``(x, y)`` point, or another annotation."""
+"""Where an arrow ends.
+
+A normalized ``(x, y)`` point, or another annotation.
+"""
 
 Heads = Literal["end", "start", "both", "none"]
 """Which ends of an arrow carry a head."""

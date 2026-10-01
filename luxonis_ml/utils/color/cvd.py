@@ -3,10 +3,10 @@
 Roughly one man in twelve and one woman in two hundred has some form of
 color-vision deficiency (CVD), so a palette that separates classes only by hue
 separates them only for most viewers. This module is the evidence behind the
-word "colorblind-safe" in :data:`luxonis_ml.utils.color.palette.PALETTES`: it is
-what the shipped palettes are checked with, and what
-`luxonis_ml.utils.color.palette.CVDDistinctColors` searches against when it has
-to invent colors past the end of a named set.
+word "colorblind-safe" in the ``PALETTES`` of
+`luxonis_ml.utils.color.palette`: it is what the shipped palettes are checked
+with, and what ``CVDDistinctColors`` in that module searches against when it
+has to invent colors past the end of a named set.
 
 Two pieces, which are only useful together:
 
@@ -80,7 +80,7 @@ VISION: tuple[Deficiency | None, ...] = (None, *DEFICIENCIES)
 """Normal vision (``None``) plus every deficiency — `min_separation`'s default."""
 
 Lab: TypeAlias = tuple[float, float, float]
-"""A CIELAB triple: lightness in ``[0, 100]``, then the two opponent axes."""
+"""A CIELAB triple, the lightness in ``[0, 100]`` and the two opponent axes."""
 
 # Machado, Oliveira & Fernandes (2009), "A Physiologically-based Model for
 # Simulation of Color Vision Deficiency", table 1 at severity 1.0. The matrices

@@ -94,6 +94,14 @@ class SampleComposer:
         Instance coloring needs spatial annotations to color; a sample with
         none falls back to class colors. The caller can compare the result
         with `color_by` to tell the user about the fallback.
+
+        Args:
+            record: The sample's record.
+
+        Returns:
+            `color_by`, or ``"class"`` when instance coloring has nothing to
+            color.
+
         """
         if self.color_by != "instance" or spatial_instances(record):
             return self.color_by
@@ -112,10 +120,19 @@ class SampleComposer:
         The interactive controls and the class-color legend live in the side
         panel (not floated over the image): controls come from ``layers`` (so they
         reflect the current toggles and refresh on every re-render), and the class
-        swatches are keyed to the classes present in the sample (``layers.classes``)
-        with stable full-dataset palette colors. ``controls=False`` omits the
-        controls where they do not apply — currently the non-interactive saved
-        renders.
+        swatches are keyed to the classes present in the sample
+        (``layers.classes``) with stable full-dataset palette colors.
+
+        Args:
+            panel: The sample's metadata panel.
+            layers: The current layer toggles.
+            task_names: The tasks the legend lists in ``"task"`` coloring.
+            controls: Whether to add the controls. Turn them off where they do
+                not apply, as in the non-interactive saved renders.
+
+        Returns:
+            The controls and the legend, followed by ``panel``.
+
         """
         out: dict[str, PanelData] = {}
         if controls:
@@ -301,7 +318,20 @@ class SampleComposer:
         layers: "LayerState",
         color_by: ColorBy,
     ) -> "tuple[list[Renderable], list[str]]":
-        """Build every tile of one sample: its sources, then any array fields."""
+        """Build every tile of one sample: its sources, then any array fields.
+
+        Args:
+            images: The sample's image sources, keyed by source name.
+            arrays: The sample's array labels, keyed by task name.
+            record: The sample's record.
+            layers: The current layer toggles.
+            color_by: What a color identifies in this sample.
+
+        Returns:
+            The tiles and their titles. The titles are empty when there is only
+            one tile, so the grid draws no title band.
+
+        """
         tiles: list[Renderable] = []
         titles: list[str] = []
         # Source names carry their own placement: a rig storing `right` before
@@ -437,6 +467,18 @@ class SampleComposer:
         The panel (controls + classes + metadata) reframes the image as a
         rounded surface at a margin offset, so `Frame.with_panel` shifts the
         hover map to match.
+
+        Args:
+            images: The sample's image sources, keyed by source name.
+            arrays: The sample's array labels, keyed by task name.
+            record: The sample's record.
+            panel: The sample's metadata panel.
+            layers: The current layer toggles.
+            color_by: What a color identifies in this sample.
+
+        Returns:
+            The composed frame.
+
         """
         reserve = self.panel_width if self.panel else 0.0
         frame = self._compose(
@@ -463,6 +505,18 @@ class SampleComposer:
         and any array field — are tiled into one render, framed with the
         metadata panel (without the interactive controls) unless the panel is
         off. Draws the same pixels whether the caller writes stills or a clip.
+
+        Args:
+            images: The sample's image sources, keyed by source name.
+            arrays: The sample's array labels, keyed by task name.
+            record: The sample's record.
+            panel: The sample's metadata panel.
+            layers: The current layer toggles.
+            color_by: What a color identifies in this sample.
+
+        Returns:
+            The render, or ``None`` when the sample has no tiles.
+
         """
         tiles, titles = self.tiles(images, arrays, record, layers, color_by)
         if not tiles:

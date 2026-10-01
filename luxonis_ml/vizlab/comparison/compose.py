@@ -75,7 +75,16 @@ class ComparisonComposer:
     def match(
         self, gt_record: "DatasetRecord", pred_record: "DatasetRecord"
     ) -> ComparisonResult:
-        """Match one paired sample's detections, without drawing anything."""
+        """Match one paired sample's detections, without drawing anything.
+
+        Args:
+            gt_record: The ground-truth record of the sample.
+            pred_record: The prediction record of the sample.
+
+        Returns:
+            The matches and their metrics.
+
+        """
         return match_detections(
             list(chain.from_iterable(gt_record.annotation.values())),
             list(chain.from_iterable(pred_record.annotation.values())),
@@ -144,6 +153,15 @@ class ComparisonComposer:
 
         A multi-source sample is tiled rather than given a window per source,
         so the metrics panel is attached once and the sources stay side by side.
+
+        Args:
+            images: The sample's image sources, keyed by source name.
+            gt_record: The ground-truth record of the sample.
+            pred_record: The prediction record of the sample.
+
+        Returns:
+            The composed frame, with the metrics panel unless the panel is off.
+
         """
         result = self.match(gt_record, pred_record)
         scenes = [

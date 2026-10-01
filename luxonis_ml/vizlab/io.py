@@ -31,8 +31,11 @@ class _TensorLike(Protocol):
 ImageSource: TypeAlias = (
     "np.ndarray | PILImage.Image | _TensorLike | str | Path"
 )
-"""Any image the library can load: a NumPy array, a Pillow image, a (duck-typed)
-torch tensor, or a filesystem path. See `load_rgba`."""
+"""Any image the library can load.
+
+A NumPy array, a Pillow image, a (duck-typed) torch tensor, or a filesystem
+path. See `load_rgba`.
+"""
 
 
 def _as_uint8(array: np.ndarray) -> np.ndarray:

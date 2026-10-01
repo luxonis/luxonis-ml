@@ -44,7 +44,8 @@ PickFn = Callable[[ParamValue], None]
 #: run-length data of even a small mask, which is the value this exists for.
 _READABLE_LIMIT = 200
 
-#: `wait`'s poll timeout while nothing is moving — long enough to idle cheaply.
+#: The poll timeout of `Viewer.wait` while nothing is moving — long enough
+#: to idle cheaply.
 _IDLE_POLL_MS = 20
 #: ...and right after a hover redraw, so a moving tooltip is not held a whole
 #: idle poll behind the cursor. The pointer stopping restores the idle timeout.
@@ -193,7 +194,7 @@ class _HoverState:
     hover: Tooltip | None = None
     mouse: tuple[int, int] = field(default=(0, 0))
     dirty: bool = False
-    #: Action string from a panel click, awaiting the `wait` loop to apply it.
+    #: Action string from a panel click, awaiting the `Viewer.wait` loop.
     pending: str | None = None
     #: Source data of an annotation clicked in the image, awaiting the same loop.
     #: A pick map never stores ``None``, so ``None`` means "nothing clicked".
@@ -328,21 +329,6 @@ class Viewer:
 
     Use `destroy_stale` to close windows no longer in use and `close` to tear
     everything down.
-
-    Args:
-        backend: The window backend to drive; defaults to `Cv2Backend`.
-        hud: Whether to float the controls HUD over each interactive window. Turn
-            it off when the controls are shown elsewhere (e.g. a side panel that
-            already lists them, as ``luxonis_ml data inspect`` does).
-        save_dir: Where the ``s`` key writes frames (see `save`), created on the
-            first save. Defaults to the working directory; give it a directory
-            of its own so a session's shots collect somewhere predictable
-            instead of scattering over the caller's cwd.
-        on_pick: What to do with the source data of a clicked annotation (see
-            `Annotation.source`). ``None`` uses the default: print it as JSON
-            and copy it to the clipboard. Pass a callback to route it elsewhere,
-            or ``lambda source: None`` to make clicking annotations inert.
-
     """
 
     def __init__(
@@ -353,6 +339,25 @@ class Viewer:
         save_dir: "str | Path | None" = None,
         on_pick: PickFn | None = None,
     ) -> None:
+        """Create a viewer that draws through ``backend``.
+
+        Args:
+            backend: The window backend to drive; defaults to `Cv2Backend`.
+            hud: Whether to float the controls HUD over each interactive
+                window. Turn it off when the controls are shown elsewhere (e.g.
+                a side panel that already lists them, as
+                ``luxonis_ml data inspect`` does).
+            save_dir: Where the ``s`` key writes frames (see `save`), created
+                on the first save. Defaults to the working directory; give it a
+                directory of its own so a session's shots collect somewhere
+                predictable instead of scattering over the caller's cwd.
+            on_pick: What to do with the source data of a clicked annotation
+                (see `Annotation.source`). ``None`` uses the default: print it
+                as JSON and copy it to the clipboard. Pass a callback to route
+                it elsewhere, or ``lambda source: None`` to make clicking
+                annotations inert.
+
+        """
         self._backend: WindowBackend = (
             backend if backend is not None else Cv2Backend()
         )
@@ -641,7 +646,17 @@ class Viewer:
         self._backend.show(name, bgr)
 
     def show_blocking(self, name: str, display: Renderable) -> str:
-        """Show one frame (no hover) and block until a key; return its char."""
+        """Show one frame (no hover) and block until a key is pressed.
+
+        Args:
+            name: The name of the window.
+            display: The frame to show.
+
+        Returns:
+            The pressed key as a character or a key name, or ``""`` for a key
+            with no name.
+
+        """
         bgr, *_ = self._prepare(Frame(display))
         self._open(name, bgr)
         self._windows.pop(name, None)
@@ -649,13 +664,19 @@ class Viewer:
         return _key_char(self._backend.poll_key(0))
 
     def wait(self) -> str:
-        """Block for a keypress, redrawing hover tooltips; return its char.
+        """Block for a keypress, redrawing hover tooltips.
 
         For pull backends (`Cv2Backend`); push backends use `run` instead.
 
         The poll timeout is what mouse-moves are delivered through, so it also
         paces hover redraws: it stays short while the tooltip is moving and
         relaxes as soon as the pointer settles.
+
+        Returns:
+            The pressed key as a character or a key name (such as ``"left"``).
+            Keys that the viewer handles itself, such as the layer toggles, do
+            not end the wait.
+
         """
         poll = _IDLE_POLL_MS
         while True:
@@ -853,7 +874,12 @@ class Viewer:
             logger.info(f"Saved the current view to {path}")
 
     def destroy_stale(self, current: set[str]) -> None:
-        """Close every open window whose name is not in ``current``."""
+        """Close every open window whose name is not in ``current``.
+
+        Args:
+            current: The names of the windows to keep.
+
+        """
         for name in self._live - current:
             self._backend.destroy_window(name)
             self._windows.pop(name, None)

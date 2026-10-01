@@ -44,7 +44,11 @@ _ABSENT_LIMB_ALPHA = 0.45
 _ABSENT_MARK_ALPHA = 0.9
 
 PointLabelMode = Literal["none", "numbers", "names", "full"]
-"""How to label each keypoint: nothing, its index, its name, or ``index:name``."""
+"""How to label each keypoint, with nothing, its index, its name, or both.
+
+``"none"`` draws nothing, ``"numbers"`` the index, ``"names"`` the name, and
+``"full"`` draws ``index:name``.
+"""
 
 
 def _stop_short(start: XY, end: XY, gap: float) -> XY | None:

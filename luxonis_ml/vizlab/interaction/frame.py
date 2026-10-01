@@ -75,7 +75,16 @@ class Frame:
         )
 
     def render(self, size: tuple[int, int] | None = None) -> np.ndarray:
-        """Render with the same style snapshot as the interaction maps."""
+        """Render with the same style snapshot as the interaction maps.
+
+        Args:
+            size: Optional ``(width, height)`` display size; ``None`` keeps the
+                image's own size. See `Renderable.render`.
+
+        Returns:
+            The rendered RGBA array.
+
+        """
         if self.environment is not None:
             return self.image._render_in(self.environment, size)
         return self.image.render(size)
@@ -87,6 +96,13 @@ class Frame:
         on top leaves the existing hover, click, and pick rectangles valid, so
         every map is reused as-is. To attach a side panel (which reframes the
         image at an offset) use `with_panel`, which shifts the maps to match.
+
+        Args:
+            image: The image to carry.
+
+        Returns:
+            A new frame with ``image`` and the maps of this frame.
+
         """
         return Frame(
             image,

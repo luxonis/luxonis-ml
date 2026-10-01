@@ -293,7 +293,13 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
         )
 
     def extent(self) -> Rect | None:
-        """Return the mask's pixel bounds, or ``None`` when empty."""
+        """Return the pixel bounds of the mask.
+
+        Returns:
+            The bounds of the nonzero pixels, or ``None`` when the mask is
+            empty.
+
+        """
         if self._extent_cache is None:
             self._extent_cache = (_nonzero_bounds(self._dense()),)
         return self._extent_cache[0]
@@ -431,8 +437,8 @@ class SemanticMask(Annotation):
 
     """
 
-    #: Semantic segmentation is a background layer: it always renders beneath
-    #: boxes, instance masks, and keypoints, never on top of them.
+    #: Semantic segmentation is a background layer, so it always renders
+    #: beneath boxes, instance masks, and keypoints, never on top of them.
     BACKGROUND: ClassVar[bool] = True
     LAYER: ClassVar[str] = "mask"
 
