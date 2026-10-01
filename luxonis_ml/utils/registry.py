@@ -238,10 +238,6 @@ class AutoRegisterMeta(ABCMeta):
             attrs: The attributes of the class being created.
             register: Whether to register this class.
                 Typically should be set to ``False`` for abstract base classes.
-                A subclass that has the name of the class it extends
-                does not replace that class in the registry.
-                ``torch.export`` creates such subclasses when it
-                traces a model with shared modules.
             register_name: The name to register the class under. If ``None``, then use
                 the class name.
             registry: The registry to use for registration.
