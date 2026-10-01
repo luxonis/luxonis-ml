@@ -24,6 +24,7 @@ permissions:
 
 jobs:
   update-python-dependencies:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -55,3 +56,6 @@ jobs:
           title: "chore: update Python dependencies"
           body: Automated update of `uv.lock` and the pip requirements exports.
           labels: automated
+          add-paths: |
+            uv.lock
+            *requirements*.txt

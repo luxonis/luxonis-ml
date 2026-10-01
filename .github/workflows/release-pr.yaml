@@ -8,6 +8,9 @@ on:
         type: string
         default: patch
 
+permissions:
+  contents: read
+
 jobs:
   release-pr:
     uses: ./.github/workflows/reusable-release-pr.yaml
