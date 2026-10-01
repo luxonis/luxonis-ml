@@ -235,7 +235,9 @@ def test_per_class_heatmaps_share_sample(
 
     monkeypatch.setattr(data_utils, "_heatmap_rows", tracked_heatmap_rows)
 
-    stats = dataset.get_statistics(sample_size=3, per_class_heatmaps=True)
+    # Each record writes a box row and a classification row. A sample larger
+    # than the 8 classification rows always holds a box.
+    stats = dataset.get_statistics(sample_size=9, per_class_heatmaps=True)
 
     assert sample_calls == 1
     combined = np.asarray(stats["heatmaps"][""]["boundingbox"])
