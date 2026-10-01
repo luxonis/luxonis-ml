@@ -212,6 +212,33 @@ def test_a_run_id_continues_the_run(
     assert len(client.search_runs([experiment_id])) == 1
 
 
+def test_the_run_of_mlflow_run_id_continues(
+    tmp_path: Path,
+    project: str,
+    tracking_uri: str,
+    client: MlflowClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """``mlflow run`` hands its run to the training in the variable."""
+    experiment_id = client.create_experiment(project)
+    run_id = client.create_run(experiment_id).info.run_id
+    monkeypatch.setenv("MLFLOW_RUN_ID", run_id)
+    first = MLflowBackend(
+        make_run(tmp_path, project, project_id=experiment_id),
+        tracking_uri=tracking_uri,
+    )
+    second = MLflowBackend(
+        make_run(tmp_path, project, project_id=experiment_id),
+        tracking_uri=tracking_uri,
+    )
+
+    first.start()
+    second.start()
+
+    assert first.run_id == run_id
+    assert second.run_id != run_id
+
+
 def test_the_retry_count_is_only_a_default(
     backend: MLflowBackend, monkeypatch: pytest.MonkeyPatch
 ):

@@ -70,7 +70,10 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
     The ``project_id`` of the run selects an existing experiment.
     Otherwise its ``project_name`` names the experiment, which is created
     if it does not exist. The ``run_id`` of the run continues an existing
-    run. Otherwise the backend creates a run with the run name.
+    run. Without it, the backend continues the run in the
+    ``MLFLOW_RUN_ID`` environment variable, as ``mlflow run`` sets it, and
+    removes the variable, as ``mlflow.start_run`` does. Otherwise the
+    backend creates a run with the run name.
 
     The backend talks to the server through its own ``MlflowClient``,
     so two trackers in one process do not share an active run. For the
@@ -154,9 +157,9 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
 
         The backend looks the experiment up by name, and creates it if it
         does not exist. It creates a run, or continues the run of
-        ``run_id`` and marks it as running again. A sweep trial nests
-        under ``parent_run_id``, or else under the last open run of this
-        process that is not a sweep trial.
+        ``run_id`` or of ``MLFLOW_RUN_ID`` and marks it as running again.
+        A sweep trial nests under ``parent_run_id``, or else under the
+        last open run of this process that is not a sweep trial.
 
         Raises:
             ImportError: If ``mlflow`` is not installed.
@@ -174,6 +177,8 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         if self.experiment_id is None:
             self.experiment_id = self._get_or_create_experiment()
 
+        if self.run_id is None:
+            self.run_id = os.environ.pop("MLFLOW_RUN_ID", None)
         resumed = self.run_id is not None
         if self.run_id is None:
             self.run_id = self._create_run(self.experiment_id)
