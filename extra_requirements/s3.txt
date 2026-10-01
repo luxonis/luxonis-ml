@@ -19,7 +19,7 @@ jmespath==1.1.0
 loguru==0.7.3
 markdown-it-py==4.2.0
 mdurl==0.1.2
-multidict==6.8.0
+multidict==6.9.1
 propcache==0.5.4
 pydantic==2.13.5
 pydantic-core==2.46.5
@@ -30,7 +30,7 @@ python-dateutil==2.9.0.post0
 python-dotenv==1.2.3
 pyyaml==6.0.3
 rich==15.0.0
-rich-rst==2.1.0
+rich-rst==2.2.0
 s3fs==2024.6.1
 semver==3.1.0
 six==1.17.0
