@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 import pytest
+import requests
 
 import luxonis_ml.tracker as tracker_package
 import luxonis_ml.tracker.tracker as tracker_module
@@ -906,6 +907,12 @@ def test_a_broken_plugin_is_skipped(
     )
 
 
+def http_error(status: int) -> requests.HTTPError:
+    response = requests.Response()
+    response.status_code = status
+    return requests.HTTPError(f"status {status}", response=response)
+
+
 @pytest.mark.parametrize(
     ("error", "transient"),
     [
@@ -916,9 +923,14 @@ def test_a_broken_plugin_is_skipped(
         (IsADirectoryError("model.txt"), False),
         (NotADirectoryError("model.txt"), False),
         (ValueError("bad value"), False),
+        (http_error(503), True),
+        (http_error(429), True),
+        (http_error(404), False),
+        (http_error(413), False),
+        (requests.HTTPError("no response"), True),
     ],
 )
-def test_the_default_retries_only_io_errors(
+def test_the_default_retries_only_outages(
     tmp_path: Path, error: Exception, transient: bool
 ):
     backend = TensorBoardBackend(RunContext("0-test", tmp_path))

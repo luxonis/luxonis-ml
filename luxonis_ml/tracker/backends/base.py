@@ -292,9 +292,11 @@ class TrackerBackend(
         `BufferedBackend` keeps a call that failed with a transient error
         and drops the others. The default treats an ``OSError`` as
         transient, which covers the network errors of ``socket`` and
-        ``requests``. The errors of a local file are not transient: a
-        missing file, a denied access, or a directory in place of a
-        file.
+        ``requests``. An ``HTTPError`` of ``requests`` is transient only
+        for a 5xx status and for 429, because with any other status the
+        server rejected the call. The errors of a local file are not
+        transient: a missing file, a denied access, or a directory in
+        place of a file.
 
         Args:
             error: The error of a call to the service.
@@ -303,6 +305,9 @@ class TrackerBackend(
             ``True`` if a later attempt of the same call can succeed.
 
         """
+        status = _http_status(error)
+        if status is not None:
+            return self._is_outage_status(status)
         return isinstance(error, OSError) and not isinstance(
             error,
             FileNotFoundError
@@ -310,6 +315,24 @@ class TrackerBackend(
             | IsADirectoryError
             | NotADirectoryError,
         )
+
+    @staticmethod
+    def _is_outage_status(status: int) -> bool:
+        """Tell whether an HTTP status means that the server cannot take
+        the call now: a 5xx status, or 429 for too many requests.
+        """
+        return status >= 500 or status == 429
+
+
+def _http_status(error: Exception) -> int | None:
+    """Return the HTTP status of an ``HTTPError`` of ``requests``."""
+    try:
+        from requests import HTTPError
+    except ImportError:
+        return None
+    if isinstance(error, HTTPError) and error.response is not None:
+        return error.response.status_code
+    return None
 
 
 def check_options(

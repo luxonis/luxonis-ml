@@ -361,10 +361,10 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
     def is_transient(self, error: Exception) -> bool:
         """Tell an outage from a rejected call.
 
-        An error with an HTTP status is transient for a 5xx status and
-        for 429. MLflow reports a connection failure as a status 500.
-        A connection error of ``botocore``, from an S3 artifact store,
-        is transient too. Any other error follows
+        An ``MlflowException`` is transient for a 5xx status and for
+        429. MLflow reports a connection failure as a status 500. A
+        connection error of ``botocore``, from an S3 artifact store, is
+        transient too. Any other error follows
         `TrackerBackend.is_transient`.
 
         Args:
@@ -375,15 +375,10 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
 
         """
         from mlflow.exceptions import MlflowException
-        from requests import HTTPError
 
         if isinstance(error, MlflowException):
-            status = error.get_http_status_code()
-        elif isinstance(error, HTTPError) and error.response is not None:
-            status = error.response.status_code
-        else:
-            return _is_s3_outage(error) or super().is_transient(error)
-        return status >= 500 or status == 429
+            return self._is_outage_status(error.get_http_status_code())
+        return _is_s3_outage(error) or super().is_transient(error)
 
     @property
     def _run_id(self) -> str:

@@ -36,12 +36,6 @@ from luxonis_ml.tracker import LuxonisTracker, MLflowBackend, RunContext
 from .conftest import MAX_RETRIES_ENV, backend_of
 
 
-def http_error(status: int) -> requests.HTTPError:
-    response = requests.Response()
-    response.status_code = status
-    return requests.HTTPError(f"status {status}", response=response)
-
-
 @pytest.fixture(scope="module")
 def mlflow_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return tmp_path_factory.mktemp("mlflow")
@@ -466,10 +460,6 @@ def test_a_run_in_a_missing_experiment_is_rejected(
         (requests.ConnectionError("refused"), True),
         (EndpointConnectionError(endpoint_url="http://s3"), True),
         (ConnectionClosedError(endpoint_url="http://s3"), True),
-        (http_error(503), True),
-        (http_error(429), True),
-        (http_error(413), False),
-        (requests.HTTPError("no response"), True),
         (ValueError("pixel values out of range"), False),
     ],
 )

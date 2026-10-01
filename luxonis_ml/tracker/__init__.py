@@ -313,10 +313,11 @@ the first logging call, and opens what the logging calls need.
 backend overrides them. `TrackerBackend.upload_artifact` does nothing
 unless the backend overrides it.
 
-For a remote service, set `TrackerBackend.buffered` to ``True``, and
-override `TrackerBackend.is_transient` to tell an outage from a call
-that the service rejects. `LuxonisTracker` then wraps the backend in a
-`BufferedBackend`.
+For a remote service, set `TrackerBackend.buffered` to ``True``.
+`LuxonisTracker` then wraps the backend in a `BufferedBackend`. The
+default `TrackerBackend.is_transient` tells an outage from a call that
+the service rejects for the errors of ``requests``. Override it for the
+errors of another client.
 
 A package makes its backend available through the ``tracker_plugins``
 entry-point group. Importing ``luxonis_ml.tracker`` loads each entry
