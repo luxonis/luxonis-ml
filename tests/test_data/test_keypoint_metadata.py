@@ -136,6 +136,22 @@ def exported_detections(annotations_path: Path) -> list[dict[str, Any]]:
     return detections
 
 
+def stored_keypoints_by_name(
+    dataset: LuxonisDataset, task: str = "pose"
+) -> list[dict[str, tuple[float, float, int]]]:
+    """Read each stored row the way the loader does: by the task labels."""
+    labels = dataset.get_keypoint_metadata()[task].labels
+    return [
+        {
+            label: tuple(keypoint)
+            for label, keypoint in zip(
+                labels, json.loads(payload)["keypoints"], strict=True
+            )
+        }
+        for payload in keypoint_payloads(dataset)
+    ]
+
+
 def loaded_keypoint_shapes(
     dataset: LuxonisDataset, task: str = "pose"
 ) -> list[tuple[int, ...]]:
@@ -1294,6 +1310,20 @@ def test_set_keypoint_metadata_keeps_a_legacy_edge_it_is_not_given(
     assert dataset.get_keypoint_metadata()["pose"].edges == [(-1, 0), (1, 3)]
 
 
+def test_the_native_export_leaves_out_a_legacy_edge_out_of_range(
+    dataset_name: str, tempdir: Path
+):
+    """The import checks the edges, so such an edge would stop it."""
+    dataset = legacy_dataset(
+        named_dataset(dataset_name, tempdir),
+        {"pose": {"labels": LABELS, "edges": [[-1, 0], [0, 1], [1, 3]]}},
+    )
+
+    imported = export_and_import(dataset, tempdir)
+
+    assert imported.get_keypoint_metadata()["pose"].edges == [(0, 1)]
+
+
 @pytest.mark.parametrize(
     ("fields", "match"),
     [
@@ -1479,6 +1509,47 @@ def test_a_legacy_dataset_merges_with_a_new_dataset(
             labels=LABELS, flip_pairs=[(1, 2)], sigmas=[0.1, 0.2, 0.3]
         )
     }
+
+
+def test_a_merge_moves_the_other_rows_to_the_target_order(
+    dataset_name: str, tempdir: Path
+):
+    """The merge concatenates positional rows, so it must move them first."""
+    target = named_dataset(
+        f"{dataset_name}_target", tempdir, fields={"sigmas": [0.1, 0.2, 0.3]}
+    )
+    other = create_dataset(
+        f"{dataset_name}_other",
+        keypoint_generator(
+            tempdir,
+            dict(reversed(NAMED_KEYPOINTS.items())),
+            fields={"sigmas": [0.3, 0.2, 0.1]},
+            start=4,
+        ),
+    )
+
+    target.merge_with(other)
+
+    merged = LuxonisDataset(target.identifier)
+    assert merged.get_keypoint_metadata()["pose"] == KeypointMetadata(
+        labels=LABELS, flip_pairs=[(1, 2)], sigmas=[0.1, 0.2, 0.3]
+    )
+    assert stored_keypoints_by_name(merged) == [NAMED_KEYPOINTS] * 8
+
+
+def test_a_merge_rejects_other_keypoint_names(
+    dataset_name: str, tempdir: Path
+):
+    """No order of the rows fits both, and that includes no names at all."""
+    target = named_dataset(f"{dataset_name}_target", tempdir)
+    other = create_dataset(
+        f"{dataset_name}_other", positional_generator(tempdir, [3, 3], start=4)
+    )
+
+    with pytest.raises(ValueError, match="different keypoint names"):
+        target.merge_with(other)
+
+    assert len(LuxonisDataset(target.identifier)) == 4
 
 
 def test_set_keypoint_metadata_accepts_names(dataset_name: str, tempdir: Path):
@@ -2317,14 +2388,15 @@ def test_coco_export_round_trips_the_sigmas(dataset_name: str, tempdir: Path):
     assert task_keypoints.sigmas == sigmas
 
 
-def test_the_exported_names_are_written_once_per_task(
+def test_the_exported_task_fields_are_written_once_per_task(
     dataset_name: str, tempdir: Path
 ):
-    """Naming every record would balloon ``annotations.json``.
+    """One record per task and split carries the task fields.
 
-    One record per task and split carries the names as a mapping. Every
-    other record stays a positional list. Each split gets its own file, so
-    each one needs its own named record.
+    Every record names its keypoints, so an import into a dataset with
+    another keypoint order moves each record by its names. Each split
+    gets its own file, so each one needs its own record with the task
+    fields.
     """
     dataset = named_dataset(dataset_name, tempdir, n=8)
     exported = dataset.export(tempdir / "exported_once", DatasetType.NATIVE)
@@ -2333,15 +2405,42 @@ def test_the_exported_names_are_written_once_per_task(
     counts = []
     for path in (exported / dataset_name).rglob("annotations.json"):
         keypoints = [
-            detection["keypoints"]["keypoints"]
+            detection["keypoints"]
             for detection in exported_detections(path)
             # Every detection also emits a classification record.
             if "keypoints" in detection
         ]
         if keypoints:
-            named = sum(isinstance(k, dict) for k in keypoints)
-            counts.append((len(keypoints), named))
+            assert all(isinstance(k["keypoints"], dict) for k in keypoints)
+            counts.append(
+                (len(keypoints), sum("flip_pairs" in k for k in keypoints))
+            )
 
     assert counts
-    assert all(n_named == 1 for _, n_named in counts)
+    assert all(n_with_fields == 1 for _, n_with_fields in counts)
     assert any(n_keypoints > 1 for n_keypoints, _ in counts)
+
+
+def test_a_native_import_moves_every_record_to_the_stored_order(
+    dataset_name: str, tempdir: Path
+):
+    reversed_keypoints = dict(reversed(NAMED_KEYPOINTS.items()))
+    source = create_dataset(
+        f"{dataset_name}_source",
+        keypoint_generator(tempdir, reversed_keypoints),
+        splits=(1, 0, 0),
+    )
+    target = named_dataset(dataset_name, tempdir, n=1, start=4)
+    exported = source.export(tempdir / "exported_order", DatasetType.NATIVE)
+    assert isinstance(exported, Path)
+
+    LuxonisParser(
+        str(exported / source.identifier),
+        dataset_type=DatasetType.NATIVE,
+        dataset_name=target.identifier,
+        save_dir=tempdir,
+    ).parse()
+
+    imported = LuxonisDataset(target.identifier)
+    assert imported.get_keypoint_metadata()["pose"].labels == LABELS
+    assert stored_keypoints_by_name(imported) == [NAMED_KEYPOINTS] * 5

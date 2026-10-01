@@ -247,7 +247,7 @@ def test_visualize_record_merges_explicit_panel_data() -> None:
 
 def test_metadata_panel_normalization_recurses_json_values() -> None:
     assert _metadata_to_panel_data(
-        {"path": "a.jpg", "flags": [True, None], 3: 1.25}
+        {"path": "a.jpg", "flags": [True, None], "3": 1.25}
     ) == {
         "path": "a.jpg",
         "flags": [True, None],

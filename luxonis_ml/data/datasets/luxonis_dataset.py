@@ -75,6 +75,7 @@ from luxonis_ml.ldf import (
     DatasetRecord,
     Detection,
     InstanceCounter,
+    KeypointAnnotation,
     KeypointMetadata,
     load_annotation,
 )
@@ -480,7 +481,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             self.pull_from_cloud(UpdateMode.MISSING)
 
         df_self = self._load_df_offline(raise_when_empty=True)
-        df_other = other._load_df_offline(raise_when_empty=True)
+        df_other = _in_keypoint_order(
+            other._load_df_offline(raise_when_empty=True),
+            other._metadata.keypoint_metadata,
+            merged_metadata.keypoint_metadata,
+        )
         duplicate_group_ids = set(df_self["group_id"]).intersection(
             df_other["group_id"]
         )
@@ -2552,6 +2557,56 @@ def _in_stored_order(
     if stored.has_names and declared.labels != stored.labels:
         return declared.reindexed_to(stored.labels)
     return declared
+
+
+def _in_keypoint_order(
+    df: pl.DataFrame,
+    source: Mapping[str, KeypointMetadata],
+    target: Mapping[str, KeypointMetadata],
+) -> pl.DataFrame:
+    """Move the keypoint rows to the keypoint order of other metadata.
+
+    A row is positional, so the column of a keypoint is its identity.
+    `Metadata.merge_with` lets two datasets give a task the same names in
+    another order only.
+
+    Args:
+        df: The rows.
+        source: The keypoint metadata that the rows follow.
+        target: The keypoint metadata to move the rows to. It holds each
+            task of ``source``.
+
+    Returns:
+        The rows in the keypoint order of ``target``.
+
+    """
+    moved = {
+        task: entry.labels
+        for task, entry in source.items()
+        if entry.labels and entry.labels != target[task].labels
+    }
+    if not moved:
+        return df
+
+    def move(task: str, annotation: str) -> str:
+        labels = moved[task]
+        keypoints = KeypointAnnotation.model_validate_json(
+            annotation, context={"n_keypoints": len(labels)}
+        ).keypoints
+        named = dict(zip(labels, keypoints.values(), strict=True))
+        return KeypointAnnotation(keypoints=named).to_parquet_json(
+            target[task]
+        )
+
+    annotations = [
+        move(task, annotation)
+        if task_type == "keypoints" and task in moved
+        else annotation
+        for task, task_type, annotation in df.select(
+            "task_name", "task_type", "annotation"
+        ).iter_rows()
+    ]
+    return df.with_columns(pl.Series("annotation", annotations))
 
 
 def _merge_into_stored(

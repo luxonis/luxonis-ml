@@ -33,6 +33,7 @@ Note:
 from typing import ClassVar
 
 import numpy as np
+import numpy.typing as npt
 from pydantic import (
     ConfigDict,
     FilePath,
@@ -93,7 +94,9 @@ def _hsv_to_rgb(
     return np.round(np.clip(stacked, 0.0, 1.0) * 255).astype(np.uint8)
 
 
-def _opaque(rgb: np.ndarray, alpha: float, valid: np.ndarray) -> np.ndarray:
+def _opaque(
+    rgb: np.ndarray, alpha: float, valid: "npt.ArrayLike"
+) -> np.ndarray:
     """Attach a flat alpha channel to an RGB image, holing out invalid pixels."""
     peak = round(max(0.0, min(1.0, alpha)) * 255)
     band = np.where(valid, peak, 0).astype(np.uint8)
