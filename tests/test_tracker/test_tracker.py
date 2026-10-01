@@ -485,6 +485,23 @@ def test_a_backend_that_fails_to_close_does_not_stop_the_others(
     assert any("Could not close the fake run" in m for m in warnings_log)
 
 
+def test_an_interrupted_close_still_closes_the_other_backends(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    tracker = make_tracker(tmp_path, fake=True, other_fake=True)
+    tracker.log_metric("loss", 0.5, 1)
+
+    def interrupt(status: str) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(fake(tracker), "close", interrupt)
+
+    with pytest.raises(KeyboardInterrupt):
+        tracker.close()
+
+    assert fake(tracker, "other_fake").status == "success"
+
+
 def test_flush_reaches_each_started_backend(tmp_path: Path):
     tracker = make_tracker(tmp_path, other_fake=True)
     tracker.log_metric("loss", 0.5, 1)
@@ -562,6 +579,36 @@ def test_other_ranks_stay_silent_after_close(
     assert warnings_log == []
 
 
+def test_a_close_during_a_call_stops_the_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A signal handler can close the run while a backend logs."""
+    tracker = make_tracker(tmp_path, fake=True, other_fake=True)
+    tracker.start()
+    monkeypatch.setattr(
+        fake(tracker), "log_metrics", lambda metrics, step: tracker.close()
+    )
+
+    tracker.log_metric("loss", 0.5, 1)
+
+    assert fake(tracker, "other_fake").calls == []
+
+
+def test_a_close_during_a_start_closes_that_backend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A signal handler can close the run while a backend starts."""
+    tracker = make_tracker(tmp_path, fake=True, other_fake=True)
+    monkeypatch.setattr(
+        fake(tracker), "start", lambda: tracker.close("interrupted")
+    )
+
+    tracker.log_metric("loss", 0.5, 1)
+
+    assert fake(tracker).status == "failed"
+    assert fake(tracker, "other_fake").starts == 0
+
+
 def test_start_after_close_starts_nothing(tmp_path: Path):
     tracker = make_tracker(tmp_path)
     tracker.close()
@@ -589,7 +636,9 @@ def test_the_context_manager_marks_a_failed_run(tmp_path: Path):
 
 
 class FakeAtexit:
-    """Stand in for the `atexit` module."""
+    """Stand in for the `atexit` module, which runs the hooks last
+    first.
+    """
 
     def __init__(self) -> None:
         self.hooks: list[Callable[[], object]] = []
@@ -601,7 +650,7 @@ class FakeAtexit:
         self.hooks = [h for h in self.hooks if h != hook]
 
     def run(self) -> None:
-        for hook in self.hooks:
+        for hook in reversed(self.hooks):
             hook()
 
 
@@ -632,6 +681,41 @@ def test_an_uncaught_error_fails_the_run_at_exit(
     exit_hooks.run()
 
     assert fake(tracker).status == "failed"
+
+
+def test_an_error_from_before_the_run_does_not_fail_it_at_exit(
+    tmp_path: Path, exit_hooks: FakeAtexit, monkeypatch: pytest.MonkeyPatch
+):
+    # an interactive session keeps the last error that it printed
+    monkeypatch.setattr(sys, "last_value", NameError(), raising=False)
+    tracker = make_tracker(tmp_path)
+    tracker.log_metric("loss", 0.5, 1)
+
+    exit_hooks.run()
+
+    assert fake(tracker).status == "success"
+
+
+def test_the_exit_hook_runs_before_the_hooks_of_a_flush(
+    tmp_path: Path, exit_hooks: FakeAtexit, monkeypatch: pytest.MonkeyPatch
+):
+    """The TensorBoard flush opens a writer, which registers a hook that
+    closes the writer at exit.
+    """
+    tracker = make_tracker(tmp_path)
+    tracker.log_metric("loss", 0.5, 1)
+    backend = fake(tracker)
+    statuses: list[str | None] = []
+    monkeypatch.setattr(
+        backend,
+        "flush",
+        lambda: exit_hooks.register(lambda: statuses.append(backend.status)),
+    )
+
+    tracker.flush()
+    exit_hooks.run()
+
+    assert statuses == ["success"]
 
 
 def test_a_closed_or_idle_run_leaves_no_exit_hook(

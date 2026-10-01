@@ -17,7 +17,7 @@ import re
 import sys
 import time
 import warnings
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from types import MappingProxyType, TracebackType
 from typing import Any, TypeVar
@@ -220,6 +220,9 @@ class LuxonisTracker:
         }
         self._started: dict[str, TrackerBackend] = {}
         self._closed = False
+        self._status: RunStatus = "success"
+        # an interactive session keeps the last error that it printed
+        self._earlier_error = getattr(sys, "last_value", None)
 
         self.run_directory = run.run_directory
         self.run_directory.mkdir(parents=True, exist_ok=True)
@@ -487,6 +490,9 @@ class LuxonisTracker:
                 backend.flush()
             except Exception as error:
                 logger.warning(f"Could not flush the {name} run: {error}")
+        if self._started:
+            # the TensorBoard flush opens a writer with an exit hook
+            self._register_exit_hook()
 
     def close(self, status: str = "success") -> None:
         """End the run in each started backend.
@@ -500,49 +506,81 @@ class LuxonisTracker:
                 succeeded. Any other value marks the run as failed.
                 These are the values that a Lightning logger receives.
 
+        Raises:
+            BaseException: An interrupt, such as ``KeyboardInterrupt``,
+                that stops the close of a backend. The tracker raises
+                it after it closes the other backends.
+
         """
         if self._closed:
             return
         self._closed = True
         atexit.unregister(self._close_at_exit)
-        final: RunStatus = (
+        self._status = (
             "success" if status in {"success", "finished"} else "failed"
         )
+        interrupt: BaseException | None = None
         for name, backend in self._started.items():
             try:
-                backend.close(final)
-            except Exception as error:
-                logger.warning(f"Could not close the {name} run: {error}")
+                self._close_backend(name, backend)
+            except BaseException as error:
+                interrupt = interrupt or error
+        if interrupt is not None:
+            raise interrupt
 
-    def _live_backends(self) -> list[TrackerBackend]:
-        """Return the started backends, and start them if needed."""
+    def _close_backend(self, name: str, backend: TrackerBackend) -> None:
+        """End the run of one backend, and report a failure."""
+        try:
+            backend.close(self._status)
+        except Exception as error:
+            logger.warning(f"Could not close the {name} run: {error}")
+
+    def _live_backends(self) -> Iterator[TrackerBackend]:
+        """Yield the started backends, and start them if needed.
+
+        A signal handler can close the run during a call. The backends
+        after that point then do not get the call.
+        """
         if self._closed:
             if self.rank == 0:
                 logger.warning(
                     "The tracker is closed. It ignores the logging call."
                 )
-            return []
+            return
         self._start_backends()
-        return list(self._started.values())
+        for backend in list(self._started.values()):
+            if self._closed:
+                return
+            yield backend
 
     def _start_backends(self) -> None:
         """Start each backend that did not start yet, on rank 0 only."""
         if self.rank != 0:
             return
         for name, backend in self._backends.items():
-            if name not in self._started:
-                backend.start()
-                self._started[name] = backend
-                # the exit hooks run last first, so this one runs before
-                # the hooks that the SDK has just registered
-                atexit.unregister(self._close_at_exit)
-                atexit.register(self._close_at_exit)
+            if name in self._started:
+                continue
+            backend.start()
+            if self._closed:
+                # a signal handler closed the run during the start
+                self._close_backend(name, backend)
+                return
+            self._started[name] = backend
+            self._register_exit_hook()
+
+    def _register_exit_hook(self) -> None:
+        """Make `_close_at_exit` the last exit hook."""
+        # the exit hooks run last first, so this one runs before the
+        # hooks that a backend has just registered
+        atexit.unregister(self._close_at_exit)
+        atexit.register(self._close_at_exit)
 
     def _close_at_exit(self) -> None:
         """Close the run that is still open when the interpreter exits."""
         # the interpreter sets `last_value` when it prints an uncaught
         # error, and it runs the exit hooks after that
-        self.close("failed" if hasattr(sys, "last_value") else "success")
+        failed = getattr(sys, "last_value", None) is not self._earlier_error
+        self.close("failed" if failed else "success")
 
 
 def _legacy_backends(
