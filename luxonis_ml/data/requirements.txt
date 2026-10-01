@@ -24,7 +24,7 @@ numpy==2.2.6 ; python_full_version < '3.11'
 numpy==2.3.5 ; python_full_version >= '3.11'
 opencv-python==4.14.0.94
 pillow==12.3.0
-pillow-heif==1.7.0
+pillow-heif==1.8.0
 polars==1.44.2
 polars-runtime-32==1.44.2
 pyarrow==23.0.1
@@ -47,7 +47,7 @@ scipy==1.18.1 ; python_full_version >= '3.12'
 semver==3.1.0
 simsimd==6.5.16
 skia-python==144.0.post2
-soupsieve==2.9.2
+soupsieve==2.10
 stringzilla==5.1.2
 tomli==2.4.1 ; python_full_version < '3.11'
 tqdm==4.70.1

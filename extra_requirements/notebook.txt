@@ -50,6 +50,6 @@ traitlets==5.16.1
 typeguard==4.6.0
 typing-extensions==4.16.0
 typing-inspection==0.4.4
-wcwidth==0.8.4
+wcwidth==0.9.1
 widgetsnbextension==4.0.16
 win32-setctime==1.2.0 ; sys_platform == 'win32'

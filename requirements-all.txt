@@ -34,7 +34,7 @@ contourpy==1.4.0 ; python_full_version >= '3.12'
 cryptography==50.0.1
 cycler==0.12.1
 cyclopts==4.25.3
-databricks-sdk==0.139.0
+databricks-sdk==0.141.0
 decorator==5.3.1
 defusedxml==0.7.1
 distro==1.9.0
@@ -84,7 +84,7 @@ joblib==1.6.0
 jupyterlab-widgets==3.0.17
 kiwisolver==1.5.1
 loguru==0.7.3
-mako==1.4.1
+mako==1.4.3
 markdown-it-py==4.2.0
 markupsafe==3.0.3
 matplotlib==3.10.9 ; python_full_version < '3.11'
@@ -94,7 +94,7 @@ mdurl==0.1.2
 mlflow==3.16.1
 mlflow-skinny==3.16.1
 mlflow-tracing==3.16.1
-multidict==6.8.0
+multidict==6.9.1
 narwhals==2.26.0 ; python_full_version >= '3.11'
 numpy==2.2.6 ; python_full_version < '3.11'
 numpy==2.3.5 ; python_full_version >= '3.11'
@@ -109,13 +109,12 @@ pandas==2.3.3 ; python_full_version < '3.11'
 pandas==3.0.6 ; python_full_version >= '3.11'
 parso==0.8.7
 pexpect==4.9.0 ; sys_platform != 'emscripten' and sys_platform != 'win32'
-pi-heif==1.4.0
 pillow==12.3.0
 pillow-avif-plugin==1.6.0
-pillow-heif==1.7.0
+pillow-heif==1.8.0
 polars==1.44.2
 polars-runtime-32==1.44.2
-posthog==7.56.0
+posthog==7.60.0
 prettytable==3.18.0
 prompt-toolkit==3.0.53
 propcache==0.5.4
@@ -135,11 +134,11 @@ pydantic-core==2.46.5
 pydantic-extra-types==2.11.1
 pydantic-settings==2.15.0
 pygments==2.21.0
-pyparsing==3.3.2
+pyparsing==3.3.3
 pysocks==1.7.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.3
-pytz==2026.3.post1 ; python_full_version < '3.11'
+pytz==2026.4 ; python_full_version < '3.11'
 pywin32==312 ; sys_platform == 'win32'
 pyyaml==6.0.3
 requests==2.34.2
@@ -147,7 +146,7 @@ requests-oauthlib==2.0.0
 requests-toolbelt==1.0.0
 rich==15.0.0
 rich-rst==2.1.0
-roboflow==1.4.2
+roboflow==1.5.0
 s3fs==2024.6.1
 scikit-learn==1.7.2 ; python_full_version < '3.11'
 scikit-learn==1.9.1 ; python_full_version >= '3.11'
@@ -159,13 +158,13 @@ shellingham==1.5.4
 simsimd==6.5.16
 six==1.17.0
 skia-python==144.0.post2
-skops==0.15.0
+skops==0.16.0
 smmap==5.0.3
-soupsieve==2.9.2
+soupsieve==2.10
 sqlalchemy==2.0.54
 sqlparse==0.6.0
 stack-data==0.6.3
-starlette==1.6.0
+starlette==1.7.0
 stringzilla==5.1.2
 threadpoolctl==3.7.0
 tomli==2.4.1 ; python_full_version < '3.11'
@@ -180,7 +179,7 @@ unique-names-generator==1.0.2
 urllib3==2.8.0
 uvicorn==0.53.0
 waitress==3.0.2 ; sys_platform == 'win32'
-wcwidth==0.8.4
+wcwidth==0.9.1
 werkzeug==3.1.8
 widgetsnbextension==4.0.16
 win32-setctime==1.2.0 ; sys_platform == 'win32'
