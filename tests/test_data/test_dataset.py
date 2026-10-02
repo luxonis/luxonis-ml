@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import NoReturn, cast
 
 import numpy as np
+import polars as pl
 import pytest
 from pytest_subtests.plugin import SubTests
 
@@ -18,12 +19,19 @@ from luxonis_ml.data import (
     UpdateMode,
 )
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
+from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.ldf import KeypointMetadata
 from luxonis_ml.typing import Params
 
-from .utils import create_dataset, create_image, get_loader_output
+from .utils import (
+    create_dataset,
+    create_image,
+    get_loader_output,
+    set_ldf_version,
+)
 
 
 def test_dataset(
@@ -51,9 +59,9 @@ def test_dataset(
         )
         assert set(dataset.get_task_names()) == {"coco"}
         assert dataset.get_classes().get("coco") == {"person": 0}
-        assert dataset.get_skeletons() == {
-            "coco": (
-                [
+        assert dataset.get_keypoint_metadata() == {
+            "coco": KeypointMetadata(
+                labels=[
                     "nose",
                     "left_eye",
                     "right_eye",
@@ -72,7 +80,7 @@ def test_dataset(
                     "left_ankle",
                     "right_ankle",
                 ],
-                sorted(
+                edges=sorted(
                     [
                         (15, 13),
                         (13, 11),
@@ -95,6 +103,18 @@ def test_dataset(
                         (4, 6),
                     ]
                 ),
+                # Inferred from the `left_`/`right_` names, with the
+                # midline `nose` correctly left unpaired.
+                flip_pairs=[
+                    (1, 2),
+                    (3, 4),
+                    (5, 6),
+                    (7, 8),
+                    (9, 10),
+                    (11, 12),
+                    (13, 14),
+                    (15, 16),
+                ],
             ),
         }
         assert dataset.get_n_keypoints() == {"coco": 17}
@@ -166,7 +186,7 @@ def test_dataset_fail(dataset_name: str, tempdir: Path):
     dataset = create_dataset(dataset_name, generator())
 
     with pytest.raises(ValueError, match="Must provide either"):
-        dataset.set_skeletons()
+        dataset.set_keypoint_metadata()
 
     with pytest.raises(ValueError, match="Must set delete_remote"):
         dataset.delete_dataset()
@@ -561,7 +581,10 @@ def test_clone_dataset(
     assert cloned_dataset.get_splits() == dataset.get_splits()
     assert cloned_dataset.get_classes() == dataset.get_classes()
     assert cloned_dataset.get_task_names() == dataset.get_task_names()
-    assert cloned_dataset.get_skeletons() == dataset.get_skeletons()
+    assert (
+        cloned_dataset.get_keypoint_metadata()
+        == dataset.get_keypoint_metadata()
+    )
 
     df_cloned = cloned_dataset._load_df_offline()
     df_original = dataset._load_df_offline()
@@ -809,6 +832,110 @@ def bbox_generator(
         }
 
 
+def drop_sample_metadata_column(dataset: LuxonisDataset) -> None:
+    """Rewrite the rows without ``sample_metadata``, as LDF 2.0 did."""
+    df = dataset._load_df_offline(raise_when_empty=True)
+    for parquet_file in dataset._annotations_path.glob("*.parquet"):
+        parquet_file.unlink()
+    df.drop("sample_metadata").write_parquet(
+        dataset._annotations_path / "0000000000.parquet"
+    )
+
+
+@pytest.mark.parametrize(
+    "old_is_target",
+    [
+        pytest.param(True, id="old-target"),
+        pytest.param(False, id="new-target"),
+    ],
+)
+def test_datasets_of_different_minor_versions_merge(
+    dataset_name: str, tempdir: Path, old_is_target: bool
+):
+    """Datasets of one major LDF version merge in either direction.
+
+    The rows of LDF 2.0 have no ``sample_metadata`` column, so the merge
+    adds it before it stacks them onto the new rows.
+    """
+    old = create_dataset(
+        f"{dataset_name}_old",
+        bbox_generator(tempdir, 0, "person"),
+        splits=(1, 0, 0),
+    )
+    drop_sample_metadata_column(old)
+    old = set_ldf_version(old, "2.0.0")
+    new = create_dataset(
+        f"{dataset_name}_new",
+        bbox_generator(tempdir, 3, "dog"),
+        splits=(1, 0, 0),
+    )
+    target, other = (old, new) if old_is_target else (new, old)
+
+    target.merge_with(other)
+
+    merged = LuxonisDataset(target.identifier)
+    assert set(merged.get_classes()[""]) == {"person", "dog"}
+    assert len(merged) == 6
+    assert target.version == merged.version == LDF_VERSION
+    # LDF 2.1 added the column. Read the files, because `_load_df_offline`
+    # fills in a missing column.
+    stored = pl.read_parquet(str(merged._annotations_path / "*.parquet"))
+    assert set(stored["sample_metadata"]) == {DEFAULT_METADATA}
+
+
+def test_a_failed_merge_writes_nothing(dataset_name: str, tempdir: Path):
+    """The merge checks the metadata before it writes any data.
+
+    A failed check must leave no rows that the metadata does not
+    describe. A merge into a new dataset reads the data before it makes
+    the clone, so a failed read leaves no clone behind.
+    """
+    target = create_dataset(
+        f"{dataset_name}_target",
+        bbox_generator(tempdir, 0, "person"),
+        splits=(1, 0, 0),
+    )
+    other = create_dataset(
+        f"{dataset_name}_other",
+        bbox_generator(tempdir, 3, "dog"),
+        splits=(1, 0, 0),
+    )
+    empty = LuxonisDataset(f"{dataset_name}_empty", delete_local=True)
+    # A dataset of another major version opens only through a migration,
+    # so the version changes in memory.
+    other._metadata.ldf_version = "3.0.0"
+    rows = target._load_df_offline(raise_when_empty=True)
+    splits = target.get_splits()
+
+    with pytest.raises(ValueError, match="LDF versions"):
+        target.merge_with(other)
+    with pytest.raises(ValueError, match="LDF versions"):
+        target.merge_with(
+            other, inplace=False, new_dataset_name=f"{dataset_name}_merged"
+        )
+    with pytest.raises(FileNotFoundError, match="is empty"):
+        target.merge_with(
+            empty, inplace=False, new_dataset_name=f"{dataset_name}_merged"
+        )
+
+    assert target._load_df_offline(raise_when_empty=True).equals(rows)
+    assert target.get_splits() == splits
+    assert not LuxonisDataset.exists(f"{dataset_name}_merged")
+
+
+def test_a_merge_checks_its_arguments_before_the_metadata(dataset_name: str):
+    """A merge into a new dataset without a name reports the missing name.
+
+    The merge checks its arguments before it compares the LDF versions.
+    """
+    target = LuxonisDataset(f"{dataset_name}_target", delete_local=True)
+    other = LuxonisDataset(f"{dataset_name}_other", delete_local=True)
+    other._metadata.ldf_version = "3.0.0"
+
+    with pytest.raises(ValueError, match="must specify a name"):
+        target.merge_with(other, inplace=False)
+
+
 def test_a_failed_media_upload_keeps_the_rows_of_a_re_added_file(
     dataset_name: str, tempdir: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -1018,12 +1145,7 @@ def test_add_to_old_schema_dataset_populates_metadata_column(
         bucket_storage=BucketStorage.LOCAL,
         splits=(1, 0, 0),
     )
-    old_df = dataset._load_df_offline(raise_when_empty=True).drop(
-        "sample_metadata"
-    )
-    for parquet_file in dataset._annotations_path.glob("*.parquet"):
-        parquet_file.unlink()
-    old_df.write_parquet(dataset._annotations_path / "0000000000.parquet")
+    drop_sample_metadata_column(dataset)
 
     dataset.add(generator(1, 2))
 
