@@ -10,7 +10,6 @@ from typing import (
     Literal,
     TypeAlias,
     TypeVar,
-    cast,
 )
 
 import numpy as np
@@ -181,17 +180,6 @@ def _array_labels(labels: "Labels") -> dict[str, np.ndarray]:
     }
 
 
-def _panel_value(value: "ParamValue") -> "PanelData":
-    """Normalize recursive loader metadata to the panel's data model."""
-    if isinstance(value, Mapping):
-        return {str(key): _panel_value(item) for key, item in value.items()}
-    if isinstance(value, str):
-        return value
-    if isinstance(value, Sequence):
-        return [_panel_value(item) for item in value]
-    return value
-
-
 def _present_sample_metadata(
     sample_metadata: "Params",
 ) -> "dict[str, PanelData]":
@@ -282,32 +270,31 @@ def _flatten_filenames(
     then shows it as a labelled line with the name below (full width, ellipsized
     if very long) rather than cramped after an inline prefix. Multi-source
     records keep the full mapping; metadata without ``filenames`` is unchanged.
+    Keys and strings are escaped, because the panel parses its text as markup.
 
     Args:
         sample_metadata: One sample's metadata.
 
     Returns:
-        The metadata with a lone ``filenames`` entry flattened, or the input
-        unchanged (same object) when there is nothing to flatten.
+        The metadata as panel data, with a lone ``filenames`` entry flattened.
 
     """
     from luxonis_ml.vizlab import Block
+    from luxonis_ml.vizlab.adapters.ldf import _metadata_to_panel_data
+    from luxonis_ml.vizlab.render.markup import escape
 
     files = sample_metadata.get("filenames")
-    if not (isinstance(files, Mapping) and len(files) == 1):
-        # Params and PanelData describe the same recursive scalar/container
-        # values here; this branch deliberately preserves the caller's dict.
-        return cast("dict[str, PanelData]", sample_metadata)
-    normalized = {
-        key: _panel_value(value) for key, value in sample_metadata.items()
-    }
-    only = next(iter(files.values()))
-    return {
-        ("filename" if key == "filenames" else key): (
-            Block(str(only)) if key == "filenames" else value
-        )
-        for key, value in normalized.items()
-    }
+    panel: dict[str, PanelData] = {}
+    for key, value in sample_metadata.items():
+        if (
+            key == "filenames"
+            and isinstance(files, Mapping)
+            and len(files) == 1
+        ):
+            panel["filename"] = Block(escape(next(iter(files.values()))))
+        else:
+            panel[escape(key)] = _metadata_to_panel_data(value)
+    return panel
 
 
 def _print_comparison_summary(

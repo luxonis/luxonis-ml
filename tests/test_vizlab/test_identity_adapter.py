@@ -131,3 +131,31 @@ def test_task_coloring_styles_nested_children_without_a_tooltip() -> None:
     assert root.tooltip is None
     assert root.children
     assert all(child.color == root.color for child in root.children)
+
+
+def test_instance_tooltip_shows_dataset_markup_as_text() -> None:
+    # Tooltip text is parsed as markup; dataset text must come out as typed,
+    # as it does in class coloring.
+    from luxonis_ml.vizlab.render.markup import parse
+
+    detection = Detection(
+        class_name="<b>car</b>",
+        instance_id=1,
+        boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.2, h=0.2),
+        metadata={"note": "<span class='a'>x</span>"},
+    )
+    [annotation] = record_to_colored_annotations(
+        _record(objects=[detection]),
+        color_by="instance",
+        options=RenderOptions(),
+        identity_palette=Palette(),
+    )
+    tooltip = annotation.tooltip
+    assert tooltip is not None
+
+    shown = {
+        parse(key)[0].text: parse(value)[0].text for key, value in tooltip.rows
+    }
+    assert shown["class"] == "<b>car</b>"
+    assert shown["note"] == "<span class='a'>x</span>"
+    assert parse(tooltip.title or "")[0].text == "<b>car</b> #1"

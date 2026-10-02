@@ -8,6 +8,7 @@ from luxonis_ml.ldf import DatasetRecord, Detection
 from luxonis_ml.vizlab.annotations import Annotation
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.options import RenderOptions
+from luxonis_ml.vizlab.render.markup import escape
 from luxonis_ml.vizlab.style import Palette
 from luxonis_ml.vizlab.tooltip import Tooltip
 
@@ -174,16 +175,17 @@ def _instance_tooltip(
     if detection.sub_detections:
         annotation_types.append("sub-detections")
 
-    class_name = detection.class_name or "(unlabeled)"
+    class_name = escape(detection.class_name or "(unlabeled)")
     instance_id = str(detection.instance_id)
     rows = [
         ("instance_id", instance_id),
         ("class", class_name),
-        ("task", task_name or "(default)"),
+        ("task", escape(task_name or "(default)")),
         ("annotations", ", ".join(annotation_types)),
     ]
     rows.extend(
-        (str(key), str(value)) for key, value in detection.metadata.items()
+        (escape(key), escape(value))
+        for key, value in detection.metadata.items()
     )
     return Tooltip(
         title=f"{class_name} #{instance_id}",

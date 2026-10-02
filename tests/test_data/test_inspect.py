@@ -253,7 +253,7 @@ def test_present_sample_metadata_collapses_single_input() -> None:
 
 def test_present_sample_metadata_passes_non_batched_through() -> None:
     plain = {"record_id": 1, "source": "x.jpg"}
-    assert data_main._present_sample_metadata(plain) is plain
+    assert data_main._present_sample_metadata(plain) == plain
 
 
 def test_present_sample_metadata_flattens_single_source_filenames() -> None:
@@ -315,6 +315,27 @@ def test_present_sample_metadata_flattens_filenames_per_batch_sample() -> None:
         "sample 1": {"filename": Block("a.jpg")},
         "sample 2": {"filename": Block("b.jpg")},
     }
+
+
+def test_present_sample_metadata_shows_dataset_markup_as_text() -> None:
+    # The panel parses its text as markup; a value from the dataset must come
+    # out as typed, not raise on an unknown attribute or turn bold.
+    from luxonis_ml.vizlab import Block, Image, with_panel
+    from luxonis_ml.vizlab.render.markup import parse
+
+    md: Params = {
+        "note": "<span class='a'>x</span>",
+        "a<b>": "c &amp; d",
+        "filenames": {"image": "<b>frame</b>.jpg"},
+    }
+    panel = data_main._present_sample_metadata(md)
+    filename = panel["filename"]
+
+    assert parse(str(panel["note"]))[0].text == "<span class='a'>x</span>"
+    assert parse(str(panel["a&lt;b&gt;"]))[0].text == "c &amp; d"
+    assert isinstance(filename, Block)
+    assert parse(str(filename.value))[0].text == "<b>frame</b>.jpg"
+    with_panel(Image(np.zeros((20, 30, 3), np.uint8)), panel).render()
 
 
 def test_present_sample_metadata_labels_empty_inputs() -> None:
