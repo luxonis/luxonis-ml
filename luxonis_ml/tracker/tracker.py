@@ -1,54 +1,112 @@
-import json
+# pyright: strict
+"""The tracker that logs a run to several tracking services at once.
+
+`LuxonisTracker` sends each logging call to each backend that it
+enables, names the run, and closes it. `RUN_NAME_ENV` hands a generated
+run name to the other ranks of a distributed training.
+
+See:
+    `luxonis_ml.tracker` for a guide to the tracker, and
+    `luxonis_ml.tracker.backends` for the backends.
+
+"""
+
+import atexit
 import os
+import re
+import sys
 import time
-from collections.abc import Callable
-from functools import wraps
-from importlib.util import find_spec
+import warnings
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any, Literal
+from types import MappingProxyType, TracebackType
+from typing import Any, TypeVar
 
-import cv2
-import numpy as np
+import numpy.typing as npt
 from loguru import logger
-from unique_names_generator import get_random_name
+from typing_extensions import Self, deprecated
 
-from luxonis_ml.typing import PathType
-from luxonis_ml.utils.filesystem import LuxonisFileSystem
+# the package has no type annotations
+from unique_names_generator import (  # pyright: ignore[reportMissingTypeStubs]
+    get_random_name,  # pyright: ignore[reportUnknownVariableType]
+)
+
+from luxonis_ml.typing import ParamValue, PathType
+
+from .backends.base import (
+    TRACKER_BACKENDS,
+    RunContext,
+    RunStatus,
+    TrackerBackend,
+)
+from .backends.mlflow import MLflowBackend, MLflowOptions
+from .backends.tensorboard import TensorBoardBackend
+from .backends.wandb import WandbBackend, WandbOptions
+from .buffer import BufferedBackend
+
+_BackendT = TypeVar("_BackendT", bound=TrackerBackend)
+
+RUN_NAME_ENV = "LUXONIS_TRACKER_RUN_NAME"
+"""The environment variable that hands the run name to the other ranks.
+
+Rank :math:`0` exports the run name that it generates. A worker process
+that starts later inherits the variable and joins the same run.
+"""
+
+_JOIN_TIMEOUT = 30.0
+"""Seconds that a worker waits for a run before it gives up."""
+
+_JOIN_GRACE_PERIOD = 1.0
+"""Seconds that a worker waits for a new run before it joins the newest
+one.
+"""
+
+_JOIN_POLL_INTERVAL = 0.5
+"""Seconds between two looks of a worker for a new run."""
 
 
 class LuxonisTracker:
-    """Logger wrapper for `TensorBoard`_, `WandB`_, and `MLflow`_.
+    """Log a run to several tracking services at once.
 
-    `LuxonisTracker` stores run metadata, initializes the selected logging
-    integrations lazily, and keeps a local fallback cache for MLflow logs
-    that fail transiently.
+    The tracker sends each logging call to each enabled backend. Each
+    backend in `TRACKER_BACKENDS`, a plugin backend included, has a
+    keyword argument of its name:
+
+    .. code-block:: python
+
+        with LuxonisTracker(
+            project_name="training",
+            tensorboard=True,
+            mlflow={"tracking_uri": "http://localhost:5000"},
+        ) as tracker:
+            tracker.log_metrics({"loss": 0.18}, step=1)
+
+    Only rank :math:`0` logs. On the other ranks every logging call does
+    nothing, and no backend starts.
+
+    The logging methods are those of `TrackerBackend`. A backend that
+    fails a call gives a warning, and the other backends still get the
+    call. `tensorboard`, `wandb` and `mlflow` give the built-in backends,
+    and `backends` gives each enabled backend by its keyword.
+
+    The backends start on the first logging call, at `start`, or when
+    code reads `tensorboard`, `wandb` or `mlflow`. `close` ends the run
+    in each backend. Use the tracker as a context manager to close it
+    with the right status. A run that is still open when the interpreter
+    exits closes then, as failed after an uncaught error.
 
     Attributes:
-        project_name: Project name used by WandB and MLflow.
-        project_id: Project identifier used by WandB and MLflow.
-        save_directory: Root directory where local run outputs are stored.
-        is_tensorboard: Whether TensorBoard logging is enabled.
-        is_wandb: Whether WandB logging is enabled.
-        is_mlflow: Whether MLflow logging is enabled.
-        is_sweep: Whether the current run belongs to a sweep.
-        rank: Process rank. Only rank :math:`0` writes through
-            rank-gated logging methods.
-        local_logs: Locally cached MLflow payloads that will be retried
-            or written to disk on close.
-        mlflow_initialized: Whether MLflow initialization has succeeded.
-        run_id: MLflow run identifier, used to resume an existing run.
-        wandb_entity: WandB entity used for logging.
-        mlflow_tracking_uri: MLflow tracking URI used when MLflow logging
-            is enabled.
-        run_name: Name of the current run.
-        run_directory: Directory for local run artifacts.
-
-    .. _TensorBoard:
-        https://www.tensorflow.org/tensorboard
-    .. _WandB:
-        https://wandb.ai/site
-    .. _MLflow:
-        https://mlflow.org/
+        project_name: Project name, as the caller gave it.
+        project_id: Project identifier, as the caller gave it. The
+            identifiers that MLflow assigns are on `mlflow`.
+        run_name: Name of the run.
+        run_id: Identifier of an earlier run to continue, as the caller
+            gave it.
+        save_directory: Root directory of the local run outputs.
+        run_directory: Local directory of the run,
+            ``<save_directory>/<run_name>``.
+        is_sweep: Whether the run is one trial of a sweep.
+        rank: Rank of the process in distributed training.
 
     """
 
@@ -66,631 +124,693 @@ class LuxonisTracker:
         wandb_entity: str | None = None,
         mlflow_tracking_uri: str | None = None,
         rank: int = 0,
-    ):
-        """Create a tracker for one or more logging integrations.
+        *,
+        tensorboard: bool | None = None,
+        wandb: WandbOptions | bool | None = None,
+        mlflow: MLflowOptions | bool | None = None,
+        **plugins: Mapping[str, object] | bool | None,
+    ) -> None:
+        """Create a tracker.
+
+        Each backend has a keyword argument of its name. ``True`` turns
+        the backend on with its defaults, a mapping passes its options,
+        and ``None`` or ``False`` leaves it off.
 
         Args:
-            project_name: Project name used for WandB and MLflow.
-            project_id: Project ID used for WandB and MLflow.
-            run_name: Run name. If omitted, rank :math:`0` generates a
-                new name and other ranks use the latest run name.
-            run_id: MLflow run ID used to continue a previous run.
-            save_directory: Directory where local outputs are saved.
-            is_tensorboard: Whether to use TensorBoard logging.
-            is_wandb: Whether to use WandB logging.
-            is_mlflow: Whether to use MLflow logging.
-            is_sweep: Whether the current run is part of a sweep.
-            wandb_entity: WandB entity to use.
-            mlflow_tracking_uri: MLflow tracking URI to use.
-            rank: Process rank used in distributed training.
+            project_name: Project name.
+            project_id: Project identifier.
+            run_name: Name of the run. If omitted, rank :math:`0`
+                generates ``<number>-<random name>``, and the other ranks
+                join that run.
+            run_id: Identifier of an earlier run to continue.
+            save_directory: Root directory of the local run outputs.
+            is_tensorboard: Deprecated. Use ``tensorboard``.
+            is_wandb: Deprecated. Use ``wandb``.
+            is_mlflow: Deprecated. Use ``mlflow``.
+            is_sweep: Whether the run is one trial of a sweep.
+            wandb_entity: Deprecated. Use the ``entity`` option of
+                ``wandb``.
+            mlflow_tracking_uri: Deprecated. Use the ``tracking_uri``
+                option of ``mlflow``.
+            rank: Rank of the process in distributed training.
+            tensorboard: Whether to log to `TensorBoardBackend`.
+            wandb: `WandbBackend`, with the options of `WandbOptions`.
+            mlflow: `MLflowBackend`, with the options of `MLflowOptions`.
+            **plugins: The other backends in `TRACKER_BACKENDS`, keyed by
+                their name.
 
         Raises:
-            ValueError: If WandB or MLflow is enabled but neither
-                `project_name` nor `project_id` is provided.
-            ValueError: If WandB is enabled without `wandb_entity`.
-            ValueError: If MLflow is enabled without
-                `mlflow_tracking_uri`.
-            ValueError: If no logging integration is enabled.
+            ValueError: If no backend is enabled, or a backend lacks an
+                option that it needs, such as the MLflow tracking URI.
+            TypeError: If a keyword argument names no backend in
+                `TRACKER_BACKENDS`, or a backend gets an unknown option.
+            RuntimeError: If ``run_name`` is omitted on a non-zero rank,
+                and no run appears within 30 seconds.
 
         """
-        os.environ["MLFLOW_HTTP_REQUEST_MAX_RETRIES"] = "2"
+        configs, legacy_options = _legacy_backends(
+            is_tensorboard=is_tensorboard,
+            is_wandb=is_wandb,
+            is_mlflow=is_mlflow,
+            wandb_entity=wandb_entity,
+            mlflow_tracking_uri=mlflow_tracking_uri,
+        )
+        legacy_names = configs.keys() | legacy_options.keys()
+        requested = {
+            "tensorboard": tensorboard,
+            "wandb": wandb,
+            "mlflow": mlflow,
+            **plugins,
+        }
+        for name, value in requested.items():
+            if name not in TRACKER_BACKENDS:
+                raise TypeError(
+                    "LuxonisTracker got an unexpected keyword argument "
+                    f"'{name}', and no tracker backend has that name."
+                )
+            # an explicit `False` also turns off a deprecated flag
+            if value is False:
+                configs.pop(name, None)
+            elif value is True:
+                configs[name] = legacy_options.get(name, {})
+            elif value is not None:
+                configs[name] = value
+        if not configs:
+            raise ValueError("Enable at least one backend.")
+        if legacy_names:
+            _warn_deprecated(configs, legacy_names)
 
         self.project_name = project_name
         self.project_id = project_id
-        self.save_directory = Path(save_directory)
-        self.save_directory.mkdir(parents=True, exist_ok=True)
-        self.is_tensorboard = is_tensorboard
-        self.is_wandb = is_wandb
-        self.is_mlflow = is_mlflow
+        self.run_id = run_id
         self.is_sweep = is_sweep
         self.rank = rank
-        self.local_logs = {
-            "metric": [],
-            "params": {},
-            "images": [],
-            "artifacts": [],
-            "matrices": [],
-            "metrics": [],
-        }
-        self.mlflow_initialized = False
+        self.save_directory = Path(save_directory)
+        self.save_directory.mkdir(parents=True, exist_ok=True)
 
-        self.run_id = (
-            run_id  # if using MLFlow then it will continue previous run
+        if not run_name:
+            if rank == 0:
+                run_name = _new_run_name(self.save_directory)
+                os.environ[RUN_NAME_ENV] = run_name
+            else:
+                run_name = _join_run(self.save_directory)
+        self.run_name = run_name
+
+        run = RunContext(
+            run_name=run_name,
+            save_directory=self.save_directory,
+            project_name=project_name,
+            project_id=project_id,
+            run_id=run_id,
+            is_sweep=is_sweep,
         )
+        self._backends = {
+            name: _create_backend(name, run, options)
+            for name, options in configs.items()
+        }
+        self._started: dict[str, TrackerBackend] = {}
+        self._closed = False
+        self._status: RunStatus = "success"
+        # an interactive session keeps the last error that it printed
+        self._earlier_error = getattr(sys, "last_value", None)
 
-        if (
-            (is_wandb or is_mlflow)
-            and self.project_name is None
-            and self.project_id is None
-        ):
-            raise ValueError(
-                "Either project_name or project_id must be specified!"
-            )
-
-        if self.is_wandb and wandb_entity is None:
-            raise ValueError("Must specify wandb_entity when using wandb!")
-        self.wandb_entity = wandb_entity
-        if self.is_mlflow:
-            if mlflow_tracking_uri is None:
-                raise ValueError(
-                    "Must specify mlflow_tracking_uri when using mlflow!"
-                )
-            self.mlflow_tracking_uri = mlflow_tracking_uri
-
-        if not (self.is_tensorboard or self.is_wandb or self.is_mlflow):
-            raise ValueError("At least one integration must be used!")
-
-        self._experiment = None
-
-        if run_name:
-            self.run_name = run_name
-        # create new directory if rank==0 else return newest run
-        elif rank == 0:
-            self.run_name = self._get_run_name()
-        else:
-            time.sleep(1)  # DDP hotfix
-            self.run_name = self._get_latest_run_name()
-
-        self.run_directory = self.save_directory / self.run_name
+        self.run_directory = run.run_directory
         self.run_directory.mkdir(parents=True, exist_ok=True)
 
-    @staticmethod
-    def rank_zero_only(fn: Callable) -> Callable:
-        """Wrap a function so only processes with rank=0 execute it."""
+    def __enter__(self) -> Self:
+        """Return the tracker, which `__exit__` closes.
 
-        @wraps(fn)
-        def wrapped_fn(
-            self: "LuxonisTracker", *args: Any, **kwargs: Any
-        ) -> Any | None:
-            if self.rank == 0:
-                return fn(self, *args, **kwargs)
-            return None
-
-        return wrapped_fn
-
-    def log_to_mlflow(self, log_fn: Callable, *args, **kwargs) -> None:
-        """Log to MLflow with retries.
-
-        Logs locally if failures persist.
-        """
-        try:
-            log_fn(*args, **kwargs)
-            self.log_stored_logs_to_mlflow()  # Attempt to log stored logs after successful log
-        except Exception as e:
-            logger.warning(f"Attempt to log to MLflow failed: {e}")
-        else:
-            return
-
-        self.store_log_locally(log_fn, *args, **kwargs)
-
-    def store_log_locally(self, log_fn: Callable, *args, **kwargs) -> None:
-        """Store log data locally if logging to MLflow fails."""
-        # Checking functions without triggering reconnections.
-        if log_fn == self.experiment["mlflow"].log_metric:
-            self.local_logs["metric"].append(
-                {"name": args[0], "value": args[1], "step": args[2]}
-            )
-        elif log_fn == self.experiment["mlflow"].log_metrics:
-            self.local_logs["metrics"].append(
-                {"metrics": args[0], "step": args[1]}
-            )
-        elif log_fn == self.experiment["mlflow"].log_params:
-            self.local_logs["params"].update(args[0])
-        elif log_fn == self.experiment["mlflow"].log_image:
-            self.local_logs["images"].append(
-                {"image_data": args[0], "name": args[1]}
-            )
-        elif log_fn == self.upload_artifact_to_mlflow:
-            self.local_logs["artifacts"].append(
-                {"path": str(args[0]), "name": args[1]}
-            )
-        elif log_fn == self.experiment["mlflow"].log_dict:
-            self.local_logs["matrices"].append(
-                {"matrix": args[0], "name": args[1]}
-            )
-
-    def log_stored_logs_to_mlflow(self) -> None:
-        """Log any data stored in local_logs to MLflow."""
-        if not self.mlflow_initialized or not any(self.local_logs.values()):
-            return
-
-        try:
-            if self.local_logs["params"]:
-                self.experiment["mlflow"].log_params(self.local_logs["params"])
-                self.local_logs["params"] = {}
-            for metric in list(self.local_logs["metric"]):
-                self.experiment["mlflow"].log_metric(
-                    metric["name"], metric["value"], metric["step"]
-                )
-                self.local_logs["metric"].remove(metric)
-            for metrics in list(self.local_logs["metrics"]):
-                self.experiment["mlflow"].log_metrics(
-                    metrics["metrics"], metrics["step"]
-                )
-                self.local_logs["metrics"].remove(metrics)
-            for image in list(self.local_logs["images"]):
-                self.experiment["mlflow"].log_image(
-                    image["image_data"], image["name"]
-                )
-                self.local_logs["images"].remove(image)
-            for matrix in list(self.local_logs["matrices"]):
-                self.experiment["mlflow"].log_dict(
-                    matrix["matrix"], matrix["name"]
-                )
-                self.local_logs["matrices"].remove(matrix)
-            for artifact in list(self.local_logs["artifacts"]):
-                self.upload_artifact_to_mlflow(
-                    Path(artifact["path"]), artifact["name"]
-                )
-                self.local_logs["artifacts"].remove(artifact)
-
-            logger.info("Successfully re-logged stored logs to MLflow.")
-        except Exception as e:
-            logger.warning(f"Failed to re-log stored logs to MLflow: {e}")
-
-    def save_logs_locally(self) -> None:
-        """Save metrics, parameters, images, artifacts, and matrices locally.
-
-        The tracker buffers MLflow logs when a remote call fails. This
-        method writes the buffer under the run directory, which is
-        ``<save_directory>/<run_name>``:
-
-            - ``local_logs.json`` holds the metrics, the parameters, the
-              matrices, and the index of the saved images and artifacts;
-            - ``images/`` holds the buffered images as ``<index>.png``;
-            - ``artifacts/`` holds a copy of each buffered artifact whose
-              source file still exists.
-
-        The image entries in ``local_logs.json`` hold the new local paths,
-        not the original data. An artifact entry holds the new local path
-        only after a successful copy. A missing source keeps its original
-        path.
-
-        `LuxonisTracker.close` calls this method when MLflow is enabled and
-        the buffer is not empty.
+        Returns:
+            The tracker itself.
 
         """
-        image_dir = self.run_directory / "images"
-        artifact_dir = self.run_directory / "artifacts"
+        return self
 
-        image_dir.mkdir(exist_ok=True)
-        artifact_dir.mkdir(exist_ok=True)
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the run, as failed if the block raised.
 
-        for idx, img in enumerate(self.local_logs["images"]):
-            img_path = str(image_dir / f"{idx}.png")
-            cv2.imwrite(
-                img_path, cv2.cvtColor(img["image_data"], cv2.COLOR_RGB2BGR)
-            )
-            img["image_data"] = img_path  # Replace data with path
+        Args:
+            exc_type: The type of the error that the block raised, or
+                ``None``.
+            exc_value: The error that the block raised, or ``None``.
+            traceback: The traceback of the error, or ``None``.
 
-        for artifact in self.local_logs["artifacts"]:
-            artifact_path = Path(artifact["path"])
-            if artifact_path.exists():
-                local_path = artifact_dir / artifact_path.name
-                local_path.write_bytes(artifact_path.read_bytes())
-                artifact["path"] = str(local_path)
-
-        log_dir = self.run_directory / "local_logs.json"
-        with open(log_dir, "w") as f:
-            json.dump(
-                {
-                    k: self.local_logs[k]
-                    for k in [
-                        "metrics",
-                        "metric",
-                        "params",
-                        "images",
-                        "artifacts",
-                        "matrices",
-                    ]
-                },
-                f,
-            )
-
-        logger.info(
-            f"Logs saved locally at '{log_dir}', "
-            f"images in {image_dir}, artifacts in {artifact_dir}"
-        )
+        """
+        self.close("success" if exc_type is None else "failed")
 
     @property
     def name(self) -> str:
-        """Run name.
+        """The run name, the same as `run_name`.
 
-        Returns:
-            Current run name.
-
+        A Lightning logger reads it.
         """
         return self.run_name
 
     @property
     def version(self) -> int:
-        """Tracker version.
+        """The number of the run, such as :math:`11` for ``11-foo``.
 
-        Returns:
-            Version number :math:`1`.
-
+        It is :math:`0` for a run name without a number. A Lightning
+        logger reads it.
         """
-        return 1
+        return _run_number(self.run_name) or 0
 
     @property
-    @rank_zero_only
-    def experiment(
-        self,
-    ) -> dict[Literal["tensorboard", "wandb", "mlflow"], Any]:
-        """Creates new experiments or returns active ones if already
-        created.
+    def backends(self) -> Mapping[str, TrackerBackend]:
+        """The enabled backends, keyed by name.
+
+        A plugin backend is here under its keyword, for example
+        ``tracker.backends["my_service"]``. Unlike `tensorboard`,
+        `wandb` and `mlflow`, the mapping does not start the backends.
+        A backend that sets `TrackerBackend.buffered` is here itself, not
+        its `BufferedBackend`. The mapping is read-only.
         """
-        if self._experiment is None:
-            self._experiment = {}
-
-        if self.is_tensorboard and "tensorboard" not in self._experiment:
-            from torch.utils.tensorboard.writer import SummaryWriter
-
-            log_dir = self.save_directory / "tensorboard_logs" / self.run_name
-            if self.is_sweep:
-                trial_id = 0
-                if log_dir.exists():
-                    trial_id = (
-                        max(
-                            (
-                                int(f.split("_")[-1])
-                                for f in os.listdir(log_dir)  # noqa: PTH208
-                                if f.startswith("trial_")
-                            ),
-                            default=0,
-                        )
-                        + 1
-                    )
-                log_dir = log_dir / f"trial_{trial_id}"
-
-            self._experiment["tensorboard"] = SummaryWriter(log_dir=log_dir)
-
-        if self.is_wandb and "wandb" not in self._experiment:
-            import wandb
-
-            self._experiment["wandb"] = wandb
-
-            log_dir = self.save_directory / "wandb_logs"
-            log_dir.mkdir(parents=True, exist_ok=True)
-
-            self._experiment["wandb"].init(
-                project=self.project_name
-                if self.project_name is not None
-                else self.project_id,
-                entity=self.wandb_entity,
-                dir=log_dir,
-                name=self.run_name,
-            )
-
-        if self.is_mlflow and self.mlflow_initialized is False:
-            try:
-                import mlflow
-
-                if find_spec("psutil") is not None:
-                    mlflow.enable_system_metrics_logging()
-                    if find_spec("pynvml") is None:
-                        logger.warning(
-                            "pynvml not found, GPU stats will not be monitored. "
-                            "To enable GPU monitoring, install it using 'pip install pynvml'"
-                        )
-                else:
-                    logger.warning(
-                        "`psutil` not found. To enable system metric logging, "
-                        "install it using 'pip install psutil'"
-                    )
-
-                self._experiment["mlflow"] = mlflow
-
-                self.artifacts_dir = self.run_directory / "artifacts"
-                self.artifacts_dir.mkdir(parents=True, exist_ok=True)
-
-                self._experiment["mlflow"].set_tracking_uri(
-                    self.mlflow_tracking_uri
-                )
-
-                if self.project_id is not None:
-                    self.project_name = None
-
-                experiment = self._experiment["mlflow"].set_experiment(
-                    experiment_name=self.project_name,
-                    experiment_id=self.project_id,
-                )
-                self.project_id = experiment.experiment_id
-
-                # If self.run_id is None, create a new run; otherwise, use the existing one
-                run = self._experiment["mlflow"].start_run(
-                    run_id=self.run_id,
-                    run_name=self.run_name,
-                    nested=self.is_sweep,
-                )
-                self.run_id = run.info.run_id
-                self.mlflow_initialized = (
-                    True  # Mark MLflow as initialized successfully
-                )
-
-            except Exception as e:
-                logger.warning(f"Failed to initialize MLflow: {e}")
-                self.mlflow_initialized = False  # Mark MLflow as unavailable
-
-        return self._experiment
-
-    @rank_zero_only
-    def log_hyperparams(
-        self, params: dict[str, str | bool | int | float | None]
-    ) -> None:
-        """Log a hyperparameter dictionary.
-
-        Args:
-            params: Hyperparameter key-value pairs.
-
-        """
-        if self.is_tensorboard:
-            self.experiment["tensorboard"].add_hparams(
-                params,
-                {
-                    "placeholder_metric": 0
-                },  # placeholder metric is needed due to this issue: https://github.com/tensorflow/tensorboard/issues/5476
-            )
-        if self.is_wandb:
-            self.experiment["wandb"].config.update(params)
-        if self.is_mlflow:
-            self.log_to_mlflow(self.experiment["mlflow"].log_params, params)
-
-    @rank_zero_only
-    def log_metric(self, name: str, value: float, step: int) -> None:
-        """Log one scalar metric value.
-
-        Note:
-            ``step`` is omitted when logging with WandB to avoid problems
-            with inconsistent incrementation.
-
-        Args:
-            name: Metric name.
-            value: Metric value.
-            step: Current step.
-
-        """
-        if self.is_tensorboard:
-            self.experiment["tensorboard"].add_scalar(name, value, step)
-
-        if self.is_wandb:
-            # let wandb increment step to avoid calls with inconsistent steps
-            self.experiment["wandb"].log({name: value})
-
-        if self.is_mlflow:
-            self.log_to_mlflow(
-                self.experiment["mlflow"].log_metric, name, value, step
-            )
-
-    @rank_zero_only
-    def log_metrics(self, metrics: dict[str, float], step: int) -> None:
-        """Log multiple scalar metrics.
-
-        Args:
-            metrics: Metric key-value pairs.
-            step: Current step.
-
-        """
-        if self.is_tensorboard:
-            for key, value in metrics.items():
-                self.experiment["tensorboard"].add_scalar(key, value, step)
-        if self.is_wandb:
-            self.experiment["wandb"].log(metrics)
-        if self.is_mlflow:
-            self.log_to_mlflow(
-                self.experiment["mlflow"].log_metrics, metrics, step
-            )
-
-    @rank_zero_only
-    def log_image(self, name: str, img: np.ndarray, step: int) -> None:
-        r"""Log one image.
-
-        Note:
-            ``step`` is omitted when logging with WandB to avoid problems
-            with inconsistent incrementation.
-
-        Args:
-            name: Image caption. For MLflow, this should include a
-                slash-separated base path and image caption.
-            img: Image data of shape :math:`\left(H, W, C\right)`.
-            step: Current step.
-
-        """
-        if self.is_tensorboard:
-            self.experiment["tensorboard"].add_image(
-                name, img, step, dataformats="HWC"
-            )
-
-        if self.is_wandb:
-            wandb_image = self.experiment["wandb"].Image(img, caption=name)
-            # if step is added here it doesn't work correctly with wandb
-            self.experiment["wandb"].log({name: wandb_image})
-
-        if self.is_mlflow:
-            # split images into separate directories based on step
-            base_path, img_caption = name.rsplit("/", 1)
-            img_path = f"{base_path}/{step}/{img_caption}.png"
-            self.log_to_mlflow(
-                self.experiment["mlflow"].log_image, img, img_path
-            )
-
-    @rank_zero_only
-    def upload_artifact(
-        self,
-        path: PathType,
-        name: str | None = None,
-        typ: str = "artifact",
-    ) -> None:
-        """Upload an artifact to the logging service.
-
-        Args:
-            path: Path to the artifact.
-            name: Artifact name. If ``None``, uses the file stem for WandB
-                and the file name for MLflow.
-            typ: The type of the artifact. Only used for WandB.
-
-        """
-        path = Path(path)
-        if self.is_wandb:
-            import wandb
-
-            artifact = wandb.Artifact(name=name or path.stem, type=typ)
-            artifact.add_file(local_path=str(path))
-            artifact.save()
-
-        if self.is_mlflow:
-            self.log_to_mlflow(self.upload_artifact_to_mlflow, path, name)
-
-    def upload_artifact_to_mlflow(
-        self,
-        path: PathType,
-        name: str | None = None,
-    ) -> None:
-        """Upload an artifact specifically to MLflow.
-
-        The artifact is always stored at the root of the run's artifact
-        directory. Only the base name of ``name`` is used, so callers
-        can pass a full local path without leaking the local directory
-        structure into the artifact store.
-
-        Args:
-            path: Path to the artifact.
-            name: Artifact name. If ``None``, uses the file name.
-
-        """
-        _ = self.experiment["mlflow"]
-        if self.project_id is None or self.run_id is None:
-            raise ValueError("MLflow experiment and run must be initialized.")
-
-        remote_path = Path(name or path).name
-        LuxonisFileSystem.upload(
-            path,
-            f"mlflow://{self.project_id}/{self.run_id}/{remote_path}",
-            tracking_uri=self.mlflow_tracking_uri,
+        return MappingProxyType(
+            {
+                name: _unwrap(backend)
+                for name, backend in self._backends.items()
+            }
         )
 
-    @rank_zero_only
+    @property
+    def tensorboard(self) -> TensorBoardBackend:
+        """The TensorBoard backend, started on rank :math:`0`.
+
+        Example:
+            .. code-block:: python
+
+                writer = tracker.tensorboard.writer
+
+        Raises:
+            AttributeError: If TensorBoard is not enabled.
+            TypeError: If a plugin replaced the backend.
+            Exception: The error of a backend that fails to start.
+
+        """
+        return self._builtin("tensorboard", TensorBoardBackend)
+
+    @property
+    def wandb(self) -> WandbBackend:
+        """The WandB backend, started on rank :math:`0`.
+
+        Example:
+            .. code-block:: python
+
+                run = tracker.wandb.wandb_run
+
+        Raises:
+            AttributeError: If WandB is not enabled.
+            TypeError: If a plugin replaced the backend.
+            Exception: The error of a backend that fails to start.
+
+        """
+        return self._builtin("wandb", WandbBackend)
+
+    @property
+    def mlflow(self) -> MLflowBackend:
+        """The MLflow backend, started on rank :math:`0`.
+
+        Example:
+            .. code-block:: python
+
+                run_id = tracker.mlflow.run_id
+                tracker.mlflow.artifacts.put_file("model.onnx", "model.onnx")
+
+        Raises:
+            AttributeError: If MLflow is not enabled.
+            TypeError: If a plugin replaced the backend.
+            Exception: The error of a backend that fails to start. A
+                buffered backend raises only when the service rejects
+                the start.
+
+        """
+        return self._builtin("mlflow", MLflowBackend)
+
+    def start(self) -> None:
+        """Start the backends now, not at the first logging call.
+
+        For example, start the MLflow run of a sweep before its trials,
+        so that they nest under it. A backend that started already does
+        not start again. On a non-zero rank, and after `close`, it does
+        nothing.
+
+        Raises:
+            Exception: The error of a backend that fails to start. A
+                buffered backend raises only when the service rejects
+                the start.
+
+        """
+        if not self._closed:
+            self._start_backends()
+
+    @property
+    @deprecated("Use `'tensorboard' in tracker.backends` instead.")
+    def is_tensorboard(self) -> bool:
+        """Whether TensorBoard is enabled.
+
+        Deprecated: use ``"tensorboard" in tracker.backends``.
+        """
+        return "tensorboard" in self._backends
+
+    @property
+    @deprecated("Use `'wandb' in tracker.backends` instead.")
+    def is_wandb(self) -> bool:
+        """Whether WandB is enabled.
+
+        Deprecated: use ``"wandb" in tracker.backends``.
+        """
+        return "wandb" in self._backends
+
+    @property
+    @deprecated("Use `'mlflow' in tracker.backends` instead.")
+    def is_mlflow(self) -> bool:
+        """Whether MLflow is enabled.
+
+        Deprecated: use ``"mlflow" in tracker.backends``.
+        """
+        return "mlflow" in self._backends
+
+    @property
+    @deprecated("Use `tracker.wandb.entity` instead.")
+    def wandb_entity(self) -> str | None:
+        """The WandB entity, or ``None`` without WandB.
+
+        Deprecated: use ``tracker.wandb.entity``.
+        """
+        backend = self.backends.get("wandb")
+        return backend.entity if isinstance(backend, WandbBackend) else None
+
+    @property
+    @deprecated("Use `tracker.mlflow.tracking_uri` instead.")
+    def mlflow_tracking_uri(self) -> str | None:
+        """The MLflow tracking URI, or ``None`` without MLflow.
+
+        Deprecated: use ``tracker.mlflow.tracking_uri``.
+        """
+        backend = self.backends.get("mlflow")
+        if isinstance(backend, MLflowBackend):
+            return backend.tracking_uri
+        return None
+
+    def log_hyperparams(self, params: Mapping[str, ParamValue]) -> None:
+        """Log the hyperparameters of the run.
+
+        Each call adds to the hyperparameters of the earlier calls.
+
+        Args:
+            params: The hyperparameters, keyed by name. A value can be
+                any value of a YAML configuration, such as a list.
+
+        Raises:
+            Exception: The error of a backend that fails to start. A
+                buffered backend raises only when the service rejects
+                the start.
+
+        """
+        self._send(lambda backend: backend.log_hyperparams(params))
+
+    def log_metric(self, name: str, value: float, step: int) -> None:
+        """Log one scalar metric.
+
+        Args:
+            name: Name of the metric.
+            value: Value of the metric.
+            step: The training step of the value.
+
+        Raises:
+            Exception: The error of a backend that fails to start. A
+                buffered backend raises only when the service rejects
+                the start.
+
+        """
+        self._send(lambda backend: backend.log_metric(name, value, step))
+
+    def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
+        """Log scalar metrics.
+
+        Args:
+            metrics: The metric values, keyed by metric name.
+            step: The training step of the values.
+
+        Raises:
+            Exception: The error of a backend that fails to start. A
+                buffered backend raises only when the service rejects
+                the start.
+
+        """
+        self._send(lambda backend: backend.log_metrics(metrics, step))
+
+    def log_image(self, name: str, image: npt.NDArray[Any], step: int) -> None:
+        r"""Log an image.
+
+        Args:
+            name: Name of the image. MLflow uses the part before the last
+                ``/`` as the directory.
+            image: The image, of shape :math:`\left(H, W, C\right)`.
+            step: The training step of the image.
+
+        Raises:
+            Exception: The error of a backend that fails to start. A
+                buffered backend raises only when the service rejects
+                the start.
+
+        """
+        self._send(lambda backend: backend.log_image(name, image, step))
+
+    def log_images(
+        self, images: Mapping[str, npt.NDArray[Any]], step: int
+    ) -> None:
+        r"""Log several images.
+
+        Args:
+            images: The images, keyed by name. Each image has the shape
+                :math:`\left(H, W, C\right)`.
+            step: The training step of the images.
+
+        Raises:
+            Exception: The error of a backend that fails to start. A
+                buffered backend raises only when the service rejects
+                the start.
+
+        """
+        self._send(lambda backend: backend.log_images(images, step))
+
     def log_matrix(
         self,
-        matrix: np.ndarray,
+        matrix: npt.NDArray[Any],
         name: str,
         step: int,
-        extra_data: dict | None = None,
+        extra_data: Mapping[str, ParamValue] | None = None,
     ) -> None:
-        r"""Log a matrix to the enabled logging services.
+        """Log a matrix, such as a confusion matrix.
 
         Args:
-            matrix: Matrix to log, usually of shape
-                :math:`\left(M, N\right)`.
-            name: Name used for the matrix artifact.
-            step: Current step.
-            extra_data: Optional dictionary of additional data to include
-                in the logged matrix artifact.
+            matrix: The matrix.
+            name: Name of the matrix.
+            step: The training step of the matrix.
+            extra_data: More data to store with the matrix, such as the
+                class names. Only MLflow stores it.
+
+        Raises:
+            Exception: The error of a backend that fails to start. A
+                buffered backend raises only when the service rejects
+                the start.
 
         """
-        if self.is_mlflow:
-            matrix_data: dict = {
-                "flat_array": matrix.flatten().tolist(),
-                "shape": matrix.shape,
-            }
-            if extra_data is not None:
-                matrix_data.update(extra_data)
-            self.log_to_mlflow(
-                self.experiment["mlflow"].log_dict,
-                matrix_data,
-                f"{name}.json",
-            )
-
-        if self.is_tensorboard:
-            matrix_str = np.array2string(matrix, separator=", ")
-            self.experiment["tensorboard"].add_text(name, matrix_str, step)
-
-        if self.is_wandb:
-            import wandb
-
-            table = wandb.Table(
-                columns=[
-                    "Row Index",
-                    *[f"Col {i}" for i in range(matrix.shape[1])],
-                ]
-            )
-            for i, row in enumerate(matrix):
-                table.add_data(i, *row)
-            self.experiment["wandb"].log({f"{name}_table": table}, step=step)
-
-    @rank_zero_only
-    def log_images(self, imgs: dict[str, np.ndarray], step: int) -> None:
-        r"""Log multiple images.
-
-        Args:
-            imgs: Mapping from image captions to image data of shape
-                :math:`\left(H, W, C\right)`.
-            step: Current step.
-
-        """
-        for caption, img in imgs.items():
-            self.log_image(caption, img, step)
-
-    def _get_next_run_number(self) -> int:
-        """Return the number ID for the next run."""
-
-        log_dirs = [
-            path.name
-            for path in self.save_directory.iterdir()
-            if path.is_dir()
-        ]
-
-        nums = [path.split("-")[0] for path in log_dirs]
-        nums = [int(num) for num in nums if num.isnumeric()]
-
-        if len(nums) == 0:
-            return 0
-        return max(nums) + 1
-
-    def close(self) -> None:
-        """Finalize logging and save unsent logs locally."""
-        if self.is_mlflow and any(self.local_logs.values()):
-            self.save_logs_locally()
-
-    def _get_run_name(self) -> str:
-        """Generate a new run name."""
-        name_without_number = get_random_name(separator="-", style="lowercase")
-        number = self._get_next_run_number()
-        return f"{number}-{name_without_number}"
-
-    def _get_latest_run_name(self) -> str:
-        """Return the most recently created run name."""
-        log_dirs = [
-            path.relative_to(self.save_directory).name
-            for path in self.save_directory.iterdir()
-            if path.is_dir()
-        ]
-        runs = []
-        for ld in log_dirs:
-            if ld.split("-")[0].isnumeric():
-                runs.append(ld)
-        runs.sort(
-            key=lambda x: (self.save_directory / x).stat().st_mtime,
-            reverse=True,
+        data = extra_data or {}
+        self._send(
+            lambda backend: backend.log_matrix(matrix, name, step, data)
         )
-        return runs[0]
+
+    def upload_artifact(
+        self, path: PathType, name: str | None = None, typ: str = "artifact"
+    ) -> None:
+        """Upload a file to the backends that store files.
+
+        Args:
+            path: Path to the file.
+            name: Name to store the file under. ``None`` keeps the name
+                of the file.
+            typ: Kind of the artifact. Only WandB uses it.
+
+        Raises:
+            Exception: The error of a backend that fails to start. A
+                buffered backend raises only when the service rejects
+                the start.
+
+        """
+        file = Path(path)
+        self._send(lambda backend: backend.upload_artifact(file, name, typ))
+
+    def flush(self) -> None:
+        """Write the pending data of each started backend, and keep the
+        run open.
+
+        For example, TensorBoard writes its events to disk. A backend
+        that fails to flush gives a warning, and the others still flush.
+        After `close`, and on a non-zero rank, it does nothing. A signal
+        handler can close the run during a flush. The backends after
+        that point then do not get the flush.
+        """
+        if self._closed:
+            return
+        for name, backend in self._started.items():
+            if self._closed:
+                return
+            try:
+                backend.flush()
+            except Exception as error:
+                logger.warning(f"Could not flush the {name} run: {error}")
+        if self._started:
+            # the TensorBoard flush opens a writer with an exit hook
+            self._register_exit_hook()
+
+    def close(self, status: str = "success") -> None:
+        """End the run in each started backend.
+
+        A backend that fails to close gives a warning, and the others
+        still close. A second call does nothing, and the tracker ignores
+        the logging calls that come after it.
+
+        Args:
+            status: ``"success"`` or ``"finished"`` for a run that
+                succeeded. Any other value marks the run as failed.
+                These are the values that a Lightning logger receives.
+
+        Raises:
+            BaseException: An interrupt, such as ``KeyboardInterrupt``,
+                that stops the close of a backend. The tracker raises
+                it after it closes the other backends.
+
+        """
+        if self._closed:
+            return
+        self._closed = True
+        atexit.unregister(self._close_at_exit)
+        self._status = (
+            "success" if status in {"success", "finished"} else "failed"
+        )
+        interrupt: BaseException | None = None
+        for name, backend in self._started.items():
+            try:
+                self._close_backend(name, backend)
+            except BaseException as error:
+                interrupt = interrupt or error
+        if interrupt is not None:
+            raise interrupt
+
+    def _close_backend(self, name: str, backend: TrackerBackend) -> None:
+        """End the run of one backend, and report a failure."""
+        try:
+            backend.close(self._status)
+        except Exception as error:
+            logger.warning(f"Could not close the {name} run: {error}")
+
+    def _send(self, call: Callable[[TrackerBackend], object]) -> None:
+        """Make a logging call on each started backend, and start the
+        backends first if needed.
+
+        A backend that fails gives a warning, and the other backends
+        still get the call. A signal handler can close the run during a
+        call. The backends after that point then do not get the call.
+        """
+        if self._closed:
+            if self.rank == 0:
+                logger.warning(
+                    "The tracker is closed. It ignores the logging call."
+                )
+            return
+        self._start_backends()
+        for name, backend in self._started.items():
+            if self._closed:
+                return
+            try:
+                call(backend)
+            except Exception as error:
+                logger.warning(f"Could not log to the {name} run: {error}")
+
+    def _builtin(self, name: str, backend_type: type[_BackendT]) -> _BackendT:
+        """Return the backend of ``name``, and start the backends."""
+        backend = self.backends.get(name)
+        if backend is None:
+            raise AttributeError(
+                f"The {name} backend is not enabled. Pass `{name}=True`, or "
+                "its options, to LuxonisTracker."
+            )
+        # a plugin with the name of a built-in backend can replace it
+        if not isinstance(backend, backend_type):
+            raise TypeError(
+                f"The {name} backend is a {type(backend).__name__}, not a "
+                f"{backend_type.__name__}. Use `tracker.backends['{name}']`."
+            )
+        self.start()
+        return backend
+
+    def _start_backends(self) -> None:
+        """Start each backend that did not start yet, on rank 0 only."""
+        if self.rank != 0:
+            return
+        for name, backend in self._backends.items():
+            if name in self._started:
+                continue
+            backend.start()
+            if self._closed:
+                # a signal handler closed the run during the start
+                self._close_backend(name, backend)
+                return
+            self._started[name] = backend
+            self._register_exit_hook()
+
+    def _register_exit_hook(self) -> None:
+        """Make `_close_at_exit` the last exit hook."""
+        # the exit hooks run last first, so this one runs before the
+        # hooks that a backend has just registered
+        atexit.unregister(self._close_at_exit)
+        atexit.register(self._close_at_exit)
+
+    def _close_at_exit(self) -> None:
+        """Close the run that is still open when the interpreter exits."""
+        # the interpreter sets `last_value` when it prints an uncaught
+        # error, and it runs the exit hooks after that
+        failed = getattr(sys, "last_value", None) is not self._earlier_error
+        self.close("failed" if failed else "success")
+
+
+def _legacy_backends(
+    *,
+    is_tensorboard: bool,
+    is_wandb: bool,
+    is_mlflow: bool,
+    wandb_entity: str | None,
+    mlflow_tracking_uri: str | None,
+) -> tuple[dict[str, Mapping[str, object]], dict[str, Mapping[str, object]]]:
+    """Turn the deprecated arguments into backend options.
+
+    Returns:
+        The backends that the flags turn on, and the options that
+        ``wandb_entity`` and ``mlflow_tracking_uri`` give. The options
+        also apply to a backend that its keyword turns on with ``True``.
+
+    """
+    options: dict[str, Mapping[str, object]] = {}
+    if wandb_entity:
+        options["wandb"] = {"entity": wandb_entity}
+    if mlflow_tracking_uri:
+        options["mlflow"] = {"tracking_uri": mlflow_tracking_uri}
+    flags = {
+        "tensorboard": is_tensorboard,
+        "wandb": is_wandb,
+        "mlflow": is_mlflow,
+    }
+    backends = {
+        name: options.get(name, {}) for name, flag in flags.items() if flag
+    }
+    return backends, options
+
+
+def _warn_deprecated(
+    configs: Mapping[str, Mapping[str, object]], names: set[str]
+) -> None:
+    """Warn about the deprecated arguments, and name the backend
+    keywords that replace them.
+
+    The replacement holds each backend of ``names`` that stays on, with
+    its final options. An option of a backend that stays off has no
+    effect, so the replacement leaves it out.
+    """
+    replacement = ", ".join(
+        f"{name}={dict(options) or True}"
+        for name, options in configs.items()
+        if name in names
+    )
+    advice = (
+        f"Use `{replacement}` instead."
+        if replacement
+        else "Remove them, because they turn on no backend."
+    )
+    warnings.warn(
+        "The `is_tensorboard`, `is_wandb`, `is_mlflow`, `wandb_entity` "
+        f"and `mlflow_tracking_uri` arguments are deprecated. {advice}",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+
+
+def _create_backend(
+    name: str, run: RunContext, options: Mapping[str, object]
+) -> TrackerBackend:
+    """Create the backend of ``name``, in a buffer if it asks for one."""
+    backend = TRACKER_BACKENDS.get(name)(run, **options)
+    if backend.buffered:
+        return BufferedBackend(backend, name)
+    return backend
+
+
+def _unwrap(backend: TrackerBackend) -> TrackerBackend:
+    """Return the backend that a `BufferedBackend` wraps."""
+    return backend.backend if isinstance(backend, BufferedBackend) else backend
+
+
+def _run_number(run_name: str) -> int | None:
+    """Return the number of ``<number>-<name>``, or ``None``."""
+    match = re.match(r"(\d+)(?:-|$)", run_name)
+    return int(match[1]) if match else None
+
+
+def _run_numbers(save_directory: Path) -> dict[str, int]:
+    """Map each numbered run in ``save_directory`` to its number."""
+    return {
+        path.name: number
+        for path in save_directory.iterdir()
+        if (number := _run_number(path.name)) is not None and path.is_dir()
+    }
+
+
+def _new_run_name(save_directory: Path) -> str:
+    """Return ``<next number>-<random name>`` for a new run."""
+    number = max(_run_numbers(save_directory).values(), default=-1) + 1
+    return f"{number}-{get_random_name(separator='-', style='lowercase')}"
+
+
+def _join_run(save_directory: Path) -> str:
+    """Return the run that rank :math:`0` created.
+
+    A worker that inherits `RUN_NAME_ENV` from rank :math:`0` joins that
+    run. The name is removed from the environment, because a later run
+    of rank :math:`0` does not reach a worker that already runs.
+    Otherwise, as with ``torchrun``, all ranks start together, and this
+    waits for a new run directory to appear. After a short grace period
+    it falls back to the newest existing run.
+
+    Raises:
+        RuntimeError: If no run directory exists after the timeout.
+
+    """
+    if name := os.environ.pop(RUN_NAME_ENV, None):
+        return name
+    known = set(_run_numbers(save_directory))
+    start = time.monotonic()
+    while True:
+        runs = _run_numbers(save_directory)
+        new_runs = {name: n for name, n in runs.items() if name not in known}
+        if new_runs:
+            return max(new_runs, key=new_runs.__getitem__)
+        elapsed = time.monotonic() - start
+        if runs and elapsed >= _JOIN_GRACE_PERIOD:
+            logger.warning(
+                f"No new run appeared in '{save_directory}'. Joining the "
+                "newest run. Pass `run_name` to be sure that all ranks log "
+                "to the same run."
+            )
+            return max(runs, key=runs.__getitem__)
+        if elapsed >= _JOIN_TIMEOUT:
+            raise RuntimeError(
+                f"No run appeared in '{save_directory}' within "
+                f"{_JOIN_TIMEOUT:.0f} seconds. Pass `run_name` to all ranks."
+            )
+        time.sleep(_JOIN_POLL_INTERVAL)
