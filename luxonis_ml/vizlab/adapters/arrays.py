@@ -161,7 +161,10 @@ def _channels_first(arr: np.ndarray) -> np.ndarray:
 
 
 def array_payload(
-    values: np.ndarray, *, class_names: "Sequence[str] | None" = None
+    values: np.ndarray,
+    *,
+    class_names: "Sequence[str] | None" = None,
+    loader_layout: bool = False,
 ) -> "ArrayPayload | None":
     """Unwrap a stored array label without collapsing its channels.
 
@@ -171,6 +174,10 @@ def array_payload(
             `ArrayAnnotation.to_numpy`.
         class_names: The task's class names, in class-id order. Supply them and
             a per-channel encoding comes back named.
+        loader_layout: Whether ``values`` is known to come from the loader.
+            Each annotation then holds ``values.shape[2:]``, and fewer than
+            two axes there is no picture. Otherwise the shape alone cannot
+            tell: a bare three-axis array can be a multi-channel field.
 
     Returns:
         The payload, or ``None`` when the array cannot be a picture at all (an
@@ -201,6 +208,8 @@ def array_payload(
         return None
     arr = arr.astype(np.float32, copy=False)
     names: list[str] | None = None
+    if loader_layout and arr.ndim < 4:
+        return None  # each annotation holds a scalar or a vector
     if arr.ndim >= 4:
         arr, names = _unwrap_loader_axes(arr, class_names)
     while arr.ndim > 2 and arr.shape[0] == 1:
@@ -580,6 +589,7 @@ def array_annotation(
     options: RenderOptions,
     image_shape: "tuple[int, int] | None" = None,
     class_names: "Sequence[str] | None" = None,
+    loader_layout: bool = False,
 ) -> "ArrayDrawing | None":
     """Build the annotations that draw one array label.
 
@@ -591,13 +601,17 @@ def array_annotation(
             ``(height, width)`` or ``None`` is returned. Pass it for overlays;
             leave it unset for a standalone tile.
         class_names: The task's class names, in class-id order.
+        loader_layout: Whether ``values`` comes from the loader; see
+            `array_payload`.
 
     Returns:
         An `ArrayDrawing`, or ``None`` when the label is not a picture, does not
         fit ``image_shape``, or nothing settled how to read it.
 
     """
-    payload = array_payload(values, class_names=class_names)
+    payload = array_payload(
+        values, class_names=class_names, loader_layout=loader_layout
+    )
     if payload is None:
         return None
     if image_shape is not None and not is_image_compatible(
@@ -670,6 +684,7 @@ def array_annotations(
     options: RenderOptions,
     image_shape: "tuple[int, int] | None" = None,
     class_names: "Mapping[str, Sequence[str]] | None" = None,
+    loader_layout: bool = False,
 ) -> "list[ArrayDrawing]":
     """Build the drawings for every array label that can be drawn.
 
@@ -683,6 +698,8 @@ def array_annotations(
             compatibility, and to draw at `OVERLAY_ALPHA` so the image shows
             through. Leave unset for opaque standalone tiles.
         class_names: Class names per task, in class-id order.
+        loader_layout: Whether ``arrays`` come from the loader; see
+            `array_payload`.
 
     Returns:
         One `ArrayDrawing` per drawable label, in input order.
@@ -698,6 +715,7 @@ def array_annotations(
             class_names=None
             if class_names is None
             else class_names.get(task_name),
+            loader_layout=loader_layout,
         )
         if drawing is not None:
             built.append(drawing)

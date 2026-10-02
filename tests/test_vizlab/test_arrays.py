@@ -443,6 +443,15 @@ def test_a_field_reads_back_from_a_npy_path(tmp_path: Path) -> None:
     assert field.value_range() == (0.0, 19.0)
 
 
+def test_a_multi_channel_field_keys_the_range_it_draws() -> None:
+    # The fill shows the per-pixel maximum over the channels; the color key
+    # must label that range, not the range of every channel together.
+    low = np.linspace(0.0, 1.0, 20).reshape(4, 5)
+    field = ScalarField(values=np.stack([low, low + 5.0]))
+
+    assert field.value_range() == (5.0, 6.0)
+
+
 def test_flow_reports_its_own_peak_unless_pinned() -> None:
     flow = np.zeros((2, 4, 5), np.float32)
     flow[0] = 3.0

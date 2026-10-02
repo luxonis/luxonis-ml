@@ -252,6 +252,11 @@ class ArrayField(ArrayAnnotation, Annotation):
         """
 
 
+def _channel_max(data: np.ndarray) -> np.ndarray:
+    """Reduce a multi-channel scalar field to the plane it is drawn as."""
+    return np.nanmax(data, axis=0) if data.ndim > 2 else data
+
+
 class ScalarField(ArrayField):
     """One measurement per pixel, read through a gradient.
 
@@ -295,7 +300,7 @@ class ScalarField(ArrayField):
         """
         data = self.field()
         return field_range(
-            np.zeros(0) if data is None else data,
+            np.zeros(0) if data is None else _channel_max(data),
             vmin=self.vmin,
             vmax=self.vmax,
             center=self.center,
@@ -325,8 +330,7 @@ class ScalarField(ArrayField):
         return ctx.gradient or DEFAULT_GRADIENT
 
     def _rgba(self, data: np.ndarray, ctx: RenderContext) -> np.ndarray:
-        if data.ndim > 2:
-            data = np.nanmax(data, axis=0)
+        data = _channel_max(data)
         canvas = ctx.canvas
         return field_rgba(
             normalize_field(

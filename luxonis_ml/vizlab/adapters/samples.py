@@ -112,6 +112,7 @@ class SampleComposer:
         panel: "Mapping[str, PanelData]",
         layers: "LayerState",
         *,
+        color_by: ColorBy,
         task_names: Sequence[str] = (),
         controls: bool = True,
     ) -> "dict[str, PanelData]":
@@ -126,6 +127,8 @@ class SampleComposer:
         Args:
             panel: The sample's metadata panel.
             layers: The current layer toggles.
+            color_by: What a color identifies in this sample, which picks the
+                legend.
             task_names: The tasks the legend lists in ``"task"`` coloring.
             controls: Whether to add the controls. Turn them off where they do
                 not apply, as in the non-interactive saved renders.
@@ -144,7 +147,7 @@ class SampleComposer:
             )
         names = layers.classes
         class_palette = self.options.theme.palette
-        if self.legend and self.color_by == "class" and names:
+        if self.legend and color_by == "class" and names:
             out["classes"] = Swatches(
                 tuple((class_palette.color_for(name), name) for name in names),
                 disabled=frozenset(layers.hidden),
@@ -152,7 +155,7 @@ class SampleComposer:
                 # name so it stays put as the per-sample class set changes.
                 reserve=self.reserve_class,
             )
-        elif self.legend and self.color_by == "task" and task_names:
+        elif self.legend and color_by == "task" and task_names:
             out["tasks"] = Swatches(
                 tuple(
                     (self.identity_palette.color_for(name), name)
@@ -180,15 +183,18 @@ class SampleComposer:
             or not layers.arrays
         ):
             return
-        for drawing in array_annotations(
-            arrays,
-            options=self.options,
-            image_shape=(viz.height, viz.width),
-            class_names=self.array_class_names,
-        ):
-            # Added before the detections so the field paints beneath them.
-            for annotation in drawing.annotations():
-                viz.add(annotation)
+        # In front of the detections so the field paints beneath them.
+        viz.annotations[:0] = [
+            annotation
+            for drawing in array_annotations(
+                arrays,
+                options=self.options,
+                image_shape=(viz.height, viz.width),
+                class_names=self.array_class_names,
+                loader_layout=True,
+            )
+            for annotation in drawing.annotations()
+        ]
 
     def _array_tiles(
         self, arrays: "Mapping[str, np.ndarray]", layers: "LayerState"
@@ -204,7 +210,10 @@ class SampleComposer:
         titles: list[str] = []
         background = self.options.theme.background
         for drawing in array_annotations(
-            arrays, options=self.options, class_names=self.array_class_names
+            arrays,
+            options=self.options,
+            class_names=self.array_class_names,
+            loader_layout=True,
         ):
             array_field = drawing.field.field()
             if array_field is None:
@@ -276,29 +285,30 @@ class SampleComposer:
         A multi-task dataset in the default class-color mode instead gets one
         tile per task, so the tasks stay legible side by side.
         """
+        # The fields come from the array labels (see `tiles`), so an array task
+        # gets no tile of its own here.
+        tasks = [
+            task
+            for task, detections in record.annotation.items()
+            if not detections or any(d.array is None for d in detections)
+        ]
         # The viewer's interactive layer toggles (masks/keypoints/labels, a class
         # focus) filter what is drawn without disturbing the metadata cards,
         # legend, or panel — `_blend` applies them to the detections.
-        if (
-            color_by != "class"
-            or self.blend_all
-            or len(record.annotation) <= 1
-        ):
+        if color_by != "class" or self.blend_all or len(tasks) <= 1:
             return [
                 self._blend(
                     image, record, layers, color_by=color_by, arrays=arrays
                 )
             ], [source_name]
         tiles: list[Renderable] = []
-        # The fields come from the array labels (see `tiles`), so a task tile
-        # does not draw the array detections of the record again.
         options = self.options.replace(array_view="off")
-        for task_name, detections in record.annotation.items():
+        for task_name in tasks:
             # Without its metadata, a task tile gets no panel: it is a plain
             # image whose annotations the layer toggles filter.
             task_record = record.model_copy(
                 update={
-                    "annotation": {task_name: detections},
+                    "annotation": {task_name: record.annotation[task_name]},
                     "sample_metadata": {},
                 }
             )
@@ -307,8 +317,9 @@ class SampleComposer:
                 tile.annotations[:] = layers.apply_layers(
                     tile.annotations, self.options.theme.palette
                 )
+                self._overlay_arrays(tile, arrays, layers)
             tiles.append(tile)
-        return tiles, [f"{source_name} · {task}" for task in record.annotation]
+        return tiles, [f"{source_name} · {task}" for task in tasks]
 
     def tiles(
         self,
@@ -322,7 +333,8 @@ class SampleComposer:
 
         Args:
             images: The sample's image sources, keyed by source name.
-            arrays: The sample's array labels, keyed by task name.
+            arrays: The sample's array labels from the loader, keyed by task
+                name.
             record: The sample's record.
             layers: The current layer toggles.
             color_by: What a color identifies in this sample.
@@ -470,7 +482,8 @@ class SampleComposer:
 
         Args:
             images: The sample's image sources, keyed by source name.
-            arrays: The sample's array labels, keyed by task name.
+            arrays: The sample's array labels from the loader, keyed by task
+                name.
             record: The sample's record.
             panel: The sample's metadata panel.
             layers: The current layer toggles.
@@ -487,7 +500,12 @@ class SampleComposer:
         if not self.panel:
             return frame
         return frame.with_panel(
-            self.sidebar(panel, layers, task_names=tuple(record.annotation))
+            self.sidebar(
+                panel,
+                layers,
+                color_by=color_by,
+                task_names=tuple(record.annotation),
+            )
         )
 
     def render(
@@ -508,7 +526,8 @@ class SampleComposer:
 
         Args:
             images: The sample's image sources, keyed by source name.
-            arrays: The sample's array labels, keyed by task name.
+            arrays: The sample's array labels from the loader, keyed by task
+                name.
             record: The sample's record.
             panel: The sample's metadata panel.
             layers: The current layer toggles.
@@ -531,6 +550,7 @@ class SampleComposer:
                 self.sidebar(
                     panel,
                     layers,
+                    color_by=color_by,
                     task_names=tuple(record.annotation),
                     controls=False,
                 ),
