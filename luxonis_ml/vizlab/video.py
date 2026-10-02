@@ -49,6 +49,7 @@ that already share a size skips the resampling entirely.
 
 Examples:
     >>> import numpy as np
+    >>> from tempfile import TemporaryDirectory
     >>> from luxonis_ml.vizlab import BBox, Image, save_video
     >>> frames = [
     ...     Image(np.zeros((64, 96, 3), np.uint8)).add(
@@ -56,7 +57,8 @@ Examples:
     ...     )
     ...     for i in range(4)
     ... ]
-    >>> save_video(frames, "detections.mp4", fps=12).name
+    >>> with TemporaryDirectory() as out:
+    ...     save_video(frames, f"{out}/detections.mp4", fps=12).name
     'detections.mp4'
 
     A `Frame` works the same way, so a hoverable scene and its metadata panel
@@ -234,10 +236,12 @@ class VideoWriter:
 
     Examples:
         >>> import numpy as np
+        >>> from tempfile import TemporaryDirectory
         >>> from luxonis_ml.vizlab import VideoWriter
-        >>> with VideoWriter("clip.webp", fps=8) as clip:
-        ...     for shade in (40, 120, 200):
-        ...         _ = clip.add(np.full((32, 32, 3), shade, np.uint8))
+        >>> with TemporaryDirectory() as out:
+        ...     with VideoWriter(f"{out}/clip.webp", fps=8) as clip:
+        ...         for shade in (40, 120, 200):
+        ...             _ = clip.add(np.full((32, 32, 3), shade, np.uint8))
         >>> len(clip)
         3
 
@@ -436,6 +440,8 @@ class VideoWriter:
             The opened ``cv2.VideoWriter``.
 
         Raises:
+            FileNotFoundError: If the directory of the clip does not exist.
+            PermissionError: If the directory of the clip is not writable.
             RuntimeError: If no candidate codec could be opened, quoting
                 whatever FFmpeg said about it.
 
@@ -443,6 +449,17 @@ class VideoWriter:
         import cv2
 
         assert self._size is not None
+        # OpenCV reports no reason when it cannot open a writer, so a path it
+        # cannot write would read as a missing codec.
+        directory = self.path.parent
+        if not directory.is_dir():
+            raise FileNotFoundError(
+                f"cannot write {self.path}: {directory} does not exist"
+            )
+        if not os.access(directory, os.W_OK):
+            raise PermissionError(
+                f"cannot write {self.path}: {directory} is not writable"
+            )
         candidates = (
             (self._requested_codec,)
             if self._requested_codec
@@ -509,12 +526,14 @@ def save_video(
 
     Examples:
         >>> import numpy as np
+        >>> from tempfile import TemporaryDirectory
         >>> from luxonis_ml.vizlab import save_video
-        >>> save_video(
-        ...     [np.full((16, 16, 3), i * 40, np.uint8) for i in range(4)],
-        ...     "ramp.gif",
-        ...     fps=4,
-        ... ).name
+        >>> with TemporaryDirectory() as out:
+        ...     save_video(
+        ...         [np.full((16, 16, 3), i * 40, np.uint8) for i in range(4)],
+        ...         f"{out}/ramp.gif",
+        ...         fps=4,
+        ...     ).name
         'ramp.gif'
 
     """

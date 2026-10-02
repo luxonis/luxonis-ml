@@ -1,5 +1,7 @@
 """Coverage for the clip writer: every format, and the ways frames disagree."""
 
+import os
+import sys
 from pathlib import Path
 
 import cv2
@@ -211,6 +213,32 @@ def test_an_unusable_codec_reports_what_ffmpeg_said(tmp_path: Path) -> None:
         with VideoWriter(tmp_path / "bad.mp4", codec="xyzw") as clip:
             clip.add(np.zeros((16, 16, 3), np.uint8))
     assert "xyzw" in str(failure.value)
+
+
+def test_a_missing_directory_is_not_blamed_on_the_codec(
+    tmp_path: Path,
+) -> None:
+    # OpenCV cannot tell why a writer failed to open; every codec failed the
+    # same way, and the error sent the user after a codec.
+    with pytest.raises(FileNotFoundError, match="missing"):  # noqa: SIM117
+        with VideoWriter(tmp_path / "missing" / "clip.mp4") as clip:
+            clip.add(np.zeros((16, 16, 3), np.uint8))
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX permissions that apply to the user",
+)
+def test_a_read_only_directory_is_not_blamed_on_the_codec(
+    tmp_path: Path,
+) -> None:
+    tmp_path.chmod(0o500)
+    try:
+        with pytest.raises(PermissionError):  # noqa: SIM117
+            with VideoWriter(tmp_path / "clip.mp4") as clip:
+                clip.add(np.zeros((16, 16, 3), np.uint8))
+    finally:
+        tmp_path.chmod(0o700)
 
 
 def test_a_working_codec_leaves_no_chatter_on_stderr(
