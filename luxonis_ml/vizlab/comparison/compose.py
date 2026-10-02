@@ -129,18 +129,19 @@ class ComparisonComposer:
         # panel=False, so viz is the plain comparison scene (an image for the
         # overlay layout, a grid composite for side-by-side / triptych).
         viz.render_at(self._display_size(viz.width, viz.height))
-        frame = viz.frame()
-        display = frame.image
-        if self.legend is not None:
-            # Overlay the class legend; bake a grid composite to an image first
-            # so it carries a mutable annotation list to `add` onto.
-            if not isinstance(display, Image):
-                display = (
-                    Image(frame.render())
-                    .with_hitmap(frame.hitmap)
-                    .with_pickmap(frame.pickmap)
-                )
-            display.add(self.legend.model_copy())
+        if self.legend is None:
+            return viz
+        # Overlay the class legend; bake a grid composite to an image first so
+        # it carries a mutable annotation list to `add` onto.
+        display = viz
+        if not isinstance(display, Image):
+            frame = viz.frame()
+            display = (
+                Image(frame.render())
+                .with_hitmap(frame.hitmap)
+                .with_pickmap(frame.pickmap)
+            )
+        display.add(self.legend.model_copy())
         return display
 
     def frame(

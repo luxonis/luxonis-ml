@@ -752,3 +752,38 @@ def test_the_false_alarm_is_dashed_and_the_miss_is_solid() -> None:
 
 def test_empty_comparison_report_per_class_is_empty() -> None:
     assert ComparisonReport().per_class() == {}
+
+
+def test_composer_captures_a_sample_once_without_a_legend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Without a legend, the capture of each source scene was thrown away and
+    # the composed frame was captured again.
+    from pathlib import Path
+
+    from luxonis_ml.ldf import BBoxAnnotation, DatasetRecord
+    from luxonis_ml.vizlab import ComparisonComposer
+    from luxonis_ml.vizlab.interaction.frame import Frame
+
+    detection = Detection(
+        class_name="car",
+        boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+    )
+    record = DatasetRecord.model_construct(
+        files={"image": Path("frame.jpg")}, annotation={"cars": [detection]}
+    )
+    captured: list[object] = []
+    capture = Frame.capture.__func__  # type: ignore[attr-defined]
+
+    def tracked_capture(
+        cls: type[Frame], scene: object, size: object = None
+    ) -> Frame:
+        captured.append(scene)
+        return capture(cls, scene, size)
+
+    monkeypatch.setattr(Frame, "capture", classmethod(tracked_capture))
+    composer = ComparisonComposer(RenderOptions(), panel=False)
+
+    composer.frame({"image": np.zeros((40, 60, 3), np.uint8)}, record, record)
+
+    assert len(captured) == 1

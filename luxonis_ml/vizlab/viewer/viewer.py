@@ -400,16 +400,15 @@ class Viewer:
     ) -> tuple[np.ndarray, HitMap, ClickMap, PickMap]:
         """Render ``frame`` to a screen-fitted BGR image and scale its maps.
 
-        The image is rendered once at its natural size to learn its dimensions
-        (which may already reflect a `Image.render_at` size); if that overflows
-        the screen it is re-rendered smaller — so labels stay crisp rather than
-        being resampled afterwards — and every interaction map is scaled to match.
+        The size is read without drawing (it may already reflect a
+        `Image.render_at` size). A frame that overflows the screen is rendered
+        smaller — so labels stay crisp rather than being resampled afterwards —
+        and every interaction map is scaled to match.
         """
-        rgba = frame.render()
         hitmap = frame.hitmap
         clickmap = frame.clickmap
         pickmap = frame.pickmap
-        out_h, out_w = rgba.shape[:2]
+        out_w, out_h = frame.image._resolved_size(None)
         fit = 1.0
         if self._screen is not None:
             fit = min(
@@ -417,13 +416,15 @@ class Viewer:
                 0.9 * self._screen[1] / out_h,
                 1.0,
             )
-        if fit < 1.0:
-            size = (max(1, round(out_w * fit)), max(1, round(out_h * fit)))
-            rgba = frame.render(size)
-            hitmap = hitmap.scaled(fit)
-            clickmap = clickmap.scaled(fit)
-            pickmap = pickmap.scaled(fit)
-        return io.export(rgba, "bgr"), hitmap, clickmap, pickmap
+        if fit >= 1.0:
+            return io.export(frame.render(), "bgr"), hitmap, clickmap, pickmap
+        size = (max(1, round(out_w * fit)), max(1, round(out_h * fit)))
+        return (
+            io.export(frame.render(size), "bgr"),
+            hitmap.scaled(fit),
+            clickmap.scaled(fit),
+            pickmap.scaled(fit),
+        )
 
     def _open(self, name: str, frame: np.ndarray) -> None:
         """Create (if needed), size, and center the window for ``frame``."""

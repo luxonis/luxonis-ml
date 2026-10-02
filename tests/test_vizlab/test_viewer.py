@@ -341,6 +341,29 @@ def test_screen_property_exposes_backend_size() -> None:
     assert Viewer(FakeBackend(screen=(640, 480))).screen == (640, 480)
 
 
+def test_a_frame_too_big_for_the_screen_renders_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The size is known without drawing; a probe render at the natural size
+    # doubled the cost of every sample that overflows the screen.
+    viewer = Viewer(FakeBackend(screen=(100, 100)))
+    frame = Image(np.zeros((400, 600, 3), np.uint8)).frame()
+    original_render = Frame.render
+    render_sizes: list[tuple[int, int] | None] = []
+
+    def tracked_render(
+        self: Frame, size: tuple[int, int] | None = None
+    ) -> np.ndarray:
+        render_sizes.append(size)
+        return original_render(self, size)
+
+    monkeypatch.setattr(Frame, "render", tracked_render)
+    prepared = viewer.prepare(frame)
+
+    assert render_sizes == [(90, 60)]
+    assert prepared.bgr.shape[:2] == (60, 90)
+
+
 def test_show_prepared_does_not_render_the_frame_again(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
