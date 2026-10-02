@@ -371,6 +371,21 @@ class LuxonisLoader(BaseLoader):
         """
         return len(self._instances)
 
+    def get_filenames(self, idx: int) -> dict[str, str]:
+        """Return a sample's source filenames without loading the sample.
+
+        Args:
+            idx: Index of the sample.
+
+        Returns:
+            Source names mapped to file basenames.
+
+        """
+        return {
+            source_name: path.name
+            for source_name, path in self._idx_to_img_paths[idx].items()
+        }
+
     def get_keypoint_metadata(self) -> dict[str, KeypointMetadata]:
         """Return the keypoint definition of each task.
 
@@ -492,10 +507,7 @@ class LuxonisLoader(BaseLoader):
             sample_metadata, "filenames"
         ):
             sample_metadata = {
-                "filenames": {
-                    source_name: path.name
-                    for source_name, path in source_to_path.items()
-                },
+                "filenames": self.get_filenames(idx),
                 **sample_metadata,
             }
 

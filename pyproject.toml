@@ -31,14 +31,15 @@ dependencies = [
 
 [project.optional-dependencies]
 ldf = ["numpy~=2.2", "pillow>=10.0", "pycocotools~=2.0"]
+# `data inspect` / `data health` render through vizlab, so the data extra keeps
+# shipping a renderer just as it shipped matplotlib before.
 data = [
-  "luxonis-ml[ldf]",
+  "luxonis-ml[ldf,viz]",
   "albumentations>=2.0.0",
   "bidict~=0.21",
   "defusedxml~=0.7",
   "filelock~=3.0",
   "gdown~=6.1",
-  "matplotlib~=3.10",
   "numpy~=2.2",
   "opencv-python~=4.10",
   "pillow-heif~=1.5",
@@ -47,6 +48,8 @@ data = [
   "pycocotools~=2.0",
   "requests~=2.32",
 ]
+viz = ["luxonis-ml[ldf]", "skia-python>=87"]
+notebook = ["luxonis-ml[viz]", "ipyevents>=2.0", "ipywidgets>=8.0"]
 telemetry = ["posthog~=7.29"]
 tracker = ["numpy~=2.2", "unique-names-generator~=1.0"]
 # Public install targets whose dependencies are already in the base package.
@@ -59,7 +62,7 @@ roboflow = ["roboflow~=1.4"]
 s3 = ["s3fs==2024.6.1"]
 
 all = [
-  "luxonis-ml[data,gcs,ldf,mlflow,nn_archive,roboflow,s3,telemetry,tracker,utils]",
+  "luxonis-ml[data,gcs,ldf,mlflow,nn_archive,notebook,roboflow,s3,telemetry,tracker,utils,viz]",
 ]
 
 [dependency-groups]
@@ -99,6 +102,9 @@ override-dependencies = ["opencv-python-headless; sys_platform == 'never'"]
 where = ["."]
 include = ["luxonis_ml*"]
 
+[tool.setuptools.package-data]
+"luxonis_ml.vizlab" = ["fonts/*.ttf", "fonts/*.txt"]
+
 [tool.setuptools.dynamic]
 version = { attr = "luxonis_ml.__version__" }
 
@@ -106,6 +112,7 @@ version = { attr = "luxonis_ml.__version__" }
 target-version = "py310"
 line-length = 79
 indent-width = 4
+extend-exclude = ["vizlab_examples", "vizlab_test_data"]
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -165,7 +172,6 @@ ignore = [
   "D202",
   "D203",
   "D205",
-  "D212",
   "D213",
   "E501",
   "ICN002",
@@ -218,6 +224,8 @@ exclude = [
   "dist",
   "luxonis_ml/tracker",
   "examples",
+  "vizlab_examples",
+  "vizlab_test_data",
   "__main__.py",
 ]
 typeCheckingMode = "basic"

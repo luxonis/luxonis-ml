@@ -1,0 +1,2502 @@
+"""End-to-end coverage for the ``data inspect`` command (thin viewer adapter)."""
+
+import io
+import re
+from collections.abc import Callable, Iterator, Sequence
+from pathlib import Path
+from threading import Event, get_ident
+from typing import Literal, cast
+
+import numpy as np
+import pytest
+from rich.console import Console
+
+import luxonis_ml.data.__main__ as data_main
+import luxonis_ml.vizlab.viewer as viewer_module
+from luxonis_ml.data.utils.enums import BucketStorage
+from luxonis_ml.ldf import (
+    ArrayAnnotation,
+    BBoxAnnotation,
+    DatasetRecord,
+    Detection,
+    KeypointAnnotation,
+)
+from luxonis_ml.typing import (
+    Labels,
+    LoaderOutput,
+    Params,
+    TrackedAugmentations,
+)
+
+
+def _ignore_exists(
+    _name: str,
+    _bucket_storage: BucketStorage,
+) -> None:
+    """Stand in for the CLI's dataset-existence guard."""
+
+
+@pytest.mark.parametrize("command", ["inspect", "compare"])
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    [("--plain", True), ("--no-plain", False), (None, None)],
+)
+def test_plain_is_tri_state_on_both_commands(
+    command: str, flag: str | None, expected: bool | None
+) -> None:
+    # 'None' is what lets --save decide: a clip defaults to plain, everything
+    # else does not. Both spellings have to reach the command for that to work.
+    argv = [command, "dataset", *(["other"] if command == "compare" else [])]
+    _, arguments, _ = data_main.app.parse_args(
+        [*argv, *([flag] if flag else [])], exit_on_error=False
+    )
+    # An unpassed option is absent rather than present-and-None, which is the
+    # same thing as far as the command's default is concerned.
+    assert arguments.arguments.get("plain") is expected
+
+
+def _command_help(command: str) -> str:
+    # On Windows, rich swaps the rounded panel boxes for square ones unless
+    # legacy_windows is off. _help_panels reads the rounded corners.
+    console = Console(
+        file=io.StringIO(), record=True, width=120, legacy_windows=False
+    )
+    data_main.app.help_print([command], console=console)
+    return console.export_text()
+
+
+def _help_panels(help_text: str) -> dict[str, str]:
+    """Split rendered help into its group panels, keyed by title."""
+    panels: dict[str, list[str]] = {}
+    body: list[str] | None = None
+    for line in help_text.splitlines():
+        heading = re.match(r"╭─+ (.+?) ─+╮$", line)
+        if heading is not None:
+            body = panels.setdefault(str(heading.group(1)), [])
+        elif line.startswith("╰"):
+            body = None
+        elif body is not None:
+            body.append(line)
+    return {name: "\n".join(body) for name, body in panels.items()}
+
+
+def test_inspect_and_compare_help_group_related_options() -> None:
+    inspect_help = _command_help("inspect")
+    compare_help = _command_help("compare")
+
+    for group in (
+        "Dataset options",
+        "Augmentation options",
+        "Visualization options",
+        "Keypoint options",
+        "Segmentation options",
+        "Array options",
+        "Viewer options",
+        "Output options",
+    ):
+        assert group in inspect_help
+
+    for group in (
+        "Dataset options",
+        "Matching options",
+        "Visualization options",
+        "Keypoint options",
+        "Segmentation options",
+        "Reporting options",
+    ):
+        assert group in compare_help
+
+
+@pytest.mark.parametrize("command", ["inspect", "compare"])
+@pytest.mark.parametrize(
+    ("flag", "group"),
+    [
+        ("--skeletons", "Keypoint options"),
+        ("--keypoint-labels", "Keypoint options"),
+        ("--show-background", "Segmentation options"),
+    ],
+)
+def test_label_type_flags_live_in_their_own_panel(
+    command: str, flag: str, group: str
+) -> None:
+    # A dataset with no keypoints (or masks) should be able to skip a whole
+    # panel, which only works if the flags are not mixed into the general one.
+    panels = _help_panels(_command_help(command))
+    assert flag in panels[group]
+    assert flag not in panels["Visualization options"]
+
+
+def test_palette_choices_are_the_registered_schemes() -> None:
+    """The spelled-out CLI choices track the registry they stand in for.
+
+    ``__main__`` cannot import the palettes at module scope (it has to load
+    without the ``viz`` extra), so the names are duplicated into a Literal;
+    this is what notices when a palette is added or renamed.
+    """
+    from typing import get_args
+
+    from luxonis_ml.utils.color import CVD_PALETTE, PALETTES
+
+    assert set(get_args(data_main._PaletteName)) == {
+        "default",
+        CVD_PALETTE,
+        *PALETTES,
+    }
+
+
+@pytest.mark.parametrize("command", ["inspect", "compare", "health"])
+def test_palette_is_offered_beside_the_theme(command: str) -> None:
+    # Two independent choices, so they belong side by side rather than folded
+    # into one another: --theme picks the surfaces, --palette the class colors.
+    help_text = _command_help(command)
+    assert "--palette" in help_text
+    assert "--theme" in help_text
+    if command != "health":  # health's options are one unnamed panel
+        panel = _help_panels(help_text)["Visualization options"]
+        assert "--palette" in panel
+        assert "--theme" in panel
+
+
+def test_every_array_flag_lives_in_the_array_panel() -> None:
+    panels = _help_panels(_command_help("inspect"))
+    array_flags = set(re.findall(r"--array-[\w-]+", _command_help("inspect")))
+    assert len(array_flags) >= 9
+    for flag in array_flags:
+        assert flag in panels["Array options"]
+    assert "--array" not in panels["Visualization options"]
+
+
+class _FakeBackend:
+    """A headless `WindowBackend` recording shown windows, replaying keys."""
+
+    def __init__(
+        self,
+        keys: list[int],
+        screen: tuple[int, int] | None = None,
+    ) -> None:
+        self._keys = list(keys)
+        self._screen = screen
+        self.shown: list[str] = []
+
+    def screen_size(self) -> tuple[int, int] | None:
+        return self._screen
+
+    def create_window(self, name: str) -> None:
+        pass
+
+    def destroy_window(self, name: str) -> None:
+        pass
+
+    def show(self, name: str, frame: np.ndarray) -> None:
+        self.shown.append(name)
+
+    def resize(self, name: str, width: int, height: int) -> None:
+        pass
+
+    def center(
+        self, name: str, width: int, height: int, screen: tuple[int, int]
+    ) -> None:
+        pass
+
+    def set_mouse_handler(self, name: str, handler: object) -> None:
+        pass
+
+    def set_key_handler(self, handler: object) -> None:
+        pass
+
+    def poll_key(self, timeout_ms: int) -> int:
+        return self._keys.pop(0) if self._keys else ord("q")
+
+    def close(self) -> None:
+        pass
+
+
+def test_present_sample_metadata_splits_batch_into_labelled_samples() -> None:
+    # A batch augmentation's merged metadata becomes one "sample N" group per
+    # contributing input, dropping the duplicated top-level copy and the
+    # machine-only input_index/sample_metadata wrapping.
+    merged: Params = {
+        "record_id": 123,
+        "source": "a.jpg",
+        "batch_augmentation_metadata": [
+            {"input_index": 0, "sample_metadata": {"record_id": 123}},
+            {"input_index": 1, "sample_metadata": {"record_id": 456}},
+        ],
+    }
+    assert data_main._present_sample_metadata(merged) == {
+        "sample 1": {"record_id": 123},
+        "sample 2": {"record_id": 456},
+    }
+
+
+def test_array_labels_keep_complete_nested_task_paths() -> None:
+    labels = {
+        "parent/depth/array": np.zeros((2, 3)),
+        "parent/flow/array": np.zeros((4, 5, 2)),
+    }
+
+    assert sorted(data_main._array_labels(labels)) == [
+        "parent/depth",
+        "parent/flow",
+    ]
+
+
+def test_present_sample_metadata_collapses_single_input() -> None:
+    merged: Params = {
+        "record_id": 7,
+        "batch_augmentation_metadata": [
+            {"input_index": 0, "sample_metadata": {"record_id": 7}}
+        ],
+    }
+    assert data_main._present_sample_metadata(merged) == {"record_id": 7}
+
+
+def test_present_sample_metadata_passes_non_batched_through() -> None:
+    plain = {"record_id": 1, "source": "x.jpg"}
+    assert data_main._present_sample_metadata(plain) == plain
+
+
+def test_present_sample_metadata_flattens_single_source_filenames() -> None:
+    # The common single-image record: the one-entry filenames dict collapses to
+    # a "filename" Block field (its own labelled line), keeping the other fields.
+    from luxonis_ml.vizlab import Block
+
+    md = {"filenames": {"image": "frame_001.jpg"}, "record_id": 5}
+    assert data_main._present_sample_metadata(md) == {
+        "filename": Block("frame_001.jpg"),
+        "record_id": 5,
+    }
+
+
+@pytest.mark.parametrize(
+    ("metadata", "expected"),
+    [
+        # A saved frame carries the name of the image it came from, not the
+        # window's -- one window shows every sample of the dataset in turn.
+        ({"filenames": {"image": "frame_001.jpg"}}, "frame_001"),
+        # Directories are dropped; the viewer wants a filename stem.
+        ({"filenames": {"image": "train/2024/frame_001.png"}}, "frame_001"),
+        # One frame tiles every source of a multi-image sample, so it is named
+        # after all of them.
+        ({"filenames": {"left": "a.jpg", "right": "b.jpg"}}, "a-b"),
+        # Nothing to go on -> the viewer falls back to the window name.
+        ({"filenames": {}}, None),
+        ({"record_id": 5}, None),
+    ],
+)
+def test_sample_stem_names_a_save_after_its_source_image(
+    metadata: Params, expected: "str | None"
+) -> None:
+    assert data_main._sample_stem(metadata) == expected
+
+
+def test_present_sample_metadata_keeps_multi_source_filenames() -> None:
+    # A true multi-image record keeps the full mapping (nothing to collapse).
+    md = {"filenames": {"image": "a.jpg", "depth": "a.png"}, "record_id": 5}
+    assert data_main._present_sample_metadata(md) == md
+
+
+def test_present_sample_metadata_flattens_filenames_per_batch_sample() -> None:
+    from luxonis_ml.vizlab import Block
+
+    merged: Params = {
+        "batch_augmentation_metadata": [
+            {
+                "input_index": 0,
+                "sample_metadata": {"filenames": {"image": "a.jpg"}},
+            },
+            {
+                "input_index": 1,
+                "sample_metadata": {"filenames": {"image": "b.jpg"}},
+            },
+        ],
+    }
+    assert data_main._present_sample_metadata(merged) == {
+        "sample 1": {"filename": Block("a.jpg")},
+        "sample 2": {"filename": Block("b.jpg")},
+    }
+
+
+def test_present_sample_metadata_shows_dataset_markup_as_text() -> None:
+    # The panel parses its text as markup; a value from the dataset must come
+    # out as typed, not raise on an unknown attribute or turn bold.
+    from luxonis_ml.vizlab import Block, Image, with_panel
+    from luxonis_ml.vizlab.render.markup import parse
+
+    md: Params = {
+        "note": "<span class='a'>x</span>",
+        "a<b>": "c &amp; d",
+        "filenames": {"image": "<b>frame</b>.jpg"},
+    }
+    panel = data_main._present_sample_metadata(md)
+    filename = panel["filename"]
+
+    assert parse(str(panel["note"]))[0].text == "<span class='a'>x</span>"
+    assert parse(str(panel["a&lt;b&gt;"]))[0].text == "c &amp; d"
+    assert isinstance(filename, Block)
+    assert parse(str(filename.value))[0].text == "<b>frame</b>.jpg"
+    with_panel(Image(np.zeros((20, 30, 3), np.uint8)), panel).render()
+
+
+def test_present_sample_metadata_labels_empty_inputs() -> None:
+    merged: Params = {
+        "batch_augmentation_metadata": [
+            {"input_index": 0, "sample_metadata": {"record_id": 1}},
+            {"input_index": 1, "sample_metadata": {}},
+        ],
+    }
+    assert data_main._present_sample_metadata(merged) == {
+        "sample 1": {"record_id": 1},
+        "sample 2": "(no metadata)",
+    }
+
+
+def test_present_classes_leave_out_array_fields() -> None:
+    record = DatasetRecord.model_construct(
+        files={},
+        annotation={
+            "objects": [
+                Detection(
+                    class_name=" car",
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.4),
+                )
+            ],
+            "depth": [
+                Detection(
+                    class_name="depth",
+                    array=ArrayAnnotation.model_validate(
+                        {"data": np.zeros((4, 6))}
+                    ),
+                )
+            ],
+        },
+    )
+    assert data_main._present_classes(record) == ["car"]
+
+
+def _patch_two_class_sample(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point the CLI at one headless sample holding a car and a bus."""
+    image = np.zeros((32, 48, 3), dtype=np.uint8)
+    record = DatasetRecord.model_construct(
+        files={},
+        annotation={
+            "objects": [
+                Detection(
+                    class_name="car",
+                    instance_id=1,
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.4),
+                ),
+                Detection(
+                    class_name="bus",
+                    instance_id=2,
+                    boundingbox=BBoxAnnotation(x=0.55, y=0.1, w=0.3, h=0.4),
+                ),
+            ]
+        },
+    )
+
+    class _Dataset:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return 1
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"objects": {"car": 0, "bus": 1}}
+
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"objects": ["car", "bus"]}
+
+        def get_task_names(self) -> list[str]:
+            return ["objects"]
+
+        def get_categorical_encodings(self) -> dict[str, object]:
+            return {}
+
+        def get_keypoint_metadata(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self._augmentations = None
+
+        def __iter__(self) -> Iterator[LoaderOutput]:
+            yield LoaderOutput(images={"image": image}, labels={}, metadata={})
+
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    monkeypatch.setattr(data_main, "check_exists", _ignore_exists)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    monkeypatch.setattr(
+        viewer_module,
+        "Viewer",
+        lambda **_k: RealViewer(_FakeBackend(keys=[ord("x")])),
+    )
+    monkeypatch.setattr(
+        LoaderOutput, "to_ldf", lambda *_args, **_kwargs: record
+    )
+
+
+@pytest.mark.parametrize(
+    ("theme", "palette"),
+    [
+        ("dark", "okabe-ito"),
+        ("dark", "cvd"),
+        # `default` is the one value that follows the theme, which is how the
+        # light theme keeps its darker, punchier take on the class colors.
+        ("dark", "default"),
+        ("light", "default"),
+    ],
+)
+def test_inspect_picks_class_colors_independently_of_the_theme(
+    monkeypatch: pytest.MonkeyPatch,
+    theme: Literal["dark", "light"],
+    palette: "data_main._PaletteName",
+) -> None:
+    from luxonis_ml.vizlab import (
+        DARK_THEME,
+        LIGHT_THEME,
+        PALETTES,
+        CVDDistinctColors,
+        Frame,
+        RenderOptions,
+        Style,
+        Swatches,
+        current_options,
+        set_default_options,
+    )
+    from luxonis_ml.vizlab.color import ColorLike
+    from luxonis_ml.vizlab.layout.panel import PanelData
+
+    expected = {
+        "okabe-ito": list(PALETTES["okabe-ito"][:2]),
+        "cvd": [CVDDistinctColors()(i) for i in (0, 1)],
+        "default": [
+            (LIGHT_THEME if theme == "light" else DARK_THEME).palette.at(i)
+            for i in (0, 1)
+        ],
+    }[palette]
+
+    panels: list[PanelData] = []
+
+    def capture_panel(
+        self: Frame,
+        data: PanelData,
+        *,
+        side: str = "right",
+        width: float | None = None,
+        title: str | None = None,
+        style: Style | None = None,
+        bg: ColorLike | None = None,
+    ) -> Frame:
+        panels.append(data)
+        return self
+
+    _patch_two_class_sample(monkeypatch)
+    monkeypatch.setattr(Frame, "with_panel", capture_panel)
+
+    try:
+        data_main.inspect("dataset", theme=theme, palette=palette, legend=True)
+        # What every annotation is colored from: the scope's render options.
+        scope_palette = current_options().theme.palette
+    finally:
+        set_default_options(RenderOptions())
+
+    assert scope_palette.color_for("car") == expected[0]
+    assert scope_palette.color_for("bus") == expected[1]
+    # And what the reader matches those colors against.
+    assert len(panels) == 1
+    panel = panels[0]
+    assert isinstance(panel, dict)
+    legend = panel["classes"]
+    assert isinstance(legend, Swatches)
+    assert {name: color for color, name in legend.items} == {
+        "car": expected[0],
+        "bus": expected[1],
+    }
+
+
+def test_inspect_colors_instances_from_the_chosen_palette(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Instance coloring keeps its own sequence, but not its own scheme.
+
+    ``--color-by instance`` numbers the objects in a sample rather than naming
+    their classes, so it starts the sequence over — from the same generator,
+    because ``--palette`` is a statement about how colors are picked.
+    """
+    import luxonis_ml.vizlab.adapters.instances as instances_module
+    import luxonis_ml.vizlab.adapters.samples as samples_module
+    from luxonis_ml.vizlab import (
+        PALETTES,
+        Annotation,
+        Palette,
+        RenderOptions,
+        set_default_options,
+    )
+    from luxonis_ml.vizlab.adapters.instances import ColorBy
+
+    seen: list[Palette] = []
+    real_colored = instances_module.record_to_colored_annotations
+
+    def capture_coloring(
+        selected_record: DatasetRecord,
+        *,
+        color_by: ColorBy,
+        options: RenderOptions,
+        identity_palette: Palette,
+    ) -> list[Annotation]:
+        seen.append(identity_palette)
+        return real_colored(
+            selected_record,
+            color_by=color_by,
+            options=options,
+            identity_palette=identity_palette,
+        )
+
+    _patch_two_class_sample(monkeypatch)
+    monkeypatch.setattr(
+        samples_module, "record_to_colored_annotations", capture_coloring
+    )
+
+    try:
+        data_main.inspect("dataset", palette="okabe-ito", per_instance=True)
+    finally:
+        set_default_options(RenderOptions())
+
+    assert seen
+    assert seen[0].at(0) == PALETTES["okabe-ito"][0]
+
+
+def test_per_instance_inspect_combines_instances_with_colors_and_tooltips(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    image = np.zeros((32, 48, 3), dtype=np.uint8)
+    record = DatasetRecord.model_construct(
+        files={},
+        annotation={
+            "objects": [
+                Detection(
+                    class_name="car",
+                    instance_id=7,
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.4),
+                    keypoints=KeypointAnnotation.model_validate(
+                        {"keypoints": [(0.2, 0.2, 2), (0.3, 0.3, 2)]}
+                    ),
+                    metadata={"track_id": 41},
+                ),
+                Detection(
+                    class_name="car",
+                    instance_id=8,
+                    boundingbox=BBoxAnnotation(x=0.55, y=0.1, w=0.3, h=0.4),
+                    metadata={"track_id": 42},
+                ),
+            ]
+        },
+    )
+
+    class _Dataset:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return 1
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"objects": {"car": 0}, "ignored": {"bus": 0}}
+
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"objects": ["car"], "ignored": ["bus"]}
+
+        def get_task_names(self) -> list[str]:
+            return ["objects", "ignored"]
+
+        def get_categorical_encodings(self) -> dict[str, object]:
+            return {}
+
+        def get_keypoint_metadata(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self._augmentations = None
+
+        def __getitem__(
+            self, _index: int
+        ) -> tuple[dict[str, np.ndarray], dict[str, object]]:
+            return {"image": image}, {}
+
+        def __iter__(self) -> Iterator[LoaderOutput]:
+            yield LoaderOutput(
+                images={"image": image},
+                labels={},
+                # What the loader records for an augmented sample: the applied
+                # transforms keyed by name, with their runtime parameters.
+                metadata={
+                    "augmentations": TrackedAugmentations(
+                        {"HorizontalFlip": {"p": 1.0}}
+                    )
+                },
+            )
+
+        def _init_augmentations(self, **_kwargs: object) -> object:
+            return object()
+
+    import luxonis_ml.vizlab.adapters.instances as instances_module
+    from luxonis_ml.vizlab import (
+        LIGHT_THEME,
+        Annotation,
+        Frame,
+        Hints,
+        Palette,
+        RenderOptions,
+        Style,
+        current_options,
+        set_default_options,
+    )
+    from luxonis_ml.vizlab.adapters import InstanceDetection
+    from luxonis_ml.vizlab.color import ColorLike
+    from luxonis_ml.vizlab.layout.panel import PanelData
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    panels: list[PanelData] = []
+    converted: list[list[Annotation]] = []
+    real_convert = instances_module.instances_to_annotations
+
+    def capture_panel(
+        self: Frame,
+        data: PanelData,
+        *,
+        side: str = "right",
+        width: float | None = None,
+        title: str | None = None,
+        style: Style | None = None,
+        bg: ColorLike | None = None,
+    ) -> Frame:
+        panels.append(data)
+        return self
+
+    def capture_annotations(
+        instances: Sequence[InstanceDetection],
+        *,
+        options: RenderOptions,
+        palette: Palette,
+    ) -> list[Annotation]:
+        annotations = real_convert(
+            instances,
+            options=options,
+            palette=palette,
+        )
+        converted.append(annotations)
+        return annotations
+
+    # One ordinary advance key is enough for the combined view. The former
+    # stepping behavior would have opened one window per detection.
+    backend = _FakeBackend(keys=[ord("x")])
+    monkeypatch.setattr(data_main, "check_exists", _ignore_exists)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    # inspect imports Viewer from the viewer package at call time, so patch it
+    # there; the real viewer drives a headless fake backend.
+    monkeypatch.setattr(
+        viewer_module, "Viewer", lambda **_k: RealViewer(backend)
+    )
+    monkeypatch.setattr(
+        LoaderOutput, "to_ldf", lambda *_args, **_kwargs: record
+    )
+    monkeypatch.setattr(
+        instances_module,
+        "instances_to_annotations",
+        capture_annotations,
+    )
+    monkeypatch.setattr(Frame, "with_panel", capture_panel)
+
+    aug_config = tmp_path / "augmentations.json"
+    aug_config.write_text("[]")
+    try:
+        data_main.inspect(
+            "dataset",
+            aug_config=aug_config,
+            per_instance=True,
+            theme="light",
+            legend=True,
+        )
+        # The chosen theme becomes the scope default (with the dataset palette
+        # pinned onto it, so it is a light-background theme, not LIGHT_THEME itself).
+        assert current_options().theme.background == LIGHT_THEME.background
+    finally:
+        set_default_options(RenderOptions())
+
+    # One window per sample now, titled with the dataset, not one per source.
+    assert backend.shown == ["dataset"]
+    assert len(panels) == 1
+    panel = panels[0]
+    assert isinstance(panel, dict)
+    # The name is the row; the parameters it sampled ride in its hover tooltip.
+    assert panel["augmentations"] == Hints((("HorizontalFlip", {"p": 1.0}),))
+    assert "controls" in panel
+    assert "classes" not in panel
+
+    assert len(converted) == 1
+    first, second = converted[0]
+    assert first.color is not None
+    assert second.color is not None
+    assert first.color != second.color
+
+    first_tip = first.tooltip
+    second_tip = second.tooltip
+    assert first_tip is not None
+    assert second_tip is not None
+    assert first_tip.tint == first.color
+    assert second_tip.tint == second.color
+    assert first_tip.title == "car #7"
+    assert first_tip.rows == (
+        ("instance_id", "7"),
+        ("class", "car"),
+        ("task", "objects"),
+        ("annotations", "bounding box, keypoints"),
+        ("track_id", "41"),
+    )
+    assert first.children[0].color == first.color
+    assert first.children[0].tooltip is first_tip
+    assert second_tip.rows[0] == ("instance_id", "8")
+
+
+@pytest.mark.parametrize(
+    ("augmentations", "as_hints"),
+    [
+        # The loader's own provenance is bulky runtime parameters, so it is
+        # lifted out of the metadata into its own row per transformation, each
+        # holding its parameters as hover detail.
+        (TrackedAugmentations({"HorizontalFlip": {"p": 1.0}}), True),
+        # A record's own "augmentations" field is ordinary metadata and stays
+        # written out as-is.
+        ({"note": "manual"}, False),
+    ],
+)
+def test_inspect_lists_loader_augmentations_apart_from_record_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    augmentations: Params,
+    as_hints: bool,
+) -> None:
+    image = np.zeros((40, 60, 3), dtype=np.uint8)
+    record = DatasetRecord.model_construct(
+        files={},
+        annotation={
+            "objects": [
+                Detection(
+                    class_name="car",
+                    instance_id=1,
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.2, h=0.2),
+                )
+            ]
+        },
+    )
+
+    class _Dataset:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return 1
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"objects": {"car": 0}}
+
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"objects": ["car"]}
+
+        def get_task_names(self) -> list[str]:
+            return ["objects"]
+
+        def get_categorical_encodings(self) -> dict[str, object]:
+            return {}
+
+        def get_keypoint_metadata(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self._augmentations = None
+
+        def __iter__(self) -> Iterator[LoaderOutput]:
+            yield LoaderOutput(
+                images={"image": image},
+                labels={},
+                metadata={
+                    "split": "train",
+                    "augmentations": augmentations,
+                },
+            )
+
+    from luxonis_ml.vizlab import (
+        Frame,
+        Hints,
+        RenderOptions,
+        Style,
+        set_default_options,
+    )
+    from luxonis_ml.vizlab.color import ColorLike
+    from luxonis_ml.vizlab.layout.panel import PanelData
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    panels: list[PanelData] = []
+
+    def capture_panel(
+        self: Frame,
+        data: PanelData,
+        *,
+        side: str = "right",
+        width: float | None = None,
+        title: str | None = None,
+        style: Style | None = None,
+        bg: ColorLike | None = None,
+    ) -> Frame:
+        panels.append(data)
+        return self
+
+    backend = _FakeBackend(keys=[ord("q")])
+    monkeypatch.setattr(data_main, "check_exists", _ignore_exists)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    monkeypatch.setattr(
+        viewer_module, "Viewer", lambda **_k: RealViewer(backend)
+    )
+    monkeypatch.setattr(
+        LoaderOutput, "to_ldf", lambda *_args, **_kwargs: record
+    )
+    monkeypatch.setattr(Frame, "with_panel", capture_panel)
+
+    try:
+        data_main.inspect("dataset")
+    finally:
+        set_default_options(RenderOptions())
+
+    assert len(panels) == 1
+    panel = panels[0]
+    assert isinstance(panel, dict)
+    # The rest of the record metadata is unaffected either way.
+    assert panel["split"] == "train"
+    if as_hints:
+        assert panel["augmentations"] == Hints(
+            (("HorizontalFlip", {"p": 1.0}),)
+        )
+    else:
+        assert panel["augmentations"] == {"note": "manual"}
+
+
+def test_inspect_grid_renders_real_frames(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Two tasks -> the grid path: fit_grid + visualize_record + render_hits run
+    # for real (only the window backend is faked), quitting after one sample.
+    image = np.zeros((40, 60, 3), dtype=np.uint8)
+
+    def _detections() -> list[Detection]:
+        return [
+            Detection(
+                class_name="car",
+                instance_id=1,
+                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+                metadata={"track_id": 7},
+            )
+        ]
+
+    record = DatasetRecord.model_construct(
+        files={},
+        sample_metadata={},
+        annotation={"a": _detections(), "b": _detections()},
+    )
+
+    class _Dataset:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return 1
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"a": {"car": 0}, "b": {"car": 0}}
+
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"a": ["car"], "b": ["car"]}
+
+        def get_task_names(self) -> list[str]:
+            return ["a", "b"]
+
+        def get_categorical_encodings(self) -> dict[str, object]:
+            return {}
+
+        def get_keypoint_metadata(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self._augmentations = None
+
+        def __iter__(self) -> Iterator[LoaderOutput]:
+            yield LoaderOutput(images={"image": image}, labels={}, metadata={})
+
+    import luxonis_ml.vizlab.adapters.instances as instances_module
+    import luxonis_ml.vizlab.adapters.samples as samples_module
+    from luxonis_ml.vizlab import Annotation, Palette, RenderOptions
+    from luxonis_ml.vizlab.adapters import ColorBy
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    backend = _FakeBackend(keys=[ord("q")])
+    filtered_tasks: list[list[str]] = []
+    color_modes: list[ColorBy] = []
+    real_blend = instances_module.blend_record_to_annotations
+    real_colored = instances_module.record_to_colored_annotations
+
+    def capture_blend(
+        selected_record: DatasetRecord,
+        options: RenderOptions | None = None,
+    ) -> list[Annotation]:
+        filtered_tasks.append(list(selected_record.annotation))
+        return real_blend(selected_record, options)
+
+    def capture_coloring(
+        selected_record: DatasetRecord,
+        *,
+        color_by: ColorBy,
+        options: RenderOptions,
+        identity_palette: Palette,
+    ) -> list[Annotation]:
+        color_modes.append(color_by)
+        return real_colored(
+            selected_record,
+            color_by=color_by,
+            options=options,
+            identity_palette=identity_palette,
+        )
+
+    monkeypatch.setattr(data_main, "check_exists", _ignore_exists)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    monkeypatch.setattr(
+        viewer_module, "Viewer", lambda **_k: RealViewer(backend)
+    )
+    monkeypatch.setattr(
+        LoaderOutput, "to_ldf", lambda *_args, **_kwargs: record
+    )
+    monkeypatch.setattr(
+        instances_module,
+        "blend_record_to_annotations",
+        capture_blend,
+    )
+    monkeypatch.setattr(
+        samples_module,
+        "record_to_colored_annotations",
+        capture_coloring,
+    )
+
+    from luxonis_ml.vizlab import set_default_options
+
+    try:
+        data_main.inspect("dataset", legend=True)
+        data_main.inspect("dataset", legend=True, color_by="task")
+    finally:
+        set_default_options(RenderOptions())
+
+    # The class-colored run draws one tile per task, so it blends nothing.
+    # Task coloring blends both tasks onto one scene.
+    assert backend.shown == ["dataset", "dataset"]
+    assert filtered_tasks == []
+    assert color_modes == ["task"]
+
+
+def test_inspect_rejects_conflicting_instance_color_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Dataset:
+        def __init__(
+            self,
+            name: str,
+            *,
+            bucket_storage: BucketStorage,
+        ) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return 1
+
+    monkeypatch.setattr(data_main, "check_exists", _ignore_exists)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+
+    with pytest.raises(ValueError, match="--per-instance"):
+        data_main.inspect(
+            "dataset",
+            per_instance=True,
+            color_by="task",
+        )
+
+
+def test_inspect_prefetch_renders_the_next_frame_while_waiting_for_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    image = np.zeros((40, 60, 3), dtype=np.uint8)
+    record = DatasetRecord.model_construct(
+        files={},
+        sample_metadata={},
+        annotation={
+            "objects": [
+                Detection(
+                    class_name="car",
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+                )
+            ]
+        },
+    )
+    samples = [
+        LoaderOutput(
+            images={"image": image},
+            labels={"marker": np.array([index])},
+            metadata={"filenames": {"image": f"frame-{index}.jpg"}},
+        )
+        for index in range(2)
+    ]
+
+    class _Dataset:
+        def __init__(
+            self,
+            name: str,
+            *,
+            bucket_storage: BucketStorage,
+        ) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return len(samples)
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"objects": {"car": 0}}
+
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"objects": ["car"]}
+
+        def get_categorical_encodings(self) -> dict[str, dict[str, int]]:
+            return {}
+
+        def get_keypoint_metadata(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(
+            self,
+            dataset: _Dataset,
+            *,
+            view: list[str],
+            update_mode: str,
+        ) -> None:
+            self._augmentations = None
+
+        def __iter__(self) -> Iterator[LoaderOutput]:
+            yield from samples
+
+    from luxonis_ml.vizlab import Frame, RenderOptions, set_default_options
+    from luxonis_ml.vizlab.viewer import PreparedFrame
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    second_frame_ready = Event()
+    prepare_threads: list[int] = []
+    consumer_thread = get_ident()
+    original_prepare = RealViewer.prepare
+
+    def tracked_prepare(
+        self: RealViewer,
+        frame: Frame,
+    ) -> PreparedFrame:
+        prepared = original_prepare(self, frame)
+        prepare_threads.append(get_ident())
+        if len(prepare_threads) == 2:
+            second_frame_ready.set()
+        return prepared
+
+    class _WaitingBackend(_FakeBackend):
+        def __init__(self) -> None:
+            super().__init__([ord("x"), ord("q")])
+            self._first_poll = True
+
+        def poll_key(self, timeout_ms: int) -> int:
+            if self._first_poll:
+                self._first_poll = False
+                assert second_frame_ready.wait(timeout=5.0)
+            return super().poll_key(timeout_ms)
+
+    backend = _WaitingBackend()
+
+    def make_viewer(
+        *, hud: bool, save_dir: "str | Path | None" = None
+    ) -> RealViewer:
+        return RealViewer(backend, hud=hud, save_dir=save_dir)
+
+    monkeypatch.setattr(data_main, "check_exists", _ignore_exists)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    monkeypatch.setattr(viewer_module, "Viewer", make_viewer)
+    monkeypatch.setattr(RealViewer, "prepare", tracked_prepare)
+    monkeypatch.setattr(
+        LoaderOutput, "to_ldf", lambda *_args, **_kwargs: record
+    )
+
+    try:
+        data_main.inspect(
+            "dataset",
+            plain=True,
+            prefetch=1,
+        )
+    finally:
+        set_default_options(RenderOptions())
+
+    assert backend.shown == ["dataset", "dataset"]
+    assert len(prepare_threads) == 2
+    assert all(thread != consumer_thread for thread in prepare_threads)
+
+
+def test_inspect_layer_key_rerenders_and_toggles_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A layer-control key ('m') is intercepted by the viewer: it toggles the
+    # shared state and re-renders the window in place instead of advancing.
+    image = np.zeros((40, 60, 3), dtype=np.uint8)
+    record = DatasetRecord.model_construct(
+        files={},
+        sample_metadata={},
+        annotation={
+            "objects": [
+                Detection(
+                    class_name="car",
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+                )
+            ]
+        },
+    )
+
+    class _Dataset:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return 1
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"objects": {"car": 0}}
+
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"objects": ["car"]}
+
+        def get_categorical_encodings(self) -> dict[str, object]:
+            return {}
+
+        def get_keypoint_metadata(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self._augmentations = None
+
+        def __iter__(self) -> Iterator[LoaderOutput]:
+            yield LoaderOutput(images={"image": image}, labels={}, metadata={})
+
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    backend = _FakeBackend(keys=[ord("m"), ord("q")])
+    created: list[RealViewer] = []
+
+    def make_viewer(**_k: object) -> RealViewer:
+        viewer = RealViewer(backend)
+        created.append(viewer)
+        return viewer
+
+    monkeypatch.setattr(data_main, "check_exists", lambda *_args: None)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    monkeypatch.setattr(viewer_module, "Viewer", make_viewer)
+    monkeypatch.setattr(
+        LoaderOutput, "to_ldf", lambda *_args, **_kwargs: record
+    )
+
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    try:
+        data_main.inspect("dataset")
+    finally:
+        set_default_options(RenderOptions())
+
+    viewer = created[0]
+    assert viewer.layers.masks is False  # 'm' toggled masks off
+    # The window was painted twice: the initial show plus the 'm' re-render.
+    assert backend.shown == ["dataset", "dataset"]
+
+
+def test_inspect_show_all_starts_with_decluttering_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Decluttering is on by default; --show-all starts the viewer with it off so
+    # every detection is drawn from the first frame (the `d` key still toggles).
+    image = np.zeros((40, 60, 3), dtype=np.uint8)
+    record = DatasetRecord.model_construct(
+        files={},
+        sample_metadata={},
+        annotation={
+            "objects": [
+                Detection(
+                    class_name="car",
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+                )
+            ]
+        },
+    )
+
+    class _Dataset:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return 1
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"objects": {"car": 0}}
+
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"objects": ["car"]}
+
+        def get_categorical_encodings(self) -> dict[str, object]:
+            return {}
+
+        def get_keypoint_metadata(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self._augmentations = None
+
+        def __iter__(self) -> Iterator[LoaderOutput]:
+            yield LoaderOutput(images={"image": image}, labels={}, metadata={})
+
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    created: list[RealViewer] = []
+
+    monkeypatch.setattr(data_main, "check_exists", lambda *_args: None)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    monkeypatch.setattr(
+        LoaderOutput, "to_ldf", lambda *_args, **_kwargs: record
+    )
+
+    def declutter_after(*, show_all: bool) -> bool:
+        created.clear()
+
+        def make_viewer(**_k: object) -> RealViewer:
+            viewer = RealViewer(_FakeBackend(keys=[ord("q")]))
+            created.append(viewer)
+            return viewer
+
+        monkeypatch.setattr(viewer_module, "Viewer", make_viewer)
+        data_main.inspect("dataset", show_all=show_all)
+        return created[0].layers.declutter
+
+    assert declutter_after(show_all=False) is True  # on by default
+    assert declutter_after(show_all=True) is False  # --show-all turns it off
+
+
+def test_inspect_fast_lightens_the_render_style(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `--fast` installs a theme whose default style skips mask contours and drop
+    # shadows, while the default run keeps the crisp, shadowed look.
+    image = np.zeros((40, 60, 3), dtype=np.uint8)
+    record = DatasetRecord.model_construct(
+        files={},
+        sample_metadata={},
+        annotation={
+            "objects": [
+                Detection(
+                    class_name="car",
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+                )
+            ]
+        },
+    )
+
+    class _Dataset:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return 1
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"objects": {"car": 0}}
+
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"objects": ["car"]}
+
+        def get_categorical_encodings(self) -> dict[str, object]:
+            return {}
+
+        def get_keypoint_metadata(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self._augmentations = None
+
+        def __iter__(self) -> Iterator[LoaderOutput]:
+            yield LoaderOutput(images={"image": image}, labels={}, metadata={})
+
+    from luxonis_ml.vizlab import (
+        MaskOutline,
+        RenderOptions,
+        current_options,
+        set_default_options,
+    )
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    monkeypatch.setattr(data_main, "check_exists", lambda *_args: None)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    monkeypatch.setattr(
+        LoaderOutput, "to_ldf", lambda *_args, **_kwargs: record
+    )
+
+    def run(*, fast: bool = False) -> tuple[MaskOutline, bool, bool]:
+        monkeypatch.setattr(
+            viewer_module,
+            "Viewer",
+            lambda **_k: RealViewer(_FakeBackend(keys=[ord("q")])),
+        )
+        try:
+            data_main.inspect("dataset", fast=fast)
+            opts = current_options()
+            return (
+                opts.theme.style.mask_outline,
+                opts.theme.style.shadow,
+                opts.antialias,
+            )
+        finally:
+            set_default_options(RenderOptions())
+
+    # default: crisp, shadowed, anti-aliased
+    assert run() == (MaskOutline.SMOOTH, True, True)
+    # --fast: fill-only masks, no shadows, no shape anti-aliasing
+    assert run(fast=True) == (MaskOutline.NONE, False, False)
+
+
+def _compare_mocks(
+    monkeypatch: pytest.MonkeyPatch,
+    image: np.ndarray,
+    real_viewer: Callable[..., object] | None = None,
+    *,
+    sample_count: int = 1,
+    on_load: Callable[[int], None] | None = None,
+) -> "tuple[_FakeBackend, list]":
+    """Wire the ``compare`` command onto a fake dataset/loader/viewer.
+
+    Returns the fake backend and a list capturing every ``with_panel`` call.
+    ``real_viewer`` lets a caller pass the real `Viewer` class captured *before*
+    any patch, so repeated calls do not re-import an already-patched name.
+    """
+
+    def _record() -> DatasetRecord:
+        return DatasetRecord.model_construct(
+            files={},
+            sample_metadata={},
+            annotation={
+                "objects": [
+                    Detection(
+                        class_name="car",
+                        instance_id=1,
+                        boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+                    )
+                ]
+            },
+        )
+
+    class _Dataset:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return sample_count
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"objects": {"car": 0}}
+
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"objects": ["car"]}
+
+        def get_categorical_encodings(self) -> dict[str, object]:
+            return {}
+
+        def get_keypoint_metadata(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self._augmentations = None
+            self._samples = [
+                LoaderOutput(
+                    images={"image": image},
+                    labels={},
+                    metadata={
+                        "filenames": {
+                            "image": (
+                                "frame.jpg"
+                                if sample_count == 1
+                                else f"frame-{index}.jpg"
+                            )
+                        }
+                    },
+                )
+                for index in range(sample_count)
+            ]
+
+        def __len__(self) -> int:
+            return len(self._samples)
+
+        def get_filenames(self, index: int) -> dict[str, str]:
+            return cast(
+                "dict[str, str]", self._samples[index].metadata["filenames"]
+            )
+
+        def __iter__(self) -> Iterator[LoaderOutput]:
+            raise AssertionError("compare must not eagerly decode the loader")
+            yield from self._samples  # pragma: no cover
+
+        def __getitem__(self, index: int) -> LoaderOutput:
+            if on_load is not None:
+                on_load(index)
+            return self._samples[index]
+
+    from luxonis_ml.vizlab import Image
+
+    if real_viewer is None:
+        from luxonis_ml.vizlab.viewer import Viewer
+
+        real_viewer = Viewer
+
+    panels: list[tuple[object, object]] = []
+
+    def capture_panel(self: Image, data: object, **kwargs: object) -> Image:
+        panels.append((kwargs.get("title"), data))
+        return self
+
+    backend = _FakeBackend(keys=[ord("q")])
+    monkeypatch.setattr(data_main, "check_exists", lambda *_args: None)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    monkeypatch.setattr(
+        viewer_module, "Viewer", lambda **_k: real_viewer(backend)
+    )
+    monkeypatch.setattr(
+        LoaderOutput, "to_ldf", lambda *_args, **_kwargs: _record()
+    )
+    monkeypatch.setattr(Image, "with_panel", capture_panel)
+    return backend, panels
+
+
+def test_compare_command_renders_verdict_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `data compare gt preds` matches predictions against ground truth and shows a
+    # verdict overlay with a metrics panel. Matching, rendering, and render_hits
+    # run for real; only the window backend is faked.
+    backend, panels = _compare_mocks(
+        monkeypatch, np.zeros((40, 60, 3), dtype=np.uint8)
+    )
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    try:
+        data_main.compare("ground_truth", "predictions")
+    finally:
+        set_default_options(RenderOptions())
+
+    # One window per sample, titled with the ground-truth dataset.
+    assert backend.shown == ["ground_truth"]
+    # Identical GT and predictions -> a single true positive, no false positives.
+    metrics = next(data for title, data in panels if title == "Comparison")
+    assert isinstance(metrics, dict)
+    assert metrics["TP"] == 1
+    assert metrics["FP"] == 0
+
+
+def test_compare_does_not_load_later_samples_before_first_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loaded: list[int] = []
+    _compare_mocks(
+        monkeypatch,
+        np.zeros((40, 60, 3), dtype=np.uint8),
+        sample_count=3,
+        on_load=loaded.append,
+    )
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    try:
+        data_main.compare("gt", "preds")
+    finally:
+        set_default_options(RenderOptions())
+
+    assert loaded == [0, 0]
+
+
+def test_compare_save_writes_a_clip_without_opening_a_viewer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Saving a comparison must be fully headless: no window, no screen probe.
+    import cv2
+
+    backend, _ = _compare_mocks(
+        monkeypatch, np.zeros((40, 60, 3), dtype=np.uint8)
+    )
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    clip = tmp_path / "verdicts.mp4"
+    try:
+        data_main.compare("gt", "preds", save=clip, fps=4)
+    finally:
+        set_default_options(RenderOptions())
+
+    assert backend.shown == []  # nothing was ever presented
+    capture = cv2.VideoCapture(str(clip))
+    assert capture.read()[0]
+    capture.release()
+
+
+def test_compare_save_clip_drops_the_metrics_panel_by_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Same rule as inspect: a clip is bare unless --no-plain asks for the panel.
+    # The metrics panel is what carries precision/recall, so this is the one
+    # place the default costs something -- hence checking both directions.
+    _, panels = _compare_mocks(
+        monkeypatch, np.zeros((40, 60, 3), dtype=np.uint8)
+    )
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    try:
+        data_main.compare("gt", "preds", save=tmp_path / "bare.mp4")
+        assert panels == []  # no metrics panel was attached at all
+        data_main.compare(
+            "gt", "preds", save=tmp_path / "full.mp4", plain=False
+        )
+    finally:
+        set_default_options(RenderOptions())
+
+    assert [title for title, _ in panels] == ["Comparison"]
+    # No panel and no rounded surround leaves exactly the source width.
+    assert _first_clip_frame(tmp_path / "bare.mp4").shape[1] == 60
+
+
+def test_compare_save_writes_a_directory_of_stills(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A comparison frame is a `Frame`, which has no `save`; the directory form
+    # only works because the writer is handed the scene the frame wraps.
+    _compare_mocks(monkeypatch, np.zeros((40, 60, 3), dtype=np.uint8))
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    try:
+        data_main.compare("gt", "preds", save=tmp_path / "stills")
+    finally:
+        set_default_options(RenderOptions())
+
+    written = sorted((tmp_path / "stills").iterdir())
+    assert [path.name for path in written] == ["0000_image.png"]
+    assert written[0].read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_compare_save_html_keeps_the_verdict_tooltips(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The baked-to-pixels path must not lose its hover regions.
+
+    ``compare`` bakes some layouts to an image and reattaches the map with
+    `Image.with_hitmap`, so the tooltips no longer live on annotations. The
+    page has to resolve them from the scene anyway.
+    """
+    _compare_mocks(monkeypatch, np.zeros((40, 60, 3), dtype=np.uint8))
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    try:
+        data_main.compare(
+            "gt", "preds", save=tmp_path / "pages", save_format="html"
+        )
+    finally:
+        set_default_options(RenderOptions())
+
+    written = sorted((tmp_path / "pages").iterdir())
+    assert [path.name for path in written] == ["0000_image.html", "index.html"]
+    page = (tmp_path / "pages" / "0000_image.html").read_text()
+    assert page.lstrip().lower().startswith("<!doctype html")
+    assert "data-tip" in page
+
+
+def test_compare_command_supports_dual_and_triple_layouts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    for layout in ("dual", "triple"):
+        backend, _ = _compare_mocks(
+            monkeypatch, np.zeros((40, 60, 3), dtype=np.uint8), RealViewer
+        )
+        try:
+            data_main.compare("gt", "preds", layout=layout)  # type: ignore[arg-type]
+        finally:
+            set_default_options(RenderOptions())
+        # The multi-panel frame was presented, in one window.
+        assert backend.shown == ["gt"]
+
+
+def test_compare_command_errors_only_still_shows_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    backend, _ = _compare_mocks(
+        monkeypatch, np.zeros((40, 60, 3), dtype=np.uint8)
+    )
+    try:
+        # Identical GT/preds -> a lone true positive is filtered out, but the
+        # frame (with its metrics panel) is still presented.
+        data_main.compare("gt", "preds", errors_only=True)
+    finally:
+        set_default_options(RenderOptions())
+    assert backend.shown == ["gt"]
+
+
+def test_compare_command_summary_writes_confusion_figure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    monkeypatch.chdir(tmp_path)
+    backend, _ = _compare_mocks(
+        monkeypatch, np.zeros((40, 60, 3), dtype=np.uint8)
+    )
+    try:
+        data_main.compare("gt", "preds", summary=True, per_class=True)
+    finally:
+        set_default_options(RenderOptions())
+
+    assert backend.shown == []  # headless: no interactive window
+    assert (tmp_path / "gt_vs_preds_confusion.png").exists()
+
+
+def test_compare_matches_by_filename_and_reports_unpaired_samples(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+
+    image = np.zeros((40, 60, 3), dtype=np.uint8)
+
+    def sample(filename: str, label: str) -> LoaderOutput:
+        return LoaderOutput(
+            images={"image": image},
+            labels={"label": np.array(label)},
+            metadata={"filenames": {"image": filename}},
+        )
+
+    samples = {
+        "gt": [
+            sample("a.jpg", "car"),
+            sample("b.jpg", "bus"),
+            sample("missing.jpg", "car"),
+        ],
+        "pred": [
+            sample("b.jpg", "bus"),
+            sample("a.jpg", "car"),
+            sample("extra.jpg", "car"),
+        ],
+    }
+
+    class _Dataset:
+        def __init__(self, name: str, **_kwargs: object) -> None:
+            self.name = name
+
+        def __len__(self) -> int:
+            return len(samples[self.name])
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"objects": {"car": 0, "bus": 1}}
+
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"objects": ["car", "bus"]}
+
+        def get_task_names(self) -> list[str]:
+            return ["objects", "ignored"]
+
+        def get_categorical_encodings(self) -> dict[str, object]:
+            return {}
+
+        def get_keypoint_metadata(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(self, dataset: _Dataset, **_kwargs: object) -> None:
+            self._samples = samples[dataset.name]
+
+        def __len__(self) -> int:
+            return len(self._samples)
+
+        def get_filenames(self, index: int) -> dict[str, str]:
+            return cast(
+                "dict[str, str]", self._samples[index].metadata["filenames"]
+            )
+
+        def __iter__(self) -> Iterator[LoaderOutput]:
+            yield from self._samples
+
+        def __getitem__(self, index: int) -> LoaderOutput:
+            return self._samples[index]
+
+    def record(sample: LoaderOutput, **_kwargs: object) -> DatasetRecord:
+        def detections() -> list[Detection]:
+            return [
+                Detection(
+                    class_name=str(sample.labels["label"]),
+                    instance_id=1,
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+                )
+            ]
+
+        return DatasetRecord.model_construct(
+            files={},
+            sample_metadata=sample.metadata,
+            annotation={"objects": detections()},
+        )
+
+    from luxonis_ml.vizlab import Image, RenderOptions, set_default_options
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    metrics: list[dict] = []
+
+    def capture_panel(self: Image, data: object, **_kwargs: object) -> Image:
+        assert isinstance(data, dict)
+        metrics.append(data)
+        return self
+
+    monkeypatch.setattr(data_main, "check_exists", lambda *_args: None)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    monkeypatch.setattr(LoaderOutput, "to_ldf", record)
+    monkeypatch.setattr(Image, "with_panel", capture_panel)
+    monkeypatch.setattr(
+        viewer_module,
+        "Viewer",
+        lambda **_kwargs: RealViewer(_FakeBackend(keys=[ord("x"), ord("q")])),
+    )
+
+    try:
+        data_main.compare("gt", "pred")
+    finally:
+        set_default_options(RenderOptions())
+
+    assert [item["TP"] for item in metrics] == [1, 1]
+    assert [item["class errors"] for item in metrics] == [0, 0]
+    output = capsys.readouterr().out
+    assert "Missing prediction samples (1): image=missing.jpg" in output
+    assert "Extra prediction samples (1): image=extra.jpg" in output
+
+
+def _save_mocks(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    sources: Sequence[str] = ("frame01.jpg",),
+    labels: "Labels | None" = None,
+    detection_metadata: "dict[str, int | float | str] | None" = None,
+) -> None:
+    """Wire fakes so ``inspect`` runs headless over one 60x40 car sample.
+
+    ``sources`` gives the sample several image sources (a stereo pair, say) and
+    ``labels`` supplies raw loader labels such as ``{"stereo/array": ...}``.
+    ``detection_metadata`` is opt-in because it is what gives the box a hover
+    tooltip, which changes what every other caller renders.
+    """
+    image = np.zeros((40, 60, 3), dtype=np.uint8)
+    record = DatasetRecord.model_construct(
+        files={},
+        sample_metadata={"weather": "clear"},
+        annotation={
+            "a": [
+                Detection(
+                    class_name="car",
+                    instance_id=1,
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+                    metadata=detection_metadata or {},
+                )
+            ]
+        },
+    )
+
+    class _Dataset:
+        def __init__(self, *_a: object, **_k: object) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return 1
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"a": {"car": 0}}
+
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"a": ["car"]}
+
+        def get_categorical_encodings(self) -> dict[str, object]:
+            return {}
+
+        def get_keypoint_metadata(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(self, *_a: object, **_k: object) -> None:
+            self._augmentations = None
+
+        def __iter__(self) -> Iterator[LoaderOutput]:
+            yield LoaderOutput(
+                images=dict.fromkeys(sources, image),
+                labels=labels or {},
+                metadata={},
+            )
+
+    monkeypatch.setattr(data_main, "check_exists", lambda *_a: None)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    monkeypatch.setattr(LoaderOutput, "to_ldf", lambda *_a, **_k: record)
+
+
+def test_inspect_save_writes_svg_and_png(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch)
+    try:
+        data_main.inspect("ds", save=tmp_path / "svg", save_format="svg")
+        data_main.inspect("ds", save=tmp_path / "png", save_format="png")
+    finally:
+        set_default_options(RenderOptions())
+
+    svg = tmp_path / "svg" / "0000_frame01.svg"
+    png = tmp_path / "png" / "0000_frame01.png"
+    assert svg.read_bytes().startswith(b"<?xml")  # a vector document
+    assert b"<image" in svg.read_bytes()  # with the photo embedded
+    assert png.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"  # a raster encode
+
+
+@pytest.mark.parametrize("command", ["inspect", "compare"])
+def test_save_format_accepts_html_on_the_command_line(command: str) -> None:
+    """``--save-format html`` has to survive parsing, not just ``save()``.
+
+    The writer and `Renderable.save` already dispatch on the extension, so a
+    direct Python call works whatever the annotation says. Only the parser
+    enforces the allowed set, so only a parse exercises the CLI surface.
+    """
+    args = ["ds"] if command == "inspect" else ["gt", "preds"]
+    _, bound, _ = data_main.app.parse_args(
+        [command, *args, "--save", "out", "--save-format", "html"],
+        exit_on_error=False,
+        print_error=False,
+    )
+    assert bound.arguments["save_format"] == "html"
+
+
+@pytest.mark.parametrize("command", ["inspect", "compare"])
+def test_save_format_still_rejects_an_unknown_format(command: str) -> None:
+    args = ["ds"] if command == "inspect" else ["gt", "preds"]
+    with pytest.raises(Exception, match=r"(?i)coercion|invalid|choice"):
+        data_main.app.parse_args(
+            [command, *args, "--save", "out", "--save-format", "webp"],
+            exit_on_error=False,
+            print_error=False,
+        )
+
+
+def test_inspect_save_writes_a_self_contained_html_page(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch, detection_metadata={"track": "7"})
+    try:
+        data_main.inspect("ds", save=tmp_path / "html", save_format="html")
+    finally:
+        set_default_options(RenderOptions())
+
+    page = (tmp_path / "html" / "0000_frame01.html").read_text()
+    assert page.lstrip().lower().startswith("<!doctype html")
+    assert "<svg" in page  # the vector render, inlined
+    # The point of the format: annotations stay hoverable in the saved file.
+    # Assert on the hover layer itself — "data-tip" appearing anywhere in the
+    # document is not evidence, as a stylesheet or script mentioning it also
+    # satisfies that.
+    layer = re.search(r'<g class="vl-hit"[^>]*>(.*?)</g>', page, re.DOTALL)
+    assert layer is not None
+    assert 'data-tip="0"' in layer.group(1)
+    assert "track" in page  # and the card it points at carries the metadata
+    # Self-contained: nothing is fetched from the network. Relative links to
+    # sibling pages are fine — the directory travels as a unit.
+    assert not re.search(r'(?:src|href)="(?:https?:)?//', page)
+
+
+def test_inspect_save_html_writes_an_index_linking_every_page(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A directory of numbered pages needs one file you can actually open."""
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch, sources=("left.jpg", "right.jpg"))
+    try:
+        data_main.inspect("ds", save=tmp_path / "html", save_format="html")
+    finally:
+        set_default_options(RenderOptions())
+
+    written = sorted(p.name for p in (tmp_path / "html").iterdir())
+    index = (tmp_path / "html" / "index.html").read_text()
+    pages = [name for name in written if name != "index.html"]
+    assert pages  # the renders themselves
+    for name in pages:
+        assert f'href="{name}"' in index
+    assert index.lstrip().lower().startswith("<!doctype html")
+    # Self-contained and relative, so the directory can be moved or zipped.
+    assert not re.search(r'(?:src|href)="(?:https?:)?//', index)
+
+
+def test_html_pages_link_to_each_other_and_back_to_the_index(
+    tmp_path: Path,
+) -> None:
+    """Each page carries prev/next/index; the ends stay in place but inert.
+
+    Driven through the writer rather than the CLI because the fixture dataset
+    holds one sample, and the linking only exists across several.
+    """
+    from luxonis_ml.vizlab import DARK_THEME, BBox, Image
+
+    def scene(label: str) -> Image:
+        return Image(np.zeros((30, 40, 3), dtype=np.uint8)).add(
+            BBox(x=0.1, y=0.1, w=0.3, h=0.3).tag(label)
+        )
+
+    names = ["a.jpg", "b.jpg", "c.jpg"]
+    data_main._write_renders(
+        ((name, scene(name)) for name in names),
+        tmp_path / "html",
+        image_format="html",
+        fps=5.0,
+        background=DARK_THEME.background,
+        theme=DARK_THEME,
+        empty_note="nothing",
+    )
+
+    pages = ["0000_a.html", "0001_b.html", "0002_c.html"]
+    assert sorted(p.name for p in (tmp_path / "html").iterdir()) == [
+        *pages,
+        "index.html",
+    ]
+    first, middle, last = (
+        (tmp_path / "html" / name).read_text() for name in pages
+    )
+    for page in (first, middle, last):
+        assert '<a href="index.html">home</a>' in page
+
+    assert '<span class="step">&larr; prev</span>' in first
+    assert 'href="0001_b.html" rel="next"' in first
+
+    assert 'href="0000_a.html" rel="prev"' in middle
+    assert 'href="0002_c.html" rel="next"' in middle
+
+    assert 'href="0001_b.html" rel="prev"' in last
+    assert '<span class="step">next &rarr;</span>' in last
+
+
+def test_the_writer_holds_only_one_render_ahead(tmp_path: Path) -> None:
+    """Linking forward must not mean materializing the whole stream.
+
+    Each render can hold a decoded sample, so the writer pairs each item with
+    the next rather than reading them all to learn how many there are.
+    """
+    alive: list[str] = []
+
+    class _Tracked:
+        def __init__(self, name: str) -> None:
+            self.name = name
+            alive.append(name)
+
+        def render_html(self, **_: object) -> str:
+            return f"<!DOCTYPE html><html><body>{self.name}</body></html>"
+
+    from luxonis_ml.vizlab import DARK_THEME
+
+    def stream() -> "Iterator[tuple[str, object]]":
+        for index in range(6):
+            # Never more than the held item plus the one just produced.
+            assert len(alive) <= 2, alive
+            yield f"{index}.jpg", _Tracked(f"{index}")
+            alive.pop(0)
+
+    data_main._write_renders(
+        stream(),  # type: ignore[arg-type]
+        tmp_path / "html",
+        image_format="html",
+        fps=5.0,
+        background=DARK_THEME.background,
+        theme=DARK_THEME,
+        empty_note="nothing",
+    )
+    assert len(list((tmp_path / "html").iterdir())) == 7  # 6 pages + index
+
+
+def test_a_single_page_still_gets_its_index_link(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Both ends inert is the correct rendering for a one-render directory."""
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch)
+    try:
+        data_main.inspect("ds", save=tmp_path / "html", save_format="html")
+    finally:
+        set_default_options(RenderOptions())
+
+    page = (tmp_path / "html" / "0000_frame01.html").read_text()
+    assert '<a href="index.html">home</a>' in page
+    assert '<span class="step">&larr; prev</span>' in page
+    assert '<span class="step">next &rarr;</span>' in page
+
+
+def test_other_formats_get_no_index(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The index is an HTML affordance; a folder of ONGs already opens fine."""
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch)
+    try:
+        data_main.inspect("ds", save=tmp_path / "png", save_format="png")
+    finally:
+        set_default_options(RenderOptions())
+
+    assert not (tmp_path / "png" / "index.html").exists()
+
+
+def test_inspect_save_html_is_the_same_render_as_svg(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The page must wrap the vector render, not re-rasterize it."""
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch)
+    try:
+        data_main.inspect("ds", save=tmp_path / "svg", save_format="svg")
+        data_main.inspect("ds", save=tmp_path / "html", save_format="html")
+    finally:
+        set_default_options(RenderOptions())
+
+    svg = (tmp_path / "svg" / "0000_frame01.svg").read_text()
+    page = (tmp_path / "html" / "0000_frame01.html").read_text()
+    # Same geometry: whatever viewport the SVG drew at, the page inlines.
+    viewbox = re.search(r'viewBox="([^"]+)"', page)
+    assert viewbox is not None
+    width = re.search(r'width="(\d+)', svg)
+    assert width is not None
+    assert viewbox.group(1).split()[2] == width.group(1)
+
+
+def test_inspect_save_writes_a_clip_when_given_a_clip_extension(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The same --save option takes a directory or a single clip; the extension
+    # is what tells them apart, so --save-format has nothing to say here.
+    import cv2
+
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch)
+    clip = tmp_path / "preview.mp4"
+    try:
+        data_main.inspect("ds", save=clip, fps=12)
+    finally:
+        set_default_options(RenderOptions())
+
+    assert clip.stat().st_size > 0
+    capture = cv2.VideoCapture(str(clip))
+    assert capture.get(cv2.CAP_PROP_FPS) == 12
+    capture.release()
+    assert not (tmp_path / "preview").exists()  # no stray directory
+
+
+def _read_image(path: Path) -> np.ndarray:
+    """Decode a saved still."""
+    import cv2
+
+    image = cv2.imread(str(path))
+    assert image is not None, path
+    return image
+
+
+def _first_clip_frame(path: Path) -> np.ndarray:
+    """Decode a clip's opening frame."""
+    import cv2
+
+    capture = cv2.VideoCapture(str(path))
+    read, frame = capture.read()
+    capture.release()
+    assert read
+    return frame
+
+
+def test_inspect_save_clip_drops_the_panel_unless_asked_to_keep_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A clip has one fixed canvas but the panel's width follows each sample's
+    # metadata, so --plain is the default there. --no-plain restores it, and
+    # the directory form keeps the panel either way.
+
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch)
+    try:
+        data_main.inspect("ds", save=tmp_path / "bare.mp4")
+        data_main.inspect("ds", save=tmp_path / "full.mp4", plain=False)
+        data_main.inspect("ds", save=tmp_path / "stills")
+    finally:
+        set_default_options(RenderOptions())
+
+    bare = _first_clip_frame(tmp_path / "bare.mp4")
+    full = _first_clip_frame(tmp_path / "full.mp4")
+    directory = _read_image(tmp_path / "stills" / "0000_frame01.png")
+    assert bare.shape[1] == 60  # the source image alone, no panel, no surround
+    assert full.shape[1] > bare.shape[1]  # --no-plain put the panel back
+    assert directory.shape[1] > bare.shape[1]  # a directory still gets one
+
+
+def test_inspect_save_writes_an_animation_too(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from PIL import Image as PILImage
+
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch)
+    clip = tmp_path / "preview.gif"
+    try:
+        data_main.inspect("ds", save=clip)
+    finally:
+        set_default_options(RenderOptions())
+
+    with PILImage.open(clip) as animation:
+        assert animation.format == "GIF"
+
+
+def test_inspect_save_plain_drops_the_panel(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch)
+    try:
+        data_main.inspect(
+            "ds", save=tmp_path / "panel", legend=True, plain=False
+        )
+        data_main.inspect(
+            "ds", save=tmp_path / "plain", legend=True, plain=True
+        )
+    finally:
+        set_default_options(RenderOptions())
+
+    paneled = _read_image(tmp_path / "panel" / "0000_frame01.png")
+    plain = _read_image(tmp_path / "plain" / "0000_frame01.png")
+    assert plain.shape[1] == 60  # just the source image, no panel
+    assert paneled.shape[1] > plain.shape[1]  # the panel widened it
+
+
+def test_inspect_plain_drops_the_interactive_panel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from luxonis_ml.vizlab import Frame, RenderOptions, set_default_options
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    _save_mocks(monkeypatch)
+    panel_calls = 0
+
+    def capture_panel(self: Frame, *_args: object, **_kwargs: object) -> Frame:
+        nonlocal panel_calls
+        panel_calls += 1
+        return self
+
+    monkeypatch.setattr(Frame, "with_panel", capture_panel)
+    monkeypatch.setattr(
+        viewer_module,
+        "Viewer",
+        lambda **_kwargs: RealViewer(_FakeBackend(keys=[ord("q")])),
+    )
+    try:
+        data_main.inspect("ds", plain=True)
+    finally:
+        set_default_options(RenderOptions())
+
+    assert panel_calls == 0
+
+
+def test_inspect_auto_size_reserves_space_for_controls_panel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from luxonis_ml.vizlab import Frame, RenderOptions, set_default_options
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    _save_mocks(monkeypatch)
+    image_widths: list[int] = []
+
+    def capture_panel(self: Frame, *_args: object, **_kwargs: object) -> Frame:
+        image_widths.append(self.render().shape[1])
+        return self
+
+    monkeypatch.setattr(Frame, "with_panel", capture_panel)
+    monkeypatch.setattr(
+        viewer_module,
+        "Viewer",
+        lambda **_kwargs: RealViewer(
+            _FakeBackend(keys=[ord("q")], screen=(1000, 800))
+        ),
+    )
+    try:
+        data_main.inspect("ds")
+    finally:
+        set_default_options(RenderOptions())
+
+    assert image_widths == [500]
+
+
+# --- multi-source tiling and array fields -----------------------------------
+
+
+def _rendered_width(directory: Path) -> int:
+    """Width of the single render a headless save wrote."""
+
+    written = sorted(directory.iterdir())
+    assert len(written) == 1, [p.name for p in written]
+    return _read_image(written[0]).shape[1]
+
+
+def _stereo_array() -> "Labels":
+    """Build a loader-shaped array label matching the fake 60x40 sample."""
+    return {
+        "stereo/array": np.linspace(0.0, 10.0, 40 * 60).reshape(1, 1, 40, 60)
+    }
+
+
+def test_inspect_tiles_multiple_sources_into_one_render(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Two sources used to mean two windows -- which the viewer centres on the
+    # same screen point -- and two saved files. Now they tile into one.
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch, sources=("left.jpg", "right.jpg"))
+    try:
+        data_main.inspect("ds", save=tmp_path / "stereo", plain=True)
+    finally:
+        set_default_options(RenderOptions())
+
+    assert _rendered_width(tmp_path / "stereo") > 2 * 60  # both, side by side
+
+
+def test_inspect_ignores_arrays_unless_asked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Most arrays are not pictures, so nothing changes without --array-viz.
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch, labels=_stereo_array())
+    try:
+        data_main.inspect("ds", save=tmp_path / "off", plain=True)
+    finally:
+        set_default_options(RenderOptions())
+
+    assert _rendered_width(tmp_path / "off") == 60  # the lone source, untiled
+
+
+def test_inspect_array_viz_adds_a_tile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch, labels=_stereo_array())
+    try:
+        data_main.inspect(
+            "ds", save=tmp_path / "tiled", plain=True, array_viz=True
+        )
+    finally:
+        set_default_options(RenderOptions())
+
+    assert (
+        _rendered_width(tmp_path / "tiled") > 60
+    )  # the field got its own tile
+
+
+def test_inspect_array_overlay_keeps_one_tile_and_targets_one_source(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # An overlay paints onto a source rather than adding a tile, and only onto
+    # the reference view -- a disparity map does not describe the other one.
+
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(
+        monkeypatch, sources=("left.jpg", "right.jpg"), labels=_stereo_array()
+    )
+    try:
+        data_main.inspect(
+            "ds",
+            save=tmp_path / "over",
+            plain=True,
+            array_viz=True,
+            array_mode="overlay",
+        )
+    finally:
+        set_default_options(RenderOptions())
+
+    written = sorted((tmp_path / "over").iterdir())
+    rendered = _read_image(written[0])
+    # Two source tiles, no third: an overlay does not add one.
+    assert rendered.shape[1] < 3 * 60
+    left, right = rendered[:, :60], rendered[:, -60:]
+    assert not np.array_equal(left, right)  # only the first source was painted
+
+
+def test_inspect_array_options_require_array_viz(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Silently ignoring a refinement would render a frame that is not what was
+    # asked for, so each one is rejected up front.
+    _save_mocks(monkeypatch, labels=_stereo_array())
+    for kwargs in (
+        {"array_vmax": 291.0},
+        {"array_ignore": 0.0},
+        {"array_mode": "overlay"},
+        {"array_colorbar": False},
+        {"array_kind": [("stereo", "flow")]},
+    ):
+        with pytest.raises(ValueError, match="requires --array-viz"):
+            data_main.inspect("ds", **kwargs)  # type: ignore[arg-type]
+
+
+def test_inspect_array_kind_pins_how_a_task_is_read(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The stereo fixture is a plain 2-D field, which would infer as `scalar`.
+    # Pinning it to `signed` has to win, and has to reach the built annotation.
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+    from luxonis_ml.vizlab.adapters import arrays as arrays_adapter
+    from luxonis_ml.vizlab.adapters import samples as samples_module
+
+    built: list[object] = []
+    real = arrays_adapter.array_annotations
+
+    def capture(*args: object, **kwargs: object) -> object:
+        result = real(*args, **kwargs)  # type: ignore[arg-type]
+        built.extend(drawing.kind for drawing in result)
+        return result
+
+    monkeypatch.setattr(samples_module, "array_annotations", capture)
+    _save_mocks(monkeypatch, labels=_stereo_array())
+    try:
+        data_main.inspect(
+            "ds",
+            save=tmp_path / "pinned",
+            plain=True,
+            array_viz=True,
+            array_kind=[("stereo", "signed")],
+        )
+    finally:
+        set_default_options(RenderOptions())
+
+    assert built == ["signed"]
+
+
+def test_inspect_array_flags_reach_the_heatmap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The range and sentinel are what make two datasets comparable, so check
+    # they arrive rather than only that something was drawn.
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+    from luxonis_ml.vizlab.adapters import arrays as arrays_adapter
+    from luxonis_ml.vizlab.adapters import samples as samples_module
+
+    built: list[object] = []
+    real = arrays_adapter.array_annotations
+
+    def capture(*args: object, **kwargs: object) -> object:
+        result = real(*args, **kwargs)  # type: ignore[arg-type]
+        built.extend(drawing.field for drawing in result)
+        return result
+
+    # The command imports the bridge inside its body, so the patch has to land
+    # on the source module rather than on a name in __main__.
+    monkeypatch.setattr(samples_module, "array_annotations", capture)
+    _save_mocks(monkeypatch, labels=_stereo_array())
+    try:
+        data_main.inspect(
+            "ds",
+            save=tmp_path / "pinned",
+            plain=True,
+            array_viz=True,
+            array_vmin=0.0,
+            array_vmax=291.0,
+            array_ignore=0.0,
+            array_gradient="magma",
+        )
+    finally:
+        set_default_options(RenderOptions())
+
+    assert built, "no array field was built"
+    field = built[0]
+    assert (field.vmin, field.vmax, field.ignore_value) == (0.0, 291.0, 0.0)  # type: ignore[attr-defined]
+
+
+def test_inspect_rejects_an_unknown_array_gradient(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _save_mocks(monkeypatch, labels=_stereo_array())
+    with pytest.raises(KeyError, match="unknown gradient"):
+        data_main.inspect("ds", array_viz=True, array_gradient="nope")
+
+
+def test_inspect_syncs_has_arrays_onto_the_live_layer_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `has_arrays` participates in LayerState equality, so without syncing it
+    # from the sample snapshot the live state never compares equal and every
+    # frame is re-rendered instead of using the prefetched one. That shows up
+    # as "prefetch silently stopped helping", not as an error -- hence the test.
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    created: list[RealViewer] = []
+    backend = _FakeBackend(keys=[ord("q")])
+
+    def make_viewer(**_k: object) -> RealViewer:
+        viewer = RealViewer(backend)
+        created.append(viewer)
+        return viewer
+
+    monkeypatch.setattr(viewer_module, "Viewer", make_viewer)
+    _save_mocks(monkeypatch, labels=_stereo_array())
+
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    try:
+        data_main.inspect("ds", array_viz=True)
+    finally:
+        set_default_options(RenderOptions())
+
+    layers = created[0].layers
+    assert layers.has_arrays is True
+    assert "a" in {control.key for control in layers.controls()}

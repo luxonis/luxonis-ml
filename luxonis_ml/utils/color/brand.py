@@ -30,17 +30,29 @@ from .base import Color
 # -- Core brand colors ------------------------------------------------------
 # The saturated fill of each semantic family, for filled surfaces rather than
 # for text (the `*_TEXT` ramp below is what labels and icons should use).
-PURPLE = Color(76, 79, 241)  # #4C4FF1 — the primary "Luxonis Purple"
-GREEN = Color(18, 183, 106)  # #12B76A
-ORANGE = Color(220, 104, 3)  # #DC6803
-RED = Color(240, 68, 56)  # #F04438
+
+#: The primary "Luxonis Purple" (#4C4FF1), the fill of the purple family.
+PURPLE = Color(76, 79, 241)
+#: The fill of the green family (#12B76A).
+GREEN = Color(18, 183, 106)
+#: The fill of the orange family (#DC6803).
+ORANGE = Color(220, 104, 3)
+#: The fill of the red family (#F04438).
+RED = Color(240, 68, 56)
 
 # The lighter "decoration" variant of each family, which the design system also
 # uses as that family's outline/border color.
-PERIWINKLE = Color(141, 164, 244)  # #8DA4F4 — light purple
-MINT = Color(108, 233, 166)  # #6CE9A6 — light green
-AMBER = Color(254, 200, 75)  # #FEC84B — light orange
-SALMON = Color(253, 162, 155)  # #FDA29B — light red
+
+#: Light purple (#8DA4F4), the decoration and border color of the purple
+#: family.
+PERIWINKLE = Color(141, 164, 244)
+#: Light green (#6CE9A6), the decoration and border color of the green family.
+MINT = Color(108, 233, 166)
+#: Light orange (#FEC84B), the decoration and border color of the orange
+#: family.
+AMBER = Color(254, 200, 75)
+#: Light red (#FDA29B), the decoration and border color of the red family.
+SALMON = Color(253, 162, 155)
 
 #: A deep-indigo shade of :data:`PURPLE` (same hue) for light-mode titles and
 #: headings: a stronger, higher-contrast purple that outranks :data:`PURPLE_TEXT`
@@ -50,30 +62,47 @@ PURPLE_TITLE = Color(22, 24, 112)  # #161870
 
 # Neutral "ink" ramp (brand grays), dark to light: body text, labels, and the
 # muted/disabled end of the scale.
-INK = Color(29, 41, 57)  # #1D2939 — darkest neutral
-SLATE = Color(71, 84, 103)  # #475467 — muted mid neutral
-STEEL = Color(102, 112, 133)  # #667085 — light neutral
-FAINT = Color(211, 211, 211)  # #D3D3D3 — disabled text and placeholders
+
+#: The darkest neutral (#1D2939).
+INK = Color(29, 41, 57)
+#: A muted mid neutral (#475467).
+SLATE = Color(71, 84, 103)
+#: A light neutral (#667085).
+STEEL = Color(102, 112, 133)
+#: The lightest neutral (#D3D3D3), for disabled text and placeholders.
+FAINT = Color(211, 211, 211)
 
 # -- Soft tints -------------------------------------------------------------
 # Pale fills for chips, badges, and callouts, one per family. The active tint is
 # a pale blue rather than a wash of the indigo brand purple; that is what the
 # design system specifies, not a transcription slip.
-PURPLE_SOFT = Color(220, 239, 252)  # #DCEFFC
-GRAY_SOFT = Color(242, 244, 247)  # #F2F4F7
-GREEN_SOFT = Color(236, 253, 243)  # #ECFDF3
-ORANGE_SOFT = Color(255, 250, 235)  # #FFFAEB
-RED_SOFT = Color(254, 243, 242)  # #FEF3F2
+
+#: The pale fill of the purple (active) family (#DCEFFC).
+PURPLE_SOFT = Color(220, 239, 252)
+#: The pale fill of the neutral family (#F2F4F7).
+GRAY_SOFT = Color(242, 244, 247)
+#: The pale fill of the green family (#ECFDF3).
+GREEN_SOFT = Color(236, 253, 243)
+#: The pale fill of the orange family (#FFFAEB).
+ORANGE_SOFT = Color(255, 250, 235)
+#: The pale fill of the red family (#FEF3F2).
+RED_SOFT = Color(254, 243, 242)
 
 # -- Foreground text colors -------------------------------------------------
 # Darkened per-family colors for text and icons, contrast-tuned to sit on the
 # soft tints above (or on white). Use these instead of the solids for anything
 # a reader has to actually read.
-PURPLE_TEXT = Color(87, 36, 232)  # #5724E8
-GRAY_TEXT = Color(52, 64, 84)  # #344054
-GREEN_TEXT = Color(2, 122, 72)  # #027A48
-ORANGE_TEXT = Color(181, 71, 8)  # #B54708
-RED_TEXT = Color(180, 35, 24)  # #B42318
+
+#: Text and icons of the purple family (#5724E8).
+PURPLE_TEXT = Color(87, 36, 232)
+#: Neutral text and icons (#344054).
+GRAY_TEXT = Color(52, 64, 84)
+#: Text and icons of the green family (#027A48).
+GREEN_TEXT = Color(2, 122, 72)
+#: Text and icons of the orange family (#B54708).
+ORANGE_TEXT = Color(181, 71, 8)
+#: Text and icons of the red family (#B42318).
+RED_TEXT = Color(180, 35, 24)
 
 #: Neutral hairline border, for rules and outlines with no semantic color.
 GRAY_BORDER = Color(229, 229, 229)  # #E5E5E5
@@ -101,27 +130,39 @@ CAPTION_BG = INK.with_alpha(235)
 CARD_TEXT = PERIWINKLE
 #: A lighter lavender heading, brighter than the body so it outranks it on dark.
 CARD_TITLE = PERIWINKLE.lighten(0.4)  # ≈ #bbc8f8
-CARD_KEY = PERIWINKLE  # keys / secondary accents on cards
-DIVIDER = PERIWINKLE.with_alpha(40)  # subtle rule between image and panel
-MUTED = SLATE  # empty track fills and the "other" segment
+#: Keys and secondary accents on dark cards.
+CARD_KEY = PERIWINKLE
+#: The subtle rule between an image and its side panel on dark backgrounds.
+DIVIDER = PERIWINKLE.with_alpha(40)
+#: Empty track fills and the "other" segment of a chart.
+MUTED = SLATE
 
 # -- Light-mode chrome (white cards + brand-purple text on the light surface) --
 #: Near-opaque white card fill, so panels pop against the lavender background.
 LIGHT_CARD_BG = Color(255, 255, 255, 236)
-#: Caption chips in light mode: opaque white for a single crisp line.
+#: Caption chips in light mode, opaque white for a single crisp line.
 LIGHT_CAPTION_BG = Color(255, 255, 255, 240)
-LIGHT_CARD_TEXT = PURPLE_TEXT  # body text in the family's text purple
-LIGHT_CARD_TITLE = PURPLE_TITLE  # deeper heading, to outrank the body text
-LIGHT_CARD_KEY = PURPLE_TEXT  # keys / accents in the same text purple
+#: Body text on light cards, in the text purple of the family.
+LIGHT_CARD_TEXT = PURPLE_TEXT
+#: Headings on light cards, deeper than the body text so they outrank it.
+LIGHT_CARD_TITLE = PURPLE_TITLE
+#: Keys and accents on light cards, in the same text purple as the body.
+LIGHT_CARD_KEY = PURPLE_TEXT
 #: Hairline card border and image/panel rule, a translucent brand purple.
 LIGHT_CARD_BORDER = PURPLE.with_alpha(38)
+#: The rule between an image and its side panel on light backgrounds.
 LIGHT_DIVIDER = PURPLE.with_alpha(46)
 
 # Semantic accents for chart chrome (not class labels).
-ACCENT = PURPLE  # primary highlight
-SUCCESS = GREEN  # a correct ✓ verdict
+
+#: The primary highlight of chart chrome.
+ACCENT = PURPLE
+#: A correct (✓) verdict.
+SUCCESS = GREEN
+#: A warning in chart chrome.
 WARNING = ORANGE
-ERROR = RED  # an incorrect ✗ verdict
+#: An incorrect (✗) verdict.
+ERROR = RED
 
 
 @dataclass(frozen=True)
@@ -164,7 +205,7 @@ DARK_CHROME = Chrome(
     divider=DIVIDER,
     border=None,
 )
-"""Chrome for dark composite backgrounds: navy cards, near-white text."""
+"""Chrome for dark backgrounds, with navy cards and light periwinkle text."""
 
 LIGHT_CHROME = Chrome(
     card_bg=LIGHT_CARD_BG,
@@ -175,7 +216,7 @@ LIGHT_CHROME = Chrome(
     divider=LIGHT_DIVIDER,
     border=LIGHT_CARD_BORDER,
 )
-"""Chrome for light composite backgrounds: white cards, deep-purple text."""
+"""Chrome for light backgrounds, with white cards and deep-purple text."""
 
 
 def chrome_for(background: Color) -> Chrome:

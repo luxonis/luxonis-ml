@@ -1,0 +1,333 @@
+"""Tests for hit-map threading through compose (`grid`/`combine` frames)."""
+
+import math
+
+import numpy as np
+import pytest
+
+from luxonis_ml.vizlab import (
+    BBox,
+    Frame,
+    Image,
+    Renderable,
+    Tooltip,
+    combine,
+    fit_grid,
+    grid,
+    order_by_position,
+)
+from luxonis_ml.vizlab.layout.compose import grid_placed
+from luxonis_ml.vizlab.render.capture import HitMap
+
+
+def _split(frame: Frame) -> tuple[Renderable, HitMap]:
+    """Unpack a `Frame` into its typed ``(image, hitmap)`` parts."""
+    return frame.image, frame.hitmap
+
+
+def _tile(title: str, h: int = 60, w: int = 100) -> tuple[Image, Tooltip]:
+    tip = Tooltip(title=title)
+    image = Image(np.zeros((h, w, 3), np.uint8)).add(
+        BBox(x=0.1, y=0.1, w=0.8, h=0.8, tooltip=tip)
+    )
+    return image, tip
+
+
+def _titles(hits: HitMap) -> set[str | None]:
+    return {tooltip.title for _, tooltip in hits.items}
+
+
+def _within(hits: HitMap, image: Renderable) -> bool:
+    return all(
+        r.left >= 0
+        and r.right <= image.width
+        and r.top >= 0
+        and r.bottom <= image.height
+        for r, _ in hits.items
+    )
+
+
+def test_grid_frame_maps_each_tile_to_composite_pixels() -> None:
+    a, tip_a = _tile("A")
+    b, tip_b = _tile("B")
+    # Uniform cells (tile == cell), so tiles land at exact, un-centered offsets:
+    # tile0 at (10, 10), tile1 at (120, 10) on a 230x80 composite.
+    composite, hits = _split(grid([a, b], ncols=2, pad=10).frame())
+    assert (composite.width, composite.height) == (230, 80)
+    assert len(hits.items) == 2
+    assert hits.hit(10 + 50, 10 + 30) is tip_a
+    assert hits.hit(120 + 50, 10 + 30) is tip_b
+
+
+def test_grid_scene_preserves_interactions_without_hits_variant() -> None:
+    a, tip_a = _tile("A")
+    b, tip_b = _tile("B")
+
+    frame = grid([a, b], ncols=2, pad=10).frame()
+
+    assert frame.hitmap.hit(10 + 50, 10 + 30) is tip_a
+    assert frame.hitmap.hit(120 + 50, 10 + 30) is tip_b
+
+
+def test_combine_frame_threads_through_nesting() -> None:
+    a, _ = _tile("A")
+    b, _ = _tile("B")
+    c, _ = _tile("C")
+    composite, hits = _split(combine(a, [b, c]).frame())
+    assert _titles(hits) == {"A", "B", "C"}
+    assert len(hits.items) == 3
+    assert _within(hits, composite)
+
+
+def test_combine_scene_preserves_interactions_through_nesting() -> None:
+    a, _ = _tile("A")
+    b, _ = _tile("B")
+    c, _ = _tile("C")
+
+    frame = combine(a, [b, c]).frame()
+
+    assert _titles(frame.hitmap) == {"A", "B", "C"}
+    assert _within(frame.hitmap, frame.image)
+
+
+def test_nested_composite_scales_interactions_on_both_axes() -> None:
+    tile, tip = _tile("A", h=100, w=100)
+    scene = grid([tile], ncols=1, pad=0).render_at((200, 50))
+
+    frame = scene.frame()
+
+    assert frame.hitmap.hit(100, 25) is tip
+    rect, _ = frame.hitmap.items[0]
+    assert (rect.left, rect.top, rect.right, rect.bottom) == (
+        20,
+        5,
+        180,
+        45,
+    )
+
+
+def test_combine_frame_titled_mapping() -> None:
+    a, _ = _tile("A")
+    b, _ = _tile("B")
+    composite, hits = _split(combine({"left": a, "right": b}).frame())
+    assert _titles(hits) == {"A", "B"}
+    assert _within(hits, composite)
+
+
+def test_combine_frame_single_group_returns_copy() -> None:
+    a, _ = _tile("A")
+    composite, hits = _split(combine(a).frame())
+    assert composite is not a
+    assert _titles(hits) == {"A"}
+
+
+def test_fit_grid_matches_grid_frame_when_unscaled() -> None:
+    a, _ = _tile("A")
+    b, _ = _tile("B")
+    fit_img, fit_hits = _split(
+        fit_grid([a, b], target=(10_000, 10_000), ncols=2).frame()
+    )
+    grid_img, _ = _split(grid([a, b], ncols=2).frame())
+    assert (fit_img.width, fit_img.height) == (grid_img.width, grid_img.height)
+    assert hits_title(fit_hits, 10 + 50, 10 + 30) == "A"
+
+
+def test_fit_grid_rejects_empty_images() -> None:
+    with pytest.raises(ValueError, match="empty sequence"):
+        fit_grid([], target=(100, 100))
+
+
+def test_fit_grid_reserves_title_height() -> None:
+    a, _ = _tile("A")
+    b, _ = _tile("B")
+    untitled = fit_grid([a, b], target=(240, 120), ncols=2)
+    titled = fit_grid(
+        [a, b],
+        target=(240, 120),
+        ncols=2,
+        titles=["left", "right"],
+    )
+    assert titled.height <= 120
+    assert titled.height >= untitled.height
+
+
+def test_fit_grid_scales_within_target() -> None:
+    a, _ = _tile("A")
+    b, _ = _tile("B")
+    composite, hits = _split(
+        fit_grid([a, b], target=(150, 100), ncols=2).frame()
+    )
+    assert composite.width <= 150
+    assert composite.height <= 100
+    assert len(hits.items) == 2
+    assert _within(hits, composite)
+
+
+def test_fit_grid_upscales_small_tiles_only_when_allowed() -> None:
+    a, _ = _tile("A")
+    b, _ = _tile("B")
+    native, _ = _split(grid([a, b], ncols=2).frame())
+    # Small tiles, a big budget: by default they stay native (never upscaled)...
+    kept, _ = _split(fit_grid([a, b], target=(4000, 2000), ncols=2).frame())
+    assert (kept.width, kept.height) == (native.width, native.height)
+    # ...but allow_upscale grows them to fill the budget.
+    grown, grown_hits = _split(
+        fit_grid(
+            [a, b], target=(4000, 2000), ncols=2, allow_upscale=True
+        ).frame()
+    )
+    assert grown.width > native.width
+    assert grown.height > native.height
+    assert _within(grown_hits, grown)
+
+
+def hits_title(hits: HitMap, x: float, y: float) -> str | None:
+    tooltip = hits.hit(x, y)
+    return tooltip.title if tooltip is not None else None
+
+
+@pytest.mark.parametrize("seed", range(30))
+def test_grid_frame_round_trips_random_layouts(seed: int) -> None:
+    """For any random grid, hovering a tile's box returns that tile's tooltip.
+
+    `grid_placed` and `grid` share ``_grid`` with identical arguments, so
+    each tile's raster lands at the same placement in both; the invariant is that
+    the composed hit map, queried at a placement's center, resolves to the box
+    drawn in that tile — proving the per-tile offset is exact.
+    """
+    rng = np.random.default_rng(seed)
+    count = int(rng.integers(1, 6))
+    tiles: list[Image] = []
+    tips: list[Tooltip] = []
+    for i in range(count):
+        height = int(rng.integers(30, 120))
+        width = int(rng.integers(30, 120))
+        tip = Tooltip(title=f"tile-{i}")
+        tips.append(tip)
+        tiles.append(
+            Image(np.zeros((height, width, 3), np.uint8)).add(
+                # A centered box, so the tile's center pixel is inside its region.
+                BBox(x=0.25, y=0.25, w=0.5, h=0.5, tooltip=tip)
+            )
+        )
+    ncols = int(rng.integers(1, count + 1))
+    _, hits = _split(grid(tiles, ncols=ncols).frame())
+    _, placements = grid_placed(tiles, ncols=ncols)
+
+    assert len(hits.items) == count
+    for (x, y, w, h), tip in zip(placements, tips, strict=True):
+        assert hits.hit(x + w / 2, y + h / 2) is tip
+
+
+def test_a_short_final_row_is_centred() -> None:
+    """Three tiles over two columns centre the lone one, not corner it."""
+    tiles = [Image(np.zeros((10, 10, 3), np.uint8)) for _ in range(3)]
+    composite, placements = grid_placed(tiles, ncols=2, pad=4)
+    width = composite.width
+
+    # The full first row still spans the grid, unshifted.
+    assert placements[0][0] < placements[1][0]
+    assert placements[0][0] == 4
+
+    lone_x, _, lone_w, _ = placements[2]
+    assert lone_x == (width - lone_w) // 2
+
+
+def test_a_full_final_row_is_untouched() -> None:
+    # Centring must only move a *short* row, or every complete grid would drift.
+    tiles = [Image(np.zeros((10, 10, 3), np.uint8)) for _ in range(4)]
+    _, placements = grid_placed(tiles, ncols=2, pad=4)
+    assert placements[0][0] == placements[2][0]
+    assert placements[1][0] == placements[3][0]
+
+
+def test_positional_names_are_ordered_left_to_right() -> None:
+    assert list(order_by_position({"cam_right": 1, "cam_left": 2})) == [
+        "cam_left",
+        "cam_right",
+    ]
+    assert list(order_by_position({"right": 1, "left": 2, "center": 3})) == [
+        "left",
+        "center",
+        "right",
+    ]
+
+
+def test_unpositioned_names_keep_their_slot() -> None:
+    # Only the ranked entries swap, and only among the slots they already held,
+    # so an extra source cannot be shuffled to the end.
+    ordered = order_by_position({"right": 1, "thermal": 2, "left": 3})
+    assert list(ordered) == ["left", "thermal", "right"]
+    assert ordered["thermal"] == 2
+
+
+def test_names_without_a_position_are_untouched() -> None:
+    sources = {"rgb": 1, "depth": 2, "mask": 3}
+    assert list(order_by_position(sources)) == list(sources)
+
+
+def test_an_ambiguous_name_is_not_guessed_at() -> None:
+    # "left_right_diff" mentions both, and "cleft" merely contains one: neither
+    # is a position, so nothing moves.
+    sources = {"left_right_diff": 1, "cleft": 2}
+    assert list(order_by_position(sources)) == list(sources)
+
+
+def test_a_single_positional_name_changes_nothing() -> None:
+    sources = {"depth": 1, "left": 2}
+    assert list(order_by_position(sources)) == list(sources)
+
+
+def test_fitting_cols_maximises_tile_size() -> None:
+    from luxonis_ml.vizlab.layout.compose import fitting_cols
+
+    # Three 16:9 tiles on a 16:9 screen: a 2x2 shows them half again as large
+    # as one long row, which has to shrink each to fit the width.
+    screen = (1728, 972)
+    assert fitting_cols(3, (960, 540), target=screen, pad=0) == 2
+    scales = {
+        cols: min(
+            (screen[0] / (cols * 960)),
+            (screen[1] / (math.ceil(3 / cols) * 540)),
+        )
+        for cols in (1, 2, 3)
+    }
+    assert max(scales, key=lambda c: scales[c]) == 2
+
+
+def test_combine_fits_a_mapping_to_its_target() -> None:
+    from luxonis_ml.vizlab import combine
+
+    sources = {
+        "left": Image(np.zeros((540, 960, 3), np.uint8)),
+        "right": Image(np.zeros((540, 960, 3), np.uint8)),
+    }
+    fitted = combine(sources, target=(400, 400))
+    assert fitted.width <= 400
+    assert fitted.height <= 400
+    # Without a budget it stays native-sized, so the target is what shrinks it.
+    assert combine(sources).width > 400
+
+
+def test_combine_reserves_room_beside_the_figure() -> None:
+    from luxonis_ml.vizlab import combine
+
+    sources = {
+        "left": Image(np.zeros((540, 960, 3), np.uint8)),
+        "right": Image(np.zeros((540, 960, 3), np.uint8)),
+    }
+    wide = combine(sources, target=(1000, 1000))
+    narrowed = combine(sources, target=(1000, 1000), reserve=400)
+    assert narrowed.width < wide.width
+
+
+def test_combine_gives_a_lone_tile_no_grid_chrome() -> None:
+    from luxonis_ml.vizlab import combine
+
+    only = Image(np.zeros((100, 200, 3), np.uint8))
+    # Scaled to the budget, but with no padding band or title strip added, so
+    # the output is exactly the tile -- a grid would have added a margin.
+    height, width = (
+        combine({"solo": only}, target=(100, 100)).render().shape[:2]
+    )
+    assert (width, height) == (100, 50)
