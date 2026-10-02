@@ -41,16 +41,19 @@ Typical mutation flow:
 
     def records():
         yield {
-            "file": "path/to/image.jpg",
-            "task_name": "detection",
+            "media": "path/to/image.jpg",
             "annotation": {
-                "class": "car",
-                "boundingbox": {
-                    "x": 0.1,
-                    "y": 0.2,
-                    "w": 0.3,
-                    "h": 0.4,
-                },
+                "detection": [
+                    {
+                        "class": "car",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.2,
+                            "w": 0.3,
+                            "h": 0.4,
+                        },
+                    }
+                ],
             },
         }
 
@@ -131,8 +134,7 @@ tasks.
 .. code-block:: json
 
     {
-      "file": "images/frame_001.jpg",
-      "task_name": "detection",
+      "media": "images/frame_001.jpg",
 
       "sample_metadata": {
         "record_id": 123,

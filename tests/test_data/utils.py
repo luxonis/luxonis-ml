@@ -9,6 +9,8 @@ from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
 from luxonis_ml.data.utils.enums import BucketStorage
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.ldf import SCHEMA_METADATA_KEY
+from luxonis_ml.typing import LoaderOutput, Params
 
 
 def gather_tasks(dataset: LuxonisDataset) -> set[str]:
@@ -59,6 +61,15 @@ def create_dataset(
     elif splits:
         dataset.make_splits(splits)
     return dataset
+
+
+def stored_metadata(sample: LoaderOutput) -> Params:
+    """Return a sample's metadata without the schema every sample carries."""
+    return {
+        key: value
+        for key, value in sample.metadata.items()
+        if key != SCHEMA_METADATA_KEY
+    }
 
 
 def set_ldf_version(dataset: LuxonisDataset, version: str) -> LuxonisDataset:

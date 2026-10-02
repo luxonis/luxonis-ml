@@ -321,7 +321,7 @@ class UltralyticsNDJSONParser(BaseParser):
                         class_id, x_center, y_center, width, height = box
                         yielded_annotation = True
                         yield {
-                            "file": str(image_path),
+                            "media": str(image_path),
                             "annotation": {
                                 "class": class_names[int(class_id)],
                                 "instance_id": instance_id,
@@ -342,7 +342,7 @@ class UltralyticsNDJSONParser(BaseParser):
                         )
                         yielded_annotation = True
                         yield {
-                            "file": str(image_path),
+                            "media": str(image_path),
                             "annotation": {
                                 "class": class_names[int(class_id)],
                                 "instance_id": instance_id,
@@ -396,7 +396,7 @@ class UltralyticsNDJSONParser(BaseParser):
 
                         yielded_annotation = True
                         yield {
-                            "file": str(image_path),
+                            "media": str(image_path),
                             "annotation": {
                                 "class": class_names[int(class_id)],
                                 "instance_id": instance_id,
@@ -417,7 +417,7 @@ class UltralyticsNDJSONParser(BaseParser):
                         instance_id += 1
 
                     if not yielded_annotation:
-                        yield {"file": str(image_path), "annotation": None}
+                        yield {"media": str(image_path), "annotation": None}
 
         return generator(), added_by_split, added_images
 

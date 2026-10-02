@@ -83,7 +83,7 @@ class DarknetParser(BaseParser):
                     annotation_data = []
 
                 if not annotation_data:
-                    yield {"file": file, "annotation": None}
+                    yield {"media": file, "annotation": None}
                     continue
 
                 for ann_line in annotation_data:
@@ -93,7 +93,7 @@ class DarknetParser(BaseParser):
                     class_name = class_names[int(class_id)]
 
                     yield {
-                        "file": file,
+                        "media": file,
                         "annotation": {
                             "class": class_name,
                             "boundingbox": {

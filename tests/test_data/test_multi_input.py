@@ -16,7 +16,7 @@ def test_multi_input(dataset_name: str, tempdir: Path):
             img2 = create_image(i + 4, tempdir)
             img3 = create_image(i + 8, tempdir)
             yield {
-                "files": {
+                "media": {
                     "image1": img1,
                     "image2": img2,
                     "image3": img3,
