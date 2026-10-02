@@ -36,9 +36,12 @@ present.
 """
 
 from .data_utils import (
+    NO_CLASS_KEY,
     find_duplicates,
     get_class_distributions,
+    get_class_heatmaps,
     get_duplicates_info,
+    get_heatmap_statistics,
     get_heatmaps,
     get_missing_annotations,
     infer_task,
@@ -71,6 +74,7 @@ from .task_utils import (
 )
 
 __all__ = [
+    "NO_CLASS_KEY",
     "BucketStorage",
     "BucketType",
     "COCOFormat",
@@ -85,7 +89,9 @@ __all__ = [
     "download_remote_file",
     "find_duplicates",
     "get_class_distributions",
+    "get_class_heatmaps",
     "get_duplicates_info",
+    "get_heatmap_statistics",
     "get_heatmaps",
     "get_missing_annotations",
     "get_task_group",

@@ -13,19 +13,27 @@ Importing this module pulls in vizlab, so it requires the ``viz`` extra
 that hint if the extra is missing.
 """
 
+import math
 from collections.abc import Mapping, Sequence
-from typing import Any, Literal
+from typing import Literal
 
 import numpy as np
 
-from luxonis_ml.data.utils.data_utils import HEATMAP_TASK_TYPES
+from luxonis_ml.data.utils.data_utils import (
+    HEATMAP_TASK_TYPES,
+    NO_CLASS_KEY,
+    ClassDistributionRow,
+)
+from luxonis_ml.utils.color import brand
 from luxonis_ml.vizlab import (
     Caption,
     ClassDistribution,
     Color,
     Corner,
+    Gradient,
     Heatmap,
     Image,
+    Palette,
     Renderable,
     RenderOptions,
     Theme,
@@ -44,12 +52,20 @@ _BASE_SCALE = 1.75
 _MARGIN = 16.0
 _MIN_SIDE = 300
 _MAX_SIDE = 620
+#: Smallest side for a single per-class heatmap tile. Kept generous so per-class
+#: heatmaps render at a comfortable size rather than shrinking to fit their grid.
+_MIN_MINI = 200
 
 #: Human-readable descriptor for each panel, shown as the panel heading over its
 #: task type. This lets the two columns be told apart at a glance without
 #: repeating the task name already shown in the window title.
 _CLASSES_DESC = "Class distribution"
 _HEATMAP_DESC = "Spatial density"
+_PER_CLASS_DESC = "Per-class density"
+
+#: Markup that names the annotations without a class. Class names are
+#: escaped, so no class can render as this label or share its palette key.
+_NO_CLASS_LABEL = "<i>no class</i>"
 
 
 def _panel_title(task_type: str, descriptor: str) -> str:
@@ -66,6 +82,16 @@ def _panel_title(task_type: str, descriptor: str) -> str:
         if task_type
         else escape(descriptor)
     )
+
+
+def _class_label(class_name: str) -> str:
+    """Return the markup that names a class in the bars and the tile titles.
+
+    The label is also the palette key, so a class has one color in both.
+    """
+    if class_name == NO_CLASS_KEY:
+        return _NO_CLASS_LABEL
+    return escape(class_name)
 
 
 def _panel_bg(width: float, height: float, color: Color) -> np.ndarray:
@@ -88,7 +114,7 @@ def _placeholder(
 
 
 def _distribution_panel(
-    task_data: list[dict[str, Any]],
+    task_data: list[ClassDistributionRow],
     *,
     theme: Theme,
     mode: DistributionMode,
@@ -107,7 +133,8 @@ def _distribution_panel(
     if not task_data:
         return _placeholder("no class data", theme=theme)
     pairs = [
-        (str(row["class_name"]), float(row["count"])) for row in task_data
+        (_class_label(row["class_name"]), float(row["count"]))
+        for row in task_data
     ]
     dist = ClassDistribution(
         probabilities=pairs,
@@ -161,10 +188,79 @@ def _heatmap_panel(
     )
 
 
+def _class_gradient(color: Color) -> Gradient:
+    """Build a colormap ramped around a class color: dark tint → color → light."""
+    return Gradient.from_colors(
+        [color.darken(0.85), color, color.lighten(0.35)]
+    )
+
+
+def _class_heatmaps_panel(
+    class_matrices: Mapping[str, Sequence[Sequence[float]]],
+    side: int,
+    *,
+    theme: Theme,
+    palette: Palette,
+) -> Renderable:
+    """Render one heatmap per class, each in its own color, as a small grid.
+
+    Each class's spatial density is colormapped through a gradient built from its
+    palette color (so it matches its box/bar color), captioned with the class
+    name, and the tiles are packed into a square-ish grid. Best for a handful of
+    classes; with many, the tiles get small.
+
+    Args:
+        class_matrices: ``{class_name: 15x15 density grid}`` for one task type.
+            The grid under `NO_CLASS_KEY` gets the last tile.
+        side: Target side length that the whole panel should roughly fill.
+        theme: The theme supplying background and style.
+        palette: Palette mapping class names to their colors.
+
+    Returns:
+        A renderable grid of per-class heatmap tiles.
+
+    """
+    names = sorted(
+        class_matrices, key=lambda name: (name == NO_CLASS_KEY, name)
+    )
+    labels = [_class_label(name) for name in names]
+    cols = max(1, math.ceil(math.sqrt(len(names))))
+    mini = max(_MIN_MINI, side // cols)
+    tiles = [
+        Image(
+            _panel_bg(mini, mini, theme.background),
+            options=RenderOptions(theme=theme),
+        ).add(
+            Heatmap(
+                values=np.asarray(class_matrices[name], dtype=float),
+                gradient=_class_gradient(palette.color_for(label)),
+                weight_by_value=False,
+                vmin=0.0,
+                alpha=1.0,
+            )
+        )
+        for name, label in zip(names, labels, strict=True)
+    ]
+    # Subordinate titles: these class names sit inside the outer grid's big
+    # "… — per-class heatmaps" heading, so keep them small rather than emphasized.
+    return grid(
+        tiles,
+        ncols=cols,
+        titles=labels,
+        bg=theme.background,
+        style=theme.style,
+        emphasize_titles=False,
+    )
+
+
 def build_health_grid(
-    class_dist_by_type: Mapping[str, list[dict[str, Any]]],
+    class_dist_by_type: Mapping[str, list[ClassDistributionRow]],
     heatmaps_by_type: Mapping[str, Sequence[Sequence[float]] | None],
     *,
+    class_heatmaps_by_type: Mapping[
+        str, Mapping[str, Sequence[Sequence[float]]]
+    ]
+    | None = None,
     theme: Theme | None = None,
     gradient: str = "viridis",
     mode: DistributionMode = "bars",
@@ -177,12 +273,20 @@ def build_health_grid(
     ``"heatmap"``. Non-spatial task types (such as metadata) are omitted; a
     spatial one is kept even when it has no heatmap, so its class distribution
     is not lost.
+    When ``class_heatmaps_by_type`` is given, the heatmap column instead shows one
+    small, class-colored heatmap per class.
+
+    The annotations without a class (`NO_CLASS_KEY`) show as *no class*, in
+    the brand steel gray. The theme's palette gets a pin for that label.
 
     Args:
         class_dist_by_type: Class counts per task type.
         heatmaps_by_type: Density matrices per task type (``None`` when absent).
+        class_heatmaps_by_type: Optional per-class density matrices
+            (``{task_type: {class_name: grid}}``); when present for a task type,
+            its heatmap column becomes a grid of per-class, class-colored heatmaps.
         theme: Theme for the whole grid; ``None`` uses the process default.
-        gradient: Name of the heatmap colormap.
+        gradient: Name of the heatmap colormap (combined heatmaps only).
         mode: How each class distribution is drawn.
         scale: User font/mark multiplier on top of the nominal plot scale.
 
@@ -192,6 +296,10 @@ def build_health_grid(
     """
     theme = theme if theme is not None else current_options().theme
     theme = theme.with_style(theme.style.scaled(_BASE_SCALE * scale))
+    # The no-class entry takes a brand neutral, not a class hue. The pin goes
+    # on the theme's own palette, because a copy would drop the class colors
+    # that this grid assigns, and the next task's grid would reassign them.
+    theme.palette.pin(_NO_CLASS_LABEL, brand.STEEL)
     # Only annotations with a spatial representation are plotted. Class
     # distributions may also include metadata, which must not create a
     # placeholder plot in the health view. Keying off the task type rather than
@@ -210,15 +318,28 @@ def build_health_grid(
         side = int(min(_MAX_SIDE, max(_MIN_SIDE, distribution.height)))
         images.append(distribution)
         titles.append(_panel_title(task_type, _CLASSES_DESC))
-        images.append(
-            _heatmap_panel(
-                heatmaps_by_type.get(task_type),
-                side,
-                theme=theme,
-                gradient=gradient,
-            )
+        per_class = (
+            class_heatmaps_by_type.get(task_type)
+            if class_heatmaps_by_type is not None
+            else None
         )
-        titles.append(_panel_title(task_type, _HEATMAP_DESC))
+        if per_class:
+            images.append(
+                _class_heatmaps_panel(
+                    per_class, side, theme=theme, palette=theme.palette
+                )
+            )
+            titles.append(_panel_title(task_type, _PER_CLASS_DESC))
+        else:
+            images.append(
+                _heatmap_panel(
+                    heatmaps_by_type.get(task_type),
+                    side,
+                    theme=theme,
+                    gradient=gradient,
+                )
+            )
+            titles.append(_panel_title(task_type, _HEATMAP_DESC))
     # Each task type contributes a distribution+heatmap pair (two cells). With
     # several task types a single pair-per-row column grows very tall and must be
     # shrunk to fit the screen — which shrinks the titles too. Pack two pairs per
