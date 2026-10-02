@@ -194,10 +194,15 @@ class LayerState:
         """Show every class if any is hidden, else hide them all (a master toggle).
 
         The switch beside the legend heading: one click clears every hidden
-        class, the next hides the whole set. Either way the ``c`` isolate cursor
-        is reset so its cycle restarts cleanly.
+        class, the next hides the whole set. Only the classes on screen count,
+        so a class hidden in an earlier sample stays hidden. Either way the
+        ``c`` isolate cursor is reset so its cycle restarts cleanly.
         """
-        self.hidden = set() if self.hidden else set(self.classes)
+        shown = set(self.classes)
+        if self.hidden & shown:
+            self.hidden -= shown
+        else:
+            self.hidden |= shown
         self._focus = None
 
     def handle(self, key: str) -> bool:
@@ -277,10 +282,11 @@ class LayerState:
         def toggle(key: str, name: str, on: bool) -> Control:
             return Control(key, name, "on" if on else "off", on)
 
-        if not self.hidden:
+        hidden = self.hidden & set(self.classes)
+        if not hidden:
             class_value, class_active = "all", None
         else:
-            class_value, class_active = f"{len(self.hidden)} off", True
+            class_value, class_active = f"{len(hidden)} off", True
         controls = [
             toggle("m", "masks", self.masks),
             toggle("k", "keypoints", self.keypoints),

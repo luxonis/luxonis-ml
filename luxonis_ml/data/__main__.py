@@ -1958,7 +1958,7 @@ def health(
         key = show_fitted(
             window, render_grid, scale=scale, screen=screen, backend=backend
         )
-        if key == ord("q"):
+        if (key & 0xFF) == ord("q"):
             break
 
     if not save_dir:

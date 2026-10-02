@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from luxonis_ml.vizlab.viewer import Cv2Backend
+from luxonis_ml.vizlab.viewer.viewer import _key_char
 
 _CvCallback = Callable[[int, int, int, int, None], None]
 
@@ -18,11 +19,18 @@ class _FakeCv2(ModuleType):
     WINDOW_GUI_NORMAL = 32
     EVENT_MOUSEMOVE = 1
     EVENT_LBUTTONDOWN = 2
+    WND_PROP_VISIBLE = 4
+
+    class error(Exception):
+        pass
 
     def __init__(self) -> None:
         super().__init__("cv2")
         self.calls: list[tuple[str, tuple[int | str, ...]]] = []
         self.callbacks: dict[str, _CvCallback] = {}
+        #: What the next waits report, in order; ``q`` once they run out.
+        self.keys: list[int] = []
+        self.visible: dict[str, float] = {}
 
     def namedWindow(self, name: str, mode: int) -> None:
         self.calls.append(("named", (name, mode)))
@@ -42,9 +50,19 @@ class _FakeCv2(ModuleType):
     def setMouseCallback(self, name: str, callback: _CvCallback) -> None:
         self.callbacks[name] = callback
 
-    def waitKey(self, timeout_ms: int) -> int:
+    def waitKeyEx(self, timeout_ms: int) -> int:
         self.calls.append(("wait", (timeout_ms,)))
-        return 113
+        return self.keys.pop(0) if self.keys else 113
+
+    def waitKey(self, timeout_ms: int) -> int:
+        # OpenCV keeps only the low byte here, which aliases the arrows.
+        return self.waitKeyEx(timeout_ms) & 0xFF
+
+    def getWindowProperty(self, name: str, prop: int) -> float:
+        assert prop == self.WND_PROP_VISIBLE
+        if name not in self.visible:
+            raise self.error(f"NULL window: {name!r}")
+        return self.visible[name]
 
 
 class _TkRoot:
@@ -184,3 +202,55 @@ def test_poll_key_and_close_all_windows(
     assert destroyed == {"a", "b"}
     assert backend._live == set()
     assert backend._callbacks == {}
+
+
+def test_poll_key_keeps_the_keysym_of_an_arrow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `cv2.waitKey` keeps only the low byte: Right (0xFF53) read as "S", and
+    # "s" saves a screenshot instead of moving to the next sample.
+    cv2 = _install_cv2(monkeypatch)
+    cv2.keys = [0xFF53]
+
+    assert _key_char(Cv2Backend().poll_key(20)) == "right"
+
+
+def test_poll_key_reports_a_closed_window_as_quit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A window closed from its title bar sends no more keys; without this the
+    # viewer polls it forever.
+    cv2 = _install_cv2(monkeypatch)
+    cv2.keys = [-1, -1]
+    backend = Cv2Backend()
+    backend.create_window("main")
+
+    cv2.visible["main"] = 1.0
+    assert backend.poll_key(20) == -1
+    cv2.visible["main"] = 0.0
+    assert backend.poll_key(20) == ord("q")
+
+
+def test_poll_key_without_timeout_ends_when_the_window_closes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cv2 = _install_cv2(monkeypatch)
+    cv2.keys = [-1, -1]
+    reads = iter([1.0, 0.0])
+    monkeypatch.setattr(cv2, "getWindowProperty", lambda *_: next(reads))
+    backend = Cv2Backend()
+    backend.create_window("main")
+
+    assert backend.poll_key(0) == ord("q")
+
+
+def test_a_window_never_seen_open_does_not_read_as_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A build that cannot report visibility must not quit every wait.
+    cv2 = _install_cv2(monkeypatch)
+    cv2.keys = [-1]
+    backend = Cv2Backend()
+    backend.create_window("main")  # getWindowProperty raises for it
+
+    assert backend.poll_key(20) == -1

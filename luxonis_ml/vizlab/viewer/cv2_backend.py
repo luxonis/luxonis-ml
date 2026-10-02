@@ -12,6 +12,13 @@ import numpy as np
 
 from .backend import KeyHandler, MouseHandler, WindowBackend
 
+#: How often a wait without a timeout checks that a window is still open.
+_CLOSE_CHECK_MS = 100
+
+#: What `Cv2Backend.poll_key` reports once every window is closed: the quit
+#: key of the vizlab presentations.
+_CLOSED_KEY = ord("q")
+
 
 class _TkRoot(Protocol):
     """Subset of a Tk root used for screen-size discovery."""
@@ -31,6 +38,9 @@ class Cv2Backend(WindowBackend):
     def __init__(self) -> None:
         """Create a backend with no open windows."""
         self._live: set[str] = set()
+        # The windows seen on screen: only these can read as closed, so a build
+        # that cannot report visibility never ends a wait.
+        self._seen: set[str] = set()
         # cv2 may drop a callback that is not referenced from Python, so keep one.
         self._callbacks: dict[str, object] = {}
 
@@ -78,6 +88,7 @@ class Cv2Backend(WindowBackend):
 
         cv2.destroyWindow(name)
         self._live.discard(name)
+        self._seen.discard(name)
         self._callbacks.pop(name, None)
 
     def show(self, name: str, frame: np.ndarray) -> None:
@@ -116,9 +127,36 @@ class Cv2Backend(WindowBackend):
         cv2.setMouseCallback(name, callback)
 
     def poll_key(self, timeout_ms: int) -> int:
+        """Wait for a keypress, the way `WindowBackend.poll_key` does.
+
+        The full key code is kept, so an arrow stays apart from the letter
+        that shares its low byte. When the user closes every window from its
+        title bar, no more keys arrive, so that reads as ``q``.
+        """
         import cv2
 
-        return cv2.waitKey(timeout_ms)
+        while True:
+            key = cv2.waitKeyEx(timeout_ms or _CLOSE_CHECK_MS)
+            if key != -1:
+                return key
+            if self._all_closed():
+                return _CLOSED_KEY
+            if timeout_ms:
+                return -1
+
+    def _all_closed(self) -> bool:
+        """Tell whether the user closed every window that was on screen."""
+        import cv2
+
+        visible = set()
+        for name in self._live:
+            try:
+                if cv2.getWindowProperty(name, cv2.WND_PROP_VISIBLE) >= 1:
+                    visible.add(name)
+            except cv2.error:  # some builds raise for a closed window
+                pass
+        self._seen |= visible
+        return bool(self._live) and not visible and self._live <= self._seen
 
     def set_key_handler(self, handler: KeyHandler) -> None:
         raise NotImplementedError(
@@ -132,4 +170,5 @@ class Cv2Backend(WindowBackend):
         for name in list(self._live):
             cv2.destroyWindow(name)
         self._live.clear()
+        self._seen.clear()
         self._callbacks.clear()

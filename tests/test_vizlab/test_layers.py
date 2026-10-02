@@ -154,6 +154,22 @@ def test_toggle_all_classes_shows_all_from_a_partial_selection() -> None:
     assert state.hidden == {"person"}
 
 
+def test_toggle_all_classes_looks_only_at_the_classes_on_screen() -> None:
+    # A class hidden in an earlier sample stays hidden, but it is not on
+    # screen: the switch must hide the classes shown, not clear that one.
+    state = LayerState(classes=("car", "person"))
+    state.toggle_class("person")
+    state.update_classes(("car",))
+    [class_control] = [c for c in state.controls() if c.key == "c"]
+    assert class_control.value == "all"
+
+    state.toggle_all_classes()
+
+    assert state.hidden == {"car", "person"}
+    state.toggle_all_classes()
+    assert state.hidden == {"person"}
+
+
 def _busy_scene() -> list[BBox]:
     """Build a crowded scene: 20 large boxes, a tiny cluster, one lone speck."""
     large = [
