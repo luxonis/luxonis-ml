@@ -87,3 +87,13 @@ luxonis_ml data inspect <dataset> --save contact.png
 
 See `luxonis_ml data inspect --help` for the array-reading options and the
 `--save` targets (PNG, HTML, or a video clip).
+
+No dataset at hand? `luxonis_ml test viz` paints synthetic street datasets
+that hold every annotation kind and every array kind, and opens them:
+
+```bash
+luxonis_ml test viz              # every annotation kind, focused cases first
+luxonis_ml test viz --compare    # ground truth against scored predictions
+luxonis_ml test viz --stereo     # left and right sources, disparity
+luxonis_ml test viz --augment    # the same, through batch, spatial and color augmentations
+```

@@ -35,6 +35,7 @@ def _register_subapp(module: str, name: str) -> None:
 _register_subapp("luxonis_ml.data.__main__", "data")
 _register_subapp("luxonis_ml.utils.__main__", "fs")
 _register_subapp("luxonis_ml.nn_archive.__main__", "archive")
+_register_subapp("luxonis_ml.testing.__main__", "test")
 
 
 @app.command
