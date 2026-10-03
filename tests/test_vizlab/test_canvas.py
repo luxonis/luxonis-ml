@@ -1,5 +1,7 @@
 """Coverage for the Skia canvas primitives."""
 
+from collections.abc import Callable
+
 import numpy as np
 import pytest
 
@@ -84,6 +86,22 @@ def test_measure_and_text() -> None:
     assert metrics.height == metrics.ascent + metrics.descent
     canvas.text((2, 20), "hi", size=14.0, color=_RED)
     assert canvas.to_rgba()[..., 3].max() > 0
+
+
+@pytest.mark.parametrize("draw", [Canvas.text, Canvas.markup])
+def test_halo_outlines_the_glyphs_in_its_own_color(
+    draw: Callable[..., None],
+) -> None:
+    halo = Color(0, 0, 255)
+
+    def blue_pixels(outline: "Color | None") -> int:
+        canvas = Canvas.blank(80, 30)
+        draw(canvas, (4, 22), "Hi", size=18.0, color=_RED, halo=outline)
+        rgba = canvas.to_rgba()
+        return int(((rgba[..., 2] > 128) & (rgba[..., 0] < 64)).sum())
+
+    assert blue_pixels(None) == 0
+    assert blue_pixels(halo) > 0
 
 
 def test_polygon_needs_two_points() -> None:

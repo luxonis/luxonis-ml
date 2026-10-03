@@ -331,3 +331,35 @@ def test_combine_gives_a_lone_tile_no_grid_chrome() -> None:
         combine({"solo": only}, target=(100, 100)).render().shape[:2]
     )
     assert (width, height) == (100, 50)
+
+
+def test_a_key_strip_keeps_the_hover_of_the_image_above_it() -> None:
+    from luxonis_ml.vizlab import ColorBar
+    from luxonis_ml.vizlab.layout import with_key_strip
+
+    tile, tip = _tile("A")
+    keyed = with_key_strip(tile, ColorBar(title="depth"))
+
+    frame = keyed.frame()
+
+    assert keyed.height > tile.height
+    assert frame.hitmap.hit(50, 30) is tip
+    assert frame.hitmap.hit(50, tile.height + 5) is None
+
+
+def test_a_key_strip_is_one_line_high_and_a_long_legend_wraps_under_its_title() -> (
+    None
+):
+    from luxonis_ml.vizlab import FlowWheel, Legend
+    from luxonis_ml.vizlab.layout import key_strip_height
+
+    tile, _ = _tile("A", h=400, w=640)
+    wheel = key_strip_height(tile, FlowWheel(title="flow", max_magnitude=3.0))
+    few = key_strip_height(tile, Legend(entries=["a", "b"], title="scores"))
+    many = key_strip_height(
+        tile, Legend(entries=[f"class_{i}" for i in range(20)], title="scores")
+    )
+    # A card would be 100 px or more; inline, one line plus its margins.
+    assert wheel < 60
+    assert few < 60
+    assert many > few  # wrapped onto more rows, within the tile's width

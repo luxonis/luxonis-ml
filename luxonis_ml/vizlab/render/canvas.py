@@ -18,11 +18,58 @@ import skia
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import XY, Rect
 
-from .fonts import DEFAULT_FONTS, FontManager
+from .fonts import DEFAULT_FONTS, FontManager, needs_shaping
 from .markup import Span, parse
 
 _RGBA = skia.ColorType.kRGBA_8888_ColorType
 _UNPREMUL = skia.AlphaType.kUnpremul_AlphaType
+
+
+def _bidi_runs(spans: "Sequence[Span]") -> "list[Span]":
+    """Join neighbouring spans of one style where their text is right to left.
+
+    Word wrapping splits a line into one span per word. Shaped one word at a
+    time, right-to-left words come out in reading order from left to right;
+    shaped as one run, the bidi algorithm orders them. Text without a
+    right-to-left character keeps its spans, so it draws as before.
+
+    Examples:
+        >>> from luxonis_ml.vizlab.render.markup import Span
+        >>> words = [Span("שלום"), Span(" "), Span("עולם")]
+        >>> [span.text for span in _bidi_runs(words)]
+        ['שלום עולם']
+        >>> [span.text for span in _bidi_runs([Span("car"), Span(" ")])]
+        ['car', ' ']
+
+    """
+    runs: list[Span] = []
+    group: list[Span] = []
+
+    def flush() -> None:
+        text = "".join(span.text for span in group)
+        if len(group) > 1 and needs_shaping(text):
+            runs.append(group[0].with_text(text))
+        else:
+            runs.extend(group)
+        group.clear()
+
+    for span in spans:
+        if group and span.with_text("") != group[0].with_text(""):
+            flush()
+        group.append(span)
+    flush()
+    return runs
+
+
+def _halo_paint(color: Color, size: float) -> skia.Paint:
+    """Return a round-joined stroke paint that outlines glyphs ``size`` px tall."""
+    return skia.Paint(
+        Color=_color4f(color),
+        AntiAlias=True,
+        Style=skia.Paint.kStroke_Style,
+        StrokeWidth=max(2.0, size / 5),
+        StrokeJoin=skia.Paint.kRound_Join,
+    )
 
 
 def _color4f(color: Color) -> skia.Color4f:
@@ -165,7 +212,18 @@ class TextMetrics:
 def _break_word(
     word: str, width_of: Callable[[str], float], limit: float
 ) -> list[str]:
-    """Hard-break a word into chunks that each fit within ``limit`` pixels."""
+    """Hard-break a word into chunks that each fit within ``limit`` pixels.
+
+    A chunk ends after its last ``_ - . /`` where it has one, so a long file
+    name breaks between its parts rather than inside one.
+
+    Examples:
+        >>> _break_word("case_02_negative.jpg", len, 12)
+        ['case_02_', 'negative.jpg']
+        >>> _break_word("abcdefgh", len, 3)
+        ['abc', 'def', 'gh']
+
+    """
     if len(word) <= 1 or width_of(word) <= limit:
         return [word]
     pieces: list[str] = []
@@ -174,6 +232,10 @@ def _break_word(
         end = start + 1
         while end < len(word) and width_of(word[start : end + 1]) <= limit:
             end += 1
+        if end < len(word):
+            cut = max(word.rfind(sep, start, end) for sep in "_-./")
+            if cut > start:
+                end = cut + 1
         pieces.append(word[start:end])
         start = end
     return pieces
@@ -905,10 +967,20 @@ class Canvas:
             The `TextMetrics` for the run.
 
         """
-        runs = self._fonts.runs(
-            text, size, weight=weight, italic=italic, mono=mono
-        )
-        width = sum(font.measureText(chunk) for font, chunk in runs)
+        if needs_shaping(text):
+            width = self._fonts.paragraph(
+                text,
+                size,
+                skia.Paint(),
+                weight=weight,
+                italic=italic,
+                mono=mono,
+            ).LongestLine
+        else:
+            runs = self._fonts.runs(
+                text, size, weight=weight, italic=italic, mono=mono
+            )
+            width = sum(font.measureText(chunk) for font, chunk in runs)
         # The line metrics stay those of the bundled font, so a fallback
         # glyph in one label never changes the height of its chip.
         font = self._fonts.font(size, weight=weight, italic=italic, mono=mono)
@@ -974,6 +1046,7 @@ class Canvas:
         weight: int = 400,
         italic: bool = False,
         mono: bool = False,
+        halo: Color | None = None,
     ) -> None:
         """Draw text with its baseline-left at ``origin``.
 
@@ -985,10 +1058,53 @@ class Canvas:
             weight: OpenType weight (100-900).
             italic: Whether to draw the italic variant.
             mono: Whether to draw with the monospace family.
+            halo: A color to outline the glyphs with first, so the text
+                stays readable over a busy image; ``None`` draws no outline.
 
         """
-        paint = skia.Paint(Color=_color4f(color), AntiAlias=True)
+        if halo is not None:
+            self._draw_glyphs(
+                origin,
+                text,
+                size,
+                _halo_paint(halo, size),
+                weight=weight,
+                italic=italic,
+                mono=mono,
+            )
+        self._draw_glyphs(
+            origin,
+            text,
+            size,
+            skia.Paint(Color=_color4f(color), AntiAlias=True),
+            weight=weight,
+            italic=italic,
+            mono=mono,
+        )
+
+    def _draw_glyphs(
+        self,
+        origin: XY,
+        text: str,
+        size: float,
+        paint: skia.Paint,
+        *,
+        weight: int,
+        italic: bool,
+        mono: bool,
+    ) -> None:
+        """Draw ``text`` with ``paint`` from a baseline-left ``origin``.
+
+        Right-to-left text is shaped first (see `FontManager.paragraph`);
+        all other text is drawn a font run at a time.
+        """
         x, y = origin
+        if needs_shaping(text):
+            paragraph = self._fonts.paragraph(
+                text, size, paint, weight=weight, italic=italic, mono=mono
+            )
+            paragraph.paint(self._canvas, x, y - paragraph.AlphabeticBaseline)
+            return
         for font, chunk in self._fonts.runs(
             text, size, weight=weight, italic=italic, mono=mono
         ):
@@ -1007,6 +1123,7 @@ class Canvas:
         weight: int = 400,
         italic: bool = False,
         mono: bool = False,
+        halo: Color | None = None,
     ) -> None:
         """Draw inline-markup ``text`` with its baseline-left at ``origin``.
 
@@ -1023,10 +1140,11 @@ class Canvas:
             weight: Baseline OpenType weight (100-900).
             italic: Whether untagged text is italic.
             mono: Whether untagged text uses the monospace family.
+            halo: A color to outline the glyphs with first (see `text`).
 
         """
         spans = parse(text, weight=weight, italic=italic, mono=mono)
-        self.draw_spans(origin, spans, size=size, color=color)
+        self.draw_spans(origin, spans, size=size, color=color, halo=halo)
 
     def measure_markup(
         self,
@@ -1083,7 +1201,7 @@ class Canvas:
         if not spans:
             return self.measure_text("", size)
         width = ascent = descent = 0.0
-        for span in spans:
+        for span in _bidi_runs(spans):
             metrics = self._measure_span(span, size)
             width += metrics.width
             ascent = max(ascent, metrics.ascent)
@@ -1097,6 +1215,7 @@ class Canvas:
         *,
         size: float,
         color: Color,
+        halo: Color | None = None,
     ) -> None:
         """Draw styled runs left-to-right from a shared baseline.
 
@@ -1106,8 +1225,26 @@ class Canvas:
             size: Text size in pixels; each run scales it by its own ``scale``.
             color: Default text color, used for every run that does not carry
                 an explicit one of its own (from ``<span color=…>``).
+            halo: A color to outline the glyphs with (see `text`). Every run's
+                outline is drawn before any fill, so no outline covers the
+                glyphs of the run before it.
 
         """
+        spans = _bidi_runs(spans)
+        if halo is not None:
+            x, y = origin
+            for span in spans:
+                run_size = size * span.scale
+                self._draw_glyphs(
+                    (x, y),
+                    span.text,
+                    run_size,
+                    _halo_paint(halo, run_size),
+                    weight=span.weight,
+                    italic=span.italic,
+                    mono=span.mono,
+                )
+                x += self._measure_span(span, size).width
         x, y = origin
         for span in spans:
             if not span.text:
@@ -1193,7 +1330,8 @@ class Canvas:
         """Word-wrap styled runs to ``max_width``, preserving each run's style.
 
         Splits on whitespace (newlines force a break); a word wider than
-        ``max_width`` is hard-broken so no line exceeds the width.
+        ``max_width`` is hard-broken so no line exceeds the width, after a
+        ``_ - . /`` where it can.
 
         Args:
             spans: The styled runs making up the paragraph.

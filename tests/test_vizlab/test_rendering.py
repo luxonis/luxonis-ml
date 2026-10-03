@@ -502,7 +502,7 @@ def test_dense_labels_escape_with_leaders_back_to_their_box() -> None:
 
     # Declutter actually worked: total pairwise overlap stays well under what a
     # naive same-corner stack (every chip on top of the last) would produce.
-    rects = [p.rect for p in placements]
+    rects = [p.rect for p in placements if not p.hidden]
     total = sum(
         _overlap_area(rects[i], rects[j])
         for i in range(len(rects))
@@ -510,6 +510,19 @@ def test_dense_labels_escape_with_leaders_back_to_their_box() -> None:
     )
     single_area = rects[0].width * rects[0].height
     assert total < single_area
+
+
+def test_chip_with_no_free_position_is_hidden_and_takes_no_room() -> None:
+    # The canvas fits exactly one 70x26 chip, so every spot for a second one
+    # overlaps the first.
+    layout = LabelLayout(80, 30)
+    region = Rect(10.0, 4.0, 60.0, 26.0)
+    cands = label_candidates(region, 70.0, 26.0, LabelPlacement.TOP)
+    first = layout.place(70.0, 26.0, cands, region=region)
+    second = layout.place(70.0, 26.0, cands, region=region)
+    assert not first.hidden
+    assert second.hidden
+    assert layout.placed == [first.rect]
 
 
 def test_small_overlap_keeps_the_chip_on_the_box_rather_than_leading_out() -> (

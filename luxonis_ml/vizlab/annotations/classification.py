@@ -5,6 +5,7 @@
 its class name from the palette, so a class reads the same here as on a box.
 """
 
+from collections import Counter
 from collections.abc import Iterable
 
 from luxonis_ml.vizlab.style import Palette, Style
@@ -39,15 +40,17 @@ def _split(tag: str | tuple[str, float]) -> tuple[str, float | None]:
 class Classification(CornerStack):
     """Render image-level classes as colored corner chips.
 
-    Each tag becomes one chip. Multiple `Classification` overlays anchored to
-    the same corner are offset into one visual stack instead of covering one
-    another.
+    Each tag becomes one chip. A name that repeats (a batch augmentation
+    merges the tags of several inputs) is shown once, followed by its count
+    after a multiplication sign. Multiple `Classification` overlays anchored
+    to the same corner are offset into one visual stack instead of covering
+    one another.
 
     .. image:: TODO-HOST/overlays.png
        :alt: Classification tags among captions, a legend, and analytics.
 
     Attributes:
-        tags: Class names, or ``(name, score)`` pairs, one chip each.
+        tags: Class names, or ``(name, score)`` pairs, one chip per name.
 
     See `CornerStack` for ``corner``/``margin``/``gap`` and
     `Annotation` for ``style``/``palette``.
@@ -98,11 +101,18 @@ class Classification(CornerStack):
         canvas = ctx.canvas
         palette = self.resolved_palette(ctx)
         cells: list[Cell] = []
+        counts = Counter(_split(tag)[0] for tag in self.tags)
+        shown: set[str] = set()
         for tag in self.tags:
             name, score = _split(tag)
+            if name in shown:
+                continue
+            shown.add(name)
             text = compose_label(name, score, None)
             if not text:
                 continue
+            if counts[name] > 1:
+                text = f"{text} \u00d7{counts[name]}"
             cells.append(
                 chip_cell(canvas, text, palette.color_for(name), style)
             )

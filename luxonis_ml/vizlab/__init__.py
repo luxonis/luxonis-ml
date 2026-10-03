@@ -57,7 +57,8 @@ relevant part of the API:
 - `ScalarField`, `FlowField`, `NormalMap`, `ArrayImage`, `SegmentationScores` —
   the readings of an LDF array label, one class per kind of array: a depth or
   disparity map, a signed error map centered on zero, a two-channel optical flow
-  field under the direction wheel (`FlowWheel`), surface normals, an array that
+  field under the direction wheel (`FlowWheel`), surface normals under a
+  sphere of their colors (`NormalKey`), an array that
   already is a picture, and a per-class score stack resolved either to a
   `SemanticMask`, to the field of how sure the winning class was
   (`SegmentationScores.confidence`), or to both at once via
@@ -235,6 +236,7 @@ with guard_missing_extra("viz"):
         ClassDistribution,
         Classification,
         ColorBar,
+        ColorKey,
         Corner,
         FlowField,
         FlowWheel,
@@ -243,6 +245,7 @@ with guard_missing_extra("viz"):
         Keypoints,
         Legend,
         Mask,
+        NormalKey,
         NormalMap,
         Polyline,
         RenderContext,
@@ -341,6 +344,7 @@ __all__ = [
     "Classification",
     "Color",
     "ColorBar",
+    "ColorKey",
     "ColormapColors",
     "ComparisonComposer",
     "ComparisonReport",
@@ -364,6 +368,7 @@ __all__ = [
     "Mask",
     "MaskOutline",
     "Match",
+    "NormalKey",
     "NormalMap",
     "Palette",
     "PickMap",

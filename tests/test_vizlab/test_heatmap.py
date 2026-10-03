@@ -297,3 +297,40 @@ def test_colorbar_stacks_with_a_legend_in_the_same_corner() -> None:
     both = _canvas(200, 150).add(legend).add(key).render()
     only = _canvas(200, 150).add(legend).render()
     assert not np.array_equal(both, only)
+
+
+def test_one_outlier_does_not_squeeze_the_auto_range() -> None:
+    field = np.r_[np.linspace(0.0, 10.0, 99), 1e6].reshape(10, 10)
+    low, high = Heatmap(values=field).value_range()
+    assert (low, high) == (field.ravel()[1], field.ravel()[98])
+    assert Heatmap(values=field).clipped_ends() == (True, True)
+
+
+def test_a_sparse_map_keeps_its_few_values() -> None:
+    # One 1 among 99 zeros: both percentiles are 0, so the range falls back
+    # to the extent rather than hiding the one.
+    field = np.zeros((10, 10))
+    field[3, 4] = 1.0
+    assert Heatmap(values=field).value_range() == (0.0, 1.0)
+    assert Heatmap(values=field).clipped_ends() == (False, False)
+
+
+def test_colorbar_marks_the_ends_that_clip_the_field() -> None:
+    field = np.r_[np.linspace(0.0, 10.0, 99), 1e6].reshape(10, 10)
+    key = ColorBar.for_heatmap(Heatmap(values=field, vmin=0.0))
+    assert (key.clipped_low, key.clipped_high) == (False, True)
+
+
+def test_an_inline_colorbar_is_one_line_with_every_tick_label() -> None:
+    from luxonis_ml.vizlab.annotations.base import RenderContext
+    from luxonis_ml.vizlab.render.canvas import Canvas
+
+    key = ColorBar(title="error", vmin=-4.0, vmax=4.0, ticks=3, inline=True)
+    ctx = RenderContext(canvas=Canvas.blank(640, 400))
+    pieces = key._inline_pieces(ctx, key.resolve_style(ctx))
+    # title, -4, bar, 0, bar, 4: each label sits at its place on the axis.
+    assert len(pieces) == 6
+    card_w, card_h = ColorBar(title="error", ticks=3).content_size()
+    inline_w, inline_h = key.content_size()
+    assert inline_h < card_h / 2
+    assert inline_w > card_w

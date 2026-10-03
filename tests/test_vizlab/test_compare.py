@@ -1,5 +1,7 @@
 """Tests for `compare` — detection matching, metrics, and rendering."""
 
+from typing import Literal
+
 import numpy as np
 import pytest
 
@@ -32,6 +34,7 @@ from luxonis_ml.vizlab.comparison.render import (
     _recolor,
     _render_match,
     _with_keypoint_verdicts,
+    verdict_key,
 )
 from luxonis_ml.vizlab.geometry import Rect
 from luxonis_ml.vizlab.options import RenderOptions
@@ -886,3 +889,85 @@ def test_composer_draws_the_verdicts_on_the_reference_source_only(
     composer.frame({"right": right, "left": left}, record, record)
 
     assert drawn == [1]
+
+
+def test_a_hit_has_no_chip_but_keeps_its_class() -> None:
+    # The chips that remain mark the errors; the class focus still finds the
+    # hit by its label.
+    options = RenderOptions()
+    gt, pred = _box(0.1, 0.1, label="car"), _box(0.1, 0.1, label="car")
+    (hit,) = [
+        a
+        for a in _render_match(Match(Verdict.TP, gt, pred), options)
+        if a.label == "car"
+    ]
+    miss = _render_match(Match(Verdict.FN, gt, None), options)
+    assert not hit.label_chip
+    assert miss[0].label_chip
+
+
+def test_verdict_key_lists_only_the_verdicts_that_are_drawn() -> None:
+    def labels(key: object) -> list[str]:
+        return [label for _, label in key.items]  # type: ignore[attr-defined]
+
+    assert labels(verdict_key()) == [
+        "hit",
+        "ground truth of a hit",
+        "miss",
+        "false alarm (dashed)",
+        "class error, gt \u2192 pred",
+    ]
+    assert labels(verdict_key({Verdict.FN})) == ["miss"]
+    assert "class error, gt \u2192 pred" not in labels(
+        verdict_key(class_aware=False)
+    )
+    assert not verdict_key().interactive
+
+
+@pytest.mark.parametrize(
+    ("show", "keyed"),
+    [("overlay", True), ("triptych", True), ("side_by_side", False)],
+)
+def test_composer_panel_names_the_sample_and_how_it_was_matched(
+    monkeypatch: pytest.MonkeyPatch,
+    show: Literal["overlay", "side_by_side", "triptych"],
+    keyed: bool,
+) -> None:
+    from pathlib import Path
+
+    from luxonis_ml.ldf import BBoxAnnotation, DatasetRecord
+    from luxonis_ml.vizlab import ComparisonComposer
+    from luxonis_ml.vizlab.layout.panel import Block
+    from luxonis_ml.vizlab.scene.image import Renderable
+
+    panels: list[dict] = []
+    with_panel = Renderable.with_panel
+
+    def spy(self: Renderable, metrics: dict, **kwargs: object) -> object:
+        panels.append(metrics)
+        return with_panel(self, metrics, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Renderable, "with_panel", spy)
+    detection = Detection(
+        class_name="car",
+        boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+    )
+    record = DatasetRecord.model_construct(
+        files={"image": Path("a.jpg")}, annotation={"cars": [detection]}
+    )
+    composer = ComparisonComposer(
+        RenderOptions(), show=show, class_aware=False
+    )
+    composer.frame(
+        {"image": np.zeros((40, 60, 3), np.uint8)},
+        record,
+        record,
+        name="image=a.jpg",
+    )
+
+    (metrics,) = panels
+    assert metrics["file"] == Block("image=a.jpg")
+    assert metrics["matched at"] == (
+        "IoU \u2265 0.50 \u00b7 score \u2265 0.25 \u00b7 any class"
+    )
+    assert ("verdicts" in metrics) is keyed

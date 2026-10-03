@@ -334,6 +334,8 @@ class Polyline(Annotation):
         hit = self._hit_region(canvas.width, canvas.height, style)
         if hit is not None:
             ctx.emit_hit(hit, self.tooltip, self.source)
+        if not self.label_chip:
+            return
         place_label(
             ctx,
             self._anchor_region(canvas.width, canvas.height, style),

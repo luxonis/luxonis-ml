@@ -82,6 +82,32 @@ def field_valid(
     return valid
 
 
+#: An automatic range end leaves out this percent of the valid values, so a
+#: few outliers cannot squeeze the rest of a field into one color.
+_ROBUST_PERCENT = 2.0
+
+
+def _robust_ends(data: np.ndarray) -> "tuple[float, float]":
+    """Return the 2nd and 98th percentile of ``data``, as values it holds.
+
+    A sparse map (a few ones among zeros) has both percentiles on the same
+    value; it keeps its full extent instead, or its few values would vanish.
+
+    Examples:
+        >>> data = np.r_[np.arange(100.0), 1e6]
+        >>> _robust_ends(data)
+        (2.0, 98.0)
+        >>> _robust_ends(np.r_[np.zeros(99), 1.0])
+        (0.0, 1.0)
+
+    """
+    low = float(np.percentile(data, _ROBUST_PERCENT, method="lower"))
+    high = float(np.percentile(data, 100 - _ROBUST_PERCENT, method="higher"))
+    if high <= low:
+        return float(data.min()), float(data.max())
+    return low, high
+
+
 def field_range(
     values: np.ndarray,
     *,
@@ -92,6 +118,11 @@ def field_range(
     ignore_value: float | None = None,
 ) -> "tuple[float, float]":
     """Resolve the value range a field's gradient spans.
+
+    An automatic end is robust: it sits at the 2nd or 98th percentile of the
+    valid values, so a few outliers get the end color instead of squeezing
+    the rest of the field into one color. `field_clipping` tells whether any
+    value lies beyond an end.
 
     ``center`` applies only when *neither* bound is pinned: it makes the
     automatic range symmetric around that value, so the gradient's midpoint lands
@@ -119,12 +150,43 @@ def field_range(
     if not valid.any():
         return 0.0, 0.0
     data = v[valid]
-    low = float(vmin) if vmin is not None else float(data.min())
-    high = float(vmax) if vmax is not None else float(data.max())
     if center is not None and vmin is None and vmax is None:
-        radius = max(high - center, center - low, 0.0)
+        _, radius = _robust_ends(np.abs(data - center))
         return center - radius, center + radius
+    auto_low, auto_high = _robust_ends(data)
+    low = float(vmin) if vmin is not None else auto_low
+    high = float(vmax) if vmax is not None else auto_high
     return low, high
+
+
+def field_clipping(
+    values: np.ndarray,
+    low: float,
+    high: float,
+    ignore_value: float | None = None,
+) -> "tuple[bool, bool]":
+    """Tell whether valid values lie below ``low`` and above ``high``.
+
+    Args:
+        values: The raw field.
+        low: The low end of the mapped range.
+        high: The high end of the mapped range.
+        ignore_value: A "no data" sentinel, left out.
+
+    Returns:
+        Whether some value gets the low end color without being the low end,
+        and the same for the high end.
+
+    Examples:
+        >>> field_clipping(np.array([0.0, 5.0, 99.0]), 0.0, 10.0)
+        (False, True)
+
+    """
+    v = np.asarray(values, dtype=np.float64)
+    data = v[field_valid(v, ignore_value)]
+    if data.size == 0:
+        return False, False
+    return bool(data.min() < low), bool(data.max() > high)
 
 
 def normalize_field(
@@ -333,6 +395,21 @@ class Heatmap(Annotation):
         """
         values = np.zeros(0) if self.values is None else self.values
         return self._range(np.asarray(values))
+
+    def clipped_ends(self) -> "tuple[bool, bool]":
+        """Tell whether values lie beyond the ends of `value_range`.
+
+        `ColorBar` marks such an end with ``≤`` or ``≥``.
+
+        Returns:
+            One flag for the low end and one for the high end.
+
+        """
+        values = np.asarray(
+            np.zeros(0) if self.values is None else self.values
+        )
+        low, high = self._range(values)
+        return field_clipping(values, low, high, self.ignore_value)
 
     def _normalized(self, values: np.ndarray) -> np.ndarray:
         """Scale the field into ``[0, 1]`` per ``vmin``/``vmax``/``normalize``.

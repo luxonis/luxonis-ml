@@ -392,3 +392,88 @@ def test_the_system_font_lookup_prints_no_fontconfig_warnings(
     # Whether a CJK font is installed depends on the machine.
     assert found is None or isinstance(found, skia.Typeface)
     assert capfd.readouterr().err == ""
+
+
+def _require_glyphs(text: str) -> None:
+    """Skip unless an installed font draws every letter of ``text``."""
+    from luxonis_ml.vizlab.render import fonts
+
+    if any(
+        fonts._fallback_typeface(char, 400, False) is None
+        for char in text
+        if not char.isspace()
+    ):
+        pytest.skip(f"no installed font draws {text!r}")
+
+
+def _alpha(text: str) -> np.ndarray:
+    canvas = Canvas.blank(120, 40)
+    canvas.text((10, 30), text, size=24, color=Color(255, 255, 255))
+    return canvas.to_rgba()[..., 3].astype(float)
+
+
+def test_hebrew_is_drawn_right_to_left() -> None:
+    # Alef then bet in reading order: on screen, bet is on the left.
+    _require_glyphs("אב")
+    canvas = Canvas.blank(1, 1)
+    alef, bet = _alpha("א"), _alpha("ב")
+    word = _alpha("אב")
+    shift = round(canvas.measure_text("א", 24).width)
+    visual = np.maximum(
+        bet, np.roll(alef, round(canvas.measure_text("ב", 24).width), axis=1)
+    )
+    logical = np.maximum(alef, np.roll(bet, shift, axis=1))
+    assert np.abs(word - visual).sum() < np.abs(word - logical).sum()
+
+
+def test_arabic_letters_join() -> None:
+    # Joined, the letters take their connecting forms, which are narrower
+    # than the letters on their own.
+    _require_glyphs("مرحبا")
+    canvas = Canvas.blank(1, 1)
+    word = canvas.measure_text("مرحبا", 24).width
+    alone = sum(canvas.measure_text(char, 24).width for char in "مرحبا")
+    assert word < alone
+
+
+def test_left_to_right_text_does_not_take_the_shaping_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from luxonis_ml.vizlab.render import fonts
+
+    def fail(*_: object, **__: object) -> None:
+        raise AssertionError("shaped")
+
+    monkeypatch.setattr(fonts.FontManager, "paragraph", fail)
+    canvas = Canvas.blank(80, 30)
+    canvas.text((2, 20), "car 東京 7", size=14, color=Color(255, 0, 0))
+    assert canvas.measure_text("car", 14).width > 0
+
+
+def test_a_tracked_heading_draws_right_to_left_text_whole() -> None:
+    from luxonis_ml.vizlab.render import text_layout
+
+    _require_glyphs("שלום")
+    canvas = Canvas.blank(1, 1)
+    # Tracked char by char, the four letters would also gain four gaps.
+    assert text_layout.tracked_width(
+        "שלום", 12, tracking=5.0
+    ) == pytest.approx(canvas.measure_text("שלום", 12).width + 5.0)
+
+
+def test_right_to_left_words_keep_their_order_across_spans() -> None:
+    # Word wrapping hands the panel one span per word. Shaped one word at a
+    # time, Hebrew words came out in reading order from left to right.
+    from luxonis_ml.vizlab.render.markup import Span
+
+    _require_glyphs("שלוםעולם")
+    whole = Canvas.blank(160, 40)
+    whole.text((10, 30), "שלום עולם", size=24, color=Color(255, 255, 255))
+    words = Canvas.blank(160, 40)
+    words.draw_spans(
+        (10, 30),
+        [Span("שלום"), Span(" "), Span("עולם")],
+        size=24,
+        color=Color(255, 255, 255),
+    )
+    assert np.array_equal(whole.to_rgba(), words.to_rgba())

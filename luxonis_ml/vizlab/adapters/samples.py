@@ -16,11 +16,15 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
+from luxonis_ml.vizlab.annotations import ColorKey
+from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.interaction import Frame
 from luxonis_ml.vizlab.layout.compose import (
     combine,
+    key_strip_height,
     order_by_position,
     reference_source,
+    with_key_strip,
 )
 from luxonis_ml.vizlab.layout.panel import Controls, Swatches
 from luxonis_ml.vizlab.options import RenderOptions
@@ -33,7 +37,7 @@ from .instances import (
     record_to_colored_annotations,
     spatial_instances,
 )
-from .ldf import metadata_annotations, visualize_record
+from .ldf import metadata_annotations, metadata_panel, visualize_record
 
 if TYPE_CHECKING:
     from luxonis_ml.ldf import DatasetRecord
@@ -75,6 +79,12 @@ class SampleComposer:
         reserve_class: The class name the legend reserves width for, keeping
             the panel a stable width as the per-sample class set changes.
         reserve_task: As ``reserve_class``, for the task legend.
+        class_order: The dataset's classes. The legend lists a sample's
+            classes in this order, so a class keeps its place from sample to
+            sample; a class it lacks follows, in the sample's order.
+        stable_grid: Keep a tile for an array that a sample lacks, so the
+            grid of a sequence keeps its arrangement from frame to frame.
+            Off by default, because the empty tiles take room.
         panel_width: Horizontal room reserved for the side panel when
             fitting a frame to the screen.
 
@@ -91,6 +101,8 @@ class SampleComposer:
     screen: "tuple[int, int] | None" = None
     reserve_class: str = ""
     reserve_task: str = ""
+    class_order: Sequence[str] = ()
+    stable_grid: bool = False
     panel_width: float = 400.0
 
     def fallback_color_by(self, record: "DatasetRecord") -> ColorBy:
@@ -150,7 +162,10 @@ class SampleComposer:
                     for c in layers.controls()
                 )
             )
-        names = layers.classes
+        rank = {name: index for index, name in enumerate(self.class_order)}
+        names = sorted(
+            layers.classes, key=lambda name: rank.get(name, len(rank))
+        )
         class_palette = self.options.theme.palette
         if self.legend and color_by == "class" and names:
             out["classes"] = Swatches(
@@ -205,14 +220,19 @@ class SampleComposer:
         self,
         arrays: "Mapping[str, np.ndarray]",
         layers: "LayerState",
-        height: int | None = None,
-    ) -> "tuple[list[Renderable], list[str]]":
+        image_shape: "tuple[int, int] | None" = None,
+    ) -> "tuple[list[tuple[Image, ColorKey | None]], list[str]]":
         """Render each array field as its own tile, in the ``tile`` array view.
 
         A field is often stored at a fraction of the image resolution. Each
-        tile is scaled to ``height``, the height of the image tiles, so a
-        field is as large as the photo beside it and its color key covers
-        only a corner of it. The field keeps its own aspect ratio.
+        tile is scaled to the height of ``image_shape``, the image tiles'
+        ``(height, width)``, so a field is as large as the photo beside it.
+        The field keeps its own aspect ratio. Its color key is returned beside
+        it rather than drawn on it, for `tiles` to put in a strip under the
+        field.
+
+        With `stable_grid`, an array the sample lacks (the loader gives it
+        as an empty array) keeps its slot as a hatched, photo-sized tile.
         """
         if (
             self.options.array_view != "tile"
@@ -220,34 +240,45 @@ class SampleComposer:
             or not layers.arrays
         ):
             return [], []
-        tiles: list[Renderable] = []
+        tiles: list[tuple[Image, ColorKey | None]] = []
         titles: list[str] = []
         background = self.options.theme.background
-        for drawing in array_annotations(
-            arrays,
-            options=self.options,
-            class_names=self.array_class_names,
-            loader_layout=True,
-        ):
-            array_field = drawing.field.field()
-            if array_field is None:
+        drawings = {
+            drawing.task_name: drawing
+            for drawing in array_annotations(
+                arrays,
+                options=self.options,
+                class_names=self.array_class_names,
+                loader_layout=True,
+            )
+        }
+        for task_name, values in arrays.items():
+            if values.size == 0:
+                if not self.stable_grid:
+                    continue
+                rows, columns = image_shape or _MISSING_TILE
+                canvas = _hatched(rows, columns, background)
+                tiles.append((Image(canvas, options=self.options), None))
+                titles.append(f"{task_name} \u00b7 not in this frame")
+                continue
+            drawing = drawings.get(task_name)
+            array_field = None if drawing is None else drawing.field.field()
+            if drawing is None or array_field is None:
                 continue
             rows, columns = array_field.shape[-2:]
-            if height is not None:
-                columns = max(1, round(columns * height / rows))
-                rows = height
-            # On the theme background rather than black, so a nodata pixel reads
-            # as absent instead of as a low value.
-            canvas = np.full(
-                (rows, columns, 3),
-                (background.r, background.g, background.b),
-                np.uint8,
-            )
-            tile = Image(canvas, options=self.options)
-            for annotation in drawing.annotations():
-                tile.add(annotation)
-            tiles.append(tile)
-            titles.append(f"{drawing.task_name} {drawing.kind}")
+            if image_shape is not None:
+                columns = max(1, round(columns * image_shape[0] / rows))
+                rows = image_shape[0]
+            # A nodata pixel shows a hatch rather than black or the frame, so
+            # it reads as missing instead of as a low value or as no tile.
+            canvas = _hatched(rows, columns, background)
+            key = drawing.key
+            key = key if isinstance(key, ColorKey) else None
+            if key is not None and drawing.field.has_gaps():
+                key.title = f"{key.title or drawing.task_name}  \u25a8 no data"
+            tile = Image(canvas, options=self.options).add(drawing.field)
+            tiles.append((tile, key))
+            titles.append(_field_title(drawing.task_name, drawing.kind))
         return tiles, titles
 
     def _blend(
@@ -264,8 +295,9 @@ class SampleComposer:
         Shared by the interactive single/blended view and the headless save path.
         Detections from all tasks are blended together (a redundant classification
         chip is dropped next to boxes/keypoints/masks), the current ``layers``
-        filter what is shown, and box-less metadata is added as hover-free cards.
-        The image is returned unsized; the caller sets any display size.
+        filter what is shown, and box-less metadata is added as hover-free cards
+        unless the side panel shows it. The image is returned unsized; the
+        caller sets any display size.
         """
         viz = Image(image, options=self.options)
         self._overlay_arrays(viz, arrays or {}, layers)
@@ -279,7 +311,7 @@ class SampleComposer:
             detections, self.options.theme.palette
         ):
             viz.add(annotation)
-        if color_by != "instance":
+        if color_by != "instance" and not self.panel:
             for overlay in metadata_annotations(
                 chain.from_iterable(record.annotation.values()),
                 lone_object_card=True,
@@ -333,7 +365,9 @@ class SampleComposer:
                     "sample_metadata": {},
                 }
             )
-            tile = visualize_record(task_record, image, options=options)
+            tile = visualize_record(
+                task_record, image, options=options, cards=not self.panel
+            )
             if isinstance(tile, Image):
                 tile.annotations[:] = layers.apply_layers(
                     tile.annotations, self.options.theme.palette
@@ -394,11 +428,27 @@ class SampleComposer:
         field_tiles, field_titles = self._array_tiles(
             arrays,
             layers,
-            height=next(
-                (int(image.shape[0]) for image in images.values()), None
+            image_shape=next(
+                (
+                    (int(image.shape[0]), int(image.shape[1]))
+                    for image in images.values()
+                ),
+                None,
             ),
         )
-        tiles.extend(field_tiles)
+        keyed = [(tile, key) for tile, key in field_tiles if key is not None]
+        if keyed:
+            # Each key sits in a strip under its field, so it covers no data.
+            # Every tile gets a strip of one height, so the rows stay aligned
+            # and each image starts at the top of its cell.
+            strip_h = max(key_strip_height(tile, key) for tile, key in keyed)
+            tiles = [with_key_strip(tile, height=strip_h) for tile in tiles]
+            tiles.extend(
+                with_key_strip(tile, key, height=strip_h)
+                for tile, key in field_tiles
+            )
+        else:
+            tiles.extend(tile for tile, _ in field_tiles)
         titles.extend(field_titles)
         # A lone tile needs no title band; several are only distinguishable with
         # one. Titles are dropped rather than blanked so the band collapses.
@@ -533,7 +583,7 @@ class SampleComposer:
             return frame
         return frame.with_panel(
             self.sidebar(
-                panel,
+                _with_object_metadata(record, panel),
                 layers,
                 color_by=color_by,
                 task_names=tuple(record.annotation),
@@ -580,7 +630,7 @@ class SampleComposer:
         if self.panel:
             viz = viz.with_panel(
                 self.sidebar(
-                    panel,
+                    _with_object_metadata(record, panel),
                     layers,
                     color_by=color_by,
                     task_names=tuple(record.annotation),
@@ -588,6 +638,65 @@ class SampleComposer:
                 ),
             )
         return viz
+
+
+def _with_object_metadata(
+    record: "DatasetRecord", panel: "Mapping[str, PanelData]"
+) -> "dict[str, PanelData]":
+    """Put the record's hover-less metadata first in its panel.
+
+    With a side panel, that metadata goes there instead of on a card over the
+    image (see `metadata_panel`).
+    """
+    detections = chain.from_iterable(record.annotation.values())
+    return {**metadata_panel(detections, lone_object_card=True), **panel}
+
+
+def _field_title(task_name: str, kind: str) -> str:
+    """Title an array tile with its task and how it is read, saying a word once.
+
+    Examples:
+        >>> _field_title("depth", "scalar")
+        'depth · scalar'
+        >>> _field_title("normals", "normals")
+        'normals'
+
+    """
+    return task_name if task_name == kind else f"{task_name} \u00b7 {kind}"
+
+
+#: The ``(height, width)`` of the tile that holds a missing array's slot when
+#: the sample has no image to take the size from.
+_MISSING_TILE = (240, 320)
+
+#: How far the hatch stripes and the tile border stand off the background.
+_HATCH_STRIPE = 22
+_HATCH_BORDER = 48
+
+
+def _hatched(rows: int, columns: int, background: Color) -> np.ndarray:
+    """Return an array tile's canvas: a diagonal hatch with a 1 px border.
+
+    The field draws over it, so the hatch shows only where the field has no
+    data. The stripes and the border are lighter than a dark background and
+    darker than a light one.
+
+    Examples:
+        >>> tile = _hatched(4, 6, Color(20, 20, 20))
+        >>> tile[0, 0].tolist(), tile[2, 4].tolist()
+        ([68, 68, 68], [20, 20, 20])
+
+    """
+    base = np.array((background.r, background.g, background.b), np.int16)
+    sign = 1 if base.mean() < 128 else -1
+    canvas = np.empty((rows, columns, 3), np.int16)
+    canvas[:] = base
+    ys, xs = np.mgrid[0:rows, 0:columns]
+    canvas[(xs + ys) % 12 < 3] = base + sign * _HATCH_STRIPE
+    border = base + sign * _HATCH_BORDER
+    canvas[[0, -1], :] = border
+    canvas[:, [0, -1]] = border
+    return np.clip(canvas, 0, 255).astype(np.uint8)
 
 
 def _unique_titles(titles: Sequence[str]) -> "list[str]":

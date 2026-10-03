@@ -49,6 +49,7 @@ from luxonis_ml.vizlab.annotations import (
     FlowField,
     FlowWheel,
     Legend,
+    NormalKey,
     NormalMap,
     ScalarField,
     SegmentationScores,
@@ -292,6 +293,11 @@ RESERVED_TASK_NAMES: "dict[str, ArrayKind]" = {
     "scores": "scores",
 }
 
+#: Scalar task names read on a log scale: a depth map spans orders of
+#: magnitude, and a linear gradient would spend most of its colors on the far
+#: end. Matched like `RESERVED_TASK_NAMES`.
+LOG_SCALE_TASK_NAMES: frozenset[str] = frozenset({"depth"})
+
 #: How far a per-pixel vector's length may drift from 1 and still read as a unit
 #: normal. Loose enough for a field stored as quantized bytes and decoded back.
 _UNIT_TOLERANCE = 0.1
@@ -527,7 +533,8 @@ class ArrayDrawing:
         kind: How the label was read.
         field: The annotation drawing the values.
         key: The annotation saying what the colors mean — a `ColorBar` for a
-            scalar field, a `FlowWheel` for flow, a `Legend` for class scores.
+            scalar field, a `FlowWheel` for flow, a `NormalKey` for normals,
+            a `Legend` for class scores.
             ``None`` when keys are switched off or the kind needs none.
 
     """
@@ -548,12 +555,16 @@ class ArrayDrawing:
 
 
 def _scalar_field(
+    task_name: str,
     payload: ArrayPayload,
     kind: "ArrayKind",
     options: RenderOptions,
     alpha: float,
 ) -> ScalarField:
-    """Build the gradient-read field, centered when the values are signed."""
+    """Build the gradient-read field, centered when the values are signed.
+
+    A task named in `LOG_SCALE_TASK_NAMES` is read on a log scale.
+    """
     center = options.array_center
     if center is None and kind == "signed":
         center = 0.0
@@ -564,6 +575,8 @@ def _scalar_field(
         vmax=options.array_vmax,
         center=center,
         ignore_value=options.array_ignore_value,
+        log=kind == "scalar"
+        and normalize_task_name(task_name) in LOG_SCALE_TASK_NAMES,
     )
 
 
@@ -625,7 +638,9 @@ def array_annotation(
     key: Annotation | None = None
 
     if kind in ("scalar", "signed"):
-        field: ArrayField = _scalar_field(payload, kind, options, alpha)
+        field: ArrayField = _scalar_field(
+            task_name, payload, kind, options, alpha
+        )
         if options.array_colorbar:
             key = ColorBar.for_heatmap(
                 field,  # pyright: ignore[reportArgumentType]
@@ -642,6 +657,12 @@ def array_annotation(
             )
     elif kind == "normals":
         field = NormalMap(values=payload.data, alpha=alpha)
+        if options.array_colorbar:
+            key = NormalKey.for_field(
+                field,  # pyright: ignore[reportArgumentType]
+                title=task_name,
+                corner=_KEY_CORNER,
+            )
     elif kind == "image":
         field = ArrayImage(values=payload.data, alpha=alpha)
     elif kind == "confidence":
@@ -664,13 +685,18 @@ def array_annotation(
                 corner=_KEY_CORNER,
             )
     else:
+        # Channels without names are named by index, so they still get a
+        # legend whose colors match the field.
+        names = payload.channel_names or [
+            f"ch {index}" for index in range(payload.data.shape[0])
+        ]
         field = SegmentationScores(
             values=payload.data,
-            names=payload.channel_names,
+            names=names,
             alpha=alpha,
             weight_by_confidence=kind == "class_confidence",
         )
-        entries = _present_classes(field, payload.channel_names)
+        entries = _present_classes(field, names)
         if options.array_colorbar and entries:
             key = Legend(entries=entries, title=task_name, corner=_KEY_CORNER)
 

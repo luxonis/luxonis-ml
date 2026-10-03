@@ -1,6 +1,7 @@
 """Coverage for Mask, SemanticMask, and Keypoints rendering and geometry."""
 
 import sys
+from typing import Any
 
 import numpy as np
 import pytest
@@ -17,6 +18,7 @@ from luxonis_ml.vizlab import (
 from luxonis_ml.vizlab.annotations import mask as mask_module
 from luxonis_ml.vizlab.annotations.mask import _mask_contours, _smooth_ring
 from luxonis_ml.vizlab.geometry import Rect
+from luxonis_ml.vizlab.render.canvas import Canvas
 
 
 def _canvas(w: int = 80, h: int = 60) -> Image:
@@ -679,3 +681,63 @@ def test_confidence_keypoint_visibility_scales_joint_radius() -> None:
         .render()
     )
     assert rendered.shape == (60, 80, 4)
+
+
+def _named_joints(
+    monkeypatch: pytest.MonkeyPatch, keypoints: list, height: int = 300
+) -> list[str]:
+    """Render a named pose and return the joint names it drew, in order."""
+    drawn: list[str] = []
+    original = Canvas.markup
+
+    def record(
+        self: Canvas, origin: tuple[float, float], text: str, **kwargs: Any
+    ) -> None:
+        drawn.append(text)
+        original(self, origin, text, **kwargs)
+
+    monkeypatch.setattr(Canvas, "markup", record)
+    Image(np.full((height, 200, 3), 30, np.uint8)).add(
+        Keypoints.model_validate(
+            {"keypoints": keypoints, "point_labels": "numbers"}
+        )
+    ).render()
+    return drawn
+
+
+def test_short_pose_gets_no_joint_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 0.1 to 0.3 of 300 px is a 60 px pose: names would cover it.
+    joints = [(0.5, 0.1, 2), (0.5, 0.3, 2)]
+    assert _named_joints(monkeypatch, joints) == []
+
+
+def test_tall_pose_names_outer_joints_first_and_drops_collisions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Joint 1 sits on top of joint 2, so only one of the two can be named;
+    # joint 0 and 3 are the farthest from the middle and come first.
+    joints = [(0.5, 0.05, 2), (0.5, 0.5, 2), (0.5, 0.505, 2), (0.5, 0.95, 2)]
+    drawn = _named_joints(monkeypatch, joints)
+    assert sorted(drawn[:2]) == ["0", "3"]
+    assert len(drawn) == 3
+
+
+def test_small_pose_dots_lose_their_ring() -> None:
+    def white_pixels(top: float, bottom: float) -> int:
+        rendered = (
+            Image(np.full((400, 200, 3), 30, np.uint8))
+            .add(
+                Keypoints.model_validate(
+                    {"keypoints": [(0.5, top, 2), (0.5, bottom, 2)]}
+                )
+            )
+            .render()
+        )
+        return int((rendered[..., :3] > 240).all(axis=-1).sum())
+
+    # A 20 px pose draws 1.5 px dots without the white ring; a 360 px pose
+    # draws full-size ringed dots.
+    assert white_pixels(0.45, 0.5) == 0
+    assert white_pixels(0.05, 0.95) > 0

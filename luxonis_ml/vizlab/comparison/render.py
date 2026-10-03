@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Literal, overload
 from luxonis_ml.vizlab.annotations import Annotation, BBox, Keypoints
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import Rect
-from luxonis_ml.vizlab.layout.panel import with_panel
+from luxonis_ml.vizlab.layout.panel import Swatches, with_panel
 from luxonis_ml.vizlab.options import RenderOptions
 from luxonis_ml.vizlab.style import StyleValue
 from luxonis_ml.vizlab.tooltip import Tooltip
@@ -295,6 +295,9 @@ def _render_match(match: Match, options: RenderOptions) -> list[Annotation]:
     v = match.verdict
     if v is Verdict.TP and match.pred is not None and match.gt is not None:
         painted = _recolor(match.pred, options, TP_COLOR, tooltip=tooltip)
+        # A hit gets no chip, so the chips that remain mark the errors; the
+        # hover still names its class.
+        painted[0].label_chip = False
         return [*_ghost(match.gt), *_with_keypoint_verdicts(painted, match)]
     if v is Verdict.FP and match.pred is not None:
         return _recolor(
@@ -314,6 +317,47 @@ def _render_match(match: Match, options: RenderOptions) -> list[Annotation]:
         )
         return _with_keypoint_verdicts(painted, match)
     return []
+
+
+def verdict_key(
+    verdicts: "Collection[Verdict] | None" = None, *, class_aware: bool = True
+) -> Swatches:
+    """Return a panel key of the verdict colors.
+
+    The key fits the ``overlay`` and ``triptych`` layouts, which color each
+    detection by its verdict; ``side_by_side`` colors a matched pair by its
+    identity instead.
+
+    Args:
+        verdicts: The verdicts that are drawn, or ``None`` for all of them.
+            The key lists only these.
+        class_aware: Whether matching was class-aware. Class errors exist
+            only then.
+
+    Returns:
+        A non-interactive `Swatches` key for the metrics panel.
+
+    """
+    entries = [
+        (Verdict.TP, TP_COLOR, "hit"),
+        (Verdict.TP, _GHOST_COLOR, "ground truth of a hit"),
+        (Verdict.FN, FN_COLOR, "miss"),
+        (Verdict.FP, FP_COLOR, "false alarm (dashed)"),
+        (
+            Verdict.CLASS_ERROR,
+            CLASS_ERROR_COLOR,
+            "class error, gt \u2192 pred",
+        ),
+    ]
+    return Swatches(
+        tuple(
+            (color, text)
+            for verdict, color, text in entries
+            if (verdicts is None or verdict in verdicts)
+            and (class_aware or verdict is not Verdict.CLASS_ERROR)
+        ),
+        interactive=False,
+    )
 
 
 def _base(image: "ImageSource", options: RenderOptions) -> "Image":

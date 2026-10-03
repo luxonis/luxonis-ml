@@ -730,6 +730,10 @@ def inspect(
         bool,
         Parameter(alias="-bl", negative=(), group=_VISUALIZATION_OPTIONS),
     ] = False,
+    stable_grid: Annotated[
+        bool,
+        Parameter(negative=(), group=_ARRAY_OPTIONS),
+    ] = False,
     per_instance: Annotated[
         bool,
         Parameter(alias="-pi", negative=(), group=_VISUALIZATION_OPTIONS),
@@ -868,6 +872,9 @@ def inspect(
         force_update: Force synchronization with remote storage first.
         blend_all: Draw labels belonging to different tasks on the
             same image.
+        stable_grid: With ``--array-viz``, keep a tile for an array that a
+            sample lacks, so the grid of a sequence does not move from frame
+            to frame.
         per_instance: Show all spatial instances together, assigning a distinct
             color to each instance instead of each class. Compatibility alias
             for ``--color-by instance``.
@@ -1107,6 +1114,7 @@ def inspect(
         array_class_names=array_class_names,
         legend=legend,
         blend_all=blend_all,
+        stable_grid=stable_grid,
         panel=not plain,
         scale=size_multiplier,
         # The legend reserves width for the dataset's longest class name
@@ -1114,6 +1122,7 @@ def inspect(
         # keeping the panel a stable width sample to sample.
         reserve_class=max(class_names, key=len, default="")[:24],
         reserve_task=max(legend_tasks, key=len, default="")[:24],
+        class_order=tuple(class_names),
     )
 
     def build_panel(sample_metadata: "Params") -> "dict[str, PanelData]":
@@ -1569,7 +1578,10 @@ def compare(
                 yield (
                     next(iter(gt_data.images), "image"),
                     composer.frame(
-                        gt_data.images, gt_record, pred_record
+                        gt_data.images,
+                        gt_record,
+                        pred_record,
+                        name=identity_label(identity),
                     ).image,
                 )
 
@@ -1594,7 +1606,12 @@ def compare(
         gt_data, gt_record, pred_record = paired(identity)
         viewer.show(
             name,
-            composer.frame(gt_data.images, gt_record, pred_record),
+            composer.frame(
+                gt_data.images,
+                gt_record,
+                pred_record,
+                name=identity_label(identity),
+            ),
             # The window is titled with the dataset; a saved frame is named
             # after the pair of images it actually shows.
             save_as="-".join(Path(file).stem for _, file in identity),

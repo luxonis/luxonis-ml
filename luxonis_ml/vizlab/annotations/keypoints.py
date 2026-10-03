@@ -23,6 +23,16 @@ if TYPE_CHECKING:
     from luxonis_ml.vizlab.render.canvas import Canvas
 
 _WHITE = Color(255, 255, 255)
+#: Dark outline that keeps a joint name readable over the image.
+_HALO = Color(16, 20, 30, 200)
+#: Joint radius per pixel of pose height, and its floor: a far-away pose
+#: gets small dots, a close one the full style radius.
+_RADIUS_PER_HEIGHT = 0.025
+_MIN_RADIUS = 1.5
+#: Below this radius a dot has no room for the white ring.
+_RING_MIN_RADIUS = 3.0
+#: Poses shorter than this get no joint names: they would cover the pose.
+_NAMED_MIN_HEIGHT = 120.0
 #: Dark outline for occluded joints (vs the white outline of visible ones).
 _DARK = Color(25, 25, 25)
 
@@ -67,6 +77,42 @@ def _stop_short(start: XY, end: XY, gap: float) -> XY | None:
         return None
     scale = (length - gap) / length
     return (start[0] + dx * scale, start[1] + dy * scale)
+
+
+def _pose_height(xy: np.ndarray, visible: np.ndarray) -> float:
+    """Return the pixel height of the visible joints, or of all when none is.
+
+    Examples:
+        >>> xy = np.array([[0.0, 10.0], [5.0, 70.0], [9.0, 400.0]])
+        >>> _pose_height(xy, np.array([True, True, False]))
+        60.0
+        >>> _pose_height(xy, np.zeros(3, bool))
+        390.0
+
+    """
+    points = xy[visible] if visible.any() else xy
+    return float(np.ptp(points[:, 1])) if len(points) else 0.0
+
+
+def _joint_radius(style: Style, height: float) -> float:
+    """Return the joint radius for a pose ``height`` pixels tall.
+
+    The radius grows with the pose from `_MIN_RADIUS` up to the style's
+    ``keypoint_radius``, so a far-away pose is not a cluster of large dots.
+
+    Examples:
+        >>> from luxonis_ml.vizlab.style import DEFAULT_STYLE
+        >>> _joint_radius(DEFAULT_STYLE, 20.0)
+        1.5
+        >>> _joint_radius(
+        ...     DEFAULT_STYLE, 2000.0
+        ... ) == DEFAULT_STYLE.keypoint_radius
+        True
+
+    """
+    return min(
+        style.keypoint_radius, max(_MIN_RADIUS, _RADIUS_PER_HEIGHT * height)
+    )
 
 
 class Keypoints(KeypointAnnotation, Annotation):
@@ -244,10 +290,11 @@ class Keypoints(KeypointAnnotation, Annotation):
         return None
 
     def draw(self, ctx: RenderContext, style: Style, color: Color) -> None:
-        """Draw limbs then joints (and optional names) onto the canvas.
+        """Draw limbs then joints onto the canvas.
 
         The joints the skeleton places but the data does not come first, so the
-        real skeleton wins wherever the two overlap.
+        real skeleton wins wherever the two overlap. The joint names are drawn
+        later, in `draw_label`.
 
         Args:
             ctx: The current render context.
@@ -262,9 +309,10 @@ class Keypoints(KeypointAnnotation, Annotation):
         self._draw_absent(ctx, xy, visible, style, color)
         colors = self._joint_colors(color, len(xy))
         self._draw_limbs(ctx, xy, visible, colors, style)
-        radius = style.keypoint_radius
-        declared = self.declared_metadata()
-        names = declared.labels if declared is not None else []
+        radius = _joint_radius(style, _pose_height(xy, visible))
+        ring = (
+            style.keypoint_outline_width if radius >= _RING_MIN_RADIUS else 0.0
+        )
         for i in range(len(xy)):
             if not visible[i]:
                 continue
@@ -274,36 +322,88 @@ class Keypoints(KeypointAnnotation, Annotation):
             # less (1, labeled but occluded) is a diamond, so a glance tells
             # them apart by shape alone.
             if float(vis[i]) < 2:
-                self._draw_diamond(canvas, center, radius, joint, style)
+                self._draw_diamond(canvas, center, radius, joint, ring)
             else:
                 canvas.circle(
                     center,
                     radius,
                     fill=joint,
-                    stroke=_WHITE,
-                    stroke_width=style.keypoint_outline_width,
+                    stroke=_WHITE if ring else None,
+                    stroke_width=ring,
                 )
-            text = self._point_label(i, names)
-            if text is not None:
-                canvas.markup(
-                    (
-                        center[0] + radius + 3.0,
-                        center[1] + style.font_size * 0.35,
-                    ),
-                    text,
-                    size=style.font_size * 0.72,
-                    color=_WHITE,
-                    weight=style.font_weight,
-                )
+
+    def _draw_names(
+        self,
+        canvas: "Canvas",
+        xy: np.ndarray,
+        visible: np.ndarray,
+        radius: float,
+        style: Style,
+    ) -> None:
+        """Name the visible joints on the side away from the body.
+
+        Outer joints are named first, as they have room; a name that would
+        overlap one already drawn is left out.
+
+        Args:
+            canvas: The canvas to draw on.
+            xy: ``(K, 2)`` joint positions in pixels.
+            visible: Length-``K`` mask of the joints to name.
+            radius: The drawn joint radius.
+            style: The resolved style.
+
+        """
+        shown = np.flatnonzero(visible)
+        if len(shown) == 0:
+            return
+        declared = self.declared_metadata()
+        names = declared.labels if declared is not None else []
+        mid_x, mid_y = np.median(xy[shown], axis=0)
+        order = sorted(
+            shown,
+            key=lambda i: -float(np.hypot(xy[i, 0] - mid_x, xy[i, 1] - mid_y)),
+        )
+        size = style.font_size * 0.72
+        taken: list[Rect] = []
+        for i in order:
+            text = self._point_label(int(i), names)
+            if text is None:
+                continue
+            metrics = canvas.measure_markup(
+                text, size, weight=style.font_weight
+            )
+            x, y = float(xy[i, 0]), float(xy[i, 1])
+            gap = radius + 3.0
+            left = x - gap - metrics.width if x < mid_x else x + gap
+            baseline = y + metrics.ascent / 2
+            rect = Rect(
+                left - 1.0,
+                baseline - metrics.ascent - 1.0,
+                left + metrics.width + 1.0,
+                baseline + 1.0,
+            )
+            if any(rect.intersection(other) for other in taken):
+                continue
+            taken.append(rect)
+            canvas.markup(
+                (left, baseline),
+                text,
+                size=size,
+                color=_WHITE,
+                weight=style.font_weight,
+                halo=_HALO,
+            )
 
     def draw_label(
         self, ctx: RenderContext, style: Style, color: Color
     ) -> None:
-        """Emit the hover region for the joints, if this set carries a tooltip.
+        """Draw the joint names, and emit the hover region for the joints.
 
-        Keypoints have no label chip; this override exists only so a tooltip-
-        bearing set participates in hover hit-testing. The region is the bounds
-        of the visible joints, padded by the joint radius, in display pixels.
+        The names are drawn in the label pass, after every shape, so no limb
+        or contour drawn later covers them. A pose shorter than
+        ``_NAMED_MIN_HEIGHT`` pixels gets no names. The hover region is the
+        bounds of the visible joints, padded by the joint radius, in display
+        pixels; it is emitted only when this set carries a tooltip.
 
         Args:
             ctx: The current render context.
@@ -311,6 +411,14 @@ class Keypoints(KeypointAnnotation, Annotation):
             color: The resolved instance color.
 
         """
+        canvas = ctx.canvas
+        if self.point_labels != "none" and ctx.environment.layers.labels:
+            xy, vis = self._resolve(canvas.width, canvas.height)
+            visible = vis > self.visibility_threshold
+            height = _pose_height(xy, visible)
+            if height >= _NAMED_MIN_HEIGHT:
+                radius = _joint_radius(style, height)
+                self._draw_names(canvas, xy, visible, radius, style)
         if self.tooltip is None:
             return
         region = self._hit_region(ctx.canvas.width, ctx.canvas.height, style)
@@ -364,21 +472,22 @@ class Keypoints(KeypointAnnotation, Annotation):
         center: XY,
         radius: float,
         color: Color,
-        style: Style,
+        outline: float,
     ) -> None:
         """Draw a filled diamond (an occluded joint) at ``center``.
 
         Stacks three cues against a visible joint's white-outlined dot — a
         diamond shape, a dimmed fill, and a dark outline — so it reads as
-        clearly recessed at a glance.
+        clearly recessed at a glance. A small joint has no ``outline``, like
+        a small dot has no ring.
         """
         r = radius * _DIAMOND_SCALE
         cx, cy = center
         canvas.polygon(
             [(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)],
             fill=color.with_alpha(_OCCLUDED_ALPHA),
-            stroke=_DARK,
-            stroke_width=style.keypoint_outline_width,
+            stroke=_DARK if outline else None,
+            stroke_width=outline,
         )
 
     def _joint_colors(self, color: Color, count: int) -> list[Color]:

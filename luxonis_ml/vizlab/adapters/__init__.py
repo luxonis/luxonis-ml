@@ -23,6 +23,7 @@ from .ldf import (
     blend_record_to_annotations,
     detection_to_annotations,
     metadata_annotations,
+    metadata_panel,
     to_render_annotations,
     visualize_record,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "instances_to_annotations",
     "is_image_compatible",
     "metadata_annotations",
+    "metadata_panel",
     "record_to_colored_annotations",
     "reserved_array_kind",
     "resolve_array_kind",

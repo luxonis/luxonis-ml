@@ -13,6 +13,7 @@ from typing import NamedTuple, TypeAlias, TypeGuard
 
 from luxonis_ml.typing import ParamValue
 from luxonis_ml.utils.color import brand
+from luxonis_ml.vizlab.annotations.overlay import shade_outline
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
 from luxonis_ml.vizlab.render import RenderEnvironment, text_layout
@@ -176,6 +177,10 @@ _HEADER_TRACKING = 0.16  # letter-spacing as a fraction of the header size
 Line = tuple[int, str, bool, str]
 
 
+#: The page under a light theme's cards.
+_LIGHT_PAGE = brand.LIGHT_BACKGROUND.darken(0.05)
+
+
 @dataclass(frozen=True)
 class _Metrics:
     """Panel metrics (sizes + chrome colors) resolved for one panel."""
@@ -202,6 +207,8 @@ class _Metrics:
     surface: Color
     border: Color
     page: Color
+    #: Whether the card is light, so a pale swatch needs an outline.
+    light: bool
 
 
 def _over(top: Color, bottom: Color) -> Color:
@@ -221,7 +228,8 @@ def _metrics(scale: float, background: Color) -> _Metrics:
     keys/values on a dark panel, brand-purple keys and deep-purple values/title on
     a light one (where the dark-theme chrome would be invisible). The image and
     panel float as rounded surfaces on an *inverted* page color (a light ground
-    under a dark theme and vice versa) so the gap between them reads clearly; the
+    under a dark theme, a darker light one under a light theme) so the gap
+    between them reads clearly; the
     panel keeps its themed dark/light card look by filling with an opaque version
     of ``card_bg`` (composited over the theme background) rather than letting the
     inverted page bleed through its translucency. Section headers get a muted
@@ -252,7 +260,11 @@ def _metrics(scale: float, background: Color) -> _Metrics:
         divider=chrome.divider,
         surface=_over(chrome.card_bg, background),
         border=chrome.border if chrome.border is not None else chrome.divider,
-        page=brand.BACKGROUND if is_light else brand.LIGHT_BACKGROUND,
+        # A light theme keeps a light page, a shade darker than its cards: on
+        # a dark page the light cards glared, and the theme no longer read as
+        # light.
+        page=_LIGHT_PAGE if is_light else brand.LIGHT_BACKGROUND,
+        light=is_light,
     )
 
 
@@ -620,20 +632,25 @@ class _BodyLayout:
         return self._lines(section.lines, y)
 
     def _block(self, section: Section, y: float) -> float:
-        """Draw a full-width block value and return the next row offset."""
-        if self.canvas is not None:
-            value = text_layout.middle_ellipsize_spans(
-                parse(section.lines[0][3], mono=True),
-                self.content_w,
-                self.metrics.size,
-            )
-            self.canvas.draw_spans(
-                (self.x0, self.y0 + y + self.text.ascent),
-                value,
-                size=self.metrics.size,
-                color=self.metrics.value,
-            )
-        return y + self.row_h
+        """Draw a full-width block value and return the next row offset.
+
+        The value wraps like a name (see `text_layout.wrap_name_spans`).
+        """
+        lines = text_layout.wrap_name_spans(
+            parse(section.lines[0][3], mono=True),
+            self.content_w,
+            self.metrics.size,
+        )
+        for spans in lines:
+            if self.canvas is not None:
+                self.canvas.draw_spans(
+                    (self.x0, self.y0 + y + self.text.ascent),
+                    spans,
+                    size=self.metrics.size,
+                    color=self.metrics.value,
+                )
+            y += self.row_h
+        return y
 
     def _lines(self, lines: list[Line], y: float) -> float:
         """Draw ordinary wrapped key/value lines."""
@@ -826,8 +843,16 @@ class _BodyLayout:
                 baseline = cy + ascent
                 swatch = Rect(cx, top, cx + square, top + square)
                 if enabled:
+                    # On a light card a pale class (yellow, mint) fades into
+                    # the card; a darker shade of its own color outlines it.
                     self.canvas.rounded_rect(
-                        swatch, radius=square * 0.28, fill=color
+                        swatch,
+                        radius=square * 0.28,
+                        fill=color,
+                        stroke=shade_outline(Color.parse(color), m.surface)
+                        if m.light
+                        else None,
+                        stroke_width=max(1.0, m.border_width),
                     )
                     self.canvas.markup(
                         (label_x, baseline), label, size=m.size, color=m.value
@@ -1052,6 +1077,7 @@ class _PanelContent:
 
     body: list[Section]
     footer: list[Section]
+    body_h: float
     footer_inner: float
     title_metrics: TextMetrics | None
     title_h: float
@@ -1064,7 +1090,7 @@ def _measure_panel_content(
     content_w: float,
     m: _Metrics,
 ) -> _PanelContent:
-    """Split and measure the panel's flowing body and pinned footer."""
+    """Split and measure the panel's body and the footer that follows it."""
     body = [section for section in sections if section.swatches is None]
     footer = [section for section in sections if section.swatches is not None]
     body_h = _layout_body(None, body, 0.0, 0.0, content_w, m)
@@ -1089,6 +1115,7 @@ def _measure_panel_content(
     return _PanelContent(
         body=body,
         footer=footer,
+        body_h=body_h,
         footer_inner=footer_inner,
         title_metrics=title_metrics,
         title_h=title_h,
@@ -1182,6 +1209,24 @@ def _collect_panel_regions(
     return clicks, hovers
 
 
+def _footer_top(
+    placement: _PanelPlacement, content: _PanelContent, m: _Metrics
+) -> float:
+    """Return where the footer (the legend) starts: right after the body.
+
+    On a card taller than its content, a footer at the bottom of the card
+    ended up far from the rows it follows, at a place that changed with the
+    height of the image.
+    """
+    return (
+        placement.panel_y
+        + m.pad
+        + content.title_h
+        + content.body_h
+        + 2 * m.section_gap
+    )
+
+
 @dataclass(frozen=True)
 class _PanelPainter:
     """Paint a measured image-and-panel composition."""
@@ -1207,12 +1252,7 @@ class _PanelPainter:
 
     @property
     def _footer_top(self) -> float:
-        return (
-            self.placement.panel_y
-            + self.placement.panel_card_h
-            - self.metrics.pad
-            - self.content.footer_inner
-        )
+        return _footer_top(self.placement, self.content, self.metrics)
 
     def __call__(
         self,
@@ -1382,7 +1422,13 @@ def with_panel(
 
     """
     return compose_panel(
-        image, data, side=side, width=width, title=title, style=style, bg=bg
+        image,
+        data,
+        side=side,
+        width=width,
+        title=title,
+        style=style,
+        bg=bg,
     )[0]
 
 
@@ -1455,12 +1501,7 @@ def compose_panel(
     )
     x0 = placement.panel_x + m.pad
     body_y0 = placement.panel_y + m.pad + content.title_h
-    footer_top = (
-        placement.panel_y
-        + placement.panel_card_h
-        - m.pad
-        - content.footer_inner
-    )
+    footer_top = _footer_top(placement, content, m)
     clicks, hovers = _collect_panel_regions(
         content,
         x0=x0,

@@ -7,7 +7,7 @@ each subclass only supplies its `Cell` list.
 """
 
 from abc import abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar
@@ -94,6 +94,11 @@ def swatch_outline(surface: Color) -> Color:
 
 CellDraw = Callable[[Canvas, Rect], None]
 """Draws a single stacked cell's content into its placed rectangle."""
+
+
+#: The canvas `CornerStack.content_size` measures on by default: large enough
+#: that no cell wraps its text or flows into columns.
+_MEASURE_CANVAS = (100_000, 100_000)
 
 
 class Corner(Enum):
@@ -197,6 +202,114 @@ def chip_cell(canvas: Canvas, text: str, color: Color, style: Style) -> Cell:
     return Cell(width, height, _draw)
 
 
+#: The gap between the pieces of an inline key, and between its rows, as a
+#: share of the type size.
+_INLINE_GAP = 0.6
+_INLINE_ROW_GAP = 0.35
+
+
+@dataclass(frozen=True)
+class InlinePiece:
+    """One part of an inline key, a run of text or a graphic, kept whole.
+
+    Attributes:
+        width: The piece width in pixels.
+        height: The piece height in pixels.
+        draw: Draws the piece with its left edge at ``x`` and its vertical
+            middle at ``y``: ``draw(canvas, x, y)``.
+
+    """
+
+    width: float
+    height: float
+    draw: Callable[[Canvas, float, float], None]
+
+
+def text_piece(
+    canvas: Canvas,
+    text: str,
+    size: float,
+    color: Color,
+    *,
+    weight: int = 400,
+    mono: bool = False,
+) -> InlinePiece:
+    """Build an inline piece of markup text.
+
+    Args:
+        canvas: The canvas to measure on.
+        text: The text, as inline markup.
+        size: Type size in pixels.
+        color: Text color.
+        weight: Font weight.
+        mono: Whether to use the monospace family.
+
+    Returns:
+        The piece, sized to the text.
+
+    """
+    metrics = canvas.measure_markup(text, size, weight=weight, mono=mono)
+
+    def draw(cv: Canvas, x: float, middle: float) -> None:
+        cv.markup(
+            (x, middle + (metrics.ascent - metrics.descent) / 2),
+            text,
+            size=size,
+            color=color,
+            weight=weight,
+            mono=mono,
+        )
+
+    return InlinePiece(metrics.width, metrics.height, draw)
+
+
+def inline_cell(
+    pieces: "Sequence[InlinePiece]",
+    size: float,
+    avail: float,
+    *,
+    hang: bool = False,
+) -> Cell | None:
+    """Flow ``pieces`` into rows no wider than ``avail``, as one cell.
+
+    Args:
+        pieces: The pieces, in reading order.
+        size: Type size in pixels; the gaps follow it.
+        avail: The widest a row may be, in pixels. A piece wider than that
+            gets a row of its own.
+        hang: Start each continuation row under the second piece, so a
+            leading title stands out (a legend); otherwise rows start at
+            the left edge.
+
+    Returns:
+        The cell, or ``None`` without pieces.
+
+    """
+    if not pieces:
+        return None
+    gap = size * _INLINE_GAP
+    row_gap = size * _INLINE_ROW_GAP
+    row_h = max(piece.height for piece in pieces)
+    indent = pieces[0].width + gap if hang and len(pieces) > 1 else 0.0
+    placed: list[tuple[InlinePiece, float, int]] = []
+    x, row, width = 0.0, 0, 0.0
+    for index, piece in enumerate(pieces):
+        if index and x + piece.width > avail and x > indent:
+            row += 1
+            x = indent
+        placed.append((piece, x, row))
+        width = max(width, x + piece.width)
+        x += piece.width + gap
+    height = (row + 1) * row_h + row * row_gap
+
+    def _draw(cv: Canvas, rect: Rect) -> None:
+        for piece, left, line in placed:
+            middle = rect.top + line * (row_h + row_gap) + row_h / 2
+            piece.draw(cv, rect.left + left, middle)
+
+    return Cell(width, height, _draw)
+
+
 class CornerStack(Annotation):
     """Base for image-level overlays that stack cells in a corner.
 
@@ -245,7 +358,11 @@ class CornerStack(Annotation):
         return None
 
     def content_size(
-        self, *, theme: Theme | None = None, style_scale: float = 1.0
+        self,
+        *,
+        theme: Theme | None = None,
+        style_scale: float = 1.0,
+        canvas_size: tuple[int, int] = _MEASURE_CANVAS,
     ) -> tuple[float, float]:
         """Return the natural ``(width, height)`` of this stack's cells, in pixels.
 
@@ -257,13 +374,21 @@ class CornerStack(Annotation):
             theme: Theme supplying default style/palette during measurement.
             style_scale: Style scale to measure at; keep at ``1.0`` for canvases
                 below the style-scale reference size.
+            canvas_size: The ``(width, height)`` of the canvas the stack would
+                draw on. A cell fits its text to it: a `Legend` wraps its names
+                to the width, and flows into columns when it is taller than the
+                height. The default is large enough for neither.
 
         Returns:
             The content's ``(width, height)``; ``(0.0, 0.0)`` when it has no cells.
 
         """
+        # An SVG canvas measures text like a raster one, without allocating
+        # pixels for its size.
         ctx = RenderContext(
-            canvas=Canvas.blank(1, 1), theme=theme, style_scale=style_scale
+            canvas=Canvas.svg(*canvas_size),
+            theme=theme,
+            style_scale=style_scale,
         )
         cells = self._cells(ctx, self.resolve_style(ctx))
         if not cells:
@@ -406,3 +531,50 @@ class CornerStack(Annotation):
                 ]
         for rect, draw_cell in positioned:
             draw_cell(ctx.canvas, rect)
+
+
+class ColorKey(CornerStack):
+    """A corner stack that says what the colors of a field or a mask mean.
+
+    The base of `ColorBar`, `FlowWheel`, `NormalKey` and `Legend`. A key is
+    drawn as a card in a corner of the image, or ``inline``: on one line,
+    without a card, for a strip under the image (see
+    `luxonis_ml.vizlab.layout.with_key_strip`), where a card would take
+    three times the height.
+
+    Attributes:
+        title: Heading of the key; ``None`` draws none.
+        inline: Draw the title and the scale side by side, without a card.
+            The text has no card behind it, so an inline key is for a plain
+            strip, not for drawing over an image.
+
+    """
+
+    title: str | None = None
+    inline: bool = False
+
+    #: Whether an inline key's continuation rows start under its second
+    #: piece rather than at the left edge.
+    INLINE_HANG: ClassVar[bool] = False
+
+    def _cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
+        """Return the key's card, or its inline cell."""
+        if not self.inline:
+            return self._card_cells(ctx, style)
+        cell = inline_cell(
+            self._inline_pieces(ctx, style),
+            style.font_size,
+            ctx.canvas.width - 2 * self.margin,
+            hang=self.INLINE_HANG,
+        )
+        return [] if cell is None else [cell]
+
+    @abstractmethod
+    def _card_cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
+        """Return the cells of the key drawn as a card."""
+
+    @abstractmethod
+    def _inline_pieces(
+        self, ctx: RenderContext, style: Style
+    ) -> list[InlinePiece]:
+        """Return the pieces of the key drawn inline, in reading order."""

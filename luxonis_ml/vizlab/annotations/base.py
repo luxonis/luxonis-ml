@@ -158,6 +158,11 @@ class Annotation(BaseModel):
         label: Class name; shown on the label chip and used to pick a palette color.
         score: Confidence in ``[0, 1]``, rendered as a percentage on the chip.
         payload: Arbitrary value (e.g. transcribed OCR text) shown on the chip.
+        label_chip: Whether a box, mask, or polyline draws its label chip. The
+            label is kept either way, so the shape keeps its class color and
+            the class focus still recognizes it; this only hides the chip,
+            e.g. on a part of an object (a plate on a car) or on a mask whose
+            class a box already labels.
         color: Explicit color override; any :data:`ColorLike`.
         style: Full style override that *replaces* the resolved theme/parent style
             (set via ``styled`` with a `Style`). ``None`` falls back to the
@@ -201,6 +206,7 @@ class Annotation(BaseModel):
     label: str | None = None
     score: float | None = None
     payload: str | int | float | None = None
+    label_chip: bool = True
     color: ColorLike | None = None
     style: Style | None = None
     style_overrides: dict[str, StyleValue] = Field(default_factory=dict)

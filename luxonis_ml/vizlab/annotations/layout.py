@@ -160,11 +160,14 @@ class Placement:
         leader: The point on the labeled box to draw a connector line from when
             the chip was pushed clear of it, or ``None`` when the chip still sits
             against its box (no leader needed).
+        hidden: ``True`` when every position overlaps a placed chip, so the
+            chip is left out; the box and its hover still name the object.
 
     """
 
     rect: Rect
     leader: XY | None = None
+    hidden: bool = False
 
 
 class LabelLayout:
@@ -253,7 +256,9 @@ class LabelLayout:
         stays by its box through a little overlap, but when the box's whole
         neighborhood is crowded it steps out along the `_ring_candidates` ring to
         somewhere clearer. A chip that lands clear of its box carries a
-        `Placement.leader` back to it.
+        `Placement.leader` back to it. When every position overlaps a placed
+        chip, the chip is left out: the `Placement` is ``hidden`` and is not
+        recorded, so it takes no room from later chips.
 
         Args:
             width: Chip width in pixels.
@@ -263,7 +268,8 @@ class LabelLayout:
                 leader line. ``None`` keeps the plain least-overlap behavior.
 
         Returns:
-            The chosen `Placement` (its rectangle is already recorded).
+            The chosen `Placement`. Its rectangle is already recorded, unless
+            it is hidden.
 
         """
         options = candidates
@@ -277,7 +283,7 @@ class LabelLayout:
         cand = np.column_stack((left, top, left + width, top + height))
 
         # Overlap area against every placed chip, summed per candidate.
-        cost = np.zeros(len(cand))
+        overlap = np.zeros(len(cand))
         if self._count:
             placed = self._bounds[: self._count]
             dx = np.minimum(cand[:, 2, None], placed[:, 2]) - np.maximum(
@@ -288,8 +294,9 @@ class LabelLayout:
             )
             np.clip(dx, 0.0, None, out=dx)
             np.clip(dy, 0.0, None, out=dy)
-            cost = np.einsum("cp,cp->c", dx, dy)
+            overlap = np.einsum("cp,cp->c", dx, dy)
 
+        cost = overlap
         gaps = np.zeros(len(cand))
         if region is not None:
             gx = np.maximum(
@@ -312,6 +319,8 @@ class LabelLayout:
         index = int(np.argmin(cost))
         row = cand[index]
         best = Rect(float(row[0]), float(row[1]), float(row[2]), float(row[3]))
+        if float(overlap.min()) > 0.0:
+            return Placement(best, hidden=True)
         self._record(best)
         leader: XY | None = None
         if region is not None and float(gaps[index]) > _LEADER_MIN_GAP:

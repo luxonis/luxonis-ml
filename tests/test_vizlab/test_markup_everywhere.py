@@ -146,12 +146,13 @@ def _panel_title(text: str) -> np.ndarray:
 
 
 def _keypoint_labels(text: str) -> np.ndarray:
+    # Tall enough (over 120 px) for the pose to get joint names.
     return (
         Image(_bg())
         .add(
             Keypoints.model_validate(
                 {
-                    "keypoints": {text: (0.3, 0.3, 2), "other": (0.6, 0.6, 2)},
+                    "keypoints": {text: (0.3, 0.1, 2), "other": (0.6, 0.9, 2)},
                     "point_labels": "names",
                 }
             )

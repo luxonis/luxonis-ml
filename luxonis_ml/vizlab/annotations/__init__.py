@@ -16,7 +16,7 @@ explicitly overridden.
 from .base import Annotation, RenderContext
 from .bbox import BBox
 from .classification import Classification
-from .colorbar import ColorBar, FlowWheel
+from .colorbar import ColorBar, FlowWheel, NormalKey
 from .distribution import ClassDistribution
 from .fields import (
     ArrayField,
@@ -29,7 +29,7 @@ from .fields import (
 from .heatmap import Heatmap
 from .keypoints import Keypoints
 from .mask import Mask, SemanticMask
-from .overlay import Corner, CornerStack
+from .overlay import ColorKey, Corner, CornerStack
 from .polyline import Polyline
 from .relation import Arrow
 from .scalebar import Ruler, ScaleBar
@@ -55,6 +55,7 @@ for _model in (
     Caption,
     ColorBar,
     FlowWheel,
+    NormalKey,
     InfoCard,
     Legend,
     ArrayField,
@@ -76,6 +77,7 @@ __all__ = [
     "ClassDistribution",
     "Classification",
     "ColorBar",
+    "ColorKey",
     "Corner",
     "CornerStack",
     "FlowField",
@@ -85,6 +87,7 @@ __all__ = [
     "Keypoints",
     "Legend",
     "Mask",
+    "NormalKey",
     "NormalMap",
     "Polyline",
     "RenderContext",

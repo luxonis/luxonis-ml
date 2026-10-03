@@ -8,6 +8,7 @@ everything, and reserved so box labels avoid them).
 
 import math
 from collections.abc import Sequence
+from typing import ClassVar
 
 from luxonis_ml.utils.color import brand
 from luxonis_ml.vizlab.color import Color, ColorLike
@@ -21,10 +22,13 @@ from .base import RenderContext
 from .card import draw_card_background
 from .overlay import (
     Cell,
+    ColorKey,
     Corner,
     CornerStack,
+    InlinePiece,
     resolve_chrome,
     swatch_outline,
+    text_piece,
 )
 
 _CAPTION_BG = brand.CAPTION_BG
@@ -427,7 +431,7 @@ class InfoCard(CornerStack):
         return [cell] if cell is not None else []
 
 
-class Legend(CornerStack):
+class Legend(ColorKey):
     """A class-color key: swatch + name rows inside one card.
 
     .. image:: TODO-HOST/overlays.png
@@ -438,8 +442,9 @@ class Legend(CornerStack):
             ``(name, color)`` pairs.
         title: Optional heading drawn above the rows.
 
-    See `CornerStack` for
-    ``corner``/``margin``/``gap``.
+    See `ColorKey` for ``inline`` and `CornerStack` for
+    ``corner``/``margin``/``gap``. Drawn inline, the entries flow side by
+    side after the title and wrap under it.
 
     Examples:
         Class names use the active palette; tuples pin an explicit color:
@@ -457,6 +462,8 @@ class Legend(CornerStack):
     title: str | None = None
     corner: Corner = Corner.BOTTOM_RIGHT
 
+    INLINE_HANG: ClassVar[bool] = True
+
     def _resolved_entries(self, ctx: RenderContext) -> list[tuple[str, Color]]:
         """Resolve each entry to a ``(name, color)`` pair."""
         palette = self.resolved_palette(ctx)
@@ -469,7 +476,27 @@ class Legend(CornerStack):
                 items.append((name, Color.parse(color)))
         return items
 
-    def _cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
+    def _inline_pieces(
+        self, ctx: RenderContext, style: Style
+    ) -> list[InlinePiece]:
+        """Lay the key out as the title, then one swatch and name per entry."""
+        canvas = ctx.canvas
+        chrome = resolve_chrome(ctx)
+        size = style.font_size
+        pieces = []
+        if self.title:
+            pieces.append(
+                text_piece(
+                    canvas, self.title, size, chrome.card_title, weight=700
+                )
+            )
+        pieces.extend(
+            _swatch_piece(canvas, name, color, size, style.font_weight, chrome)
+            for name, color in self._resolved_entries(ctx)
+        )
+        return pieces
+
+    def _card_cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
         canvas = ctx.canvas
         size, weight = style.font_size, style.font_weight
         swatch = size
@@ -509,3 +536,39 @@ class Legend(CornerStack):
                 avail_h,
             )
         ]
+
+
+def _swatch_piece(
+    canvas: Canvas,
+    name: str,
+    color: Color,
+    size: float,
+    weight: int,
+    chrome: brand.Chrome,
+) -> InlinePiece:
+    """Build an inline legend entry: a swatch and its name, kept together."""
+    swatch = size * 0.85
+    gap = size * 0.4
+    metrics = canvas.measure_markup(name, size, weight=weight)
+
+    def draw(cv: Canvas, x: float, middle: float) -> None:
+        top = middle - swatch / 2
+        cv.rounded_rect(
+            Rect(x, top, x + swatch, top + swatch),
+            radius=3.0,
+            fill=color,
+            stroke=swatch_outline(chrome.card_bg),
+            stroke_width=1.0,
+        )
+        cv.markup(
+            (
+                x + swatch + gap,
+                middle + (metrics.ascent - metrics.descent) / 2,
+            ),
+            name,
+            size=size,
+            color=chrome.card_text,
+            weight=weight,
+        )
+
+    return InlinePiece(swatch + gap + metrics.width, metrics.height, draw)

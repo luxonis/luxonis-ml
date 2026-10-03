@@ -15,6 +15,7 @@ from luxonis_ml.vizlab.layout.panel import (
     _metrics,
 )
 from luxonis_ml.vizlab.render import text_layout
+from luxonis_ml.vizlab.render.markup import Span
 from luxonis_ml.vizlab.style import Style
 
 
@@ -290,22 +291,31 @@ def test_swatches_grid_packs_more_columns_into_a_wider_panel() -> None:
     assert narrow == 6 * narrow_body.row_h
 
 
-def test_swatches_legend_is_pinned_to_the_panel_bottom() -> None:
+def test_swatches_legend_follows_the_last_section() -> None:
     from luxonis_ml.vizlab import Swatches
+    from luxonis_ml.vizlab.interaction.frame import Frame
 
-    # A tall image makes the panel card stretch well past its own content.
+    # A tall image stretches the panel card well past its own content. The
+    # legend stays right under the rows, not at a bottom that moves with the
+    # height of the image.
     img = Image(np.zeros((600, 220, 3), np.uint8)).add(
         BBox(x=0.1, y=0.1, w=0.3, h=0.3, label="obj")
     )
-    out = with_panel(
-        img, {"id": 1, "classes": Swatches(((Color(255, 0, 0), "car"),))}
-    ).render()
+    data = {"id": 1, "classes": Swatches(((Color(255, 0, 0), "car"),))}
+    out = with_panel(img, data).render()
     red_rows = np.where(
         np.all(out[..., :3] == (255, 0, 0), axis=2).any(axis=1)
     )[0]
     assert red_rows.size > 0  # the swatch drew
-    # ...and it sits in the bottom of the composite, not up near the metadata.
-    assert red_rows.min() > out.shape[0] * 0.6
+    assert red_rows.max() < out.shape[0] * 0.3
+
+    # The click region moved with it.
+    framed = Frame(img).with_panel(data)
+    (rect,) = [
+        r for r, action in framed.clickmap.items if action == "class:car"
+    ]
+    assert rect.top <= red_rows.min()
+    assert red_rows.max() <= rect.bottom
 
 
 def test_frame_with_panel_builds_a_clickmap_of_controls_and_swatches() -> None:
@@ -524,3 +534,55 @@ def test_a_styles_font_size_scales_the_panel() -> None:
     assert explicit.shape == default.shape  # the default style is a no-op
     assert big.shape[0] > default.shape[0]
     assert big.shape[1] > default.shape[1]
+
+
+def test_a_long_block_value_wraps_at_its_separators() -> None:
+    from luxonis_ml.vizlab import Block
+    from luxonis_ml.vizlab.layout.panel import _BodyLayout
+
+    m = _metrics(1.0, Color(24, 24, 28))
+    name = "case_06_image_border_with_a_long_tail.jpg"
+    (section,) = _format_sections({"file": Block(name)})
+    width = text_layout.measure(name, m.size, mono=True).width
+    body = _BodyLayout(None, 0.0, 0.0, width / 2, m)
+
+    # Two lines or more, none of them shortened: the name is kept whole.
+    assert body._block(section, 0.0) >= 2 * body.row_h
+    lines = text_layout.wrap_name_spans(
+        [Span(name, mono=True)], width / 2, m.size
+    )
+    assert "".join(span.text for line in lines for span in line) == name
+
+
+def test_a_light_theme_keeps_a_light_page() -> None:
+    from luxonis_ml.utils.color import brand
+
+    dark = _metrics(1.0, brand.BACKGROUND)
+    light = _metrics(1.0, brand.LIGHT_BACKGROUND)
+    # Under a dark theme the page inverts to light. Under a light theme it
+    # stays light, a shade darker than the cards.
+    assert dark.page == brand.LIGHT_BACKGROUND
+    assert light.page.readable_text_color().r < 128
+    assert sum(light.page.rgb) < sum(brand.LIGHT_BACKGROUND.rgb)
+    assert light.light
+    assert not dark.light
+
+
+def test_a_pale_swatch_gets_a_darker_rim_on_a_light_card_only() -> None:
+    from luxonis_ml.utils.color import brand
+    from luxonis_ml.vizlab.layout.panel import _BodyLayout
+    from luxonis_ml.vizlab.render.canvas import Canvas
+
+    yellow = Color(250, 240, 120)
+
+    def darkest_swatch_pixel(background: Color) -> int:
+        canvas = Canvas.blank(240, 120)
+        body = _BodyLayout(canvas, 0.0, 0.0, 200.0, _metrics(1.0, background))
+        body._swatches(((yellow, "pale", True),), 0.0)
+        square = canvas.to_rgba()[:12, :12]
+        drawn = square[..., 3] == 255
+        return int(square[..., :3][drawn].sum(axis=-1).min())
+
+    # A 1 px anti-aliased rim: clearly darker than the fill at its edge.
+    assert darkest_swatch_pixel(brand.LIGHT_BACKGROUND) < sum(yellow.rgb) - 60
+    assert darkest_swatch_pixel(brand.BACKGROUND) == sum(yellow.rgb)

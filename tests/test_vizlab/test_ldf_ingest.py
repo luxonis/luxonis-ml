@@ -147,6 +147,26 @@ def test_image_add_detection_builds_tree():
     assert img.render().shape == (50, 50, 4)
 
 
+def test_sub_detection_box_has_no_chip_of_its_own() -> None:
+    det = Detection(
+        class_name="car",
+        boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.4, h=0.4),
+        sub_detections={
+            "plate": Detection(
+                class_name="plate",
+                boundingbox=BBoxAnnotation(x=0.2, y=0.3, w=0.1, h=0.05),
+            )
+        },
+    )
+    (root,) = Image(np.zeros((50, 50, 3), np.uint8)).add(det).annotations
+    (plate,) = root.children
+    assert isinstance(root, BBox)
+    assert isinstance(plate, BBox)
+    assert root.label_chip
+    assert not plate.label_chip
+    assert plate.label == "plate"
+
+
 def test_image_add_detection_attaches_instance_mask() -> None:
     detection = Detection(
         class_name="car",
@@ -432,6 +452,73 @@ def test_metadata_annotations_recurses_sub_detections():
     assert len(cards) == 1
     assert isinstance(cards[0], InfoCard)
     assert cards[0].rows == ["note: AB123"]
+
+
+def test_metadata_card_merges_the_inputs_of_a_batch_augmentation():
+    """A mosaic merges four scene records; each key shows once."""
+    from luxonis_ml.vizlab.adapters.ldf import metadata_annotations
+
+    scenes = [
+        Detection(class_name=None, metadata={"light": "day", "objects": 4}),
+        Detection(class_name=None, metadata={"light": "day", "objects": 0}),
+        Detection(class_name=None, metadata={"light": "night", "objects": 4}),
+        Detection(class_name="weather", metadata={"rain": 1}),
+        Detection(class_name="weather", metadata={"rain": 0}),
+    ]
+    (card,) = metadata_annotations(scenes)
+    assert card.rows == [  # type: ignore[attr-defined]
+        "light: day \u00b7 night",
+        "objects: 4 \u00b7 0",
+        "weather",
+        "  rain: 1 \u00b7 0",
+    ]
+
+
+def test_metadata_panel_holds_what_the_card_would_show():
+    from luxonis_ml.vizlab.adapters.ldf import metadata_panel
+
+    scenes = [
+        Detection(class_name=None, metadata={"light": "day", "objects": 4}),
+        Detection(class_name=None, metadata={"light": "night", "objects": 4}),
+        Detection(class_name="weather", metadata={"rain": "<b>1</b>"}),
+    ]
+    assert metadata_panel(scenes) == {
+        "object metadata": {
+            "light": "day \u00b7 night",
+            "objects": "4",
+            "weather": {"rain": "&lt;b&gt;1&lt;/b&gt;"},
+        }
+    }
+    boxed = Detection(
+        class_name="car",
+        boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.2, h=0.2),
+        metadata={"id": 7},
+    )
+    assert metadata_panel([boxed]) == {}
+    assert metadata_panel([boxed], lone_object_card=True) == {
+        "object metadata": {"car": {"id": "7"}}
+    }
+
+
+def test_repeated_classification_tags_show_once_with_a_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from luxonis_ml.vizlab import Classification
+    from luxonis_ml.vizlab.annotations import classification
+
+    texts: list[str] = []
+    chip_cell = classification.chip_cell
+
+    def record(canvas: Canvas, text: str, *args: object) -> object:
+        texts.append(text)
+        return chip_cell(canvas, text, *args)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(classification, "chip_cell", record)
+    Image(np.zeros((80, 160, 3), np.uint8)).add(
+        Classification(tags=["day", "clear", "day", "day"])
+    ).render()
+    # The stack builds its cells once to measure and once to draw.
+    assert list(dict.fromkeys(texts)) == ["day \u00d73", "clear"]
 
 
 def _record(**tasks: list[Detection]) -> DatasetRecord:

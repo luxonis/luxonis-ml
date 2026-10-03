@@ -21,8 +21,11 @@ from luxonis_ml.vizlab._util import is_sequence
 from luxonis_ml.vizlab.annotations import (
     Annotation,
     BBox,
+    ColorKey,
+    Corner,
     Keypoints,
     Mask,
+    RenderContext,
     SemanticMask,
 )
 from luxonis_ml.vizlab.annotations.mask import resize_mask
@@ -273,6 +276,139 @@ def vstack(
     return _grid(images, ncols=1, pad=pad, bg=bg, titles=titles, style=style)[
         0
     ]
+
+
+#: The margin around a key in its strip, at style scale 1.
+_STRIP_MARGIN = 8.0
+
+
+def _strip_key(image: Renderable, key: ColorKey) -> ColorKey:
+    """Return the copy of ``key`` that its strip draws: inline, at the left."""
+    width, height = image._resolved_size(None)
+    return key.model_copy(
+        update={
+            "inline": True,
+            "corner": Corner.TOP_LEFT,
+            "margin": _STRIP_MARGIN * style_scale(width, height),
+        }
+    )
+
+
+def key_strip_height(image: Renderable, key: ColorKey) -> int:
+    """Return the height of the strip `with_key_strip` puts ``key`` in.
+
+    Args:
+        image: The image the key reads; the key is measured at its width and
+            at its style scale.
+        key: The color key.
+
+    Returns:
+        The strip height in pixels, the key's margin included.
+
+    """
+    width, height = image._resolved_size(None)
+    strip_key = _strip_key(image, key)
+    _, content_h = strip_key.content_size(
+        theme=image.theme,
+        style_scale=style_scale(width, height),
+        canvas_size=(width, height),
+    )
+    return math.ceil(content_h + 2 * strip_key.margin)
+
+
+class _KeyStripPaint:
+    """Paints an image with a strip under it that holds its key."""
+
+    def __init__(
+        self,
+        image: Renderable,
+        key: ColorKey | None,
+        strip_h: int,
+    ) -> None:
+        """Keep what the paint needs; see `with_key_strip`."""
+        self._image = image
+        self._key = None if key is None else _strip_key(image, key)
+        self._size = image._resolved_size(None)
+        self._strip_h = strip_h
+        self._options = image._resolve_options()
+
+    def __call__(
+        self,
+        canvas: Canvas,
+        environment: RenderEnvironment,
+        capture: InteractionCapture | None,
+    ) -> None:
+        """Draw the image, then the strip and its key under it."""
+        width, height = self._size
+        self._image._draw_onto(
+            canvas,
+            0,
+            0,
+            self._size,
+            environment=environment,
+            capture=capture,
+        )
+        canvas.rounded_rect(
+            Rect(0, height, width, height + self._strip_h),
+            fill=self._options.theme.background,
+        )
+        if self._key is None:
+            return
+        with canvas.viewport(0, height, width, self._strip_h) as region:
+            # At the image's style scale, not the strip's: a strip is short,
+            # and its key would be drawn smaller than the one it replaces.
+            self._key.render(
+                RenderContext(
+                    canvas=region,
+                    theme=self._options.theme,
+                    style_scale=style_scale(width, height),
+                    environment=environment,
+                    gradient=self._options.gradient,
+                )
+            )
+
+
+def with_key_strip(
+    image: Renderable,
+    key: ColorKey | None = None,
+    *,
+    height: int | None = None,
+) -> Composite:
+    """Put a color key in a strip under an image, instead of over it.
+
+    A key in a corner of the image covers the data it explains; in a strip
+    under the image it covers nothing. The key is drawn inline (see
+    `ColorKey.inline`), one line high where it fits, at the style scale of
+    the image. The image keeps its hover and click regions.
+
+    Args:
+        image: The image the key reads.
+        key: The key, or ``None`` for an empty strip that lines the image up
+            with keyed ones beside it.
+        height: The strip height in pixels; ``None`` fits the key (see
+            `key_strip_height`). Give tiles of one grid the same height, so
+            their rows stay aligned.
+
+    Returns:
+        A `Composite` of the image with the strip under it.
+
+    Examples:
+        >>> import numpy as np
+        >>> from luxonis_ml.vizlab import ColorBar, Image
+        >>> photo = Image(np.zeros((60, 200, 3), np.uint8))
+        >>> keyed = with_key_strip(photo, ColorBar(title="depth"))
+        >>> keyed.width, keyed.height > photo.height
+        (200, True)
+
+    """
+    if height is None:
+        height = 0 if key is None else key_strip_height(image, key)
+    width, image_h = image._resolved_size(None)
+    return Composite(
+        (width, image_h + height),
+        _KeyStripPaint(image, key, height),
+        options=image.options,
+    )
 
 
 def grid(

@@ -55,6 +55,7 @@ from luxonis_ml.vizlab.style import Style
 from .base import Annotation, RenderContext
 from .heatmap import (
     _resize_field,
+    field_clipping,
     field_range,
     field_rgba,
     field_valid,
@@ -63,6 +64,8 @@ from .heatmap import (
 from .mask import SemanticMask, resize_mask
 
 _WHITE = Color(255, 255, 255)
+#: The flow displacement mapped to full saturation, as a percentile of all.
+_FLOW_PERCENTILE = 95.0
 
 #: How far a per-pixel channel sum may drift from 1 and still read as an
 #: already-normalized distribution rather than raw logits.
@@ -182,6 +185,16 @@ class ArrayField(ArrayAnnotation, Annotation):
         payload = array_payload(self.to_numpy())
         return None if payload is None else payload.data
 
+    def has_gaps(self) -> bool:
+        """Tell whether some pixels carry no data, so they draw transparent.
+
+        Returns:
+            ``True`` when a value of the payload is not finite.
+
+        """
+        data = self.field()
+        return data is not None and not bool(np.isfinite(data).all())
+
     def _rgba(
         self, data: np.ndarray, ctx: RenderContext
     ) -> "np.ndarray | None":
@@ -273,6 +286,10 @@ class ScalarField(ArrayField):
         center: Value the gradient's midpoint sits on. See `Heatmap.center`.
         ignore_value: A "no data" sentinel, drawn transparent.
         weight_by_value: Whether opacity scales with the value.
+        log: Read the values on a log scale, for a field that spans orders of
+            magnitude (depth): a linear gradient spends most of its colors on
+            the far end. ``vmin``, ``vmax`` and ``center`` stay in the field's
+            own units. A value of zero or below is no data then.
 
     Examples:
         >>> import numpy as np
@@ -289,23 +306,87 @@ class ScalarField(ArrayField):
     center: float | None = None
     ignore_value: float | None = None
     weight_by_value: bool = False
+    log: bool = False
+
+    def _plane(self, data: np.ndarray) -> "tuple[np.ndarray, float | None]":
+        """Return the plane the gradient reads, and the sentinel still in it.
+
+        On a log scale the sentinel and the values of zero or below become
+        ``NaN`` before the log is taken, so no sentinel is left to compare.
+        """
+        plane = _channel_max(data)
+        if not self.log:
+            return plane, self.ignore_value
+        keep = field_valid(plane, self.ignore_value) & (plane > 0)
+        logged = np.full(plane.shape, np.nan)
+        np.log(plane, out=logged, where=keep)
+        return logged, None
+
+    def _read(self, value: float | None) -> float | None:
+        """Return a pinned value on the scale the gradient reads."""
+        if value is None or not self.log:
+            return value
+        return float(np.log(value)) if value > 0 else None
+
+    def _read_range(
+        self, plane: np.ndarray, ignore_value: float | None
+    ) -> "tuple[float, float]":
+        """Resolve the gradient's ends on the scale it reads."""
+        return field_range(
+            plane,
+            vmin=self._read(self.vmin),
+            vmax=self._read(self.vmax),
+            center=self._read(self.center),
+            ignore_value=ignore_value,
+        )
 
     def value_range(self) -> "tuple[float, float]":
         """Report the values the gradient's two ends stand for.
 
         Returns:
             The ``(low, high)`` values that `field_range` reports for this
-            field and its settings.
+            field and its settings, in the field's own units also on a log
+            scale; ``(0.0, 0.0)`` when no value is valid.
 
         """
         data = self.field()
-        return field_range(
-            np.zeros(0) if data is None else _channel_max(data),
-            vmin=self.vmin,
-            vmax=self.vmax,
-            center=self.center,
-            ignore_value=self.ignore_value,
-        )
+        plane, ignore = self._plane(np.zeros(0) if data is None else data)
+        if not field_valid(plane, ignore).any():
+            return 0.0, 0.0
+        low, high = self._read_range(plane, ignore)
+        if self.log:
+            return float(np.exp(low)), float(np.exp(high))
+        return low, high
+
+    def has_gaps(self) -> bool:
+        """Tell whether some pixels carry no data, so they draw transparent.
+
+        Returns:
+            ``True`` when a pixel is not finite, is the ``ignore_value``
+            sentinel, or is zero or below on a log scale.
+
+        """
+        data = self.field()
+        if data is None:
+            return False
+        plane, ignore = self._plane(data)
+        return not bool(field_valid(plane, ignore).all())
+
+    def clipped_ends(self) -> "tuple[bool, bool]":
+        """Tell whether values lie beyond the ends of `value_range`.
+
+        `ColorBar` marks such an end with ``≤`` or ``≥``.
+
+        Returns:
+            One flag for the low end and one for the high end.
+
+        """
+        data = self.field()
+        if data is None:
+            return False, False
+        plane, ignore = self._plane(data)
+        low, high = self._read_range(plane, ignore)
+        return field_clipping(plane, low, high, ignore)
 
     def resolve_gradient_name(self, ctx: RenderContext) -> "Gradient | str":
         """Pick the colormap, defaulting a centered field to a diverging one.
@@ -330,17 +411,17 @@ class ScalarField(ArrayField):
         return ctx.gradient or DEFAULT_GRADIENT
 
     def _rgba(self, data: np.ndarray, ctx: RenderContext) -> np.ndarray:
-        data = _channel_max(data)
+        plane, ignore = self._plane(data)
         canvas = ctx.canvas
         return field_rgba(
             normalize_field(
-                data,
-                vmin=self.vmin,
-                vmax=self.vmax,
-                center=self.center,
-                ignore_value=self.ignore_value,
+                plane,
+                vmin=self._read(self.vmin),
+                vmax=self._read(self.vmax),
+                center=self._read(self.center),
+                ignore_value=ignore,
             ),
-            field_valid(data, self.ignore_value),
+            field_valid(plane, ignore),
             gradient=self.resolve_gradient_name(ctx),
             alpha=self.alpha,
             weight_by_value=self.weight_by_value,
@@ -358,8 +439,8 @@ class FlowField(ArrayField):
 
     Attributes:
         max_magnitude: Displacement mapped to full saturation. ``None`` uses the
-            field's own maximum, which makes two clips look alike even when one
-            moved twice as fast — pin it to compare them.
+            field's 95th percentile, which makes two clips look alike even when
+            one moved twice as fast — pin it to compare them.
 
     Examples:
         >>> import numpy as np
@@ -379,8 +460,9 @@ class FlowField(ArrayField):
         """Return the displacement mapped to full saturation.
 
         Returns:
-            ``max_magnitude`` when it is set, otherwise the largest finite
-            displacement in the field, or ``0.0`` without two channels.
+            ``max_magnitude`` when it is set, otherwise the 95th percentile of
+            the finite displacements, so the few fastest pixels saturate and
+            the rest keep their color; ``0.0`` without two channels.
 
         """
         if self.max_magnitude is not None:
@@ -390,7 +472,9 @@ class FlowField(ArrayField):
             return 0.0
         magnitude = np.hypot(data[0], data[1])
         finite = magnitude[np.isfinite(magnitude)]
-        return float(finite.max()) if finite.size else 0.0
+        if finite.size == 0:
+            return 0.0
+        return float(np.percentile(finite, _FLOW_PERCENTILE, method="higher"))
 
     def _rgba(
         self, data: np.ndarray, ctx: RenderContext
@@ -410,6 +494,25 @@ class FlowField(ArrayField):
         hue = (np.arctan2(-dy, dx) / (2.0 * np.pi)) % 1.0
         rgb = _hsv_to_rgb(hue, saturation, np.ones_like(saturation))
         return _opaque(rgb, self.alpha, np.isfinite(data[:2]).all(axis=0))
+
+
+def normal_rgb(vectors: np.ndarray) -> np.ndarray:
+    """Color unit vectors the way `NormalMap` draws them: xyz shifted to RGB.
+
+    Args:
+        vectors: ``(3, H, W)`` vectors in ``[-1, 1]``; non-finite values
+            count as ``0``.
+
+    Returns:
+        An ``(H, W, 3)`` ``uint8`` image.
+
+    Examples:
+        >>> normal_rgb(np.array([1.0, -1.0, 0.0]).reshape(3, 1, 1))[0, 0]
+        array([255,   0, 128], dtype=uint8)
+
+    """
+    shifted = (np.clip(np.nan_to_num(vectors), -1.0, 1.0) + 1.0) * 0.5
+    return np.round(np.moveaxis(shifted, 0, -1) * 255).astype(np.uint8)
 
 
 class NormalMap(ArrayField):
@@ -435,10 +538,7 @@ class NormalMap(ArrayField):
     ) -> "np.ndarray | None":
         if data.ndim < 3 or data.shape[0] < 3:
             return None
-        vectors = np.clip(np.nan_to_num(data[:3]), -1.0, 1.0)
-        rgb = np.round((np.moveaxis(vectors, 0, -1) + 1.0) * 0.5 * 255).astype(
-            np.uint8
-        )
+        rgb = normal_rgb(data[:3])
         return _opaque(rgb, self.alpha, np.isfinite(data[:3]).all(axis=0))
 
 

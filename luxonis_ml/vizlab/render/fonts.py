@@ -12,11 +12,18 @@ such as a CJK ideograph in a class name, comes from a system font instead:
 `FontManager.runs` splits text into runs that each have their glyphs in one
 font. The system fonts are consulted only for such a character, so text that
 the bundled fonts cover still never depends on them.
+
+Right-to-left text (Hebrew, Arabic) needs more than glyphs: its characters are
+stored in reading order, which runs right to left, and Arabic letters change
+shape to join. `needs_shaping` tells such text apart, and
+`FontManager.paragraph` lays it out with Skia's paragraph shaper, which does
+both. All other text keeps the plain glyph-by-glyph path.
 """
 
 import functools
 import os
 import sys
+import unicodedata
 from collections.abc import Iterator
 from contextlib import contextmanager
 from importlib import resources
@@ -130,6 +137,30 @@ def _fallback_typeface(
     return _system_fonts().matchFamilyStyleCharacter("", style, [], ord(char))
 
 
+#: The layout width of a shaped paragraph: wide enough that it never wraps.
+_ONE_LINE = 1e6
+
+#: The bidi classes of right-to-left characters: Hebrew (``R``) and Arabic,
+#: Syriac or Thaana (``AL``).
+_RTL_CLASSES = frozenset({"R", "AL"})
+
+
+def needs_shaping(text: str) -> bool:
+    """Tell whether ``text`` holds a right-to-left character.
+
+    Drawn a glyph at a time, such text reads backwards, and Arabic letters
+    do not join. `FontManager.paragraph` lays it out correctly.
+
+    Examples:
+        >>> needs_shaping("car 7"), needs_shaping("car שלום")
+        (False, True)
+
+    """
+    return any(
+        unicodedata.bidirectional(char) in _RTL_CLASSES for char in text
+    )
+
+
 class FontManager:
     """Hands out sized, weighted ``skia.Font`` objects from the bundled fonts."""
 
@@ -208,6 +239,66 @@ class FontManager:
             else:
                 runs.append((run_font, char))
         return runs
+
+    def paragraph(
+        self,
+        text: str,
+        size: float,
+        paint: skia.Paint,
+        *,
+        weight: int = 400,
+        italic: bool = False,
+        mono: bool = False,
+    ) -> skia.textlayout_Paragraph:
+        """Shape ``text`` into a one-line paragraph, in visual order.
+
+        Skia's paragraph shaper reorders right-to-left runs and joins Arabic
+        letters. It draws with the same fonts as `runs`: the bundled font
+        for what it covers, a system font for the rest.
+
+        Args:
+            text: The text to shape.
+            size: Text size in pixels.
+            paint: The paint to draw the glyphs with.
+            weight: OpenType weight (100-900).
+            italic: Whether to use the italic variant.
+            mono: Whether to use JetBrains Mono (monospace) instead of Inter.
+
+        Returns:
+            The laid-out paragraph. Its ``LongestLine`` is its width; paint
+            it at the origin's y minus its ``AlphabeticBaseline``.
+
+        """
+        provider = skia.textlayout_TypefaceFontProvider()
+        bundled = _weighted_typeface(weight, italic, mono)
+        typefaces = [bundled]
+        for font, _ in self.runs(
+            text, size, weight=weight, italic=italic, mono=mono
+        ):
+            typeface = font.getTypeface()
+            if all(typeface.uniqueID() != t.uniqueID() for t in typefaces):
+                typefaces.append(typeface)
+        # Each typeface gets its own alias, so the shaper tries them in
+        # this order and the bundled font always comes first.
+        families = [f"vizlab-{index}" for index in range(len(typefaces))]
+        for typeface, family in zip(typefaces, families, strict=True):
+            provider.registerTypeface(typeface, family)
+        collection = skia.textlayout_FontCollection()
+        collection.setDefaultFontManager(provider)
+        style = skia.textlayout_TextStyle()
+        style.setFontFamilies(families)
+        style.setFontSize(float(size))
+        style.setForegroundPaint(paint)
+        paragraph_style = skia.textlayout_ParagraphStyle()
+        paragraph_style.setTextStyle(style)
+        builder = skia.textlayout_ParagraphBuilder.make(
+            paragraph_style, collection, skia.Unicode()
+        )
+        builder.pushStyle(style)
+        builder.addText(text)
+        paragraph = builder.Build()
+        paragraph.layout(_ONE_LINE)
+        return paragraph
 
 
 def _configured(font: skia.Font) -> skia.Font:

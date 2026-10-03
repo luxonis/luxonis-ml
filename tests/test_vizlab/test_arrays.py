@@ -13,6 +13,7 @@ from luxonis_ml.vizlab import (
     FlowWheel,
     Image,
     Legend,
+    NormalKey,
     NormalMap,
     RenderOptions,
     ScalarField,
@@ -30,6 +31,7 @@ from luxonis_ml.vizlab.adapters.arrays import (
     reserved_array_kind,
     resolve_array_kind,
 )
+from luxonis_ml.vizlab.annotations.colorbar import _normal_sphere
 from luxonis_ml.vizlab.options import ArrayKinds
 
 
@@ -591,3 +593,103 @@ def test_class_confidence_is_reachable_as_a_kind() -> None:
     assert drawing is not None
     assert isinstance(drawing.field, SegmentationScores)
     assert drawing.field.weight_by_confidence is True
+
+
+def test_a_log_field_reads_ratios_and_keys_in_its_own_units() -> None:
+    field = ScalarField(values=np.tile([1.0, 10.0, 100.0], (2, 1)), log=True)
+    assert field.value_range() == pytest.approx((1.0, 100.0))
+    rendered = Image(np.zeros((2, 3, 3), np.uint8)).add(field).render()
+    linear = (
+        Image(np.zeros((2, 3, 3), np.uint8))
+        .add(ScalarField(values=np.tile([0.0, 0.5, 1.0], (2, 1))))
+        .render()
+    )
+    # 10 sits halfway between 1 and 100 on a log scale.
+    assert np.array_equal(rendered, linear)
+
+    key = ColorBar.for_heatmap(field, title="depth", ticks=3)
+    assert key.log
+    assert key.title == "depth \u00b7 log"
+    assert key._tick_values() == pytest.approx([1.0, 10.0, 100.0])
+
+
+def test_a_log_field_drops_the_sentinel_before_the_log() -> None:
+    # The sentinel 0 is no data; the depth 1, whose log is 0, is not.
+    field = ScalarField(
+        values=np.tile([0.0, 1.0, 100.0, -5.0], (2, 1)),
+        log=True,
+        ignore_value=0.0,
+    )
+    assert field.value_range() == pytest.approx((1.0, 100.0))
+    rendered = Image(np.zeros((2, 4, 3), np.uint8)).add(field).render()
+    assert rendered[0, 0, :3].tolist() == [0, 0, 0]  # sentinel: transparent
+    assert rendered[0, 3, :3].tolist() == [0, 0, 0]  # negative: no data
+    assert rendered[0, 1, :3].any()
+
+
+def test_only_depth_is_read_on_a_log_scale() -> None:
+    values = np.linspace(1.0, 90.0, 20).reshape(4, 5)
+    for name, log in (("depth", True), ("Depth", True), ("disparity", False)):
+        drawing = array_annotation(
+            values, task_name=name, options=RenderOptions()
+        )
+        assert drawing is not None
+        assert isinstance(drawing.field, ScalarField)
+        assert drawing.field.log is log, name
+
+
+def test_flow_saturates_at_its_95th_percentile() -> None:
+    # One fast pixel in forty must not wash out the other thirty-nine.
+    flow = np.zeros((2, 8, 5), np.float32)
+    flow[0] = 2.0
+    flow[0, 0, 0] = 50.0
+    assert FlowField(values=flow).peak_magnitude() == 2.0
+
+
+def test_a_field_knows_whether_it_has_gaps() -> None:
+    values = np.linspace(1.0, 9.0, 20).reshape(4, 5)
+    assert not ScalarField(values=values).has_gaps()
+    with_sentinel = values.copy()
+    with_sentinel[0, 0] = -1.0
+    assert ScalarField(values=with_sentinel, ignore_value=-1.0).has_gaps()
+    # On a log scale a value of zero or below is no data.
+    assert ScalarField(values=values - 1.0, log=True).has_gaps()
+    flow = np.ones((2, 4, 5))
+    flow[1, 2, 3] = np.nan
+    assert FlowField(values=flow).has_gaps()
+
+
+def test_unnamed_score_channels_get_a_legend_by_index() -> None:
+    scores = np.zeros((3, 4, 5), np.float64)
+    scores[1, :2] = 5.0
+    scores[2, 2:] = 5.0
+    drawing = array_annotation(
+        scores, task_name="logits", options=RenderOptions()
+    )
+    assert drawing is not None
+    assert isinstance(drawing.field, SegmentationScores)
+    assert drawing.field.names == ["ch 0", "ch 1", "ch 2"]
+    assert isinstance(drawing.key, Legend)
+    assert [str(entry) for entry in drawing.key.entries] == ["ch 1", "ch 2"]
+
+
+@pytest.mark.parametrize("facing", [-1, 1])
+def test_normals_get_a_sphere_key_facing_like_the_field(facing: int) -> None:
+    normals = np.zeros((3, 4, 5), np.float32)
+    normals[2] = facing
+    drawing = array_annotation(
+        normals, task_name="normals", options=RenderOptions()
+    )
+    assert drawing is not None
+    assert isinstance(drawing.key, NormalKey)
+    assert drawing.key.facing == facing
+    # The middle of the sphere faces the camera, so it has the color the
+    # field gives a surface that faces the camera.
+    sphere = _normal_sphere(65, facing)
+    field = Image(np.zeros((4, 5, 3), np.uint8)).add(drawing.field).render()
+    assert (
+        np.abs(
+            sphere[32, 32, :3].astype(int) - field[2, 2, :3].astype(int)
+        ).max()
+        <= 1
+    )

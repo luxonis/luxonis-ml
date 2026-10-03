@@ -119,6 +119,8 @@ def _spatial_annotations(
 
     for name, sub in detection.sub_detections.items():
         for child in _spatial_annotations(sub, options, f"{task_name}/{name}"):
+            # A part of an object (a plate, a face) gets no chip of its own.
+            child.label_chip = False
             _attach(root, tops, child)
 
     return ([root] if root is not None else []) + tops
@@ -342,41 +344,55 @@ def _detection_tooltip(
     return Tooltip(title=title, rows=rows, tint=tint)
 
 
-def _append_meta(detection: "Detection", rows: list[str]) -> None:
-    """Append one detection's own metadata to ``rows``."""
-    if detection.metadata:
-        rows.extend(_meta_rows(detection, detection.metadata))
+def _collect_boxless(detection: "Detection", found: list["Detection"]) -> None:
+    """Collect the box-less detections that carry metadata into ``found``.
 
-
-def _collect_boxless(detection: "Detection", rows: list[str]) -> None:
-    """Collect a box-less detection's metadata as card rows.
-
-    A box-less detection has nothing to hover, so its metadata goes to ``rows``
-    (a plain card). Recurses sub-detections.
+    A box-less detection has nothing to hover, so its metadata goes on a
+    card instead. Recurses sub-detections.
     """
-    if detection.boundingbox is None:
-        _append_meta(detection, rows)
+    if detection.boundingbox is None and detection.metadata:
+        found.append(detection)
     for sub in detection.sub_detections.values():
-        _collect_boxless(sub, rows)
+        _collect_boxless(sub, found)
 
 
-def _meta_rows(
-    detection: "Detection",
-    metadata: "Mapping[str, int | float | str]",
-) -> list[str]:
-    """Format a detection's metadata as card rows.
+def _merged_metadata(
+    detections: "Iterable[Detection]", *, lone_object_card: bool
+) -> "dict[str | None, dict[str, str]]":
+    """Merge the metadata that has nothing to hover, by class.
 
-    Both the class name and every metadata entry are escaped, so dataset text
-    that happens to look like markup renders as the characters it is.
+    Each key shows once per class name (``None`` for a class-less detection),
+    with its distinct values joined by a middle dot. A batch augmentation (a
+    mosaic, a mixup) merges the scene metadata of several inputs into one
+    sample; without the merge every key repeated once per input. The keys and
+    the values are escaped, so dataset text that happens to look like markup
+    renders as the characters it is.
     """
-    rows: list[str] = []
-    prefix = ""
-    if detection.class_name:
-        rows.append(escape(detection.class_name))
-        prefix = "  "
-    for key, value in metadata.items():
-        rows.append(f"{prefix}{escape(key)}: {escape(value)}")
-    return rows
+    detections = list(detections)
+    carded: list[Detection] = []
+    for detection in detections:
+        _collect_boxless(detection, carded)
+    if (
+        lone_object_card
+        and len(detections) == 1
+        and detections[0].boundingbox is not None
+        and detections[0].metadata
+    ):
+        carded.append(detections[0])
+    merged: dict[str | None, dict[str, list[int | float | str]]] = {}
+    for detection in carded:
+        values = merged.setdefault(detection.class_name or None, {})
+        for key, value in detection.metadata.items():
+            seen = values.setdefault(key, [])
+            if value not in seen:
+                seen.append(value)
+    return {
+        class_name: {
+            escape(key): " \u00b7 ".join(escape(value) for value in seen)
+            for key, seen in values.items()
+        }
+        for class_name, values in merged.items()
+    }
 
 
 def metadata_annotations(
@@ -389,7 +405,9 @@ def metadata_annotations(
     A detection that carries metadata but no bounding box has nothing to anchor a
     hover tooltip to, so its metadata is surfaced as a ``"metadata"`` corner card.
     Boxed detections normally contribute nothing here (their metadata is shown on
-    hover).
+    hover). The card shows each key once per class, with its distinct values,
+    so a batch-augmented sample does not repeat the keys of every input.
+    `metadata_panel` gives the same content as a panel section.
 
     Args:
         detections: The detections to scan; their sub-detections are included.
@@ -402,22 +420,51 @@ def metadata_annotations(
         The overlay annotations to draw (empty when there is nothing to card).
 
     """
-    detections = list(detections)
     rows: list[str] = []
-    for detection in detections:
-        _collect_boxless(detection, rows)
-    if (
-        lone_object_card
-        and len(detections) == 1
-        and detections[0].boundingbox is not None
-    ):
-        _append_meta(detections[0], rows)
-
+    merged = _merged_metadata(detections, lone_object_card=lone_object_card)
+    for class_name, values in merged.items():
+        prefix = ""
+        if class_name is not None:
+            rows.append(escape(class_name))
+            prefix = "  "
+        rows.extend(f"{prefix}{key}: {value}" for key, value in values.items())
     if rows:
         return [
             InfoCard(rows=rows, title="metadata", corner=Corner.BOTTOM_LEFT)
         ]
     return []
+
+
+def metadata_panel(
+    detections: "Iterable[Detection]",
+    *,
+    lone_object_card: bool = False,
+) -> "dict[str, PanelData]":
+    """Build a panel section for metadata that has nothing to hover.
+
+    The side-panel form of `metadata_annotations`, with the same content: the
+    image keeps its pixels, and the panel holds the rows. A class-less
+    detection's keys are rows of the section; a classed one's keys are a
+    group under its class name.
+
+    Args:
+        detections: The detections to scan; their sub-detections are included.
+        lone_object_card: Also show the metadata of a lone boxed object (see
+            `metadata_annotations`).
+
+    Returns:
+        ``{"object metadata": ...}``, or an empty mapping when there is
+        nothing to show.
+
+    """
+    section: dict[str, PanelData] = {}
+    merged = _merged_metadata(detections, lone_object_card=lone_object_card)
+    for class_name, values in merged.items():
+        if class_name is None:
+            section.update(values)
+        else:
+            section[escape(class_name)] = dict(values)
+    return {"object metadata": section} if section else {}
 
 
 def to_render_annotations(
@@ -491,6 +538,7 @@ def visualize_record(
     options: RenderOptions | None = None,
     panel: "Mapping[str, PanelData] | None" = None,
     size: tuple[int, int] | None = None,
+    cards: bool = True,
 ) -> "Renderable":
     """Build one complete record visualization over its source image.
 
@@ -511,6 +559,9 @@ def visualize_record(
         size: Optional ``(width, height)`` display size for the image; the panel
             (when present) is drawn crisply beside the scaled image. ``None``
             keeps the source resolution. See `Image.render`.
+        cards: Whether metadata that has nothing to hover gets an in-image
+            card (see `metadata_annotations`). Turn it off when a caller shows
+            that metadata elsewhere, as `metadata_panel` does.
 
     Returns:
         A new visualization `Renderable`. When panel content exists, the returned
@@ -573,10 +624,11 @@ def visualize_record(
         img.add(
             Classification.from_ldf(class_tags, palette=options.theme.palette)
         )
-    for overlay in metadata_annotations(
-        chain.from_iterable(record.annotation.values())
-    ):
-        img.add(overlay)
+    if cards:
+        for overlay in metadata_annotations(
+            chain.from_iterable(record.annotation.values())
+        ):
+            img.add(overlay)
 
     panel_data = _panel_data(record, panel)
     if panel_data:

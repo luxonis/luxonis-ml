@@ -133,7 +133,8 @@ def place_label(
 
     Composes the chip text and, if non-empty, measures it, proposes candidate
     positions around ``region``, picks the least-overlapping one via the shared
-    layout, and draws it. Used by every box/mask-shaped annotation.
+    layout, and draws it. A chip with no free position is left out. Used by
+    every box/mask-shaped annotation.
 
     Args:
         ctx: The current render context (supplies the canvas and layout).
@@ -168,7 +169,7 @@ def place_label(
         if plan is not None:
             plan[key] = placement
     mask = ctx.environment.layers
-    if not (mask.labels and mask.allows(label)):
+    if placement.hidden or not (mask.labels and mask.allows(label)):
         return
     rect = placement.rect
     if placement.leader is not None:

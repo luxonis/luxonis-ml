@@ -15,10 +15,11 @@ range.
          stacked above a class legend in the same corner.
 """
 
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 import numpy as np
 
+from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import Rect
 from luxonis_ml.vizlab.gradient import (
     DEFAULT_DIVERGING_GRADIENT,
@@ -32,9 +33,23 @@ from luxonis_ml.vizlab.style import Style
 from .base import RenderContext
 from .card import draw_card_background
 from .distribution.metrics import _PAD, _ROW_GAP
-from .fields import FlowField, ScalarField, _hsv_to_rgb
+from .fields import (
+    FlowField,
+    NormalMap,
+    ScalarField,
+    _hsv_to_rgb,
+    normal_rgb,
+)
 from .heatmap import Heatmap
-from .overlay import Cell, Corner, CornerStack, resolve_chrome, swatch_outline
+from .overlay import (
+    Cell,
+    ColorKey,
+    Corner,
+    InlinePiece,
+    resolve_chrome,
+    swatch_outline,
+    text_piece,
+)
 
 #: Samples across the gradient; enough that the strip reads as continuous.
 _RAMP = 256
@@ -79,7 +94,7 @@ def _tick_label(
     return f"{text} {unit}" if unit else text
 
 
-class ColorBar(CornerStack):
+class ColorBar(ColorKey):
     """A gradient strip labelled with the values its ends stand for.
 
     Sits in an image corner like `Legend`, and stacks with it rather than over
@@ -96,6 +111,13 @@ class ColorBar(CornerStack):
         unit: Appended to every tick label, e.g. ``"px"``.
         ticks: How many labels to draw, ``2`` being the two ends. Three or more
             adds evenly spaced interior ticks.
+        log: Whether the field is read on a log scale. The interior ticks are
+            then spaced by ratio; `for_heatmap` also says ``· log`` in the
+            title.
+        clipped_low: Whether the field has values below ``vmin``; the low end
+            label then reads ``≤``.
+        clipped_high: Whether the field has values above ``vmax``; the high
+            end label then reads ``≥``.
 
     See `Annotation` for the shared fields (``color``/``palette`` do not apply —
     the colours come from the gradient).
@@ -121,6 +143,9 @@ class ColorBar(CornerStack):
     title: str | None = None
     unit: str | None = None
     ticks: int = 2
+    log: bool = False
+    clipped_low: bool = False
+    clipped_high: bool = False
     corner: Corner = Corner.BOTTOM_RIGHT
 
     #: Drawn over the image like every other corner overlay.
@@ -138,7 +163,8 @@ class ColorBar(CornerStack):
 
         Takes the field's gradient *as-is* — when both are ``None`` the two
         inherit the same context gradient, so they cannot drift apart — and its
-        resolved value range, which already excludes nodata pixels.
+        resolved value range, which already excludes nodata pixels. An end
+        that values lie beyond is marked, and a log-scale field gets a log key.
 
         A centered field gets an odd number of ticks by default, so one of them
         lands exactly on the center and the neutral color is labelled rather
@@ -163,6 +189,13 @@ class ColorBar(CornerStack):
             gradient = DEFAULT_DIVERGING_GRADIENT
         if center is not None:
             fields.setdefault("ticks", 3)
+        clipped_low, clipped_high = heatmap.clipped_ends()
+        fields.setdefault("clipped_low", clipped_low)
+        fields.setdefault("clipped_high", clipped_high)
+        log = getattr(heatmap, "log", False)
+        fields.setdefault("log", log)
+        if log and title:
+            title = f"{title} \u00b7 log"
         return cls(
             gradient=gradient,
             vmin=low,
@@ -172,12 +205,17 @@ class ColorBar(CornerStack):
         )
 
     def _tick_values(self) -> "list[float]":
-        """Space the labelled values evenly across the strip, left to right."""
+        """Space the labelled values evenly across the strip, left to right.
+
+        On a log scale they are evenly spaced by ratio, as the colors are.
+        """
         count = max(2, self.ticks)
+        fractions = [index / (count - 1) for index in range(count)]
+        if self.log and self.vmin > 0 and self.vmax > 0:
+            ratio = self.vmax / self.vmin
+            return [self.vmin * ratio**fraction for fraction in fractions]
         span = self.vmax - self.vmin
-        return [
-            self.vmin + span * (index / (count - 1)) for index in range(count)
-        ]
+        return [self.vmin + span * fraction for fraction in fractions]
 
     def _ramp(self, ctx: RenderContext) -> np.ndarray:
         """Build the strip's pixels from the gradient the field is coloured by."""
@@ -187,7 +225,56 @@ class ColorBar(CornerStack):
         )
         return np.dstack([rgb, np.full(rgb.shape[:2], 255, np.uint8)])
 
-    def _cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
+    def _tick_labels(self) -> "list[str]":
+        """Label the ticks left to right, marking an end that clips."""
+        values = self._tick_values()
+        span = max(values) - min(values) if values else 0.0
+        labels = [_tick_label(v, self.unit, span) for v in values]
+        if self.clipped_low:
+            labels[0] = f"\u2264{labels[0]}"
+        if self.clipped_high:
+            labels[-1] = f"\u2265{labels[-1]}"
+        return labels
+
+    def _inline_pieces(
+        self, ctx: RenderContext, style: Style
+    ) -> list[InlinePiece]:
+        """Lay the key out as an axis: each tick label between two bars.
+
+        The bar is split at the interior ticks, so every label sits on the
+        line at its own place on the scale.
+        """
+        canvas = ctx.canvas
+        chrome = resolve_chrome(ctx)
+        size = style.font_size
+        ramp = self._ramp(ctx)
+        labels = self._tick_labels()
+        segments = len(labels) - 1
+        width = size * _INLINE_BAR / segments
+        pieces = []
+        if self.title:
+            pieces.append(
+                text_piece(
+                    canvas, self.title, size, chrome.card_title, weight=700
+                )
+            )
+        for index, label in enumerate(labels):
+            pieces.append(
+                text_piece(canvas, label, size, chrome.card_text, mono=True)
+            )
+            if index < segments:
+                columns = ramp[
+                    :,
+                    round(index / segments * _RAMP) : round(
+                        (index + 1) / segments * _RAMP
+                    ),
+                ]
+                pieces.append(
+                    _bar_piece(columns, width, size * 0.6, chrome.card_bg)
+                )
+        return pieces
+
+    def _card_cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
         """Measure and draw the one card holding the strip and its labels."""
         canvas = ctx.canvas
         chrome = resolve_chrome(ctx)
@@ -195,14 +282,13 @@ class ColorBar(CornerStack):
         strip_h = size * 0.9
         ramp = self._ramp(ctx)
 
+        title = self.title
         title_m = (
-            canvas.measure_markup(self.title, size * 1.05, weight=700)
-            if self.title
+            canvas.measure_markup(title, size * 1.05, weight=700)
+            if title
             else None
         )
-        values = self._tick_values()
-        span = max(values) - min(values) if values else 0.0
-        labels = [_tick_label(v, self.unit, span) for v in values]
+        labels = self._tick_labels()
         label_ms = [
             canvas.measure_markup(text, size, mono=True) for text in labels
         ]
@@ -230,10 +316,10 @@ class ColorBar(CornerStack):
         def _draw(cv: Canvas, rect: Rect) -> None:
             draw_card_background(cv, rect, style, chrome)
             y = rect.top + _PAD
-            if title_m is not None and self.title:
+            if title_m is not None and title:
                 cv.markup(
                     (rect.left + _PAD, y + title_m.ascent),
-                    self.title,
+                    title,
                     size=size * 1.05,
                     color=chrome.card_title,
                     weight=700,
@@ -290,7 +376,7 @@ def _flow_wheel(size: int) -> np.ndarray:
     return np.dstack([rgb, np.round(edge * 255).astype(np.uint8)])
 
 
-class FlowWheel(CornerStack):
+class FlowWheel(ColorKey):
     """The direction key for a `FlowField`: a disc of hue by heading.
 
     `ColorBar`'s counterpart for a two-channel field. A strip cannot key one —
@@ -348,64 +434,227 @@ class FlowWheel(CornerStack):
             **fields,  # pyright: ignore[reportArgumentType]
         )
 
-    def _cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
-        """Measure and draw the one card holding the disc and its label."""
-        canvas = ctx.canvas
-        chrome = resolve_chrome(ctx)
-        size = style.font_size
-        disc = size * _WHEEL_SIZE
-        wheel = _flow_wheel(_WHEEL)
-
-        title_m = (
-            canvas.measure_markup(self.title, size * 1.05, weight=700)
-            if self.title
-            else None
-        )
-        label = _tick_label(
+    def _label(self) -> str:
+        """Say what displacement the rim stands for."""
+        return _tick_label(
             self.max_magnitude, self.unit, self.max_magnitude, digits=2
         )
-        label_m = canvas.measure_markup(label, size, mono=True)
-        inner = max(disc, label_m.width, title_m.width if title_m else 0.0)
-        card_w = inner + 2 * _PAD
-        card_h = (
-            2 * _PAD
-            + (title_m.height + _ROW_GAP if title_m else 0.0)
-            + disc
-            + _ROW_GAP
-            + label_m.height
+
+    def _card_cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
+        """Measure and draw the one card holding the disc and its label."""
+        wheel = _flow_wheel(_WHEEL)
+        return [_disc_card(ctx, style, self.title, wheel, self._label())]
+
+    def _inline_pieces(
+        self, ctx: RenderContext, style: Style
+    ) -> list[InlinePiece]:
+        """Lay the key out as the title, a small disc, and its label."""
+        return _disc_pieces(
+            ctx, style, self.title, _flow_wheel(_WHEEL), self._label()
         )
 
-        def _draw(cv: Canvas, rect: Rect) -> None:
-            draw_card_background(cv, rect, style, chrome)
-            y = rect.top + _PAD
-            if title_m is not None and self.title:
-                cv.markup(
-                    (rect.left + _PAD, y + title_m.ascent),
-                    self.title,
-                    size=size * 1.05,
-                    color=chrome.card_title,
-                    weight=700,
-                )
-                y += title_m.height + _ROW_GAP
-            # Centre the disc and its label on the card, since neither fills the
-            # width once a longer title has set it.
-            cv.blit_scaled(
-                wheel,
-                rect.left + _PAD + (inner - disc) / 2,
-                y,
-                disc,
-                disc,
-            )
-            y += disc + _ROW_GAP
-            cv.markup(
-                (
-                    rect.left + _PAD + (inner - label_m.width) / 2,
-                    y + label_m.ascent,
-                ),
-                label,
-                size=size,
-                color=chrome.card_text,
-                mono=True,
-            )
 
-        return [Cell(card_w, card_h, _draw)]
+def _disc_card(
+    ctx: RenderContext,
+    style: Style,
+    title: str | None,
+    disc_rgba: np.ndarray,
+    label: str,
+) -> Cell:
+    """Build the card of a disc key: a title, the disc, and a label under it."""
+    canvas = ctx.canvas
+    chrome = resolve_chrome(ctx)
+    size = style.font_size
+    disc = size * _WHEEL_SIZE
+    title_m = (
+        canvas.measure_markup(title, size * 1.05, weight=700)
+        if title
+        else None
+    )
+    label_m = canvas.measure_markup(label, size, mono=True)
+    inner = max(disc, label_m.width, title_m.width if title_m else 0.0)
+    card_w = inner + 2 * _PAD
+    card_h = (
+        2 * _PAD
+        + (title_m.height + _ROW_GAP if title_m else 0.0)
+        + disc
+        + _ROW_GAP
+        + label_m.height
+    )
+
+    def _draw(cv: Canvas, rect: Rect) -> None:
+        draw_card_background(cv, rect, style, chrome)
+        y = rect.top + _PAD
+        if title_m is not None and title:
+            cv.markup(
+                (rect.left + _PAD, y + title_m.ascent),
+                title,
+                size=size * 1.05,
+                color=chrome.card_title,
+                weight=700,
+            )
+            y += title_m.height + _ROW_GAP
+        # Centre the disc and its label on the card, since neither fills the
+        # width once a longer title has set it.
+        cv.blit_scaled(
+            disc_rgba, rect.left + _PAD + (inner - disc) / 2, y, disc, disc
+        )
+        y += disc + _ROW_GAP
+        cv.markup(
+            (
+                rect.left + _PAD + (inner - label_m.width) / 2,
+                y + label_m.ascent,
+            ),
+            label,
+            size=size,
+            color=chrome.card_text,
+            mono=True,
+        )
+
+    return Cell(card_w, card_h, _draw)
+
+
+def _normal_sphere(size: int, facing: int) -> np.ndarray:
+    """Render a sphere whose every pixel is colored by its own normal.
+
+    Args:
+        size: The width and height in pixels.
+        facing: The sign of z on the hemisphere that faces the camera.
+
+    Returns:
+        An ``(size, size, 4)`` RGBA image, transparent outside the sphere.
+
+    """
+    axis = (np.arange(size) + 0.5) / size * 2.0 - 1.0
+    x, y = np.meshgrid(axis, axis)
+    z = facing * np.sqrt(np.clip(1.0 - x**2 - y**2, 0.0, 1.0))
+    rgb = normal_rgb(np.stack([x, y, z]))
+    # Fade the last pixel-width of the rim, as the flow wheel does.
+    edge = np.clip((1.0 - np.hypot(x, y)) * size * 0.5, 0.0, 1.0)
+    return np.dstack([rgb, np.round(edge * 255).astype(np.uint8)])
+
+
+class NormalKey(ColorKey):
+    """The key of a `NormalMap`: a sphere colored by its own surface normals.
+
+    A normal map colors a direction, so its key is the set of all directions
+    a surface can face: a sphere seen from the camera, in the colors the map
+    gives them. The label names the screen axes.
+
+    Attributes:
+        title: Heading above the sphere; ``None`` draws none.
+        facing: The sign of z on surfaces that face the camera: ``-1`` when
+            the camera looks along +z (OpenCV), ``1`` when z points at the
+            viewer (OpenGL).
+
+    Examples:
+        >>> import numpy as np
+        >>> from luxonis_ml.vizlab import Image, NormalKey, NormalMap
+        >>> normals = np.zeros((3, 4, 5), np.float32)
+        >>> normals[2] = 1.0  # all facing the camera, OpenGL-style
+        >>> key = NormalKey.for_field(NormalMap(values=normals))
+        >>> key.facing
+        1
+        >>> Image(np.zeros((90, 90, 3), np.uint8)).add(key).render().shape
+        (90, 90, 4)
+
+    """
+
+    title: str | None = None
+    facing: Literal[-1, 1] = -1
+    corner: Corner = Corner.BOTTOM_RIGHT
+
+    #: Drawn over the image like every other corner overlay.
+    OVERLAY: ClassVar[bool] = True
+
+    @classmethod
+    def for_field(
+        cls, field: NormalMap, *, title: str | None = None, **fields: object
+    ) -> "NormalKey":
+        """Build the key that reads a given normal map.
+
+        The sphere shows the hemisphere the field's surfaces face, read from
+        the median z of the field.
+
+        Args:
+            field: The overlay this key describes.
+            title: Heading above the sphere; ``None`` draws none.
+            **fields: Any other `NormalKey` field, such as ``corner``.
+
+        Returns:
+            A `NormalKey` matching ``field``.
+
+        """
+        data = field.field()
+        z = None if data is None or data.shape[0] < 3 else data[2]
+        finite = np.zeros(0) if z is None else z[np.isfinite(z)]
+        facing = 1 if finite.size and float(np.median(finite)) > 0 else -1
+        return cls(
+            title=title,
+            facing=facing,
+            **fields,  # pyright: ignore[reportArgumentType]
+        )
+
+    def _card_cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
+        """Measure and draw the one card holding the sphere and its label."""
+        sphere = _normal_sphere(_WHEEL, self.facing)
+        return [_disc_card(ctx, style, self.title, sphere, _NORMAL_AXES)]
+
+    def _inline_pieces(
+        self, ctx: RenderContext, style: Style
+    ) -> list[InlinePiece]:
+        """Lay the key out as the title, a small sphere, and the axes."""
+        sphere = _normal_sphere(_WHEEL, self.facing)
+        return _disc_pieces(ctx, style, self.title, sphere, _NORMAL_AXES)
+
+
+#: The length of an inline color bar, as a multiple of the type size.
+_INLINE_BAR = 9.0
+#: The diameter of an inline disc key, as a multiple of the type size.
+_INLINE_DISC = 1.6
+#: The label of a normal-map key: which way x and y point on screen.
+_NORMAL_AXES = "x\u2192 right  y\u2193 down"
+
+
+def _bar_piece(
+    columns: np.ndarray, width: float, height: float, card_bg: Color
+) -> InlinePiece:
+    """Build an inline piece of a color bar from some columns of its ramp."""
+
+    def draw(cv: Canvas, x: float, middle: float) -> None:
+        top = middle - height / 2
+        cv.blit_scaled(columns, x, top, width, height, radius=height / 2)
+        cv.rounded_rect(
+            Rect(x, top, x + width, top + height),
+            radius=height / 2,
+            stroke=swatch_outline(card_bg),
+            stroke_width=1.0,
+        )
+
+    return InlinePiece(width, height, draw)
+
+
+def _disc_pieces(
+    ctx: RenderContext,
+    style: Style,
+    title: str | None,
+    disc_rgba: np.ndarray,
+    label: str,
+) -> list[InlinePiece]:
+    """Build the inline pieces of a disc key: the title, the disc, a label."""
+    canvas = ctx.canvas
+    chrome = resolve_chrome(ctx)
+    size = style.font_size
+    diameter = size * _INLINE_DISC
+
+    def draw(cv: Canvas, x: float, middle: float) -> None:
+        cv.blit_scaled(disc_rgba, x, middle - diameter / 2, diameter, diameter)
+
+    pieces = []
+    if title:
+        pieces.append(
+            text_piece(canvas, title, size, chrome.card_title, weight=700)
+        )
+    pieces.append(InlinePiece(diameter, diameter, draw))
+    pieces.append(text_piece(canvas, label, size, chrome.card_text, mono=True))
+    return pieces

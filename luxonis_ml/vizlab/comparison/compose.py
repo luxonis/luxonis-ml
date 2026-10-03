@@ -16,11 +16,13 @@ import numpy as np
 
 from luxonis_ml.vizlab.interaction import Frame
 from luxonis_ml.vizlab.layout.compose import combine, reference_source
+from luxonis_ml.vizlab.layout.panel import Block
 from luxonis_ml.vizlab.options import RenderOptions
+from luxonis_ml.vizlab.render.markup import escape
 from luxonis_ml.vizlab.scene.image import Image, Renderable
 
 from .match import ComparisonResult, Verdict, match_detections
-from .render import compare
+from .render import compare, verdict_key
 
 if TYPE_CHECKING:
     from luxonis_ml.ldf import DatasetRecord
@@ -155,16 +157,22 @@ class ComparisonComposer:
         images: "Mapping[str, np.ndarray]",
         gt_record: "DatasetRecord",
         pred_record: "DatasetRecord",
+        *,
+        name: str | None = None,
     ) -> Frame:
         """Match GT vs predictions and compose every source into one `Frame`.
 
         A multi-source sample is tiled rather than given a window per source,
         so the metrics panel is attached once and the sources stay side by side.
+        The panel says which sample it is, how it was matched, and, in the
+        layouts that color by verdict, what each color means.
 
         Args:
             images: The sample's image sources, keyed by source name.
             gt_record: The ground-truth record of the sample.
             pred_record: The prediction record of the sample.
+            name: The sample's name for the panel (its file names), or
+                ``None`` to leave it out.
 
         Returns:
             The composed frame, with the metrics panel unless the panel is off.
@@ -190,7 +198,21 @@ class ComparisonComposer:
         )
         if not self.panel:
             return composed.frame()
-        metrics: dict[str, PanelData] = dict(result.summary())
+        metrics: dict[str, PanelData] = {}
+        if name is not None:
+            metrics["file"] = Block(escape(name))
+        matched_at = (
+            f"IoU \u2265 {self.iou_threshold:.2f} \u00b7 "
+            f"score \u2265 {self.score_threshold:.2f}"
+        )
+        if not self.class_aware:
+            matched_at += " \u00b7 any class"
+        metrics["matched at"] = matched_at
+        metrics.update(result.summary())
+        if self.show != "side_by_side":
+            metrics["verdicts"] = verdict_key(
+                self.verdicts, class_aware=self.class_aware
+            )
         if self.per_class and len(result.per_class) > 1:
             metrics["by class"] = result.per_class_panel()
         return composed.with_panel(metrics, title="Comparison").frame()

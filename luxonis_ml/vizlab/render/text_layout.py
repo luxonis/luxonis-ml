@@ -17,10 +17,12 @@ counted as characters. The plain-string functions remain for vizlab's own fixed
 strings (keycaps, section labels), which carry no markup by construction.
 """
 
+import re
 from collections.abc import Sequence
 
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.render.canvas import Canvas, TextMetrics
+from luxonis_ml.vizlab.render.fonts import needs_shaping
 from luxonis_ml.vizlab.render.markup import Span, parse
 
 #: A 1x1 scratch surface used only for font metrics — never drawn to. Shared, so
@@ -324,6 +326,59 @@ def middle_ellipsize_spans(
     return [Span("…")]
 
 
+#: Where a long name (a file name, a path) may break: after ``_ - . /`` or a
+#: space.
+_NAME_BREAK = re.compile(r"(?<=[_\-./ ])")
+
+
+def wrap_name_spans(
+    spans: "Sequence[Span]", max_width: float, size: float
+) -> list[list[Span]]:
+    """Wrap a long name after ``_ - . /`` or a space, so no part of it is lost.
+
+    A file name or a path has few spaces to wrap at, and trimming its middle
+    loses the part that often tells two samples apart. Only a piece between
+    two break points that is wider than a line on its own is shortened, in
+    the middle (see `middle_ellipsize_spans`). The styling of each run is
+    kept.
+
+    Args:
+        spans: The styled runs of the name.
+        max_width: The width of a line, in pixels.
+        size: Type size in pixels.
+
+    Returns:
+        One list of `Span` per line (at least one line).
+
+    Examples:
+        >>> name = [Span("case_06_image_border.jpg", mono=True)]
+        >>> width = measure("case_06_image_", 12.0, mono=True).width
+        >>> [
+        ...     "".join(span.text for span in line)
+        ...     for line in wrap_name_spans(name, width, 12.0)
+        ... ]
+        ['case_06_image_', 'border.jpg']
+
+    """
+    pieces = [
+        span.with_text(part)
+        for span in spans
+        for part in _NAME_BREAK.split(span.text)
+        if part
+    ]
+    lines: list[list[Span]] = []
+    line: list[Span] = []
+    for piece in pieces:
+        trial = [*line, piece]
+        if line and _MEASURE.measure_spans(trial, size).width > max_width:
+            lines.append(line)
+            line = [piece]
+        else:
+            line = trial
+    lines.append(line)
+    return [middle_ellipsize_spans(line, max_width, size) for line in lines]
+
+
 def tracked_width(
     text: str, size: float, *, weight: int = 400, tracking: float = 0.0
 ) -> float:
@@ -331,7 +386,8 @@ def tracked_width(
 
     Letter-spaced headings are drawn a character at a time, so their width is the
     sum of the glyph advances plus the tracking — not the measured width of the
-    whole string.
+    whole string. Right-to-left text is shaped as a whole instead (see
+    `draw_tracked`).
 
     Args:
         text: The string to measure.
@@ -343,6 +399,8 @@ def tracked_width(
         The total advance in pixels.
 
     """
+    if needs_shaping(text):
+        return width(text, size, weight=weight) + tracking
     return sum(width(char, size, weight=weight) + tracking for char in text)
 
 
@@ -359,6 +417,9 @@ def draw_tracked(
 ) -> None:
     """Draw ``text`` one character at a time with ``tracking`` between them.
 
+    Right-to-left text is drawn whole and untracked: a character at a time,
+    it would read backwards and its letters would not join.
+
     Args:
         canvas: The canvas to draw on.
         text: The string to draw.
@@ -370,6 +431,9 @@ def draw_tracked(
         tracking: Extra space after each character, in pixels.
 
     """
+    if needs_shaping(text):
+        canvas.text((x, baseline), text, size=size, color=color, weight=weight)
+        return
     for char in text:
         canvas.text((x, baseline), char, size=size, color=color, weight=weight)
         x += width(char, size, weight=weight) + tracking
@@ -406,10 +470,10 @@ def tracked_spans_width(
 
     """
     return sum(
-        width(char, size * span.scale, weight=span.weight, mono=span.mono)
+        width(part, size * span.scale, weight=span.weight, mono=span.mono)
         + tracking
         for span in spans
-        for char in span.text
+        for part in _tracked_parts(span.text)
     )
 
 
@@ -426,7 +490,7 @@ def draw_tracked_spans(
     """Draw styled ``spans`` a character at a time with ``tracking`` between them.
 
     The span-aware counterpart of `draw_tracked`, so a letterspaced heading can
-    still carry inline markup.
+    still carry inline markup. A right-to-left span is drawn whole.
 
     Args:
         canvas: The canvas to draw on.
@@ -440,11 +504,22 @@ def draw_tracked_spans(
     """
     for span in spans:
         run_size = size * span.scale
-        for char in span.text:
+        for part in _tracked_parts(span.text):
             canvas.draw_spans(
-                (x, baseline), [span.with_text(char)], size=size, color=color
+                (x, baseline), [span.with_text(part)], size=size, color=color
             )
             x += (
-                width(char, run_size, weight=span.weight, mono=span.mono)
+                width(part, run_size, weight=span.weight, mono=span.mono)
                 + tracking
             )
+
+
+def _tracked_parts(text: str) -> "list[str]":
+    """Split ``text`` into the parts tracking spaces apart.
+
+    Examples:
+        >>> _tracked_parts("ab"), _tracked_parts("שלום")
+        (['a', 'b'], ['שלום'])
+
+    """
+    return [text] if needs_shaping(text) else list(text)

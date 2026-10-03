@@ -7,8 +7,10 @@ from .compose import (
     grid,
     grid_placed,
     hstack,
+    key_strip_height,
     order_by_position,
     vstack,
+    with_key_strip,
 )
 from .panel import Block, Controls, Hints, Swatches, with_panel
 
@@ -23,7 +25,9 @@ __all__ = [
     "grid",
     "grid_placed",
     "hstack",
+    "key_strip_height",
     "order_by_position",
     "vstack",
+    "with_key_strip",
     "with_panel",
 ]
