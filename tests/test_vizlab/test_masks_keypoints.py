@@ -14,6 +14,7 @@ from luxonis_ml.vizlab import (
     SemanticMask,
     Style,
 )
+from luxonis_ml.vizlab.annotations import mask as mask_module
 from luxonis_ml.vizlab.annotations.mask import _mask_contours, _smooth_ring
 from luxonis_ml.vizlab.geometry import Rect
 
@@ -28,6 +29,30 @@ def _disc(w: int, h: int, cx: int, cy: int, r: int) -> np.ndarray:
 
 
 # --- Mask (subclass of InstanceSegmentationAnnotation) ----------------------
+
+
+def test_a_mask_in_two_parts_pins_its_label_inside_the_thicker_part(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Sidewalks on both sides of a road: the center of their bounding box
+    # lies on the road, where the label would cover a person or a car.
+    strips = np.zeros((60, 80), np.uint8)
+    strips[:, :8] = 1
+    strips[:, 62:] = 1
+    pinned: list[Rect] = []
+    monkeypatch.setattr(
+        mask_module,
+        "place_label",
+        lambda _ctx, region, *_args: pinned.append(region),
+    )
+    image = _canvas()
+    image.add(Mask(mask=strips, label="sidewalk"))  # type: ignore
+
+    image.render()
+
+    assert pinned
+    assert all(strips[int(r.top), int(r.left)] for r in pinned)
+    assert all(r.left > 62 for r in pinned)
 
 
 def test_mask_array_with_contour_and_label() -> None:

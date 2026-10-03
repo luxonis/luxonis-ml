@@ -48,7 +48,7 @@ from luxonis_ml.enums import DatasetType
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from luxonis_ml.ldf import DatasetRecord
+    from luxonis_ml.ldf import DatasetRecord, Detection
     from luxonis_ml.typing import Labels, LoaderOutput, Params, ParamValue
     from luxonis_ml.vizlab import (
         Color,
@@ -157,16 +157,24 @@ def _present_classes(record: "DatasetRecord") -> list[str]:
 
     Drives which classes the inspector's ``c`` key cycles focus through, so it
     only offers what is actually on screen. Matches the loader's rendered names
-    (``class_name.strip()``) and skips blank names.
+    (``class_name.strip()``) and skips blank names. A sub-detection's class
+    follows the class of its parent, so the legend lists ``plate`` and the
+    legend toggle can hide it.
     """
     seen: dict[str, None] = {}
-    for detection in chain.from_iterable(record.annotation.values()):
+
+    def visit(detection: "Detection") -> None:
         # An array is drawn as a field in its own colors, not its class color.
         if detection.array is not None:
-            continue
+            return
         name = (detection.class_name or "").strip()
         if name:
             seen.setdefault(name, None)
+        for sub_detection in detection.sub_detections.values():
+            visit(sub_detection)
+
+    for detection in chain.from_iterable(record.annotation.values()):
+        visit(detection)
     return list(seen)
 
 
@@ -180,6 +188,23 @@ def _array_labels(labels: "Labels") -> dict[str, np.ndarray]:
     }
 
 
+def _holds_arrays(arrays: Mapping[str, np.ndarray]) -> bool:
+    """Report whether any array label of a sample holds data.
+
+    The loader returns an empty label for every array task that a sample
+    lacks, so the keys alone do not tell.
+
+    Examples:
+        >>> import numpy as np
+        >>> _holds_arrays({"depth": np.zeros(0)})
+        False
+        >>> _holds_arrays({"depth": np.zeros((1, 1, 4, 4))})
+        True
+
+    """
+    return any(array.size for array in arrays.values())
+
+
 def _present_sample_metadata(
     sample_metadata: "Params",
 ) -> "dict[str, PanelData]":
@@ -189,20 +214,21 @@ def _present_sample_metadata(
     one output. The loader keeps the first sample's metadata at the top level and
     also stashes *every* input's metadata under ``batch_augmentation_metadata`` as
     a list of ``{"input_index", "sample_metadata"}`` entries (see
-    `luxonis_ml.data.LuxonisLoader`) — handy for machine use, but it prints as a
-    redundant, confusing blob (sample one appears twice, wrapped in bookkeeping
-    keys). When that key is present this instead presents one clearly-labelled
-    ``"sample N"`` group per contributing input, dropping the duplicated top-level
-    copy; a single input collapses back to its plain metadata, and anything
-    without the key is returned unchanged. Each sample's single-source
-    ``filenames`` mapping is also flattened (see `_flatten_filenames`).
+    `luxonis_ml.data.LuxonisLoader`). When that key holds several inputs, the
+    panel gets one ``inputs`` group that names the image file of each input
+    under ``"sample N"``. The fused frame is none of its inputs, and the full
+    metadata of eight inputs (Mosaic4 with MixUp) made the panel taller than
+    the screen; the metadata of an input shows when it is inspected without
+    augmentations. A single input collapses back to its plain metadata, and
+    anything without the key is returned unchanged. A single-source
+    ``filenames`` mapping is flattened (see `_flatten_filenames`).
 
     Args:
         sample_metadata: The raw per-sample metadata from the loader.
 
     Returns:
-        Metadata shaped for display: per-input ``"sample N"`` groups when the
-        sample is a batch-augmentation fusion, else the input unchanged.
+        Metadata shaped for display: the files of each input when the sample
+        is a batch-augmentation fusion, else the input unchanged.
 
     """
     batch = sample_metadata.get("batch_augmentation_metadata")
@@ -226,13 +252,36 @@ def _present_sample_metadata(
 
     if len(batch) == 1:
         return _flatten_filenames(sample_md(batch[0], 0)[1])
-    presented: dict[str, PanelData] = {}
+    inputs: dict[str, PanelData] = {}
     for position, entry in enumerate(batch):
         index, md = sample_md(entry, position)
-        presented[f"sample {index + 1}"] = _flatten_filenames(md) or (
-            "(no metadata)"
-        )
-    return presented
+        inputs[f"sample {index + 1}"] = _input_files(md)
+    return {"inputs": inputs}
+
+
+def _input_files(sample_metadata: "Params") -> "PanelData":
+    """Name the image files of one input of a batch-augmented frame.
+
+    Examples:
+        >>> _input_files({"filenames": {"image": "a.jpg"}, "camera": "left"})
+        'a.jpg'
+        >>> _input_files({"filenames": {"left": "l.jpg", "right": "r.jpg"}})
+        {'left': 'l.jpg', 'right': 'r.jpg'}
+        >>> _input_files({"record_id": 7})
+        '(no filename)'
+
+    """
+    from luxonis_ml.vizlab.render.markup import escape
+
+    files = sample_metadata.get("filenames")
+    if not isinstance(files, Mapping) or not files:
+        return "(no filename)"
+    if len(files) == 1:
+        return escape(str(next(iter(files.values()))))
+    return {
+        escape(str(source)): escape(str(name))
+        for source, name in files.items()
+    }
 
 
 def _sample_stem(sample_metadata: "Params") -> "str | None":
@@ -304,6 +353,8 @@ def _print_comparison_summary(
     per_class: bool,
 ) -> None:
     """Print a `ComparisonReport` as aggregate, per-class, and worst-image tables."""
+    from luxonis_ml.vizlab.comparison.match import format_ratio
+
     console = Console()
     summary = report.summary()
     aggregate = Table(
@@ -322,13 +373,14 @@ def _print_comparison_summary(
         for header in ("P", "R", "TP", "FP", "FN"):
             classes.add_column(header, justify="right")
         for name, values in report.per_class().items():
+            tp, fp, fn = (int(values[key]) for key in ("tp", "fp", "fn"))
             classes.add_row(
                 name,
-                f"{values['precision']:.3f}",
-                f"{values['recall']:.3f}",
-                str(values["tp"]),
-                str(values["fp"]),
-                str(values["fn"]),
+                format_ratio(tp, tp + fp, 3),
+                format_ratio(tp, tp + fn, 3),
+                str(tp),
+                str(fp),
+                str(fn),
             )
         console.print(classes)
 
@@ -1112,7 +1164,7 @@ def inspect(
             for data, record, panel in prepared_samples():
                 layers.update_classes(_present_classes(record))
                 arrays = _array_labels(data.labels)
-                layers.has_arrays = bool(arrays)
+                layers.has_arrays = array_viz and _holds_arrays(arrays)
                 viz = composer.render(
                     data.images,
                     arrays,
@@ -1176,7 +1228,7 @@ def inspect(
             yield ViewerSample(
                 render=render,
                 classes=_present_classes(record),
-                has_arrays=bool(arrays),
+                has_arrays=array_viz and _holds_arrays(arrays),
                 save_as=_sample_stem(data.metadata),
                 wait=bool(data.images),
             )

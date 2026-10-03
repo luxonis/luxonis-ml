@@ -16,6 +16,8 @@ from .match import (
     Verdict,
     _fmt_class,
     _metric_row,
+    format_f1,
+    format_ratio,
 )
 
 if TYPE_CHECKING:
@@ -193,12 +195,13 @@ class ComparisonReport:
             and false negatives.
 
         """
+        tp, fp, fn = self.n_tp, self.n_fp, self.n_fn
         return {
             "images": self.n_images,
-            "precision": f"{self.precision:.3f}",
-            "recall": f"{self.recall:.3f}",
-            "F1": f"{self.f1:.3f}",
-            "mean IoU": f"{self.mean_iou:.3f}",
+            "precision": format_ratio(tp, tp + fp, 3),
+            "recall": format_ratio(tp, tp + fn, 3),
+            "F1": format_f1(tp, fp, fn, 3),
+            "mean IoU": format_ratio(self._iou_sum, self._n_localized, 3),
             "TP": self.n_tp,
             "FP": self.n_fp,
             "FN": self.n_fn,

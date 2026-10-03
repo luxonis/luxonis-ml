@@ -190,6 +190,87 @@ def _nonzero_bounds(binary: np.ndarray) -> Rect | None:
     return Rect(float(x0), float(y0), float(x1), float(y1))
 
 
+#: The longest side a mask is reduced to before `_interior_point` erodes it.
+_INTERIOR_GRID = 128
+
+
+#: A part of a mask competes for its label only with at least this share of
+#: the area of the largest part.
+_MAJOR_PART = 0.5
+
+
+def _main_part(binary: np.ndarray) -> np.ndarray:
+    """Keep the leftmost of the large connected parts of a mask.
+
+    A part is large with at least `_MAJOR_PART` of the area of the largest
+    part. The leftmost one wins rather than the largest, because two parts
+    of about the same size (the sidewalks on the two sides of a road) trade
+    the largest place from frame to frame, and the label would jump between
+    them. Without OpenCV, the whole mask is kept.
+    """
+    try:
+        import cv2
+    except ImportError:
+        return binary
+    count, labels, stats, centroids = cv2.connectedComponentsWithStats(
+        binary.astype(np.uint8), connectivity=4
+    )
+    if count <= 2:
+        return binary
+    areas = stats[1:, cv2.CC_STAT_AREA]
+    large = np.flatnonzero(areas >= _MAJOR_PART * areas.max())
+    leftmost = large[np.argmin(centroids[1:, 0][large])]
+    return labels == 1 + int(leftmost)
+
+
+def _interior_point(binary: np.ndarray) -> "tuple[float, float] | None":
+    """Return a point deep inside the main part of a mask, or ``None``.
+
+    The point is inside the mask, unlike the center of its bounding box,
+    which for a mask in two parts (the sidewalks on both sides of a road)
+    falls between them. Of a mask in several parts, `_main_part` picks the
+    part that holds the point, in a way that stays put from frame to frame.
+    Within the part, the point is the middle-most pixel that survives the
+    most erosions, which keeps it away from the edges and from the image
+    border. The mask is reduced to `_INTERIOR_GRID` pixels on its longest
+    side first, which keeps the erosion cheap.
+
+    Examples:
+        >>> import numpy as np
+        >>> strips = np.zeros((20, 40), bool)
+        >>> strips[:, 2:8] = strips[:, 24:] = True  # the left one is small
+        >>> x, y = _interior_point(strips)
+        >>> bool(strips[int(y), int(x)]), x > 24
+        (True, True)
+        >>> strips[:, 2:16] = True  # now both are large: the left one wins
+        >>> x, y = _interior_point(strips)
+        >>> bool(strips[int(y), int(x)]), x < 16
+        (True, True)
+        >>> _interior_point(np.zeros((4, 4), bool)) is None
+        True
+
+    """
+    step = max(1, math.ceil(max(binary.shape) / _INTERIOR_GRID))
+    core = _main_part(np.asarray(binary[::step, ::step], bool))
+    if not core.any():
+        return None
+    while True:
+        eroded = np.zeros_like(core)
+        eroded[1:-1, 1:-1] = (
+            core[1:-1, 1:-1]
+            & core[:-2, 1:-1]
+            & core[2:, 1:-1]
+            & core[1:-1, :-2]
+            & core[1:-1, 2:]
+        )
+        if not eroded.any():
+            break
+        core = eroded
+    ys, xs = np.nonzero(core)
+    middle = np.argmin((ys - ys.mean()) ** 2 + (xs - xs.mean()) ** 2)
+    return (float(xs[middle]) + 0.5) * step, (float(ys[middle]) + 0.5) * step
+
+
 class Mask(InstanceSegmentationAnnotation, Annotation):
     """A single instance mask: a translucent fill with an optional contour.
 
@@ -234,6 +315,16 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
     #: per layer and class, so without this the same reduction over the same
     #: pixels runs a dozen times over.
     _extent_cache: "tuple[Rect | None] | None" = PrivateAttr(default=None)
+    #: Memoized `_label_point`, boxed like `_extent_cache`.
+    _point_cache: "tuple[tuple[float, float] | None] | None" = PrivateAttr(
+        default=None
+    )
+
+    def _label_point(self) -> "tuple[float, float] | None":
+        """Return the mask point the label chip is pinned to, in mask pixels."""
+        if self._point_cache is None:
+            self._point_cache = (_interior_point(self._dense()),)
+        return self._point_cache[0]
 
     def _dense(self) -> np.ndarray:
         """Return the decoded ``(H, W)`` mask, decoding once and caching it.
@@ -392,6 +483,15 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
         if region is not None:
             ctx.emit_hit(region, self.tooltip, self.source)
             if self.label_chip:
+                # The bounding box of a mask in several parts, or of a thin
+                # diagonal one, mostly covers other things, so the chip is
+                # pinned inside the mask instead (see `_interior_point`).
+                point = self._label_point()
+                if point is not None:
+                    mask_h, mask_w = self._dense().shape[:2]
+                    x = point[0] * canvas.width / mask_w
+                    y = point[1] * canvas.height / mask_h
+                    region = Rect(x, y, x, y)
                 place_label(
                     ctx,
                     region,

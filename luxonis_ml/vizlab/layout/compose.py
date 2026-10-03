@@ -897,6 +897,39 @@ def order_by_position(sources: "Mapping[str, _T]") -> "dict[str, _T]":
     return {name: sources[name] for name in names}
 
 
+def reference_source(
+    sources: "Mapping[str, object]", preferred: str | None = None
+) -> str:
+    """Name the source that a sample's labels belong to.
+
+    A record holds one set of labels for all of its sources. For a stereo
+    pair they are in the coordinates of one camera, and drawn on the other
+    camera every box is off by the disparity. So the labels go on one
+    source: the preferred one when the sample has it, else the first in
+    position order.
+
+    Args:
+        sources: The sample's sources, keyed by name.
+        preferred: The source to use when the sample has it.
+
+    Returns:
+        The name of the reference source, or ``""`` without sources.
+
+    Examples:
+        >>> from luxonis_ml.vizlab.layout.compose import reference_source
+        >>> reference_source({"right": 0, "left": 1})
+        'left'
+        >>> reference_source({"right": 0, "left": 1}, preferred="right")
+        'right'
+        >>> reference_source({"left": 0}, preferred="thermal")
+        'left'
+
+    """
+    if preferred is not None and preferred in sources:
+        return preferred
+    return next(iter(order_by_position(sources)), "")
+
+
 #: The surface a layout is aimed at when the caller names no target. Screens,
 #: slides, and figure panes are all roughly this, and picking *some* shape is
 #: what lets an un-targeted composition agree with a targeted one.

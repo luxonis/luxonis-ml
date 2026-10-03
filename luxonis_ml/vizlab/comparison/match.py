@@ -81,6 +81,57 @@ class Match:
         return _score(self.pred) if self.pred is not None else None
 
 
+#: The text of a metric whose denominator is zero, such as the recall of a
+#: sample without ground truth.
+UNDEFINED = "\u2014"
+
+
+def format_ratio(numerator: float, denominator: float, digits: int) -> str:
+    """Format a ratio, or `UNDEFINED` when the denominator is zero.
+
+    A sample without ground truth has no recall to report. ``0.00`` would
+    claim that every object was missed, so the panel shows a dash instead.
+
+    Args:
+        numerator: The numerator.
+        denominator: The denominator.
+        digits: How many decimals to show.
+
+    Returns:
+        The ratio as text.
+
+    Examples:
+        >>> format_ratio(1, 4, 2), format_ratio(0, 0, 2)
+        ('0.25', '\u2014')
+
+    """
+    if not denominator:
+        return UNDEFINED
+    return f"{numerator / denominator:.{digits}f}"
+
+
+def format_f1(tp: int, fp: int, fn: int, digits: int) -> str:
+    """Format the F1 score, or `UNDEFINED` when precision or recall is.
+
+    Args:
+        tp: True positives.
+        fp: False positives.
+        fn: False negatives.
+        digits: How many decimals to show.
+
+    Returns:
+        The F1 score as text.
+
+    Examples:
+        >>> format_f1(1, 1, 1, 2), format_f1(0, 2, 0, 2)
+        ('0.50', '\u2014')
+
+    """
+    if not tp + fp or not tp + fn:
+        return UNDEFINED
+    return format_ratio(2 * tp, 2 * tp + fp + fn, digits)
+
+
 def _metric_row(counts: Sequence[int]) -> dict[str, float | int]:
     """Build precision/recall and raw counts from ``(tp, fp, fn)``."""
     tp, fp, fn = counts
@@ -203,16 +254,22 @@ class ComparisonResult:
         """Aggregate metrics as a panel-ready mapping.
 
         Returns:
-            Precision, recall, F1 and mean IoU as text with two decimals, and
-            the counts of true positives, false positives, false negatives and
-            class errors.
+            Precision, recall, F1 and mean IoU as text with two decimals, or
+            `UNDEFINED` where nothing defines them, and the counts of true
+            positives, false positives, false negatives and class errors.
 
         """
+        tp, fp, fn = self.n_tp, self.n_fp, self.n_fn
+        ious = [
+            m.iou
+            for m in self.matches
+            if m.verdict in (Verdict.TP, Verdict.CLASS_ERROR)
+        ]
         return {
-            "precision": f"{self.precision:.2f}",
-            "recall": f"{self.recall:.2f}",
-            "F1": f"{self.f1:.2f}",
-            "mean IoU": f"{self.mean_iou:.2f}",
+            "precision": format_ratio(tp, tp + fp, 2),
+            "recall": format_ratio(tp, tp + fn, 2),
+            "F1": format_f1(tp, fp, fn, 2),
+            "mean IoU": format_ratio(sum(ious), len(ious), 2),
             "TP": self.n_tp,
             "FP": self.n_fp,
             "FN": self.n_fn,
@@ -226,11 +283,13 @@ class ComparisonResult:
             ``{class: "P .. R .. (tp/fp/fn)"}``, one row for each class.
 
         """
-        return {
-            name: f"P {v['precision']:.2f}  R {v['recall']:.2f}  "
-            f"({v['tp']}/{v['fp']}/{v['fn']})"
-            for name, v in self.per_class.items()
-        }
+        rows = {}
+        for name, v in self.per_class.items():
+            tp, fp, fn = int(v["tp"]), int(v["fp"]), int(v["fn"])
+            precision = format_ratio(tp, tp + fp, 2)
+            recall = format_ratio(tp, tp + fn, 2)
+            rows[name] = f"P {precision}  R {recall}  ({tp}/{fp}/{fn})"
+        return rows
 
 
 def _label(obj: "Detectionish") -> str | None:
@@ -308,6 +367,26 @@ def _matchable(
     return bounded
 
 
+def _flatten(
+    detections: "Sequence[Detectionish]",
+) -> "list[Detectionish]":
+    """Make every sub-detection a detection of its own, parents first.
+
+    A plate or a face is a separate object to find, so it is matched and
+    drawn on its own verdict, not on the one of its parent. This also pairs
+    a nested ground-truth plate with a predicted plate that the loader could
+    not nest, because not every predicted parent had one.
+    """
+    flat: list[Detectionish] = []
+    for detection in detections:
+        if isinstance(detection, BBox) or not detection.sub_detections:
+            flat.append(detection)
+            continue
+        flat.append(detection.model_copy(update={"sub_detections": {}}))
+        flat.extend(_flatten(list(detection.sub_detections.values())))
+    return flat
+
+
 def _ranked_predictions(
     predictions: "Sequence[Detectionish]", score_threshold: float
 ) -> "list[tuple[Detectionish, Rect, float]]":
@@ -349,7 +428,8 @@ def match_detections(
     still overlaps — a class error, drawn distinctly but counted as a false
     positive plus a false negative. Everything unclaimed is a false positive
     (prediction) or false negative (ground truth). Detections with no matchable
-    bounds (neither a box nor keypoints) are ignored.
+    bounds (neither a box nor keypoints) are ignored. Each sub-detection of an
+    LDF detection is matched as a detection of its own.
 
     Args:
         gt: Ground-truth detections (`BBox` or LDF `Detection`).
@@ -365,8 +445,8 @@ def match_detections(
         A `ComparisonResult` with every `Match` and the aggregate metrics.
 
     """
-    gts = _matchable(gt)
-    ranked = _ranked_predictions(pred, score_threshold)
+    gts = _matchable(_flatten(gt))
+    ranked = _ranked_predictions(_flatten(pred), score_threshold)
 
     taken: set[int] = set()
     matches: list[Match] = []

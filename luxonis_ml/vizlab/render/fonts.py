@@ -6,9 +6,19 @@ The library ships two variable fonts so rendering never depends on system fonts
 used across Luxonis products. Each family ships an upright and an italic file, and
 is cloned to a requested weight on demand and cached. `FontManager` hands out sized
 ``skia.Font`` objects for any ``(weight, italic, mono)`` combination.
+
+The two families cover Latin, Greek and Cyrillic text. A character they lack,
+such as a CJK ideograph in a class name, comes from a system font instead:
+`FontManager.runs` splits text into runs that each have their glyphs in one
+font. The system fonts are consulted only for such a character, so text that
+the bundled fonts cover still never depends on them.
 """
 
 import functools
+import os
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from importlib import resources
 from pathlib import Path
 
@@ -81,6 +91,45 @@ def _weighted_typeface(weight: int, italic: bool, mono: bool) -> skia.Typeface:
     return base.makeClone(args)
 
 
+@contextmanager
+def _quiet_stderr() -> Iterator[None]:
+    """Silence the C-level standard error, where fontconfig writes warnings."""
+    sys.stderr.flush()
+    saved = os.dup(2)
+    try:
+        with open(os.devnull, "w") as devnull:
+            os.dup2(devnull.fileno(), 2)
+            yield
+    finally:
+        os.dup2(saved, 2)
+        os.close(saved)
+
+
+@functools.cache
+def _system_fonts() -> skia.FontMgr:
+    """Open the system font manager once, without its fontconfig warnings.
+
+    The warnings are about the system's own font configuration, which a
+    caller of vizlab can do nothing about.
+    """
+    with _quiet_stderr():
+        return skia.FontMgr.RefDefault()
+
+
+@functools.lru_cache(maxsize=256)
+def _fallback_typeface(
+    char: str, weight: int, italic: bool
+) -> skia.Typeface | None:
+    """Find a system typeface that draws ``char``, or ``None``."""
+    slant = (
+        skia.FontStyle.kItalic_Slant
+        if italic
+        else skia.FontStyle.kUpright_Slant
+    )
+    style = skia.FontStyle(weight, skia.FontStyle.kNormal_Width, slant)
+    return _system_fonts().matchFamilyStyleCharacter("", style, [], ord(char))
+
+
 class FontManager:
     """Hands out sized, weighted ``skia.Font`` objects from the bundled fonts."""
 
@@ -104,10 +153,73 @@ class FontManager:
             A configured ``skia.Font`` with subpixel anti-aliasing enabled.
 
         """
-        font = skia.Font(_weighted_typeface(weight, italic, mono), float(size))
-        font.setSubpixel(True)
-        font.setEdging(skia.Font.Edging.kAntiAlias)
-        return font
+        return _configured(
+            skia.Font(_weighted_typeface(weight, italic, mono), float(size))
+        )
+
+    def runs(
+        self,
+        text: str,
+        size: float,
+        *,
+        weight: int = 400,
+        italic: bool = False,
+        mono: bool = False,
+    ) -> list[tuple[skia.Font, str]]:
+        """Split text into runs that each have their glyphs in one font.
+
+        Text that the bundled font covers comes back as one run. A character
+        it lacks gets a system font that has it; when no installed font has
+        it either, it stays with the bundled font and draws as a box.
+
+        Args:
+            text: The text to split.
+            size: Text size in pixels.
+            weight: OpenType weight (100-900).
+            italic: Whether to use the italic variant.
+            mono: Whether to use JetBrains Mono (monospace) instead of Inter.
+
+        Returns:
+            The ``(font, text)`` runs, in reading order.
+
+        Examples:
+            >>> runs = DEFAULT_FONTS.runs("car", 12)
+            >>> [chunk for _, chunk in runs]
+            ['car']
+
+        """
+        font = self.font(size, weight=weight, italic=italic, mono=mono)
+        glyphs = font.textToGlyphs(text)
+        if all(glyphs) or len(glyphs) != len(text):
+            return [(font, text)]
+        runs: list[tuple[skia.Font, str]] = []
+        for char, glyph in zip(text, glyphs, strict=True):
+            typeface = (
+                None if glyph else _fallback_typeface(char, weight, italic)
+            )
+            run_font = (
+                font
+                if typeface is None
+                else _configured(skia.Font(typeface, float(size)))
+            )
+            last = runs[-1][0] if runs else None
+            if last is not None and _same_typeface(last, run_font):
+                runs[-1] = (last, runs[-1][1] + char)
+            else:
+                runs.append((run_font, char))
+        return runs
+
+
+def _configured(font: skia.Font) -> skia.Font:
+    """Turn on the subpixel positioning and anti-aliasing every font uses."""
+    font.setSubpixel(True)
+    font.setEdging(skia.Font.Edging.kAntiAlias)
+    return font
+
+
+def _same_typeface(a: skia.Font, b: skia.Font) -> bool:
+    """Report whether two fonts draw with the same typeface."""
+    return a.getTypeface().uniqueID() == b.getTypeface().uniqueID()
 
 
 DEFAULT_FONTS = FontManager()

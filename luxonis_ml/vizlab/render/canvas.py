@@ -905,8 +905,13 @@ class Canvas:
             The `TextMetrics` for the run.
 
         """
+        runs = self._fonts.runs(
+            text, size, weight=weight, italic=italic, mono=mono
+        )
+        width = sum(font.measureText(chunk) for font, chunk in runs)
+        # The line metrics stay those of the bundled font, so a fallback
+        # glyph in one label never changes the height of its chip.
         font = self._fonts.font(size, weight=weight, italic=italic, mono=mono)
-        width = font.measureText(text)
         metrics = font.getMetrics()
         # Size to the font's ink box (fTop/fBottom), not the typographic
         # ascent/descent (fAscent/fDescent): tall glyphs such as JetBrains Mono's
@@ -982,9 +987,13 @@ class Canvas:
             mono: Whether to draw with the monospace family.
 
         """
-        font = self._fonts.font(size, weight=weight, italic=italic, mono=mono)
         paint = skia.Paint(Color=_color4f(color), AntiAlias=True)
-        self._canvas.drawString(text, origin[0], origin[1], font, paint)
+        x, y = origin
+        for font, chunk in self._fonts.runs(
+            text, size, weight=weight, italic=italic, mono=mono
+        ):
+            self._canvas.drawString(chunk, x, y, font, paint)
+            x += font.measureText(chunk)
 
     # -- rich text (inline markup and styled spans) ---------------------------
 

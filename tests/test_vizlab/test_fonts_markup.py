@@ -334,3 +334,61 @@ def test_tracked_span_widths_measure_in_the_spans_own_face() -> None:
     assert mono == pytest.approx(2 * width("m", 16.0, mono=True))
     assert sans == pytest.approx(2 * width("m", 16.0))
     assert mono != pytest.approx(sans)
+
+
+def test_a_character_the_bundled_fonts_lack_comes_from_a_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Inter has no CJK ideographs. The fallback stands in for the system
+    # fonts, so the test does not depend on what the machine has installed.
+    from luxonis_ml.vizlab.render import fonts
+
+    stand_in = fonts._base_typeface(False, True)
+    monkeypatch.setattr(fonts, "_fallback_typeface", lambda char, *_: stand_in)
+
+    runs = fonts.DEFAULT_FONTS.runs("car 東京 ok", 12)
+
+    assert [chunk for _, chunk in runs] == ["car ", "東京", " ok"]
+    assert runs[1][0].getTypeface().uniqueID() == stand_in.uniqueID()
+
+
+def test_text_no_font_has_stays_with_the_bundled_font(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from luxonis_ml.vizlab.render import fonts
+
+    monkeypatch.setattr(fonts, "_fallback_typeface", lambda *_: None)
+
+    runs = fonts.DEFAULT_FONTS.runs("東京", 12)
+
+    assert [chunk for _, chunk in runs] == ["東京"]
+
+
+def test_measured_width_includes_the_fallback_glyphs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from luxonis_ml.vizlab.render import fonts
+
+    stand_in = fonts._base_typeface(False, True)
+    monkeypatch.setattr(fonts, "_fallback_typeface", lambda char, *_: stand_in)
+    canvas = Canvas.blank(10, 10)
+    plain = canvas.measure_text("car", 12).width
+
+    assert canvas.measure_text("car 東京", 12).width > plain
+
+
+def test_the_system_font_lookup_prints_no_fontconfig_warnings(
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    import skia
+
+    from luxonis_ml.vizlab.render import fonts
+
+    fonts._system_fonts.cache_clear()
+    fonts._fallback_typeface.cache_clear()
+
+    found = fonts._fallback_typeface("東", 400, False)
+
+    # Whether a CJK font is installed depends on the machine.
+    assert found is None or isinstance(found, skia.Typeface)
+    assert capfd.readouterr().err == ""

@@ -164,4 +164,25 @@ def test_corner_stack_empty_size_and_nonoverlapping_reservation() -> None:
     ctx = RenderContext(canvas=Canvas.blank(200, 100))
     positioned = populated._positioned(ctx, populated.resolve_style(ctx))
     reserved = [Rect(180.0, 0.0, 200.0, 20.0)]
-    assert populated._avoid_reserved(positioned, reserved) == positioned
+    assert (
+        populated._avoid_reserved(positioned, reserved, (200.0, 100.0))
+        == positioned
+    )
+
+
+def test_corner_stack_on_a_short_image_stands_beside_the_stack_it_meets() -> (
+    None
+):
+    # Class tags fill the left edge of a short image. Sliding the metadata
+    # card up past them would push it off the top, where nobody sees it.
+    card = Caption(text="metadata", corner=Corner.BOTTOM_LEFT)
+    ctx = RenderContext(canvas=Canvas.blank(200, 60))
+    positioned = card._positioned(ctx, card.resolve_style(ctx))
+    tags = Rect(14.0, 4.0, 60.0, 58.0)
+
+    moved = card._avoid_reserved(positioned, [tags], (200.0, 60.0))
+
+    for rect, _ in moved:
+        assert rect.left > tags.right
+        assert rect.top >= 0
+        assert rect.bottom <= 60

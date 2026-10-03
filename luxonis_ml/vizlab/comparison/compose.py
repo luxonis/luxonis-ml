@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 
 from luxonis_ml.vizlab.interaction import Frame
-from luxonis_ml.vizlab.layout.compose import combine
+from luxonis_ml.vizlab.layout.compose import combine, reference_source
 from luxonis_ml.vizlab.options import RenderOptions
 from luxonis_ml.vizlab.scene.image import Image, Renderable
 
@@ -144,6 +144,12 @@ class ComparisonComposer:
         display.add(self.legend.model_copy())
         return display
 
+    def _plain(self, image: np.ndarray) -> Renderable:
+        """Show a source without labels, at the size of the verdict scene."""
+        plain = Image(image, options=self.options)
+        plain.render_at(self._display_size(plain.width, plain.height))
+        return plain
+
     def frame(
         self,
         images: "Mapping[str, np.ndarray]",
@@ -165,9 +171,14 @@ class ComparisonComposer:
 
         """
         result = self.match(gt_record, pred_record)
+        # The labels are in the coordinates of one source, so the verdicts
+        # are drawn there and the other sources are shown as they are.
+        reference = reference_source(images, self.options.array_overlay_source)
         scenes = [
             self._scene(image.astype(np.uint8), result)
-            for image in images.values()
+            if name == reference
+            else self._plain(image.astype(np.uint8))
+            for name, image in images.items()
         ]
         # One source or several, vizlab decides the arrangement -- and orders
         # positional source names, so a stereo pair stays left-then-right.

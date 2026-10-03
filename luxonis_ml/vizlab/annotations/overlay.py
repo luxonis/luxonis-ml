@@ -285,7 +285,13 @@ class CornerStack(Annotation):
         top = self.corner in (Corner.TOP_LEFT, Corner.TOP_RIGHT)
         left = self.corner in (Corner.TOP_LEFT, Corner.BOTTOM_LEFT)
         total = sum(c.height for c in cells) + self.gap * (len(cells) - 1)
-        y = self.margin if top else canvas.height - self.margin - total
+        # A stack taller than the image keeps its title in view and lets its
+        # last rows run off the bottom edge.
+        y = (
+            self.margin
+            if top
+            else max(self.margin, canvas.height - self.margin - total)
+        )
         placed: list[tuple[Rect, CellDraw]] = []
         for cell in cells:
             x = (
@@ -303,8 +309,15 @@ class CornerStack(Annotation):
         self,
         positioned: list[tuple[Rect, CellDraw]],
         reserved: list[Rect],
+        size: tuple[float, float],
     ) -> list[tuple[Rect, CellDraw]]:
-        """Shift a corner stack past overlays already anchored there."""
+        """Shift a corner stack past overlays already anchored there.
+
+        The stack first slides along its edge, away from its corner. On a
+        short image that can push it past the far edge, where it would not
+        be seen; it then stands beside the overlays it meets instead, and
+        where that does not fit either, it stays put and overlaps them.
+        """
         if not positioned or not reserved:
             return positioned
         left, right, block_top, block_bottom = _block_bounds(
@@ -323,7 +336,33 @@ class CornerStack(Annotation):
         offset = (y - block_top) if top else (y - block_bottom)
         if offset == 0:
             return positioned
-        return _offset_positioned(positioned, offset)
+        width, height = size
+        if block_top + offset >= 0 and block_bottom + offset <= height:
+            return _offset_positioned(positioned, offset)
+        met = [
+            rect
+            for rect in occupied
+            if rect.bottom + self.gap > block_top
+            and rect.top - self.gap < block_bottom
+        ]
+        if self.corner in (Corner.TOP_LEFT, Corner.BOTTOM_LEFT):
+            shift = max(rect.right for rect in met) + self.gap - left
+        else:
+            shift = min(rect.left for rect in met) - self.gap - right
+        if left + shift >= 0 and right + shift <= width:
+            return [
+                (
+                    Rect(
+                        rect.left + shift,
+                        rect.top,
+                        rect.right + shift,
+                        rect.bottom,
+                    ),
+                    draw,
+                )
+                for rect, draw in positioned
+            ]
+        return positioned
 
     def reserve(self, ctx: RenderContext) -> None:
         """Reserve each cell's rect so spatial labels avoid the corner.
@@ -338,6 +377,7 @@ class CornerStack(Annotation):
         positioned = self._avoid_reserved(
             self._positioned(ctx, self.resolve_style(ctx)),
             ctx.layout.placed,
+            (ctx.canvas.width, ctx.canvas.height),
         )
         ctx.layout.overlay_positions[id(self)] = [
             rect for rect, _ in positioned

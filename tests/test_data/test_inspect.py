@@ -211,21 +211,35 @@ class _FakeBackend:
         pass
 
 
-def test_present_sample_metadata_splits_batch_into_labelled_samples() -> None:
-    # A batch augmentation's merged metadata becomes one "sample N" group per
-    # contributing input, dropping the duplicated top-level copy and the
-    # machine-only input_index/sample_metadata wrapping.
+def test_present_sample_metadata_names_only_the_files_of_batch_inputs() -> (
+    None
+):
+    # A fused frame is none of its inputs, and the full metadata of the eight
+    # inputs of Mosaic4 with MixUp made a panel taller than the screen. Each
+    # input is listed by its image file; the duplicated top-level copy and
+    # the input_index/sample_metadata wrapping go away.
     merged: Params = {
         "record_id": 123,
         "source": "a.jpg",
         "batch_augmentation_metadata": [
-            {"input_index": 0, "sample_metadata": {"record_id": 123}},
-            {"input_index": 1, "sample_metadata": {"record_id": 456}},
+            {
+                "input_index": 0,
+                "sample_metadata": {
+                    "record_id": 123,
+                    "filenames": {"image": "a.jpg"},
+                },
+            },
+            {
+                "input_index": 1,
+                "sample_metadata": {
+                    "record_id": 456,
+                    "filenames": {"image": "b.jpg"},
+                },
+            },
         ],
     }
     assert data_main._present_sample_metadata(merged) == {
-        "sample 1": {"record_id": 123},
-        "sample 2": {"record_id": 456},
+        "inputs": {"sample 1": "a.jpg", "sample 2": "b.jpg"}
     }
 
 
@@ -296,27 +310,6 @@ def test_present_sample_metadata_keeps_multi_source_filenames() -> None:
     assert data_main._present_sample_metadata(md) == md
 
 
-def test_present_sample_metadata_flattens_filenames_per_batch_sample() -> None:
-    from luxonis_ml.vizlab import Block
-
-    merged: Params = {
-        "batch_augmentation_metadata": [
-            {
-                "input_index": 0,
-                "sample_metadata": {"filenames": {"image": "a.jpg"}},
-            },
-            {
-                "input_index": 1,
-                "sample_metadata": {"filenames": {"image": "b.jpg"}},
-            },
-        ],
-    }
-    assert data_main._present_sample_metadata(merged) == {
-        "sample 1": {"filename": Block("a.jpg")},
-        "sample 2": {"filename": Block("b.jpg")},
-    }
-
-
 def test_present_sample_metadata_shows_dataset_markup_as_text() -> None:
     # The panel parses its text as markup; a value from the dataset must come
     # out as typed, not raise on an unknown attribute or turn bold.
@@ -338,7 +331,7 @@ def test_present_sample_metadata_shows_dataset_markup_as_text() -> None:
     with_panel(Image(np.zeros((20, 30, 3), np.uint8)), panel).render()
 
 
-def test_present_sample_metadata_labels_empty_inputs() -> None:
+def test_present_sample_metadata_labels_inputs_without_a_file() -> None:
     merged: Params = {
         "batch_augmentation_metadata": [
             {"input_index": 0, "sample_metadata": {"record_id": 1}},
@@ -346,8 +339,10 @@ def test_present_sample_metadata_labels_empty_inputs() -> None:
         ],
     }
     assert data_main._present_sample_metadata(merged) == {
-        "sample 1": {"record_id": 1},
-        "sample 2": "(no metadata)",
+        "inputs": {
+            "sample 1": "(no filename)",
+            "sample 2": "(no filename)",
+        }
     }
 
 
@@ -372,6 +367,26 @@ def test_present_classes_leave_out_array_fields() -> None:
         },
     )
     assert data_main._present_classes(record) == ["car"]
+
+
+def test_present_classes_list_sub_detections_after_their_parent() -> None:
+    plate = Detection(
+        class_name="plate",
+        boundingbox=BBoxAnnotation(x=0.2, y=0.4, w=0.05, h=0.02),
+    )
+    car = Detection(
+        class_name="car",
+        boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.4),
+        sub_detections={"plate": plate},
+    )
+    person = Detection(
+        class_name="person",
+        boundingbox=BBoxAnnotation(x=0.5, y=0.1, w=0.1, h=0.4),
+    )
+    record = DatasetRecord.model_construct(
+        files={}, annotation={"objects": [car, person]}
+    )
+    assert data_main._present_classes(record) == ["car", "plate", "person"]
 
 
 def _patch_two_class_sample(monkeypatch: pytest.MonkeyPatch) -> None:

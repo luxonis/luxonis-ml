@@ -9,6 +9,7 @@ finished frames.
 """
 
 from collections.abc import Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from itertools import chain
 from typing import TYPE_CHECKING, Literal
@@ -16,7 +17,11 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 
 from luxonis_ml.vizlab.interaction import Frame
-from luxonis_ml.vizlab.layout.compose import combine, order_by_position
+from luxonis_ml.vizlab.layout.compose import (
+    combine,
+    order_by_position,
+    reference_source,
+)
 from luxonis_ml.vizlab.layout.panel import Controls, Swatches
 from luxonis_ml.vizlab.options import RenderOptions
 from luxonis_ml.vizlab.scene.image import Image, Renderable
@@ -197,9 +202,18 @@ class SampleComposer:
         ]
 
     def _array_tiles(
-        self, arrays: "Mapping[str, np.ndarray]", layers: "LayerState"
+        self,
+        arrays: "Mapping[str, np.ndarray]",
+        layers: "LayerState",
+        height: int | None = None,
     ) -> "tuple[list[Renderable], list[str]]":
-        """Render each array field as its own tile, in the ``tile`` array view."""
+        """Render each array field as its own tile, in the ``tile`` array view.
+
+        A field is often stored at a fraction of the image resolution. Each
+        tile is scaled to ``height``, the height of the image tiles, so a
+        field is as large as the photo beside it and its color key covers
+        only a corner of it. The field keeps its own aspect ratio.
+        """
         if (
             self.options.array_view != "tile"
             or not arrays
@@ -218,11 +232,14 @@ class SampleComposer:
             array_field = drawing.field.field()
             if array_field is None:
                 continue
-            height, width = array_field.shape[-2:]
+            rows, columns = array_field.shape[-2:]
+            if height is not None:
+                columns = max(1, round(columns * height / rows))
+                rows = height
             # On the theme background rather than black, so a nodata pixel reads
             # as absent instead of as a low value.
             canvas = np.full(
-                (height, width, 3),
+                (rows, columns, 3),
                 (background.r, background.g, background.b),
                 np.uint8,
             )
@@ -278,6 +295,7 @@ class SampleComposer:
         record: "DatasetRecord",
         layers: "LayerState",
         color_by: ColorBy,
+        array_tasks: "AbstractSet[str]" = frozenset(),
     ) -> "tuple[list[Renderable], list[str]]":
         """Build the tiles one image source contributes, with their titles.
 
@@ -286,11 +304,14 @@ class SampleComposer:
         tile per task, so the tasks stay legible side by side.
         """
         # The fields come from the array labels (see `tiles`), so an array task
-        # gets no tile of its own here.
+        # gets no tile of its own here. A sample without an array of such a
+        # task lists it with no detections, which alone looks like a negative
+        # image task, so the names of the array labels decide.
         tasks = [
             task
             for task, detections in record.annotation.items()
-            if not detections or any(d.array is None for d in detections)
+            if task not in array_tasks
+            and (not detections or any(d.array is None for d in detections))
         ]
         # The viewer's interactive layer toggles (masks/keypoints/labels, a class
         # focus) filter what is drawn without disturbing the metadata cards,
@@ -349,23 +370,34 @@ class SampleComposer:
         # Source names carry their own placement: a rig storing `right` before
         # `left` should still be drawn left-to-right.
         images = order_by_position(images)
-        # A field describes the reference view, so an overlay lands on exactly
-        # one source; the others are built without it.
-        overlay_source = self.options.array_overlay_source or next(
-            iter(images), ""
-        )
+        # The labels and any array field describe the reference view, so they
+        # land on exactly one source; the others are shown as they are.
+        reference = reference_source(images, self.options.array_overlay_source)
         for source_name, source_image in images.items():
+            if source_name != reference:
+                tiles.append(
+                    Image(source_image.astype(np.uint8), options=self.options)
+                )
+                titles.append(source_name)
+                continue
             source, names = self._source_tiles(
                 source_name,
                 source_image.astype(np.uint8),
-                arrays if source_name == overlay_source else {},
+                arrays,
                 record,
                 layers,
                 color_by,
+                array_tasks=frozenset(arrays),
             )
             tiles.extend(source)
             titles.extend(names)
-        field_tiles, field_titles = self._array_tiles(arrays, layers)
+        field_tiles, field_titles = self._array_tiles(
+            arrays,
+            layers,
+            height=next(
+                (int(image.shape[0]) for image in images.values()), None
+            ),
+        )
         tiles.extend(field_tiles)
         titles.extend(field_titles)
         # A lone tile needs no title band; several are only distinguishable with

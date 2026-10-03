@@ -89,6 +89,23 @@ def test_tile_view_adds_no_bare_tile_for_the_array_task() -> None:
     assert titles == ["image · objects", "image · people", "depth scalar"]
 
 
+def test_a_sample_without_its_array_adds_no_tile_for_the_array_task() -> None:
+    # The loader lists every task of the dataset. A sample that lacks the
+    # array gets an empty detection list and an empty array label.
+    record = _record(objects=[_box("car")], people=[_box("person")], depth=[])
+    composer = SampleComposer(RenderOptions(array_view="tile"))
+
+    _, titles = composer.tiles(
+        {"image": PHOTO},
+        {"depth": np.zeros(0)},
+        record,
+        LayerState(),
+        "class",
+    )
+
+    assert titles == ["image · objects", "image · people"]
+
+
 @pytest.mark.parametrize(
     "embedding",
     [
@@ -132,8 +149,63 @@ def test_a_sample_that_falls_back_to_class_colors_gets_the_class_legend(
 
     monkeypatch.setattr(SampleComposer, "sidebar", spy)
     composer.frame(
-        {"image": PHOTO}, {}, record, {}, LayerState(classes=("car",)), color_by
+        {"image": PHOTO},
+        {},
+        record,
+        {},
+        LayerState(classes=("car",)),
+        color_by,
     )
 
     assert color_by == "class"
     assert "classes" in sidebars[0]
+
+
+@pytest.mark.parametrize(
+    ("shape", "size"),
+    [((10, 15), (60, 40)), ((20, 20), (40, 40))],
+)
+def test_an_array_tile_is_as_tall_as_the_photo(
+    shape: tuple[int, int], size: tuple[int, int]
+) -> None:
+    # Arrays are often stored at a fraction of the image size. A tile at the
+    # stored size would be dwarfed by the photo and hidden by its color key.
+    field = np.linspace(0.0, 1.0, shape[0] * shape[1]).reshape(shape)
+    composer = SampleComposer(RenderOptions(array_view="tile"))
+
+    tiles, _ = composer.tiles(
+        {"image": PHOTO},
+        {"depth": field[None, None]},
+        _record(objects=[_box("car")], depth=[_depth()]),
+        LayerState(),
+        "class",
+    )
+
+    assert (tiles[-1].width, tiles[-1].height) == size
+
+
+@pytest.mark.parametrize(
+    ("overlay_source", "labeled"), [(None, "left"), ("right", "right")]
+)
+def test_labels_go_on_the_reference_source_only(
+    overlay_source: str | None, labeled: str
+) -> None:
+    # One record labels a stereo pair in the coordinates of one camera.
+    composer = SampleComposer(
+        RenderOptions(array_overlay_source=overlay_source)
+    )
+
+    tiles, titles = composer.tiles(
+        {"right": PHOTO, "left": PHOTO},
+        {},
+        _record(objects=[_box("car")]),
+        LayerState(),
+        "class",
+    )
+
+    assert titles == ["left", "right"]
+    drawn = {
+        title: bool(tile.annotations)  # type: ignore[attr-defined]
+        for title, tile in zip(titles, tiles, strict=True)
+    }
+    assert drawn == {"left": labeled == "left", "right": labeled == "right"}

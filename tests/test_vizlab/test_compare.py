@@ -524,6 +524,52 @@ def test_ldf_metadata_controls_score_filtering_and_ranking() -> None:
     assert tp.score == 0.9
 
 
+def _car_with_plate(**extra: object) -> Detection:
+    plate = {"class_name": "plate", "boundingbox": _box_dict(0.2, 0.3)}
+    return Detection.model_validate(
+        {
+            "class_name": "car",
+            "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.4, "h": 0.4},
+            "sub_detections": {"plate": plate},
+            **extra,
+        }
+    )
+
+
+def _box_dict(x: float, y: float) -> dict[str, float]:
+    return {"x": x, "y": y, "w": 0.1, "h": 0.05}
+
+
+def test_a_nested_plate_matches_a_plate_the_loader_left_unnested() -> None:
+    # A prediction dataset whose false alarms have no plate cannot nest the
+    # plates of the other cars, so they arrive as detections of their own.
+    car = Detection.model_validate(
+        {
+            "class_name": "car",
+            "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.4, "h": 0.4},
+        }
+    )
+    plate = Detection.model_validate(
+        {"class_name": "plate", "boundingbox": _box_dict(0.2, 0.3)}
+    )
+
+    result = match_detections([_car_with_plate()], [car, plate])
+
+    assert result.n_tp == 2
+    assert result.n_fp == result.n_fn == 0
+
+
+def test_a_missed_car_draws_its_plate_as_missed_too() -> None:
+    # The plate keeps no class color of its own: next to the green of a hit
+    # the mint of the plate class would read as found.
+    img = compare(_blank(), gt=[_car_with_plate()], pred=[], panel=False)
+
+    boxes = [a for a in img.annotations if isinstance(a, BBox)]
+    assert {box.label for box in boxes} == {"car", "plate"}
+    assert all(box.color == FN_COLOR for box in boxes)
+    assert all(not box.children for box in boxes)
+
+
 def test_keypoint_only_detection_matched_by_extent() -> None:
     # Neither side has a box; bounds come from the keypoints' extent.
     kps = {"keypoints": [(0.2, 0.2, 2), (0.4, 0.4, 2)]}
@@ -787,3 +833,56 @@ def test_composer_captures_a_sample_once_without_a_legend(
     composer.frame({"image": np.zeros((40, 60, 3), np.uint8)}, record, record)
 
     assert len(captured) == 1
+
+
+def test_metrics_without_a_denominator_show_a_dash() -> None:
+    # Nothing to find and nothing found: recall is undefined, not zero.
+    empty = match_detections([], []).summary()
+    assert (empty["precision"], empty["recall"]) == ("\u2014", "\u2014")
+    assert (empty["F1"], empty["mean IoU"]) == ("\u2014", "\u2014")
+
+    only_alarms = match_detections([], [_box(0.1, 0.1, label="car")])
+    assert only_alarms.summary()["precision"] == "0.00"
+    assert only_alarms.summary()["recall"] == "\u2014"
+    assert only_alarms.per_class_panel()["car"] == "P 0.00  R \u2014  (0/1/0)"
+
+    report = ComparisonReport()
+    report.add(match_detections([], []), name="empty")
+    assert report.summary()["recall"] == "\u2014"
+
+
+def test_composer_draws_the_verdicts_on_the_reference_source_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The labels of a stereo pair are in the coordinates of one camera. On
+    # the other camera every box would be off by the disparity.
+    from pathlib import Path
+
+    from luxonis_ml.ldf import BBoxAnnotation, DatasetRecord
+    from luxonis_ml.vizlab import ComparisonComposer
+
+    detection = Detection(
+        class_name="car",
+        boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+    )
+    record = DatasetRecord.model_construct(
+        files={"left": Path("l.jpg"), "right": Path("r.jpg")},
+        annotation={"cars": [detection]},
+    )
+    drawn: list[int] = []
+    scene = ComparisonComposer._scene
+
+    def spy(
+        self: ComparisonComposer, image: np.ndarray, result: object
+    ) -> object:
+        drawn.append(int(image[0, 0, 0]))
+        return scene(self, image, result)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(ComparisonComposer, "_scene", spy)
+    composer = ComparisonComposer(RenderOptions(), panel=False)
+    right = np.full((40, 60, 3), 2, np.uint8)
+    left = np.full((40, 60, 3), 1, np.uint8)
+
+    composer.frame({"right": right, "left": left}, record, record)
+
+    assert drawn == [1]
