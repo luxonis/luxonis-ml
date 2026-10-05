@@ -208,6 +208,26 @@ def test_arrays_keep_their_data(tempdir: Path):
     assert detection.array.to_numpy().tolist() == [1.0, 2.0, 3.0]
 
 
+def test_an_array_without_a_class_keeps_its_data():
+    # A depth map or an embedding often has no class. Its task then counts
+    # no classes, and the loader still needs one slot to put the data in.
+    schema = DatasetSchema(tasks={"depth": ["array"]})
+    record = DatasetRecord.model_validate(
+        {
+            "media": IMAGE,
+            "annotation": {
+                "depth": [{"array": {"data": np.full((4, 4), 2.5)}}]
+            },
+        }
+    )
+
+    (detection,) = roundtrip(record, schema).annotation["depth"]
+
+    assert detection.class_name is None
+    assert detection.array is not None
+    assert detection.array.to_numpy().tolist() == np.full((4, 4), 2.5).tolist()
+
+
 @pytest.mark.parametrize("keep_categorical_as_strings", [False, True])
 def test_metadata_stays_with_its_own_instance(
     keep_categorical_as_strings: bool,

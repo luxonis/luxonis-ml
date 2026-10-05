@@ -2104,11 +2104,12 @@ class ArrayAnnotation(Annotation):
         Returns:
             Combined arrays of shape :math:`\left(N, C, \ldots\right)`
             where :math:`C` is the number of classes and
-            :math:`N` is the number of instances.
+            :math:`N` is the number of instances. A task without classes
+            still gets one slot, which holds every instance.
 
         """
         arrays = [ann.to_numpy() for ann in annotations]
-        out_arr = np.zeros((len(arrays), n_classes, *arrays[0].shape))
+        out_arr = np.zeros((len(arrays), max(n_classes, 1), *arrays[0].shape))
         for i, array in enumerate(arrays):
             out_arr[i, classes[i]] = array
         return out_arr
