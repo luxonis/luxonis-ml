@@ -1337,6 +1337,19 @@ def test_the_loader_names_the_keypoints(dataset_name: str, tempdir: Path):
     assert loader.get_keypoint_metadata()["pose"].labels == LABELS
 
 
+def test_a_caller_cannot_change_the_stored_keypoint_metadata(
+    dataset_name: str, tempdir: Path
+):
+    dataset = named_dataset(dataset_name, tempdir)
+    loader = LuxonisLoader(dataset)
+
+    dataset.get_keypoint_metadata()["pose"].labels.append("tail")
+    loader.get_keypoint_metadata()["pose"].labels.append("tail")
+
+    assert dataset.get_keypoint_metadata()["pose"].labels == LABELS
+    assert loader.get_keypoint_metadata()["pose"].labels == LABELS
+
+
 def test_the_loader_builds_no_keypoint_metadata_for_each_row(
     dataset_name: str, tempdir: Path, monkeypatch: pytest.MonkeyPatch
 ):

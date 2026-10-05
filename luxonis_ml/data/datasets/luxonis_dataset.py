@@ -983,7 +983,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
     @override
     def get_keypoint_metadata(self) -> dict[str, KeypointMetadata]:
-        return dict(self._metadata.keypoint_metadata)
+        return {
+            task: task_keypoints.model_copy(deep=True)
+            for task, task_keypoints in self._metadata.keypoint_metadata.items()
+        }
 
     @override
     def get_n_keypoints(self) -> dict[str, int]:
