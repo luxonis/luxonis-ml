@@ -1,6 +1,6 @@
 import warnings
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from math import prod
 from typing import Any, Final, Literal, TypeAlias, cast
 
@@ -559,8 +559,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             transform = self._create_transformation(
                 cfg, self._tracked_augmentation_paths
             )
-            if isinstance(transform, SymmetricKeypointsTransform):
-                self._symmetric_transforms.append(transform)
+            self._symmetric_transforms.extend(
+                _find_symmetric_transforms(transform)
+            )
 
             if cfg.use_for_resizing:
                 logger.info(f"Using '{cfg.name}' for resizing.")
@@ -1333,6 +1334,17 @@ def _reset_params(transform: Any) -> None:
     if isinstance(transform, A.BaseCompose):
         for child in transform.transforms:
             _reset_params(child)
+
+
+def _find_symmetric_transforms(
+    transform: Any,
+) -> Iterator[SymmetricKeypointsTransform]:
+    """Yield the symmetric flips of a transform, also nested ones."""
+    if isinstance(transform, SymmetricKeypointsTransform):
+        yield transform
+    elif isinstance(transform, A.BaseCompose):
+        for child in transform.transforms:
+            yield from _find_symmetric_transforms(child)
 
 
 def _disambiguate_paths(paths: dict[int, str]) -> dict[int, str]:

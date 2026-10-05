@@ -214,7 +214,27 @@ def test_vertical_flip_mirrors_keypoints_across_the_image_height() -> None:
     assert np.allclose(out["keypoints"], [[5.0, 8.0]])
 
 
-def test_each_keypoint_task_swaps_its_own_stored_pairs() -> None:
+FLIP = {"name": "HorizontalSymmetricKeypointsFlip", "params": {"p": 1.0}}
+ONE_OF_FLIP = {"name": "OneOf", "params": {"p": 1.0, "transforms": [FLIP]}}
+
+
+@pytest.mark.parametrize(
+    "augmentation",
+    [
+        pytest.param(FLIP, id="top-level"),
+        pytest.param(ONE_OF_FLIP, id="OneOf"),
+        pytest.param(
+            {
+                "name": "Sequential",
+                "params": {"p": 1.0, "transforms": [ONE_OF_FLIP]},
+            },
+            id="Sequential-OneOf",
+        ),
+    ],
+)
+def test_each_keypoint_task_swaps_its_own_stored_pairs(
+    augmentation: dict[str, Any],
+) -> None:
     # A person with a nose and two eyes, and a hand with four keypoints
     # whose outer two are a pair. The flip has no pairs of its own.
     engine = AlbumentationsEngine(
@@ -236,7 +256,7 @@ def test_each_keypoint_task_swaps_its_own_stored_pairs() -> None:
             1,
         ),
         ["image"],
-        [{"name": "HorizontalSymmetricKeypointsFlip", "params": {"p": 1.0}}],
+        [augmentation],
         keypoint_metadata={
             "people": KeypointMetadata(
                 labels=["nose", "left", "right"], flip_pairs=[(1, 2)]
