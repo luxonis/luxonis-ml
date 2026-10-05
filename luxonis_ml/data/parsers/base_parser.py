@@ -731,6 +731,12 @@ class BaseParser(ABC):
                         }
                     )
                     metadata.validate_labels(f"class '{class_name}'")
+                    # Without names, the annotation gives the keypoint count.
+                    metadata.validate_for(
+                        len(metadata.labels)
+                        or len(detection.keypoints.keypoints),
+                        f"class '{class_name}'",
+                    )
                     checked[class_name] = metadata
                 # `add` can check later splits against stored names, but this
                 # split has not stored its parser-provided names yet.
