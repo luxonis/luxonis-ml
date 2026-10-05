@@ -1118,6 +1118,66 @@ def test_parser_checks_the_keypoint_metadata_before_it_adds_a_split(
     dataset.delete_dataset(delete_local=True)
 
 
+class _UnnamedKeypointsParser(COCOParser):
+    """Parse person records whose keypoints have no names."""
+
+    def __init__(
+        self, dataset: LuxonisDataset, widths: list[int], sigmas: list[float]
+    ):
+        super().__init__(dataset, DatasetType.COCO, "pose")
+        self.widths = widths
+        self.sigmas = sigmas
+
+    @override
+    def from_split(
+        self, image_dir: Path, annotation_path: Path
+    ) -> ParserOutput:
+        files = [create_image(i, image_dir) for i in range(len(self.widths))]
+        records = (
+            {
+                "file": str(file),
+                "annotation": {
+                    "class": "person",
+                    "keypoints": {"keypoints": [(0.1, 0.1, 2)] * width},
+                },
+            }
+            for file, width in zip(files, self.widths, strict=True)
+        )
+        return records, {"person": {"sigmas": self.sigmas}}, files
+
+
+def test_parser_checks_unnamed_keypoints_against_the_widest_record(
+    dataset_name: str, tempdir: Path
+):
+    """Without names, the widest record gives the keypoint count.
+
+    `add` counts the keypoints of a task the same way. A check against
+    the first record would pass, and `add` would write the rows before
+    `set_keypoint_metadata` rejects the sigmas.
+    """
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    parser = _UnnamedKeypointsParser(dataset, [3, 5], [0.1] * 3)
+
+    with pytest.raises(ValueError, match="3 sigmas for 5 keypoints"):
+        parser.parse_split(image_dir=tempdir, annotation_path=tempdir)
+
+    assert len(dataset) == 0
+    dataset.delete_dataset(delete_local=True)
+
+
+def test_parser_takes_sigmas_for_the_widest_unnamed_record(
+    dataset_name: str, tempdir: Path
+):
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+
+    _UnnamedKeypointsParser(dataset, [3, 5], [0.1] * 5).parse_split(
+        image_dir=tempdir, annotation_path=tempdir
+    )
+
+    assert dataset.get_keypoint_metadata()["pose"].sigmas == [0.1] * 5
+    dataset.delete_dataset(delete_local=True)
+
+
 class _FlipPairsCOCOParser(COCOParser):
     """Parse a COCO source that also defines empty flip pairs."""
 

@@ -702,6 +702,7 @@ class BaseParser(ABC):
             for class_name, metadata in keypoints.items()
             if any(metadata.values())
         }
+        widths: dict[str, int] = defaultdict(int)
         for record in records:
             annotation = record.annotation
             if (
@@ -719,15 +720,23 @@ class BaseParser(ABC):
                         }
                     )
                     definition.validate_labels(f"class '{class_name}'")
-                    # Without names, the annotation gives the keypoint count.
-                    definition.validate_for(
-                        len(definition.labels)
-                        or len(annotation.keypoints.keypoints),
-                        f"class '{class_name}'",
-                    )
+                    if definition.labels:
+                        definition.validate_for(
+                            len(definition.labels), f"class '{class_name}'"
+                        )
                     checked[class_name] = definition
                     tasks[class_name] = record.task_name
                 # `add` can check later splits against stored names, but this
                 # split has not stored its parser-provided names yet.
                 checked[class_name].align(annotation.keypoints.keypoints)
+                widths[class_name] = max(
+                    widths[class_name], len(annotation.keypoints.keypoints)
+                )
             yield record
+        # Without names, the widest record gives the keypoint count, as in
+        # `add`. `add` writes its last batch only after this check.
+        for class_name, definition in checked.items():
+            if not definition.labels:
+                definition.validate_for(
+                    widths[class_name], f"class '{class_name}'"
+                )
