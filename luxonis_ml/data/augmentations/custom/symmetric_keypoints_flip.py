@@ -1,3 +1,18 @@
+"""Flips and a transpose that also swap the names of symmetric keypoints.
+
+Mirroring an image moves the left wrist of a person to where the right wrist
+was. A plain Albumentations flip moves the coordinates but keeps the names,
+so the keypoint called ``left_wrist`` ends up on the right side of the body.
+These transforms move the coordinates and also swap the keypoints of each
+symmetric pair.
+
+Each keypoint task can have its own skeleton. `AlbumentationsEngine` tells
+the transforms, for each keypoint task, how many keypoints an instance has
+and which pairs the task stores in its `KeypointMetadata`. Pairs given in the
+configuration apply to a task that stores none.
+"""
+
+from functools import partial
 from itertools import chain
 from typing import Any
 
@@ -6,31 +21,63 @@ import cv2
 import numpy as np
 from typing_extensions import override
 
+#: The keypoint count of an instance and the pairs to swap, for one target.
+Layout = tuple[int, list[tuple[int, int]]]
 
-class HorizontalSymmetricKeypointsFlip(A.DualTransform):
-    """Flip images and symmetric keypoints horizontally.
+
+class SymmetricKeypointsTransform(A.DualTransform):
+    """Base of the transforms that mirror keypoints and swap symmetric ones.
+
+    A subclass moves the pixels and the coordinates; this class swaps the
+    keypoints of each symmetric pair, instance by instance. Albumentations
+    hands over the keypoints of one target as a flat ``(N * K, D)`` array, so
+    the transform has to know ``K``, the number of keypoints of an instance.
+    `set_layouts` gives it ``K`` and the stored pairs for each target. A
+    target without a layout takes ``K`` as one more than the largest index
+    in ``keypoint_pairs``.
 
     Attributes:
-        keypoint_pairs: Pairs of keypoint indices swapped after flipping.
-        n_keypoints: Number of unique keypoints described by
-            ``keypoint_pairs``.
+        keypoint_pairs: Index pairs from the configuration. They apply to a
+            target whose task stores no flip pairs, when the instances of the
+            target have more keypoints than their largest index.
+        n_keypoints: The keypoint count assumed for a target without a
+            layout.
+        layouts: For each keypoint target, its keypoint count and the pairs
+            its task stores.
 
     """
 
-    def __init__(self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5):
-        """Flip an image and symmetric keypoints horizontally.
+    def __init__(
+        self,
+        keypoint_pairs: list[tuple[int, int]] | None = None,
+        p: float = 0.5,
+    ):
+        """Mirror an image and swap symmetric keypoints.
 
-        Bounding boxes and segmentation masks are flipped as well.
+        Bounding boxes and segmentation masks move with the image.
 
         Args:
-            keypoint_pairs: Pairs of keypoint indices to swap after the
-                flip.
+            keypoint_pairs: Pairs of keypoint indices to swap for a task
+                that stores no flip pairs. A task that stores some swaps
+                its own.
             p: Probability of applying the augmentation.
 
         """
         super().__init__(p=p)
-        self.keypoint_pairs = keypoint_pairs
-        self.n_keypoints = len(set(chain.from_iterable(keypoint_pairs)))
+        self.keypoint_pairs = [(i, j) for i, j in keypoint_pairs or []]
+        self.n_keypoints = (
+            max(chain.from_iterable(self.keypoint_pairs), default=-1) + 1
+        )
+        self.layouts: dict[str, Layout] = {}
+
+    def set_layouts(self, layouts: dict[str, Layout]) -> None:
+        """Set the keypoint count and the stored pairs of each target.
+
+        Args:
+            layouts: The layout of each keypoint target, by target name.
+
+        """
+        self.layouts = dict(layouts)
 
     @property
     @override
@@ -39,6 +86,23 @@ class HorizontalSymmetricKeypointsFlip(A.DualTransform):
         targets["instance_mask"] = self.apply_to_mask
         targets["segmentation"] = self.apply_to_mask
         return targets
+
+    @override
+    def add_targets(self, additional_targets: dict[str, str]) -> None:
+        """Register extra targets, and bind each keypoint target by name.
+
+        Albumentations calls one function for every target of a kind. Each
+        keypoint target here gets a function that knows the target's name,
+        so that it can swap with the layout of its own task.
+
+        Args:
+            additional_targets: The kind of each extra target, by name.
+
+        """
+        super().add_targets(additional_targets)
+        for key, kind in additional_targets.items():
+            if kind == "keypoints" and key in self._key2func:
+                self._key2func[key] = partial(self._mirror_keypoints, key)
 
     @override
     def get_params_dependent_on_data(
@@ -51,14 +115,76 @@ class HorizontalSymmetricKeypointsFlip(A.DualTransform):
             data: Input data.
 
         Returns:
-            Parameters derived from the input targets.
+            The height and the width of the image.
 
         """
-        orig_height, orig_width, _ = params["shape"]
-        return {
-            "orig_width": orig_width,
-            "orig_height": orig_height,
-        }
+        orig_height, orig_width = params["shape"][:2]
+        return {"orig_width": orig_width, "orig_height": orig_height}
+
+    @override
+    def apply_to_keypoints(
+        self, keypoints: np.ndarray, **params
+    ) -> np.ndarray:
+        """Mirror the keypoints of the default target, and swap the pairs.
+
+        Args:
+            keypoints: Keypoints to mirror.
+            params: Additional transform parameters.
+
+        Returns:
+            Mirrored keypoints.
+
+        """
+        return self._mirror_keypoints("keypoints", keypoints, **params)
+
+    def _move(self, keypoints: np.ndarray, **params) -> np.ndarray:
+        """Move the keypoint coordinates the way the image moves."""
+        raise NotImplementedError
+
+    def _mirror_keypoints(
+        self, target: str, keypoints: np.ndarray, **params
+    ) -> np.ndarray:
+        """Move the keypoints of one target and swap their pairs.
+
+        Raises:
+            ValueError: If the keypoints do not split into instances of the
+                keypoint count.
+
+        """
+        if keypoints.size == 0:
+            return keypoints
+        keypoints = self._move(keypoints.copy(), **params)
+        size, stored = self.layouts.get(target, (self.n_keypoints, []))
+        pairs = stored or (
+            self.keypoint_pairs if self.n_keypoints <= size else []
+        )
+        if not pairs:
+            return keypoints
+        if len(keypoints) % size:
+            raise ValueError(
+                f"{len(keypoints)} keypoints of target '{target}' do not "
+                f"split into instances of {size} keypoints."
+            )
+        order = np.arange(len(keypoints)).reshape(-1, size)
+        swapped = order.copy()
+        for i, j in pairs:
+            swapped[:, [i, j]] = order[:, [j, i]]
+        return keypoints[swapped.reshape(-1)]
+
+
+class HorizontalSymmetricKeypointsFlip(SymmetricKeypointsTransform):
+    """Flip images and symmetric keypoints horizontally.
+
+    Examples:
+        >>> import numpy as np
+        >>> flip = HorizontalSymmetricKeypointsFlip([(1, 2)], p=1.0)
+        >>> flip.n_keypoints  # the unpaired keypoint 0 still counts
+        3
+        >>> keypoints = np.array([[5.0, 1, 2], [2, 1, 2], [8, 1, 2]])
+        >>> flip.apply_to_keypoints(keypoints, orig_width=10)[:, 0].tolist()
+        [5.0, 2.0, 8.0]
+
+    """
 
     @override
     def apply(self, img: np.ndarray, **params) -> np.ndarray:
@@ -102,107 +228,21 @@ class HorizontalSymmetricKeypointsFlip(A.DualTransform):
         """
         if bboxes.size == 0:
             return bboxes
-
         flipped = bboxes.copy()
         flipped[:, [0, 2]] = 1 - flipped[:, [2, 0]]
         return flipped
 
     @override
-    def apply_to_keypoints(
+    def _move(
         self, keypoints: np.ndarray, orig_width: int, **params
     ) -> np.ndarray:
-        """Flip keypoints horizontally and swap symmetric pairs.
-
-        Args:
-            keypoints: Keypoints to flip.
-            orig_width: Original image width.
-            params: Additional transform parameters.
-
-        Returns:
-            Flipped keypoints.
-
-        Raises:
-            ValueError: If the total number of keypoints is not a multiple
-                of ``n_keypoints``.
-
-        """
-        if keypoints.size == 0:
-            return keypoints
-
-        keypoints = keypoints.copy()
-
+        """Mirror the x coordinates across the image width."""
         keypoints[:, 0] = orig_width - keypoints[:, 0]
-
-        total_keypoints = keypoints.shape[0]
-        if total_keypoints % self.n_keypoints != 0:
-            raise ValueError(
-                "Total number of keypoints is not a multiple of n_keypoints defined by keypoint_pairs."
-            )
-        num_instances = total_keypoints // self.n_keypoints
-
-        for instance in range(num_instances):
-            offset = instance * self.n_keypoints
-            for i, j in self.keypoint_pairs:
-                idx1, idx2 = offset + i, offset + j
-                tmp = keypoints[idx1].copy()
-                keypoints[idx1] = keypoints[idx2]
-                keypoints[idx2] = tmp
-
         return keypoints
 
 
-class VerticalSymmetricKeypointsFlip(A.DualTransform):
-    """Flip images and symmetric keypoints vertically.
-
-    Attributes:
-        keypoint_pairs: Pairs of keypoint indices swapped after flipping.
-        n_keypoints: Number of unique keypoints described by
-            ``keypoint_pairs``.
-
-    """
-
-    def __init__(self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5):
-        """Flip an image and symmetric keypoints vertically.
-
-        Bounding boxes and segmentation masks are flipped as well.
-
-        Args:
-            keypoint_pairs: Pairs of keypoint indices to swap after the
-                flip.
-            p: Probability of applying the augmentation.
-
-        """
-        super().__init__(p=p)
-        self.keypoint_pairs = keypoint_pairs
-        self.n_keypoints = len(set(chain.from_iterable(keypoint_pairs)))
-
-    @property
-    @override
-    def targets(self) -> dict[str, Any]:
-        targets = super().targets
-        targets["instance_mask"] = self.apply_to_mask
-        targets["segmentation"] = self.apply_to_mask
-        return targets
-
-    @override
-    def get_params_dependent_on_data(
-        self, params: dict[str, Any], data: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Get parameters dependent on the targets.
-
-        Args:
-            params: Existing augmentation parameters.
-            data: Input data.
-
-        Returns:
-            Parameters derived from the input targets.
-
-        """
-        orig_width, orig_height, _ = params["shape"]
-        return {
-            "orig_width": orig_width,
-            "orig_height": orig_height,
-        }
+class VerticalSymmetricKeypointsFlip(SymmetricKeypointsTransform):
+    """Flip images and symmetric keypoints vertically."""
 
     @override
     def apply(self, img: np.ndarray, **params) -> np.ndarray:
@@ -251,103 +291,19 @@ class VerticalSymmetricKeypointsFlip(A.DualTransform):
         return flipped
 
     @override
-    def apply_to_keypoints(
+    def _move(
         self, keypoints: np.ndarray, orig_height: int, **params
     ) -> np.ndarray:
-        """Flip keypoints vertically and swap symmetric pairs.
-
-        Args:
-            keypoints: Keypoints to flip.
-            orig_height: Original image height.
-            params: Additional transform parameters.
-
-        Returns:
-            Flipped keypoints.
-
-        Raises:
-            ValueError: If the total number of keypoints is not a multiple
-                of ``n_keypoints``.
-
-        """
-        if keypoints.size == 0:
-            return keypoints
-
-        keypoints = keypoints.copy()
-
+        """Mirror the y coordinates across the image height."""
         keypoints[:, 1] = orig_height - keypoints[:, 1]
-
-        total_keypoints = keypoints.shape[0]
-        if total_keypoints % self.n_keypoints != 0:
-            raise ValueError(
-                "Total number of keypoints is not a multiple of n_keypoints defined by keypoint_pairs."
-            )
-        num_instances = total_keypoints // self.n_keypoints
-
-        for instance in range(num_instances):
-            offset = instance * self.n_keypoints
-            for i, j in self.keypoint_pairs:
-                idx1, idx2 = offset + i, offset + j
-                tmp = keypoints[idx1].copy()
-                keypoints[idx1] = keypoints[idx2]
-                keypoints[idx2] = tmp
-
         return keypoints
 
 
-class TransposeSymmetricKeypoints(A.DualTransform):
+class TransposeSymmetricKeypoints(SymmetricKeypointsTransform):
     """Transpose images and symmetric keypoints.
 
-    Attributes:
-        keypoint_pairs: Pairs of keypoint indices swapped after
-            transposition.
-        n_keypoints: Number of unique keypoints described by
-            ``keypoint_pairs``.
-
+    A transpose is a rotation by 90 degrees followed by a horizontal flip.
     """
-
-    def __init__(
-        self,
-        keypoint_pairs: list[tuple[int, int]],
-        p: float = 0.5,
-    ):
-        """Transpose an image and symmetric keypoints.
-
-        Equivalent to 90 degree rotation followed by horizontal flip.
-
-        Args:
-            keypoint_pairs: Pairs of keypoint indices to swap after the
-                transpose.
-            p: Probability of applying the augmentation.
-
-        """
-        super().__init__(p=p)
-        self.keypoint_pairs = keypoint_pairs
-        self.n_keypoints = len(set(chain.from_iterable(keypoint_pairs)))
-
-    @property
-    @override
-    def targets(self) -> dict[str, Any]:
-        targets = super().targets
-        targets["instance_mask"] = self.apply_to_mask
-        targets["segmentation"] = self.apply_to_mask
-        return targets
-
-    @override
-    def get_params_dependent_on_data(
-        self, params: dict[str, Any], data: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Get parameters dependent on the targets.
-
-        Args:
-            params: Existing augmentation parameters.
-            data: Input data.
-
-        Returns:
-            Parameters derived from the input targets.
-
-        """
-        orig_width, orig_height, _ = params["shape"]
-        return {"orig_width": orig_width, "orig_height": orig_height}
 
     @override
     def apply(self, img: np.ndarray, **params) -> np.ndarray:
@@ -398,39 +354,7 @@ class TransposeSymmetricKeypoints(A.DualTransform):
         return t
 
     @override
-    def apply_to_keypoints(
-        self, keypoints: np.ndarray, **params
-    ) -> np.ndarray:
-        """Transpose keypoints and swap symmetric pairs.
-
-        Args:
-            keypoints: Keypoints to transpose.
-            params: Additional transform parameters.
-
-        Returns:
-            Transposed keypoints.
-
-        Raises:
-            ValueError: If the total number of keypoints is not a multiple
-                of ``n_keypoints``.
-
-        """
-        if keypoints.size == 0:
-            return keypoints
-        keypoints = keypoints.copy()
+    def _move(self, keypoints: np.ndarray, **params) -> np.ndarray:
+        """Swap the x and the y coordinates."""
         keypoints[:, [0, 1]] = keypoints[:, [1, 0]]
-        total_keypoints = keypoints.shape[0]
-        if total_keypoints % self.n_keypoints != 0:
-            raise ValueError(
-                "Total number of keypoints is not a multiple of n_keypoints defined by keypoint_pairs."
-            )
-        num_instances = total_keypoints // self.n_keypoints
-
-        for instance in range(num_instances):
-            offset = instance * self.n_keypoints
-            for i, j in self.keypoint_pairs:
-                idx1, idx2 = offset + i, offset + j
-                tmp = keypoints[idx1].copy()
-                keypoints[idx1] = keypoints[idx2]
-                keypoints[idx2] = tmp
         return keypoints
