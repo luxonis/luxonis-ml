@@ -16,6 +16,7 @@ import polars as pl
 import rich.progress
 from filelock import FileLock
 from loguru import logger
+from pydantic_core import to_json
 from rich.progress import Progress
 from semver.version import Version
 from typing_extensions import Self, override
@@ -68,7 +69,7 @@ from luxonis_ml.ldf import (
     Category,
     DatasetRecord,
     Detection,
-    KeypointAnnotation,
+    Keypoint,
     KeypointMetadata,
     load_annotation,
 )
@@ -2486,16 +2487,26 @@ def _in_keypoint_order(
     }
     if not moved:
         return df
+    # `Metadata.merge_with` moves only the same names, so each target name
+    # has one source column.
+    orders = {
+        task: [labels.index(label) for label in target[task].labels]
+        for task, labels in moved.items()
+    }
 
     def move(task: str, annotation: str) -> str:
-        labels = moved[task]
-        keypoints = KeypointAnnotation.model_validate_json(
-            annotation, context={"n_keypoints": len(labels)}
-        ).keypoints
-        named = dict(zip(labels, keypoints.values(), strict=True))
-        return KeypointAnnotation(keypoints=named).to_parquet_json(
-            target[task]
+        order = orders[task]
+        keypoints = json.loads(annotation)["keypoints"]
+        if len(keypoints) > len(order):
+            raise ValueError(
+                f"Task '{task}' has a row with {len(keypoints)} keypoints, "
+                f"but only {len(order)} keypoint names."
+            )
+        # The loader pads a short row the same way.
+        keypoints += [list(Keypoint(0.0, 0.0, 0))] * (
+            len(order) - len(keypoints)
         )
+        return to_json({"keypoints": [keypoints[i] for i in order]}).decode()
 
     annotations = [
         move(task, annotation)
