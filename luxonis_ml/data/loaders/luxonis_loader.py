@@ -19,6 +19,7 @@ from luxonis_ml.data.augmentations import (
 )
 from luxonis_ml.data.datasets import (
     Annotation,
+    BBoxAnnotation,
     Category,
     LuxonisDataset,
     UpdateMode,
@@ -64,6 +65,8 @@ class LuxonisLoader(BaseLoader):
         keep_categorical_as_strings: bool = False,
         update_mode: UpdateMode | Literal["all", "missing"] = UpdateMode.ALL,
         filter_task_names: list[str] | None = None,
+        max_bbox_width: float = 1.0,
+        max_bbox_height: float = 1.0,
     ) -> None:
         """A loader class used for loading data from L{LuxonisDataset}.
 
@@ -131,7 +134,24 @@ class LuxonisLoader(BaseLoader):
         @param filter_task_names: List of task names to filter the dataset by.
             If C{None}, all task names are included. Defaults to C{None}.
             This is useful for filtering out tasks that are not needed for a specific use case.
+        @type max_bbox_width: float
+        @param max_bbox_width: Maximum bounding-box width relative to its
+            original source image, in [0, 1]. Defaults to 1.0 (disabled).
+            Excludes the whole image group if any selected-task box exceeds
+            this limit. Applies to every view, before resizing/augmentation.
+        @type max_bbox_height: float
+        @param max_bbox_height: Maximum bounding-box height relative to its
+            original source image, in [0, 1]. Defaults to 1.0 (disabled).
+            Excludes the whole image group if any selected-task box exceeds
+            this limit. Boxes equal to either limit are retained.
         """
+
+        for name, limit in (
+            ("max_bbox_width", max_bbox_width),
+            ("max_bbox_height", max_bbox_height),
+        ):
+            if not 0.0 <= limit <= 1.0:
+                raise ValueError(f"{name} must be in the range [0, 1].")
 
         self.exclude_empty_annotations = exclude_empty_annotations
         self.height = height
@@ -206,6 +226,36 @@ class LuxonisLoader(BaseLoader):
         idx_map: dict[str, list[int]] = defaultdict(list)
         for i, group_id in enumerate(group_id_list):
             idx_map[group_id].append(i)
+
+        if max_bbox_width < 1.0 or max_bbox_height < 1.0:
+            excluded_groups: set[str] = set()
+            bbox_rows = self.df.filter(
+                (pl.col("task_type") == "boundingbox")
+                & pl.col("group_id").is_in(self.instances)
+            ).select("group_id", "annotation")
+            for group_id, annotation in bbox_rows.iter_rows():
+                if annotation is None or group_id in excluded_groups:
+                    continue
+                bbox = BBoxAnnotation.model_validate_json(annotation)
+                if bbox.w > max_bbox_width or bbox.h > max_bbox_height:
+                    excluded_groups.add(group_id)
+
+            original_count = len(self.instances)
+            self.instances = [
+                uid for uid in self.instances if uid not in excluded_groups
+            ]
+            logger.info(
+                f"Excluded {original_count - len(self.instances)} / "
+                f"{original_count} images from views {self.view} with "
+                f"max_bbox_width={max_bbox_width}, "
+                f"max_bbox_height={max_bbox_height}."
+            )
+            if not self.instances:
+                raise ValueError(
+                    f"No images remain in views {self.view} after applying "
+                    f"max_bbox_width={max_bbox_width} and "
+                    f"max_bbox_height={max_bbox_height}."
+                )
 
         self.idx_to_df_row = [idx_map[uid] for uid in self.instances]
 
