@@ -49,7 +49,10 @@ Standard Albumentations flip transforms such as ``HorizontalFlip``,
 ``VerticalFlip``, and ``Transpose`` flip keypoint coordinates but do not swap
 semantic left/right keypoint labels. For symmetric keypoint structures, use the
 Luxonis custom transforms `HorizontalSymmetricKeypointsFlip`,
-`VerticalSymmetricKeypointsFlip`, and `TransposeSymmetricKeypoints`.
+`VerticalSymmetricKeypointsFlip`, and `TransposeSymmetricKeypoints`. They swap
+the flip pairs that each keypoint task stores in its `KeypointMetadata`, so
+several skeletons in one dataset each keep their own pairs. A
+``keypoint_pairs`` parameter gives pairs for a task that stores none.
 
 Batch transforms multiply the number of source samples required by the loader.
 For example, a pipeline that contains `MixUp` and `Mosaic4` requires
