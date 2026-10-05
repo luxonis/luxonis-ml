@@ -82,6 +82,9 @@ class NativeExporter(BaseExporter):
         self.keypoint_metadata = keypoint_metadata or {}
         self.ldf_version = ldf_version or LDF_VERSION
         self._metadata_attached: set[tuple[int | None, str, str]] = set()
+        # The keypoint count of each task. A task without labels has the
+        # count of its widest row.
+        self._n_keypoints: dict[str, int] = {}
         self._downgrade = LDFDowngrader(self.ldf_version)
         for task, task_keypoints in self.keypoint_metadata.items():
             warn_repeated_keypoint_names(
@@ -174,7 +177,7 @@ class NativeExporter(BaseExporter):
             labels = task_keypoints.labels
             values = keypoints["keypoints"]
             named = task_keypoints.has_names
-            if len(values) < len(labels) and not (
+            if len(values) < self._n_keypoints[task_name] and not (
                 named and self._downgrade.keeps_keypoint_names
             ):
                 continue
@@ -242,6 +245,7 @@ class NativeExporter(BaseExporter):
                     update={"edges": edges}
                 )
             kept[task] = task_keypoints
+            self._n_keypoints[task] = n_keypoints
         self.keypoint_metadata = kept
 
     def _maybe_roll_partition(

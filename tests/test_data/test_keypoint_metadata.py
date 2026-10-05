@@ -2002,6 +2002,9 @@ def test_a_coco_import_into_the_dataset_keeps_the_flip_pairs_turned_off(
     ("labels", "ldf_version", "imported_edges"),
     [
         pytest.param(None, None, [(0, 2)], id="no-names"),
+        # Empty labels remove the placeholder names. The rows still give
+        # the keypoint count.
+        pytest.param([], None, [(0, 2)], id="empty-labels"),
         pytest.param(LABELS, "2.1", [(0, 1), (1, 2)], id="ldf-2.1"),
         pytest.param(LABELS, "2.0", [(0, 1), (1, 2)], id="ldf-2.0"),
     ],
