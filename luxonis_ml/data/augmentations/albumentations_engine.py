@@ -11,7 +11,7 @@ from loguru import logger
 from pydantic import Field
 from typing_extensions import override
 
-from luxonis_ml.data.utils.task_utils import get_task_type, task_is_metadata
+from luxonis_ml.data.utils.task_utils import get_task_group, task_is_metadata
 from luxonis_ml.ldf import KeypointMetadata
 from luxonis_ml.typing import ConfigItem, LoaderMultiOutput, Params
 from luxonis_ml.utils import deprecated
