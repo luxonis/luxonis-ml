@@ -52,7 +52,9 @@ Luxonis custom transforms `HorizontalSymmetricKeypointsFlip`,
 `VerticalSymmetricKeypointsFlip`, and `TransposeSymmetricKeypoints`. They swap
 the flip pairs that each keypoint task stores in its `KeypointMetadata`, so
 several skeletons in one dataset each keep their own pairs. A
-``keypoint_pairs`` parameter gives pairs for a task that stores none.
+``keypoint_pairs`` parameter replaces the stored pairs of each task that it
+fits. For example, identity pairs keep the left and right keypoints in place
+in a vertical flip.
 
 Batch transforms multiply the number of source samples required by the loader.
 For example, a pipeline that contains `MixUp` and `Mosaic4` requires

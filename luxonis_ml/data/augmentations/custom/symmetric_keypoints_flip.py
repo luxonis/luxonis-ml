@@ -9,7 +9,7 @@ symmetric pair.
 Each keypoint task can have its own skeleton. `AlbumentationsEngine` tells
 the transforms, for each keypoint task, how many keypoints an instance has
 and which pairs the task stores in its `KeypointMetadata`. Pairs given in the
-configuration apply to a task that stores none.
+configuration replace the stored pairs of each task that they fit.
 """
 
 from functools import partial
@@ -37,9 +37,10 @@ class SymmetricKeypointsTransform(A.DualTransform):
     in ``keypoint_pairs``.
 
     Attributes:
-        keypoint_pairs: Index pairs from the configuration. They apply to a
-            target whose task stores no flip pairs, when the instances of the
-            target have more keypoints than their largest index.
+        keypoint_pairs: Index pairs from the configuration. They replace the
+            stored pairs of each target whose instances have more keypoints
+            than their largest index. A target that they do not fit swaps
+            the pairs that its task stores.
         n_keypoints: The keypoint count assumed for a target without a
             layout.
         layouts: For each keypoint target, its keypoint count and the pairs
@@ -57,9 +58,11 @@ class SymmetricKeypointsTransform(A.DualTransform):
         Bounding boxes and segmentation masks move with the image.
 
         Args:
-            keypoint_pairs: Pairs of keypoint indices to swap for a task
-                that stores no flip pairs. A task that stores some swaps
-                its own.
+            keypoint_pairs: Pairs of keypoint indices to swap. They
+                replace the stored flip pairs of each task that they fit,
+                so identity pairs keep the keypoints in place. Without
+                them, or for a task that they do not fit, the transform
+                swaps the pairs that the task stores.
             p: Probability of applying the augmentation.
 
         """
@@ -155,9 +158,8 @@ class SymmetricKeypointsTransform(A.DualTransform):
             return keypoints
         keypoints = self._move(keypoints.copy(), **params)
         size, stored = self.layouts.get(target, (self.n_keypoints, []))
-        pairs = stored or (
-            self.keypoint_pairs if self.n_keypoints <= size else []
-        )
+        fits = bool(self.keypoint_pairs) and self.n_keypoints <= size
+        pairs = self.keypoint_pairs if fits else stored
         if not pairs:
             return keypoints
         if len(keypoints) % size:

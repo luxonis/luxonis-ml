@@ -264,3 +264,74 @@ def test_each_keypoint_task_swaps_its_own_stored_pairs() -> None:
     hands = out["hands/keypoints"].reshape(-1, 3)[:, :2]
     assert np.allclose(people, [[0.5, 0.2], [0.2, 0.4], [0.8, 0.3]])
     assert np.allclose(hands, [[0.1, 0.6], [0.7, 0.5], [0.4, 0.5], [0.9, 0.5]])
+
+
+def test_configured_pairs_replace_the_stored_pairs_they_fit() -> None:
+    # As in a COCO dataset, the people task stores its left and right pairs,
+    # and the vertical flip configures identity pairs, which keep every
+    # keypoint in place. The hands have fewer keypoints than the configured
+    # pairs index, so they swap their own stored pair.
+    engine = AlbumentationsEngine(
+        20,
+        20,
+        {
+            "people/boundingbox": "boundingbox",
+            "people/keypoints": "keypoints",
+            "hands/boundingbox": "boundingbox",
+            "hands/keypoints": "keypoints",
+        },
+        dict.fromkeys(
+            [
+                "people/boundingbox",
+                "people/keypoints",
+                "hands/boundingbox",
+                "hands/keypoints",
+            ],
+            1,
+        ),
+        ["image"],
+        [
+            {
+                "name": "VerticalSymmetricKeypointsFlip",
+                "params": {
+                    "p": 1.0,
+                    "keypoint_pairs": [(i, i) for i in range(5)],
+                },
+            }
+        ],
+        keypoint_metadata={
+            "people": KeypointMetadata(
+                labels=["nose", "l_eye", "r_eye", "l_ear", "r_ear"],
+                flip_pairs=[(1, 2), (3, 4)],
+            ),
+            "hands": KeypointMetadata(
+                labels=["a", "b", "c", "d"], flip_pairs=[(0, 3)]
+            ),
+        },
+    )
+    box = np.array([[0, 0.1, 0.1, 0.8, 0.8]])
+    labels = {
+        "people/boundingbox": box,
+        "people/keypoints": np.array(
+            [
+                [0.5, 0.2, 2],
+                [0.4, 0.3, 2],
+                [0.6, 0.3, 2],
+                [0.3, 0.25, 2],
+                [0.7, 0.25, 2],
+            ]
+        ).reshape(1, -1),
+        "hands/boundingbox": box,
+        "hands/keypoints": np.array(
+            [[0.1, 0.5, 2, 0.3, 0.5, 2, 0.6, 0.5, 2, 0.9, 0.6, 2]]
+        ),
+    }
+
+    _, out = engine.apply([({"image": np.zeros((20, 20, 3))}, labels)])
+
+    people = out["people/keypoints"].reshape(-1, 3)[:, :2]
+    hands = out["hands/keypoints"].reshape(-1, 3)[:, :2]
+    assert np.allclose(
+        people, [[0.5, 0.8], [0.4, 0.7], [0.6, 0.7], [0.3, 0.75], [0.7, 0.75]]
+    )
+    assert np.allclose(hands, [[0.9, 0.4], [0.3, 0.5], [0.6, 0.5], [0.1, 0.5]])

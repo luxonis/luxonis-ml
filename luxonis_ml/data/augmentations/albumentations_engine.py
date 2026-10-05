@@ -423,7 +423,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             bbox_area_threshold: Minimum normalized bounding-box area kept
                 after augmentation.
             keypoint_metadata: Keypoint metadata by task name. The symmetric
-                keypoint flips swap the flip pairs that each task stores.
+                keypoint flips swap the flip pairs that each task stores,
+                unless their ``keypoint_pairs`` replace them.
 
         Raises:
             ValueError: If a target task type is unsupported, more than
