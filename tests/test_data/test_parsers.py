@@ -651,6 +651,9 @@ def test_ultralytics_ndjson_parser(
 
 
 class _DummyDataset:
+    def get_classes(self) -> dict[str, dict[str, int]]:
+        return {}
+
     def add(self, _generator: Iterator[object]) -> None:
         return None
 
@@ -928,6 +931,47 @@ def test_parser_scopes_keypoint_metadata_to_the_task_of_its_class(
         assert dataset.get_n_keypoints() == {"pose": 3, "hands": 2}
     finally:
         dataset.delete_dataset(delete_local=True)
+
+
+def test_parser_without_task_names_scopes_keypoint_metadata_to_the_inferred_task(
+    dataset_name: str,
+    tempdir: Path,
+):
+    """Without task names, `add` gives a stored class its stored task.
+
+    The keypoint metadata of a class goes to the task that `add` gives
+    its records. A box task must not get keypoint metadata: the COCO
+    export then finds two keypoint tasks and drops the keypoints.
+    """
+    car_category = {"id": 3, "name": "car"}
+    car_annotation = {
+        "id": 3,
+        "image_id": 1,
+        "category_id": 3,
+        "bbox": [300, 300, 100, 100],
+    }
+    cars_dir = tempdir / "cars"
+    write_coco_keypoint_dataset(cars_dir, [car_category], [car_annotation])
+    people_dir = tempdir / "people"
+    write_coco_keypoint_dataset(
+        people_dir,
+        [PERSON_CATEGORY, car_category],
+        [PERSON_ANNOTATION, car_annotation],
+    )
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+
+    COCOParser(dataset, DatasetType.COCO, {"car": "vehicles"}).parse_split(
+        image_dir=cars_dir / "train",
+        annotation_path=cars_dir / "train" / "_annotations.coco.json",
+    )
+    COCOParser(dataset, DatasetType.COCO, None).parse_split(
+        image_dir=people_dir / "valid",
+        annotation_path=people_dir / "valid" / "_annotations.coco.json",
+    )
+
+    assert dataset.get_task_names() == ["", "vehicles"]
+    assert list(dataset.get_keypoint_metadata()) == [""]
+    assert dataset.get_keypoint_metadata()[""].labels == KEYPOINT_LABELS
 
 
 @pytest.mark.parametrize(
