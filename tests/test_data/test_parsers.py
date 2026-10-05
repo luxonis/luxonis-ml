@@ -1035,6 +1035,16 @@ def test_parser_skips_the_keypoints_of_a_class_without_keypoints(
             "3 keypoints, but the task defines only 2",
             id="fewer-names",
         ),
+        pytest.param(
+            {**PERSON_CATEGORY, "sigmas": [0.1, 0.2]},
+            "2 sigmas for 3 keypoints",
+            id="fewer-sigmas",
+        ),
+        pytest.param(
+            {**PERSON_CATEGORY, "skeleton": [[1, 9]]},
+            "refers to keypoint 8 in `edges`",
+            id="edge-out-of-range",
+        ),
     ],
 )
 def test_parser_checks_the_keypoint_metadata_before_it_adds_a_split(

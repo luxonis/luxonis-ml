@@ -713,6 +713,12 @@ class BaseParser(ABC):
                         }
                     )
                     definition.validate_labels(f"class '{class_name}'")
+                    # Without names, the annotation gives the keypoint count.
+                    definition.validate_for(
+                        len(definition.labels)
+                        or len(annotation.keypoints.keypoints),
+                        f"class '{class_name}'",
+                    )
                     checked[class_name] = definition
                 # `add` can check later splits against stored names, but this
                 # split has not stored its parser-provided names yet.
