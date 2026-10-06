@@ -378,10 +378,13 @@ class LuxonisLoader(BaseLoader):
         it as plain data, in ``metadata["schema"]["keypoint_metadata"]``.
 
         Returns:
-            Keypoint metadata keyed by task name.
+            Copies of the keypoint metadata keyed by task name.
 
         """
-        return dict(self._keypoint_metadata)
+        return {
+            task: task_keypoints.model_copy(deep=True)
+            for task, task_keypoints in self._keypoint_metadata.items()
+        }
 
     @override
     def __getitem__(self, idx: int) -> LoaderOutput:

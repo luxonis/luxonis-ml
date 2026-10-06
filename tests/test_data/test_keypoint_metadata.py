@@ -1355,6 +1355,19 @@ def test_the_loader_names_the_keypoints(dataset_name: str, tempdir: Path):
     assert loader.get_keypoint_metadata()["pose"].labels == LABELS
 
 
+def test_a_caller_cannot_change_the_stored_keypoint_metadata(
+    dataset_name: str, tempdir: Path
+):
+    dataset = named_dataset(dataset_name, tempdir)
+    loader = LuxonisLoader(dataset)
+
+    dataset.get_keypoint_metadata()["pose"].labels.append("tail")
+    loader.get_keypoint_metadata()["pose"].labels.append("tail")
+
+    assert dataset.get_keypoint_metadata()["pose"].labels == LABELS
+    assert loader.get_keypoint_metadata()["pose"].labels == LABELS
+
+
 def test_the_loader_builds_no_keypoint_metadata_for_each_row(
     dataset_name: str, tempdir: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -1535,6 +1548,40 @@ def test_a_merge_moves_the_other_rows_to_the_target_order(
         labels=LABELS, flip_pairs=[(1, 2)], sigmas=[0.1, 0.2, 0.3]
     )
     assert stored_keypoints_by_name(merged) == [NAMED_KEYPOINTS] * 8
+
+
+def test_a_merge_pads_a_short_row_before_it_moves_it(
+    dataset_name: str, tempdir: Path
+):
+    target = named_dataset(f"{dataset_name}_target", tempdir)
+    other = create_dataset(
+        f"{dataset_name}_other", positional_generator(tempdir, [2], start=4)
+    )
+    other.set_keypoint_metadata(labels=LABELS[::-1], task="pose")
+
+    target.merge_with(other)
+
+    assert {
+        "nose": (0.0, 0.0, 0),
+        "left_eye": (0.1, 0.1, 2),
+        "right_eye": (0.0, 0.0, 2),
+    } in stored_keypoints_by_name(LuxonisDataset(target.identifier))
+
+
+def test_a_merge_rejects_a_row_wider_than_its_names(
+    dataset_name: str, tempdir: Path
+):
+    target = create_dataset(
+        f"{dataset_name}_target", positional_generator(tempdir, [2])
+    )
+    target.set_keypoint_metadata(labels=["left_eye", "right_eye"], task="pose")
+    other = create_dataset(
+        f"{dataset_name}_other", positional_generator(tempdir, [3], start=4)
+    )
+    other.set_keypoint_metadata(labels=["right_eye", "left_eye"], task="pose")
+
+    with pytest.raises(ValueError, match="3 keypoints, but only 2"):
+        target.merge_with(other)
 
 
 def test_a_merge_rejects_other_keypoint_names(
@@ -2020,6 +2067,9 @@ def test_a_coco_import_into_the_dataset_keeps_the_flip_pairs_turned_off(
     ("labels", "ldf_version", "imported_edges"),
     [
         pytest.param(None, None, [(0, 2)], id="no-names"),
+        # Empty labels remove the placeholder names. The rows still give
+        # the keypoint count.
+        pytest.param([], None, [(0, 2)], id="empty-labels"),
         pytest.param(LABELS, "2.1", [(0, 1), (1, 2)], id="ldf-2.1"),
         pytest.param(LABELS, "2.0", [(0, 1), (1, 2)], id="ldf-2.0"),
     ],

@@ -189,7 +189,7 @@ class BaseDataset(
         """Return the keypoint definition of each task.
 
         Returns:
-            Keypoint metadata keyed by task name.
+            Copies of the keypoint metadata keyed by task name.
 
         """
         ...

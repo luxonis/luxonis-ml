@@ -653,6 +653,9 @@ def test_ultralytics_ndjson_parser(
 
 
 class _DummyDataset:
+    def get_classes(self) -> dict[str, dict[str, int]]:
+        return {}
+
     def add(self, _generator: Iterator[object]) -> None:
         return None
 
@@ -932,6 +935,47 @@ def test_parser_scopes_keypoint_metadata_to_the_task_of_its_class(
         dataset.delete_dataset(delete_local=True)
 
 
+def test_parser_without_task_names_scopes_keypoint_metadata_to_the_inferred_task(
+    dataset_name: str,
+    tempdir: Path,
+):
+    """Without task names, `add` gives a stored class its stored task.
+
+    The keypoint metadata of a class goes to the task that `add` gives
+    its records. A box task must not get keypoint metadata: the COCO
+    export then finds two keypoint tasks and drops the keypoints.
+    """
+    car_category = {"id": 3, "name": "car"}
+    car_annotation = {
+        "id": 3,
+        "image_id": 1,
+        "category_id": 3,
+        "bbox": [300, 300, 100, 100],
+    }
+    cars_dir = tempdir / "cars"
+    write_coco_keypoint_dataset(cars_dir, [car_category], [car_annotation])
+    people_dir = tempdir / "people"
+    write_coco_keypoint_dataset(
+        people_dir,
+        [PERSON_CATEGORY, car_category],
+        [PERSON_ANNOTATION, car_annotation],
+    )
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+
+    COCOParser(dataset, DatasetType.COCO, {"car": "vehicles"}).parse_split(
+        image_dir=cars_dir / "train",
+        annotation_path=cars_dir / "train" / "_annotations.coco.json",
+    )
+    COCOParser(dataset, DatasetType.COCO, None).parse_split(
+        image_dir=people_dir / "valid",
+        annotation_path=people_dir / "valid" / "_annotations.coco.json",
+    )
+
+    assert dataset.get_task_names() == ["", "vehicles"]
+    assert list(dataset.get_keypoint_metadata()) == [""]
+    assert dataset.get_keypoint_metadata()[""].labels == KEYPOINT_LABELS
+
+
 @pytest.mark.parametrize(
     "hand_category",
     [
@@ -1073,6 +1117,66 @@ def test_parser_checks_the_keypoint_metadata_before_it_adds_a_split(
 
     assert len(dataset) == 0
     assert dataset.get_keypoint_metadata() == {}
+    dataset.delete_dataset(delete_local=True)
+
+
+class _UnnamedKeypointsParser(COCOParser):
+    """Parse person records whose keypoints have no names."""
+
+    def __init__(
+        self, dataset: LuxonisDataset, widths: list[int], sigmas: list[float]
+    ):
+        super().__init__(dataset, DatasetType.COCO, "pose")
+        self.widths = widths
+        self.sigmas = sigmas
+
+    @override
+    def from_split(
+        self, image_dir: Path, annotation_path: Path
+    ) -> ParserOutput:
+        files = [create_image(i, image_dir) for i in range(len(self.widths))]
+        records = (
+            {
+                "file": str(file),
+                "annotation": {
+                    "class": "person",
+                    "keypoints": {"keypoints": [(0.1, 0.1, 2)] * width},
+                },
+            }
+            for file, width in zip(files, self.widths, strict=True)
+        )
+        return records, {"person": {"sigmas": self.sigmas}}, files
+
+
+def test_parser_checks_unnamed_keypoints_against_the_widest_record(
+    dataset_name: str, tempdir: Path
+):
+    """Without names, the widest record gives the keypoint count.
+
+    `add` counts the keypoints of a task the same way. A check against
+    the first record would pass, and `add` would write the rows before
+    `set_keypoint_metadata` rejects the sigmas.
+    """
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    parser = _UnnamedKeypointsParser(dataset, [3, 5], [0.1] * 3)
+
+    with pytest.raises(ValueError, match="3 sigmas for 5 keypoints"):
+        parser.parse_split(image_dir=tempdir, annotation_path=tempdir)
+
+    assert len(dataset) == 0
+    dataset.delete_dataset(delete_local=True)
+
+
+def test_parser_takes_sigmas_for_the_widest_unnamed_record(
+    dataset_name: str, tempdir: Path
+):
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+
+    _UnnamedKeypointsParser(dataset, [3, 5], [0.1] * 5).parse_split(
+        image_dir=tempdir, annotation_path=tempdir
+    )
+
+    assert dataset.get_keypoint_metadata()["pose"].sigmas == [0.1] * 5
     dataset.delete_dataset(delete_local=True)
 
 
