@@ -1,5 +1,5 @@
 from contextlib import suppress
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field, model_validator
 from typing_extensions import Self
@@ -35,6 +35,10 @@ class PreprocessingBlock(BaseModelExtraForbid):
         dai_type: Optional DepthAI input type used to configure pipeline
             input handling.
 
+        resize_mode: Optional image resize policy. ``CROP`` center-crops,
+            ``STRETCH`` resizes without preserving aspect ratio, and
+            ``LETTERBOX`` preserves aspect ratio by padding.
+
     """
 
     mean: list[float] | None = Field(
@@ -64,6 +68,13 @@ class PreprocessingBlock(BaseModelExtraForbid):
     dai_type: str | None = Field(
         None,
         description="DepthAI input type used to configure pipeline input handling.",
+    )
+    resize_mode: Literal["CROP", "STRETCH", "LETTERBOX"] | None = Field(
+        None,
+        description=(
+            "Image resize policy: CROP (center crop), STRETCH, or LETTERBOX "
+            "(preserve aspect ratio with padding)."
+        ),
     )
 
 
