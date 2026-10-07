@@ -474,18 +474,19 @@ class LuxonisLoader(BaseLoader):
         for task, anns in labels_by_task.items():
             assert anns, f"No annotations found for task {task_name}"
             instance_ids = instance_ids_by_task[task]
+            class_ids = class_ids_by_task[task]
 
-            anns = [
-                ann
-                for _, ann in sorted(
-                    zip(instance_ids, anns, strict=True), key=lambda x: x[0]
-                )
-            ]
+            ordered_annotations = sorted(
+                zip(instance_ids, anns, class_ids, strict=True),
+                key=lambda x: x[0],
+            )
+            anns = [ann for _, ann, _ in ordered_annotations]
+            class_ids = [class_id for _, _, class_id in ordered_annotations]
 
             task_name, task_type = split_task(task)
             array = anns[0].combine_to_numpy(
                 anns,
-                class_ids_by_task[task],
+                class_ids,
                 len(self.classes[task_name]),
             )
             if task in self.tasks_without_background:
