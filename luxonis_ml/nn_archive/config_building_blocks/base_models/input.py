@@ -70,7 +70,7 @@ class PreprocessingBlock(BaseModelExtraForbid):
         description="DepthAI input type used to configure pipeline input handling.",
     )
     resize_mode: Literal["CROP", "STRETCH", "LETTERBOX"] | None = Field(
-        None,
+        default=None,
         description=(
             "Image resize policy: CROP (center crop), STRETCH, or LETTERBOX "
             "(preserve aspect ratio with padding)."
