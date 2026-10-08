@@ -17,6 +17,7 @@ from luxonis_ml.data import (
 from luxonis_ml.data.augmentations import AugmentationEngine
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.ldf import SCHEMA_METADATA_KEY, DatasetRecord, DatasetSchema
 from luxonis_ml.typing import (
     LoaderMultiOutput,
     LoaderSingleOutput,
@@ -1527,3 +1528,64 @@ def test_a_loaded_sample_rebuilds_into_a_record(
         driver.sub_detections["face"].class_name for driver in drivers
     ] == ["happy", "sad"]
     assert isinstance(record.file, np.ndarray)
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        pytest.param(
+            [
+                {"left_eye": (0.2, 0.3, 2), "right_eye": (0.8, 0.4, 2)},
+                {"right_eye": (0.7, 0.6, 2), "left_eye": (0.1, 0.5, 2)},
+            ],
+            id="reordered-names",
+        ),
+        pytest.param(
+            [
+                {"left_eye": (0.2, 0.3, 2), "right_eye": (0.8, 0.4, 2)},
+                {"right_eye": (0.7, 0.6, 2)},
+            ],
+            id="partial-names",
+        ),
+        pytest.param(
+            [[(0.1, 0.1, 2), (0.2, 0.2, 2), (0.3, 0.3, 2)], [(0.4, 0.4, 2)]],
+            id="short-positional-row",
+        ),
+    ],
+)
+def test_a_record_converts_to_the_keypoints_the_loader_reads(
+    dataset_name: str, tempdir: Path, rows: list[Any]
+):
+    """A direct conversion lays out the keypoints as the loader does.
+
+    `add` stores each row in the order of the task labels, and the loader
+    pads a short row to the keypoint count of the task. The first row
+    gives the order of the names, or the count of a task without names.
+    A row with only some of the names needs a task that has the names
+    already, so the other rows go in a second `add`.
+    """
+    records = [
+        {
+            "media": create_image(i, tempdir),
+            "annotation": {
+                "pose": [{"class": "face", "keypoints": {"keypoints": row}}]
+            },
+        }
+        for i, row in enumerate(rows)
+    ]
+    dataset = create_dataset(dataset_name, iter(records[:1]), splits=False)
+    dataset.add(iter(records[1:]))
+    dataset.make_splits({"train": 1.0})
+    samples = list(LuxonisLoader(dataset, view="train"))
+    schema = DatasetSchema.model_validate(
+        samples[0].metadata[SCHEMA_METADATA_KEY]
+    )
+
+    converted = [
+        DatasetRecord.model_validate(record).to_loader_output(schema)
+        for record in records
+    ]
+
+    assert sorted(
+        sample.labels["pose/keypoints"].tolist() for sample in converted
+    ) == sorted(sample.labels["pose/keypoints"].tolist() for sample in samples)
