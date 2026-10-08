@@ -77,7 +77,7 @@ class CreateMLParser(BaseParser):
             annotation_path: Annotation JSON file.
 
         Returns:
-            Parser output containing annotation records, skeleton metadata,
+            Parser output containing annotation records, keypoint metadata,
             and added images.
 
         """

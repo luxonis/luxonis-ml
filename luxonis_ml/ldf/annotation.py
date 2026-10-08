@@ -187,8 +187,9 @@ Each keypoint is a `Keypoint`. It is a named tuple, so ``keypoint[2]`` and
 :math:`2`.
 
 An annotation can also carry three task-level fields: the edges between the
-keypoints, the pairs that a horizontal flip swaps, and the OKS sigmas. Edges
-and flip pairs can refer to keypoints by name:
+keypoints, the pairs that a horizontal flip swaps, and the sigmas of the
+object keypoint similarity (OKS) metric. Edges and flip pairs can refer to
+keypoints by name:
 
 .. python::
 
@@ -208,14 +209,17 @@ and flip pairs can refer to keypoints by name:
 
 These three fields describe the task, not the instance.
 `LuxonisDataset.add` thus moves them into a `KeypointMetadata` and keeps one
-entry for each task. When a task gets names and no record gives flip pairs,
+entry for each task. `LuxonisDataset.get_keypoint_metadata` returns the
+entries. The records of a task in one `LuxonisDataset.add` must not give
+different values. A value that differs from the stored one replaces it, with
+a warning. When a task gets new names and has no flip pairs,
 `LuxonisDataset.add` infers them from ``left`` and ``right`` names. An empty
 list of flip pairs turns the inference off. The dataset stores the keypoints
 of a task in the order that the keypoint metadata defines.
 
-A task without names gets the positional keys as its labels, and
-`LuxonisDataset.add` joins its keypoints in a chain of edges. Names for these
-keypoints drop the chain. The dataset does not record the source of the
+A task without names gets the positional keys as its labels. If no record
+gives edges, `LuxonisDataset.add` also joins its keypoints in a chain of
+edges. Names for these keypoints drop the chain. The dataset does not record the source of the
 edges, so the names also drop a chain that a record of an earlier
 `LuxonisDataset.add` gave. To keep these edges, give them again with the
 names.
@@ -490,9 +494,11 @@ class KeypointMetadata(BaseModelExtraForbid):
     r"""Task-level description of a set of keypoints.
 
     It describes the keypoints of a whole task, not those of one instance.
-    A `KeypointAnnotation` carries the same values as flat fields, and
+    A `KeypointAnnotation` carries the same values: the names of its
+    keypoints, and its ``edges``, ``flip_pairs`` and ``sigmas``.
     `LuxonisDataset.add` moves them here. A dataset keeps one entry for
-    each task.
+    each task. `LuxonisDataset.get_keypoint_metadata` returns the entries,
+    and `LuxonisDataset.set_keypoint_metadata` changes them.
 
     Edges and flip pairs accept keypoint names. They resolve against
     `labels` and store indices, which index into a keypoint array. The
@@ -512,10 +518,15 @@ class KeypointMetadata(BaseModelExtraForbid):
 
     Attributes:
         labels: Keypoint names in index order.
-        edges: Keypoint graph edges as :math:`0`-based index pairs.
+        edges: Keypoint graph edges as :math:`0`-based index pairs. Each
+            pair has the lower index first, and the list is sorted.
         flip_pairs: Index pairs swapped by a horizontal flip, used to keep
             symmetric keypoints such as left and right eyes consistent.
-        sigmas: Per-keypoint OKS standard deviations.
+            A pair joins two different keypoints, and a keypoint is in at
+            most one pair. Each pair has the lower index first, and the
+            list is sorted.
+        sigmas: Standard deviations of the object keypoint similarity
+            (OKS), one for each keypoint in `labels` order.
 
     """
 
@@ -676,8 +687,8 @@ class KeypointMetadata(BaseModelExtraForbid):
         """Check that no two keypoints have the same name.
 
         A name keys a keypoint, so a repeated name drops a keypoint. The
-        model accepts repeated names, so the code that writes names or
-        uses them as keys runs this check.
+        model itself accepts repeated names. Run this check before you use
+        the names as keys.
 
         Args:
             context: Description of what is being checked, used in the error
@@ -707,7 +718,8 @@ class KeypointMetadata(BaseModelExtraForbid):
 
         Returns:
             The keypoints in `labels` order. The keypoints of an annotation
-            without names keep their positional keys.
+            without names keep their positional keys. Without `labels`, the
+            keypoints come back unchanged.
 
         Raises:
             ValueError: If a keypoint is not part of the task, if an
@@ -740,9 +752,9 @@ class KeypointMetadata(BaseModelExtraForbid):
         """Return the keypoint metadata for a new list of names.
 
         The new list holds every current name, in any order, and it can
-        hold more names. The edges and the flip pairs move to the new
-        indices. Each keypoint has its own sigma, so the sigmas move only
-        if the new list holds no other names.
+        hold more names. The edges, the flip pairs and the sigmas move to
+        the new indices. A new name has no sigma, so keypoint metadata
+        with sigmas accepts only a new list without other names.
 
         Args:
             labels: The new keypoint names in index order.
@@ -780,8 +792,12 @@ class KeypointMetadata(BaseModelExtraForbid):
 
         A name must carry a ``left``/``right`` or ``l``/``r`` marker at the
         start or at the end, and a separator must delimit it. The rest of
-        the two names must match exactly. A keypoint on the midline, such
-        as ``nose``, stays unpaired. So does a keypoint with no partner.
+        the two names must match. The match ignores case, and ``_``, ``-``
+        and whitespace count as the same separator. A keypoint on the
+        midline, such as ``nose``, stays unpaired. So does a keypoint with
+        no partner. When more than one left name or more than one right
+        name has the same rest, none of them gets a pair, and a warning is
+        logged.
         The match is narrow on purpose. A wrong flip pair mirrors the wrong
         keypoints and never fails.
 
@@ -1068,6 +1084,7 @@ class Detection(BaseModelExtraForbid):
 
     @model_validator(mode="after")
     def _rescale_values(self) -> Self:
+        """Rescale box-relative keypoints to image coordinates."""
         if not self.scale_to_boxes:
             return self
         if self.boundingbox is None:
@@ -1321,11 +1338,13 @@ class KeypointAnnotation(Annotation):
                 - :math:`1`: Occluded.
                 - :math:`2`: Visible.
 
-        edges: Keypoint graph edges, as index pairs or as name pairs.
+        edges: Keypoint graph edges, as index pairs or as name pairs. An
+            index is the position of a keypoint in `keypoints`.
         flip_pairs: Pairs that a horizontal flip swaps, as index pairs or
             as name pairs. An empty list turns off the inference of flip
             pairs.
-        sigmas: Per-keypoint OKS standard deviations.
+        sigmas: Standard deviations of the object keypoint similarity
+            (OKS), one for each keypoint in the order of `keypoints`.
 
     """
 
@@ -1443,6 +1462,7 @@ class KeypointAnnotation(Annotation):
     @model_validator(mode="before")
     @classmethod
     def _validate_values(cls, values: Any, info: ValidationInfo) -> Any:
+        """Key a list by position, clip the keypoints, and resolve names."""
         if not isinstance(values, Mapping) or "keypoints" not in values:
             return values
 
@@ -2066,6 +2086,10 @@ class DatasetRecord(BaseModelExtraForbid):
         Yields:
             Annotation data rows.
 
+        Raises:
+            ValueError: If the keypoints of a record do not fit the keypoint
+                metadata of their task.
+
         """
         yield from self._to_parquet_rows(
             self.annotation,
@@ -2081,6 +2105,7 @@ class DatasetRecord(BaseModelExtraForbid):
         sample_metadata: str,
         keypoint_metadata: Mapping[str, KeypointMetadata],
     ) -> Iterable[ParquetRecord]:
+        """Yield the rows of ``annotation`` and of its sub-detections."""
         file_items = sorted(self.files.items(), key=lambda x: str(x[1]))
         for i, (source, file_path) in enumerate(file_items):
             is_main = i == 0
@@ -2190,7 +2215,8 @@ def load_annotation(
         An instance of the appropriate `Annotation` subclass based on the task type.
 
     Raises:
-        ValueError: If the task type is unknown.
+        ValueError: If the task type is unknown, or if ``data`` is not a
+            valid annotation of that type.
 
     """
     classes = {

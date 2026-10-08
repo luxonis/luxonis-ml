@@ -36,9 +36,15 @@ class NativeExporter(BaseExporter):
     ``{"ldf_version": "2.2.0"}``. It is not the full `Metadata` model a
     dataset keeps in its own storage.
 
+    A keypoint record keys its keypoints by name when its task names
+    them. One record of each keypoint task in each ``annotations.json``
+    also carries the ``edges``, ``flip_pairs`` and ``sigmas`` of the task,
+    so the import restores its `KeypointMetadata`.
+
     Passing an older ``ldf_version`` strips the fields that version does
-    not know -- exporting LDF 2.0 omits ``sample_metadata`` and the
-    keypoint names, edges, flip pairs and sigmas. See `LDFDowngrader`.
+    not know -- exporting LDF 2.1 or 2.0 omits the keypoint names, edges,
+    flip pairs and sigmas, and LDF 2.0 also omits ``sample_metadata``. See
+    `LDFDowngrader`.
 
     Example:
         .. code-block:: json
@@ -76,6 +82,20 @@ class NativeExporter(BaseExporter):
         keypoint_metadata: dict[str, KeypointMetadata] | None = None,
         ldf_version: Version | None = None,
     ):
+        """Create a native LDF exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Optional maximum partition size in GiB.
+            keypoint_metadata: Keypoint metadata keyed by task name. The
+                export names the keypoints of each record with it, and it
+                writes the task fields to one record of each task in each
+                ``annotations.json``.
+            ldf_version: LDF version to write. ``None`` writes the current
+                LDF version.
+
+        """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
@@ -163,7 +183,8 @@ class NativeExporter(BaseExporter):
 
         Each record carries the names, so an import into a dataset with
         another keypoint order moves each record by them. The first
-        eligible record of each task and split carries the task fields. A
+        eligible record of each task in each ``annotations.json``, one for
+        each split and partition, carries the task fields. A
         short record is eligible only when its names survive the target
         LDF version. Without names, the importer cannot tell which
         keypoints are missing. A task without a full row is the exception:

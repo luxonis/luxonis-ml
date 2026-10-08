@@ -45,6 +45,20 @@ class CocoExporter(BaseExporter):
         *,
         keypoint_metadata: dict[str, KeypointMetadata] | None = None,
     ):
+        """Create a COCO exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Optional maximum partition size in GiB.
+            format: COCO directory layout to write.
+            keypoint_metadata: Keypoint metadata keyed by task name. COCO
+                holds one keypoint definition, so the export writes
+                keypoints only when exactly one task has keypoint metadata.
+                Each category then gets the names, the skeleton and the
+                sigmas of that task.
+
+        """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )

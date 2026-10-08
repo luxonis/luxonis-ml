@@ -594,7 +594,9 @@ def visualize(
             ``"task_name/metadata/key"`` and values map string labels to
             encoded integers.
         keypoint_metadata: Optional keypoint definitions keyed by task name.
-        draw_skeletons: Whether to draw keypoint skeleton edges.
+        draw_skeletons: Whether to draw the edges that
+            ``keypoint_metadata`` gives. An edge is drawn only between two
+            keypoints with a visibility above 0.
         keypoint_label_mode: Keypoint label mode. ``"none"`` draws no
             label. ``"numbers"`` draws the keypoint index. ``"names"``
             draws the keypoint name. ``"full"`` draws the index and the

@@ -6,10 +6,11 @@ so the keypoint called ``left_wrist`` ends up on the right side of the body.
 These transforms move the coordinates and also swap the keypoints of each
 symmetric pair.
 
-Each keypoint task can have its own skeleton. `AlbumentationsEngine` tells
-the transforms, for each keypoint task, how many keypoints an instance has
-and which pairs the task stores in its `KeypointMetadata`. Pairs given in the
-configuration replace the stored pairs of each task that they fit.
+Each keypoint task can have its own keypoints and flip pairs.
+`AlbumentationsEngine` tells the transforms, for each keypoint task, how many
+keypoints an instance has and which pairs the task stores in its
+`KeypointMetadata`. Pairs given in the configuration replace the stored pairs
+of each task that has a keypoint for every index in the pairs.
 """
 
 from functools import partial
@@ -59,9 +60,10 @@ class SymmetricKeypointsTransform(A.DualTransform):
 
         Args:
             keypoint_pairs: Pairs of keypoint indices to swap. They
-                replace the stored flip pairs of each task that they fit,
-                so identity pairs keep the keypoints in place. Without
-                them, or for a task that they do not fit, the transform
+                replace the stored flip pairs of each task that has a
+                keypoint for every index in the pairs. Identity pairs such
+                as ``[(0, 0)]`` thus keep every keypoint in place. Without
+                them, or for a task with fewer keypoints, the transform
                 swaps the pairs that the task stores.
             p: Probability of applying the augmentation.
 
@@ -85,6 +87,7 @@ class SymmetricKeypointsTransform(A.DualTransform):
     @property
     @override
     def targets(self) -> dict[str, Any]:
+        """Return the target functions, with masks moved like the image."""
         targets = super().targets
         targets["instance_mask"] = self.apply_to_mask
         targets["segmentation"] = self.apply_to_mask

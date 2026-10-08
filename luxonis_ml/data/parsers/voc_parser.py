@@ -67,7 +67,7 @@ class VOCParser(BaseParser):
             annotation_dir: Directory with ``.xml`` annotations.
 
         Returns:
-            Parser output containing annotation records, skeleton metadata,
+            Parser output containing annotation records, keypoint metadata,
             and added images.
 
         Raises:

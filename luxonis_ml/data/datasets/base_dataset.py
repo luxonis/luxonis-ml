@@ -123,7 +123,7 @@ class BaseDataset(
         sigmas: list[float] | None = None,
         infer_flip_pairs: bool | None = None,
     ) -> None:
-        """Set the keypoint definitions of the tasks that use keypoints.
+        """Set the keypoint metadata of one task or of every task.
 
         Only the fields that you provide are replaced, so a definition can
         be built up over several calls. New labels are the exception:
@@ -170,19 +170,23 @@ class BaseDataset(
             infer_flip_pairs: Whether to infer flip pairs from the
                 ``left``/``right`` keypoint names. Only a call that omits
                 ``flip_pairs`` infers them, and only for a task without
-                flip pairs. ``None`` infers them only for names that are
-                new to the task, as `add` does. An empty list of stored
-                flip pairs can mean that an earlier call turned the
-                inference off, and ``None`` keeps that list. ``True``
-                also infers them for the stored names, for example for a
-                dataset from an older luxonis-ml. With ``True``, the call
-                needs no other field, and it then changes only the tasks
-                with keypoint metadata. ``False`` infers none.
+                flip pairs. ``None`` infers them only when the call
+                changes the names of the task, as `add` does. An empty
+                list of stored flip pairs can mean that an earlier call
+                turned the inference off, and ``None`` keeps that list.
+                ``True`` also infers them for the stored names, for
+                example for a dataset from an older luxonis-ml. With
+                ``True``, the call needs no other field, and it then
+                changes only the tasks with keypoint metadata. ``False``
+                infers none.
 
         Raises:
             ValueError: If you provide none of the fields and
                 ``infer_flip_pairs`` is not ``True``, or if a field does
                 not fit the labels of a task.
+            ValueError: If ``labels`` repeats a name, if an edge or a flip
+                pair refers to a name that is not a label, or if a keypoint
+                is in two flip pairs or is paired with itself.
 
         """
         ...
@@ -204,9 +208,12 @@ class BaseDataset(
         edges: list[KeypointPair] | None = None,
         task: str | None = None,
     ) -> None:
-        """Set the keypoint labels and edges of the tasks with keypoints.
+        """Set the keypoint labels and edges of one task or of every task.
 
-        .. deprecated:: 0.10.0
+        It calls `set_keypoint_metadata`, so the stored fields follow the
+        rules of that method.
+
+        .. deprecated:: 0.11.0
             Use `set_keypoint_metadata`, or declare the keypoints on the
             records.
 
@@ -215,6 +222,10 @@ class BaseDataset(
             edges: Optional edges between keypoints.
             task: Optional task to update. If omitted, all tasks are
                 updated.
+
+        Raises:
+            ValueError: If you provide neither ``labels`` nor ``edges``, or
+                if a field does not fit the labels of a task.
 
         """
         self.set_keypoint_metadata(labels, edges, task)
@@ -225,7 +236,7 @@ class BaseDataset(
     ) -> dict[str, tuple[list[str], list[tuple[int, int]]]]:
         """Return the keypoint labels and edges of each task.
 
-        .. deprecated:: 0.10.0
+        .. deprecated:: 0.11.0
             Use `get_keypoint_metadata`.
 
         Returns:

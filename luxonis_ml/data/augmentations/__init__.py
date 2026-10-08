@@ -51,10 +51,20 @@ semantic left/right keypoint labels. For symmetric keypoint structures, use the
 Luxonis custom transforms `HorizontalSymmetricKeypointsFlip`,
 `VerticalSymmetricKeypointsFlip`, and `TransposeSymmetricKeypoints`. They swap
 the flip pairs that each keypoint task stores in its `KeypointMetadata`, so
-several skeletons in one dataset each keep their own pairs. A
-``keypoint_pairs`` parameter replaces the stored pairs of each task that it
-fits. For example, identity pairs keep the left and right keypoints in place
-in a vertical flip.
+each keypoint task in a dataset keeps its own pairs. A ``keypoint_pairs``
+parameter replaces the stored pairs of each task that has a keypoint for every
+index in the pairs. The other tasks keep their stored pairs. For example,
+``[[0, 0]]`` swaps no keypoint, so a vertical flip keeps the left and right
+keypoints in place:
+
+.. python::
+
+    [
+        {
+            "name": "VerticalSymmetricKeypointsFlip",
+            "params": {"keypoint_pairs": [[0, 0]], "p": 0.5},
+        },
+    ]
 
 Batch transforms multiply the number of source samples required by the loader.
 For example, a pipeline that contains `MixUp` and `Mosaic4` requires
@@ -140,6 +150,10 @@ A custom engine should subclass `AugmentationEngine` and implement:
 
 Engines may also override `AugmentationEngine.applied_augmentations` to
 report the configured paths and runtime parameters of their latest call.
+
+When the ``__init__`` of an engine takes a ``keypoint_metadata`` parameter,
+`LuxonisLoader` passes the `KeypointMetadata` of each keypoint task, keyed by
+task name. The flip pairs and the names of the keypoints come from there.
 
 
 Tips and Tricks

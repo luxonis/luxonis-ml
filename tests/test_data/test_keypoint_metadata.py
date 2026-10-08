@@ -1313,7 +1313,7 @@ def test_an_export_leaves_out_a_legacy_edge_out_of_range(
 def test_set_keypoint_metadata_checks_the_fields_against_the_labels(
     dataset_name: str, tempdir: Path, fields: dict[str, Any], match: str
 ):
-    """A COCO export writes the edges as the skeleton of the category."""
+    """A field that does not fit the labels changes nothing."""
     dataset = named_dataset(dataset_name, tempdir)
     before = dataset.get_keypoint_metadata()
 

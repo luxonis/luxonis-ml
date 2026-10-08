@@ -183,7 +183,11 @@ class BaseParser(ABC):
                     parser.from_split(**split_kwargs)
 
         Returns:
-            LDF generator, keypoint metadata, and added images.
+            LDF generator, keypoint metadata, and added images. The
+            keypoint metadata maps a class name to a dictionary with the
+            optional keys ``"labels"``, ``"edges"``, ``"flip_pairs"`` and
+            ``"sigmas"``. It accepts no other keys. An empty dictionary
+            defines no keypoint metadata.
 
         """
         ...
@@ -333,6 +337,11 @@ class BaseParser(ABC):
         Returns:
             Dataset with parsed images and annotations.
 
+        Raises:
+            ValueError: If the keypoint metadata that the format defines
+                does not fit the keypoint records, for example a repeated
+                keypoint name or a record with more keypoints than names.
+
         """
         self._reset_parser_issue_messages()
         try:
@@ -370,6 +379,8 @@ class BaseParser(ABC):
         Raises:
             ValueError: If a parser that expects top-level splits cannot
                 find a ``train`` directory.
+            ValueError: If the keypoint metadata that the format defines
+                does not fit the keypoint records.
 
         """
         self._reset_parser_issue_messages()
