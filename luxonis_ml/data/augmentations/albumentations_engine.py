@@ -1,6 +1,6 @@
 import warnings
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from math import prod
 from typing import Any, Final, Literal, TypeAlias, cast
 
@@ -12,6 +12,7 @@ from pydantic import Field
 from typing_extensions import override
 
 from luxonis_ml.data.utils.task_utils import get_task_type, task_is_metadata
+from luxonis_ml.ldf import KeypointMetadata
 from luxonis_ml.typing import ConfigItem, LoaderMultiOutput, Params
 from luxonis_ml.utils import deprecated
 
@@ -20,6 +21,7 @@ from .batch_compose import BatchCompose
 from .batch_transform import BatchTransform
 from .custom import TRANSFORMATIONS
 from .custom.letterbox_resize import create_letterbox_or_resize
+from .custom.symmetric_keypoints_flip import SymmetricKeypointsTransform
 from .utils import (
     instance_count,
     postprocess_bboxes,
@@ -390,6 +392,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         min_bbox_visibility: float = 0.0,
         seed: int | None = None,
         bbox_area_threshold: float = 0.0004,
+        keypoint_metadata: Mapping[str, KeypointMetadata] | None = None,
     ):
         """Create an Albumentations-backed augmentation pipeline.
 
@@ -419,6 +422,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             seed: Optional random seed.
             bbox_area_threshold: Minimum normalized bounding-box area kept
                 after augmentation.
+            keypoint_metadata: Keypoint metadata by task name. The symmetric
+                keypoint flips swap the flip pairs that each task stores,
+                unless their ``keypoint_pairs`` replace them.
 
         Raises:
             ValueError: If a target task type is unsupported, more than
@@ -438,6 +444,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         self._bbox_area_threshold = bbox_area_threshold
         self._applied_augmentations: dict[str, Params] = {}
         self._tracked_augmentation_paths: dict[int, str] = {}
+        self._keypoint_metadata = dict(keypoint_metadata or {})
+        self._symmetric_transforms: list[SymmetricKeypointsTransform] = []
 
         for task, task_type in targets.items():
             target_name = self._task_to_target_name(task)
@@ -550,6 +558,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
             transform = self._create_transformation(
                 cfg, self._tracked_augmentation_paths
+            )
+            self._symmetric_transforms.extend(
+                _find_symmetric_transforms(transform)
             )
 
             if cfg.use_for_resizing:
@@ -739,6 +750,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         data_batch, n_keypoints, label_specs = self._preprocess_batch(
             input_batch
         )
+        self._set_keypoint_layouts(n_keypoints)
 
         data = self._batch_transform(
             data_batch, keypoints_per_instance=n_keypoints
@@ -1078,6 +1090,21 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             return pipeline_stage
         return "val" if is_validation_pipeline else "train"
 
+    def _set_keypoint_layouts(self, n_keypoints: Mapping[str, int]) -> None:
+        """Tell each symmetric flip the keypoint layout of each target.
+
+        A target is one keypoint task. Its layout is the keypoint count of an
+        instance, read from the data, and the flip pairs its task stores.
+        """
+        layouts = {}
+        for target_name, count in n_keypoints.items():
+            task_group = self._target_names_to_task_groups[target_name]
+            metadata = self._keypoint_metadata.get(task_group)
+            pairs = list(metadata.flip_pairs) if metadata is not None else []
+            layouts[target_name] = (count, pairs)
+        for transform in self._symmetric_transforms:
+            transform.set_layouts(layouts)
+
     @staticmethod
     def _mark_invisible_keypoints(
         keypoints: np.ndarray, shape: tuple[int, int], **_
@@ -1307,6 +1334,17 @@ def _reset_params(transform: Any) -> None:
     if isinstance(transform, A.BaseCompose):
         for child in transform.transforms:
             _reset_params(child)
+
+
+def _find_symmetric_transforms(
+    transform: Any,
+) -> Iterator[SymmetricKeypointsTransform]:
+    """Yield the symmetric flips of a transform, also nested ones."""
+    if isinstance(transform, SymmetricKeypointsTransform):
+        yield transform
+    elif isinstance(transform, A.BaseCompose):
+        for child in transform.transforms:
+            yield from _find_symmetric_transforms(child)
 
 
 def _disambiguate_paths(paths: dict[int, str]) -> dict[int, str]:
