@@ -123,6 +123,14 @@ def keypoint_payloads(dataset: LuxonisDataset) -> list[str]:
     return df.filter(df["task_type"] == "keypoints")["annotation"].to_list()
 
 
+def keypoint_rows(dataset: LuxonisDataset) -> list[list[float]]:
+    """Return each stored keypoint row as flat values, sorted."""
+    return sorted(
+        list(chain.from_iterable(json.loads(payload)["keypoints"]))
+        for payload in keypoint_payloads(dataset)
+    )
+
+
 def stored_keypoints_by_name(
     dataset: LuxonisDataset, task: str = "pose"
 ) -> list[dict[str, tuple[float, float, int]]]:
@@ -1248,8 +1256,39 @@ def test_set_keypoint_metadata_keeps_a_legacy_edge_it_is_not_given(
     assert dataset.get_keypoint_metadata()["pose"].edges == [(-1, 0), (1, 3)]
 
 
-def test_the_native_export_leaves_out_a_legacy_edge_out_of_range(
+def test_set_keypoint_metadata_infers_flip_pairs_for_the_stored_names(
     dataset_name: str, tempdir: Path
+):
+    """An older luxonis-ml stored no flip pairs.
+
+    The call gives no field, so it keeps the stored names and edges, and
+    it gives the box task no keypoint metadata.
+    """
+    dataset = create_dataset(
+        dataset_name,
+        chain(
+            keypoint_generator(tempdir, NAMED_KEYPOINTS),
+            detection_generator(tempdir),
+        ),
+    )
+    dataset = legacy_dataset(
+        dataset, {"pose": {"labels": LABELS, "edges": [[0, 1]]}}
+    )
+
+    dataset.set_keypoint_metadata(infer_flip_pairs=True)
+
+    assert dataset.get_keypoint_metadata() == {
+        "pose": KeypointMetadata(
+            labels=LABELS, edges=[(0, 1)], flip_pairs=[(1, 2)]
+        )
+    }
+
+
+@pytest.mark.parametrize(
+    "dataset_type", [DatasetType.NATIVE, DatasetType.COCO]
+)
+def test_an_export_leaves_out_a_legacy_edge_out_of_range(
+    dataset_name: str, tempdir: Path, dataset_type: DatasetType
 ):
     """The import checks the edges, so such an edge would stop it."""
     dataset = legacy_dataset(
@@ -1257,9 +1296,10 @@ def test_the_native_export_leaves_out_a_legacy_edge_out_of_range(
         {"pose": {"labels": LABELS, "edges": [[-1, 0], [0, 1], [1, 3]]}},
     )
 
-    imported = export_and_import(dataset, tempdir)
+    imported = export_and_import(dataset, tempdir, dataset_type)
 
-    assert imported.get_keypoint_metadata()["pose"].edges == [(0, 1)]
+    task_keypoints = next(iter(imported.get_keypoint_metadata().values()))
+    assert task_keypoints.edges == [(0, 1)]
 
 
 @pytest.mark.parametrize(
@@ -2122,14 +2162,21 @@ def test_the_native_export_keeps_every_keypoint_of_repeated_names(
     }
 
 
-def test_the_native_export_leaves_out_names_for_fewer_keypoints_than_a_row(
-    dataset_name: str, tempdir: Path, warnings_log: list[str]
+@pytest.mark.parametrize(
+    "dataset_type", [DatasetType.NATIVE, DatasetType.COCO]
+)
+def test_an_export_leaves_out_names_for_fewer_keypoints_than_a_row(
+    dataset_name: str,
+    tempdir: Path,
+    warnings_log: list[str],
+    dataset_type: DatasetType,
 ):
     """New names do not change the rows that a task already has.
 
     The rows of the first `add` have five keypoints, and the names cover
     three. The import rejects names narrower than a row of any split, so
-    the export leaves the names out.
+    the export leaves the names out. An older luxonis-ml stored such
+    names too: its `add` named the keypoints by the last record.
     """
     dataset = create_dataset(
         dataset_name, positional_generator(tempdir, [5, 5]), splits=False
@@ -2142,15 +2189,15 @@ def test_the_native_export_leaves_out_names_for_fewer_keypoints_than_a_row(
             "val": [str(create_image(2, tempdir))],
         }
     )
-    imported = export_and_import(dataset, tempdir)
+    imported = export_and_import(dataset, tempdir, dataset_type)
 
     assert any("names 3 keypoints, but a row has 5" in m for m in warnings_log)
-    assert imported.get_keypoint_metadata()["pose"].labels == [
-        str(i) for i in range(5)
+    task_keypoints = next(iter(imported.get_keypoint_metadata().values()))
+    assert task_keypoints.labels == [str(i) for i in range(5)]
+    # COCO stores pixels, so its coordinates can differ in the last digit.
+    assert keypoint_rows(imported) == [
+        pytest.approx(row) for row in keypoint_rows(dataset)
     ]
-    assert sorted(keypoint_payloads(imported)) == sorted(
-        keypoint_payloads(dataset)
-    )
 
 
 def test_a_later_add_pads_a_record_with_fewer_keypoints(

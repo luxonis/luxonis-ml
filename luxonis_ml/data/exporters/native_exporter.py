@@ -5,12 +5,12 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
-from loguru import logger
 from semver.version import Version
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
+    fit_keypoint_metadata_to_rows,
     split_of_group,
     warn_repeated_keypoint_names,
 )
@@ -216,40 +216,17 @@ class NativeExporter(BaseExporter):
     def _fit_keypoint_metadata_to_rows(self, df: pl.DataFrame) -> None:
         """Leave out the keypoint metadata that the import would reject.
 
-        A task whose names cover fewer keypoints than one of its rows
-        loses its keypoint metadata, and its rows keep their keypoints.
-        The export also leaves out each edge out of range.
+        See `fit_keypoint_metadata_to_rows`.
         """
         widths = get_keypoint_row_widths(df.lazy())
         kept: dict[str, KeypointMetadata] = {}
         for task, task_keypoints in self.keypoint_metadata.items():
-            n_labels = len(task_keypoints.labels)
             width = widths.get(task, 0)
-            if 0 < n_labels < width:
-                logger.warning(
-                    f"Task '{task}' names {n_labels} keypoints, but a row "
-                    f"has {width}. The export leaves out the keypoint "
-                    "metadata of this task, so the import numbers the "
-                    "keypoints. Give the task a name for each keypoint with "
-                    "`LuxonisDataset.set_keypoint_metadata(labels=...)` to "
-                    "keep the names."
-                )
+            fitted = fit_keypoint_metadata_to_rows(task, task_keypoints, width)
+            if fitted is None:
                 continue
-            n_keypoints = n_labels or width
-            edges = [
-                edge
-                for edge in task_keypoints.edges
-                if all(0 <= index < n_keypoints for index in edge)
-            ]
-            if n_keypoints and edges != task_keypoints.edges:
-                logger.warning(
-                    f"Task '{task}' has edges out of range for its "
-                    f"{n_keypoints} keypoints. The export leaves them out."
-                )
-                task_keypoints = task_keypoints.model_copy(
-                    update={"edges": edges}
-                )
-            kept[task] = task_keypoints
+            n_keypoints = len(fitted.labels) or width
+            kept[task] = fitted
             self._n_keypoints[task] = n_keypoints
             if width < n_keypoints:
                 self._tasks_without_a_full_row.add(task)

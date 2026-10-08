@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from typing import Any, cast
 
+import polars as pl
 import pycocotools.mask as maskUtils
 from loguru import logger
 from PIL import Image
@@ -12,10 +13,12 @@ from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
     check_group_file_correspondence,
     exporter_specific_annotation_warning,
+    fit_keypoint_metadata_to_rows,
     split_of_group,
     warn_repeated_keypoint_names,
 )
 from luxonis_ml.data.utils import COCOFormat
+from luxonis_ml.data.utils.data_utils import get_keypoint_row_widths
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.ldf import KeypointMetadata
 
@@ -59,16 +62,6 @@ class CocoExporter(BaseExporter):
                 "The export writes them, but the COCO import of luxonis-ml "
                 "rejects repeated names.",
             )
-            if task_keypoints.labels:
-                # COCO numbers the ends of a skeleton edge from 1.
-                self._category_keypoints = {
-                    "keypoints": task_keypoints.labels,
-                    "skeleton": [
-                        [a + 1, b + 1] for a, b in task_keypoints.edges
-                    ],
-                }
-            if task_keypoints.sigmas:
-                self._category_keypoints["sigmas"] = task_keypoints.sigmas
         else:
             self.allow_keypoints = False
             logger.warning(
@@ -93,11 +86,36 @@ class CocoExporter(BaseExporter):
     def supported_ann_types(self) -> list[str]:
         return DatasetType.COCO.supported_annotation_formats
 
+    def _keypoint_category_fields(self, df: pl.DataFrame) -> dict[str, Any]:
+        """Return the keypoint fields that each category carries.
+
+        COCO numbers the ends of a skeleton edge from 1. See
+        `fit_keypoint_metadata_to_rows` for the metadata that the export
+        leaves out.
+        """
+        assert self.keypoint_metadata
+        task, task_keypoints = next(iter(self.keypoint_metadata.items()))
+        width = get_keypoint_row_widths(df.lazy()).get(task, 0)
+        fitted = fit_keypoint_metadata_to_rows(task, task_keypoints, width)
+        if fitted is None:
+            return {}
+        fields: dict[str, Any] = {}
+        if fitted.labels:
+            fields["keypoints"] = fitted.labels
+            fields["skeleton"] = [[a + 1, b + 1] for a, b in fitted.edges]
+        if fitted.sigmas:
+            fields["sigmas"] = fitted.sigmas
+        return fields
+
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
         exporter_specific_annotation_warning(
             prepared_ldf, self.supported_ann_types()
         )
+        if self.allow_keypoints:
+            self._category_keypoints = self._keypoint_category_fields(
+                prepared_ldf.processed_df
+            )
 
         splits = self.get_split_names()
         annotation_splits: dict[str, dict[str, Any]] = {

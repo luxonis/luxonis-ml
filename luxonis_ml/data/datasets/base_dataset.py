@@ -175,11 +175,14 @@ class BaseDataset(
                 flip pairs can mean that an earlier call turned the
                 inference off, and ``None`` keeps that list. ``True``
                 also infers them for the stored names, for example for a
-                dataset from an older luxonis-ml. ``False`` infers none.
+                dataset from an older luxonis-ml. With ``True``, the call
+                needs no other field, and it then changes only the tasks
+                with keypoint metadata. ``False`` infers none.
 
         Raises:
-            ValueError: If you provide none of the fields, or if a field
-                does not fit the labels of a task.
+            ValueError: If you provide none of the fields and
+                ``infer_flip_pairs`` is not ``True``, or if a field does
+                not fit the labels of a task.
 
         """
         ...

@@ -939,10 +939,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             )
             if value is not None
         }
-        if not updates:
+        if not updates and infer_flip_pairs is not True:
             raise ValueError(
                 "Must provide either keypoint names, edges, flip pairs, "
-                "or sigmas"
+                "or sigmas, or set `infer_flip_pairs=True`"
             )
 
         tasks = self.get_task_names() if task is None else [task]
@@ -950,6 +950,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         updated: dict[str, KeypointMetadata] = {}
         for t in tasks:
             current = self._metadata.keypoint_metadata.get(t)
+            if current is None and not updates:
+                continue
             kept = {}
             if current is not None and not _renames_keypoints(current, labels):
                 # Names for placeholder keypoints keep the stored fields,

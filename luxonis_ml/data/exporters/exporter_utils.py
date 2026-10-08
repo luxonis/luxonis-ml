@@ -211,6 +211,52 @@ def warn_repeated_keypoint_names(
         )
 
 
+def fit_keypoint_metadata_to_rows(
+    task: str, task_keypoints: KeypointMetadata, width: int
+) -> KeypointMetadata | None:
+    """Leave out the keypoint metadata that the import would reject.
+
+    The import rejects names that cover fewer keypoints than a row, so
+    the export leaves out the whole entry of such a task. The import then
+    numbers the keypoints. The import also rejects an edge out of range,
+    so the export leaves out each such edge. Each case logs a warning.
+
+    Args:
+        task: Name of the keypoint task.
+        task_keypoints: Keypoint metadata of the task.
+        width: Keypoint count of the widest row of the task.
+
+    Returns:
+        The keypoint metadata to export, or ``None`` when the export
+        leaves out the whole entry.
+
+    """
+    n_labels = len(task_keypoints.labels)
+    if 0 < n_labels < width:
+        logger.warning(
+            f"Task '{task}' names {n_labels} keypoints, but a row has "
+            f"{width}. The export leaves out the keypoint metadata of this "
+            "task, so the import numbers the keypoints. Give the task a "
+            "name for each keypoint with "
+            "`LuxonisDataset.set_keypoint_metadata(labels=...)` to keep the "
+            "names."
+        )
+        return None
+    n_keypoints = n_labels or width
+    edges = [
+        edge
+        for edge in task_keypoints.edges
+        if all(0 <= index < n_keypoints for index in edge)
+    ]
+    if n_keypoints and edges != task_keypoints.edges:
+        logger.warning(
+            f"Task '{task}' has edges out of range for its {n_keypoints} "
+            "keypoints. The export leaves them out."
+        )
+        return task_keypoints.model_copy(update={"edges": edges})
+    return task_keypoints
+
+
 def decode_rle_with_pycoco(ann: dict[str, Any]) -> np.ndarray:
     h = int(ann["height"])
     w = int(ann["width"])
