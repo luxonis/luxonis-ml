@@ -199,6 +199,7 @@ def test_merge_keeps_keypoint_fields_the_other_dataset_omits(
     """
     other_metadata = Metadata(
         source=None,
+        ldf_version="2.0.0",
         keypoint_metadata={
             "task1": KeypointMetadata(
                 labels=["head", "tail"], sigmas=[0.05, 0.05]
