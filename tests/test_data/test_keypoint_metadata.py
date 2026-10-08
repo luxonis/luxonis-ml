@@ -8,6 +8,7 @@ it must keep.
 import json
 import shutil
 from collections.abc import Callable
+from itertools import chain
 from pathlib import Path
 from typing import Any, TypeAlias
 
@@ -2356,6 +2357,33 @@ def test_the_loader_pads_a_short_row_to_the_names(
         [[0.0, 0.0, 2.0, 0.1, 0.1, 2.0, 0.0, 0.0, 0.0]],
         [[0.0, 0.0, 2.0, 0.1, 0.1, 2.0, 0.2, 0.2, 2.0]],
     ]
+
+
+@pytest.mark.parametrize(
+    ("second_start", "expected_shapes"),
+    [
+        pytest.param(1, [(1, 9), (1, 9)], id="two-images"),
+        pytest.param(0, [(2, 9)], id="one-image"),
+    ],
+)
+def test_the_loader_pads_a_short_row_to_the_widest_row_without_labels(
+    dataset_name: str,
+    tempdir: Path,
+    second_start: int,
+    expected_shapes: list[tuple[int, int]],
+):
+    """Without labels, the widest stored row gives the keypoint count."""
+    dataset = create_dataset(
+        dataset_name,
+        chain(
+            positional_generator(tempdir, [2]),
+            positional_generator(tempdir, [3], start=second_start),
+        ),
+        splits=(1, 0, 0),
+    )
+    dataset.set_keypoint_metadata(labels=[], task="pose")
+
+    assert loaded_keypoint_shapes(dataset) == expected_shapes
 
 
 def test_edges_do_not_set_the_keypoint_count(dataset_name: str, tempdir: Path):
