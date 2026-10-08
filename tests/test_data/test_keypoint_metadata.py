@@ -47,6 +47,10 @@ NAMED_KEYPOINTS = {
 REVERSED_KEYPOINTS = dict(reversed(NAMED_KEYPOINTS.items()))
 BOX = {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.3}
 
+export_types = pytest.mark.parametrize(
+    "dataset_type", [DatasetType.NATIVE, DatasetType.COCO]
+)
+
 Keypoints: TypeAlias = (
     list[tuple[float, float, int]] | dict[str, tuple[float, float, int]]
 )
@@ -1284,9 +1288,7 @@ def test_set_keypoint_metadata_infers_flip_pairs_for_the_stored_names(
     }
 
 
-@pytest.mark.parametrize(
-    "dataset_type", [DatasetType.NATIVE, DatasetType.COCO]
-)
+@export_types
 def test_an_export_leaves_out_a_legacy_edge_out_of_range(
     dataset_name: str, tempdir: Path, dataset_type: DatasetType
 ):
@@ -1924,9 +1926,7 @@ def test_set_keypoint_metadata_keeps_the_repeated_names_it_is_not_given(
     )
 
 
-@pytest.mark.parametrize(
-    "dataset_type", [DatasetType.NATIVE, DatasetType.COCO]
-)
+@export_types
 def test_an_export_warns_that_it_loses_repeated_names(
     dataset_name: str,
     tempdir: Path,
@@ -2162,9 +2162,7 @@ def test_the_native_export_keeps_every_keypoint_of_repeated_names(
     }
 
 
-@pytest.mark.parametrize(
-    "dataset_type", [DatasetType.NATIVE, DatasetType.COCO]
-)
+@export_types
 def test_an_export_leaves_out_names_for_fewer_keypoints_than_a_row(
     dataset_name: str,
     tempdir: Path,
@@ -2176,7 +2174,8 @@ def test_an_export_leaves_out_names_for_fewer_keypoints_than_a_row(
     The rows of the first `add` have five keypoints, and the names cover
     three. The import rejects names narrower than a row of any split, so
     the export leaves the names out. An older luxonis-ml stored such
-    names too: its `add` named the keypoints by the last record.
+    names as well, because its `add` named the keypoints by the last
+    record.
     """
     dataset = create_dataset(
         dataset_name, positional_generator(tempdir, [5, 5]), splits=False

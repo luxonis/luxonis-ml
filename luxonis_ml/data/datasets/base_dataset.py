@@ -168,17 +168,16 @@ class BaseDataset(
                 flip.
             sigmas: Optional per-keypoint OKS standard deviations.
             infer_flip_pairs: Whether to infer flip pairs from the
-                ``left``/``right`` keypoint names. Only a call that omits
-                ``flip_pairs`` infers them, and only for a task without
-                flip pairs. ``None`` infers them only when the call
-                changes the names of the task, as `add` does. An empty
-                list of stored flip pairs can mean that an earlier call
-                turned the inference off, and ``None`` keeps that list.
-                ``True`` also infers them for the stored names, for
-                example for a dataset from an older luxonis-ml. With
-                ``True``, the call needs no other field, and it then
-                changes only the tasks with keypoint metadata. ``False``
-                infers none.
+                ``left``/``right`` keypoint names, for a task without flip
+                pairs. A call that gives ``flip_pairs`` infers none.
+
+                - ``None`` infers them only when the call changes the
+                  names of the task, as `add` does.
+                - ``True`` also infers them for the stored names, for
+                  example for a dataset from an older luxonis-ml. The call
+                  then needs no other field, and it changes only the tasks
+                  with keypoint metadata.
+                - ``False`` infers none.
 
         Raises:
             ValueError: If you provide none of the fields and

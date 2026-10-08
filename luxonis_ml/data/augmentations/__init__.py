@@ -153,7 +153,7 @@ report the configured paths and runtime parameters of their latest call.
 
 When the ``__init__`` of an engine takes a ``keypoint_metadata`` parameter,
 `LuxonisLoader` passes the `KeypointMetadata` of each keypoint task, keyed by
-task name. The flip pairs and the names of the keypoints come from there.
+task name.
 
 
 Tips and Tricks

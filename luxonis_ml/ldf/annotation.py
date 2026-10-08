@@ -219,10 +219,10 @@ of a task in the order that the keypoint metadata defines.
 
 A task without names gets the positional keys as its labels. If no record
 gives edges, `LuxonisDataset.add` also joins its keypoints in a chain of
-edges. Names for these keypoints drop the chain. The dataset does not record the source of the
-edges, so the names also drop a chain that a record of an earlier
-`LuxonisDataset.add` gave. To keep these edges, give them again with the
-names.
+edges. Names for these keypoints drop the chain. The dataset does not record
+the source of the edges, so the names also drop a chain that a record of an
+earlier `LuxonisDataset.add` gave. To keep these edges, give them again with
+the names.
 
 For :math:`K` keypoints and :math:`N` instances, loader output uses shape
 :math:`\left(N, 3 \cdot K\right)`.

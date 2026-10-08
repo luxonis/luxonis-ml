@@ -28,7 +28,7 @@ class CocoExporter(BaseExporter):
 
     Attributes:
         format: COCO output layout variant.
-        keypoint_metadata: Optional keypoint definitions per task.
+        keypoint_metadata: Keypoint definitions per task.
         allow_keypoints: Whether keypoint annotations can be exported.
         class_name_to_category_id: Category IDs per split and class name.
         last_category_id: Last assigned category ID per split.
@@ -63,7 +63,7 @@ class CocoExporter(BaseExporter):
             dataset_identifier, output_path, max_partition_size_gb
         )
         self.format = format
-        self.keypoint_metadata = keypoint_metadata
+        self.keypoint_metadata = keypoint_metadata or {}
         self._category_keypoints: dict[str, Any] = {}
         if not self.keypoint_metadata:
             self.allow_keypoints = False
@@ -107,7 +107,6 @@ class CocoExporter(BaseExporter):
         `fit_keypoint_metadata_to_rows` for the metadata that the export
         leaves out.
         """
-        assert self.keypoint_metadata
         task, task_keypoints = next(iter(self.keypoint_metadata.items()))
         width = get_keypoint_row_widths(df.lazy()).get(task, 0)
         fitted = fit_keypoint_metadata_to_rows(task, task_keypoints, width)

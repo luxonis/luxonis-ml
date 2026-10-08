@@ -950,10 +950,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             )
             if value is not None
         }
-        if not updates and infer_flip_pairs is not True:
+        if not updates and not infer_flip_pairs:
             raise ValueError(
-                "Must provide either keypoint names, edges, flip pairs, "
-                "or sigmas, or set `infer_flip_pairs=True`"
+                "Must provide either keypoint names, edges, flip pairs or "
+                "sigmas, or `infer_flip_pairs=True`"
             )
 
         tasks = self.get_task_names() if task is None else [task]
@@ -1420,20 +1420,15 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         describe the whole task, so `add` moves them into the keypoint
         metadata of the task. See `get_keypoint_metadata`.
 
-        The records of a task in one call must agree on these fields. A
-        later call can replace the stored edges, flip pairs and sigmas,
-        with a warning. When the task already has names, a record can give
-        a subset of them in any order, and the missing keypoints get
-        ``(0, 0, 0)``. A keypoint task without names gets
-        the names ``"0"``, ``"1"``, .... `add` infers flip pairs from
-        ``left``/``right`` names when a task gets new names, unless a
-        record of the task gives ``flip_pairs``. An empty list turns the
-        inference off.
+        The records of a task in one call must agree on these fields, and
+        a later call replaces them with a warning. When the task already
+        has names, a record can give a subset of them in any order.
+        `luxonis_ml.ldf.annotation` describes how the missing keypoints are
+        padded, how keypoints without names are numbered, and when flip
+        pairs are inferred.
 
-        A dataset from LDF 2.0 or 2.1 that has keypoint metadata moves to
-        the current LDF version at its first metadata write, for example
-        in `add`. An older luxonis-ml cannot open it after that. See
-        `export` for a copy in an older LDF version.
+        The first write to an LDF 2.0 or 2.1 dataset with keypoints moves
+        it to the current LDF version. See `luxonis_ml.data.datasets`.
 
         Args:
             generator: The generator should yield either

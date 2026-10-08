@@ -34,12 +34,10 @@ metadata, and media paths used by concrete exporters.
      - Native LDF and Ultralytics NDJSON interchange formats.
 
 `NativeExporter` preserves **record-level metadata** by writing
-``sample_metadata`` objects into native LDF ``annotations.json`` files. It
-also writes the keypoint names, edges, flip pairs and sigmas of each keypoint
-task into the keypoint records. It can target an older LDF version, so an
-export stays readable by an older luxonis-ml: ``"2.1"`` for luxonis-ml 0.9 to
-0.10 and ``"2.0"`` for luxonis-ml 0.6 to 0.8 -- see
-`luxonis_ml.data.exporters.ldf_downgrade`.
+``sample_metadata`` objects into native LDF ``annotations.json`` files, and
+the keypoint metadata of each task into its keypoint records. It can also
+target an older LDF version, so an export stays readable by an older
+luxonis-ml -- see `luxonis_ml.data.exporters.ldf_downgrade`.
 
 `CocoExporter` writes the keypoint names, the skeleton and the sigmas of the
 keypoint task into each category. COCO holds one keypoint definition, so the
