@@ -91,6 +91,8 @@ class NativeExporter(BaseExporter):
         # The keypoint count of each task. A task without labels has the
         # count of its widest row.
         self._n_keypoints: dict[str, int] = {}
+        # The tasks whose rows all have fewer keypoints than the count.
+        self._tasks_without_a_full_row: set[str] = set()
         self._downgrade = LDFDowngrader(self.ldf_version)
         for task, task_keypoints in self.keypoint_metadata.items():
             warn_repeated_keypoint_names(
@@ -170,7 +172,9 @@ class NativeExporter(BaseExporter):
         eligible record of each task and split carries the task fields. A
         short record is eligible only when its names survive the target
         LDF version. Without names, the importer cannot tell which
-        keypoints are missing.
+        keypoints are missing. A task without a full row is the exception:
+        the export pads the short record that carries the task fields, as
+        the loader does, so the import keeps the keypoint count.
         """
         for record in records:
             for task_name, detections in record.get("annotation", {}).items():
@@ -179,15 +183,25 @@ class NativeExporter(BaseExporter):
                     continue
                 labels = task_keypoints.labels
                 named = task_keypoints.has_names
+                n_keypoints = self._n_keypoints[task_name]
+                # Each partition has its own annotations file.
+                key = (self.part, split, task_name)
                 for detection in detections:
                     keypoints = detection.get("keypoints")
                     if keypoints is None:
                         continue
                     values = keypoints["keypoints"]
-                    if len(values) < self._n_keypoints[task_name] and not (
+                    if len(values) < n_keypoints and not (
                         named and self._downgrade.keeps_keypoint_names
                     ):
-                        continue
+                        if (
+                            task_name not in self._tasks_without_a_full_row
+                            or key in self._metadata_attached
+                        ):
+                            continue
+                        values = keypoints["keypoints"] = values + [
+                            Keypoint(0.0, 0.0, 0)
+                        ] * (n_keypoints - len(values))
                     if named:
                         # COCO's value for a keypoint that is not labeled.
                         missing = [Keypoint(0.0, 0.0, 0)] * (
@@ -196,8 +210,6 @@ class NativeExporter(BaseExporter):
                         keypoints["keypoints"] = dict(
                             zip(labels, values + missing, strict=True)
                         )
-                    # Each partition has its own annotations file.
-                    key = (self.part, split, task_name)
                     if key in self._metadata_attached:
                         continue
                     self._metadata_attached.add(key)
@@ -256,6 +268,8 @@ class NativeExporter(BaseExporter):
                 )
             kept[task] = task_keypoints
             self._n_keypoints[task] = n_keypoints
+            if width < n_keypoints:
+                self._tasks_without_a_full_row.add(task)
         self.keypoint_metadata = kept
 
     def _maybe_roll_partition(

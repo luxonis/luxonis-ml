@@ -583,15 +583,12 @@ class LuxonisLoader(BaseLoader):
                     data["height"] = sample_img.shape[0]
                     data["points"] = [tuple(p) for p in data["points"]]
 
-                # Only labels define row width. Legacy edges can point past
-                # the keypoints that a row actually stores.
-                task_keypoints = self._keypoint_metadata.get(task_name)
+                # Only labels and stored rows define the row width. Legacy
+                # edges can point past the keypoints that a row stores.
                 fields[task_type] = load_annotation(
                     task_type,  # type: ignore[arg-type]
                     data,
-                    n_keypoints=(
-                        len(task_keypoints.labels) if task_keypoints else None
-                    ),
+                    n_keypoints=self._schema.n_keypoints.get(task_name),
                 )
 
         # `load_annotation` validated every label, and the write path the
