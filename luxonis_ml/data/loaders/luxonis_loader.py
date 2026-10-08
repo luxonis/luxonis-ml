@@ -235,8 +235,8 @@ class LuxonisLoader(BaseLoader):
         self._df = self.dataset._load_df_offline(raise_when_empty=True)
         self._classes = self.dataset.get_classes()
 
-        # Cached because both are read for every loaded sample.
         self._keypoint_metadata = self.dataset.get_keypoint_metadata()
+        # `get_n_keypoints` scans the rows, and every sample needs it.
         self._n_keypoints = self.dataset.get_n_keypoints()
 
         if self._filter_task_names is not None:
@@ -557,8 +557,6 @@ class LuxonisLoader(BaseLoader):
                     data["height"] = sample_img.shape[0]
                     data["points"] = [tuple(p) for p in data["points"]]
 
-                # Only labels and stored rows define the row width. Legacy
-                # edges can point past the keypoints that a row stores.
                 annotation = load_annotation(
                     task_type,  # type: ignore[arg-type]
                     data,

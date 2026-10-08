@@ -21,7 +21,7 @@ from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import environ
 
-from .utils import create_image
+from .utils import create_image, read_dataset_metadata
 
 KEYPOINT_LABELS = ["nose", "left_eye", "right_eye"]
 PERSON_CATEGORY = {
@@ -170,6 +170,14 @@ def write_solo_split(
         ),
         encoding="utf-8",
     )
+
+
+@pytest.fixture
+def dataset(dataset_name: str) -> Iterator[LuxonisDataset]:
+    """Return an empty local dataset, and delete it after the test."""
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    yield dataset
+    dataset.delete_dataset(delete_local=True)
 
 
 @pytest.mark.parametrize(
@@ -934,7 +942,7 @@ def test_parser_scopes_keypoint_metadata_to_the_task_of_its_class(
 
 
 def test_parser_without_task_names_scopes_keypoint_metadata_to_the_inferred_task(
-    dataset_name: str,
+    dataset: LuxonisDataset,
     tempdir: Path,
 ):
     """Without task names, `add` gives a stored class its stored task.
@@ -958,7 +966,6 @@ def test_parser_without_task_names_scopes_keypoint_metadata_to_the_inferred_task
         [PERSON_CATEGORY, car_category],
         [PERSON_ANNOTATION, car_annotation],
     )
-    dataset = LuxonisDataset(dataset_name, delete_local=True)
 
     COCOParser(dataset, DatasetType.COCO, {"car": "vehicles"}).parse_split(
         image_dir=cars_dir / "train",
@@ -1092,7 +1099,7 @@ def test_parser_skips_the_keypoints_of_a_class_without_keypoints(
     ],
 )
 def test_parser_checks_the_keypoint_metadata_before_it_adds_a_split(
-    dataset_name: str,
+    dataset: LuxonisDataset,
     tempdir: Path,
     category: Mapping[str, object],
     message: str,
@@ -1106,7 +1113,6 @@ def test_parser_checks_the_keypoint_metadata_before_it_adds_a_split(
     """
     dataset_dir = tempdir / "coco_bad_keypoint_class"
     write_coco_keypoint_dataset(dataset_dir, [category], [PERSON_ANNOTATION])
-    dataset = LuxonisDataset(dataset_name, delete_local=True)
 
     with pytest.raises(ValueError, match=message):
         COCOParser(dataset, DatasetType.COCO, {"person": "pose"}).parse_dir(
@@ -1115,7 +1121,6 @@ def test_parser_checks_the_keypoint_metadata_before_it_adds_a_split(
 
     assert len(dataset) == 0
     assert dataset.get_keypoint_metadata() == {}
-    dataset.delete_dataset(delete_local=True)
 
 
 class _UnnamedKeypointsParser(COCOParser):
@@ -1147,7 +1152,7 @@ class _UnnamedKeypointsParser(COCOParser):
 
 
 def test_parser_checks_unnamed_keypoints_against_the_widest_record(
-    dataset_name: str, tempdir: Path
+    dataset: LuxonisDataset, tempdir: Path
 ):
     """Without names, the widest record gives the keypoint count.
 
@@ -1155,27 +1160,22 @@ def test_parser_checks_unnamed_keypoints_against_the_widest_record(
     the first record would pass, and `add` would write the rows before
     `set_keypoint_metadata` rejects the sigmas.
     """
-    dataset = LuxonisDataset(dataset_name, delete_local=True)
     parser = _UnnamedKeypointsParser(dataset, [3, 5], [0.1] * 3)
 
     with pytest.raises(ValueError, match="3 sigmas for 5 keypoints"):
         parser.parse_split(image_dir=tempdir, annotation_path=tempdir)
 
     assert len(dataset) == 0
-    dataset.delete_dataset(delete_local=True)
 
 
 def test_parser_takes_sigmas_for_the_widest_unnamed_record(
-    dataset_name: str, tempdir: Path
+    dataset: LuxonisDataset, tempdir: Path
 ):
-    dataset = LuxonisDataset(dataset_name, delete_local=True)
-
     _UnnamedKeypointsParser(dataset, [3, 5], [0.1] * 5).parse_split(
         image_dir=tempdir, annotation_path=tempdir
     )
 
     assert dataset.get_keypoint_metadata()["pose"].sigmas == [0.1] * 5
-    dataset.delete_dataset(delete_local=True)
 
 
 class _FlipPairsCOCOParser(COCOParser):
@@ -1194,7 +1194,7 @@ class _FlipPairsCOCOParser(COCOParser):
 
 
 def test_parser_stores_the_flip_pairs_of_the_source(
-    dataset_name: str, tempdir: Path
+    dataset: LuxonisDataset, tempdir: Path
 ):
     """The parser stores the flip pairs of a source.
 
@@ -1206,7 +1206,6 @@ def test_parser_stores_the_flip_pairs_of_the_source(
     write_coco_keypoint_dataset(
         dataset_dir, [PERSON_CATEGORY], [PERSON_ANNOTATION]
     )
-    dataset = LuxonisDataset(dataset_name, delete_local=True)
 
     _FlipPairsCOCOParser(dataset, DatasetType.COCO, "pose").parse_dir(
         dataset_dir
@@ -1215,11 +1214,10 @@ def test_parser_stores_the_flip_pairs_of_the_source(
     keypoints = dataset.get_keypoint_metadata()["pose"]
     assert keypoints.labels == KEYPOINT_LABELS
     assert keypoints.flip_pairs == []
-    dataset.delete_dataset(delete_local=True)
 
 
 def test_solo_keypoints_get_no_invented_edges(
-    dataset_name: str, tempdir: Path
+    dataset: LuxonisDataset, tempdir: Path
 ):
     """SOLO names its keypoints, but it defines no skeleton.
 
@@ -1231,7 +1229,6 @@ def test_solo_keypoints_get_no_invented_edges(
     split_dir = tempdir / "solo" / "train"
     write_solo_split(split_dir, KEYPOINT_LABELS)
 
-    dataset = LuxonisDataset(dataset_name, delete_local=True)
     SOLOParser(dataset, DatasetType.SOLO, "pose").parse_split(
         split_path=split_dir
     )
@@ -1239,11 +1236,10 @@ def test_solo_keypoints_get_no_invented_edges(
     keypoints = dataset.get_keypoint_metadata()["pose"]
     assert keypoints.labels == KEYPOINT_LABELS
     assert keypoints.edges == []
-    dataset.delete_dataset(delete_local=True)
 
 
 def test_solo_skips_the_keypoints_of_a_class_without_a_task(
-    dataset_name: str, tempdir: Path
+    dataset: LuxonisDataset, tempdir: Path
 ):
     """SOLO defines the keypoints for each box class.
 
@@ -1253,7 +1249,6 @@ def test_solo_skips_the_keypoints_of_a_class_without_a_task(
     split_dir = tempdir / "solo" / "train"
     write_solo_split(split_dir, KEYPOINT_LABELS, ["person", "car"])
 
-    dataset = LuxonisDataset(dataset_name, delete_local=True)
     SOLOParser(dataset, DatasetType.SOLO, {"person": "pose"}).parse_split(
         split_path=split_dir
     )
@@ -1261,11 +1256,10 @@ def test_solo_skips_the_keypoints_of_a_class_without_a_task(
     keypoint_metadata = dataset.get_keypoint_metadata()
     assert list(keypoint_metadata) == ["pose"]
     assert keypoint_metadata["pose"].labels == KEYPOINT_LABELS
-    dataset.delete_dataset(delete_local=True)
 
 
 def test_a_solo_split_without_keypoints_gets_no_keypoint_metadata(
-    dataset_name: str, tempdir: Path
+    dataset: LuxonisDataset, tempdir: Path
 ):
     """SOLO sends empty keypoint metadata for each class.
 
@@ -1276,15 +1270,12 @@ def test_a_solo_split_without_keypoints_gets_no_keypoint_metadata(
     split_dir = tempdir / "solo" / "train"
     write_solo_split(split_dir, [])
 
-    dataset = LuxonisDataset(dataset_name, delete_local=True)
     SOLOParser(dataset, DatasetType.SOLO, None).parse_split(
         split_path=split_dir
     )
 
     assert dataset.get_keypoint_metadata() == {}
-    metadata_path = dataset._metadata_path / "metadata.json"
-    assert "keypoint_metadata" not in json.loads(metadata_path.read_text())
-    dataset.delete_dataset(delete_local=True)
+    assert "keypoint_metadata" not in read_dataset_metadata(dataset)
 
 
 def test_partial_split_clsdir_is_preserved(

@@ -104,7 +104,7 @@ class SymmetricKeypointsTransform(A.DualTransform):
         """
         super().add_targets(additional_targets)
         for key, kind in additional_targets.items():
-            if kind == "keypoints" and key in self._key2func:
+            if kind == "keypoints":
                 self._key2func[key] = partial(self._mirror_keypoints, key)
 
     @override

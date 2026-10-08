@@ -994,8 +994,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         """Return the number of keypoints for each task.
 
         A task without labels counts the keypoints of its widest stored
-        row. Edges cannot give the count, because they need not reach the
-        last keypoint.
+        row.
 
         Returns:
             Number of keypoints keyed by task name.
@@ -1627,10 +1626,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
                 self.set_classes(list(classes | old_classes), task=task)
 
-        if num_kpts_per_task:
-            self._metadata.keypoint_metadata.update(resolved_keypoint_metadata)
-            self._write_metadata()
-
+        self._metadata.keypoint_metadata.update(resolved_keypoint_metadata)
         self._metadata.categorical_encodings = dict(categorical_encodings)
         self._metadata.metadata_types = metadata_types
         self.set_tasks(tasks)
@@ -1860,7 +1856,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 f"not '{dataset_type}'."
             )
         target_version = resolve_export_version(ldf_version)
-        keypoint_metadata = self.metadata.keypoint_metadata
+        keypoint_metadata = self.get_keypoint_metadata()
 
         EXPORTER_MAP: dict[DatasetType, ExporterSpec] = {
             DatasetType.NATIVE: ExporterSpec(
@@ -2411,9 +2407,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         """Return the keypoint count of the widest stored row of each task.
 
         The result holds only the tasks without stored labels. The labels
-        of the other tasks cover their rows. A call with empty labels
-        removes the labels of a task. An older luxonis-ml also stored tasks
-        without labels.
+        of the other tasks cover their rows.
         """
         df = self._load_df_offline(lazy=True)
         if df is None:

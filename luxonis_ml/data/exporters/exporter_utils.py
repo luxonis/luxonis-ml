@@ -193,6 +193,15 @@ def create_zip_output(
 def warn_repeated_keypoint_names(
     task: str, task_keypoints: KeypointMetadata, consequence: str
 ) -> None:
+    """Warn when the keypoint names of a task repeat.
+
+    Args:
+        task: Name of the keypoint task.
+        task_keypoints: Keypoint metadata of the task.
+        consequence: Sentence that tells what the export does with the
+            repeated names.
+
+    """
     if repeated := task_keypoints.repeated_labels:
         logger.warning(
             f"Task '{task}' repeats the keypoint names "

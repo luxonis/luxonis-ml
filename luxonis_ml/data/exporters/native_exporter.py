@@ -178,28 +178,25 @@ class NativeExporter(BaseExporter):
             task_keypoints = self.keypoint_metadata.get(task_name)
             if task_keypoints is None:
                 continue
-            labels = task_keypoints.labels
             values = keypoints["keypoints"]
             named = task_keypoints.has_names
             n_keypoints = self._n_keypoints[task_name]
             # Each partition has its own annotations file.
             key = (self.part, split, task_name)
-            if len(values) < n_keypoints and not (
-                named and self._downgrade.keeps_keypoint_names
-            ):
-                if (
+            if len(values) < n_keypoints:
+                keeps_names = named and self._downgrade.keeps_keypoint_names
+                if not keeps_names and (
                     task_name not in self._tasks_without_a_full_row
                     or key in self._metadata_attached
                 ):
                     continue
+                # COCO's value for a keypoint that is not labeled.
                 values = keypoints["keypoints"] = values + [
                     Keypoint(0.0, 0.0, 0)
                 ] * (n_keypoints - len(values))
             if named:
-                # COCO's value for a keypoint that is not labeled.
-                missing = [Keypoint(0.0, 0.0, 0)] * (len(labels) - len(values))
                 keypoints["keypoints"] = dict(
-                    zip(labels, values + missing, strict=True)
+                    zip(task_keypoints.labels, values, strict=True)
                 )
             if key in self._metadata_attached:
                 continue
@@ -219,13 +216,9 @@ class NativeExporter(BaseExporter):
     def _fit_keypoint_metadata_to_rows(self, df: pl.DataFrame) -> None:
         """Leave out the keypoint metadata that the import would reject.
 
-        `LuxonisDataset.set_keypoint_metadata` does not change the stored
-        rows, so new names can cover fewer keypoints than a row has. The
-        import rejects names narrower than a row of any split, so the
-        export keeps the rows and leaves out the metadata of the task.
-
-        An older luxonis-ml stored the edges without a check. The import
-        rejects an edge out of range, so the export leaves out that edge.
+        A task whose names cover fewer keypoints than one of its rows
+        loses its keypoint metadata, and its rows keep their keypoints.
+        The export also leaves out each edge out of range.
         """
         widths = get_keypoint_row_widths(df.lazy())
         kept: dict[str, KeypointMetadata] = {}

@@ -23,7 +23,12 @@ from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.ldf import DatasetRecord, KeypointAnnotation
 
-from .utils import create_dataset, create_image, export_and_import
+from .utils import (
+    create_dataset,
+    create_image,
+    export_and_import,
+    keypoint_annotations,
+)
 
 #: Fields a pre-2.1 `DatasetRecord` accepts. Anything else trips
 #: ``extra="forbid"`` on an older install.
@@ -75,15 +80,6 @@ def _read_records(export_root: Path) -> list[dict]:
         record
         for path in sorted(export_root.rglob("annotations.json"))
         for record in json.loads(path.read_text())
-    ]
-
-
-def _read_keypoints(export_root: Path) -> list[dict]:
-    # Every keypoint detection also emits a classification record.
-    return [
-        record["annotation"]["keypoints"]
-        for record in _read_records(export_root)
-        if "keypoints" in record.get("annotation", {})
     ]
 
 
@@ -217,7 +213,7 @@ def test_export_2_0_drops_the_keypoint_task_fields(
     )
     root = _export(dataset, tempdir, "keypoints20", ldf_version="2.0")
 
-    keypoints = _read_keypoints(root)
+    keypoints = keypoint_annotations(_read_records(root))
     assert keypoints
     assert all(isinstance(k["keypoints"], list) for k in keypoints)
     assert all(set(k) <= LDF_2_0_KEYPOINT_FIELDS for k in keypoints)
@@ -234,7 +230,7 @@ def test_export_2_1_keeps_sample_metadata_but_drops_the_task_fields(
     root = _export(dataset, tempdir, "keypoints21", ldf_version="2.1")
 
     assert all("sample_metadata" in r for r in _read_records(root))
-    keypoints = _read_keypoints(root)
+    keypoints = keypoint_annotations(_read_records(root))
     assert keypoints
     assert all(set(k) <= LDF_2_0_KEYPOINT_FIELDS for k in keypoints)
     assert _read_stamp(root) == "2.1.0"

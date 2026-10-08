@@ -200,25 +200,21 @@ class BaseDataset(
         labels: list[str] | None = None,
         edges: list[KeypointPair] | None = None,
         task: str | None = None,
-        *,
-        flip_pairs: list[KeypointPair] | None = None,
-        sigmas: list[float] | None = None,
-        infer_flip_pairs: bool | None = None,
     ) -> None:
-        """Set the keypoint definitions of the tasks that use keypoints.
+        """Set the keypoint labels and edges of the tasks with keypoints.
 
         .. deprecated:: 0.10.0
             Use `set_keypoint_metadata`, or declare the keypoints on the
             records.
+
+        Args:
+            labels: Optional keypoint names.
+            edges: Optional edges between keypoints.
+            task: Optional task to update. If omitted, all tasks are
+                updated.
+
         """
-        self.set_keypoint_metadata(
-            labels,
-            edges,
-            task,
-            flip_pairs=flip_pairs,
-            sigmas=sigmas,
-            infer_flip_pairs=infer_flip_pairs,
-        )
+        self.set_keypoint_metadata(labels, edges, task)
 
     @deprecated("Use `get_keypoint_metadata` instead.")
     def get_skeletons(
@@ -226,11 +222,12 @@ class BaseDataset(
     ) -> dict[str, tuple[list[str], list[tuple[int, int]]]]:
         """Return the keypoint labels and edges of each task.
 
-        The alias keeps the shape that it had before the keypoint
-        metadata, because callers unpack the pair.
-
         .. deprecated:: 0.10.0
             Use `get_keypoint_metadata`.
+
+        Returns:
+            Keypoint labels and edges keyed by task name.
+
         """
         return {
             task: (entry.labels, entry.edges)

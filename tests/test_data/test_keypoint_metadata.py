@@ -28,7 +28,10 @@ from .utils import (
     create_dataset,
     create_image,
     export_and_import,
+    keypoint_annotations,
+    read_dataset_metadata,
     set_ldf_version,
+    write_dataset_metadata,
 )
 
 LABELS = ["nose", "left_eye", "right_eye"]
@@ -41,6 +44,7 @@ NAMED_KEYPOINTS = {
     "left_eye": (0.4, 0.2, 2),
     "right_eye": (0.6, 0.2, 1),
 }
+REVERSED_KEYPOINTS = dict(reversed(NAMED_KEYPOINTS.items()))
 BOX = {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.3}
 
 Keypoints: TypeAlias = (
@@ -144,10 +148,6 @@ def loaded_keypoint_shapes(
     )
 
 
-def read_dataset_metadata(dataset: LuxonisDataset) -> dict[str, Any]:
-    return json.loads((dataset._metadata_path / "metadata.json").read_text())
-
-
 def legacy_dataset(
     dataset: LuxonisDataset,
     skeletons: dict[str, dict[str, list[str] | list[list[int]]]],
@@ -157,13 +157,11 @@ def legacy_dataset(
     That version wrote LDF 2.1, which has no flip pairs and no sigmas. It
     stored the keypoint metadata under ``skeletons``.
     """
-    metadata_path = dataset._metadata_path / "metadata.json"
-    dataset_metadata = json.loads(metadata_path.read_text())
+    dataset_metadata = read_dataset_metadata(dataset)
     del dataset_metadata["keypoint_metadata"]
     dataset_metadata["ldf_version"] = "2.1.0"
     dataset_metadata["skeletons"] = skeletons
-    metadata_path.write_text(json.dumps(dataset_metadata))
-    return LuxonisDataset(dataset.identifier)
+    return write_dataset_metadata(dataset, dataset_metadata)
 
 
 def repeated_names_dataset(dataset_name: str, tempdir: Path) -> LuxonisDataset:
@@ -282,21 +280,13 @@ def test_records_in_another_key_order_agree_on_the_task_fields(
     def generator() -> DatasetIterator:
         yield from keypoint_generator(
             tempdir,
-            {
-                "nose": (0.5, 0.3, 2),
-                "left_eye": (0.4, 0.2, 2),
-                "right_eye": (0.6, 0.2, 1),
-            },
+            NAMED_KEYPOINTS,
             {"edges": [("nose", "left_eye")], "sigmas": [0.026, 0.025, 0.035]},
             n=1,
         )
         yield from keypoint_generator(
             tempdir,
-            {
-                "right_eye": (0.6, 0.2, 1),
-                "left_eye": (0.4, 0.2, 2),
-                "nose": (0.5, 0.3, 2),
-            },
+            REVERSED_KEYPOINTS,
             {"edges": [("left_eye", "nose")], "sigmas": [0.035, 0.025, 0.026]},
             n=1,
         )
@@ -324,11 +314,7 @@ def test_add_does_not_clobber_explicit_metadata(
     """Unnamed keypoints must not replace names that were set by hand."""
     dataset = pose_dataset(dataset_name, labels=LABELS, edges=[(0, 1), (0, 2)])
 
-    dataset.add(
-        keypoint_generator(
-            tempdir, [(0.5, 0.3, 2), (0.4, 0.2, 2), (0.6, 0.2, 1)]
-        )
-    )
+    dataset.add(keypoint_generator(tempdir, list(NAMED_KEYPOINTS.values())))
 
     task_keypoints = dataset.get_keypoint_metadata()["pose"]
     assert task_keypoints.labels == LABELS
@@ -346,17 +332,7 @@ def test_a_later_add_cannot_reorder_the_stored_labels(
     """
     dataset = named_dataset(dataset_name, tempdir)
 
-    dataset.add(
-        keypoint_generator(
-            tempdir,
-            {
-                "right_eye": (0.6, 0.2, 1),
-                "left_eye": (0.4, 0.2, 2),
-                "nose": (0.5, 0.3, 2),
-            },
-            n=1,
-        )
-    )
+    dataset.add(keypoint_generator(tempdir, REVERSED_KEYPOINTS, n=1))
 
     task_keypoints = dataset.get_keypoint_metadata()["pose"]
     assert task_keypoints.labels == LABELS
@@ -370,11 +346,7 @@ def test_a_later_add_cannot_reorder_the_stored_labels(
     ("keypoints", "fields", "expected"),
     [
         pytest.param(
-            {
-                "right_eye": (0.6, 0.2, 1),
-                "left_eye": (0.4, 0.2, 2),
-                "nose": (0.5, 0.3, 2),
-            },
+            REVERSED_KEYPOINTS,
             {"edges": [("nose", "left_eye")], "sigmas": [0.035, 0.025, 0.026]},
             {"edges": [(0, 1)], "sigmas": [0.026, 0.025, 0.035]},
             id="other-order",
@@ -984,26 +956,6 @@ def test_stored_sigmas_must_match_the_keypoint_count(
         dataset.add(keypoint_generator(tempdir, keypoints))
 
 
-def test_new_names_drop_the_placeholder_edges(
-    dataset_name: str, tempdir: Path
-):
-    """`add` gives keypoints without names invented chain edges.
-
-    New names drop them. A COCO export would write them as the skeleton,
-    and a visualization would draw lines between unrelated keypoints.
-    """
-    dataset = create_dataset(
-        dataset_name,
-        keypoint_generator(tempdir, list(NAMED_KEYPOINTS.values())),
-    )
-
-    dataset.set_keypoint_metadata(labels=LABELS, task="pose")
-
-    assert dataset.get_keypoint_metadata()["pose"] == KeypointMetadata(
-        labels=LABELS, flip_pairs=[(1, 2)]
-    )
-
-
 @pytest.mark.parametrize("n_placeholders", [2, 3])
 def test_a_named_add_drops_the_placeholder_edges(
     dataset_name: str,
@@ -1100,11 +1052,12 @@ def test_a_named_add_keeps_the_edges_of_stored_names(
 @pytest.mark.parametrize(
     ("fields", "edges", "expected"),
     [
+        pytest.param({}, None, [], id="generated"),
         pytest.param({"edges": [(0, 2)]}, None, [(0, 2)], id="stored"),
         pytest.param({}, [(0, 1), (1, 2)], [(0, 1), (1, 2)], id="given"),
     ],
 )
-def test_new_names_keep_the_edges_that_add_did_not_generate(
+def test_new_names_drop_only_the_edges_that_add_generated(
     dataset_name: str,
     tempdir: Path,
     fields: dict[str, list[tuple[int, int]]],
@@ -1113,7 +1066,9 @@ def test_new_names_keep_the_edges_that_add_did_not_generate(
 ):
     """New names drop only the chain edges that `add` generated.
 
-    The records can give edges for keypoints without names. Those edges
+    A COCO export would write a generated chain as the skeleton, and a
+    visualization would draw lines between unrelated keypoints. The
+    records can give edges for keypoints without names. Those edges
     describe the keypoints, so new names keep them. A chain that the call
     gives with the names stays too.
     """
@@ -1124,7 +1079,9 @@ def test_new_names_keep_the_edges_that_add_did_not_generate(
 
     dataset.set_keypoint_metadata(labels=LABELS, edges=edges, task="pose")
 
-    assert dataset.get_keypoint_metadata()["pose"].edges == expected
+    assert dataset.get_keypoint_metadata()["pose"] == KeypointMetadata(
+        labels=LABELS, edges=expected, flip_pairs=[(1, 2)]
+    )
 
 
 def test_positional_names_do_not_clash_with_real_ones(
@@ -1133,9 +1090,7 @@ def test_positional_names_do_not_clash_with_real_ones(
     """``"0"``, ``"1"``, ... are a fallback, not something the record chose."""
     dataset = create_dataset(
         dataset_name,
-        keypoint_generator(
-            tempdir, [(0.5, 0.3, 2), (0.4, 0.2, 2), (0.6, 0.2, 1)]
-        ),
+        keypoint_generator(tempdir, list(NAMED_KEYPOINTS.values())),
     )
     assert dataset.get_keypoint_metadata()["pose"].labels == ["0", "1", "2"]
 
@@ -1518,7 +1473,7 @@ def test_a_merge_moves_the_other_rows_to_the_target_order(
         f"{dataset_name}_other",
         keypoint_generator(
             tempdir,
-            dict(reversed(NAMED_KEYPOINTS.items())),
+            REVERSED_KEYPOINTS,
             fields={"sigmas": [0.3, 0.2, 0.1]},
             start=4,
         ),
@@ -1605,21 +1560,28 @@ def test_the_deprecated_skeleton_aliases_still_forward(
     A caller such as the luxonis-train loader reads the labels as
     ``skeletons[task][0]``.
     """
-    dataset = named_dataset(
-        dataset_name, tempdir, fields={"edges": [("nose", "left_eye")]}
-    )
+    dataset = named_dataset(dataset_name, tempdir)
 
     with pytest.deprecated_call():
-        dataset.set_skeletons(sigmas=[0.1, 0.2, 0.3], task="pose")
+        dataset.set_skeletons(edges=[(0, 2)], task="pose")
     with pytest.deprecated_call():
         skeletons = dataset.get_skeletons()
 
-    assert skeletons == {"pose": (LABELS, [(0, 1)])}
-    assert dataset.get_keypoint_metadata()["pose"].sigmas == [0.1, 0.2, 0.3]
+    assert skeletons == {"pose": (LABELS, [(0, 2)])}
 
 
-def test_flip_pair_inference_can_be_turned_off(dataset_name: str):
-    dataset = pose_dataset(dataset_name, labels=LABELS, infer_flip_pairs=False)
+@pytest.mark.parametrize(
+    "fields",
+    [
+        pytest.param({"infer_flip_pairs": False}, id="no-inference"),
+        pytest.param({"flip_pairs": []}, id="empty-list"),
+    ],
+)
+def test_set_keypoint_metadata_can_store_no_flip_pairs(
+    dataset_name: str, fields: dict[str, Any]
+):
+    """The method infers flip pairs only when you omit them."""
+    dataset = pose_dataset(dataset_name, labels=LABELS, **fields)
 
     assert dataset.get_keypoint_metadata()["pose"].flip_pairs == []
 
@@ -1723,15 +1685,6 @@ def test_a_record_turns_the_inference_off_with_an_empty_list(
     empty list for that reason.
     """
     dataset = named_dataset(dataset_name, tempdir, fields={"flip_pairs": []})
-
-    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == []
-
-
-def test_set_keypoint_metadata_keeps_an_empty_list_of_flip_pairs(
-    dataset_name: str,
-):
-    """The method infers flip pairs only when you omit them."""
-    dataset = pose_dataset(dataset_name, labels=LABELS, flip_pairs=[])
 
     assert dataset.get_keypoint_metadata()["pose"].flip_pairs == []
 
@@ -2092,11 +2045,9 @@ def test_a_shorter_record_without_names_does_not_get_the_task_fields(
         keypoint_payloads(dataset)
     )
     val_path = tempdir / "exported" / dataset_name / "val" / "annotations.json"
-    assert [
-        record["annotation"]["keypoints"]
-        for record in json.loads(val_path.read_text())
-        if "keypoints" in record["annotation"]
-    ] == [{"keypoints": [[0.0, 0.0, 2], [0.1, 0.1, 2]]}]
+    assert keypoint_annotations(json.loads(val_path.read_text())) == [
+        {"keypoints": [[0.0, 0.0, 2], [0.1, 0.1, 2]]}
+    ]
     assert imported.get_keypoint_metadata()["pose"].edges == imported_edges
 
 
@@ -2216,8 +2167,9 @@ def test_a_later_add_pads_a_record_with_fewer_keypoints(
     assert dataset.get_keypoint_metadata()["pose"].labels == LABELS
 
 
+@pytest.mark.parametrize("batch_size", [1, 2, 1_000_000])
 def test_the_batch_size_does_not_change_a_short_record(
-    dataset_name: str, tempdir: Path
+    dataset_name: str, tempdir: Path, batch_size: int
 ):
     """A small batch writes the short records before the names are known.
 
@@ -2229,24 +2181,21 @@ def test_the_batch_size_does_not_change_a_short_record(
         yield from positional_generator(tempdir, [2, 1])
         yield from keypoint_generator(tempdir, NAMED_KEYPOINTS, n=1, start=2)
 
-    stored = []
-    for batch_size in (1, 2, 1_000_000):
-        dataset = LuxonisDataset(
-            f"{dataset_name}_{batch_size}", delete_local=True
-        ).add(generator(), batch_size=batch_size)
-        assert dataset.get_keypoint_metadata()["pose"].labels == LABELS
-        stored.append(sorted(keypoint_payloads(dataset)))
+    dataset = LuxonisDataset(dataset_name, delete_local=True).add(
+        generator(), batch_size=batch_size
+    )
 
-    padded = [
+    assert dataset.get_keypoint_metadata()["pose"].labels == LABELS
+    assert sorted(keypoint_payloads(dataset)) == [
         '{"keypoints":[[0.0,0.0,2],[0.0,0.0,0],[0.0,0.0,0]]}',
         '{"keypoints":[[0.0,0.0,2],[0.1,0.1,2],[0.0,0.0,0]]}',
         '{"keypoints":[[0.5,0.3,2],[0.4,0.2,2],[0.6,0.2,1]]}',
     ]
-    assert stored == [padded] * 3
 
 
+@pytest.mark.parametrize("batch_size", [1, 1_000_000])
 def test_the_batch_size_does_not_change_a_row_of_an_earlier_add(
-    dataset_name: str, tempdir: Path
+    dataset_name: str, tempdir: Path, batch_size: int
 ):
     """`add` finds the short rows of its earlier batches by file.
 
@@ -2270,16 +2219,11 @@ def test_the_batch_size_does_not_change_a_row_of_an_earlier_add(
         yield from positional_generator(tempdir, [3], start=1)
         yield from keypoint_generator(tempdir, NAMED_KEYPOINTS, n=1, start=2)
 
-    stored = []
-    for batch_size in (1, 1_000_000):
-        dataset = create_dataset(
-            f"{dataset_name}_{batch_size}",
-            positional_generator(tempdir, [2]),
-            splits=False,
-        ).add(generator(), batch_size=batch_size)
-        stored.append(sorted(keypoint_payloads(dataset)))
+    dataset = create_dataset(
+        dataset_name, positional_generator(tempdir, [2]), splits=False
+    ).add(generator(), batch_size=batch_size)
 
-    expected = sorted(
+    assert sorted(keypoint_payloads(dataset)) == sorted(
         [
             '{"keypoints":[[0.0,0.0,2],[0.1,0.1,2]]}',
             '{"keypoints":[[0.9,0.9,2],[0.0,0.0,0],[0.0,0.0,0]]}',
@@ -2287,7 +2231,6 @@ def test_the_batch_size_does_not_change_a_row_of_an_earlier_add(
             '{"keypoints":[[0.5,0.3,2],[0.4,0.2,2],[0.6,0.2,1]]}',
         ]
     )
-    assert stored == [expected] * 2
 
 
 @pytest.mark.parametrize(
@@ -2489,12 +2432,7 @@ def test_the_exported_task_fields_are_written_once_per_task(
 
     counts = []
     for path in (exported / dataset_name).rglob("annotations.json"):
-        keypoints = [
-            record["annotation"]["keypoints"]
-            for record in json.loads(path.read_text())
-            # Every detection also emits a classification record.
-            if "keypoints" in record.get("annotation", {})
-        ]
+        keypoints = keypoint_annotations(json.loads(path.read_text()))
         if keypoints:
             assert all(isinstance(k["keypoints"], dict) for k in keypoints)
             counts.append(
@@ -2509,10 +2447,9 @@ def test_the_exported_task_fields_are_written_once_per_task(
 def test_a_native_import_moves_every_record_to_the_stored_order(
     dataset_name: str, tempdir: Path
 ):
-    reversed_keypoints = dict(reversed(NAMED_KEYPOINTS.items()))
     source = create_dataset(
         f"{dataset_name}_source",
-        keypoint_generator(tempdir, reversed_keypoints),
+        keypoint_generator(tempdir, REVERSED_KEYPOINTS),
         splits=(1, 0, 0),
     )
     target = named_dataset(dataset_name, tempdir, n=1, start=4)
