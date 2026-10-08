@@ -2386,6 +2386,31 @@ def test_the_loader_pads_a_short_row_to_the_widest_row_without_labels(
     assert loaded_keypoint_shapes(dataset) == expected_shapes
 
 
+def test_a_native_export_keeps_a_task_without_a_full_row(
+    dataset_name: str, tempdir: Path
+):
+    """The record that carries the task fields gets the keypoint count.
+
+    No stored row has as many keypoints as the positional labels. The
+    export pads the one record that carries the edges, the flip pairs and
+    the sigmas, so the import keeps them and the keypoint count.
+    """
+    fields = {"edges": [(0, 2)], "flip_pairs": [(0, 2)], "sigmas": [0.1] * 3}
+    dataset = create_dataset(
+        dataset_name, positional_generator(tempdir, [2, 2]), splits=(1, 0, 0)
+    )
+    dataset.set_keypoint_metadata(
+        labels=["0", "1", "2"], task="pose", **fields
+    )
+
+    imported = export_and_import(dataset, tempdir)
+
+    assert imported.get_keypoint_metadata()["pose"] == KeypointMetadata(
+        labels=["0", "1", "2"], **fields
+    )
+    assert loaded_keypoint_shapes(imported) == [(1, 9)] * 2
+
+
 def test_edges_do_not_set_the_keypoint_count(dataset_name: str, tempdir: Path):
     """Edges need not reach the last keypoint, so they give no count.
 
