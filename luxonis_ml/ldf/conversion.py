@@ -151,9 +151,22 @@ def labels_to_record(
         One record holding every detection the labels describe.
 
     """
+    # The schema tells the parts of a key apart. The string helpers read
+    # "metadata/boundingbox" as a metadata field, but it is the box of a
+    # task named "metadata". A label of a task that the schema does not
+    # list still needs them.
+    known_keys = {
+        f"{task_name}/{task_type}": (task_name, task_type)
+        for task_name, task_types in schema.tasks.items()
+        for task_type in task_types
+    }
     by_task: dict[str, dict[str, np.ndarray]] = defaultdict(dict)
     for key, array in labels.items():
-        by_task[get_task_group(key)][get_task_type(key)] = array
+        task_name, task_type = known_keys.get(key) or (
+            get_task_group(key),
+            get_task_type(key),
+        )
+        by_task[task_name][task_type] = array
 
     annotations = {
         task_name: _build_detections(

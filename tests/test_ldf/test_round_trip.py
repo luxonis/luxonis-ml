@@ -731,3 +731,35 @@ def test_a_named_task_is_not_nested_under_the_default_task():
     assert set(rebuilt.annotation) == {"", "vehicles"}
     assert rebuilt.annotation["vehicles"][0].class_name == "car"
     assert rebuilt.annotation[""][0].sub_detections == {}
+
+
+def test_a_task_named_metadata_keeps_its_boxes():
+    """``"metadata/boundingbox"`` is the box of a task named ``metadata``.
+
+    Without the schema, the key also reads as the ``boundingbox``
+    metadata of a task, and the box came back as a metadata string.
+    """
+    schema = DatasetSchema(
+        tasks={"metadata": ["boundingbox", "classification"]},
+        classes={"metadata": {"car": 0}},
+    )
+    record = DatasetRecord.model_validate(
+        {
+            "media": IMAGE,
+            "annotation": {
+                "metadata": [
+                    {"class": "car", "boundingbox": box(0.1, 0.2, 0.3, 0.4)}
+                ]
+            },
+        }
+    )
+
+    rebuilt = roundtrip(record, schema)
+
+    assert set(rebuilt.annotation) == {"metadata"}
+    (detection,) = rebuilt.annotation["metadata"]
+    assert detection.class_name == "car"
+    assert detection.metadata == {}
+    assert (
+        detection.boundingbox == record.annotation["metadata"][0].boundingbox
+    )
