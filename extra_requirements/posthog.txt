@@ -4,7 +4,7 @@ annotated-types==0.8.0
 attrs==26.1.0
 backoff==2.2.1
 certifi==2026.7.22
-charset-normalizer==3.5.1
+charset-normalizer==3.5.2
 colorama==0.4.6 ; sys_platform == 'win32'
 cyclopts==4.25.3
 distro==1.9.0
@@ -14,17 +14,17 @@ idna==3.20
 loguru==0.7.3
 markdown-it-py==4.2.0
 mdurl==0.1.2
-posthog==7.60.0
+posthog==7.62.1
 pydantic==2.13.5
 pydantic-core==2.46.5
 pydantic-extra-types==2.11.1
 pydantic-settings==2.15.0
 pygments==2.21.0
-python-dotenv==1.2.3
+python-dotenv==1.2.4
 pyyaml==6.0.3
 requests==2.34.2
 rich==15.0.0
-rich-rst==2.1.0
+rich-rst==2.2.0
 semver==3.1.0
 tomli==2.4.1 ; python_full_version < '3.11'
 typeguard==4.6.0
