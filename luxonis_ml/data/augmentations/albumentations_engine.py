@@ -1,3 +1,5 @@
+"""Augmentation engine built on Albumentations."""
+
 import warnings
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
@@ -425,6 +427,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 one bounding-box target belongs to the same task group,
                 more than one transform is marked for resizing, or a
                 configured transform is not an Albumentations transform.
+            ValueError: If a batch transform is nested inside another
+                transformation, or if a nested item is not a
+                transformation configuration.
             TypeError: If a resizing transform has a non-numeric
                 probability ``p``.
 
@@ -858,9 +863,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             labels_batch: Loader outputs to preprocess.
 
         Returns:
-            Preprocessed data, keypoint counts for each task, and, for every
-            member of the batch, the LDF layout of each target it provided
-            labels for.
+            Preprocessed data, the keypoint count of an instance keyed by
+            target name, and, for every member of the batch, the LDF layout
+            of each target it provided labels for.
 
         """
         data_batch = []
@@ -944,7 +949,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
         Args:
             data: Augmented data keyed by target name.
-            n_keypoints: Mapping from task names to keypoint counts.
+            n_keypoints: Keypoint count of an instance, keyed by target
+                name.
             emptied_targets: LDF layout of the targets a batch transform
                 emptied because all the bounding boxes they belong to were
                 filtered out. They are reported as empty labels rather than

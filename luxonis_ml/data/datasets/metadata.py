@@ -1,3 +1,5 @@
+"""Dataset metadata, as stored in ``metadata.json``."""
+
 from collections.abc import Iterable
 from typing import Literal
 
@@ -50,6 +52,15 @@ class Metadata(BaseModelExtraForbid):
     def set_classes(
         self, classes: list[str] | dict[str, int], task: str
     ) -> None:
+        """Set the classes of a task.
+
+        Args:
+            classes: Class names, or class IDs keyed by class name. Class
+                names get IDs in case-insensitive alphabetical order, and
+                ``"background"`` always gets ID :math:`0`.
+            task: Task to update.
+
+        """
         if isinstance(classes, list):
             self.classes[task] = {
                 class_name: i

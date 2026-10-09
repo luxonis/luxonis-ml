@@ -1,3 +1,5 @@
+"""Helpers shared by the dataset exporters."""
+
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -119,6 +121,15 @@ class ExporterSpec:
 
 
 def check_group_file_correspondence(prepared_ldf: PreparedLDF) -> None:
+    """Check that each group of a prepared dataset uses one file.
+
+    Args:
+        prepared_ldf: Prepared dataset.
+
+    Raises:
+        AssertionError: If a group uses more than one file.
+
+    """
     df = prepared_ldf.processed_df
     group_to_files = df.group_by("group_id").agg(
         pl.col("file").n_unique().alias("file_count")
@@ -134,6 +145,13 @@ def check_group_file_correspondence(prepared_ldf: PreparedLDF) -> None:
 def exporter_specific_annotation_warning(
     prepared_ldf: PreparedLDF, supported_ann_types: list[str]
 ) -> None:
+    """Warn about each task type that the exporter does not support.
+
+    Args:
+        prepared_ldf: Prepared dataset.
+        supported_ann_types: Task types that the exporter supports.
+
+    """
     df = prepared_ldf.processed_df
 
     present_task_types = (
@@ -153,6 +171,19 @@ def exporter_specific_annotation_warning(
 
 
 def split_of_group(prepared_ldf: PreparedLDF, group_id: Any) -> str:
+    """Return the split that holds a group.
+
+    Args:
+        prepared_ldf: Prepared dataset.
+        group_id: ID of the group.
+
+    Returns:
+        Name of the split.
+
+    Raises:
+        AssertionError: If no split holds the group.
+
+    """
     split = next(
         (s for s, ids in prepared_ldf.splits.items() if group_id in ids),
         None,
@@ -167,6 +198,20 @@ def create_zip_output(
     part: int | None,
     dataset_identifier: str,
 ) -> Path | list[Path]:
+    """Zip an export directory, or each of its partitions.
+
+    Args:
+        max_partition_size: Maximum partition size, or ``None`` if the
+            export has no partitions.
+        output_path: Directory that holds the export.
+        part: Index of the last partition, or ``None`` without partitions.
+        dataset_identifier: Name of the export directory.
+
+    Returns:
+        The path of the archive, or a list of paths when there are
+        several archives.
+
+    """
     archives: list[Path] = []
 
     if max_partition_size is not None and part is not None:
@@ -209,6 +254,15 @@ def get_single_skeleton(
 
 
 def decode_rle_with_pycoco(ann: dict[str, Any]) -> np.ndarray:
+    """Decode a COCO run-length encoding into a binary mask.
+
+    Args:
+        ann: Annotation with ``height``, ``width`` and ``counts`` keys.
+
+    Returns:
+        A ``uint8`` mask with the height and the width of the annotation.
+
+    """
     h = int(ann["height"])
     w = int(ann["width"])
     counts = ann["counts"]
@@ -223,6 +277,19 @@ def decode_rle_with_pycoco(ann: dict[str, Any]) -> np.ndarray:
 def annotation_to_polygons(
     ann: dict[str, Any], file_path: Path
 ) -> list[list[tuple[float, float]]]:
+    """Convert a run-length encoded mask into normalized polygons.
+
+    Args:
+        ann: Annotation with ``height``, ``width`` and ``counts`` keys.
+        file_path: Path of the annotated image. The function does not
+            read it.
+
+    Returns:
+        One polygon for each outer contour with at least 3 points. An
+        annotation without ``counts``, or one that fails to decode, gives
+        no polygon.
+
+    """
     polygons: list[list[tuple[float, float]]] = []
 
     # COCO RLE -> decode to mask -> contours -> polygons

@@ -1,3 +1,8 @@
+"""Dataset handle for the Luxonis Data Format.
+
+See `luxonis_ml.data.datasets` for the lifecycle and the storage layout.
+"""
+
 import json
 import math
 import shutil
@@ -86,10 +91,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     designed for use within the Luxonis MLOps ecosystem.
 
     Attributes:
-        dataset_name: Name of the dataset.
-        bucket_storage: Underlying storage backend for the dataset.
-        bucket_type: Whether the dataset uses internal or external buckets.
-        team_id: Optional cloud team identifier.
         version: The version of the underlying LDF that the dataset adheres to.
 
     """
@@ -120,7 +121,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             delete_remote: Whether to delete the remote dataset as well.
 
         Raises:
-            ValueError: If the dataset exists and deletion flags are not set.
             ValueError: If the dataset is remote but no bucket is configured.
             NotImplementedError: If Azure Blob Storage is selected as the
                 bucket storage.
@@ -448,9 +448,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             Dataset containing the merged data.
 
         Raises:
-            ValueError: If the datasets have different bucket storage types.
+            ValueError: If ``inplace`` is ``False`` and the datasets have
+                different bucket storage types.
             ValueError: If ``inplace`` is ``False`` but no name for the new
                 dataset is provided.
+            ValueError: If the datasets have different LDF versions.
+            FileNotFoundError: If either dataset is empty.
 
         """
         if inplace:
@@ -874,6 +877,19 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         task: str | None = None,
         rewrite_metadata: bool = True,
     ) -> None:
+        """Set classes for one or more tasks.
+
+        Args:
+            classes: Class names, or class IDs keyed by class name. If
+                class names are provided, IDs are assigned
+                alphabetically starting from :math:`0`. A class named
+                ``"background"`` is always assigned ID :math:`0`.
+            task: Optional task to update. If omitted, all tasks are
+                updated.
+            rewrite_metadata: Whether to write the metadata file. With
+                ``False``, only this handle holds the new classes.
+
+        """
         tasks = self.get_task_names() if task is None else [task]
 
         for t in tasks:
@@ -942,37 +958,44 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     def get_categorical_encodings(
         self,
     ) -> dict[str, dict[str, int]]:
-        """Get the categorical encodings for the dataset grouped by
-        task.
+        """Get the categorical encodings of the metadata tasks.
 
-        Example output:
+        A metadata task is named ``"<task_name>/metadata/<name>"``, for
+        example:
 
         .. python::
 
             {
-                "vehicles": {
-                    "color": {"red": 0, "green": 1, "blue": 2},
-                    "brand": {"audi": 0, "bmw": 1, "mercedes": 2},
-                }
+                "vehicles/metadata/color": {"red": 0, "green": 1},
+                "vehicles/metadata/brand": {"audi": 0, "bmw": 1},
             }
+
+        Returns:
+            The integer code of each category value, keyed by metadata
+            task.
+
         """
         return self._metadata.categorical_encodings
 
     def get_metadata_types(
         self,
     ) -> dict[str, Literal["float", "int", "str", "Category"]]:
-        """Get the metadata types for each metadata annotation in the
-        dataset.
+        """Get the value type of each metadata task.
 
-        Example output:
+        A metadata task is named ``"<task_name>/metadata/<name>"``, for
+        example:
 
         .. python::
 
             {
-                "id": "int",
-                "time_of_day": "Category",
-                "temperature": "float",
+                "vehicles/metadata/id": "int",
+                "vehicles/metadata/time_of_day": "Category",
+                "vehicles/metadata/temperature": "float",
             }
+
+        Returns:
+            The type name of the values, keyed by metadata task.
+
         """
         return self._metadata.metadata_types
 

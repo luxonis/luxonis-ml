@@ -1,3 +1,5 @@
+"""Loader for the samples and labels of a `LuxonisDataset`."""
+
 import inspect
 import json
 import random
@@ -80,26 +82,6 @@ class LuxonisLoader(BaseLoader):
 
     Attributes:
         dataset: Dataset being loaded.
-        view: Split names loaded by this loader.
-        df: Dataframe with records used by the loader.
-        classes: Class-name mappings per task.
-        source_names: Source names expected in each sample.
-        instances: Group IDs included in the selected views.
-        idx_to_df_row: Mapping from loader index to dataframe row indices.
-        color_space: Output color space per source.
-        height: Optional output image height.
-        width: Optional output image width.
-        augmentations: Optional augmentation engine. Its applied configured
-            paths are added to augmented output metadata.
-        exclude_empty_annotations: Whether empty annotations are omitted.
-        sync_mode: Whether the dataset is remote and pulled before loading.
-        keep_categorical_as_strings: Whether categorical metadata remains
-            as strings.
-        filter_task_names: Optional task-name allowlist.
-        autopopulate_metadata: Whether automatic metadata such as source
-            filenames is added to `LoaderOutput.metadata`.
-        tasks_without_background: Segmentation tasks where unassigned
-            pixels are mapped to background class :math:`0`.
 
     """
 
@@ -169,10 +151,10 @@ class LuxonisLoader(BaseLoader):
                 arrays rather than the record.
 
         Raises:
-            ValueError: If `color_space` is neither a string nor a
-                dictionary.
-            ValueError: If `filter_task_names` contains task names not
+            ValueError: If ``filter_task_names`` contains task names not
                 present in the dataset.
+            ValueError: If ``augmentation_config`` is set without
+                ``height`` and ``width``.
             RuntimeError: If split metadata is missing.
 
         Example:
