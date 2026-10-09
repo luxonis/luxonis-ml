@@ -185,7 +185,11 @@ class BaseParser(ABC):
                     parser.from_split(**split_kwargs)
 
         Returns:
-            LDF generator, keypoint metadata, and added images.
+            LDF generator, keypoint metadata, and added images. The
+            keypoint metadata maps a class name to a dictionary with the
+            optional keys ``"labels"``, ``"edges"``, ``"flip_pairs"`` and
+            ``"sigmas"``. It accepts no other keys. An empty dictionary
+            defines no keypoint metadata.
 
         """
         ...
@@ -201,27 +205,25 @@ class BaseParser(ABC):
 
         """
         generator, keypoints, added_images = self.from_split(**kwargs)
-        checked: dict[str, KeypointMetadata] = {}
         tasks: dict[str, str] = {}
         # `add` gives a record without a task the task that stores its
         # class, so the classes must be read before `add` changes them.
         classes = self._dataset.get_classes()
         self._dataset.add(
             self._check_keypoints(
-                self._wrap_generator(generator), keypoints, checked, tasks
+                self._wrap_generator(generator), keypoints, tasks
             )
         )
         for class_name, metadata in keypoints.items():
             # A format can define keypoints for a class without keypoint
             # annotations. Such a definition describes no rows. In a shared
             # task, it would replace the names of the annotated class.
-            if class_name not in checked:
+            if class_name not in tasks:
                 continue
             self._dataset.set_keypoint_metadata(
                 metadata.get("labels"),
                 metadata.get("edges"),
-                task=tasks[class_name]
-                or infer_task(tasks[class_name], class_name, classes),
+                task=tasks[class_name] or infer_task("", class_name, classes),
                 flip_pairs=metadata.get("flip_pairs"),
                 sigmas=metadata.get("sigmas"),
             )
@@ -337,6 +339,11 @@ class BaseParser(ABC):
         Returns:
             Dataset with parsed images and annotations.
 
+        Raises:
+            ValueError: If the keypoint metadata that the format defines
+                does not fit the keypoint records, for example a repeated
+                keypoint name or a record with more keypoints than names.
+
         """
         self._reset_parser_issue_messages()
         try:
@@ -374,6 +381,8 @@ class BaseParser(ABC):
         Raises:
             ValueError: If a parser that expects top-level splits cannot
                 find a ``train`` directory.
+            ValueError: If the keypoint metadata that the format defines
+                does not fit the keypoint records.
 
         """
         self._reset_parser_issue_messages()
@@ -704,21 +713,21 @@ class BaseParser(ABC):
     def _check_keypoints(
         records: Iterator[DatasetRecord],
         keypoints: dict[str, dict],
-        checked: dict[str, KeypointMetadata],
         tasks: dict[str, str],
     ) -> Iterator[DatasetRecord]:
         """Validate keypoint definitions for classes with keypoint rows.
 
         Parser formats may define keypoints for classes that have no
-        keypoint annotations. Those definitions are ignored; ``checked``
-        receives only definitions that describe rows in this split, and
-        ``tasks`` the task of the first such row of each class.
+        keypoint annotations. Those definitions are ignored; ``tasks``
+        receives the task of the first keypoint row of each class that
+        has a definition.
         """
         definitions = {
             class_name: metadata
             for class_name, metadata in keypoints.items()
             if any(metadata.values())
         }
+        checked: dict[str, KeypointMetadata] = {}
         widths: dict[str, int] = defaultdict(int)
         for record in records:
             for task_name, detections in record.annotation.items():

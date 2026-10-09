@@ -496,7 +496,7 @@ LDF export without `LuxonisParser`::
         └── images/
 
 ``metadata.json`` holds the LDF version of the export, such as
-``{"ldf_version": "2.1.0"}``. It is optional, and the parser reads it only to
+``{"ldf_version": "2.2.0"}``. It is optional, and the parser reads it only to
 warn about an export from a newer version. An export larger than
 ``max_partition_size_gb`` is written as ``<name>_part0``, ``<name>_part1``,
 and so on, and each part repeats this layout.
@@ -556,6 +556,13 @@ image-normalized coordinates. Masks are written as COCO RLE, with a
         "counts": "b14<000000000^3"
       }
     }
+
+A ``keypoints`` payload keys each keypoint by its name when the task names its
+keypoints. One record of each keypoint task in each ``annotations.json`` also
+carries the ``edges``, ``flip_pairs`` and ``sigmas`` of the task.
+`LuxonisDataset.add` moves them into the keypoint metadata of the task. An
+export to LDF 2.1 or 2.0 writes the keypoints as a plain list and leaves these
+fields out.
 
 Important:
     The ``array`` annotation type is not yet supported for import.
