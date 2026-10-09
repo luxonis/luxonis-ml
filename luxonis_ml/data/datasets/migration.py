@@ -1,3 +1,5 @@
+"""Migration of LDF ``1.0.0`` datasets to the current layout."""
+
 from collections import defaultdict
 from typing import Any, Final, Literal, overload
 
@@ -61,6 +63,16 @@ def migrate_dataframe(df: pl.DataFrame) -> pl.DataFrame: ...
 def migrate_dataframe(
     df: pl.LazyFrame | pl.DataFrame,
 ) -> pl.LazyFrame | pl.DataFrame:  # pragma: no cover
+    """Migrate LDF ``1.0.0`` annotation rows to the current columns.
+
+    Args:
+        df: Annotation rows in the LDF ``1.0.0`` layout.
+
+    Returns:
+        The rows with the current column names, task names and task
+        types, as the same frame type as ``df``.
+
+    """
     return (
         df.rename({"class": "class_name"})
         .with_columns(

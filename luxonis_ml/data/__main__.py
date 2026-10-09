@@ -1,3 +1,5 @@
+"""Commands of ``luxonis_ml data``."""
+
 import shutil
 from pathlib import Path
 from typing import Annotated, Literal, TypeAlias
@@ -259,7 +261,10 @@ def inspect(
             displayed image. Requires '--aug-config' to be set.
         print_sample_metadata: Print sample metadata for each displayed sample.
         skeletons: Draw keypoint skeleton edges.
-        keypoint_labels: Specify how to draw keypoint labels.
+        keypoint_labels: The label to draw next to each keypoint.
+            ``none`` draws no label, ``numbers`` draws the index,
+            ``names`` draws the name, and ``full`` draws the index and
+            the name.
         bucket_storage: Storage type of the dataset.
 
     """
@@ -459,9 +464,10 @@ def export(
             the save location before exporting.
         max_partition_size_gb: Maximum size of each
             partition in GB. If not provided, no partitioning will be done.
-        zip: If ``True``, the exported dataset will be zipped into a
-            single archive. If ``False``, the dataset will be exported as a
-            directory with the specified structure.
+        zip: If ``True``, the exported dataset will be zipped into one
+            archive, or into one archive for each partition. If
+            ``False``, the dataset will be exported as a directory with
+            the specified structure.
         ldf_version: LDF version to write, such as ``2.0``, so the export
             can be read by an older luxonis-ml. Only valid with
             ``--type native``. Downgrading is lossy and warns about what
@@ -544,7 +550,7 @@ def parse(
         task_name: Task name to use for all records
             parsed from this dataset.
         log_all_warnings: Log all skipped annotation warnings
-            instead of capping the output at 50.
+            instead of capping the output at 10.
         split_ratio: A string representation of a Python list
             specifying the split ratios for train, val, and test sets.
             Deprecated in favor of ``--train``, ``--val``, and ``--test``.

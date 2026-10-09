@@ -1,3 +1,5 @@
+"""Export to the native LDF format."""
+
 import json
 import shutil
 import sys

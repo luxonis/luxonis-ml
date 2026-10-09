@@ -1,3 +1,5 @@
+"""Base class and shared steps of the dataset parsers."""
+
 import inspect
 import random
 from abc import ABC, abstractmethod
@@ -44,7 +46,7 @@ class BaseParser(ABC):
                 records. A mapping uses class names as keys and task names
                 as values.
             full_warnings: Whether to log every skipped-annotation warning.
-                When ``False``, only the first 50 warnings are logged and the
+                When ``False``, only the first 10 warnings are logged and the
                 rest are summarized.
 
         """
@@ -139,8 +141,15 @@ class BaseParser(ABC):
     def discover_dir_splits(
         cls, dataset_dir: Path
     ) -> dict[str, dict[str, Any]]:
-        """Return present and valid split directories keyed by their
-        canonical split names.
+        """Return the present and valid split directories.
+
+        Args:
+            dataset_dir: Source dataset directory.
+
+        Returns:
+            The keyword arguments for ``from_split``, keyed by canonical
+            split name.
+
         """
         discovered: dict[str, dict[str, Any]] = {}
         for split_name in cls._SPLIT_NAMES:
@@ -352,8 +361,8 @@ class BaseParser(ABC):
             Dataset with parsed images and annotations.
 
         Raises:
-            ValueError: If a parser that expects top-level splits cannot
-                find a ``train`` directory.
+            ValueError: If no split directory has the expected format, or
+                if no split holds a sample.
 
         """
         self._reset_parser_issue_messages()

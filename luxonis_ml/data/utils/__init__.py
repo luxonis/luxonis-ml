@@ -1,5 +1,18 @@
 """Utility helpers shared by the data package.
 
+`visualize` draws the labels of a loaded sample on its image:
+
+.. python::
+
+    from luxonis_ml.data import LuxonisDataset, LuxonisLoader
+    from luxonis_ml.data.utils import visualize
+
+    dataset = LuxonisDataset("parking_lot")
+    sample = LuxonisLoader(dataset)[0]
+    image = visualize(
+        sample.images["image"], "image", sample.labels, dataset.get_classes()
+    )
+
 This package collects public helper APIs used by dataset creation, parsing,
 loading, exporting, validation, and visualization. The utilities are grouped by
 the part of the data workflow they support:
