@@ -1213,7 +1213,7 @@ def test_parser_stores_the_flip_pairs_of_the_source(
 
     keypoints = dataset.get_keypoint_metadata()["pose"]
     assert keypoints.labels == KEYPOINT_LABELS
-    assert keypoints.flip_pairs == []
+    assert keypoints.flip_pairs == {}
 
 
 def test_solo_keypoints_get_no_invented_edges(

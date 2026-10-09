@@ -217,7 +217,9 @@ def test_vertical_flip_mirrors_keypoints_across_the_image_height() -> None:
 FLIP = {"name": "HorizontalSymmetricKeypointsFlip", "params": {"p": 1.0}}
 ONE_OF_FLIP = {"name": "OneOf", "params": {"p": 1.0, "transforms": [FLIP]}}
 # A hand with four keypoints whose outer two are a pair.
-HANDS = KeypointMetadata(labels=["a", "b", "c", "d"], flip_pairs=[(0, 3)])
+HANDS = KeypointMetadata(
+    labels=["a", "b", "c", "d"], flip_pairs={"horizontal": [(0, 3)]}
+)
 
 
 def augment_people_and_hands(
@@ -280,7 +282,8 @@ def test_each_keypoint_task_swaps_its_own_stored_pairs(
     people, hands = augment_people_and_hands(
         augmentation,
         KeypointMetadata(
-            labels=["nose", "left", "right"], flip_pairs=[(1, 2)]
+            labels=["nose", "left", "right"],
+            flip_pairs={"horizontal": [(1, 2)]},
         ),
         np.array([[0.5, 0.2, 2, 0.2, 0.3, 2, 0.8, 0.4, 2]]),
     )
@@ -290,21 +293,17 @@ def test_each_keypoint_task_swaps_its_own_stored_pairs(
 
 
 def test_configured_pairs_replace_the_stored_pairs_they_fit() -> None:
-    # As in a COCO dataset, the people task stores its left and right pairs,
-    # and the vertical flip configures identity pairs, which keep every
-    # keypoint in place. The hands have fewer keypoints than the configured
-    # pairs index, so they swap their own stored pair.
+    # The configured pair swaps only the ears of the person. The hands have
+    # fewer keypoints than the configured pair indexes, so they swap their
+    # own stored pair.
     people, hands = augment_people_and_hands(
         {
-            "name": "VerticalSymmetricKeypointsFlip",
-            "params": {
-                "p": 1.0,
-                "keypoint_pairs": [(i, i) for i in range(5)],
-            },
+            "name": "HorizontalSymmetricKeypointsFlip",
+            "params": {"p": 1.0, "keypoint_pairs": [(3, 4)]},
         },
         KeypointMetadata(
             labels=["nose", "l_eye", "r_eye", "l_ear", "r_ear"],
-            flip_pairs=[(1, 2), (3, 4)],
+            flip_pairs={"horizontal": [(1, 2), (3, 4)]},
         ),
         np.array(
             [
@@ -318,6 +317,65 @@ def test_configured_pairs_replace_the_stored_pairs_they_fit() -> None:
     )
 
     assert np.allclose(
-        people, [[0.5, 0.8], [0.4, 0.7], [0.6, 0.7], [0.3, 0.75], [0.7, 0.75]]
+        people, [[0.5, 0.2], [0.6, 0.3], [0.4, 0.3], [0.3, 0.25], [0.7, 0.25]]
     )
-    assert np.allclose(hands, [[0.9, 0.4], [0.3, 0.5], [0.6, 0.5], [0.1, 0.5]])
+    assert np.allclose(hands, [[0.1, 0.6], [0.7, 0.5], [0.4, 0.5], [0.9, 0.5]])
+
+
+# The corners of a plate are named after the sides of the image, so each
+# mirror swaps other corners.
+PLATE = KeypointMetadata.model_validate(
+    {
+        "labels": ["top_left", "top_right", "bottom_right", "bottom_left"],
+        "flip_pairs": {
+            "horizontal": [
+                ("top_left", "top_right"),
+                ("bottom_left", "bottom_right"),
+            ],
+            "vertical": [
+                ("top_left", "bottom_left"),
+                ("top_right", "bottom_right"),
+            ],
+            "transpose": [("top_right", "bottom_left")],
+        },
+    }
+)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "HorizontalSymmetricKeypointsFlip",
+        "VerticalSymmetricKeypointsFlip",
+        "TransposeSymmetricKeypoints",
+    ],
+)
+def test_each_flip_swaps_the_stored_pairs_of_its_mirror(name: str) -> None:
+    corners, _ = augment_people_and_hands(
+        {"name": name, "params": {"p": 1.0}},
+        PLATE,
+        np.array([0.2, 0.3, 2, 0.8, 0.3, 2, 0.8, 0.7, 2, 0.2, 0.7, 2]).reshape(
+            1, -1
+        ),
+    )
+
+    # Each corner is still in the corner of the image that names it.
+    x, y = corners.T
+    assert (x < 0.5).tolist() == [True, False, False, True]
+    assert (y < 0.5).tolist() == [True, True, False, False]
+
+
+def test_a_mirror_without_stored_pairs_swaps_no_keypoint() -> None:
+    # Both tasks store only horizontal pairs, so the vertical flip moves
+    # the keypoints and keeps their order.
+    people, hands = augment_people_and_hands(
+        {"name": "VerticalSymmetricKeypointsFlip", "params": {"p": 1.0}},
+        KeypointMetadata(
+            labels=["nose", "left", "right"],
+            flip_pairs={"horizontal": [(1, 2)]},
+        ),
+        np.array([[0.5, 0.2, 2, 0.2, 0.3, 2, 0.8, 0.4, 2]]),
+    )
+
+    assert np.allclose(people, [[0.5, 0.8], [0.2, 0.7], [0.8, 0.6]])
+    assert np.allclose(hands, [[0.1, 0.5], [0.3, 0.5], [0.6, 0.5], [0.9, 0.4]])

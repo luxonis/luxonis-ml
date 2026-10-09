@@ -228,7 +228,7 @@ def test_names_are_promoted_to_the_task_metadata(
         "pose": KeypointMetadata(
             labels=LABELS,
             edges=[(0, 1), (0, 2)],
-            flip_pairs=[(1, 2)],
+            flip_pairs={"horizontal": [(1, 2)]},
             sigmas=[0.026, 0.025, 0.025],
         )
     }
@@ -240,7 +240,9 @@ def test_flip_pairs_are_inferred_from_the_names(
 ):
     dataset = named_dataset(dataset_name, tempdir)
 
-    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == [(1, 2)]
+    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == {
+        "horizontal": [(1, 2)]
+    }
 
 
 def test_sub_detections_get_their_own_metadata(
@@ -264,7 +266,7 @@ def test_sub_detections_get_their_own_metadata(
 
     task_keypoints = dataset.get_keypoint_metadata()["person/face"]
     assert task_keypoints.labels == ["left_eye", "right_eye"]
-    assert task_keypoints.flip_pairs == [(0, 1)]
+    assert task_keypoints.flip_pairs == {"horizontal": [(0, 1)]}
 
 
 def test_disagreeing_records_are_rejected(dataset_name: str, tempdir: Path):
@@ -348,7 +350,7 @@ def test_a_later_add_cannot_reorder_the_stored_labels(
 
     task_keypoints = dataset.get_keypoint_metadata()["pose"]
     assert task_keypoints.labels == LABELS
-    assert task_keypoints.flip_pairs == [(1, 2)]
+    assert task_keypoints.flip_pairs == {"horizontal": [(1, 2)]}
     assert set(keypoint_payloads(dataset)) == {
         '{"keypoints":[[0.5,0.3,2],[0.4,0.2,2],[0.6,0.2,1]]}'
     }
@@ -443,7 +445,7 @@ def test_records_can_name_different_subsets_of_the_stored_names(
     dataset.add(generator())
 
     assert dataset.get_keypoint_metadata()["pose"] == KeypointMetadata(
-        labels=LABELS, flip_pairs=[(1, 2)]
+        labels=LABELS, flip_pairs={"horizontal": [(1, 2)]}
     )
     assert {
         '{"keypoints":[[0.0,0.0,0],[0.4,0.2,2],[0.0,0.0,0]]}',
@@ -1092,7 +1094,7 @@ def test_new_names_drop_only_the_edges_that_add_generated(
     dataset.set_keypoint_metadata(labels=LABELS, edges=edges, task="pose")
 
     assert dataset.get_keypoint_metadata()["pose"] == KeypointMetadata(
-        labels=LABELS, edges=expected, flip_pairs=[(1, 2)]
+        labels=LABELS, edges=expected, flip_pairs={"horizontal": [(1, 2)]}
     )
 
 
@@ -1129,7 +1131,7 @@ def test_placeholders_are_still_generated(dataset_name: str, tempdir: Path):
         "pose": {
             "labels": ["0", "1"],
             "edges": [[0, 1]],
-            "flip_pairs": [],
+            "flip_pairs": {},
             "sigmas": [],
         }
     }
@@ -1196,11 +1198,11 @@ def test_opening_a_dataset_does_not_materialize_flip_pairs(
     )
     metadata_path = dataset._metadata_path / "metadata.json"
     before = metadata_path.read_text()
-    assert json.loads(before)["keypoint_metadata"]["pose"]["flip_pairs"] == []
+    assert json.loads(before)["keypoint_metadata"]["pose"]["flip_pairs"] == {}
 
     reopened = LuxonisDataset(dataset_name)
 
-    assert reopened.get_keypoint_metadata()["pose"].flip_pairs == []
+    assert reopened.get_keypoint_metadata()["pose"].flip_pairs == {}
     assert metadata_path.read_text() == before
 
 
@@ -1212,7 +1214,7 @@ def test_a_legacy_dataset_still_loads(dataset_name: str, tempdir: Path):
     )
 
     assert reopened.get_keypoint_metadata()["pose"].labels == LABELS
-    assert reopened.get_keypoint_metadata()["pose"].flip_pairs == []
+    assert reopened.get_keypoint_metadata()["pose"].flip_pairs == {}
     _, labels = LuxonisLoader(reopened)[0]
     assert labels["pose/keypoints"].shape[1] == 9
 
@@ -1283,7 +1285,7 @@ def test_set_keypoint_metadata_infers_flip_pairs_for_the_stored_names(
 
     assert dataset.get_keypoint_metadata() == {
         "pose": KeypointMetadata(
-            labels=LABELS, edges=[(0, 1)], flip_pairs=[(1, 2)]
+            labels=LABELS, edges=[(0, 1)], flip_pairs={"horizontal": [(1, 2)]}
         )
     }
 
@@ -1388,7 +1390,7 @@ def test_set_keypoint_metadata_updates_only_what_it_is_given(
     task_keypoints = dataset.get_keypoint_metadata()["pose"]
     assert task_keypoints.labels == LABELS
     assert task_keypoints.sigmas == [0.1, 0.2, 0.3]
-    assert task_keypoints.flip_pairs == [(1, 2)]
+    assert task_keypoints.flip_pairs == {"horizontal": [(1, 2)]}
 
 
 def test_new_labels_drop_the_indices_they_invalidate(
@@ -1409,14 +1411,16 @@ def test_new_labels_drop_the_indices_they_invalidate(
             "sigmas": [0.026, 0.025, 0.025],
         },
     )
-    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == [(1, 2)]
+    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == {
+        "horizontal": [(1, 2)]
+    }
 
     dataset.set_keypoint_metadata(
         labels=["left_eye", "right_eye", "nose"], task="pose"
     )
 
     task_keypoints = dataset.get_keypoint_metadata()["pose"]
-    assert task_keypoints.flip_pairs == [(0, 1)]
+    assert task_keypoints.flip_pairs == {"horizontal": [(0, 1)]}
     assert task_keypoints.edges == []
     assert task_keypoints.sigmas == []
 
@@ -1499,7 +1503,9 @@ def test_a_legacy_dataset_merges_with_a_new_dataset(
     assert len(old) == 8
     assert LuxonisDataset(old.identifier).get_keypoint_metadata() == {
         "pose": KeypointMetadata(
-            labels=LABELS, flip_pairs=[(1, 2)], sigmas=[0.1, 0.2, 0.3]
+            labels=LABELS,
+            flip_pairs={"horizontal": [(1, 2)]},
+            sigmas=[0.1, 0.2, 0.3],
         )
     }
 
@@ -1525,7 +1531,9 @@ def test_a_merge_moves_the_other_rows_to_the_target_order(
 
     merged = LuxonisDataset(target.identifier)
     assert merged.get_keypoint_metadata()["pose"] == KeypointMetadata(
-        labels=LABELS, flip_pairs=[(1, 2)], sigmas=[0.1, 0.2, 0.3]
+        labels=LABELS,
+        flip_pairs={"horizontal": [(1, 2)]},
+        sigmas=[0.1, 0.2, 0.3],
     )
     assert stored_keypoints_by_name(merged) == [NAMED_KEYPOINTS] * 8
 
@@ -1591,7 +1599,7 @@ def test_set_keypoint_metadata_accepts_names(dataset_name: str, tempdir: Path):
 
     task_keypoints = dataset.get_keypoint_metadata()["pose"]
     assert task_keypoints.edges == [(0, 1)]
-    assert task_keypoints.flip_pairs == [(1, 2)]
+    assert task_keypoints.flip_pairs == {"horizontal": [(1, 2)]}
 
 
 def test_the_deprecated_skeleton_aliases_still_forward(
@@ -1625,7 +1633,7 @@ def test_set_keypoint_metadata_can_store_no_flip_pairs(
     """The method infers flip pairs only when you omit them."""
     dataset = pose_dataset(dataset_name, labels=LABELS, **fields)
 
-    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == []
+    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == {}
 
 
 def test_turning_the_inference_off_keeps_the_stored_flip_pairs(
@@ -1637,7 +1645,9 @@ def test_turning_the_inference_off_keeps_the_stored_flip_pairs(
         labels=LABELS, task="pose", infer_flip_pairs=False
     )
 
-    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == [(1, 2)]
+    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == {
+        "horizontal": [(1, 2)]
+    }
 
 
 def test_a_later_add_keeps_the_flip_pairs_turned_off(
@@ -1656,7 +1666,7 @@ def test_a_later_add_keeps_the_flip_pairs_turned_off(
         keypoint_generator(tempdir, dict.fromkeys(CAMERAS, (0.5, 0.5, 2)))
     )
 
-    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == []
+    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == {}
 
 
 @pytest.mark.parametrize(
@@ -1691,15 +1701,15 @@ def test_a_later_set_keeps_the_flip_pairs_turned_off(
 @pytest.mark.parametrize(
     ("infer_flip_pairs", "flip_pairs"),
     [
-        pytest.param(None, [], id="none"),
-        pytest.param(True, [(1, 2)], id="true"),
+        pytest.param(None, {}, id="none"),
+        pytest.param(True, {"horizontal": [(1, 2)]}, id="true"),
     ],
 )
 def test_only_an_explicit_flag_infers_flip_pairs_for_stored_names(
     dataset_name: str,
     tempdir: Path,
     infer_flip_pairs: bool | None,
-    flip_pairs: list[tuple[int, int]],
+    flip_pairs: dict[str, list[tuple[int, int]]],
 ):
     """An older luxonis-ml stored the names without flip pairs.
 
@@ -1728,28 +1738,104 @@ def test_a_record_turns_the_inference_off_with_an_empty_list(
     """
     dataset = named_dataset(dataset_name, tempdir, fields={"flip_pairs": []})
 
-    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == []
+    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == {}
+
+
+def test_a_record_without_horizontal_pairs_still_infers_them(
+    dataset_name: str, tempdir: Path
+):
+    """Vertical pairs leave the horizontal pairs to the inference."""
+    dataset = named_dataset(
+        dataset_name,
+        tempdir,
+        fields={"flip_pairs": {"vertical": [("left_eye", "right_eye")]}},
+    )
+
+    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == {
+        "horizontal": [(1, 2)],
+        "vertical": [(1, 2)],
+    }
+
+
+def test_set_keypoint_metadata_replaces_only_the_mirrors_it_gives(
+    dataset_name: str, tempdir: Path
+):
+    dataset = named_dataset(dataset_name, tempdir)
+
+    dataset.set_keypoint_metadata(
+        task="pose", flip_pairs={"transpose": [("left_eye", "right_eye")]}
+    )
+    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == {
+        "horizontal": [(1, 2)],
+        "transpose": [(1, 2)],
+    }
+
+    dataset.set_keypoint_metadata(task="pose", flip_pairs={"horizontal": []})
+    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == {
+        "transpose": [(1, 2)]
+    }
+
+
+def test_a_later_add_keeps_the_pairs_of_the_other_mirrors(
+    dataset_name: str, tempdir: Path, warnings_log: list[str]
+):
+    """Pairs for a new mirror do not conflict with the stored ones."""
+    dataset = named_dataset(
+        dataset_name, tempdir, fields={"flip_pairs": {"vertical": [(1, 2)]}}
+    )
+
+    dataset.add(
+        keypoint_generator(
+            tempdir,
+            NAMED_KEYPOINTS,
+            {"flip_pairs": {"transpose": [(1, 2)]}},
+            start=4,
+        )
+    )
+
+    assert dataset.get_keypoint_metadata()["pose"].flip_pairs == {
+        "horizontal": [(1, 2)],
+        "vertical": [(1, 2)],
+        "transpose": [(1, 2)],
+    }
+    assert not any("flip_pairs" in m for m in warnings_log)
+
+
+def test_native_export_keeps_the_pairs_of_each_mirror(
+    dataset_name: str, tempdir: Path
+):
+    """The import must not infer the horizontal pairs that were off."""
+    dataset = named_dataset(
+        dataset_name,
+        tempdir,
+        fields={"flip_pairs": {"horizontal": [], "vertical": [(1, 2)]}},
+    )
+
+    imported = export_and_import(dataset, tempdir)
+
+    assert imported.get_keypoint_metadata()["pose"].flip_pairs == {
+        "vertical": [(1, 2)]
+    }
 
 
 @pytest.mark.parametrize(
     ("fields", "flip_pairs"),
     [
-        pytest.param({}, [(1, 2)], id="omitted"),
-        pytest.param({"flip_pairs": []}, [], id="empty"),
+        pytest.param({}, {"horizontal": [(1, 2)]}, id="omitted"),
+        pytest.param({"flip_pairs": []}, {}, id="empty"),
     ],
 )
 def test_box_relative_keypoints_keep_the_fields_that_the_record_gives(
     dataset_name: str,
     tempdir: Path,
     fields: dict[str, list[tuple[int, int]]],
-    flip_pairs: list[tuple[int, int]],
+    flip_pairs: dict[str, list[tuple[int, int]]],
 ):
     """`scale_to_boxes` builds a new keypoint annotation.
 
-    The new annotation must set only the fields that the record gives. A
-    copy of every field gives an empty list of flip pairs to each record.
-    A copy of only the fields with a value loses the empty list that turns
-    the inference off.
+    The new annotation must keep the fields that the record gives. A copy
+    of only the fields with a value loses the empty list that turns the
+    inference off.
     """
 
     dataset = create_dataset(
@@ -1973,7 +2059,7 @@ def test_new_names_replace_repeated_names(dataset_name: str, tempdir: Path):
     assert reopened.get_keypoint_metadata()["pose"] == KeypointMetadata(
         labels=["left_point", "right_point", "tip"],
         edges=[(0, 1)],
-        flip_pairs=[(0, 1)],
+        flip_pairs={"horizontal": [(0, 1)]},
     )
 
 

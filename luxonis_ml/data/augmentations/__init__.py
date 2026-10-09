@@ -45,27 +45,6 @@ filled by the default resize in an always-on ``OneOf``. The resize stage is
 applied before pixel-only transforms when downscaling saves work, and after
 pixel-only transforms when upscaling or preserving size.
 
-Standard Albumentations flip transforms such as ``HorizontalFlip``,
-``VerticalFlip``, and ``Transpose`` flip keypoint coordinates but do not swap
-semantic left/right keypoint labels. For symmetric keypoint structures, use the
-Luxonis custom transforms `HorizontalSymmetricKeypointsFlip`,
-`VerticalSymmetricKeypointsFlip`, and `TransposeSymmetricKeypoints`. They swap
-the flip pairs that each keypoint task stores in its `KeypointMetadata`, so
-each keypoint task in a dataset keeps its own pairs. A ``keypoint_pairs``
-parameter replaces the stored pairs of each task that has a keypoint for every
-index in the pairs. The other tasks keep their stored pairs. For example,
-``[[0, 0]]`` swaps no keypoint, so a vertical flip keeps the left and right
-keypoints in place:
-
-.. python::
-
-    [
-        {
-            "name": "VerticalSymmetricKeypointsFlip",
-            "params": {"keypoint_pairs": [[0, 0]], "p": 0.5},
-        },
-    ]
-
 Batch transforms multiply the number of source samples required by the loader.
 For example, a pipeline that contains `MixUp` and `Mosaic4` requires
 :math:`8 = 2 \cdot 4` samples for each augmented output.
@@ -94,6 +73,94 @@ of records, or as the path of a YAML or JSON file that holds the same list:
     for sample in loader:
         images = sample.images
         labels = sample.labels
+
+
+Symmetric Keypoints
+===================
+
+The Albumentations flips ``HorizontalFlip``, ``VerticalFlip`` and
+``Transpose`` move the keypoint coordinates, but they keep the order of the
+keypoints. After a horizontal flip, the keypoint called ``left_eye`` is
+where the right eye was. For keypoints with sides, use the Luxonis
+transforms below. Each one is a mirror of the image, and it swaps the flip
+pairs that each keypoint task stores for that mirror in
+`KeypointMetadata.flip_pairs`:
+
+====================================  ===========================
+Transform                             Stored pairs that it swaps
+====================================  ===========================
+`HorizontalSymmetricKeypointsFlip`    ``flip_pairs["horizontal"]``
+`VerticalSymmetricKeypointsFlip`      ``flip_pairs["vertical"]``
+`TransposeSymmetricKeypoints`         ``flip_pairs["transpose"]``
+====================================  ===========================
+
+The configuration needs no pairs:
+
+.. python::
+
+    [
+        {"name": "HorizontalSymmetricKeypointsFlip", "params": {"p": 0.5}},
+        {"name": "VerticalSymmetricKeypointsFlip", "params": {"p": 0.5}},
+    ]
+
+A task without pairs for a mirror swaps no keypoint in that mirror.
+`LuxonisDataset.add` infers the horizontal pairs from ``left``/``right``
+names, so a COCO person gets them without more work. Give the pairs of the
+other mirrors in the records, or with `LuxonisDataset.set_keypoint_metadata`.
+The pairs to give depend on what the names describe:
+
+- Names of the sides of a body, such as ``left_eye``, swap in each mirror,
+  because each mirror turns the left side of a body into its right side. To
+  swap them in a vertical flip too, give the same pairs for ``"vertical"``.
+  Without them, a vertical flip keeps each name on its keypoint.
+- Names of the sides of the image, such as the ``top_left`` corner of a
+  license plate, need different pairs for each mirror:
+
+.. python::
+
+    dataset.set_keypoint_metadata(
+        task="plate",
+        flip_pairs={
+            "horizontal": [
+                ("top_left", "top_right"),
+                ("bottom_left", "bottom_right"),
+            ],
+            "vertical": [
+                ("top_left", "bottom_left"),
+                ("top_right", "bottom_right"),
+            ],
+            "transpose": [("top_right", "bottom_left")],
+        },
+    )
+
+A ``keypoint_pairs`` parameter replaces the stored pairs of the mirror of
+its transform, in each task that has a keypoint for every index in the
+pairs. The other tasks keep their stored pairs. Identity pairs, such as
+``[[0, 0]]``, swap no keypoint:
+
+.. python::
+
+    [
+        {
+            "name": "HorizontalSymmetricKeypointsFlip",
+            "params": {"keypoint_pairs": [[0, 0]], "p": 0.5},
+        },
+    ]
+
+The symmetric keypoint transforms have these limitations:
+
+- Nothing infers the vertical and the transpose pairs. Names such as
+  ``upper_lip`` describe a side of the body, not a side of the image, so
+  an inferred pair would be wrong for some datasets and fail silently.
+- A rotation, such as ``RandomRotate90`` or ``Affine``, keeps the names.
+  That is correct for the sides of a body. After a quarter turn, the
+  ``top_left`` corner of a plate is at the top right of the image, and a
+  flip pair cannot express that: a rotation moves the four corners in a
+  cycle.
+- ``keypoint_pairs`` select the tasks by the keypoint count, not by name.
+  They also replace the pairs of each other task with enough keypoints.
+- The pairs belong to a task, not to a class. All classes of a keypoint
+  task share them.
 
 
 Custom Transforms

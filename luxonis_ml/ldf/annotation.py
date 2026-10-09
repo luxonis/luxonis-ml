@@ -187,9 +187,9 @@ Each keypoint is a `Keypoint`. It is a named tuple, so ``keypoint[2]`` and
 :math:`2`.
 
 An annotation can also carry three task-level fields: the edges between the
-keypoints, the pairs that a horizontal flip swaps, and the sigmas of the
-object keypoint similarity (OKS) metric. Edges and flip pairs can refer to
-keypoints by name:
+keypoints, the pairs that each mirror of the image swaps, and the sigmas of
+the object keypoint similarity (OKS) metric. Edges and flip pairs can refer
+to keypoints by name:
 
 .. python::
 
@@ -212,10 +212,38 @@ These three fields describe the task, not the instance.
 entry for each task. `LuxonisDataset.get_keypoint_metadata` returns the
 entries. The records of a task in one `LuxonisDataset.add` must not give
 different values. A value that differs from the stored one replaces it, with
-a warning. When a task gets new names and has no flip pairs,
+a warning. When a task gets new names and has no horizontal flip pairs,
 `LuxonisDataset.add` infers them from ``left`` and ``right`` names. An empty
 list of flip pairs turns the inference off. The dataset stores the keypoints
 of a task in the order that the keypoint metadata defines.
+
+A plain list of flip pairs gives the pairs of a horizontal flip. A mapping
+gives the pairs of each mirror, as `FlipPairs` describes. The vertical and
+the transpose pairs are never inferred:
+
+.. python::
+
+    {
+        "class": "plate",
+        "keypoints": {
+            "keypoints": {
+                "top_left": (0.20, 0.30, 2),
+                "top_right": (0.80, 0.30, 2),
+                "bottom_right": (0.80, 0.70, 2),
+                "bottom_left": (0.20, 0.70, 2),
+            },
+            "flip_pairs": {
+                "vertical": [
+                    ("top_left", "bottom_left"),
+                    ("top_right", "bottom_right"),
+                ],
+            },
+        },
+    }
+
+The record gives no horizontal pairs, so `LuxonisDataset.add` still infers
+them from the names: ``top_left`` with ``top_right``, and ``bottom_left``
+with ``bottom_right``.
 
 A task without names gets the positional keys as its labels. If no record
 gives edges, `LuxonisDataset.add` also joins its keypoints in a chain of
@@ -411,6 +439,7 @@ from typing import (
     Optional,
     TypeAlias,
     TypedDict,
+    get_args,
 )
 
 import numpy as np
@@ -419,6 +448,7 @@ from loguru import logger
 from PIL import Image, ImageDraw
 from pydantic import (
     AliasChoices,
+    BeforeValidator,
     Field,
     GetCoreSchemaHandler,
     ValidationInfo,
@@ -450,6 +480,54 @@ The values indicate the visibility of a keypoint in an image:
 """
 NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
 """A float value normalized to the range [0, 1]."""
+FlipAxis: TypeAlias = Literal["horizontal", "vertical", "transpose"]
+"""A mirror of the image that has its own keypoint flip pairs.
+
+    - ``"horizontal"``: Mirrors left and right, as
+      `HorizontalSymmetricKeypointsFlip` does.
+    - ``"vertical"``: Mirrors top and bottom, as
+      `VerticalSymmetricKeypointsFlip` does.
+    - ``"transpose"``: Mirrors across the diagonal from the top-left corner
+      to the bottom-right corner, as `TransposeSymmetricKeypoints` does.
+"""
+
+
+def _by_axis(flip_pairs: Any) -> Any:
+    """Read a plain list of flip pairs as the horizontal flip pairs."""
+    if isinstance(flip_pairs, (list, tuple)):
+        return {"horizontal": flip_pairs}
+    return flip_pairs
+
+
+FlipPairs: TypeAlias = Annotated[
+    dict[FlipAxis, list[tuple[NonNegativeInt, NonNegativeInt]]],
+    BeforeValidator(_by_axis),
+]
+"""Keypoint index pairs to swap, for each mirror of the image.
+
+A mirror moves each keypoint to the mirrored position, but it keeps the
+order of the keypoints. After a horizontal flip of a person, the keypoint
+called ``left_eye`` (index 1) is where the right eye was. The flip pair
+``(1, 2)`` swaps it with ``right_eye`` (index 2), so each name is correct
+again. Each mirror has its own pairs, because each mirror moves the
+keypoints differently. The corners of a license plate show it:
+
+.. python::
+
+    # labels: top_left, top_right, bottom_right, bottom_left
+    {
+        "horizontal": [(0, 1), (2, 3)],
+        "vertical": [(0, 3), (1, 2)],
+        "transpose": [(1, 3)],
+    }
+
+A mirror without an entry swaps no keypoint. A plain list gives the
+horizontal pairs: ``[(1, 2)]`` is ``{"horizontal": [(1, 2)]}``.
+
+The transforms that use the pairs, and the pairs to give for each kind of
+name, are in the Symmetric Keypoints section of
+`luxonis_ml.data.augmentations`.
+"""
 
 
 class Keypoint(NamedTuple):
@@ -502,9 +580,9 @@ class KeypointMetadata(BaseModelExtraForbid):
 
     Edges and flip pairs accept keypoint names. They resolve against
     `labels` and store indices, which index into a keypoint array. The
-    fields declare indices, so pass the names through ``model_validate``.
-    The constructor resolves them too, but a type checker rejects a name
-    there:
+    fields declare indices, and the flip pairs a mapping by mirror. Pass
+    names, or a plain list of flip pairs, through ``model_validate``. The
+    constructor accepts them too, but a type checker rejects them there:
 
     Example:
         >>> KeypointMetadata.model_validate(
@@ -514,17 +592,43 @@ class KeypointMetadata(BaseModelExtraForbid):
         ...         "flip_pairs": [("left_eye", "right_eye")],
         ...     }
         ... )
-        KeypointMetadata(labels=['nose', 'left_eye', 'right_eye'], edges=[(0, 1), (0, 2)], flip_pairs=[(1, 2)], sigmas=[])
+        KeypointMetadata(labels=['nose', 'left_eye', 'right_eye'], edges=[(0, 1), (0, 2)], flip_pairs={'horizontal': [(1, 2)]}, sigmas=[])
+
+    Each mirror of the image has its own flip pairs. The corners of a
+    license plate swap differently in each mirror:
+
+    Example:
+        >>> labels = ["top_left", "top_right", "bottom_right", "bottom_left"]
+        >>> plate = KeypointMetadata.model_validate(
+        ...     {
+        ...         "labels": labels,
+        ...         "flip_pairs": {
+        ...             "horizontal": [
+        ...                 ("top_left", "top_right"),
+        ...                 ("bottom_left", "bottom_right"),
+        ...             ],
+        ...             "vertical": [
+        ...                 ("top_left", "bottom_left"),
+        ...                 ("top_right", "bottom_right"),
+        ...             ],
+        ...             "transpose": [("top_right", "bottom_left")],
+        ...         },
+        ...     }
+        ... )
+        >>> plate.flip_pairs["vertical"]
+        [(0, 3), (1, 2)]
 
     Attributes:
         labels: Keypoint names in index order.
         edges: Keypoint graph edges as :math:`0`-based index pairs. Each
             pair has the lower index first, and the list is sorted.
-        flip_pairs: Index pairs swapped by a horizontal flip, used to keep
-            symmetric keypoints such as left and right eyes consistent.
-            A pair joins two different keypoints, and a keypoint is in at
-            most one pair. Each pair has the lower index first, and the
-            list is sorted.
+        flip_pairs: Index pairs that each mirror of the image swaps, keyed
+            by the mirror. A plain list gives the horizontal pairs. A
+            mirror without pairs has no entry, and that mirror swaps no
+            keypoint. In the pairs of one mirror, a pair joins two
+            different keypoints, and a keypoint is in at most one pair.
+            Each pair has the lower index first, and each list is sorted.
+            See `FlipPairs`.
         sigmas: Standard deviations of the object keypoint similarity
             (OKS), one for each keypoint in `labels` order.
 
@@ -532,7 +636,7 @@ class KeypointMetadata(BaseModelExtraForbid):
 
     labels: list[str] = []
     edges: list[tuple[int, int]] = []
-    flip_pairs: list[tuple[NonNegativeInt, NonNegativeInt]] = []
+    flip_pairs: FlipPairs = {}
     sigmas: list[PositiveFloat] = []
 
     @property
@@ -558,6 +662,9 @@ class KeypointMetadata(BaseModelExtraForbid):
     def conflicting_fields(self, other: "KeypointMetadata") -> list[str]:
         """Return the fields that both declarations set differently.
 
+        An empty field conflicts with nothing. The flip pairs conflict when
+        the two declarations give different pairs for the same mirror.
+
         Args:
             other: Keypoint metadata to compare with.
 
@@ -568,9 +675,7 @@ class KeypointMetadata(BaseModelExtraForbid):
         return [
             field
             for field in KeypointMetadata.model_fields
-            if getattr(self, field)
-            and getattr(other, field)
-            and getattr(self, field) != getattr(other, field)
+            if _disagree(getattr(self, field), getattr(other, field))
         ]
 
     def merge_with(
@@ -579,6 +684,7 @@ class KeypointMetadata(BaseModelExtraForbid):
         """Merge two keypoint declarations into one.
 
         A field that one declaration leaves empty comes from the other one.
+        So do the flip pairs of a mirror that one declaration leaves out.
         Two values for the same field must agree. Two lists of the same
         names agree in any order. This declaration sets the order, so the
         indices of ``other`` move to it before the comparison.
@@ -634,6 +740,9 @@ class KeypointMetadata(BaseModelExtraForbid):
     def filled_from(self, other: "KeypointMetadata") -> "KeypointMetadata":
         """Return a copy that takes each empty field from ``other``.
 
+        The flip pairs fill mirror by mirror: a mirror without pairs here
+        takes the pairs of ``other``.
+
         Args:
             other: Keypoint metadata that supplies the empty fields.
 
@@ -641,13 +750,13 @@ class KeypointMetadata(BaseModelExtraForbid):
             A copy with the empty fields filled.
 
         """
-        return self.model_copy(
-            update={
-                field: getattr(other, field)
-                for field in KeypointMetadata.model_fields
-                if not getattr(self, field)
-            }
-        )
+        update = {
+            field: getattr(other, field)
+            for field in KeypointMetadata.model_fields
+            if not getattr(self, field)
+        }
+        update["flip_pairs"] = {**other.flip_pairs, **self.flip_pairs}
+        return self.model_copy(update=update)
 
     def validate_for(
         self, n_keypoints: int, context: str = "", *, check_edges: bool = True
@@ -672,9 +781,13 @@ class KeypointMetadata(BaseModelExtraForbid):
                     f"The keypoint metadata{_where(context)} defines "
                     f"{len(value)} {field} for {n_keypoints} keypoints."
                 )
-        fields = ("edges", "flip_pairs") if check_edges else ("flip_pairs",)
-        for field in fields:
-            for pair in getattr(self, field):
+        pairs_by_field = {"edges": self.edges} if check_edges else {}
+        pairs_by_field |= {
+            f"flip_pairs['{axis}']": pairs
+            for axis, pairs in self.flip_pairs.items()
+        }
+        for field, pairs in pairs_by_field.items():
+            for pair in pairs:
                 for index in pair:
                     if not 0 <= index < n_keypoints:
                         raise ValueError(
@@ -780,7 +893,10 @@ class KeypointMetadata(BaseModelExtraForbid):
         return KeypointMetadata(
             labels=list(labels),
             edges=[(moved[a], moved[b]) for a, b in self.edges],
-            flip_pairs=[(moved[a], moved[b]) for a, b in self.flip_pairs],
+            flip_pairs={
+                axis: [(moved[a], moved[b]) for a, b in pairs]
+                for axis, pairs in self.flip_pairs.items()
+            },
             sigmas=[self.sigmas[self.labels.index(label)] for label in labels]
             if self.sigmas
             else [],
@@ -799,7 +915,9 @@ class KeypointMetadata(BaseModelExtraForbid):
         name has the same rest, none of them gets a pair, and a warning is
         logged.
         The match is narrow on purpose. A wrong flip pair mirrors the wrong
-        keypoints and never fails.
+        keypoints and never fails. For the same reason, nothing infers the
+        vertical or the transpose flip pairs: ``upper_lip`` names a side of
+        the face, not a side of the image.
 
         Args:
             labels: Keypoint names in index order.
@@ -854,24 +972,13 @@ class KeypointMetadata(BaseModelExtraForbid):
         """Order the edges and the flip pairs, and check the flip pairs."""
         # An edge has no direction, so its ends order like a flip pair.
         self.edges = sorted((min(a, b), max(a, b)) for a, b in self.edges)
-
-        seen: dict[int, tuple[int, int]] = {}
-        flip_pairs = []
-        for a, b in self.flip_pairs:
-            if a == b:
-                raise ValueError(
-                    f"Flip pair ({a}, {b}) flips keypoint {a} onto itself."
-                )
-            for index in (a, b):
-                if index in seen:
-                    raise ValueError(
-                        f"Keypoint {index} appears in both flip pairs "
-                        f"{seen[index]} and {(a, b)}. "
-                        "Flip pairs must be disjoint."
-                    )
-            seen[a] = seen[b] = (a, b)
-            flip_pairs.append((min(a, b), max(a, b)))
-        self.flip_pairs = sorted(flip_pairs)
+        # A mirror without pairs gets no entry, so that equal pairs compare
+        # equal.
+        self.flip_pairs = {
+            axis: _checked_flip_pairs(self.flip_pairs[axis], axis)
+            for axis in get_args(FlipAxis)
+            if self.flip_pairs.get(axis)
+        }
         return self
 
 
@@ -1340,9 +1447,12 @@ class KeypointAnnotation(Annotation):
 
         edges: Keypoint graph edges, as index pairs or as name pairs. An
             index is the position of a keypoint in `keypoints`.
-        flip_pairs: Pairs that a horizontal flip swaps, as index pairs or
-            as name pairs. An empty list turns off the inference of flip
-            pairs.
+        flip_pairs: Pairs that each mirror of the image swaps, as index
+            pairs or as name pairs, keyed by the mirror. A plain list gives
+            the horizontal pairs. See `FlipPairs`. When the record gives no
+            horizontal pairs, `LuxonisDataset.add` can infer them from
+            ``left``/``right`` names. Empty horizontal pairs, such as
+            ``[]``, turn that off.
         sigmas: Standard deviations of the object keypoint similarity
             (OKS), one for each keypoint in the order of `keypoints`.
 
@@ -1350,7 +1460,7 @@ class KeypointAnnotation(Annotation):
 
     keypoints: dict[str, Keypoint]
     edges: list[tuple[int, int]] = []
-    flip_pairs: list[tuple[NonNegativeInt, NonNegativeInt]] = []
+    flip_pairs: FlipPairs = {}
     sigmas: list[PositiveFloat] = []
 
     def to_numpy(self) -> np.ndarray:
@@ -1421,7 +1531,12 @@ class KeypointAnnotation(Annotation):
         labels = list(self.keypoints)
         if _is_positional(labels):
             labels = []
-        if not (labels or self.edges or self.flip_pairs or self.sigmas):
+        if not (
+            labels
+            or self.edges
+            or any(self.flip_pairs.values())
+            or self.sigmas
+        ):
             return None
         return KeypointMetadata(
             labels=labels,
@@ -1564,13 +1679,13 @@ class KeypointAnnotation(Annotation):
             return self
         declared.validate_for(len(self.keypoints))
         # `KeypointMetadata` sorts the edges and orders each flip pair, so
-        # take them back to keep the two in step.
+        # take them back to keep the two in step. The flip pairs keep each
+        # mirror that the record gives, also an empty one: empty
+        # horizontal pairs tell `LuxonisDataset.add` to infer none.
         self.edges = declared.edges
-        # An assignment adds the field to `model_fields_set`. There,
-        # `LuxonisDataset.add` finds the records that give flip pairs, so
-        # the default empty list must not get an assignment.
-        if declared.flip_pairs != self.flip_pairs:
-            self.flip_pairs = declared.flip_pairs
+        self.flip_pairs = {
+            axis: declared.flip_pairs.get(axis, []) for axis in self.flip_pairs
+        }
         return self
 
 
@@ -2267,6 +2382,42 @@ def _repeated(labels: Sequence[str]) -> list[str]:
     )
 
 
+def _disagree(mine: Any, theirs: Any) -> bool:
+    """Whether two values of a keypoint metadata field conflict.
+
+    An empty value agrees with any value. Flip pairs compare mirror by
+    mirror, so pairs for two different mirrors agree.
+    """
+    if isinstance(mine, dict):
+        return any(
+            _disagree(mine[axis], theirs[axis])
+            for axis in mine.keys() & theirs.keys()
+        )
+    return bool(mine) and bool(theirs) and mine != theirs
+
+
+def _checked_flip_pairs(
+    pairs: list[tuple[int, int]], axis: str
+) -> list[tuple[int, int]]:
+    """Order the flip pairs of one mirror and check that they are disjoint."""
+    seen: dict[int, tuple[int, int]] = {}
+    for a, b in pairs:
+        if a == b:
+            raise ValueError(
+                f"The {axis} flip pair ({a}, {b}) flips keypoint {a} onto "
+                "itself."
+            )
+        for index in (a, b):
+            if index in seen:
+                raise ValueError(
+                    f"Keypoint {index} appears in both {axis} flip pairs "
+                    f"{seen[index]} and {(a, b)}. "
+                    "The flip pairs of a mirror must be disjoint."
+                )
+        seen[a] = seen[b] = (a, b)
+    return sorted((min(a, b), max(a, b)) for a, b in pairs)
+
+
 def _resolve_pairs(
     values: Mapping[str, Any], labels: Sequence[str] | None, hint: str
 ) -> Mapping[str, Any]:
@@ -2278,19 +2429,26 @@ def _resolve_pairs(
         hint: Sentence that tells the caller how to supply the names.
 
     Returns:
-        The values, with each name replaced by its index.
+        The values, with each name replaced by its index. Flip pairs with
+        a name become a mapping by mirror.
 
     Raises:
         ValueError: If a name occurs but no names are known, if the names
             repeat, or if a name is not one of them.
 
     """
+    groups: dict[tuple[str, Any], Any] = {("edges", None): values.get("edges")}
+    flip_pairs = _by_axis(values.get("flip_pairs"))
+    if isinstance(flip_pairs, Mapping):
+        groups |= {
+            ("flip_pairs", axis): pairs for axis, pairs in flip_pairs.items()
+        }
     try:
-        pairs_by_field = {
-            field: [list(pair) for pair in values[field]]
-            for field in ("edges", "flip_pairs")
-            if isinstance(values.get(field), Iterable)
-            and not isinstance(values[field], (str, bytes))
+        pairs_by_group = {
+            group: [list(pair) for pair in pairs]
+            for group, pairs in groups.items()
+            if isinstance(pairs, Iterable)
+            and not isinstance(pairs, (str, bytes))
         }
     except TypeError:
         # Malformed input. Let pydantic report it against the field type.
@@ -2298,7 +2456,7 @@ def _resolve_pairs(
 
     names = [
         endpoint
-        for pairs in pairs_by_field.values()
+        for pairs in pairs_by_group.values()
         for pair in pairs
         for endpoint in pair
         if isinstance(endpoint, str)
@@ -2320,14 +2478,18 @@ def _resolve_pairs(
 
     indices = {label: i for i, label in enumerate(labels)}
     resolved = dict(values)
-    for field, pairs in pairs_by_field.items():
-        resolved[field] = [
+    for (field, axis), pairs in pairs_by_group.items():
+        pairs = [
             [
                 indices[endpoint] if isinstance(endpoint, str) else endpoint
                 for endpoint in pair
             ]
             for pair in pairs
         ]
+        if field == "edges":
+            resolved[field] = pairs
+        else:
+            resolved[field] = {**_by_axis(resolved[field]), axis: pairs}
     return resolved
 
 
@@ -2362,6 +2524,8 @@ __all__ = [
     "ClassificationAnnotation",
     "DatasetRecord",
     "Detection",
+    "FlipAxis",
+    "FlipPairs",
     "InstanceSegmentationAnnotation",
     "Keypoint",
     "KeypointAnnotation",

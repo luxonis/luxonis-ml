@@ -422,9 +422,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             seed: Optional random seed.
             bbox_area_threshold: Minimum normalized bounding-box area kept
                 after augmentation.
-            keypoint_metadata: Keypoint metadata by task name. The symmetric
-                keypoint flips swap the flip pairs that each task stores,
-                unless their ``keypoint_pairs`` replace them.
+            keypoint_metadata: Keypoint metadata by task name. Each
+                symmetric keypoint flip swaps the flip pairs that each task
+                stores for its mirror, unless its ``keypoint_pairs``
+                replace them.
 
         Raises:
             ValueError: If a target task type is unsupported, more than
@@ -1094,13 +1095,14 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         """Tell each symmetric flip the keypoint layout of each target.
 
         A target is one keypoint task. Its layout is the keypoint count of an
-        instance, read from the data, and the flip pairs its task stores.
+        instance, read from the data, and the flip pairs that its task
+        stores for each mirror.
         """
         layouts = {}
         for target_name, count in n_keypoints.items():
             task_group = self._target_names_to_task_groups[target_name]
             metadata = self._keypoint_metadata.get(task_group)
-            pairs = list(metadata.flip_pairs) if metadata is not None else []
+            pairs = dict(metadata.flip_pairs) if metadata is not None else {}
             layouts[target_name] = (count, pairs)
         for transform in self._symmetric_transforms:
             transform.set_layouts(layouts)

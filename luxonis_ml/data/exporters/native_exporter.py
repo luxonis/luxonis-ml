@@ -222,16 +222,17 @@ class NativeExporter(BaseExporter):
             if key in self._metadata_attached:
                 continue
             self._metadata_attached.add(key)
-            # The import infers flip pairs for names without flip pairs. An
-            # empty list turns that off, so a record with names carries it.
-            keypoints.update(
-                {
-                    field: value
-                    for field, value in task_keypoints.model_dump(
-                        exclude={"labels"}
-                    ).items()
-                    if value or (named and field == "flip_pairs")
+            # The import infers horizontal flip pairs for names without
+            # them. Empty horizontal pairs turn that off, so a record with
+            # names carries them.
+            fields = task_keypoints.model_dump(exclude={"labels"})
+            if named:
+                fields["flip_pairs"] = {
+                    "horizontal": [],
+                    **fields["flip_pairs"],
                 }
+            keypoints.update(
+                {field: value for field, value in fields.items() if value}
             )
 
     def _fit_keypoint_metadata_to_rows(self, df: pl.DataFrame) -> None:

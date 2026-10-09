@@ -251,9 +251,9 @@ Keypoint Metadata
 =================
 
 Each keypoint task has one `luxonis_ml.ldf.KeypointMetadata` entry. It holds
-the keypoint names, the edges between the keypoints, the flip pairs that a
-horizontal flip swaps, and the sigmas of the object keypoint similarity (OKS)
-metric. A record can give these fields beside its keypoints, and
+the keypoint names, the edges between the keypoints, the flip pairs that
+each mirror of the image swaps, and the sigmas of the object keypoint
+similarity (OKS) metric. A record can give these fields beside its keypoints, and
 `LuxonisDataset.add` moves them into the entry of the task:
 
 .. python::
@@ -276,16 +276,38 @@ metric. A record can give these fields beside its keypoints, and
         }
 
     dataset.add(pose_records())
-    dataset.get_keypoint_metadata()["pose"].flip_pairs  # [(1, 2)]
+    dataset.get_keypoint_metadata()["pose"].flip_pairs
+    # {"horizontal": [(1, 2)]}
 
-`LuxonisDataset.add` infers the flip pairs from the ``left``/``right`` names.
-`LuxonisDataset.set_keypoint_metadata` sets the fields without records.
+`LuxonisDataset.add` infers the horizontal flip pairs from the
+``left``/``right`` names. `LuxonisDataset.set_keypoint_metadata` sets the
+fields without records.
+
+The flip pairs hold one list for each mirror of the image: ``"horizontal"``,
+``"vertical"`` and ``"transpose"``. A mirror without pairs swaps no
+keypoint, and nothing infers the vertical or the transpose pairs. To swap
+the eyes in a vertical flip too, give the vertical pairs. The call keeps
+the horizontal pairs:
+
+.. python::
+
+    dataset.set_keypoint_metadata(
+        task="pose",
+        flip_pairs={"vertical": [("left_eye", "right_eye")]},
+    )
+    dataset.get_keypoint_metadata()["pose"].flip_pairs
+    # {"horizontal": [(1, 2)], "vertical": [(1, 2)]}
+
+A record can give the same mapping as ``"flip_pairs"``. A plain list gives
+the horizontal pairs. See `luxonis_ml.ldf.FlipPairs` for the shape, and the
+Symmetric Keypoints section of `luxonis_ml.data.augmentations` for the pairs
+to give for each mirror.
 
 A dataset from LDF 2.0 or 2.1 stores its keypoint names and edges under
 ``skeletons``. It opens without a change, and reading it does not rewrite
 it. It has no flip pairs, so a horizontal flip swaps its left and right
 keypoints only when the augmentation configuration gives ``keypoint_pairs``.
-To infer the flip pairs from the stored names, call:
+To infer the horizontal flip pairs from the stored names, call:
 
 .. python::
 

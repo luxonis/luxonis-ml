@@ -300,7 +300,48 @@ def test_edges_and_flip_pairs_accept_names():
     )
 
     assert annotation.edges == [(0, 1), (0, 2)]
-    assert annotation.flip_pairs == [(1, 2)]
+    assert annotation.flip_pairs == {"horizontal": [(1, 2)]}
+
+
+def test_the_record_keeps_an_empty_mirror():
+    """The annotation keeps the empty mirror, the task fields drop it.
+
+    `LuxonisDataset.add` reads the empty horizontal pairs of the record to
+    turn the inference off.
+    """
+    annotation = KeypointAnnotation.model_validate(
+        {
+            "keypoints": {
+                "top": (0.5, 0.1, 2),
+                "bottom": (0.5, 0.9, 2),
+            },
+            "flip_pairs": {"horizontal": [], "vertical": [("bottom", "top")]},
+        }
+    )
+
+    assert annotation.flip_pairs == {"horizontal": [], "vertical": [(0, 1)]}
+    declared = annotation.declared_metadata()
+    assert declared is not None
+    assert declared.flip_pairs == {"vertical": [(0, 1)]}
+
+
+def test_an_unknown_mirror_is_an_error():
+    with pytest.raises(pydantic.ValidationError, match="'vertical'"):
+        KeypointMetadata.model_validate({"flip_pairs": {"diagonal": [(0, 1)]}})
+
+
+def test_flip_pairs_merge_mirror_by_mirror():
+    horizontal = KeypointMetadata(flip_pairs={"horizontal": [(0, 1)]})
+    vertical = KeypointMetadata(flip_pairs={"vertical": [(0, 1)]})
+
+    assert horizontal.merge_with(vertical).flip_pairs == {
+        "horizontal": [(0, 1)],
+        "vertical": [(0, 1)],
+    }
+    with pytest.raises(ValueError, match="flip_pairs"):
+        horizontal.merge_with(
+            KeypointMetadata(flip_pairs={"horizontal": [(1, 2)]})
+        )
 
 
 def test_names_and_indices_can_be_mixed():
@@ -345,10 +386,12 @@ def test_an_edge_has_no_direction():
 
 
 def test_flip_pairs_are_normalized():
-    assert KeypointMetadata(flip_pairs=[(4, 3), (2, 1)]).flip_pairs == [
-        (1, 2),
-        (3, 4),
-    ]
+    """An empty mirror has no entry."""
+    flip_pairs = KeypointMetadata(
+        flip_pairs={"transpose": [(4, 3), (2, 1)], "vertical": []}
+    ).flip_pairs
+
+    assert flip_pairs == {"transpose": [(1, 2), (3, 4)]}
 
 
 @pytest.mark.parametrize(
@@ -362,7 +405,7 @@ def test_invalid_flip_pairs_are_rejected(
     flip_pairs: list[tuple[int, int]], match: str
 ):
     with pytest.raises(pydantic.ValidationError, match=match):
-        KeypointMetadata(flip_pairs=flip_pairs)
+        KeypointMetadata(flip_pairs={"horizontal": flip_pairs})
 
 
 @pytest.mark.parametrize(
@@ -501,10 +544,10 @@ def test_inferred_flip_pairs_are_valid_metadata():
     flip_pairs = KeypointMetadata.infer_flip_pairs(COCO_LABELS)
 
     keypoint_metadata = KeypointMetadata(
-        labels=COCO_LABELS, flip_pairs=flip_pairs
+        labels=COCO_LABELS, flip_pairs={"horizontal": flip_pairs}
     )
 
-    assert keypoint_metadata.flip_pairs == flip_pairs
+    assert keypoint_metadata.flip_pairs == {"horizontal": flip_pairs}
 
 
 def test_inference_is_not_applied_by_the_model():
@@ -513,7 +556,7 @@ def test_inference_is_not_applied_by_the_model():
     Validation runs on every open, so it would give flip pairs to a
     dataset that never asked for them.
     """
-    assert KeypointMetadata(labels=COCO_LABELS).flip_pairs == []
+    assert KeypointMetadata(labels=COCO_LABELS).flip_pairs == {}
 
 
 def test_every_field_is_serialized():
@@ -522,7 +565,7 @@ def test_every_field_is_serialized():
         KeypointMetadata(
             labels=["left_a", "right_a"],
             edges=[(0, 1)],
-            flip_pairs=[(0, 1)],
+            flip_pairs={"horizontal": [(0, 1)]},
             sigmas=[0.1, 0.2],
         ).model_dump_json()
     )
@@ -530,7 +573,7 @@ def test_every_field_is_serialized():
     assert dumped == {
         "labels": ["left_a", "right_a"],
         "edges": [[0, 1]],
-        "flip_pairs": [[0, 1]],
+        "flip_pairs": {"horizontal": [[0, 1]]},
         "sigmas": [0.1, 0.2],
     }
 
@@ -541,7 +584,7 @@ def test_legacy_metadata_still_loads():
         {"labels": ["a", "b"], "edges": [[0, 1]]}
     )
 
-    assert keypoint_metadata.flip_pairs == []
+    assert keypoint_metadata.flip_pairs == {}
     assert keypoint_metadata.sigmas == []
 
 
@@ -593,7 +636,7 @@ def test_merging_moves_the_other_records_indices_into_the_merged_order():
 
     assert merged.labels == ["nose", "left_eye", "right_eye"]
     assert merged.edges == [(0, 1)]
-    assert merged.flip_pairs == [(1, 2)]
+    assert merged.flip_pairs == {"horizontal": [(1, 2)]}
     assert merged.sigmas == [0.026, 0.025, 0.035]
 
 
@@ -663,7 +706,7 @@ def test_reindexing_to_more_names_moves_the_pairs():
     ) == KeypointMetadata(
         labels=["nose", "left_eye", "right_eye"],
         edges=[(1, 2)],
-        flip_pairs=[(1, 2)],
+        flip_pairs={"horizontal": [(1, 2)]},
     )
 
 

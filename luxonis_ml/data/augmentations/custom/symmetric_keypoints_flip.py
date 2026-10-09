@@ -4,50 +4,63 @@ Mirroring an image moves the left wrist of a person to where the right wrist
 was. A plain Albumentations flip moves the coordinates but keeps the names,
 so the keypoint called ``left_wrist`` ends up on the right side of the body.
 These transforms move the coordinates and also swap the keypoints of each
-symmetric pair.
+flip pair.
 
-Each keypoint task can have its own keypoints and flip pairs.
-`AlbumentationsEngine` tells the transforms, for each keypoint task, how many
-keypoints an instance has and which pairs the task stores in its
-`KeypointMetadata`. Pairs given in the configuration replace the stored pairs
-of each task that has a keypoint for every index in the pairs.
+Each transform is one mirror of the image, named by its
+`SymmetricKeypointsTransform.axis`. It swaps the pairs that each keypoint
+task stores for that mirror in `KeypointMetadata.flip_pairs`. A task
+without pairs for the mirror swaps no keypoint. `AlbumentationsEngine`
+tells the transforms, for each keypoint task, how many keypoints an
+instance has and which pairs the task stores.
+
+See:
+    The Symmetric Keypoints section of `luxonis_ml.data.augmentations` for
+    the configuration, the pairs to give for each mirror, and the
+    limitations.
 """
 
 from functools import partial
 from itertools import chain
-from typing import Any
+from typing import Any, ClassVar
 
 import albumentations as A
 import cv2
 import numpy as np
 from typing_extensions import override
 
-#: The keypoint count of an instance and the pairs to swap, for one target.
-Layout = tuple[int, list[tuple[int, int]]]
+from luxonis_ml.ldf import FlipAxis, FlipPairs
+
+#: The keypoint count of an instance and the stored pairs of each mirror,
+#: for one target.
+Layout = tuple[int, FlipPairs]
 
 
 class SymmetricKeypointsTransform(A.DualTransform):
     """Base of the transforms that mirror keypoints and swap symmetric ones.
 
-    A subclass moves the pixels and the coordinates; this class swaps the
-    keypoints of each symmetric pair, instance by instance. Albumentations
-    hands over the keypoints of one target as a flat ``(N * K, D)`` array, so
-    the transform has to know ``K``, the number of keypoints of an instance.
-    `set_layouts` gives it ``K`` and the stored pairs for each target. A
-    target without a layout takes ``K`` as one more than the largest index
-    in ``keypoint_pairs``.
+    A subclass moves the pixels and the coordinates, and it names its
+    mirror in `axis`. This class swaps the keypoints of each flip pair of
+    that mirror, instance by instance. Albumentations hands over the
+    keypoints of one target as a flat ``(N * K, D)`` array, so the transform
+    has to know ``K``, the number of keypoints of an instance. `set_layouts`
+    gives it ``K`` and the stored pairs for each target. A target without a
+    layout takes ``K`` as one more than the largest index in
+    ``keypoint_pairs``.
 
     Attributes:
+        axis: The mirror whose stored flip pairs the transform swaps.
         keypoint_pairs: Index pairs from the configuration. They replace the
-            stored pairs of each target whose instances have more keypoints
-            than their largest index. A target that they do not fit swaps
-            the pairs that its task stores.
+            stored pairs of `axis` in each target whose instances have more
+            keypoints than their largest index. A target that they do not
+            fit swaps the pairs that its task stores.
         n_keypoints: The keypoint count assumed for a target without a
             layout.
         layouts: For each keypoint target, its keypoint count and the pairs
-            its task stores.
+            that its task stores for each mirror.
 
     """
+
+    axis: ClassVar[FlipAxis]
 
     def __init__(
         self,
@@ -60,11 +73,12 @@ class SymmetricKeypointsTransform(A.DualTransform):
 
         Args:
             keypoint_pairs: Pairs of keypoint indices to swap. They
-                replace the stored flip pairs of each task that has a
-                keypoint for every index in the pairs. Identity pairs such
-                as ``[(0, 0)]`` thus keep every keypoint in place. Without
-                them, or for a task with fewer keypoints, the transform
-                swaps the pairs that the task stores.
+                replace the stored flip pairs of this mirror in each task
+                that has a keypoint for every index in the pairs. Identity
+                pairs such as ``[(0, 0)]`` thus keep every keypoint in
+                place. Without them, or for a task with fewer keypoints,
+                the transform swaps the pairs that the task stores for
+                this mirror.
             p: Probability of applying the augmentation.
 
         """
@@ -80,6 +94,8 @@ class SymmetricKeypointsTransform(A.DualTransform):
 
         Args:
             layouts: The layout of each keypoint target, by target name.
+                The stored pairs are keyed by mirror, as in
+                `KeypointMetadata.flip_pairs`.
 
         """
         self.layouts = dict(layouts)
@@ -160,9 +176,9 @@ class SymmetricKeypointsTransform(A.DualTransform):
         if keypoints.size == 0:
             return keypoints
         keypoints = self._move(keypoints.copy(), **params)
-        size, stored = self.layouts.get(target, (self.n_keypoints, []))
+        size, stored = self.layouts.get(target, (self.n_keypoints, {}))
         fits = bool(self.keypoint_pairs) and self.n_keypoints <= size
-        pairs = self.keypoint_pairs if fits else stored
+        pairs = self.keypoint_pairs if fits else stored.get(self.axis, [])
         if not pairs:
             return keypoints
         if len(keypoints) % size:
@@ -180,7 +196,9 @@ class SymmetricKeypointsTransform(A.DualTransform):
 class HorizontalSymmetricKeypointsFlip(SymmetricKeypointsTransform):
     """Flip images and symmetric keypoints horizontally.
 
-    Examples:
+    It swaps the ``"horizontal"`` flip pairs of each keypoint task.
+
+    Example:
         >>> import numpy as np
         >>> flip = HorizontalSymmetricKeypointsFlip([(1, 2)], p=1.0)
         >>> flip.n_keypoints  # the unpaired keypoint 0 still counts
@@ -190,6 +208,8 @@ class HorizontalSymmetricKeypointsFlip(SymmetricKeypointsTransform):
         [5.0, 2.0, 8.0]
 
     """
+
+    axis = "horizontal"
 
     @override
     def apply(self, img: np.ndarray, **params) -> np.ndarray:
@@ -247,7 +267,25 @@ class HorizontalSymmetricKeypointsFlip(SymmetricKeypointsTransform):
 
 
 class VerticalSymmetricKeypointsFlip(SymmetricKeypointsTransform):
-    """Flip images and symmetric keypoints vertically."""
+    """Flip images and symmetric keypoints vertically.
+
+    It swaps the ``"vertical"`` flip pairs of each keypoint task. A task
+    that stores only horizontal pairs swaps no keypoint here.
+
+    Example:
+        A target with a ``top`` and a ``bottom`` keypoint. The vertical
+        pair keeps ``top`` at the top of the flipped image:
+
+        >>> import numpy as np
+        >>> flip = VerticalSymmetricKeypointsFlip(p=1.0)
+        >>> flip.set_layouts({"keypoints": (2, {"vertical": [(0, 1)]})})
+        >>> keypoints = np.array([[4.0, 2, 2], [4, 7, 2]])
+        >>> flip.apply_to_keypoints(keypoints, orig_height=10)[:, 1].tolist()
+        [3.0, 8.0]
+
+    """
+
+    axis = "vertical"
 
     @override
     def apply(self, img: np.ndarray, **params) -> np.ndarray:
@@ -307,8 +345,12 @@ class VerticalSymmetricKeypointsFlip(SymmetricKeypointsTransform):
 class TransposeSymmetricKeypoints(SymmetricKeypointsTransform):
     """Transpose images and symmetric keypoints.
 
-    A transpose is a rotation by 90 degrees followed by a horizontal flip.
+    A transpose mirrors the image across the diagonal from the top-left
+    corner to the bottom-right corner. It swaps the ``"transpose"`` flip
+    pairs of each keypoint task.
     """
+
+    axis = "transpose"
 
     @override
     def apply(self, img: np.ndarray, **params) -> np.ndarray:
