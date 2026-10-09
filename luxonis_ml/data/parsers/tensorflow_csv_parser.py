@@ -69,7 +69,7 @@ class TensorflowCSVParser(BaseParser):
             annotation_path: Annotation CSV file.
 
         Returns:
-            Parser output containing annotation records, skeleton metadata,
+            Parser output containing annotation records, keypoint metadata,
             and added images.
 
         """

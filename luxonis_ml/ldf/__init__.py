@@ -6,6 +6,12 @@ a `DatasetRecord` with its `Detection`, the annotation payloads
 `InstanceSegmentationAnnotation`, `ArrayAnnotation`,
 `ClassificationAnnotation`), and the `ParquetRecord` row they are stored as.
 
+A `KeypointAnnotation` holds `Keypoint` triplets, keyed by name or by
+position. It can also give the edges, the flip pairs and the sigmas of its
+task. `LuxonisDataset.add` moves these task-level fields into one
+`KeypointMetadata` for each task, and `LuxonisDataset.get_keypoint_metadata`
+returns them.
+
 Example:
     Build a record with a single bounding box annotation. The referenced
     file has to exist -- `DatasetRecord` validates it and stores it as an
@@ -44,8 +50,12 @@ with guard_missing_extra("ldf"):
         ClassificationAnnotation,
         DatasetRecord,
         Detection,
+        FlipAxis,
+        FlipPairs,
         InstanceSegmentationAnnotation,
+        Keypoint,
         KeypointAnnotation,
+        KeypointMetadata,
         KeypointVisibility,
         NormalizedFloat,
         SegmentationAnnotation,
@@ -61,8 +71,12 @@ __all__ = [
     "ClassificationAnnotation",
     "DatasetRecord",
     "Detection",
+    "FlipAxis",
+    "FlipPairs",
     "InstanceSegmentationAnnotation",
+    "Keypoint",
     "KeypointAnnotation",
+    "KeypointMetadata",
     "KeypointVisibility",
     "NormalizedFloat",
     "ParquetRecord",

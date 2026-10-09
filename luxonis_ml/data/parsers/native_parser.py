@@ -108,8 +108,9 @@ class NativeParser(BaseParser):
             annotation_path: JSON file with annotations.
 
         Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+            Parser output containing annotation records, empty keypoint
+            metadata, and added images. The records carry their own
+            keypoint metadata.
 
         """
         self._warn_on_newer_export(annotation_path)

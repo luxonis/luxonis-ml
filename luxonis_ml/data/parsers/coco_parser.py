@@ -269,19 +269,21 @@ class COCOParser(BaseParser):
         Annotations include classification, segmentation, object detection,
         and keypoints when present.
 
-        The method also builds the skeleton metadata. It reads every
-        category that holds both a ``keypoints`` field and a ``skeleton``
-        field. It uses ``keypoints`` as the keypoint labels, and it
-        converts the ``skeleton`` pairs to edges. COCO numbers the skeleton
-        joints from 1, so the method subtracts 1 from each index.
+        The method also builds the keypoint metadata of each category that
+        holds both a ``keypoints`` field and a ``skeleton`` field. It uses
+        ``keypoints`` as the keypoint names, and it converts the
+        ``skeleton`` pairs to edges. COCO numbers the skeleton joints from
+        1, so the method subtracts 1 from each index. It also reads the
+        optional ``sigmas`` field, which the COCO export of luxonis-ml
+        writes but the COCO format does not define.
 
         Args:
             image_dir: Directory with images.
             annotation_path: Annotation JSON file.
 
         Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+            Parser output containing annotation records, keypoint metadata
+            keyed by class name, and added images.
 
         """
         with open(annotation_path) as f:
@@ -300,6 +302,8 @@ class COCOParser(BaseParser):
                     "edges": list(
                         map(tuple, (np.array(cat["skeleton"]) - 1).tolist())
                     ),
+                    # Not part of the COCO spec, but our exporter writes it.
+                    "sigmas": cat.get("sigmas"),
                 }
 
         def generator() -> DatasetIterator:

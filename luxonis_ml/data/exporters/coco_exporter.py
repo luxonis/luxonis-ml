@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from typing import Any, cast
 
+import polars as pl
 import pycocotools.mask as maskUtils
 from loguru import logger
 from PIL import Image
@@ -12,11 +13,14 @@ from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
     check_group_file_correspondence,
     exporter_specific_annotation_warning,
-    get_single_skeleton,
+    fit_keypoint_metadata_to_rows,
     split_of_group,
+    warn_repeated_keypoint_names,
 )
 from luxonis_ml.data.utils import COCOFormat
+from luxonis_ml.data.utils.data_utils import get_keypoint_row_widths
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.ldf import KeypointMetadata
 
 
 class CocoExporter(BaseExporter):
@@ -24,7 +28,7 @@ class CocoExporter(BaseExporter):
 
     Attributes:
         format: COCO output layout variant.
-        skeletons: Optional keypoint skeleton metadata.
+        keypoint_metadata: Keypoint definitions per task.
         allow_keypoints: Whether keypoint annotations can be exported.
         class_name_to_category_id: Category IDs per split and class name.
         last_category_id: Last assigned category ID per split.
@@ -39,21 +43,43 @@ class CocoExporter(BaseExporter):
         max_partition_size_gb: float | None,
         format: COCOFormat = COCOFormat.ROBOFLOW,
         *,
-        skeletons: dict[str, Any] | None = None,
+        keypoint_metadata: dict[str, KeypointMetadata] | None = None,
     ):
+        """Create a COCO exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Optional maximum partition size in GiB.
+            format: COCO directory layout to write.
+            keypoint_metadata: Keypoint metadata keyed by task name. COCO
+                holds one keypoint definition, so the export writes
+                keypoints only when exactly one task has keypoint metadata.
+                Each category then gets the names, the skeleton and the
+                sigmas of that task.
+
+        """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
         self.format = format
-        self.skeletons = skeletons
-        if self.skeletons is None:
+        self.keypoint_metadata = keypoint_metadata or {}
+        self._category_keypoints: dict[str, Any] = {}
+        if not self.keypoint_metadata:
             self.allow_keypoints = False
-        elif len(self.skeletons) == 1:
+        elif len(self.keypoint_metadata) == 1:
             self.allow_keypoints = True
+            task, task_keypoints = next(iter(self.keypoint_metadata.items()))
+            warn_repeated_keypoint_names(
+                task,
+                task_keypoints,
+                "The export writes them, but the COCO import of luxonis-ml "
+                "rejects repeated names.",
+            )
         else:
             self.allow_keypoints = False
             logger.warning(
-                "Skipping keypoint annotations because COCO only supports a single keypoint export class."
+                "Skipping keypoint annotations because COCO only supports a single keypoint export class. "
                 "To export multiple keypoint classes please use the Luxonis native export format"
             )
 
@@ -74,11 +100,35 @@ class CocoExporter(BaseExporter):
     def supported_ann_types(self) -> list[str]:
         return DatasetType.COCO.supported_annotation_formats
 
+    def _keypoint_category_fields(self, df: pl.DataFrame) -> dict[str, Any]:
+        """Return the keypoint fields that each category carries.
+
+        COCO numbers the ends of a skeleton edge from 1. See
+        `fit_keypoint_metadata_to_rows` for the metadata that the export
+        leaves out.
+        """
+        task, task_keypoints = next(iter(self.keypoint_metadata.items()))
+        width = get_keypoint_row_widths(df.lazy()).get(task, 0)
+        fitted = fit_keypoint_metadata_to_rows(task, task_keypoints, width)
+        if fitted is None:
+            return {}
+        fields: dict[str, Any] = {}
+        if fitted.labels:
+            fields["keypoints"] = fitted.labels
+            fields["skeleton"] = [[a + 1, b + 1] for a, b in fitted.edges]
+        if fitted.sigmas:
+            fields["sigmas"] = fitted.sigmas
+        return fields
+
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
         exporter_specific_annotation_warning(
             prepared_ldf, self.supported_ann_types()
         )
+        if self.allow_keypoints:
+            self._category_keypoints = self._keypoint_category_fields(
+                prepared_ldf.processed_df
+            )
 
         splits = self.get_split_names()
         annotation_splits: dict[str, dict[str, Any]] = {
@@ -205,15 +255,7 @@ class CocoExporter(BaseExporter):
         if cname and cname not in self.class_name_to_category_id[split]:
             cid = self.last_category_id[split]
 
-            cat_entry = {"id": cid, "name": cname}
-
-            if self.allow_keypoints:
-                kp_labels, kp_skeleton = get_single_skeleton(
-                    self.allow_keypoints, self.skeletons
-                )
-                if kp_labels:
-                    cat_entry["keypoints"] = kp_labels
-                    cat_entry["skeleton"] = kp_skeleton
+            cat_entry = {"id": cid, "name": cname, **self._category_keypoints}
 
             annotation_splits[split]["categories"].append(cat_entry)
             self.class_name_to_category_id[split][cname] = cid

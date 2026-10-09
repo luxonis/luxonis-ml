@@ -3,7 +3,7 @@ r"""Dataset handles, records, metadata, and storage abstractions for LDF.
 This package owns the persistent Luxonis Data Format (LDF) dataset contract.
 The primary entry point is `LuxonisDataset`, which creates or opens a dataset
 and provides methods for adding records, defining splits, setting class order
-and keypoint skeletons, merging or cloning datasets, exporting datasets, and
+and keypoint metadata, merging or cloning datasets, exporting datasets, and
 synchronizing remote media.
 
 The exact annotation payload schemas live in `luxonis_ml.ldf.annotation`.
@@ -182,7 +182,7 @@ LUXONISML_TEAM_ID / datasets / dataset_name``. The default base path is
        original files.
    * - ``metadata/metadata.json``
      - Dataset metadata, source descriptors, class mappings, task metadata,
-       categorical encodings, skeleton definitions, and LDF version metadata.
+       categorical encodings, keypoint metadata, and LDF version metadata.
    * - ``metadata/splits.json``
      - Mapping from split names to dataset sample identifiers.
 
@@ -245,6 +245,78 @@ Important:
     Annotation shards and metadata are always synchronized. Media update mode
     controls whether all media files or only missing media files are
     transferred.
+
+
+Keypoint Metadata
+=================
+
+Each keypoint task has one `luxonis_ml.ldf.KeypointMetadata` entry. It holds
+the keypoint names, the edges between the keypoints, the flip pairs that
+each mirror of the image swaps, and the sigmas of the object keypoint
+similarity (OKS) metric. A record can give these fields beside its keypoints, and
+`LuxonisDataset.add` moves them into the entry of the task:
+
+.. python::
+
+    def pose_records():
+        yield {
+            "file": "path/to/image.jpg",
+            "task_name": "pose",
+            "annotation": {
+                "class": "person",
+                "keypoints": {
+                    "keypoints": {
+                        "nose": (0.50, 0.30, 2),
+                        "left_eye": (0.45, 0.25, 2),
+                        "right_eye": (0.55, 0.25, 2),
+                    },
+                    "edges": [("nose", "left_eye"), ("nose", "right_eye")],
+                },
+            },
+        }
+
+    dataset.add(pose_records())
+    dataset.get_keypoint_metadata()["pose"].flip_pairs
+    # {"horizontal": [(1, 2)]}
+
+`LuxonisDataset.add` infers the horizontal flip pairs from the
+``left``/``right`` names. `LuxonisDataset.set_keypoint_metadata` sets the
+fields without records.
+
+The flip pairs hold one list for each mirror of the image: ``"horizontal"``,
+``"vertical"`` and ``"transpose"``. A mirror without pairs swaps no
+keypoint, and nothing infers the vertical or the transpose pairs. To swap
+the eyes in a vertical flip too, give the vertical pairs. The call keeps
+the horizontal pairs:
+
+.. python::
+
+    dataset.set_keypoint_metadata(
+        task="pose",
+        flip_pairs={"vertical": [("left_eye", "right_eye")]},
+    )
+    dataset.get_keypoint_metadata()["pose"].flip_pairs
+    # {"horizontal": [(1, 2)], "vertical": [(1, 2)]}
+
+A record can give the same mapping as ``"flip_pairs"``. A plain list gives
+the horizontal pairs. See `luxonis_ml.ldf.FlipPairs` for the shape, and the
+Symmetric Keypoints section of `luxonis_ml.data.augmentations` for the pairs
+to give for each mirror.
+
+A dataset from LDF 2.0 or 2.1 stores its keypoint names and edges under
+``skeletons``. It opens without a change, and reading it does not rewrite
+it. It has no flip pairs, so a horizontal flip swaps its left and right
+keypoints only when the augmentation configuration gives ``keypoint_pairs``.
+To infer the horizontal flip pairs from the stored names, call:
+
+.. python::
+
+    dataset.set_keypoint_metadata(infer_flip_pairs=True)
+
+The first metadata write of such a dataset with keypoints, for example this
+call or `LuxonisDataset.add`, moves it to the current LDF version. An older
+luxonis-ml cannot open it after that. `LuxonisDataset.export` with
+``ldf_version`` writes a copy that an older luxonis-ml can import.
 
 
 Class Ordering

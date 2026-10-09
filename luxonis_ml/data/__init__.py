@@ -92,9 +92,10 @@ metadata suitable for trying the full LDF workflow.
 
 The dataset can be used to exercise task naming conventions:
 
-    - keypoint annotations for classes with different skeletons should be
+    - keypoint annotations for classes with different keypoints should be
       separated into task groups such as ``"instance_keypoints_car"`` and
-      ``"instance_keypoints_motorbike"``;
+      ``"instance_keypoints_motorbike"``, because each task has one keypoint
+      metadata entry;
     - semantic segmentation is usually placed in its own task group, such as
       ``"segmentation"``, because loaders add a background class for
       segmentation tasks.
@@ -279,7 +280,9 @@ LDF supports a small set of annotation payload families:
     - classification through a ``"class"`` value;
     - normalized ``xywh`` bounding boxes through ``"boundingbox"``;
     - normalized ``(x, y, visibility)`` keypoint triplets through
-      ``"keypoints"``;
+      ``"keypoints"``, as a list or keyed by keypoint name, optionally with
+      ``"edges"``, ``"flip_pairs"`` and ``"sigmas"`` that describe the whole
+      task;
     - semantic segmentation masks through polygon points, binary masks, or
       COCO RLE values under ``"segmentation"``;
     - instance segmentation masks through the same mask encodings under

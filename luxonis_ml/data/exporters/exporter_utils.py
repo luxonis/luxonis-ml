@@ -9,6 +9,8 @@ import polars as pl
 from loguru import logger
 from pycocotools import mask as maskUtils
 
+from luxonis_ml.ldf import KeypointMetadata
+
 if TYPE_CHECKING:
     from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
     from luxonis_ml.data.exporters.base_exporter import BaseExporter
@@ -188,24 +190,71 @@ def create_zip_output(
     return archives if len(archives) > 1 else archives[0]
 
 
-def get_single_skeleton(
-    allow_keypoints: bool, skeletons: dict[str, Any] | None = None
-) -> tuple[list[str], list[list[int]]]:
-    """Return labels and COCO-style edges for the single skeleton.
+def warn_repeated_keypoint_names(
+    task: str, task_keypoints: KeypointMetadata, consequence: str
+) -> None:
+    """Warn when the keypoint names of a task repeat.
 
-    Edges are converted to 1-based indices per COCO spec.
+    Args:
+        task: Name of the keypoint task.
+        task_keypoints: Keypoint metadata of the task.
+        consequence: Sentence that tells what the export does with the
+            repeated names.
+
     """
-    if not allow_keypoints or skeletons is None:
-        return [], []
-    if isinstance(skeletons, dict):
-        sk = next(iter(skeletons.values()))
-    else:  # list
-        sk = skeletons[0]
-    labels = list(sk.get("labels", []))
-    edges = sk.get("edges", [])
-    # COCO expects 1-based indices in skeleton
-    skeleton_1_based = [[a + 1, b + 1] for a, b in edges]
-    return labels, skeleton_1_based
+    if repeated := task_keypoints.repeated_labels:
+        logger.warning(
+            f"Task '{task}' repeats the keypoint names "
+            f"{', '.join(repeated)}. {consequence} Give each keypoint a "
+            "unique name with "
+            "`LuxonisDataset.set_keypoint_metadata(labels=...)`."
+        )
+
+
+def fit_keypoint_metadata_to_rows(
+    task: str, task_keypoints: KeypointMetadata, width: int
+) -> KeypointMetadata | None:
+    """Leave out the keypoint metadata that the import would reject.
+
+    The import rejects names that cover fewer keypoints than a row, so
+    the export leaves out the whole entry of such a task. The import then
+    numbers the keypoints. The import also rejects an edge out of range,
+    so the export leaves out each such edge. Each case logs a warning.
+
+    Args:
+        task: Name of the keypoint task.
+        task_keypoints: Keypoint metadata of the task.
+        width: Keypoint count of the widest row of the task.
+
+    Returns:
+        The keypoint metadata to export, or ``None`` when the export
+        leaves out the whole entry.
+
+    """
+    n_labels = len(task_keypoints.labels)
+    if 0 < n_labels < width:
+        logger.warning(
+            f"Task '{task}' names {n_labels} keypoints, but a row has "
+            f"{width}. The export leaves out the keypoint metadata of this "
+            "task, so the import numbers the keypoints. Give the task a "
+            "name for each keypoint with "
+            "`LuxonisDataset.set_keypoint_metadata(labels=...)` to keep the "
+            "names."
+        )
+        return None
+    n_keypoints = n_labels or width
+    edges = [
+        edge
+        for edge in task_keypoints.edges
+        if all(0 <= index < n_keypoints for index in edge)
+    ]
+    if n_keypoints and edges != task_keypoints.edges:
+        logger.warning(
+            f"Task '{task}' has edges out of range for its {n_keypoints} "
+            "keypoints. The export leaves them out."
+        )
+        return task_keypoints.model_copy(update={"edges": edges})
+    return task_keypoints
 
 
 def decode_rle_with_pycoco(ann: dict[str, Any]) -> np.ndarray:

@@ -97,7 +97,7 @@ class SOLOParser(BaseParser):
             split_path: Directory with SOLO sequences and annotations.
 
         Returns:
-            Parser output containing annotation records, skeleton metadata,
+            Parser output containing annotation records, keypoint metadata,
             and added images.
 
         Raises:
