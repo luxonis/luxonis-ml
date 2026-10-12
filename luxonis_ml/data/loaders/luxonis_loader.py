@@ -22,6 +22,7 @@ from luxonis_ml.data.augmentations import (
 )
 from luxonis_ml.data.datasets import (
     Annotation,
+    BBoxAnnotation,
     Category,
     LuxonisDataset,
     UpdateMode,
@@ -126,6 +127,8 @@ class LuxonisLoader(BaseLoader):
         update_mode: UpdateMode | Literal["all", "missing"] = UpdateMode.ALL,
         filter_task_names: list[str] | None = None,
         autopopulate_metadata: bool = True,
+        max_bbox_width: float = 1.0,
+        max_bbox_height: float = 1.0,
     ) -> None:
         """Create a loader for a Luxonis dataset.
 
@@ -167,12 +170,22 @@ class LuxonisLoader(BaseLoader):
                 `DatasetRecord.sample_metadata`. Augmentation provenance
                 is reported either way, as it describes the returned
                 arrays rather than the record.
+            max_bbox_width: Maximum bounding-box width relative to its
+                original source image, in [0, 1]. Defaults to 1.0 (disabled).
+                Excludes the whole image group if any selected-task box
+                exceeds this limit, before resizing or augmentation, in
+                every view. Boxes equal to the limit are retained.
+            max_bbox_height: Maximum bounding-box height relative to its
+                original source image, in [0, 1]. Defaults to 1.0 (disabled).
+                Uses the same image-group filtering as ``max_bbox_width``.
 
         Raises:
             ValueError: If `color_space` is neither a string nor a
                 dictionary.
             ValueError: If `filter_task_names` contains task names not
                 present in the dataset.
+            ValueError: If a bounding-box size limit is outside [0, 1], or
+                no images remain after applying the limits.
             RuntimeError: If split metadata is missing.
 
         Example:
@@ -206,6 +219,13 @@ class LuxonisLoader(BaseLoader):
                 )
 
         """
+
+        for name, limit in (
+            ("max_bbox_width", max_bbox_width),
+            ("max_bbox_height", max_bbox_height),
+        ):
+            if not 0.0 <= limit <= 1.0:
+                raise ValueError(f"{name} must be in the range [0, 1].")
 
         self.dataset = dataset
 
@@ -283,6 +303,7 @@ class LuxonisLoader(BaseLoader):
         for i, group_id in enumerate(group_id_list):
             idx_map[group_id].append(i)
 
+        self._filter_bbox_sizes(max_bbox_width, max_bbox_height)
         self._idx_to_df_row = [idx_map[uuid] for uuid in self._instances]
 
         self._idx_to_img_paths = self._precompute_image_paths()
@@ -315,6 +336,42 @@ class LuxonisLoader(BaseLoader):
             min_bbox_visibility,
             bbox_area_threshold,
         )
+
+    def _filter_bbox_sizes(
+        self, max_bbox_width: float, max_bbox_height: float
+    ) -> None:
+        """Exclude image groups with oversized boxes in selected tasks."""
+        if max_bbox_width == 1.0 and max_bbox_height == 1.0:
+            return
+
+        excluded_groups: set[str] = set()
+        bbox_rows = self._df.filter(
+            (pl.col("task_type") == "boundingbox")
+            & pl.col("group_id").is_in(self._instances)
+        ).select("group_id", "annotation")
+        for group_id, annotation in bbox_rows.iter_rows():
+            if annotation is None or group_id in excluded_groups:
+                continue
+            bbox = BBoxAnnotation.model_validate_json(annotation)
+            if bbox.w > max_bbox_width or bbox.h > max_bbox_height:
+                excluded_groups.add(group_id)
+
+        original_count = len(self._instances)
+        self._instances = [
+            uid for uid in self._instances if uid not in excluded_groups
+        ]
+        logger.info(
+            f"Excluded {original_count - len(self._instances)} / "
+            f"{original_count} images from views {self._view} with "
+            f"max_bbox_width={max_bbox_width}, "
+            f"max_bbox_height={max_bbox_height}."
+        )
+        if not self._instances:
+            raise ValueError(
+                f"No images remain in views {self._view} after applying "
+                f"max_bbox_width={max_bbox_width} and "
+                f"max_bbox_height={max_bbox_height}."
+            )
 
     @override
     def __len__(self) -> int:
@@ -557,18 +614,18 @@ class LuxonisLoader(BaseLoader):
         for task, anns in labels_by_task.items():
             assert anns, f"No annotations found for task {task_name}"
             instance_ids = instance_ids_by_task[task]
-
-            anns = [
-                ann
-                for _, ann in sorted(
-                    zip(instance_ids, anns, strict=True), key=lambda x: x[0]
-                )
-            ]
+            class_ids = class_ids_by_task[task]
+            ordered_annotations = sorted(
+                zip(instance_ids, anns, class_ids, strict=True),
+                key=lambda x: x[0],
+            )
+            anns = [ann for _, ann, _ in ordered_annotations]
+            class_ids = [class_id for _, _, class_id in ordered_annotations]
 
             task_name, task_type = split_task(task)
             array = anns[0].combine_to_numpy(
                 anns,
-                class_ids_by_task[task],
+                class_ids,
                 len(self._classes[task_name]),
             )
             if task in self._tasks_without_background:
