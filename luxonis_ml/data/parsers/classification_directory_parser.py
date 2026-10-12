@@ -86,7 +86,7 @@ class ClassificationDirectoryParser(BaseParser):
             class_dir: Top-level class directory.
 
         Returns:
-            Parser output containing annotation records, skeleton metadata,
+            Parser output containing annotation records, keypoint metadata,
             and added images.
 
         """

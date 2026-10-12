@@ -6,7 +6,7 @@ from semver.version import Version
 from typing_extensions import deprecated
 
 from luxonis_ml.data.datasets.source import LuxonisSource
-from luxonis_ml.ldf import DatasetRecord, KeypointMetadata
+from luxonis_ml.ldf import DatasetRecord, KeypointMetadata, PicturePlace
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
@@ -122,8 +122,9 @@ class BaseDataset(
         flip_pairs: list[KeypointPair] | None = None,
         sigmas: list[float] | None = None,
         infer_flip_pairs: bool | None = None,
+        picture: Sequence[PicturePlace | None] | None = None,
     ) -> None:
-        """Set the keypoint definitions of the tasks that use keypoints.
+        """Set the keypoint metadata of one task or of every task.
 
         Only the fields that you provide are replaced, so a definition can
         be built up over several calls. New labels are the exception:
@@ -164,22 +165,35 @@ class BaseDataset(
             edges: Optional edges between keypoints.
             task: Optional task to update. If omitted, all tasks are
                 updated.
-            flip_pairs: Optional pairs of keypoints swapped by a horizontal
-                flip.
+            flip_pairs: Optional mirror partners: pairs of keypoints named
+                after the two sides of the object. Every mirror of the
+                picture swaps them, and a rotation keeps them.
             sigmas: Optional per-keypoint OKS standard deviations.
             infer_flip_pairs: Whether to infer flip pairs from the
-                ``left``/``right`` keypoint names. Only a call that omits
-                ``flip_pairs`` infers them, and only for a task without
-                flip pairs. ``None`` infers them only for names that are
-                new to the task, as `add` does. An empty list of stored
-                flip pairs can mean that an earlier call turned the
-                inference off, and ``None`` keeps that list. ``True``
-                also infers them for the stored names, for example for a
-                dataset from an older luxonis-ml. ``False`` infers none.
+                ``left``/``right`` keypoint names, for a task without flip
+                pairs. A call that gives ``flip_pairs`` infers none.
+
+                - ``None`` infers them only when the call changes the
+                  names of the task, as `add` does.
+                - ``True`` also infers them for the stored names, for
+                  example for a dataset from an older luxonis-ml. The call
+                  then needs no other field, and it changes only the tasks
+                  with keypoint metadata.
+                - ``False`` infers none.
+
+            picture: Optional `PicturePlace` of each keypoint in label
+                order, ``None`` for a keypoint without one. A keypoint with
+                a place takes the name of the place where it is after any
+                augmentation. The places form full sets: all four corners,
+                all four sides, the center.
 
         Raises:
-            ValueError: If you provide none of the fields, or if a field
-                does not fit the labels of a task.
+            ValueError: If you provide none of the fields and
+                ``infer_flip_pairs`` is not ``True``, or if a field does
+                not fit the labels of a task.
+            ValueError: If ``labels`` repeats a name, if an edge or a flip
+                pair refers to a name that is not a label, or if a keypoint
+                is in two flip pairs or is paired with itself.
 
         """
         ...
@@ -189,7 +203,7 @@ class BaseDataset(
         """Return the keypoint definition of each task.
 
         Returns:
-            Keypoint metadata keyed by task name.
+            Copies of the keypoint metadata keyed by task name.
 
         """
         ...
@@ -200,25 +214,28 @@ class BaseDataset(
         labels: list[str] | None = None,
         edges: list[KeypointPair] | None = None,
         task: str | None = None,
-        *,
-        flip_pairs: list[KeypointPair] | None = None,
-        sigmas: list[float] | None = None,
-        infer_flip_pairs: bool | None = None,
     ) -> None:
-        """Set the keypoint definitions of the tasks that use keypoints.
+        """Set the keypoint labels and edges of one task or of every task.
 
-        .. deprecated:: 0.10.0
+        It calls `set_keypoint_metadata`, so the stored fields follow the
+        rules of that method.
+
+        .. deprecated:: 0.11.0
             Use `set_keypoint_metadata`, or declare the keypoints on the
             records.
+
+        Args:
+            labels: Optional keypoint names.
+            edges: Optional edges between keypoints.
+            task: Optional task to update. If omitted, all tasks are
+                updated.
+
+        Raises:
+            ValueError: If you provide neither ``labels`` nor ``edges``, or
+                if a field does not fit the labels of a task.
+
         """
-        self.set_keypoint_metadata(
-            labels,
-            edges,
-            task,
-            flip_pairs=flip_pairs,
-            sigmas=sigmas,
-            infer_flip_pairs=infer_flip_pairs,
-        )
+        self.set_keypoint_metadata(labels, edges, task)
 
     @deprecated("Use `get_keypoint_metadata` instead.")
     def get_skeletons(
@@ -226,11 +243,12 @@ class BaseDataset(
     ) -> dict[str, tuple[list[str], list[tuple[int, int]]]]:
         """Return the keypoint labels and edges of each task.
 
-        The alias keeps the shape that it had before the keypoint
-        metadata, because callers unpack the pair.
-
-        .. deprecated:: 0.10.0
+        .. deprecated:: 0.11.0
             Use `get_keypoint_metadata`.
+
+        Returns:
+            Keypoint labels and edges keyed by task name.
+
         """
         return {
             task: (entry.labels, entry.edges)

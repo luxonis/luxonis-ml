@@ -170,5 +170,5 @@ def test_flips_reject_a_partial_final_instance(flip: type) -> None:
     transform = flip(keypoint_pairs=[(0, 1)], p=1.0)
     keypoints = np.zeros((3, 3))
 
-    with pytest.raises(ValueError, match="not a multiple of n_keypoints"):
+    with pytest.raises(ValueError, match="do not split into instances"):
         transform.apply_to_keypoints(keypoints, orig_width=8, orig_height=8)
