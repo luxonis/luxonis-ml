@@ -96,6 +96,61 @@ def test_config_simple(config_file: str):
     )
 
 
+def test_config_include(tmp_path: Path):
+    included = tmp_path / "nested_values.yaml"
+    included.write_text("- [1, 2]\n- [3, 4]\n", encoding="utf-8")
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(CONFIG_DATA)
+        + "nested_list_param:\n  $include: nested_values.yaml\n",
+        encoding="utf-8",
+    )
+
+    cfg = Config.get_config(config, {"nested_list_param.0.1": 5})
+
+    assert cfg.nested_list_param == [[1, 5], [3, 4]]
+
+
+def test_config_nested_include(tmp_path: Path):
+    values_dir = tmp_path / "values"
+    values_dir.mkdir()
+    (values_dir / "numbers.yaml").write_text("[1, 2]\n", encoding="utf-8")
+    (values_dir / "nested.yaml").write_text(
+        "- $include: numbers.yaml\n", encoding="utf-8"
+    )
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(CONFIG_DATA)
+        + "nested_list_param:\n  $include: values/nested.yaml\n",
+        encoding="utf-8",
+    )
+
+    cfg = Config.get_config(config)
+
+    assert cfg.nested_list_param == [[1, 2]]
+
+
+def test_config_cyclic_include(tmp_path: Path):
+    config = tmp_path / "config.yaml"
+    included = tmp_path / "included.yaml"
+    config.write_text("$include: included.yaml\n", encoding="utf-8")
+    included.write_text("$include: config.yaml\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Cyclic config include detected"):
+        Config.get_config(config)
+
+
+def test_relative_include_requires_file_config():
+    config = deepcopy(CONFIG_DATA)
+    config["nested_list_param"] = {"$include": "values.yaml"}
+
+    with pytest.raises(
+        ValueError,
+        match="Relative config includes require a file-based config",
+    ):
+        Config.get_config(config)
+
+
 def test_config_simple_override(config_file: str):
     overrides: Params = {
         "sub_config.str_sub_param": "sub_param_override",

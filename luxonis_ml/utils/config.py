@@ -1,6 +1,6 @@
 import ast
 from pathlib import Path, PurePath
-from typing import Any, TypeVar
+from typing import Any, ClassVar, TypeVar
 
 import yaml
 from typing_extensions import Self, deprecated
@@ -14,6 +14,8 @@ T = TypeVar("T", bound="LuxonisConfig")
 
 class LuxonisConfig(BaseModelExtraForbid):
     """Class for storing configuration."""
+
+    _INCLUDE_KEY: ClassVar[str] = "$include"
 
     @classmethod
     def get_config(
@@ -59,17 +61,101 @@ class LuxonisConfig(BaseModelExtraForbid):
         overrides = overrides or {}
         cfg = cfg or {}
 
-        if isinstance(cfg, Path):
-            data = yaml.safe_load(cfg.read_text(encoding="utf-8"))
-        elif isinstance(cfg, str):
-            fs = LuxonisFileSystem(cfg)
-            buffer = fs.read_to_byte_buffer()
-            data = yaml.safe_load(buffer)
-        else:
-            data = cfg
+        data = cls.load_data(cfg)
 
         cls._merge_overrides(data, overrides)
         return cls(**data)  # type: ignore
+
+    @classmethod
+    def load_data(cls, cfg: PathType | Params) -> Params:
+        """Load raw config data and expand ``$include`` directives.
+
+        An include is a mapping whose only key is ``$include``. The mapping is
+        replaced by the contents of the referenced YAML file. Relative paths
+        are resolved from the file containing the directive.
+
+        Args:
+            cfg: Path to a YAML file or an already loaded dictionary.
+
+        Returns:
+            The loaded configuration dictionary.
+
+        Raises:
+            ValueError: If an include is malformed, cyclic, or relative to a
+                dictionary rather than a file.
+            TypeError: If the root configuration is not a dictionary.
+
+        """
+        if isinstance(cfg, Path):
+            data = cls._load_file(cfg, set())
+        elif isinstance(cfg, str):
+            if LuxonisFileSystem.get_protocol(cfg) == "file":
+                data = cls._load_file(Path(cfg), set())
+            else:
+                fs = LuxonisFileSystem(cfg)
+                data = yaml.safe_load(fs.read_to_byte_buffer())
+                data = cls._expand_includes(data, None, set())
+        else:
+            data = cls._expand_includes(cfg, None, set())
+
+        if not isinstance(data, dict):
+            raise TypeError("The root configuration must be a dictionary.")
+        return data
+
+    @classmethod
+    def _load_file(cls, path: Path, active_paths: set[Path]) -> Any:
+        path = path.resolve()
+        if path in active_paths:
+            chain = " -> ".join(str(p) for p in [*active_paths, path])
+            raise ValueError(f"Cyclic config include detected: {chain}")
+
+        active_paths.add(path)
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            return cls._expand_includes(data, path.parent, active_paths)
+        finally:
+            active_paths.remove(path)
+
+    @classmethod
+    def _expand_includes(
+        cls,
+        value: Any,
+        base_dir: Path | None,
+        active_paths: set[Path],
+    ) -> Any:
+        if isinstance(value, list):
+            return [
+                cls._expand_includes(item, base_dir, active_paths)
+                for item in value
+            ]
+
+        if not isinstance(value, dict):
+            return value
+
+        if cls._INCLUDE_KEY in value:
+            if len(value) != 1:
+                raise ValueError(
+                    f"`{cls._INCLUDE_KEY}` must be the only key in its mapping."
+                )
+            include = value[cls._INCLUDE_KEY]
+            if not isinstance(include, str):
+                raise ValueError(
+                    f"`{cls._INCLUDE_KEY}` must be a path string."
+                )
+
+            include_path = Path(include)
+            if not include_path.is_absolute():
+                if base_dir is None:
+                    raise ValueError(
+                        "Relative config includes require a file-based config."
+                    )
+                include_path = base_dir / include_path
+            return cls._load_file(include_path, active_paths)
+
+        return {
+            key: cls._expand_includes(item, base_dir, active_paths)
+            for key, item in value.items()
+        }
 
     def __str__(self) -> str:
         return self.model_dump_json(indent=4)
