@@ -66,6 +66,7 @@ with guard_missing_extra("ldf"):
         Keypoint,
         KeypointAnnotation,
         KeypointMetadata,
+        KeypointState,
         KeypointVisibility,
         NormalizedFloat,
         PathOrArray,
@@ -73,6 +74,7 @@ with guard_missing_extra("ldf"):
         load_annotation,
     )
     from .parquet import ParquetRecord
+    from .picture_places import PicturePlace
     from .schema import SCHEMA_METADATA_KEY, DatasetSchema
 
 __all__ = [
@@ -90,10 +92,12 @@ __all__ = [
     "Keypoint",
     "KeypointAnnotation",
     "KeypointMetadata",
+    "KeypointState",
     "KeypointVisibility",
     "NormalizedFloat",
     "ParquetRecord",
     "PathOrArray",
+    "PicturePlace",
     "SegmentationAnnotation",
     "load_annotation",
 ]

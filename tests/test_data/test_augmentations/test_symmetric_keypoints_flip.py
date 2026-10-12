@@ -289,11 +289,10 @@ def test_each_keypoint_task_swaps_its_own_stored_pairs(
     assert np.allclose(hands, [[0.1, 0.6], [0.7, 0.5], [0.4, 0.5], [0.9, 0.5]])
 
 
-def test_configured_pairs_replace_the_stored_pairs_they_fit() -> None:
-    # As in a COCO dataset, the people task stores its left and right pairs,
-    # and the vertical flip configures identity pairs, which keep every
-    # keypoint in place. The hands have fewer keypoints than the configured
-    # pairs index, so they swap their own stored pair.
+def test_a_vertical_flip_swaps_the_stored_partners() -> None:
+    # As in a COCO dataset, the people task stores its left and right pairs.
+    # An old config gave the vertical flip identity pairs to keep every name;
+    # every mirror swaps the sides of a body, so the partners swap anyway.
     people, hands = augment_people_and_hands(
         {
             "name": "VerticalSymmetricKeypointsFlip",
@@ -318,6 +317,6 @@ def test_configured_pairs_replace_the_stored_pairs_they_fit() -> None:
     )
 
     assert np.allclose(
-        people, [[0.5, 0.8], [0.4, 0.7], [0.6, 0.7], [0.3, 0.75], [0.7, 0.75]]
+        people, [[0.5, 0.8], [0.6, 0.7], [0.4, 0.7], [0.7, 0.75], [0.3, 0.75]]
     )
     assert np.allclose(hands, [[0.9, 0.4], [0.3, 0.5], [0.6, 0.5], [0.1, 0.5]])

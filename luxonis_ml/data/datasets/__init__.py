@@ -253,26 +253,31 @@ Keypoint Metadata
 =================
 
 Each keypoint task has one `luxonis_ml.ldf.KeypointMetadata` entry. It holds
-the keypoint names, the edges between the keypoints, the flip pairs that a
-horizontal flip swaps, and the sigmas of the object keypoint similarity (OKS)
-metric. A record can give these fields beside its keypoints, and
+the keypoint names, the edges between the keypoints, the mirror partners,
+the places in the picture, and the sigmas of the object keypoint similarity
+(OKS) metric. A record gives them with its keypoints, and
 `LuxonisDataset.add` moves them into the entry of the task:
 
 .. python::
 
     def pose_records():
         yield {
-            "file": "path/to/image.jpg",
-            "task_name": "pose",
+            "media": "path/to/image.jpg",
             "annotation": {
-                "class": "person",
-                "keypoints": {
+                "pose": {
+                    "class": "person",
                     "keypoints": {
-                        "nose": (0.50, 0.30, 2),
-                        "left_eye": (0.45, 0.25, 2),
-                        "right_eye": (0.55, 0.25, 2),
+                        "keypoints": {
+                            "nose": (0.50, 0.30, 2),
+                            "left_eye": {
+                                "x": 0.55,
+                                "y": 0.25,
+                                "connected_to": "nose",
+                                "mirror": "right_eye",
+                            },
+                            "right_eye": (0.45, 0.25, 2),
+                        },
                     },
-                    "edges": [("nose", "left_eye"), ("nose", "right_eye")],
                 },
             },
         }
@@ -280,14 +285,17 @@ metric. A record can give these fields beside its keypoints, and
     dataset.add(pose_records())
     dataset.get_keypoint_metadata()["pose"].flip_pairs  # [(1, 2)]
 
-`LuxonisDataset.add` infers the flip pairs from the ``left``/``right`` names.
+When no record names a mirror partner, `LuxonisDataset.add` infers the
+partners from the ``left``/``right`` names. The augmentation then swaps the
+partners after every mirror of the picture; see the section on keypoint
+names in `luxonis_ml.data.augmentations`.
 `LuxonisDataset.set_keypoint_metadata` sets the fields without records.
 
 A dataset from LDF 2.0 or 2.1 stores its keypoint names and edges under
 ``skeletons``. It opens without a change, and reading it does not rewrite
-it. It has no flip pairs, so a horizontal flip swaps its left and right
-keypoints only when the augmentation configuration gives ``keypoint_pairs``.
-To infer the flip pairs from the stored names, call:
+it. It has no mirror partners, so a flip swaps its left and right keypoints
+only when the augmentation configuration gives ``keypoint_pairs``. To infer
+the partners from the stored names, call:
 
 .. python::
 

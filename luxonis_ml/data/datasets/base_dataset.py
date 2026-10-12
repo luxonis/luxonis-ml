@@ -6,7 +6,7 @@ from semver.version import Version
 from typing_extensions import deprecated
 
 from luxonis_ml.data.datasets.source import LuxonisSource
-from luxonis_ml.ldf import DatasetRecord, KeypointMetadata
+from luxonis_ml.ldf import DatasetRecord, KeypointMetadata, PicturePlace
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
@@ -122,6 +122,7 @@ class BaseDataset(
         flip_pairs: list[KeypointPair] | None = None,
         sigmas: list[float] | None = None,
         infer_flip_pairs: bool | None = None,
+        picture: Sequence[PicturePlace | None] | None = None,
     ) -> None:
         """Set the keypoint metadata of one task or of every task.
 
@@ -164,8 +165,9 @@ class BaseDataset(
             edges: Optional edges between keypoints.
             task: Optional task to update. If omitted, all tasks are
                 updated.
-            flip_pairs: Optional pairs of keypoints swapped by a horizontal
-                flip.
+            flip_pairs: Optional mirror partners: pairs of keypoints named
+                after the two sides of the object. Every mirror of the
+                picture swaps them, and a rotation keeps them.
             sigmas: Optional per-keypoint OKS standard deviations.
             infer_flip_pairs: Whether to infer flip pairs from the
                 ``left``/``right`` keypoint names, for a task without flip
@@ -178,6 +180,12 @@ class BaseDataset(
                   then needs no other field, and it changes only the tasks
                   with keypoint metadata.
                 - ``False`` infers none.
+
+            picture: Optional `PicturePlace` of each keypoint in label
+                order, ``None`` for a keypoint without one. A keypoint with
+                a place takes the name of the place where it is after any
+                augmentation. The places form full sets: all four corners,
+                all four sides, the center.
 
         Raises:
             ValueError: If you provide none of the fields and

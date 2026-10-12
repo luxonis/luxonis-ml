@@ -45,27 +45,6 @@ filled by the default resize in an always-on ``OneOf``. The resize stage is
 applied before pixel-only transforms when downscaling saves work, and after
 pixel-only transforms when upscaling or preserving size.
 
-Standard Albumentations flip transforms such as ``HorizontalFlip``,
-``VerticalFlip``, and ``Transpose`` flip keypoint coordinates but do not swap
-semantic left/right keypoint labels. For symmetric keypoint structures, use the
-Luxonis custom transforms `HorizontalSymmetricKeypointsFlip`,
-`VerticalSymmetricKeypointsFlip`, and `TransposeSymmetricKeypoints`. They swap
-the flip pairs that each keypoint task stores in its `KeypointMetadata`, so
-each keypoint task in a dataset keeps its own pairs. A ``keypoint_pairs``
-parameter replaces the stored pairs of each task that has a keypoint for every
-index in the pairs. The other tasks keep their stored pairs. For example,
-``[[0, 0]]`` swaps no keypoint, so a vertical flip keeps the left and right
-keypoints in place:
-
-.. python::
-
-    [
-        {
-            "name": "VerticalSymmetricKeypointsFlip",
-            "params": {"keypoint_pairs": [[0, 0]], "p": 0.5},
-        },
-    ]
-
 Batch transforms multiply the number of source samples required by the loader.
 For example, a pipeline that contains `MixUp` and `Mosaic4` requires
 :math:`8 = 2 \cdot 4` samples for each augmented output.
@@ -94,6 +73,57 @@ of records, or as the path of a YAML or JSON file that holds the same list:
     for sample in loader:
         images = sample.images
         labels = sample.labels
+
+
+Keypoint Names
+==============
+
+A spatial transform moves each keypoint, but it keeps the column of the
+keypoint, so it keeps its name. After a horizontal flip, the keypoint
+called ``left_eye`` sits where the right eye of the person was. The engine
+therefore renames the keypoints after the whole pipeline, from what each
+name means (see `KeypointAnnotation`):
+
+    - A mirror partner, such as ``left_eye``, swaps with its partner when
+      the pipeline mirrored the picture: after a horizontal or a vertical
+      flip, a transpose, or any odd number of them. A rotation keeps it.
+    - A keypoint with a place in the picture, such as the ``top_left``
+      corner of a parking space, takes the name of the place where it is.
+    - Any other keypoint keeps its name.
+
+A configuration therefore uses the plain transforms, also for keypoints:
+
+.. python::
+
+    [
+        {"name": "HorizontalFlip", "params": {"p": 0.5}},
+        {"name": "RandomRotate90", "params": {"p": 0.5}},
+    ]
+
+The engine does not need to know what a transform does. Three hidden probe
+points ride along with each instance, also through `Mosaic4`. If the
+triangle they form comes out reversed, the map at that instance was a
+mirror. A custom transform thus works as well as a built-in one. A keypoint
+that a transform drops, as ``ElasticTransform`` drops the keypoints outside
+the image, comes back as unlabeled.
+
+The renaming has these limits:
+
+    - A place in the picture is named by the nearest corner or side. Near a
+      rotation by :math:`45°`, two corners are about as near to the top
+      left, and the name can change from one sample to the next. Keep the
+      rotations under :math:`45°` when the names must be stable. Mirror
+      partners have no such limit.
+    - A warp so strong that it folds an object over itself, so that its
+      outline crosses, leaves no side to tell. The probes then give one of
+      the two answers.
+    - A class that names a side, such as ``left_hand``, keeps its name. Only
+      keypoint names are renamed.
+
+`HorizontalSymmetricKeypointsFlip`, `VerticalSymmetricKeypointsFlip` and
+`TransposeSymmetricKeypoints` are deprecated. In the engine, they flip like
+the plain transforms, and their ``keypoint_pairs`` give the mirror partners
+of a task that stores none.
 
 
 Custom Transforms

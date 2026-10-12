@@ -73,6 +73,7 @@ from luxonis_ml.ldf import (
     InstanceCounter,
     Keypoint,
     KeypointMetadata,
+    PicturePlace,
     load_annotation,
 )
 from luxonis_ml.typing import PathType
@@ -939,6 +940,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         flip_pairs: list[KeypointPair] | None = None,
         sigmas: list[float] | None = None,
         infer_flip_pairs: bool | None = None,
+        picture: Sequence[PicturePlace | None] | None = None,
     ) -> None:
         updates = {
             field: value
@@ -947,13 +949,14 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 ("edges", edges),
                 ("flip_pairs", flip_pairs),
                 ("sigmas", sigmas),
+                ("picture", picture),
             )
             if value is not None
         }
         if not updates and not infer_flip_pairs:
             raise ValueError(
-                "Must provide either keypoint names, edges, flip pairs or "
-                "sigmas, or `infer_flip_pairs=True`"
+                "Must provide either keypoint names, edges, flip pairs, "
+                "sigmas or places in the picture, or `infer_flip_pairs=True`"
             )
 
         tasks = self.get_task_names() if task is None else [task]
@@ -2641,7 +2644,9 @@ def _fill_in_flip_pairs(
     """Infer flip pairs from the keypoint names when none are known.
 
     Only a write path infers them, never a read path. A read path would
-    give flip pairs to a dataset that never asked for them.
+    give flip pairs to a dataset that never asked for them. A keypoint with
+    a place in the picture gets no partner: its name follows the picture,
+    not a side of the object.
 
     Args:
         keypoint_metadata: The new keypoint metadata of the task.
@@ -2658,9 +2663,13 @@ def _fill_in_flip_pairs(
         infer = stored is None or stored.labels != labels
     if not infer or keypoint_metadata.flip_pairs:
         return keypoint_metadata
-    return keypoint_metadata.model_copy(
-        update={"flip_pairs": KeypointMetadata.infer_flip_pairs(labels)}
-    )
+    placed = {i for i, place in enumerate(keypoint_metadata.picture) if place}
+    pairs = [
+        (a, b)
+        for a, b in KeypointMetadata.infer_flip_pairs(labels)
+        if a not in placed and b not in placed
+    ]
+    return keypoint_metadata.model_copy(update={"flip_pairs": pairs})
 
 
 def _renames_keypoints(

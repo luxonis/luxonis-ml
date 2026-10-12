@@ -22,6 +22,7 @@ from .batch_transform import BatchTransform
 from .custom import TRANSFORMATIONS
 from .custom.letterbox_resize import create_letterbox_or_resize
 from .custom.symmetric_keypoints_flip import SymmetricKeypointsTransform
+from .keypoint_naming import PROBES, rename, tag, to_rows, untag
 from .utils import (
     instance_count,
     postprocess_bboxes,
@@ -348,28 +349,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         https://github.com/albumentations-team/albumentations/blob/66212d77a44927a29d6a0e81621d3c27afbd929c/albumentations/core/transforms_interface.py#L49
     """
 
-    def _check_augmentation_warnings(
-        self,
-        config_item: AlbumentationConfigItem,
-        available_target_types: set,
-    ) -> None:
-        augmentation_name = config_item.name
-
-        if "keypoints" in available_target_types and augmentation_name in [
-            "HorizontalFlip",
-            "VerticalFlip",
-            "Transpose",
-        ]:
-            logger.warning(
-                f"Using '{augmentation_name}' with keypoints. "
-                "If your dataset contains symmetric keypoints "
-                "(e.g. left/right arms), you should use our custom "
-                "`HorizontalSymmetricKeypointsFlip`, "
-                "`VerticalSymmetricKeypointsFlip`, "
-                "or `TransposeSymmetricKeypoints`"
-                " to ensure keypoints are correctly reordered."
-            )
-
     @deprecated(
         "is_validation_pipeline",
         suggest={"is_validation_pipeline": "pipeline_stage"},
@@ -445,7 +424,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         self._applied_augmentations: dict[str, Params] = {}
         self._tracked_augmentation_paths: dict[int, str] = {}
         self._keypoint_metadata = dict(keypoint_metadata or {})
-        self._symmetric_transforms: list[SymmetricKeypointsTransform] = []
+        # The `keypoint_pairs` of the deprecated symmetric flips. They give
+        # the mirror partners of a task that stores none.
+        self._configured_pairs: list[tuple[int, int]] = []
 
         for task, task_type in targets.items():
             target_name = self._task_to_target_name(task)
@@ -537,11 +518,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             if cfg.name == "Normalize" or pipeline_stage in cfg.apply_on_stages
         ]
 
-        available_target_types = set(self._targets.values())
-
         for cfg in validated_config:
-            self._check_augmentation_warnings(cfg, available_target_types)
-
             if cfg.use_for_resizing:
                 image_h, image_w = self._image_size
                 cfg_h = cfg.params.get("height")
@@ -559,9 +536,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             transform = self._create_transformation(
                 cfg, self._tracked_augmentation_paths
             )
-            self._symmetric_transforms.extend(
-                _find_symmetric_transforms(transform)
-            )
+            for symmetric in _find_symmetric_transforms(transform):
+                # The engine names the keypoints after the whole pipeline.
+                symmetric.swaps_pairs = False
+                for pair in symmetric.keypoint_pairs:
+                    a, b = sorted(pair)
+                    if a != b and (a, b) not in self._configured_pairs:
+                        self._configured_pairs.append((a, b))
 
             if cfg.use_for_resizing:
                 logger.info(f"Using '{cfg.name}' for resizing.")
@@ -750,10 +731,12 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         data_batch, n_keypoints, label_specs = self._preprocess_batch(
             input_batch
         )
-        self._set_keypoint_layouts(n_keypoints)
-
         data = self._batch_transform(
-            data_batch, keypoints_per_instance=n_keypoints
+            data_batch,
+            keypoints_per_instance={
+                target: count + self._n_probes(target)
+                for target, count in n_keypoints.items()
+            },
         )
 
         # A batch transform discards the members it did not merge, and a task
@@ -778,8 +761,21 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 ):
                     emptied_targets[target_name] = contributed[target_name]
 
+        n_rows = {
+            target: len(data[target])
+            for target in n_keypoints
+            if target in data
+        }
+        for target in n_rows:
+            data[target] = tag(data[target])
+
         data = self._spatial_transform(**data)
         data = self._custom_transform(**data)
+
+        for target, rows in n_rows.items():
+            data[target] = self._rename_keypoints(
+                target, *untag(data[target], rows), n_keypoints[target]
+            )
 
         transformed_size = data["image"].shape[:2]
 
@@ -931,9 +927,14 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     data[target_name] = preprocess_bboxes(array)
 
                 elif target_type == "keypoints":
-                    n_keypoints[target_name] = array.shape[1] // 3
-                    data[target_name] = preprocess_keypoints(
-                        array, height, width
+                    count = array.shape[1] // 3
+                    n_keypoints[target_name] = count
+                    data[target_name] = to_rows(
+                        preprocess_keypoints(array, height, width),
+                        count,
+                        self._n_probes(target_name),
+                        height,
+                        width,
                     )
                 else:
                     data[target_name] = array
@@ -1090,20 +1091,54 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             return pipeline_stage
         return "val" if is_validation_pipeline else "train"
 
-    def _set_keypoint_layouts(self, n_keypoints: Mapping[str, int]) -> None:
-        """Tell each symmetric flip the keypoint layout of each target.
+    def _mirror_pairs(
+        self, target_name: str, n_keypoints: int
+    ) -> list[tuple[int, int]]:
+        """Return the mirror partners of the task of a keypoint target.
 
-        A target is one keypoint task. Its layout is the keypoint count of an
-        instance, read from the data, and the flip pairs its task stores.
+        A task without stored partners takes the ``keypoint_pairs`` of the
+        deprecated symmetric flips, when they fit its keypoints.
         """
-        layouts = {}
-        for target_name, count in n_keypoints.items():
-            task_group = self._target_names_to_task_groups[target_name]
-            metadata = self._keypoint_metadata.get(task_group)
-            pairs = list(metadata.flip_pairs) if metadata is not None else []
-            layouts[target_name] = (count, pairs)
-        for transform in self._symmetric_transforms:
-            transform.set_layouts(layouts)
+        task_group = self._target_names_to_task_groups[target_name]
+        metadata = self._keypoint_metadata.get(task_group)
+        if metadata is not None and metadata.flip_pairs:
+            return list(metadata.flip_pairs)
+        if all(max(pair) < n_keypoints for pair in self._configured_pairs):
+            return list(self._configured_pairs)
+        return []
+
+    def _places(self, target_name: str) -> list:
+        """Return the places in the picture of a keypoint target's task."""
+        task_group = self._target_names_to_task_groups[target_name]
+        metadata = self._keypoint_metadata.get(task_group)
+        return list(metadata.picture) if metadata is not None else []
+
+    def _n_probes(self, target_name: str) -> int:
+        """Return how many probe rows each instance of a target carries."""
+        task_group = self._target_names_to_task_groups[target_name]
+        metadata = self._keypoint_metadata.get(task_group)
+        stored = metadata is not None and bool(metadata.flip_pairs)
+        return PROBES if stored or self._configured_pairs else 0
+
+    def _rename_keypoints(
+        self,
+        target_name: str,
+        rows: np.ndarray,
+        lost: np.ndarray,
+        n_keypoints: int,
+    ) -> np.ndarray:
+        """Give the keypoints of a target the names their meaning asks for.
+
+        See `luxonis_ml.data.augmentations.keypoint_naming`.
+        """
+        return rename(
+            rows,
+            lost,
+            n_keypoints,
+            self._n_probes(target_name),
+            self._mirror_pairs(target_name, n_keypoints),
+            self._places(target_name),
+        )
 
     @staticmethod
     def _mark_invisible_keypoints(
