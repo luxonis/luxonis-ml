@@ -129,6 +129,7 @@ class LuxonisLoader(BaseLoader):
         autopopulate_metadata: bool = True,
         max_bbox_width: float = 1.0,
         max_bbox_height: float = 1.0,
+        is_training: bool | None = None,
     ) -> None:
         """Create a loader for a Luxonis dataset.
 
@@ -174,10 +175,14 @@ class LuxonisLoader(BaseLoader):
                 original source image, in [0, 1]. Defaults to 1.0 (disabled).
                 Excludes the whole image group if any selected-task box
                 exceeds this limit, before resizing or augmentation, in
-                every view. Boxes equal to the limit are retained.
+                training loaders only. Boxes equal to the limit are retained.
             max_bbox_height: Maximum bounding-box height relative to its
                 original source image, in [0, 1]. Defaults to 1.0 (disabled).
                 Uses the same image-group filtering as ``max_bbox_width``.
+            is_training: Whether this loader is used for training. If omitted,
+                only the view ["train"] is treated as training. Set explicitly
+                for custom split names. By default, validation, test, and
+                mixed views retain all images regardless of these limits.
 
         Raises:
             ValueError: If `color_space` is neither a string nor a
@@ -303,7 +308,11 @@ class LuxonisLoader(BaseLoader):
         for i, group_id in enumerate(group_id_list):
             idx_map[group_id].append(i)
 
-        self._filter_bbox_sizes(max_bbox_width, max_bbox_height)
+        training = (
+            self._view == ["train"] if is_training is None else is_training
+        )
+        if training:
+            self._filter_bbox_sizes(max_bbox_width, max_bbox_height)
         self._idx_to_df_row = [idx_map[uuid] for uuid in self._instances]
 
         self._idx_to_img_paths = self._precompute_image_paths()

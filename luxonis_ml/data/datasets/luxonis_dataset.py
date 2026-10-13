@@ -500,7 +500,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 k: v for k, v in splits_other.items() if k in splits_to_merge
             }
 
-        df_merged = pl.concat([df_self, df_other])
+        # Persisted annotation shards can have a different column order.
+        df_merged = pl.concat([df_self, df_other.select(df_self.columns)])
         target_dataset._save_df_offline(df_merged)
 
         splits_other = {
