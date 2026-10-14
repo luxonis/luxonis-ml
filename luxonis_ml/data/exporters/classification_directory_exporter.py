@@ -12,6 +12,29 @@ from luxonis_ml.enums import DatasetType
 
 
 class ClassificationDirectoryExporter(BaseExporter):
+    """Export image-level classes as a directory of class directories.
+
+    Output structure::
+
+        <dataset_name>/
+            train/
+                cat/
+                    0.jpg
+                    1.jpg
+                dog/
+                    0.jpg
+            valid/
+            test/
+
+    An image with more than one class gets a copy with the same name in
+    each of its class directories. ``0.jpg`` above is a ``cat`` and a
+    ``dog``. `ClassificationDirectoryParser` reads these copies back as
+    one image with all of its classes.
+
+    Only classes with the instance ID ``-1`` are exported. The classes of
+    boxes, masks and keypoints are not.
+    """
+
     def get_split_names(self) -> dict[str, str]:
         return {"train": "train", "val": "valid", "test": "test"}
 

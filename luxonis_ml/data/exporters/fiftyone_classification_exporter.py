@@ -39,14 +39,18 @@ class FiftyOneClassificationExporter(BaseExporter):
             "classes": ["class1", "class2", ...],
             "labels": {
                 "000001": 0,  # index into classes array
-                "000002": 1,
+                "000002": [0, 1],  # an image with two classes
                 ...
             }
         }
 
+    An image with more than one class gets a sorted list of class indices,
+    the multi-label layout of ``FiftyOneImageClassificationDataset``.
+
     Attributes:
         class_to_idx: Class-name to index mapping.
-        split_labels: Per-split image-stem to class-index mapping.
+        split_labels: Per-split image stem mapped to a class index, or to
+            a list of class indices for an image with more than one class.
         split_image_counter: Per-split image counter used for exported
             filenames.
 
@@ -62,7 +66,7 @@ class FiftyOneClassificationExporter(BaseExporter):
             dataset_identifier, output_path, max_partition_size_gb
         )
         self.class_to_idx: dict[str, int] = {}
-        self.split_labels: dict[str, dict[str, int]] = {}
+        self.split_labels: dict[str, dict[str, int | list[int]]] = {}
         self.split_image_counter: dict[str, int] = {}
 
     def get_split_names(self) -> dict[str, str]:
@@ -108,18 +112,17 @@ class FiftyOneClassificationExporter(BaseExporter):
 
             split = split_of_group(prepared_ldf, group_id)
 
-            class_name: str | None = None
-            for row in entry.iter_rows(named=True):
-                if (
-                    row["task_type"] == "classification"
+            class_ids = sorted(
+                {
+                    self.class_to_idx[str(row["class_name"])]
+                    for row in entry.iter_rows(named=True)
+                    if row["task_type"] == "classification"
                     and row["instance_id"] == -1
-                ):
-                    cname = row["class_name"]
-                    if cname:
-                        class_name = str(cname)
-                        break  # Take first classification label
+                    and row["class_name"]
+                }
+            )
 
-            if class_name is None:
+            if not class_ids:
                 continue
 
             self.split_image_counter[split] += 1
@@ -142,7 +145,9 @@ class FiftyOneClassificationExporter(BaseExporter):
 
             # Store label mapping (without extension, just the padded number)
             label_key = f"{idx:06d}"
-            self.split_labels[split][label_key] = self.class_to_idx[class_name]
+            self.split_labels[split][label_key] = (
+                class_ids[0] if len(class_ids) == 1 else class_ids
+            )
 
         self._dump_annotations(
             {"classes": sorted_classes, "split_labels": self.split_labels},
