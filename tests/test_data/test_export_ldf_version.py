@@ -317,9 +317,13 @@ def test_export_2_2_flattens_the_record_but_keeps_the_keypoint_fields(
         set(k["keypoints"]) == {"nose", "left_eye", "right_eye"}
         for k in keypoints
     )
-    with_fields = [k for k in keypoints if "edges" in k]
+    with_fields = [
+        k
+        for k in keypoints
+        if any(isinstance(v, dict) for v in k["keypoints"].values())
+    ]
     assert len(with_fields) == 1
-    assert with_fields[0]["edges"]
+    assert with_fields[0]["keypoints"]["nose"]["connected_to"] == ["left_eye"]
 
 
 def test_an_export_without_the_task_fields_still_imports(
