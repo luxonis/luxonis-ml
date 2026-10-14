@@ -288,6 +288,19 @@ def test_export_writes_the_format(
             {0: {"cat", "dog"}, 1: {"cat"}},
             id="fiftyone",
         ),
+        pytest.param(
+            DatasetType.FIFTYONECLS,
+            {
+                "train/data/a.jpg": 0,
+                "train/data/b.jpg": 1,
+                "train/labels.json": {
+                    "classes": ["cat", "dog"],
+                    "labels": {"a": [0, 1], "b": []},
+                },
+            },
+            {0: {"cat", "dog"}, 1: set()},
+            id="fiftyone-empty-list",
+        ),
     ],
 )
 def test_parse_reads_the_format(

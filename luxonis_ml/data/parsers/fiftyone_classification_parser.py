@@ -50,7 +50,8 @@ class FiftyOneClassificationParser(BaseParser):
         }
 
     A list of class indices gives the image each of these classes, as in
-    the multi-label layout of ``FiftyOneImageClassificationDataset``.
+    the multi-label layout of ``FiftyOneImageClassificationDataset``. An
+    empty list adds the image without labels.
 
     This parser supports the FiftyOne image classification export layout.
 
@@ -135,6 +136,8 @@ class FiftyOneClassificationParser(BaseParser):
                     continue
 
                 img_path = stem_to_path[image_stem]
+                if target == []:
+                    yield {"file": img_path, "annotation": None}
                 for class_idx in (
                     target if isinstance(target, list) else [target]
                 ):
