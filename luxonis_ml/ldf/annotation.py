@@ -192,7 +192,11 @@ mapping instead of a triplet, with only the keys it needs:
 .. python::
 
     "keypoints": {
-        "nose": {"x": 0.50, "y": 0.30, "sigma": 0.026},
+        "nose": {
+            "x": 0.50,
+            "y": 0.30,
+            "sigma": 0.026,
+        },
         "left_eye": {
             "x": 0.40,
             "y": 0.20,
@@ -2293,7 +2297,11 @@ def _split_task_fields(
     Example:
         >>> _split_task_fields(
         ...     {
-        ...         "a": {"x": 0.1, "y": 0.2, "connected_to": "b"},
+        ...         "a": {
+        ...             "x": 0.1,
+        ...             "y": 0.2,
+        ...             "connected_to": "b",
+        ...         },
         ...         "b": (0.3, 0.2),
         ...     }
         ... )
