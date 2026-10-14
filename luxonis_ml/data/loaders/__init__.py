@@ -116,13 +116,14 @@ Output Layouts
      - Meaning
    * - ``classification``
      - :math:`\left(C\right)`
-     - One-hot class vector.
+     - Multi-hot class vector: 1 for each class of the sample.
    * - ``boundingbox``
      - :math:`\left(N, 5\right)`
      - Rows are :math:`\left[c, x, y, w, h\right]`.
    * - ``segmentation``
      - :math:`\left(C, H, W\right)`
-     - One-hot semantic mask in channel-first layout.
+     - One-hot semantic mask in channel-first layout. Multi-hot for a task
+       in ``multilabel_tasks``.
    * - ``instance_segmentation``
      - :math:`\left(N, H, W\right)`
      - One binary mask per instance.

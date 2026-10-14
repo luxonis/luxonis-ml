@@ -232,7 +232,11 @@ Note:
     compatibility with datasets that already store masks in that format.
 
 Semantic segmentation loader output uses channel-first masks with shape
-:math:`\left(C, H, W\right)`.
+:math:`\left(C, H, W\right)`. Where the masks of a sample overlap, the first
+mask keeps the shared pixels, so each pixel has one class. In a multi-label
+task, a pixel can have more than one class: give its task name to the
+``multilabel_tasks`` argument of `luxonis_ml.data.LuxonisLoader`, and every
+mask keeps all of its pixels.
 
 
 Instance Segmentation
@@ -974,6 +978,8 @@ class SegmentationAnnotation(Annotation):
         annotations: list["SegmentationAnnotation"],
         classes: list[int],
         n_classes: int,
+        *,
+        multilabel: bool = False,
     ) -> np.ndarray:
         r"""Combine segmentation annotations into class masks.
 
@@ -981,14 +987,27 @@ class SegmentationAnnotation(Annotation):
             annotations: Segmentation annotations to combine.
             classes: Class IDs associated with the annotations.
             n_classes: Total number of known classes.
+            multilabel: Whether a pixel can have more than one class.
+                When ``False``, the **first** mask in the list keeps the
+                pixels where masks overlap. When ``True``, every mask
+                keeps all of its pixels.
 
         Returns:
             Combined semantic segmentation masks of shape
             :math:`\left(C, H, W\right)`.
 
-        Note:
-            In case of overlapping annotations,
-            the **first** mask in the list takes precedence.
+        Example:
+            >>> import numpy as np
+            >>> left = SegmentationAnnotation(mask=np.array([[1, 1, 0]]))
+            >>> right = SegmentationAnnotation(mask=np.array([[0, 1, 1]]))
+            >>> SegmentationAnnotation.combine_to_numpy(
+            ...     [left, right], [0, 1], 2
+            ... ).tolist()
+            [[[1, 1, 0]], [[0, 0, 1]]]
+            >>> SegmentationAnnotation.combine_to_numpy(
+            ...     [left, right], [0, 1], 2, multilabel=True
+            ... ).tolist()
+            [[[1, 1, 0]], [[0, 1, 1]]]
 
         """
         ref = annotations[0]
@@ -999,7 +1018,9 @@ class SegmentationAnnotation(Annotation):
 
         assigned_pixels = np.zeros((height, width), dtype=bool)
         for i, class_id in enumerate(classes):
-            mask = masks[i] & (assigned_pixels == 0)
+            mask = masks[i]
+            if not multilabel:
+                mask = mask & (assigned_pixels == 0)
             segmentation[class_id, ...] = np.maximum(
                 segmentation[class_id, ...], mask
             )

@@ -26,6 +26,7 @@ from luxonis_ml.data.datasets import (
     Annotation,
     Category,
     LuxonisDataset,
+    SegmentationAnnotation,
     UpdateMode,
     load_annotation,
 )
@@ -107,6 +108,7 @@ class LuxonisLoader(BaseLoader):
         keep_categorical_as_strings: bool = False,
         update_mode: UpdateMode | Literal["all", "missing"] = UpdateMode.ALL,
         filter_task_names: list[str] | None = None,
+        multilabel_tasks: list[str] | None = None,
         autopopulate_metadata: bool = True,
     ) -> None:
         """Create a loader for a Luxonis dataset.
@@ -142,6 +144,12 @@ class LuxonisLoader(BaseLoader):
                 Annotations and metadata are always overwritten.
             filter_task_names: Optional task names to include. If omitted,
                 all tasks are included.
+            multilabel_tasks: Optional task names whose segmentation masks
+                can overlap. In these tasks, a pixel gets every class whose
+                mask covers it, so the segmentation label is multi-hot. In
+                the other tasks, the first mask keeps the pixels where
+                masks overlap. Classification labels are multi-hot in every
+                task.
             autopopulate_metadata: Whether to add automatic sample metadata
                 such as source filenames. When enabled, returned metadata
                 includes a ``"filenames"`` dictionary keyed by source name.
@@ -153,6 +161,8 @@ class LuxonisLoader(BaseLoader):
         Raises:
             ValueError: If ``filter_task_names`` contains task names not
                 present in the dataset.
+            ValueError: If ``multilabel_tasks`` contains task names that
+                the loader does not load.
             ValueError: If ``augmentation_config`` is set without
                 ``height`` and ``width``.
             RuntimeError: If split metadata is missing.
@@ -235,6 +245,13 @@ class LuxonisLoader(BaseLoader):
                 for task_name in self._filter_task_names
                 if task_name in self._classes
             }
+
+        self._multilabel_tasks = set(multilabel_tasks or [])
+        if extras := self._multilabel_tasks - set(self._classes):
+            raise ValueError(
+                "`multilabel_tasks` contains task names that the loader "
+                f"does not load: {extras}"
+            )
 
         self._df_col_indices = {
             column: i for i, column in enumerate(self._df.columns)
@@ -548,11 +565,22 @@ class LuxonisLoader(BaseLoader):
             ]
 
             task_name, task_type = split_task(task)
-            array = anns[0].combine_to_numpy(
-                anns,
-                class_ids_by_task[task],
-                len(self._classes[task_name]),
-            )
+            if (
+                task_type == "segmentation"
+                and task_name in self._multilabel_tasks
+            ):
+                array = SegmentationAnnotation.combine_to_numpy(
+                    cast("list[SegmentationAnnotation]", anns),
+                    class_ids_by_task[task],
+                    len(self._classes[task_name]),
+                    multilabel=True,
+                )
+            else:
+                array = anns[0].combine_to_numpy(
+                    anns,
+                    class_ids_by_task[task],
+                    len(self._classes[task_name]),
+                )
             if task in self._tasks_without_background:
                 unassigned_pixels = ~np.any(array, axis=0)
                 background_idx = self._classes[task_name]["background"]
