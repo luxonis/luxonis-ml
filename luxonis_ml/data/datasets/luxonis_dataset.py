@@ -1450,10 +1450,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         """Add data to the dataset from a generator of records.
 
         The keypoints of a record can be a list or a mapping keyed by
-        keypoint name. A record can also give ``edges`` and ``sigmas``
-        beside its keypoints. The names and these fields
-        describe the whole task, so `add` moves them into the keypoint
-        metadata of the task. See `get_keypoint_metadata`.
+        keypoint name. A named keypoint can also give its ``sigma`` and
+        ``connected_to``. The names and these fields describe the whole
+        task, so `add` moves them into the keypoint metadata of the task.
+        See `get_keypoint_metadata`.
 
         The records of a task in one call must agree on these fields, and
         a later call replaces them with a warning. When the task already

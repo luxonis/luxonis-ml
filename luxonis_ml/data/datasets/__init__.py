@@ -254,9 +254,9 @@ Keypoint Metadata
 
 Each keypoint task has one `luxonis_ml.ldf.KeypointMetadata` entry. It holds
 the keypoint names, the edges between the keypoints, and the sigmas of the
-object keypoint similarity (OKS) metric. A record can give these fields
-beside its keypoints, and `LuxonisDataset.add` moves them into the entry of
-the task:
+object keypoint similarity (OKS) metric. Each keypoint of a record can give
+its part of them, and `LuxonisDataset.add` moves them into the entry of the
+task:
 
 .. python::
 
@@ -269,10 +269,17 @@ the task:
                 "keypoints": {
                     "keypoints": {
                         "nose": (0.50, 0.30, 2),
-                        "left_eye": (0.45, 0.25, 2),
-                        "right_eye": (0.55, 0.25, 2),
+                        "left_eye": {
+                            "x": 0.45,
+                            "y": 0.25,
+                            "connected_to": "nose",
+                        },
+                        "right_eye": {
+                            "x": 0.55,
+                            "y": 0.25,
+                            "connected_to": "nose",
+                        },
                     },
-                    "edges": [("nose", "left_eye"), ("nose", "right_eye")],
                 },
             },
         }

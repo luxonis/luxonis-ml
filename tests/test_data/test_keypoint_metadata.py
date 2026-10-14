@@ -69,6 +69,33 @@ def record_generator(
         }
 
 
+def with_task_fields(
+    keypoints: Keypoints, fields: dict[str, Any] | None
+) -> Keypoints | dict[str, dict[str, Any]]:
+    """Give ``edges`` and ``sigmas`` with each keypoint, as a record does.
+
+    An edge may name its ends or give their positions. A list of keypoints
+    becomes a mapping keyed by position.
+    """
+    if not fields:
+        return keypoints
+    assert set(fields) <= {"edges", "sigmas"}, fields
+    if isinstance(keypoints, dict):
+        names, values = list(keypoints), list(keypoints.values())
+    else:
+        names, values = [str(i) for i in range(len(keypoints))], keypoints
+    record: dict[str, dict[str, Any]] = {
+        name: {"x": x, "y": y, "visibility": v}
+        for name, (x, y, v) in zip(names, values, strict=True)
+    }
+    for name, sigma in zip(names, fields.get("sigmas", []), strict=False):
+        record[name]["sigma"] = sigma
+    for a, b in fields.get("edges", []):
+        ends = [names[e] if isinstance(e, int) else e for e in (a, b)]
+        record[ends[0]].setdefault("connected_to", []).append(ends[1])
+    return record
+
+
 def keypoint_generator(
     tempdir: Path,
     keypoints: Keypoints,
@@ -76,7 +103,7 @@ def keypoint_generator(
     n: int = 4,
     start: int = 0,
 ) -> DatasetIterator:
-    keypoint_annotation = {"keypoints": keypoints, **(fields or {})}
+    keypoint_annotation = {"keypoints": with_task_fields(keypoints, fields)}
     return record_generator(
         tempdir, {"keypoints": keypoint_annotation}, n=n, start=start
     )
@@ -1533,7 +1560,11 @@ def test_box_relative_keypoints_keep_the_fields_that_the_record_gives(
             tempdir,
             {
                 "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.5, "h": 0.5},
-                "keypoints": {"keypoints": NAMED_KEYPOINTS, "sigmas": sigmas},
+                "keypoints": {
+                    "keypoints": with_task_fields(
+                        NAMED_KEYPOINTS, {"sigmas": sigmas}
+                    )
+                },
                 "scale_to_boxes": True,
             },
         ),
@@ -2216,7 +2247,16 @@ def test_the_exported_task_fields_are_written_once_per_task(
         if keypoints:
             assert all(isinstance(k["keypoints"], dict) for k in keypoints)
             counts.append(
-                (len(keypoints), sum("sigmas" in k for k in keypoints))
+                (
+                    len(keypoints),
+                    sum(
+                        any(
+                            isinstance(v, dict)
+                            for v in k["keypoints"].values()
+                        )
+                        for k in keypoints
+                    ),
+                )
             )
 
     assert counts
