@@ -6,7 +6,7 @@ from pydantic import AliasChoices, Field
 from semver.version import Version
 
 from luxonis_ml.data.utils.constants import LDF_VERSION
-from luxonis_ml.ldf import KeypointMetadata
+from luxonis_ml.ldf import ClassMetadata, KeypointMetadata
 from luxonis_ml.typing import BaseModelExtraForbid
 
 from .source import LuxonisSource
@@ -23,6 +23,8 @@ class Metadata(BaseModelExtraForbid):
         keypoint_metadata: Keypoint definitions per task. A dataset written
             before LDF 2.2 stores them under ``"skeletons"``, which is
             still accepted.
+        class_metadata: What the class names of each task say about their
+            side or their direction. See `luxonis_ml.ldf.class_meaning`.
         categorical_encodings: Integer encodings for categorical metadata.
         metadata_types: Metadata value types per metadata task.
         parent_dataset: Optional identifier of the source dataset this
@@ -38,6 +40,7 @@ class Metadata(BaseModelExtraForbid):
         default_factory=dict,
         validation_alias=AliasChoices("keypoint_metadata", "skeletons"),
     )
+    class_metadata: dict[str, ClassMetadata] = {}
     categorical_encodings: dict[str, dict[str, int]] = {}
     metadata_types: dict[str, Literal["float", "int", "str", "Category"]] = {}
     parent_dataset: str | None = None
@@ -46,6 +49,35 @@ class Metadata(BaseModelExtraForbid):
     def version(self) -> Version:
         """The parsed LDF version."""
         return Version.parse(self.ldf_version, optional_minor_and_patch=True)
+
+    def add_classes(self, classes: Iterable[str], task: str) -> None:
+        """Add classes to a task, each with the next free class ID.
+
+        Unlike `set_classes`, this keeps the ID of every existing class, so
+        a model trained on the dataset keeps its class order.
+
+        Example:
+            >>> metadata = Metadata(
+            ...     source=None,
+            ...     classes={
+            ...         "hands": {
+            ...             "left": 0,
+            ...         },
+            ...     },
+            ... )
+            >>> metadata.add_classes(["right", "left"], task="hands")
+            >>> metadata.classes["hands"]
+            {'left': 0, 'right': 1}
+
+        Args:
+            classes: Class names. The names that the task has already keep
+                their IDs.
+            task: The task to add the classes to.
+
+        """
+        current = self.classes.setdefault(task, {})
+        for name in sorted(set(classes) - set(current)):
+            current[name] = max(current.values(), default=-1) + 1
 
     def set_classes(
         self, classes: list[str] | dict[str, int], task: str
@@ -150,6 +182,9 @@ class Metadata(BaseModelExtraForbid):
             classes=merged_classes,
             tasks=merged_tasks,
             keypoint_metadata=merged_keypoint_metadata,
+            class_metadata=_merge_class_metadata(
+                self.class_metadata, other.class_metadata
+            ),
             categorical_encodings=merged_categorical_encodings,
             metadata_types=merged_metadata_types,  # type: ignore
         )
@@ -209,3 +244,28 @@ def _merge_keypoint_metadata(
             "being merged in."
         )
     return theirs.filled_from(mine)
+
+
+def _merge_class_metadata(
+    mine: dict[str, ClassMetadata], theirs: dict[str, ClassMetadata]
+) -> dict[str, ClassMetadata]:
+    """Merge the class meanings of two datasets, task by task.
+
+    Each relation of the dataset that is merged in replaces the relations
+    of the target that hold one of its classes, with a warning.
+    """
+    merged = dict(mine)
+    for task, other in theirs.items():
+        current = merged.get(task)
+        if current is None:
+            merged[task] = other
+            continue
+        new = current.with_meanings(other.meanings())
+        if new.table() != {**current.table(), **other.table()}:
+            logger.warning(
+                f"Task '{task}' has different class meanings in the two "
+                "datasets being merged. Keeping the ones from the dataset "
+                "being merged in."
+            )
+        merged[task] = new
+    return merged

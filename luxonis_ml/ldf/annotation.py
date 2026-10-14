@@ -492,6 +492,7 @@ from pydantic.types import FilePath, NonNegativeInt, PositiveFloat, PositiveInt
 from pydantic_core import core_schema, to_json
 from typing_extensions import Self, deprecated, override
 
+from luxonis_ml.ldf.class_meaning import ClassMeaning
 from luxonis_ml.ldf.keypoint_positions import (
     KeypointPosition,
     missing_places,
@@ -1123,7 +1124,22 @@ class Detection(BaseModelExtraForbid):
 
     Attributes:
         class_name: optional class name for the detection. Input data may use
-            the ``"class"`` alias.
+            the ``"class"`` alias. A record can also give a mapping with
+            ``"name"`` and the meaning of the class, which then goes to
+            `class_meaning`:
+
+            .. python::
+
+                "class": {
+                    "name": "left_hand",
+                    "mirror": "right_hand",
+                }
+
+        class_meaning: What the class name says about its side or its
+            direction, from a mapping under ``"class"``. See
+            `luxonis_ml.ldf.class_meaning`. `LuxonisDataset.add` moves it
+            into the class metadata of the task, so a stored row keeps only
+            the class name.
         instance_id: Instance identifier. If not provided, the
             instance IDs will correspond to the order in which
             the detections were added to the dataset.
@@ -1196,6 +1212,7 @@ class Detection(BaseModelExtraForbid):
     class_name: str | None = Field(
         None, validation_alias=AliasChoices("class", "class_name")
     )
+    class_meaning: ClassMeaning | None = Field(default=None, exclude=True)
     instance_id: int = -1
 
     # A literal default is deep-copied into every instance, which the
@@ -1241,6 +1258,26 @@ class Detection(BaseModelExtraForbid):
             task_types.add(f"metadata/{metadata_key}")
 
         return task_types
+
+    @model_validator(mode="before")
+    @classmethod
+    def _split_class_meaning(cls, values: Any) -> Any:
+        """Split a ``class`` mapping into the name and the meaning."""
+        if not isinstance(values, Mapping):
+            return values
+        key = next((k for k in ("class", "class_name") if k in values), None)
+        given = values.get(key) if key is not None else None
+        if not isinstance(given, Mapping):
+            return values
+        given = dict(given)
+        if "name" not in given:
+            raise ValueError(
+                "A `class` mapping needs `name`, the name of the class."
+            )
+        name = given.pop("name")
+        meaning = ClassMeaning.model_validate(given)
+        meaning.check_name(name)
+        return {**values, key: name, "class_meaning": meaning}
 
     @model_validator(mode="after")
     def _validate_names(self) -> Self:

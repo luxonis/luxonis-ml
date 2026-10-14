@@ -19,6 +19,7 @@ from functools import cached_property
 from luxonis_ml.typing import BaseModelExtraForbid, Params
 
 from .annotation import KeypointMetadata
+from .class_meaning import ClassMetadata
 
 __all__ = ["SCHEMA_METADATA_KEY", "DatasetSchema"]
 
@@ -34,6 +35,8 @@ class DatasetSchema(BaseModelExtraForbid):
             with no annotation a negative for every task rather than for none.
         classes: Class IDs grouped by task name and class name.
         keypoint_metadata: Keypoint declarations grouped by task name.
+        class_metadata: What the class names of each task say about their
+            side or their direction. See `luxonis_ml.ldf.class_meaning`.
         categorical_encodings: Integer encodings of categorical metadata,
             keyed by the full metadata task.
         n_keypoints: Number of keypoints grouped by task name.
@@ -58,6 +61,7 @@ class DatasetSchema(BaseModelExtraForbid):
     tasks: dict[str, list[str]] = {}
     classes: dict[str, dict[str, int]] = {}
     keypoint_metadata: dict[str, KeypointMetadata] = {}
+    class_metadata: dict[str, ClassMetadata] = {}
     categorical_encodings: dict[str, dict[str, int]] = {}
     n_keypoints: dict[str, int] = {}
     synthesized_background: set[str] = set()

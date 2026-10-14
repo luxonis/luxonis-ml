@@ -68,6 +68,8 @@ from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.ldf import (
     ArrayAnnotation,
     Category,
+    ClassMeaning,
+    ClassMetadata,
     DatasetRecord,
     Detection,
     InstanceCounter,
@@ -1006,6 +1008,57 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         }
 
     @override
+    def set_class_metadata(
+        self,
+        task: str,
+        classes: Mapping[str, ClassMeaning | Mapping[str, Any] | None],
+    ) -> None:
+        if task not in self.get_tasks():
+            raise ValueError(
+                f"The dataset has no task '{task}'. Add its records first."
+            )
+        self._store_class_meanings(
+            task,
+            {
+                name: None
+                if meaning is None
+                else ClassMeaning.model_validate(meaning)
+                for name, meaning in classes.items()
+            },
+        )
+        self._write_metadata()
+
+    def _store_class_meanings(
+        self, task: str, meanings: Mapping[str, ClassMeaning | None]
+    ) -> list[str]:
+        """Store class meanings of a task, see `set_class_metadata`.
+
+        Returns:
+            The classes whose stored meaning changed.
+
+        """
+        current = self._metadata.class_metadata.get(task, ClassMetadata())
+        updated = current.with_meanings(meanings)
+        if updated.classes():
+            self._metadata.class_metadata[task] = updated
+            self._metadata.add_classes(updated.classes(), task=task)
+        else:
+            self._metadata.class_metadata.pop(task, None)
+        before = current.table()
+        return sorted(
+            name
+            for name, row in updated.table().items()
+            if name in before and before[name] != row
+        )
+
+    @override
+    def get_class_metadata(self) -> dict[str, ClassMetadata]:
+        return {
+            task: class_metadata.model_copy(deep=True)
+            for task, class_metadata in self._metadata.class_metadata.items()
+        }
+
+    @override
     def get_n_keypoints(self) -> dict[str, int]:
         """Return the number of keypoints for each task.
 
@@ -1557,6 +1610,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         metadata_types = {}
         num_kpts_per_task: dict[str, set[int]] = defaultdict(set)
         declared_keypoint_metadata: dict[str, KeypointMetadata] = {}
+        declared_class_meanings: dict[str, dict[str, ClassMeaning]] = (
+            defaultdict(dict)
+        )
         tasks_with_flip_pairs: set[str] = set()
         unnamed_keypoint_rows: set[tuple[str, str, str]] = set()
         sources: set[str] = set()
@@ -1582,6 +1638,20 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 classes_per_task[task_name] = set()
 
             tasks[task_name] |= ann.get_task_types()
+
+            if ann.class_meaning is not None and ann.class_name is not None:
+                earlier = declared_class_meanings[task_name].get(
+                    ann.class_name
+                )
+                if earlier is not None and earlier != ann.class_meaning:
+                    raise ValueError(
+                        f"Two records give class '{ann.class_name}' of task "
+                        f"'{task_name}' different meanings: {earlier} and "
+                        f"{ann.class_meaning}."
+                    )
+                declared_class_meanings[task_name][ann.class_name] = (
+                    ann.class_meaning
+                )
 
             if ann.keypoints is not None:
                 num_kpts_per_task[task_name].add(len(ann.keypoints.keypoints))
@@ -1706,6 +1776,13 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 self.set_classes(list(classes | old_classes), task=task)
 
         self._metadata.keypoint_metadata.update(resolved_keypoint_metadata)
+        for task, meanings in declared_class_meanings.items():
+            if changed := self._store_class_meanings(task, meanings):
+                logger.warning(
+                    f"The records of task '{task}' give classes "
+                    f"{', '.join(changed)} other meanings than the stored "
+                    "ones. Using the new meanings."
+                )
         self._metadata.categorical_encodings = dict(categorical_encodings)
         self._metadata.metadata_types = metadata_types
         # An `add` sees only the records it is given. A later one that
@@ -1948,6 +2025,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 NativeExporter,
                 {
                     "keypoint_metadata": keypoint_metadata,
+                    "class_metadata": self.get_class_metadata(),
                     "ldf_version": target_version,
                 },
             ),

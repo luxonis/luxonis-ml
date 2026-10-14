@@ -104,7 +104,7 @@ def test_such_a_task_needs_the_list_form(image: Path):
     Both readings fit, so the shorthand keeps precedence. The list form
     states the task without any doubt.
     """
-    with pytest.raises(ValidationError, match="valid string"):
+    with pytest.raises(ValidationError, match="needs `name`"):
         DatasetRecord.model_validate(
             {"media": image, "annotation": {"class": {"class": "car"}}}
         )

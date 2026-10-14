@@ -307,6 +307,72 @@ luxonis-ml cannot open it after that. `LuxonisDataset.export` with
 ``ldf_version`` writes a copy that an older luxonis-ml can import.
 
 
+Class Metadata
+==============
+
+A class can say what each turn and mirror of the image makes of it, for
+example that a ``left_hand`` becomes a ``right_hand`` after a mirror. The
+augmentation then gives each label the class it shows; see the section on
+class names in `luxonis_ml.data.augmentations`. A record gives the meaning
+with its class, as a mapping with a ``"name"``:
+
+.. python::
+
+    def hand_records():
+        yield {
+            "media": "path/to/image.jpg",
+            "annotation": {
+                "hands": {
+                    "class": {
+                        "name": "left_hand",
+                        "mirror": "right_hand",
+                    },
+                    "boundingbox": {
+                        "x": 0.1,
+                        "y": 0.4,
+                        "w": 0.2,
+                        "h": 0.2,
+                    },
+                },
+            },
+        }
+
+    dataset.add(hand_records())
+    dataset.get_classes()["hands"]
+    # {"left_hand": 0, "right_hand": 1}
+
+`LuxonisDataset.add` moves the meanings into one
+`luxonis_ml.ldf.ClassMetadata` entry for each task, and
+`LuxonisDataset.get_class_metadata` returns them. Each record of a class
+needs to give its meaning only once, but two records that give one class
+different meanings are an error. A class that a meaning names, such as
+``right_hand`` above, joins the classes of the task, with the next free
+class ID, also before a record shows it. The meanings of a later
+`LuxonisDataset.add` replace the stored ones, with a warning.
+
+`LuxonisDataset.set_class_metadata` sets the meanings without records.
+It takes the same mapping without ``"name"``, and ``None`` removes the
+meaning of a class:
+
+.. python::
+
+    dataset.set_class_metadata(
+        task="digits",
+        classes={
+            "digit_6": {
+                "upright": True,
+            },
+            "digit_9": None,
+        },
+    )
+
+`LuxonisDataset.merge_with` keeps the meanings of both datasets. When both
+give a class different meanings, the meaning of the dataset that is merged
+in wins, with a warning. A native export writes the meanings to the
+``metadata.json`` of the export, and `LuxonisParser` reads them back. An
+export to LDF 2 and the COCO and YOLO exports leave them out.
+
+
 Class Ordering
 ==============
 

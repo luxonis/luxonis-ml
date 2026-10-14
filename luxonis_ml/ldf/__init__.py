@@ -12,6 +12,12 @@ task. `LuxonisDataset.add` moves these task-level fields into one
 `KeypointMetadata` for each task, and `LuxonisDataset.get_keypoint_metadata`
 returns them.
 
+The ``class`` of a `Detection` can be a mapping that gives the name and
+what each turn and mirror of the image makes of the class, as a
+`ClassMeaning`. `LuxonisDataset.add` moves these meanings into one
+`ClassMetadata` for each task. See `luxonis_ml.ldf.class_meaning` for the
+forms and their limits.
+
 Example:
     Build a record with a single bounding box annotation. The referenced
     file has to exist -- `DatasetRecord` validates it and stores it as an
@@ -73,6 +79,12 @@ with guard_missing_extra("ldf"):
         SegmentationAnnotation,
         load_annotation,
     )
+    from .class_meaning import (
+        ClassMeaning,
+        ClassMetadata,
+        Direction,
+        SquareSymmetry,
+    )
     from .keypoint_positions import KeypointPosition
     from .parquet import ParquetRecord
     from .schema import SCHEMA_METADATA_KEY, DatasetSchema
@@ -83,10 +95,13 @@ __all__ = [
     "ArrayAnnotation",
     "BBoxAnnotation",
     "Category",
+    "ClassMeaning",
+    "ClassMetadata",
     "ClassificationAnnotation",
     "DatasetRecord",
     "DatasetSchema",
     "Detection",
+    "Direction",
     "InstanceCounter",
     "InstanceSegmentationAnnotation",
     "Keypoint",
@@ -99,5 +114,6 @@ __all__ = [
     "ParquetRecord",
     "PathOrArray",
     "SegmentationAnnotation",
+    "SquareSymmetry",
     "load_annotation",
 ]

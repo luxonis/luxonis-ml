@@ -1,12 +1,18 @@
 from abc import ABC, abstractmethod
 from collections.abc import Iterator, Mapping, Sequence
-from typing import TypeAlias
+from typing import Any, TypeAlias
 
 from semver.version import Version
 from typing_extensions import deprecated
 
 from luxonis_ml.data.datasets.source import LuxonisSource
-from luxonis_ml.ldf import DatasetRecord, KeypointMetadata, KeypointPosition
+from luxonis_ml.ldf import (
+    ClassMeaning,
+    ClassMetadata,
+    DatasetRecord,
+    KeypointMetadata,
+    KeypointPosition,
+)
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
@@ -197,6 +203,74 @@ class BaseDataset(
 
         """
         ...
+
+    def set_class_metadata(
+        self,
+        task: str,
+        classes: Mapping[str, ClassMeaning | Mapping[str, Any] | None],
+    ) -> None:
+        """Set what class names of a task say about their side or direction.
+
+        Each class takes a meaning in the form that a record gives under
+        ``"class"``, without ``"name"``. See `luxonis_ml.ldf.class_meaning`
+        for the four forms. A new meaning replaces each meaning that holds
+        a class it names, and ``None`` removes the meaning of a class.
+        Every class that a meaning names joins the classes of the task,
+        with the next free class ID; the IDs of the other classes stay.
+
+        For example, the left and the right hand swap after every mirror
+        of the image, and a digit 6 needs the image as it is:
+
+        .. python::
+
+            dataset.set_class_metadata(
+                task="hands",
+                classes={
+                    "left_hand": {
+                        "mirror": "right_hand",
+                    },
+                },
+            )
+            dataset.set_class_metadata(
+                task="digits",
+                classes={
+                    "digit_6": {
+                        "upright": True,
+                    },
+                },
+            )
+
+        To remove the meaning of the hands again:
+
+        .. python::
+
+            dataset.set_class_metadata(
+                task="hands",
+                classes={
+                    "left_hand": None,
+                },
+            )
+
+        Args:
+            task: The task of the classes.
+            classes: The meaning of each class, or ``None`` to remove it.
+
+        Raises:
+            ValueError: If the dataset has no such task, if a meaning does
+                not fit its class, or if two meanings name one class.
+
+        """
+        raise NotImplementedError
+
+    def get_class_metadata(self) -> dict[str, ClassMetadata]:
+        """Return what the class names of each task say.
+
+        Returns:
+            Copies of the class metadata, keyed by task name. A task
+            without class meanings has no entry.
+
+        """
+        raise NotImplementedError
 
     @abstractmethod
     def get_keypoint_metadata(self) -> dict[str, KeypointMetadata]:
