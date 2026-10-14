@@ -1111,7 +1111,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         """Return the places in the picture of a keypoint target's task."""
         task_group = self._target_names_to_task_groups[target_name]
         metadata = self._keypoint_metadata.get(task_group)
-        return list(metadata.picture) if metadata is not None else []
+        return list(metadata.position) if metadata is not None else []
 
     def _n_probes(self, target_name: str) -> int:
         """Return how many probe rows each instance of a target carries."""

@@ -6,7 +6,7 @@ from semver.version import Version
 from typing_extensions import deprecated
 
 from luxonis_ml.data.datasets.source import LuxonisSource
-from luxonis_ml.ldf import DatasetRecord, KeypointMetadata, PicturePlace
+from luxonis_ml.ldf import DatasetRecord, KeypointMetadata, KeypointPosition
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
@@ -122,7 +122,7 @@ class BaseDataset(
         flip_pairs: list[KeypointPair] | None = None,
         sigmas: list[float] | None = None,
         infer_flip_pairs: bool | None = None,
-        picture: Sequence[PicturePlace | None] | None = None,
+        position: Sequence[KeypointPosition | None] | None = None,
     ) -> None:
         """Set the keypoint metadata of one task or of every task.
 
@@ -181,7 +181,7 @@ class BaseDataset(
                   with keypoint metadata.
                 - ``False`` infers none.
 
-            picture: Optional `PicturePlace` of each keypoint in label
+            position: Optional `KeypointPosition` of each keypoint in label
                 order, ``None`` for a keypoint without one. A keypoint with
                 a place takes the name of the place where it is after any
                 augmentation. The places form full sets: all four corners,

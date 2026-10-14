@@ -1131,7 +1131,7 @@ def test_placeholders_are_still_generated(dataset_name: str, tempdir: Path):
             "edges": [[0, 1]],
             "flip_pairs": [],
             "sigmas": [],
-            "picture": [],
+            "position": [],
         }
     }
 
