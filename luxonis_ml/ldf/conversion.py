@@ -33,10 +33,8 @@ from .annotation import (
     DatasetRecord,
     Detection,
     InstanceSegmentationAnnotation,
-    Keypoint,
     KeypointAnnotation,
     SegmentationAnnotation,
-    _is_positional,
 )
 from .schema import SCHEMA_METADATA_KEY, DatasetSchema
 from .tasks import get_task_group, get_task_type
@@ -153,22 +151,9 @@ def labels_to_record(
         One record holding every detection the labels describe.
 
     """
-    # The schema tells the parts of a key apart. The string helpers read
-    # "metadata/boundingbox" as a metadata field, but it is the box of a
-    # task named "metadata". A label of a task that the schema does not
-    # list still needs them.
-    known_keys = {
-        f"{task_name}/{task_type}": (task_name, task_type)
-        for task_name, task_types in schema.tasks.items()
-        for task_type in task_types
-    }
     by_task: dict[str, dict[str, np.ndarray]] = defaultdict(dict)
     for key, array in labels.items():
-        task_name, task_type = known_keys.get(key) or (
-            get_task_group(key),
-            get_task_type(key),
-        )
-        by_task[task_name][task_type] = array
+        by_task[get_task_group(key)][get_task_type(key)] = array
 
     annotations = {
         task_name: _build_detections(
@@ -306,8 +291,6 @@ def _build_label(
             annotation = getattr(detection, task_type, None)
         if annotation is None:
             continue
-        if isinstance(annotation, KeypointAnnotation):
-            annotation = _fit_keypoints(annotation, task_name, schema)
         annotations.append(annotation)
         class_ids.append(
             0
@@ -320,31 +303,6 @@ def _build_label(
     return annotations[0].combine_to_numpy(
         annotations, class_ids, schema.n_classes(task_name)
     )
-
-
-def _fit_keypoints(
-    annotation: KeypointAnnotation, task_name: str, schema: DatasetSchema
-) -> KeypointAnnotation:
-    """Lay out the keypoints as the loader reads them back.
-
-    `LuxonisDataset.add` puts named keypoints in the order of the task
-    labels, and it gives a missing name ``(0, 0, 0)``. The loader pads a
-    short positional row to the keypoint count of the task. It keeps a
-    wider row as it is, because `LuxonisDataset.set_keypoint_metadata` can
-    give a task fewer names than a stored row has.
-    """
-    keypoints = annotation.keypoints
-    if _is_positional(keypoints):
-        n_missing = schema.n_keypoints.get(task_name, 0) - len(keypoints)
-        if n_missing <= 0:
-            return annotation
-        values = [*keypoints.values(), *[Keypoint(0.0, 0.0, 0)] * n_missing]
-        fitted = {str(i): keypoint for i, keypoint in enumerate(values)}
-    elif task_name in schema.keypoint_metadata:
-        fitted = schema.keypoint_metadata[task_name].align(keypoints)
-    else:
-        return annotation
-    return annotation.model_copy(update={"keypoints": fitted})
 
 
 def _build_metadata_label(

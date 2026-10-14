@@ -75,7 +75,7 @@ class YoloV4Parser(BaseParser):
             classes_path: File with class names.
 
         Returns:
-            Parser output containing annotation records, keypoint metadata,
+            Parser output containing annotation records, skeleton metadata,
             and added images.
 
         """

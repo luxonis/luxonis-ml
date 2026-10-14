@@ -316,7 +316,7 @@ class YOLOv8Parser(BaseParser):
             classes_path: YAML file with class names.
 
         Returns:
-            Parser output containing annotation records, keypoint metadata,
+            Parser output containing annotation records, skeleton metadata,
             and added images.
 
         """

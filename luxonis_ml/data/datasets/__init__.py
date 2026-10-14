@@ -3,7 +3,7 @@ r"""Dataset handles, records, metadata, and storage abstractions for LDF.
 This package owns the persistent Luxonis Data Format (LDF) dataset contract.
 The primary entry point is `LuxonisDataset`, which creates or opens a dataset
 and provides methods for adding records, defining splits, setting class order
-and keypoint metadata, merging or cloning datasets, exporting datasets, and
+and keypoint skeletons, merging or cloning datasets, exporting datasets, and
 synchronizing remote media.
 
 The exact annotation payload schemas live in `luxonis_ml.ldf.annotation`.
@@ -184,7 +184,7 @@ LUXONISML_TEAM_ID / datasets / dataset_name``. The default base path is
        original files.
    * - ``metadata/metadata.json``
      - Dataset metadata, source descriptors, class mappings, task metadata,
-       categorical encodings, keypoint metadata, and LDF version metadata.
+       categorical encodings, skeleton definitions, and LDF version metadata.
    * - ``metadata/splits.json``
      - Mapping from split names to dataset sample identifiers.
 
@@ -247,64 +247,6 @@ Important:
     Annotation shards and metadata are always synchronized. Media update mode
     controls whether all media files or only missing media files are
     transferred.
-
-
-Keypoint Metadata
-=================
-
-Each keypoint task has one `luxonis_ml.ldf.KeypointMetadata` entry. It holds
-the keypoint names, the edges between the keypoints, the mirror partners,
-the places in the picture, and the sigmas of the object keypoint similarity
-(OKS) metric. A record gives them with its keypoints, and
-`LuxonisDataset.add` moves them into the entry of the task:
-
-.. python::
-
-    def pose_records():
-        yield {
-            "media": "path/to/image.jpg",
-            "annotation": {
-                "pose": {
-                    "class": "person",
-                    "keypoints": {
-                        "keypoints": {
-                            "nose": (0.50, 0.30, 2),
-                            "left_eye": {
-                                "x": 0.55,
-                                "y": 0.25,
-                                "connected_to": "nose",
-                                "mirror": "right_eye",
-                            },
-                            "right_eye": (0.45, 0.25, 2),
-                        },
-                    },
-                },
-            },
-        }
-
-    dataset.add(pose_records())
-    dataset.get_keypoint_metadata()["pose"].flip_pairs  # [(1, 2)]
-
-When no record names a mirror partner, `LuxonisDataset.add` infers the
-partners from the ``left``/``right`` names. The augmentation then swaps the
-partners after every mirror of the picture; see the section on keypoint
-names in `luxonis_ml.data.augmentations`.
-`LuxonisDataset.set_keypoint_metadata` sets the fields without records.
-
-A dataset from LDF 2.0 or 2.1 stores its keypoint names and edges under
-``skeletons``. It opens without a change, and reading it does not rewrite
-it. It has no mirror partners, so a flip swaps its left and right keypoints
-only when the augmentation configuration gives ``keypoint_pairs``. To infer
-the partners from the stored names, call:
-
-.. python::
-
-    dataset.set_keypoint_metadata(infer_flip_pairs=True)
-
-The first metadata write of such a dataset with keypoints, for example this
-call or `LuxonisDataset.add`, moves it to the current LDF version. An older
-luxonis-ml cannot open it after that. `LuxonisDataset.export` with
-``ldf_version`` writes a copy that an older luxonis-ml can import.
 
 
 Class Ordering

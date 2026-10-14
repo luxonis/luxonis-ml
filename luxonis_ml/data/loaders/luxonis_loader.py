@@ -251,6 +251,7 @@ class LuxonisLoader(BaseLoader):
         self._df = self.dataset._load_df_offline(raise_when_empty=True)
         self._classes = self.dataset.get_classes()
 
+        # Cached because every loaded sample reads it.
         self._keypoint_metadata = self.dataset.get_keypoint_metadata()
 
         if self._filter_task_names is not None:
@@ -392,13 +393,10 @@ class LuxonisLoader(BaseLoader):
         it as plain data, in ``metadata["schema"]["keypoint_metadata"]``.
 
         Returns:
-            Copies of the keypoint metadata keyed by task name.
+            Keypoint metadata keyed by task name.
 
         """
-        return {
-            task: task_keypoints.model_copy(deep=True)
-            for task, task_keypoints in self._keypoint_metadata.items()
-        }
+        return dict(self._keypoint_metadata)
 
     @override
     def __getitem__(self, idx: int) -> LoaderOutput:
@@ -594,10 +592,15 @@ class LuxonisLoader(BaseLoader):
                     data["height"] = sample_img.shape[0]
                     data["points"] = [tuple(p) for p in data["points"]]
 
+                # Only labels define row width. Legacy edges can point past
+                # the keypoints that a row actually stores.
+                task_keypoints = self._keypoint_metadata.get(task_name)
                 fields[task_type] = load_annotation(
                     task_type,  # type: ignore[arg-type]
                     data,
-                    n_keypoints=self._schema.n_keypoints.get(task_name),
+                    n_keypoints=(
+                        len(task_keypoints.labels) if task_keypoints else None
+                    ),
                 )
 
         # `load_annotation` validated every label, and the write path the
@@ -830,12 +833,15 @@ class LuxonisLoader(BaseLoader):
             "min_bbox_visibility": min_bbox_visibility,
             "bbox_area_threshold": bbox_area_threshold,
         }
-        parameters = inspect.signature(engine_cls.__init__).parameters
-        if "keypoint_metadata" in parameters:
-            init_kwargs["keypoint_metadata"] = self._keypoint_metadata
-        if "pipeline_stage" in parameters:
+        if (
+            "pipeline_stage"
+            in inspect.signature(engine_cls.__init__).parameters
+        ):
             init_kwargs["pipeline_stage"] = pipeline_stage
-        elif "is_validation_pipeline" in parameters:
+        elif (
+            "is_validation_pipeline"
+            in inspect.signature(engine_cls.__init__).parameters
+        ):
             # Backward compatibility for custom engines still using
             # the older `is_validation_pipeline` train-vs-eval boolean API.
             init_kwargs["is_validation_pipeline"] = pipeline_stage != "train"

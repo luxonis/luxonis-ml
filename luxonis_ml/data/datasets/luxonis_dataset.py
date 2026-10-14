@@ -16,7 +16,6 @@ import polars as pl
 import rich.progress
 from filelock import FileLock
 from loguru import logger
-from pydantic_core import to_json
 from rich.progress import Progress
 from semver.version import Version
 from typing_extensions import Self, override
@@ -71,9 +70,8 @@ from luxonis_ml.ldf import (
     DatasetRecord,
     Detection,
     InstanceCounter,
-    Keypoint,
+    KeypointAnnotation,
     KeypointMetadata,
-    PicturePlace,
     load_annotation,
 )
 from luxonis_ml.typing import PathType
@@ -441,14 +439,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     ) -> "LuxonisDataset":
         """Merge another dataset into this or a new dataset.
 
-        When both datasets name the keypoints of a task, the names must
-        be the same, in any order. The names ``"0"``, ``"1"``, ... that
-        `add` gives keypoints without names count as names. The merged
-        dataset keeps the keypoint order of this dataset, and the
-        keypoints of ``other`` move to that order. When both datasets set
-        a keypoint field differently, the value of ``other`` wins, with a
-        warning.
-
         Args:
             other: Dataset to merge into this dataset.
             inplace: Whether to merge into this dataset. If ``False``, a
@@ -466,8 +456,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             ValueError: If ``inplace`` is ``False`` but no name for the new
                 dataset is provided.
             ValueError: If the datasets have different major LDF versions.
-            ValueError: If the datasets give a task different keypoint
-                names.
 
         """
         if not (inplace or new_dataset_name):
@@ -710,7 +698,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         lazy_frames = []
         for file in files:
             lazy_frame = pl.scan_parquet(str(file))
-            if "sample_metadata" not in lazy_frame.collect_schema():
+            if "sample_metadata" not in lazy_frame.schema:
                 lazy_frame = lazy_frame.with_columns(
                     pl.lit(DEFAULT_METADATA).alias("sample_metadata")
                 )
@@ -808,7 +796,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         return processed
 
     def _write_metadata(self) -> None:
-        """Write the metadata file locally and to the remote copy."""
         # `keypoint_metadata` is new in LDF 2.2 and `Metadata` forbids
         # extra fields. A dataset without keypoints must not carry the
         # key, or an older luxonis-ml refuses to open it. An empty entry
@@ -940,7 +927,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         flip_pairs: list[KeypointPair] | None = None,
         sigmas: list[float] | None = None,
         infer_flip_pairs: bool | None = None,
-        picture: Sequence[PicturePlace | None] | None = None,
     ) -> None:
         updates = {
             field: value
@@ -949,14 +935,13 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 ("edges", edges),
                 ("flip_pairs", flip_pairs),
                 ("sigmas", sigmas),
-                ("picture", picture),
             )
             if value is not None
         }
-        if not updates and not infer_flip_pairs:
+        if not updates:
             raise ValueError(
                 "Must provide either keypoint names, edges, flip pairs, "
-                "sigmas or places in the picture, or `infer_flip_pairs=True`"
+                "or sigmas"
             )
 
         tasks = self.get_task_names() if task is None else [task]
@@ -964,8 +949,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         updated: dict[str, KeypointMetadata] = {}
         for t in tasks:
             current = self._metadata.keypoint_metadata.get(t)
-            if current is None and not updates:
-                continue
             kept = {}
             if current is not None and not _renames_keypoints(current, labels):
                 # Names for placeholder keypoints keep the stored fields,
@@ -1000,17 +983,15 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
     @override
     def get_keypoint_metadata(self) -> dict[str, KeypointMetadata]:
-        return {
-            task: task_keypoints.model_copy(deep=True)
-            for task, task_keypoints in self._metadata.keypoint_metadata.items()
-        }
+        return dict(self._metadata.keypoint_metadata)
 
     @override
     def get_n_keypoints(self) -> dict[str, int]:
         """Return the number of keypoints for each task.
 
         A task without labels counts the keypoints of its widest stored
-        row.
+        row. Edges cannot give the count, because they need not reach the
+        last keypoint.
 
         Returns:
             Number of keypoints keyed by task name.
@@ -1462,22 +1443,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     ) -> Self:
         """Add data to the dataset from a generator of records.
 
-        The keypoints of a record can be a list or a mapping keyed by
-        keypoint name. A record can also give ``edges``, ``flip_pairs``
-        and ``sigmas`` beside its keypoints. The names and these fields
-        describe the whole task, so `add` moves them into the keypoint
-        metadata of the task. See `get_keypoint_metadata`.
-
-        The records of a task in one call must agree on these fields, and
-        a later call replaces them with a warning. When the task already
-        has names, a record can give a subset of them in any order.
-        `luxonis_ml.ldf.annotation` describes how the missing keypoints are
-        padded, how keypoints without names are numbered, and when flip
-        pairs are inferred.
-
-        The first write to an LDF 2.0 or 2.1 dataset with keypoints moves
-        it to the current LDF version. See `luxonis_ml.data.datasets`.
-
         Args:
             generator: The generator should yield either
                 dictionaries that can be converted to
@@ -1536,15 +1501,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 to storage. Larger batch sizes may be more efficient but will
                 use more memory.
 
-        Returns:
-            This dataset.
-
         Raises:
             ValueError: If the records yielded by the generator are not in the expected format.
             ValueError: If the dataset contains metadata annotations with conflicting types.
-            ValueError: If the keypoints or the keypoint fields of a record
-                do not fit the keypoint metadata of its task, or if two
-                records of a task give different keypoint fields.
 
         """
         logger.info(f"Adding data to dataset '{self._dataset_name}'...")
@@ -1705,7 +1664,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
                 self.set_classes(list(classes | old_classes), task=task)
 
-        self._metadata.keypoint_metadata.update(resolved_keypoint_metadata)
+        if num_kpts_per_task:
+            self._metadata.keypoint_metadata.update(resolved_keypoint_metadata)
+            self._write_metadata()
+
         self._metadata.categorical_encodings = dict(categorical_encodings)
         self._metadata.metadata_types = metadata_types
         # An `add` sees only the records it is given. A later one that
@@ -1918,11 +1880,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 ``{dataset_name}_part{partition_number}``.
             zip_output: Whether to zip the exported dataset or each
                 partition after export.
-            ldf_version: LDF version to write: ``"2.2"``, ``"2.1"`` or
-                ``"2.0"``. luxonis-ml 0.9 to 0.10 reads LDF 2.1, and
-                luxonis-ml 0.6 to 0.8 reads LDF 2.0. Native format only.
-                Defaults to the version this installation writes.
-                Downgrading is lossy and warns about what it drops.
+            ldf_version: LDF version to write, for example ``"2.0"``, so
+                the export can be read by an older luxonis-ml. Native
+                format only. Defaults to the version this installation
+                writes. Downgrading is lossy and warns about what it drops.
 
         Returns:
             Export directory, or ZIP archive paths when ``zip_output`` is
@@ -1941,7 +1902,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 f"not '{dataset_type}'."
             )
         target_version = resolve_export_version(ldf_version)
-        keypoint_metadata = self.get_keypoint_metadata()
+        keypoint_metadata = self.metadata.keypoint_metadata
 
         EXPORTER_MAP: dict[DatasetType, ExporterSpec] = {
             DatasetType.NATIVE: ExporterSpec(
@@ -2362,9 +2323,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         A keypoint task with no keypoint metadata gets placeholder names
         and chain edges. The placeholder fields grow with the keypoint
-        count, and an explicit value survives an `add`. A task with stored
-        names is not in the result when its records describe no keypoint
-        metadata.
+        count, and an explicit value survives an `add`. A task that keeps
+        its stored names is not in the result.
 
         Args:
             num_kpts_per_task: The numbers of keypoints in the records of
@@ -2493,7 +2453,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         """Return the keypoint count of the widest stored row of each task.
 
         The result holds only the tasks without stored labels. The labels
-        of the other tasks cover their rows.
+        of the other tasks cover their rows. A call with empty labels
+        removes the labels of a task. An older luxonis-ml also stored tasks
+        without labels.
         """
         df = self._load_df_offline(lazy=True)
         if df is None:
@@ -2519,8 +2481,6 @@ def _in_stored_order(
     Raises:
         ValueError: If the record names its keypoints, but the stored
             names of the task repeat.
-        ValueError: If the record names a keypoint that the stored names
-            lack, or gives sigmas for only some of the stored names.
 
     """
     if not declared.labels or stored is None:
@@ -2561,9 +2521,6 @@ def _in_keypoint_order(
     Returns:
         The rows in the keypoint order of ``target``.
 
-    Raises:
-        ValueError: If a row has more keypoints than its task has names.
-
     """
     moved = {
         task: entry.labels
@@ -2572,26 +2529,16 @@ def _in_keypoint_order(
     }
     if not moved:
         return df
-    # `Metadata.merge_with` moves only the same names, so each target name
-    # has one source column.
-    orders = {
-        task: [labels.index(label) for label in target[task].labels]
-        for task, labels in moved.items()
-    }
 
     def move(task: str, annotation: str) -> str:
-        order = orders[task]
-        keypoints = json.loads(annotation)["keypoints"]
-        if len(keypoints) > len(order):
-            raise ValueError(
-                f"Task '{task}' has a row with {len(keypoints)} keypoints, "
-                f"but only {len(order)} keypoint names."
-            )
-        # The loader pads a short row the same way.
-        keypoints += [list(Keypoint(0.0, 0.0, 0))] * (
-            len(order) - len(keypoints)
+        labels = moved[task]
+        keypoints = KeypointAnnotation.model_validate_json(
+            annotation, context={"n_keypoints": len(labels)}
+        ).keypoints
+        named = dict(zip(labels, keypoints.values(), strict=True))
+        return KeypointAnnotation(keypoints=named).to_parquet_json(
+            target[task]
         )
-        return to_json({"keypoints": [keypoints[i] for i in order]}).decode()
 
     annotations = [
         move(task, annotation)
@@ -2644,18 +2591,15 @@ def _fill_in_flip_pairs(
     """Infer flip pairs from the keypoint names when none are known.
 
     Only a write path infers them, never a read path. A read path would
-    give flip pairs to a dataset that never asked for them. A keypoint with
-    a place in the picture gets no partner: its name follows the picture,
-    not a side of the object.
+    give flip pairs to a dataset that never asked for them.
 
     Args:
         keypoint_metadata: The new keypoint metadata of the task.
         stored: The stored keypoint metadata of the task.
         infer: ``True`` infers flip pairs for all names, and ``False``
-            infers none. ``None`` infers them only when the names of the
-            task change, or when the task has no stored entry. The stored
-            entry does not record that the inference is off, so its empty
-            list can mean that.
+            infers none. ``None`` infers them only for names that are new
+            to the task. The stored entry does not record that the
+            inference is off, so its empty list can mean that.
 
     """
     labels = keypoint_metadata.labels
@@ -2663,13 +2607,9 @@ def _fill_in_flip_pairs(
         infer = stored is None or stored.labels != labels
     if not infer or keypoint_metadata.flip_pairs:
         return keypoint_metadata
-    placed = {i for i, place in enumerate(keypoint_metadata.picture) if place}
-    pairs = [
-        (a, b)
-        for a, b in KeypointMetadata.infer_flip_pairs(labels)
-        if a not in placed and b not in placed
-    ]
-    return keypoint_metadata.model_copy(update={"flip_pairs": pairs})
+    return keypoint_metadata.model_copy(
+        update={"flip_pairs": KeypointMetadata.infer_flip_pairs(labels)}
+    )
 
 
 def _renames_keypoints(

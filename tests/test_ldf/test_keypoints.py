@@ -317,7 +317,7 @@ def test_referring_by_name_without_labels_is_an_error():
 
 
 def test_an_unknown_name_in_an_edge_is_an_error():
-    with pytest.raises(pydantic.ValidationError, match="not part of the task"):
+    with pytest.raises(pydantic.ValidationError, match="Unknown keypoint"):
         KeypointMetadata.model_validate(
             {"labels": ["nose"], "edges": [("nose", "left_eye")]}
         )
@@ -532,7 +532,6 @@ def test_every_field_is_serialized():
         "edges": [[0, 1]],
         "flip_pairs": [[0, 1]],
         "sigmas": [0.1, 0.2],
-        "picture": [],
     }
 
 

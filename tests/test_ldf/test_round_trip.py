@@ -208,26 +208,6 @@ def test_arrays_keep_their_data(tempdir: Path):
     assert detection.array.to_numpy().tolist() == [1.0, 2.0, 3.0]
 
 
-def test_an_array_without_a_class_keeps_its_data():
-    # A depth map or an embedding often has no class. Its task then counts
-    # no classes, and the loader still needs one slot to put the data in.
-    schema = DatasetSchema(tasks={"depth": ["array"]})
-    record = DatasetRecord.model_validate(
-        {
-            "media": IMAGE,
-            "annotation": {
-                "depth": [{"array": {"data": np.full((4, 4), 2.5)}}]
-            },
-        }
-    )
-
-    (detection,) = roundtrip(record, schema).annotation["depth"]
-
-    assert detection.class_name is None
-    assert detection.array is not None
-    assert detection.array.to_numpy().tolist() == np.full((4, 4), 2.5).tolist()
-
-
 @pytest.mark.parametrize("keep_categorical_as_strings", [False, True])
 def test_metadata_stays_with_its_own_instance(
     keep_categorical_as_strings: bool,
@@ -731,35 +711,3 @@ def test_a_named_task_is_not_nested_under_the_default_task():
     assert set(rebuilt.annotation) == {"", "vehicles"}
     assert rebuilt.annotation["vehicles"][0].class_name == "car"
     assert rebuilt.annotation[""][0].sub_detections == {}
-
-
-def test_a_task_named_metadata_keeps_its_boxes():
-    """``"metadata/boundingbox"`` is the box of a task named ``metadata``.
-
-    Without the schema, the key also reads as the ``boundingbox``
-    metadata of a task, and the box came back as a metadata string.
-    """
-    schema = DatasetSchema(
-        tasks={"metadata": ["boundingbox", "classification"]},
-        classes={"metadata": {"car": 0}},
-    )
-    record = DatasetRecord.model_validate(
-        {
-            "media": IMAGE,
-            "annotation": {
-                "metadata": [
-                    {"class": "car", "boundingbox": box(0.1, 0.2, 0.3, 0.4)}
-                ]
-            },
-        }
-    )
-
-    rebuilt = roundtrip(record, schema)
-
-    assert set(rebuilt.annotation) == {"metadata"}
-    (detection,) = rebuilt.annotation["metadata"]
-    assert detection.class_name == "car"
-    assert detection.metadata == {}
-    assert (
-        detection.boundingbox == record.annotation["metadata"][0].boundingbox
-    )
