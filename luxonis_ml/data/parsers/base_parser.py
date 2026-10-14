@@ -187,9 +187,10 @@ class BaseParser(ABC):
         Returns:
             LDF generator, keypoint metadata, and added images. The
             keypoint metadata maps a class name to a dictionary with the
-            optional keys ``"labels"``, ``"edges"``, ``"flip_pairs"`` and
-            ``"sigmas"``. It accepts no other keys. An empty dictionary
-            defines no keypoint metadata.
+            optional keys ``"labels"``, ``"edges"`` and ``"sigmas"``. It
+            accepts no other keys. Each value takes the form of the argument
+            of the same name of `LuxonisDataset.set_keypoint_metadata`. An
+            empty dictionary defines no keypoint metadata.
 
         """
         ...
@@ -224,7 +225,6 @@ class BaseParser(ABC):
                 metadata.get("labels"),
                 metadata.get("edges"),
                 task=tasks[class_name] or infer_task("", class_name, classes),
-                flip_pairs=metadata.get("flip_pairs"),
                 sigmas=metadata.get("sigmas"),
             )
         return added_images

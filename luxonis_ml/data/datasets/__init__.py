@@ -253,10 +253,10 @@ Keypoint Metadata
 =================
 
 Each keypoint task has one `luxonis_ml.ldf.KeypointMetadata` entry. It holds
-the keypoint names, the edges between the keypoints, the flip pairs that a
-horizontal flip swaps, and the sigmas of the object keypoint similarity (OKS)
-metric. A record can give these fields beside its keypoints, and
-`LuxonisDataset.add` moves them into the entry of the task:
+the keypoint names, the edges between the keypoints, and the sigmas of the
+object keypoint similarity (OKS) metric. A record can give these fields
+beside its keypoints, and `LuxonisDataset.add` moves them into the entry of
+the task:
 
 .. python::
 
@@ -278,26 +278,17 @@ metric. A record can give these fields beside its keypoints, and
         }
 
     dataset.add(pose_records())
-    dataset.get_keypoint_metadata()["pose"].flip_pairs  # [(1, 2)]
+    dataset.get_keypoint_metadata()["pose"].edges  # [(0, 1), (0, 2)]
 
-`LuxonisDataset.add` infers the flip pairs from the ``left``/``right`` names.
 `LuxonisDataset.set_keypoint_metadata` sets the fields without records.
 
 A dataset from LDF 2.0 or 2.1 stores its keypoint names and edges under
 ``skeletons``. It opens without a change, and reading it does not rewrite
-it. It has no flip pairs, so a horizontal flip swaps its left and right
-keypoints only when the augmentation configuration gives ``keypoint_pairs``.
-To infer the flip pairs from the stored names, call:
-
-.. python::
-
-    dataset.set_keypoint_metadata(infer_flip_pairs=True)
-
-The first metadata write of such a dataset with keypoints, for example this
-call or `LuxonisDataset.add`, moves it to the current LDF version. An older
-luxonis-ml cannot open it after that. `LuxonisDataset.export` with
-``ldf_version`` writes a copy that an older luxonis-ml can import.
-
+it. The first metadata write of such a dataset with keypoints, for example
+`LuxonisDataset.add` or `LuxonisDataset.set_keypoint_metadata`, moves it to
+the current LDF version. An older luxonis-ml cannot open it after that.
+`LuxonisDataset.export` with ``ldf_version`` writes a copy that an older
+luxonis-ml can import.
 
 Class Ordering
 ==============

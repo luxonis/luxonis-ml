@@ -6,10 +6,10 @@ luxonis-ml fails to validate on an older install -- LDF 2.1 added
 version therefore drops every field introduced above it.
 
 Annotations forbid extra fields as well, so the same holds one level
-down: LDF 2.2 added ``edges``, ``flip_pairs`` and ``sigmas`` to a keypoint
-annotation. LDF 2.2 also keys the keypoints by name. An older version reads
-only a list, so the downgrade turns the mapping back into a list in the order
-of the keypoint names.
+down: LDF 2.2 added ``edges`` and ``sigmas`` to a keypoint annotation. LDF
+2.2 also keys the keypoints by name. An older version reads only a list, so
+the downgrade turns the mapping back into a list in the order of the
+keypoint names.
 
 LDF 3.0 changed the shape rather than the fields: it groups the detections
 of a record by task name. An older version reads the flat
@@ -41,7 +41,6 @@ _ADDED_FIELDS: Final[dict[str, Version]] = {
 #: that holds them and the field name.
 _ADDED_ANNOTATION_FIELDS: Final[dict[tuple[str, str], Version]] = {
     ("keypoints", "edges"): _parse("2.2"),
-    ("keypoints", "flip_pairs"): _parse("2.2"),
     ("keypoints", "sigmas"): _parse("2.2"),
 }
 

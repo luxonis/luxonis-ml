@@ -39,13 +39,13 @@ class NativeExporter(BaseExporter):
 
     A keypoint record keys its keypoints by name when its task names
     them. One record of each keypoint task in each ``annotations.json``
-    also carries the ``edges``, ``flip_pairs`` and ``sigmas`` of the task,
-    so the import restores its `KeypointMetadata`.
+    also carries the ``edges`` and ``sigmas`` of the task, so the import
+    restores its `KeypointMetadata`.
 
     Passing an older ``ldf_version`` strips the fields that version does
-    not know -- exporting LDF 2.1 or 2.0 omits the keypoint names, edges,
-    flip pairs and sigmas, and LDF 2.0 also omits ``sample_metadata``. A
-    version before 3.0 also gets the flat ``file``, ``task_name`` and
+    not know -- exporting LDF 2.1 or 2.0 omits the keypoint names, edges
+    and sigmas, and LDF 2.0 also omits ``sample_metadata``. A version
+    before 3.0 also gets the flat ``file``, ``task_name`` and
     ``annotation`` record. See `LDFDowngrader`.
 
     Example:
@@ -228,16 +228,12 @@ class NativeExporter(BaseExporter):
                     if key in self._metadata_attached:
                         continue
                     self._metadata_attached.add(key)
-                    # The import infers flip pairs for names without flip
-                    # pairs. An empty list turns that off, so a record with
-                    # names carries it.
+                    fields = task_keypoints.model_dump(exclude={"labels"})
                     keypoints.update(
                         {
                             field: value
-                            for field, value in task_keypoints.model_dump(
-                                exclude={"labels"}
-                            ).items()
-                            if value or (named and field == "flip_pairs")
+                            for field, value in fields.items()
+                            if value
                         }
                     )
 

@@ -19,36 +19,6 @@ from luxonis_ml.ldf import (
     load_annotation,
 )
 
-COCO_LABELS = [
-    "nose",
-    "left_eye",
-    "right_eye",
-    "left_ear",
-    "right_ear",
-    "left_shoulder",
-    "right_shoulder",
-    "left_elbow",
-    "right_elbow",
-    "left_wrist",
-    "right_wrist",
-    "left_hip",
-    "right_hip",
-    "left_knee",
-    "right_knee",
-    "left_ankle",
-    "right_ankle",
-]
-COCO_FLIP_PAIRS = [
-    (1, 2),
-    (3, 4),
-    (5, 6),
-    (7, 8),
-    (9, 10),
-    (11, 12),
-    (13, 14),
-    (15, 16),
-]
-
 
 def payload(
     annotation: KeypointAnnotation,
@@ -285,7 +255,7 @@ def test_positional_names_are_not_a_declaration():
     assert annotation.declared_metadata() is None
 
 
-def test_edges_and_flip_pairs_accept_names():
+def test_edges_accept_names():
     """Stored as indices: the consumers all index positionally."""
     annotation = KeypointAnnotation.model_validate(
         {
@@ -295,12 +265,10 @@ def test_edges_and_flip_pairs_accept_names():
                 "right_eye": (0.3, 0.3, 2),
             },
             "edges": [("nose", "left_eye"), ("nose", "right_eye")],
-            "flip_pairs": [("left_eye", "right_eye")],
         }
     )
 
     assert annotation.edges == [(0, 1), (0, 2)]
-    assert annotation.flip_pairs == [(1, 2)]
 
 
 def test_names_and_indices_can_be_mixed():
@@ -329,7 +297,7 @@ def test_edges_are_sorted():
 
 
 def test_an_edge_has_no_direction():
-    """No consumer reads the direction, so the ends order like a flip pair.
+    """No consumer reads the direction, so the lower index comes first.
 
     An edge named from the other end must not make two records disagree.
     """
@@ -344,33 +312,11 @@ def test_an_edge_has_no_direction():
     assert forwards.merge_with(backwards).edges == [(0, 1)]
 
 
-def test_flip_pairs_are_normalized():
-    assert KeypointMetadata(flip_pairs=[(4, 3), (2, 1)]).flip_pairs == [
-        (1, 2),
-        (3, 4),
-    ]
-
-
-@pytest.mark.parametrize(
-    ("flip_pairs", "match"),
-    [
-        ([(1, 1)], "onto itself"),
-        ([(1, 2), (2, 3)], "disjoint"),
-    ],
-)
-def test_invalid_flip_pairs_are_rejected(
-    flip_pairs: list[tuple[int, int]], match: str
-):
-    with pytest.raises(pydantic.ValidationError, match=match):
-        KeypointMetadata(flip_pairs=flip_pairs)
-
-
 @pytest.mark.parametrize(
     ("fields", "match"),
     [
         pytest.param({"sigmas": [0.1, 0.2]}, "2 sigmas", id="sigmas"),
         pytest.param({"edges": [(0, 5)]}, "keypoint 5", id="edge-range"),
-        pytest.param({"flip_pairs": [(0, 5)]}, "keypoint 5", id="flip-range"),
     ],
 )
 def test_the_task_fields_must_match_the_keypoints(
@@ -460,69 +406,12 @@ def test_a_short_stored_row_is_read_back_padded():
     ]
 
 
-@pytest.mark.parametrize(
-    ("labels", "expected"),
-    [
-        pytest.param(COCO_LABELS, COCO_FLIP_PAIRS, id="coco"),
-        pytest.param(["l_wrist", "r_wrist"], [(0, 1)], id="single-letter"),
-        pytest.param(["wrist_left", "wrist_right"], [(0, 1)], id="suffix"),
-        pytest.param(["wrist_l", "wrist_r"], [(0, 1)], id="suffix-letter"),
-        pytest.param(
-            ["LEFT_EYE", "Right_Eye"], [(0, 1)], id="case-insensitive"
-        ),
-        pytest.param(["left-eye", "right eye"], [(0, 1)], id="separators"),
-        pytest.param(
-            ["left_eye", "right_eye", "l_ear", "r_ear"],
-            [(0, 1), (2, 3)],
-            id="mixed-conventions",
-        ),
-        pytest.param(["nose", "throat"], [], id="no-markers"),
-        pytest.param(["left_eye", "nose"], [], id="partner-missing"),
-        pytest.param(
-            ["bright_spot", "left_x", "right_x"],
-            [(1, 2)],
-            id="no-substring-match",
-        ),
-        pytest.param(["left", "right"], [], id="marker-only"),
-        pytest.param([str(i) for i in range(5)], [], id="positional"),
-        pytest.param(
-            ["left_eye", "right_eye", "eye_left"], [], id="ambiguous"
-        ),
-    ],
-)
-def test_infer_flip_pairs(labels: list[str], expected: list[tuple[int, int]]):
-    """A wrong pair mirrors the wrong keypoints without ever failing, so
-    matching stays narrow and refuses anything ambiguous.
-    """
-    assert KeypointMetadata.infer_flip_pairs(labels) == expected
-
-
-def test_inferred_flip_pairs_are_valid_metadata():
-    flip_pairs = KeypointMetadata.infer_flip_pairs(COCO_LABELS)
-
-    keypoint_metadata = KeypointMetadata(
-        labels=COCO_LABELS, flip_pairs=flip_pairs
-    )
-
-    assert keypoint_metadata.flip_pairs == flip_pairs
-
-
-def test_inference_is_not_applied_by_the_model():
-    """Only a write path infers them, never validation.
-
-    Validation runs on every open, so it would give flip pairs to a
-    dataset that never asked for them.
-    """
-    assert KeypointMetadata(labels=COCO_LABELS).flip_pairs == []
-
-
 def test_every_field_is_serialized():
     """The stored keypoint metadata is a plain dump of the four fields."""
     dumped = json.loads(
         KeypointMetadata(
             labels=["left_a", "right_a"],
             edges=[(0, 1)],
-            flip_pairs=[(0, 1)],
             sigmas=[0.1, 0.2],
         ).model_dump_json()
     )
@@ -530,18 +419,16 @@ def test_every_field_is_serialized():
     assert dumped == {
         "labels": ["left_a", "right_a"],
         "edges": [[0, 1]],
-        "flip_pairs": [[0, 1]],
         "sigmas": [0.1, 0.2],
     }
 
 
 def test_legacy_metadata_still_loads():
-    """Datasets written before flip pairs and sigmas existed."""
+    """Datasets written before sigmas existed."""
     keypoint_metadata = KeypointMetadata.model_validate(
         {"labels": ["a", "b"], "edges": [[0, 1]]}
     )
 
-    assert keypoint_metadata.flip_pairs == []
     assert keypoint_metadata.sigmas == []
 
 
@@ -574,7 +461,7 @@ def test_merging_the_same_names_in_a_different_order_agrees():
 
 
 def test_merging_moves_the_other_records_indices_into_the_merged_order():
-    """`edges`, `flip_pairs` and `sigmas` index the labels of one record.
+    """`edges` and `sigmas` index the labels of one record.
 
     The merged labels come from the record that declared first, so the
     indices of the other record move to that order.
@@ -584,7 +471,6 @@ def test_merging_moves_the_other_records_indices_into_the_merged_order():
         {
             "labels": ["right_eye", "left_eye", "nose"],
             "edges": [("nose", "left_eye")],
-            "flip_pairs": [("left_eye", "right_eye")],
             "sigmas": [0.035, 0.025, 0.026],
         }
     )
@@ -593,7 +479,6 @@ def test_merging_moves_the_other_records_indices_into_the_merged_order():
 
     assert merged.labels == ["nose", "left_eye", "right_eye"]
     assert merged.edges == [(0, 1)]
-    assert merged.flip_pairs == [(1, 2)]
     assert merged.sigmas == [0.026, 0.025, 0.035]
 
 
@@ -654,7 +539,6 @@ def test_reindexing_to_more_names_moves_the_pairs():
         {
             "labels": ["right_eye", "left_eye"],
             "edges": [("left_eye", "right_eye")],
-            "flip_pairs": [("left_eye", "right_eye")],
         }
     )
 
@@ -663,7 +547,6 @@ def test_reindexing_to_more_names_moves_the_pairs():
     ) == KeypointMetadata(
         labels=["nose", "left_eye", "right_eye"],
         edges=[(1, 2)],
-        flip_pairs=[(1, 2)],
     )
 
 

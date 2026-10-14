@@ -206,7 +206,6 @@ def test_downgrade_removes_the_keypoint_task_fields():
     keypoints = {
         "keypoints": {"nose": [0.5, 0.3, 2], "left_eye": [0.4, 0.2, 2]},
         "edges": [[0, 1]],
-        "flip_pairs": [[0, 1]],
         "sigmas": [0.026, 0.025],
     }
     downgraded = LDFDowngrader(Version.parse("2.0.0"))(

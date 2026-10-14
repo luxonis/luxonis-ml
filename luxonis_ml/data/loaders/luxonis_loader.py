@@ -818,12 +818,15 @@ class LuxonisLoader(BaseLoader):
             "min_bbox_visibility": min_bbox_visibility,
             "bbox_area_threshold": bbox_area_threshold,
         }
-        parameters = inspect.signature(engine_cls.__init__).parameters
-        if "keypoint_metadata" in parameters:
-            init_kwargs["keypoint_metadata"] = self._keypoint_metadata
-        if "pipeline_stage" in parameters:
+        if (
+            "pipeline_stage"
+            in inspect.signature(engine_cls.__init__).parameters
+        ):
             init_kwargs["pipeline_stage"] = pipeline_stage
-        elif "is_validation_pipeline" in parameters:
+        elif (
+            "is_validation_pipeline"
+            in inspect.signature(engine_cls.__init__).parameters
+        ):
             # Backward compatibility for custom engines still using
             # the older `is_validation_pipeline` train-vs-eval boolean API.
             init_kwargs["is_validation_pipeline"] = pipeline_stage != "train"
