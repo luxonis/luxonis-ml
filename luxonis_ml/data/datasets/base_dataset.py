@@ -136,8 +136,8 @@ class BaseDataset(
 
         To keep a field, give it in the same call as the labels.
 
-        Prefer the records. A record can carry ``edges`` and ``sigmas``
-        beside its keypoints, and `add` moves them here.
+        Prefer the records. Each keypoint of a record can give its
+        ``sigma`` and ``connected_to``, and `add` moves them here.
 
         For example:
 
