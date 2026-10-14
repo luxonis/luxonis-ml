@@ -14,10 +14,10 @@ from luxonis_ml.ldf import KeypointAnnotation, KeypointMetadata
 from luxonis_ml.utils.logging import log_once
 
 TILE = {
-    "top_left": {"x": 0.2, "y": 0.2, "position": "top_left"},
-    "top_right": {"x": 0.8, "y": 0.2, "position": "top_right"},
-    "bottom_right": {"x": 0.8, "y": 0.8, "position": "bottom_right"},
-    "bottom_left": {"x": 0.2, "y": 0.8, "position": "bottom_left"},
+    "top_left": {"x": 0.2, "y": 0.2, "picture": "top_left"},
+    "top_right": {"x": 0.8, "y": 0.2, "picture": "top_right"},
+    "bottom_right": {"x": 0.8, "y": 0.8, "picture": "bottom_right"},
+    "bottom_left": {"x": 0.2, "y": 0.8, "picture": "bottom_left"},
 }
 
 
@@ -76,7 +76,7 @@ def test_the_corners_of_an_object_without_a_front_name_places():
     metadata = annotation.declared_metadata()
 
     assert metadata is not None
-    assert metadata.position == [
+    assert metadata.picture == [
         "top_left",
         "top_right",
         "bottom_right",
@@ -148,15 +148,15 @@ def test_a_list_of_task_fields_still_works():
         ),
         pytest.param(
             {
-                "a": {"x": 0.1, "y": 0.1, "position": "top_left"},
-                "b": {"x": 0.9, "y": 0.1, "position": "top_right"},
+                "a": {"x": 0.1, "y": 0.1, "picture": "top_left"},
+                "b": {"x": 0.9, "y": 0.1, "picture": "top_right"},
             },
             {},
             "Missing: bottom_left, bottom_right",
             id="half-the-corners",
         ),
         pytest.param(
-            {"a": {"x": 0.1, "y": 0.1, "position": "center", "mirror": "b"}}
+            {"a": {"x": 0.1, "y": 0.1, "picture": "center", "mirror": "b"}}
             | {"b": (0.2, 0.2)},
             {},
             "both a mirror partner and a place",
@@ -164,8 +164,8 @@ def test_a_list_of_task_fields_still_works():
         ),
         pytest.param(
             {
-                "a": {"x": 0.5, "y": 0.5, "position": "center"},
-                "b": {"x": 0.5, "y": 0.5, "position": "center"},
+                "a": {"x": 0.5, "y": 0.5, "picture": "center"},
+                "b": {"x": 0.5, "y": 0.5, "picture": "center"},
             },
             {},
             "More than one keypoint has the place center",
@@ -200,13 +200,13 @@ def test_new_names_move_the_places():
     metadata = KeypointMetadata.model_validate(
         {
             "labels": list(TILE),
-            "position": [keypoint["position"] for keypoint in TILE.values()],
+            "picture": [keypoint["picture"] for keypoint in TILE.values()],
         }
     )
 
     moved = metadata.reindexed_to(["bottom_left", *list(TILE)[:3], "note"])
 
-    assert moved.position == [
+    assert moved.picture == [
         "bottom_left",
         "top_left",
         "top_right",

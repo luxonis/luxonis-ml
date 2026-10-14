@@ -4,8 +4,8 @@ Most keypoint names follow the object: the left eye of a person stays the
 left eye when the picture turns. A few names follow the picture instead:
 the corner of a parking space or of a floor tile has no front, so its
 name only says where the corner is, such as ``top_left``. A record gives
-such a keypoint a `KeypointPosition`, and after any augmentation the
-keypoint takes the name of the place where it is in the new picture.
+such a keypoint a `PicturePlace`, and after any augmentation the keypoint
+takes the name of the place where it is in the new picture.
 
 The places form a :math:`3 \times 3` grid. The engine compares the
 declared grid with where the keypoints are, and rounds the difference to
@@ -33,7 +33,7 @@ from typing import Final, Literal, TypeAlias
 
 import numpy as np
 
-KeypointPosition: TypeAlias = Literal[
+PicturePlace: TypeAlias = Literal[
     "top_left",
     "top",
     "top_right",
@@ -82,7 +82,7 @@ def _square_symmetries() -> list[np.ndarray]:
 _SYMMETRIES: Final = _square_symmetries()
 
 
-def missing_places(places: Sequence[KeypointPosition | None]) -> list[str]:
+def missing_places(places: Sequence[PicturePlace | None]) -> list[str]:
     """Return the places that complete the sets the declared places start.
 
     Example:
@@ -101,7 +101,7 @@ def missing_places(places: Sequence[KeypointPosition | None]) -> list[str]:
 
 
 def places_symmetry(
-    places: Sequence[KeypointPosition | None],
+    places: Sequence[PicturePlace | None],
     points: np.ndarray,
     usable: np.ndarray | None = None,
 ) -> np.ndarray | None:
@@ -141,7 +141,7 @@ def places_symmetry(
 
 
 def renaming(
-    places: Sequence[KeypointPosition | None], symmetry: np.ndarray
+    places: Sequence[PicturePlace | None], symmetry: np.ndarray
 ) -> list[int]:
     """Return the column each keypoint moves to under ``symmetry``.
 
@@ -170,4 +170,4 @@ def renaming(
     return target
 
 
-__all__ = ["KeypointPosition", "missing_places", "places_symmetry", "renaming"]
+__all__ = ["PicturePlace", "missing_places", "places_symmetry", "renaming"]
