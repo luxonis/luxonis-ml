@@ -295,6 +295,57 @@ def test_filter_task_names_rejects_unknown_task(randint: int, tempdir: Path):
         LuxonisLoader(dataset, filter_task_names=["missing"])
 
 
+def test_loader_keeps_unordered_instances_together(
+    dataset_name: str, tempdir: Path
+):
+    """Class and metadata stay with their object after the ID sort."""
+    size = 512
+    # Three strips that fill the image, so the loader adds no background.
+    edges = np.linspace(0, size, 4).astype(int).tolist()
+    # Stored as instances 30, 10, 20: the sort moves every object.
+    stored = [(30, "rectangle", 0), (10, "triangle", 1), (20, "square", 2)]
+
+    def generator() -> DatasetIterator:
+        img = create_image(0, tempdir)
+        for instance_id, class_name, slot in stored:
+            left, right = edges[slot], edges[slot + 1]
+            mask = np.zeros((size, size), dtype=np.uint8)
+            mask[:, left:right] = 1
+            yield {
+                "file": img,
+                "annotation": {
+                    "instance_id": instance_id,
+                    "class": class_name,
+                    "boundingbox": {
+                        "x": left / size,
+                        "y": 0.0,
+                        "w": (right - left) / size,
+                        "h": 1.0,
+                    },
+                    "segmentation": {"mask": mask},
+                    "metadata": {"shape": class_name},
+                },
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    classes = dataset.get_classes()[""]
+    names = {class_id: name for name, class_id in classes.items()}
+    labels = LuxonisLoader(dataset)[0].labels
+
+    in_id_order = ["triangle", "square", "rectangle"]
+    boxes = labels["/boundingbox"]
+    assert boxes[:, 1].tolist() == pytest.approx(
+        [edges[1] / size, edges[2] / size, 0.0]
+    )
+    assert [names[int(c)] for c in boxes[:, 0]] == in_id_order
+    assert labels["/metadata/shape"].tolist() == in_id_order
+
+    segmentation = labels["/segmentation"]
+    for _, class_name, slot in stored:
+        columns = slice(edges[slot], edges[slot + 1])
+        assert segmentation[classes[class_name], :, columns].all()
+
+
 def test_loader_passes_is_validation_pipeline_to_legacy_engines(
     dataset_name: str, tempdir: Path
 ):
