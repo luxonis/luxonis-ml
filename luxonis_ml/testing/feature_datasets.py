@@ -574,9 +574,9 @@ def _person(instance: Instance) -> _Raw:
         "boundingbox": _bbox(instance.box),
         "instance_segmentation": {"mask": instance.mask},
         "keypoints": {
-            "keypoints": instance.keypoints,
-            "edges": POSE_EDGES,
-            "sigmas": POSE_SIGMAS,
+            "keypoints": _described(
+                instance.keypoints, POSE_EDGES, POSE_SIGMAS
+            )
         },
         "metadata": metadata,
     }
@@ -585,12 +585,33 @@ def _person(instance: Instance) -> _Raw:
             "face": {
                 "boundingbox": _bbox(instance.face_box),
                 "keypoints": {
-                    "keypoints": instance.face_keypoints,
-                    "edges": FACE_EDGES,
+                    "keypoints": _described(
+                        instance.face_keypoints, FACE_EDGES
+                    )
                 },
             }
         }
     return detection
+
+
+def _described(
+    keypoints: dict[str, LabeledPoint],
+    edges: list[tuple[str, str]],
+    sigmas: list[float] | None = None,
+) -> dict[str, Any]:
+    """Give the sigma and the connections with each keypoint, as a record does.
+
+    The sigmas follow the order of ``keypoints``.
+    """
+    described: dict[str, dict[str, Any]] = {
+        name: {"x": x, "y": y, "visibility": v}
+        for name, (x, y, v) in keypoints.items()
+    }
+    for name, sigma in zip(keypoints, sigmas or [], strict=bool(sigmas)):
+        described[name]["sigma"] = sigma
+    for a, b in edges:
+        described[a].setdefault("connected_to", []).append(b)
+    return described
 
 
 def _sign(instance: Instance, camera: Camera) -> _Raw:

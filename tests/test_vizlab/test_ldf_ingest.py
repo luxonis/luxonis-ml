@@ -99,8 +99,11 @@ def test_keypoints_from_ldf_drops_stored_edges_past_the_keypoints():
 def test_keypoints_from_ldf_keeps_the_edges_the_annotation_declares():
     ann = KeypointAnnotation.model_validate(
         {
-            "keypoints": [(0.1, 0.2, 2), (0.3, 0.4, 2), (0.5, 0.6, 2)],
-            "edges": [(1, 2)],
+            "keypoints": {
+                "0": (0.1, 0.2, 2),
+                "1": {"x": 0.3, "y": 0.4, "connected_to": "2"},
+                "2": (0.5, 0.6, 2),
+            }
         }
     )
     metadata = KeypointMetadata(edges=[(0, 1)])

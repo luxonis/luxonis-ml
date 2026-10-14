@@ -6,10 +6,10 @@ luxonis-ml fails to validate on an older install -- LDF 2.1 added
 version therefore drops every field introduced above it.
 
 Annotations forbid extra fields as well, so the same holds one level
-down: LDF 2.2 added ``edges`` and ``sigmas`` to a keypoint annotation. LDF
-2.2 also keys the keypoints by name. An older version reads only a list, so
-the downgrade turns the mapping back into a list in the order of the
-keypoint names.
+down: LDF 2.2 keys the keypoints by name, and a named keypoint can give its
+``sigma`` and ``connected_to``. An older version reads only a list of
+triplets, so the downgrade turns the mapping back into a list in the order
+of the keypoint names, and drops these fields.
 
 LDF 3.0 changed the shape rather than the fields: it groups the detections
 of a record by task name. An older version reads the flat
@@ -39,10 +39,7 @@ _ADDED_FIELDS: Final[dict[str, Version]] = {
 
 #: The same for fields of a single annotation, keyed by the task type
 #: that holds them and the field name.
-_ADDED_ANNOTATION_FIELDS: Final[dict[tuple[str, str], Version]] = {
-    ("keypoints", "edges"): _parse("2.2"),
-    ("keypoints", "sigmas"): _parse("2.2"),
-}
+_ADDED_ANNOTATION_FIELDS: Final[dict[tuple[str, str], Version]] = {}
 
 #: The version that started to key the keypoints by name. An older one
 #: reads them as a plain list.
@@ -216,7 +213,18 @@ class LDFDowngrader:
             return
         values = keypoints.get("keypoints")
         if isinstance(values, dict):
-            keypoints["keypoints"] = list(values.values())
+            triplets = []
+            for value in values.values():
+                if isinstance(value, dict):
+                    if value.keys() - {"x", "y", "visibility"}:
+                        self._dropped["keypoints.sigma_and_connected_to"] += 1
+                    value = [
+                        value["x"],
+                        value["y"],
+                        value.get("visibility", 2),
+                    ]
+                triplets.append(value)
+            keypoints["keypoints"] = triplets
             self._dropped["keypoints.names"] += 1
 
 

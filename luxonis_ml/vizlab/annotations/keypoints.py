@@ -8,9 +8,10 @@ A dataset keeps the names and edges of each task as a `KeypointMetadata` (see
 ``LuxonisDataset.get_keypoint_metadata``); `Keypoints.from_ldf` applies it.
 """
 
-from typing import TYPE_CHECKING, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import numpy as np
+from pydantic import ValidationInfo, field_validator
 
 from luxonis_ml.ldf import KeypointAnnotation, KeypointMetadata
 from luxonis_ml.vizlab.color import Color, ColorLike
@@ -137,6 +138,7 @@ class Keypoints(KeypointAnnotation, Annotation):
     worse than an admitted gap.
 
     Attributes:
+        edges: The limbs, as index pairs into ``keypoints``.
         visibility_threshold: Points whose visibility is ``<=`` this are hidden.
             With COCO visibility, a joint marked visible (``2``) is a bright dot
             with a white outline; one marked occluded (``1``) is a dimmer diamond
@@ -153,7 +155,7 @@ class Keypoints(KeypointAnnotation, Annotation):
             marks on absent joints keep the instance color either way: a joint
             neither side placed has no verdict worth painting.
 
-    See `KeypointAnnotation` for ``keypoints`` and ``edges``, and
+    See `KeypointAnnotation` for ``keypoints``, and
     `Annotation` for the shared ``label``, ``color``, ``style``, and
     ``palette`` fields.
 
@@ -169,7 +171,26 @@ class Keypoints(KeypointAnnotation, Annotation):
 
     LAYER: ClassVar[str] = "keypoint"
 
+    edges: list[tuple[int, int]] = []
     visibility_threshold: float = 0.0
+
+    @field_validator("edges", mode="before")
+    @classmethod
+    def _edges_by_name(cls, edges: Any, info: ValidationInfo) -> Any:
+        """Accept an edge between two keypoint names, as an index pair."""
+        if not isinstance(edges, (list, tuple)):
+            return edges
+        names = list(info.data.get("keypoints") or {})
+        return [
+            [
+                names.index(end)
+                if isinstance(end, str) and end in names
+                else end
+                for end in pair
+            ]
+            for pair in edges
+        ]
+
     point_labels: PointLabelMode = "none"
     point_colors: list[ColorLike | None] | None = None
 
@@ -221,7 +242,8 @@ class Keypoints(KeypointAnnotation, Annotation):
 
         """
         keypoints = dict(annotation.keypoints)
-        edges = annotation.edges
+        declared = annotation.declared_metadata()
+        edges = declared.edges if declared is not None else []
         if metadata is not None:
             keypoints = metadata.align(keypoints)
             if metadata.has_names:
