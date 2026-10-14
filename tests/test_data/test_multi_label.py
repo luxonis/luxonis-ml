@@ -1,188 +1,342 @@
-"""Multi-label classification through an export and a parse.
+"""Multi-label classification in the NATIVE, CLSDIR and FIFTYONECLS formats.
 
 An image with more than one class has one classification row for each
-class. NATIVE, CLSDIR and FIFTYONECLS can all store such an image, so an
-export and a parse must give the image all of its classes back.
+class. The tests check the files that an export writes, the classes that
+a parse reads, and that an export and a parse keep all labels.
+
+In the test data, an integer is the number of a test image. In a record
+it is the image file, and in a file tree it is the content of a file.
 """
 
 import json
 import shutil
+from collections import Counter
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from luxonis_ml.data import (
-    LDFEquivalence,
-    LuxonisDataset,
-    LuxonisLoader,
-    LuxonisParser,
-)
-from luxonis_ml.data.datasets.base_dataset import DatasetIterator
+from luxonis_ml.data import LuxonisDataset, LuxonisParser
 from luxonis_ml.data.exporters import PreparedLDF
+from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.enums import DatasetType
 
 from .utils import create_dataset, create_image
 
-IMAGE_CLASSES = [{"cat", "dog"}, {"cat"}, {"bird", "cat", "dog"}]
-EXPECTED_CLASSES = sorted(sorted(classes) for classes in IMAGE_CLASSES)
+BOX = {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}
 
+# Image 0 is a cat and a dog, image 1 is a cat, and image 2 is a bird, a
+# cat and a dog.
+MULTI_LABEL = [
+    {"file": 0, "annotation": {"class": "cat"}},
+    {"file": 0, "annotation": {"class": "dog"}},
+    {"file": 1, "annotation": {"class": "cat"}},
+    {"file": 2, "annotation": {"class": "bird"}},
+    {"file": 2, "annotation": {"class": "cat"}},
+    {"file": 2, "annotation": {"class": "dog"}},
+]
 
-def _multi_label_images(tempdir: Path, task_name: str = "") -> DatasetIterator:
-    """Yield one classification record for each class of each image."""
-    for i, classes in enumerate(IMAGE_CLASSES):
-        for class_name in sorted(classes):
-            yield {
-                "file": create_image(i, tempdir),
-                "task_name": task_name,
-                "annotation": {"class": class_name},
-            }
+# The "dog" of the second task must stay in that task.
+TWO_TASKS = [
+    *MULTI_LABEL,
+    {"file": 0, "task_name": "pets", "annotation": {"class": "dog"}},
+    {"file": 1, "task_name": "pets", "annotation": {"class": "dog"}},
+]
 
-
-def _classes_and_boxes(tempdir: Path) -> DatasetIterator:
-    """Image-level classes next to boxes of the same class.
-
-    The box without an ``instance_id`` shares the ID ``-1`` with the
-    image-level classes, so only the row order tells them apart.
-    """
-    image = create_image(0, tempdir)
-    box = {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}
-    for class_name in ("car", "cat"):
-        yield {"file": image, "annotation": {"class": class_name}}
-    yield {
-        "file": image,
+# The box without an instance ID gets the ID -1, as the image classes do.
+# Image 1 has no labels.
+CLASSES_AND_BOXES = [
+    {"file": 0, "annotation": {"class": "car"}},
+    {"file": 0, "annotation": {"class": "cat"}},
+    {
+        "file": 0,
         "annotation": {
             "class": "car",
             "instance_id": 0,
-            "boundingbox": box,
+            "boundingbox": BOX,
             "metadata": {"text": "red"},
         },
+    },
+    {"file": 0, "annotation": {"class": "car", "boundingbox": BOX}},
+    {"file": 1},
+]
+
+
+def _entry(
+    file: str, annotation: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Return an entry of a native ``annotations.json``."""
+    entry: dict[str, Any] = {
+        "file": file,
+        "task_name": "",
+        "sample_metadata": {},
     }
-    yield {"file": image, "annotation": {"class": "car", "boundingbox": box}}
-    yield {"file": create_image(1, tempdir)}
+    if annotation is not None:
+        entry["annotation"] = annotation
+    return entry
 
 
-def _round_trip(
-    dataset: LuxonisDataset, dataset_type: DatasetType, tempdir: Path
+def _images(tempdir: Path) -> list[Path]:
+    """Create the test images. Each one has different content."""
+    return [create_image(i, tempdir) for i in range(3)]
+
+
+def _dataset(
+    name: str, records: list[dict[str, Any]], images: list[Path]
 ) -> LuxonisDataset:
-    """Export the dataset and parse the export into a new dataset."""
-    name = f"{dataset.identifier}_{dataset_type.name.lower()}"
-    export_path = dataset.export(tempdir / name, dataset_type=dataset_type)
-    assert isinstance(export_path, Path)
-    return LuxonisParser(
-        str(export_path / dataset.identifier),
-        dataset_type=dataset_type,
-        dataset_name=name,
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
-
-
-def _loaded_classes(
-    dataset: LuxonisDataset, task_name: str = ""
-) -> list[list[str]]:
-    """Return the class names of each image from its multi-hot vector."""
-    class_ids = dataset.get_classes()[task_name]
-    return sorted(
-        sorted(
-            name
-            for name, i in class_ids.items()
-            if labels[f"{task_name}/classification"][i]
-        )
-        for _, labels in LuxonisLoader(dataset)
+    """Add records in which ``file`` is the number of a test image."""
+    return create_dataset(
+        name,
+        ({**record, "file": images[record["file"]]} for record in records),
+        splits=(1, 0, 0),
     )
+
+
+def _read_tree(root: Path, images: list[Path]) -> dict[str, Any]:
+    """Read the files under root: JSON as data, an image as its number."""
+    numbers = {image.read_bytes(): i for i, image in enumerate(images)}
+    return {
+        path.relative_to(root).as_posix(): (
+            json.loads(path.read_text())
+            if path.suffix == ".json"
+            else numbers[path.read_bytes()]
+        )
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+
+
+def _write_tree(root: Path, tree: dict[str, Any], images: list[Path]) -> None:
+    """Write files under root: data as JSON, a number as that image."""
+    for name, content in tree.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(content, int):
+            shutil.copy(images[content], path)
+        else:
+            path.write_text(json.dumps(content))
+
+
+def _rows_by_image(
+    dataset: LuxonisDataset, images: list[Path]
+) -> dict[int, Counter]:
+    """Count the label rows of each image, by image number."""
+    numbers = {image.read_bytes(): i for i, image in enumerate(images)}
+    rows_by_image: dict[int, Counter] = {}
+    df = PreparedLDF.from_dataset(dataset).processed_df
+    for row in df.iter_rows(named=True):
+        image = numbers[Path(row["file"]).read_bytes()]
+        rows = rows_by_image.setdefault(image, Counter())
+        if row["task_type"] is not None:
+            rows[
+                row["task_name"],
+                row["class_name"],
+                row["instance_id"],
+                row["task_type"],
+                row["annotation"],
+            ] += 1
+    return rows_by_image
+
+
+def _classes_by_image(
+    dataset: LuxonisDataset, images: list[Path]
+) -> dict[int, set[str]]:
+    """Return the image-level classes of each image, by image number."""
+    return {
+        image: {
+            class_name
+            for _, class_name, instance_id, task_type, _ in rows
+            if task_type == "classification" and instance_id == -1
+        }
+        for image, rows in _rows_by_image(dataset, images).items()
+    }
 
 
 @pytest.mark.parametrize(
-    "dataset_type",
-    [DatasetType.NATIVE, DatasetType.CLSDIR, DatasetType.FIFTYONECLS],
+    ("dataset_type", "records", "expected"),
+    [
+        pytest.param(
+            DatasetType.NATIVE,
+            CLASSES_AND_BOXES,
+            {
+                "metadata.json": {"ldf_version": str(LDF_VERSION)},
+                "train/annotations.json": [
+                    _entry(
+                        "images/0.jpg", {"instance_id": -1, "class": "car"}
+                    ),
+                    _entry(
+                        "images/0.jpg", {"instance_id": -1, "class": "cat"}
+                    ),
+                    _entry(
+                        "images/0.jpg",
+                        {
+                            "instance_id": 0,
+                            "class": "car",
+                            "boundingbox": BOX,
+                            "metadata": {"text": "red"},
+                        },
+                    ),
+                    _entry(
+                        "images/0.jpg",
+                        {
+                            "instance_id": -1,
+                            "class": "car",
+                            "boundingbox": BOX,
+                        },
+                    ),
+                    _entry("images/1.jpg"),
+                ],
+                "train/images/0.jpg": 0,
+                "train/images/1.jpg": 1,
+                "val/annotations.json": [],
+                "test/annotations.json": [],
+            },
+            id="native",
+        ),
+        pytest.param(
+            DatasetType.CLSDIR,
+            MULTI_LABEL,
+            {
+                "train/bird/2.jpg": 2,
+                "train/cat/0.jpg": 0,
+                "train/cat/1.jpg": 1,
+                "train/cat/2.jpg": 2,
+                "train/dog/0.jpg": 0,
+                "train/dog/2.jpg": 2,
+            },
+            id="clsdir",
+        ),
+        pytest.param(
+            DatasetType.FIFTYONECLS,
+            MULTI_LABEL,
+            {
+                "train/data/000001.jpg": 0,
+                "train/data/000002.jpg": 1,
+                "train/data/000003.jpg": 2,
+                "train/labels.json": {
+                    "classes": ["bird", "cat", "dog"],
+                    "labels": {
+                        "000001": [1, 2],
+                        "000002": 1,
+                        "000003": [0, 1, 2],
+                    },
+                },
+            },
+            id="fiftyone",
+        ),
+    ],
 )
-def test_round_trip_keeps_the_classes_of_each_image(
-    dataset_name: str, tempdir: Path, dataset_type: DatasetType
+def test_export_writes_the_format(
+    dataset_name: str,
+    tempdir: Path,
+    dataset_type: DatasetType,
+    records: list[dict[str, Any]],
+    expected: dict[str, Any],
 ):
-    dataset = create_dataset(
-        dataset_name, _multi_label_images(tempdir), splits=(1, 0, 0)
-    )
+    images = _images(tempdir)
+    dataset = _dataset(dataset_name, records, images)
 
-    imported = _round_trip(dataset, dataset_type, tempdir)
+    dataset.export(tempdir / "export", dataset_type=dataset_type)
 
-    LDFEquivalence.assert_equivalence(
-        dataset, imported, LDFEquivalence.collect_classification_multiset
-    )
-    assert _loaded_classes(imported) == EXPECTED_CLASSES
+    root = tempdir / "export" / dataset.identifier
+    assert _read_tree(root, images) == expected
 
 
-def test_native_round_trip_keeps_the_classes_of_each_task(
-    dataset_name: str, tempdir: Path
+@pytest.mark.parametrize(
+    ("dataset_type", "tree", "expected"),
+    [
+        pytest.param(
+            DatasetType.NATIVE,
+            {
+                "train/annotations.json": [
+                    {"file": "images/a.jpg", "annotation": {"class": "cat"}},
+                    {"file": "images/a.jpg", "annotation": {"class": "dog"}},
+                    {"file": "images/b.jpg", "annotation": {"class": "cat"}},
+                ],
+                "train/images/a.jpg": 0,
+                "train/images/b.jpg": 1,
+            },
+            {0: {"cat", "dog"}, 1: {"cat"}},
+            id="native",
+        ),
+        pytest.param(
+            DatasetType.CLSDIR,
+            {
+                "train/cat/a.jpg": 0,
+                "train/cat/b.jpg": 1,
+                "train/dog/a.jpg": 0,
+            },
+            {0: {"cat", "dog"}, 1: {"cat"}},
+            id="clsdir",
+        ),
+        pytest.param(
+            DatasetType.CLSDIR,
+            {"train/cat/a.jpg": 0, "train/dog/a.jpg": 1},
+            {0: {"cat"}, 1: {"dog"}},
+            id="clsdir-other-image-same-name",
+        ),
+        pytest.param(
+            DatasetType.FIFTYONECLS,
+            {
+                "train/data/a.jpg": 0,
+                "train/data/b.jpg": 1,
+                "train/labels.json": {
+                    "classes": ["cat", "dog"],
+                    "labels": {"a": [0, 1], "b": 0},
+                },
+            },
+            {0: {"cat", "dog"}, 1: {"cat"}},
+            id="fiftyone",
+        ),
+    ],
+)
+def test_parse_reads_the_format(
+    dataset_name: str,
+    tempdir: Path,
+    dataset_type: DatasetType,
+    tree: dict[str, Any],
+    expected: dict[int, set[str]],
 ):
-    def generator() -> DatasetIterator:
-        yield from _multi_label_images(tempdir, "animals")
-        for i in range(len(IMAGE_CLASSES)):
-            yield {
-                "file": create_image(i, tempdir),
-                "task_name": "pets",
-                "annotation": {"class": "dog"},
-            }
-
-    dataset = create_dataset(dataset_name, generator(), splits=(1, 0, 0))
-
-    imported = _round_trip(dataset, DatasetType.NATIVE, tempdir)
-
-    assert _loaded_classes(imported, "animals") == EXPECTED_CLASSES
-    assert _loaded_classes(imported, "pets") == [["dog"]] * len(IMAGE_CLASSES)
-
-
-def test_native_round_trip_keeps_every_row(dataset_name: str, tempdir: Path):
-    dataset = create_dataset(
-        dataset_name, _classes_and_boxes(tempdir), splits=(1, 0, 0)
-    )
-
-    imported = _round_trip(dataset, DatasetType.NATIVE, tempdir)
-
-    before = PreparedLDF.from_dataset(dataset)
-    after = PreparedLDF.from_dataset(imported)
-    assert LDFEquivalence.collect_image_multiset(
-        before
-    ) == LDFEquivalence.collect_image_multiset(after)
-    # Unlike `assert_equivalence`, this also counts the classes of boxes.
-    for task_type in ("boundingbox", "classification", "metadata/text"):
-        assert LDFEquivalence.collect_annotation_multiset(
-            before, task_type
-        ) == LDFEquivalence.collect_annotation_multiset(after, task_type)
-
-
-def test_native_export_writes_one_entry_per_detection(
-    dataset_name: str, tempdir: Path
-):
-    records = list(_classes_and_boxes(tempdir))
-    dataset = create_dataset(dataset_name, iter(records), splits=(1, 0, 0))
-
-    export_path = dataset.export(
-        tempdir / "exported", dataset_type=DatasetType.NATIVE
-    )
-
-    assert isinstance(export_path, Path)
-    entries = json.loads(
-        (
-            export_path / dataset.identifier / "train" / "annotations.json"
-        ).read_text()
-    )
-    assert len(entries) == len(records)
-
-
-def test_clsdir_parser_keeps_different_images_with_one_name_apart(
-    dataset_name: str, tempdir: Path
-):
-    for i, class_name in enumerate(("cat", "dog")):
-        class_dir = tempdir / "clsdir" / "train" / class_name
-        class_dir.mkdir(parents=True)
-        shutil.copy(create_image(i, tempdir), class_dir / "0.jpg")
+    images = _images(tempdir)
+    _write_tree(tempdir / "source", tree, images)
 
     dataset = LuxonisParser(
-        str(tempdir / "clsdir"),
-        dataset_type=DatasetType.CLSDIR,
+        str(tempdir / "source"),
+        dataset_type=dataset_type,
         dataset_name=dataset_name,
         delete_local=True,
         save_dir=tempdir,
     ).parse()
 
-    assert _loaded_classes(dataset) == [["cat"], ["dog"]]
+    assert _classes_by_image(dataset, images) == expected
+
+
+@pytest.mark.parametrize(
+    ("dataset_type", "records"),
+    [
+        pytest.param(DatasetType.NATIVE, MULTI_LABEL, id="native"),
+        pytest.param(DatasetType.CLSDIR, MULTI_LABEL, id="clsdir"),
+        pytest.param(DatasetType.FIFTYONECLS, MULTI_LABEL, id="fiftyone"),
+        pytest.param(DatasetType.NATIVE, TWO_TASKS, id="native-two-tasks"),
+        pytest.param(DatasetType.NATIVE, CLASSES_AND_BOXES, id="native-boxes"),
+    ],
+)
+def test_round_trip_keeps_the_labels(
+    dataset_name: str,
+    tempdir: Path,
+    dataset_type: DatasetType,
+    records: list[dict[str, Any]],
+):
+    images = _images(tempdir)
+    dataset = _dataset(dataset_name, records, images)
+
+    dataset.export(tempdir / "export", dataset_type=dataset_type)
+    imported = LuxonisParser(
+        str(tempdir / "export" / dataset.identifier),
+        dataset_type=dataset_type,
+        dataset_name=f"{dataset_name}_imported",
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    assert _rows_by_image(imported, images) == _rows_by_image(dataset, images)
