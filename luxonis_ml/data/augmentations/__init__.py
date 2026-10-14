@@ -191,8 +191,9 @@ When a class of the sample has no valid sample after the measured turn or
 mirror, the engine applies one more flip or turn to the image and to all
 of its labels. It takes the first one, mirrors before turns, after which
 every class of the sample is valid. An upright ``digit_6`` thus comes back
-as it was, and an upright ``b`` after a vertical flip comes back as a
-``d``, turned by 180°. The engine logs this once.
+as it was. An upright ``b`` with the mirror ``d`` comes back as it was
+after a vertical flip, and as a ``d`` after a turn by 180°. The engine
+logs this once.
 
 The class names have these limits:
 
