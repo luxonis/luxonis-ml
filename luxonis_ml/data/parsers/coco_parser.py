@@ -1,3 +1,5 @@
+"""Parser for datasets in the COCO format."""
+
 import json
 import math
 from pathlib import Path

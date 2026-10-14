@@ -1,3 +1,5 @@
+"""Dataframe helpers for task inference, duplicates and statistics."""
+
 import hashlib
 import json
 import uuid
@@ -89,6 +91,20 @@ def infer_task(
     class_name: str | None,
     current_classes: dict[str, dict[str, int]],
 ) -> str:
+    """Return the task that holds a class.
+
+    It logs each result only once for each class and task.
+
+    Args:
+        old_task: Task to return when no single task holds the class.
+        class_name: Name of the class.
+        current_classes: Class IDs keyed by task name and class name.
+
+    Returns:
+        The only task whose classes hold ``class_name``, or ``old_task``
+        if no task or more than one task holds it.
+
+    """
     if not hasattr(infer_task, "_logged_inferred_classes"):
         infer_task._logged_inferred_classes = defaultdict(bool)
 
