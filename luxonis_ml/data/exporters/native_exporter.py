@@ -1,6 +1,7 @@
 import json
 import shutil
 import sys
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,13 @@ from luxonis_ml.enums import DatasetType
 from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.utils.path import path_to_posix
 
+_LABEL_FIELDS = (
+    "boundingbox",
+    "segmentation",
+    "instance_segmentation",
+    "keypoints",
+)
+
 
 class NativeExporter(BaseExporter):
     """Exporter for native LDF directory format.
@@ -25,6 +33,10 @@ class NativeExporter(BaseExporter):
     Native export writes split directories with copied media and an
     ``annotations.json`` file. Each annotation entry follows the same
     record-level shape accepted by `NativeParser` and `LuxonisDataset.add`.
+
+    Each entry holds one detection: its class and all of its labels. An
+    image with more than one class, such as a multi-label classification
+    sample, gets one entry for each class.
 
     ``sample_metadata`` is exported as a JSON object next to ``file`` or
     ``files``. It is **record-level metadata**, not an annotation label.
@@ -108,8 +120,8 @@ class NativeExporter(BaseExporter):
             group_source_names = matched_df.get_column("source_name").to_list()
 
             records = [
-                self._process_row(row, group_source_names, group_files)
-                for row in group_df.iter_rows(named=True)
+                self._process_detection(rows, group_source_names, group_files)
+                for rows in _split_detections(group_df.iter_rows(named=True))
             ]
 
             ann_size = sum(sys.getsizeof(r) for r in records)
@@ -152,17 +164,14 @@ class NativeExporter(BaseExporter):
             return {k: [] for k in self.get_split_names()}
         return annotation_splits
 
-    def _process_row(
+    def _process_detection(
         self,
-        row: dict[str, Any],
+        rows: list[dict[str, Any]],
         group_source_names: list[str],
         group_files: list[str],
     ) -> dict[str, Any]:
-        task_name = row["task_name"]
-        class_name = row["class_name"]
-        instance_id = row["instance_id"]
-        task_type = row["task_type"]
-        ann_str = row["annotation"]
+        """Build one native record from the rows of one detection."""
+        first = rows[0]
 
         source_to_file = {
             name: path_to_posix(
@@ -179,27 +188,24 @@ class NativeExporter(BaseExporter):
                 if multi_source
                 else source_to_file[group_source_names[0]]
             ),
-            "task_name": task_name,
+            "task_name": first["task_name"],
             "sample_metadata": DatasetRecord.decode_metadata(
-                row.get("sample_metadata")
+                first.get("sample_metadata")
             ),
         }
 
-        if ann_str is not None:
-            data = json.loads(ann_str)
+        if first["annotation"] is not None:
             ann: dict[str, Any] = {
-                "instance_id": instance_id,
-                "class": class_name,
+                "instance_id": first["instance_id"],
+                "class": first["class_name"],
             }
-            if task_type in (
-                "boundingbox",
-                "segmentation",
-                "instance_segmentation",
-                "keypoints",
-            ):
-                ann[task_type] = data
-            elif task_type.startswith("metadata/"):
-                ann["metadata"] = {task_type[9:]: data}
+            for row in rows:
+                task_type = row["task_type"]
+                data = json.loads(row["annotation"])
+                if task_type in _LABEL_FIELDS:
+                    ann[task_type] = data
+                elif task_type.startswith("metadata/"):
+                    ann.setdefault("metadata", {})[task_type[9:]] = data
             record["annotation"] = ann
 
         return self._downgrade(record)
@@ -239,3 +245,46 @@ class NativeExporter(BaseExporter):
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:
         return self._base_path(output_path, part) / split / "images"
+
+
+def _split_detections(
+    rows: Iterable[dict[str, Any]],
+) -> Iterator[list[dict[str, Any]]]:
+    """Split the rows of one group into the rows of each detection.
+
+    A record writes the rows of its detection one after the other, and
+    the ``classification`` row comes last. So a detection ends after its
+    ``classification`` row. A row of another task, instance or class
+    starts the next detection, and so does a task type that the current
+    detection already has. The key alone is not sufficient, because each
+    detection without an ``instance_id`` has the ID ``-1``.
+
+    Example:
+        >>> rows = [
+        ...     {
+        ...         "task_name": "",
+        ...         "instance_id": -1,
+        ...         "class_name": "car",
+        ...         "task_type": task_type,
+        ...     }
+        ...     for task_type in ("boundingbox", "classification") * 2
+        ... ]
+        >>> [len(detection) for detection in _split_detections(rows)]
+        [2, 2]
+
+    """
+    detection: list[dict[str, Any]] = []
+    for row in rows:
+        if detection and (
+            detection[-1]["task_type"] == "classification"
+            or any(
+                row[key] != detection[-1][key]
+                for key in ("task_name", "instance_id", "class_name")
+            )
+            or any(row["task_type"] == r["task_type"] for r in detection)
+        ):
+            yield detection
+            detection = []
+        detection.append(row)
+    if detection:
+        yield detection
