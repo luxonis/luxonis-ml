@@ -9,6 +9,7 @@ Random transforms run with several seeds: the checks hold for any outcome.
 
 from typing import Any
 
+import cv2
 import numpy as np
 import pytest
 
@@ -252,3 +253,27 @@ def test_identity_pairs_of_a_deprecated_flip_change_nothing() -> None:
     out = augment(config)
 
     assert_people_named(out["people"])
+
+
+def test_reflect_padding_keeps_the_original_keypoints() -> None:
+    """Reflect padding adds reflected copies of each keypoint.
+
+    The copies have the id of their keypoint. Before, the last copy won,
+    so a plain shift moved the keypoints outside the image.
+    """
+
+    def shift(border: int) -> dict[str, Any]:
+        return {
+            "name": "Affine",
+            "params": {
+                "translate_percent": {"x": -0.3, "y": 0.0},
+                "border_mode": border,
+                "p": 1.0,
+            },
+        }
+
+    constant = augment([shift(cv2.BORDER_CONSTANT)])
+    reflect = augment([shift(cv2.BORDER_REFLECT_101)])
+
+    for task, keypoints in constant.items():
+        assert np.allclose(reflect[task], keypoints)

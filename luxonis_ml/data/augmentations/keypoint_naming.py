@@ -110,7 +110,9 @@ def untag(rows: np.ndarray, n_rows: int) -> tuple[np.ndarray, np.ndarray]:
     """Put each row back in its place and drop the id.
 
     A row that a transform dropped comes back unlabeled, just outside the
-    image, so that the loader marks it as not visible.
+    image, so that the loader marks it as not visible. Reflect padding
+    adds reflected copies of a row after the row itself, with the same
+    id. The first row of each id is the original, so it wins.
 
     Returns:
         The rows ``[x, y, labeled, v]`` and which of them were dropped.
@@ -119,13 +121,16 @@ def untag(rows: np.ndarray, n_rows: int) -> tuple[np.ndarray, np.ndarray]:
         >>> rows, lost = untag(np.array([[5.0, 6, 1, 1, 2]]), 2)
         >>> rows.tolist(), lost.tolist()
         ([[-1.0, -1.0, 0.0, 0.0], [5.0, 6.0, 1.0, 2.0]], [True, False])
+        >>> copies = np.array([[5.0, 6, 1, 0, 2], [9.0, 6, 1, 0, 2]])
+        >>> untag(copies, 1)[0].tolist()
+        [[5.0, 6.0, 1.0, 2.0]]
 
     """
     rows = np.asarray(rows, dtype=float).reshape(-1, 5)
     restored = np.tile([-1.0, -1.0, 0.0, 0.0], (n_rows, 1))
     lost = np.ones(n_rows, dtype=bool)
-    ids = rows[:, 3].astype(int)
-    restored[ids] = rows[:, [0, 1, 2, 4]]
+    ids, first = np.unique(rows[:, 3].astype(int), return_index=True)
+    restored[ids] = rows[first][:, [0, 1, 2, 4]]
     lost[ids] = False
     return restored, lost
 

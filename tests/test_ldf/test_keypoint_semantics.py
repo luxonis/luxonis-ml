@@ -171,6 +171,18 @@ def test_a_list_of_task_fields_still_works():
             "More than one keypoint has the place center",
             id="place-twice",
         ),
+        pytest.param(
+            {"a": {"x": 0.1, "y": 0.1, "mirror": False}},
+            {},
+            "takes the name of the partner",
+            id="mirror-false",
+        ),
+        pytest.param(
+            {"a": (0.1, 0.1), "b": (0.2, 0.2)},
+            {"flip_pairs": [(False, 1)]},
+            "True or False",
+            id="bool-pair",
+        ),
     ],
 )
 def test_a_wrong_meaning_is_an_error(

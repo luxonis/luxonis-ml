@@ -2977,6 +2977,11 @@ def _split_task_fields(
                 connected = [connected]
             edges += [(name, other) for other in connected or []]
             if (partner := value.pop("mirror", None)) is not None:
+                if not isinstance(partner, str):
+                    raise ValueError(
+                        f"Keypoint '{name}' gives `mirror`: {partner!r}. "
+                        "`mirror` takes the name of the partner keypoint."
+                    )
                 mirrors.append((name, partner))
             if (place := value.pop("position", None)) is not None:
                 places[name] = place
@@ -3110,13 +3115,19 @@ def _resolve_pairs(
         # Malformed input. Let pydantic report it against the field type.
         return values
 
-    names = [
+    endpoints = [
         endpoint
         for pairs in pairs_by_field.values()
         for pair in pairs
         for endpoint in pair
-        if isinstance(endpoint, str)
     ]
+    # A bool is an int to pydantic, so `False` would become keypoint 0.
+    if any(isinstance(endpoint, bool) for endpoint in endpoints):
+        raise ValueError(
+            "An edge or a flip pair refers to a keypoint by True or False. "
+            "Refer to a keypoint by its name or by its index."
+        )
+    names = [endpoint for endpoint in endpoints if isinstance(endpoint, str)]
     if not names:
         return values
 
