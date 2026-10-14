@@ -10,12 +10,12 @@ keypoint takes the name of the place where it is in the new picture.
 The places form a :math:`3 \times 3` grid. The engine compares the
 declared grid with where the keypoints are, and rounds the difference to
 the nearest of the 8 symmetries of a square: the rotations by multiples of
-:math:`90°` and the mirrors. Places are thus renamed by a whole symmetry
+90° and the mirrors. Places are thus renamed by a whole symmetry
 of the grid, so the declared places must form full sets: the four
 corners, the four sides, and the center, each set complete or absent.
 
 Example:
-    The corners of a tile after a rotation by :math:`90°` clockwise. The
+    The corners of a tile after a rotation by 90° clockwise. The
     point declared ``top_left`` is now at the top right, so it takes that
     name:
 

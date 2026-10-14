@@ -20,6 +20,7 @@ from luxonis_ml.data.augmentations import (
     AUGMENTATION_ENGINES,
     AugmentationEngine,
 )
+from luxonis_ml.data.augmentations.class_naming import ClassTable
 from luxonis_ml.data.datasets import (
     LuxonisDataset,
     UpdateMode,
@@ -766,6 +767,27 @@ class LuxonisLoader(BaseLoader):
         ]
         return metadata
 
+    def _class_tables(self) -> dict[str, ClassTable]:
+        """Turn the class meanings into class IDs of the loader output.
+
+        The IDs come from the classes of the loader, so a ``background``
+        class that the loader adds shifts them too.
+        """
+        tables: dict[str, ClassTable] = {}
+        for task, class_metadata in self.dataset.get_class_metadata().items():
+            ids = self._classes.get(task)
+            if not ids:
+                continue
+            tables[task] = {
+                ids[name]: {
+                    symmetry: None if target is None else ids[target]
+                    for symmetry, target in row.items()
+                }
+                for name, row in class_metadata.table().items()
+                if name in ids
+            }
+        return tables
+
     def _init_augmentations(
         self,
         augmentation_engine: Literal["albumentations"] | str,
@@ -821,6 +843,13 @@ class LuxonisLoader(BaseLoader):
         parameters = inspect.signature(engine_cls.__init__).parameters
         if "keypoint_metadata" in parameters:
             init_kwargs["keypoint_metadata"] = self._keypoint_metadata
+        if "class_symmetry" in parameters:
+            init_kwargs["class_symmetry"] = self._class_tables()
+        elif self.dataset.get_class_metadata():
+            logger.warning(
+                f"The augmentation engine '{engine_cls.__name__}' takes no "
+                "class meanings, so its turns and mirrors keep every class."
+            )
         if "pipeline_stage" in parameters:
             init_kwargs["pipeline_stage"] = pipeline_stage
         elif "is_validation_pipeline" in parameters:
@@ -890,6 +919,11 @@ class LuxonisLoader(BaseLoader):
             tasks=tasks,
             classes=self._classes,
             keypoint_metadata=self._keypoint_metadata,
+            class_metadata={
+                task: class_metadata
+                for task, class_metadata in self.dataset.get_class_metadata().items()
+                if task in tasks
+            },
             categorical_encodings=self.dataset.get_categorical_encodings(),
             n_keypoints=self.dataset.get_n_keypoints(),
             synthesized_background=self._synthesized_background,

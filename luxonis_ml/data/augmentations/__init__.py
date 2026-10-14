@@ -96,8 +96,18 @@ A configuration therefore uses the plain transforms, also for keypoints:
 .. python::
 
     [
-        {"name": "HorizontalFlip", "params": {"p": 0.5}},
-        {"name": "RandomRotate90", "params": {"p": 0.5}},
+        {
+            "name": "HorizontalFlip",
+            "params": {
+                "p": 0.5,
+            },
+        },
+        {
+            "name": "RandomRotate90",
+            "params": {
+                "p": 0.5,
+            },
+        },
     ]
 
 The engine does not need to know what a transform does. Three hidden probe
@@ -110,20 +120,93 @@ the image, comes back as unlabeled.
 The renaming has these limits:
 
     - A place in the picture is named by the nearest corner or side. Near a
-      rotation by :math:`45°`, two corners are about as near to the top
+      rotation by 45°, two corners are about as near to the top
       left, and the name can change from one sample to the next. Keep the
-      rotations under :math:`45°` when the names must be stable. Mirror
+      rotations under 45° when the names must be stable. Mirror
       partners have no such limit.
     - A warp so strong that it folds an object over itself, so that its
       outline crosses, leaves no side to tell. The probes then give one of
       the two answers.
-    - A class that names a side, such as ``left_hand``, keeps its name. Only
-      keypoint names are renamed.
 
 `HorizontalSymmetricKeypointsFlip`, `VerticalSymmetricKeypointsFlip` and
 `TransposeSymmetricKeypoints` are deprecated. In the engine, they flip like
 the plain transforms, and their ``keypoint_pairs`` give the mirror partners
 of a task that stores none.
+
+
+Class Names
+===========
+
+A class name can say a side or a direction too, as ``left_hand`` and
+``arrow_up`` do. After a horizontal flip, the box of a ``left_hand`` holds
+a right hand. The engine therefore gives each class a new name after the
+pipeline, from the class meanings of its task (see
+`luxonis_ml.ldf.class_meaning` for the forms):
+
+    - A mirror pair, such as ``left_hand`` and ``right_hand``, swaps after
+      each mirror of the image. A turn keeps it.
+    - A direction set, such as ``arrow_up`` to ``arrow_left``, turns and
+      mirrors with the image. A quarter turn to the left makes an
+      ``arrow_up`` an ``arrow_left``.
+    - An upright class, such as ``digit_6``, has no valid sample after a
+      turn or a mirror. An upright pair, such as ``b`` and ``d``, allows
+      the horizontal mirror and swaps after it.
+    - A symmetry table gives the class after each turn and mirror, or
+      says that the result is no valid sample.
+    - Any other class keeps its name.
+
+The engine gives the new class to each box, to the classes of the image
+(the classification vector), and to each channel of a semantic
+segmentation. The configuration uses the plain transforms, and the class
+meanings come from the dataset:
+
+.. python::
+
+    dataset.set_class_metadata(
+        task="hands",
+        classes={
+            "left_hand": {
+                "mirror": "right_hand",
+            },
+        },
+    )
+    loader = LuxonisLoader(
+        dataset,
+        augmentation_config=[
+            {
+                "name": "HorizontalFlip",
+                "params": {
+                    "p": 0.5,
+                },
+            },
+        ],
+    )
+
+Three hidden probe points at the center of the image measure what the
+spatial transforms did to the whole image. The engine rounds the result
+to the nearest turn or mirror, so a turn under 45° keeps every
+class, and a turn over 45° counts as a quarter turn.
+
+When a class of the sample has no valid sample after the measured turn or
+mirror, the engine applies one more flip or turn to the image and to all
+of its labels. It takes the first one, mirrors before turns, after which
+every class of the sample is valid. An upright ``digit_6`` thus comes back
+as it was, and an upright ``b`` after a vertical flip comes back as a
+``d``, turned by 180°. The engine logs this once.
+
+The class names have these limits:
+
+    - A transform that moves parts of the image in different ways, such
+      as ``RandomGridShuffle``, has no turn or mirror for the whole image.
+      Such a sample keeps its classes, and the engine logs a warning once.
+    - The engine measures the whole image, not each object. A crop or a
+      warp that turns one part of the image more than another can give an
+      object a class that does not fit it.
+    - A custom engine gets the class meanings only when its ``__init__``
+      takes the ``class_symmetry`` argument. `LuxonisLoader` logs a warning
+      for any other engine.
+    - An instance segmentation and the keypoints of a box keep the class of
+      the box row that they belong to. Their own arrays hold no class.
 
 
 Custom Transforms
