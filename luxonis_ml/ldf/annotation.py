@@ -504,7 +504,8 @@ class KeypointMetadata(BaseModelExtraForbid):
 
     It describes the keypoints of a whole task, not those of one instance.
     A `KeypointAnnotation` carries the same values: the names of its
-    keypoints, and its ``edges`` and ``sigmas``.
+    keypoints, and the sigma and the connections that each keypoint
+    gives.
     `LuxonisDataset.add` moves them here. A dataset keeps one entry for
     each task. `LuxonisDataset.get_keypoint_metadata` returns the entries,
     and `LuxonisDataset.set_keypoint_metadata` changes them.
