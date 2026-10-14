@@ -576,7 +576,6 @@ def _person(instance: Instance) -> _Raw:
         "keypoints": {
             "keypoints": instance.keypoints,
             "edges": POSE_EDGES,
-            "flip_pairs": POSE_FLIP_PAIRS,
             "sigmas": POSE_SIGMAS,
         },
         "metadata": metadata,

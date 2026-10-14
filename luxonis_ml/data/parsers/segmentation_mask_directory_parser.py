@@ -98,7 +98,7 @@ class SegmentationMaskDirectoryParser(BaseParser):
             classes_path: CSV file with class names.
 
         Returns:
-            Parser output containing annotation records, skeleton metadata,
+            Parser output containing annotation records, keypoint metadata,
             and added images.
 
         """

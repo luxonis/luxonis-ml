@@ -165,7 +165,7 @@ class UltralyticsNDJSONParser(BaseParser):
             reuse_cached: Whether to reuse cached remote images if they already exist.
 
         Returns:
-            Parser output containing annotation records, empty skeleton
+            Parser output containing annotation records, empty keypoint
             metadata, and added images.
 
         Raises:

@@ -90,7 +90,7 @@ def test_keypoints_from_ldf_drops_stored_edges_past_the_keypoints():
     )
     # An older dataset stored edges without a range check.
     metadata = KeypointMetadata.model_construct(
-        labels=[], edges=[(0, 1), (1, 5)], flip_pairs=[], sigmas=[]
+        labels=[], edges=[(0, 1), (1, 5)], sigmas=[]
     )
     kp = Keypoints.from_ldf(ann, metadata=metadata)
     assert kp.edges == [(0, 1)]

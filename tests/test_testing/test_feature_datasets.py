@@ -39,9 +39,6 @@ def test_keypoint_tasks_keep_their_own_skeletons(names: FeatureDatasets):
     metadata = LuxonisDataset(names.main).get_keypoint_metadata()
     assert metadata["people"].labels == list(POSE_NAMES)
     assert metadata["people"].sigmas == POSE_SIGMAS
-    # The face task declares no flip pairs; LDF reads them off the names
-    # left_eye/right_eye and mouth_left/mouth_right.
-    assert metadata["people/face"].flip_pairs == [(0, 1), (3, 4)]
 
 
 def test_first_case_shows_every_class(names: FeatureDatasets):
