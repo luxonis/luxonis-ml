@@ -532,7 +532,7 @@ def test_every_field_is_serialized():
         "edges": [[0, 1]],
         "flip_pairs": [[0, 1]],
         "sigmas": [0.1, 0.2],
-        "picture": [],
+        "position": [],
     }
 
 

@@ -13,7 +13,7 @@ of the keypoint names.
 
 LDF 3.0 groups the detections of a record by task name. An older version
 reads the flat ``file``/``task_name``/``annotation`` record, so the
-downgrade rebuilds it. LDF 3.0 also added ``picture`` to a keypoint
+downgrade rebuilds it. LDF 3.0 also added ``position`` to a keypoint
 annotation, which an older version does not know.
 """
 
@@ -44,7 +44,7 @@ _ADDED_ANNOTATION_FIELDS: Final[dict[tuple[str, str], Version]] = {
     ("keypoints", "edges"): _parse("2.2"),
     ("keypoints", "flip_pairs"): _parse("2.2"),
     ("keypoints", "sigmas"): _parse("2.2"),
-    ("keypoints", "picture"): _parse("3.0"),
+    ("keypoints", "position"): _parse("3.0"),
 }
 
 #: The version that started to key the keypoints by name. An older one

@@ -21,7 +21,7 @@ def tile_records(tempdir: Path, n: int = 2):
                     "class": "tile",
                     "keypoints": {
                         "keypoints": {
-                            name: {"x": x, "y": y, "picture": name}
+                            name: {"x": x, "y": y, "position": name}
                             for name, (x, y) in zip(
                                 CORNERS,
                                 [
@@ -81,16 +81,16 @@ def test_names_of_places_get_no_inferred_partner(
     dataset = create_dataset(dataset_name, tile_records(tempdir))
 
     tiles = dataset.get_keypoint_metadata()["tiles"]
-    assert tiles.picture == CORNERS
+    assert tiles.position == CORNERS
     assert tiles.flip_pairs == []
 
 
 def test_set_keypoint_metadata_gives_places(dataset_name: str, tempdir: Path):
     dataset = create_dataset(dataset_name, tile_records(tempdir))
 
-    dataset.set_keypoint_metadata(task="tiles", picture=[None] * 4)
+    dataset.set_keypoint_metadata(task="tiles", position=[None] * 4)
 
-    assert dataset.get_keypoint_metadata()["tiles"].picture == [None] * 4
+    assert dataset.get_keypoint_metadata()["tiles"].position == [None] * 4
 
 
 def test_native_export_keeps_the_places(dataset_name: str, tempdir: Path):
@@ -98,14 +98,14 @@ def test_native_export_keeps_the_places(dataset_name: str, tempdir: Path):
 
     imported = export_and_import(dataset, tempdir)
 
-    assert imported.get_keypoint_metadata()["tiles"].picture == CORNERS
+    assert imported.get_keypoint_metadata()["tiles"].position == CORNERS
 
 
 def test_an_export_for_ldf_2_drops_the_places():
-    keypoints = {"keypoints": {"a": [0.2, 0.2, 2]}, "picture": ["center"]}
+    keypoints = {"keypoints": {"a": [0.2, 0.2, 2]}, "position": ["center"]}
 
     downgraded = LDFDowngrader(Version.parse("2.2.0"))(
         {"media": "a.jpg", "annotation": {"tiles": [{"keypoints": keypoints}]}}
     )
 
-    assert "picture" not in downgraded["annotation"]["keypoints"]
+    assert "position" not in downgraded["annotation"]["keypoints"]

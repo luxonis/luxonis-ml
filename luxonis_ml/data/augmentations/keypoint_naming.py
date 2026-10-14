@@ -10,7 +10,7 @@ keeps their columns, so after the pipeline some names are wrong:
       out reversed, the map at that instance was a mirror. No transform has
       to say what it does, so a custom transform works too.
     - A keypoint with a place in the picture takes the name of the place
-      where it is, see `luxonis_ml.ldf.picture_places`. Only the keypoints
+      where it is, see `luxonis_ml.ldf.keypoint_positions`. Only the keypoints
       themselves count, so no probe is needed.
 
 Some Albumentations transforms, such as ``ElasticTransform``, drop the
@@ -29,8 +29,8 @@ from typing import Final
 
 import numpy as np
 
-from luxonis_ml.ldf.picture_places import (
-    PicturePlace,
+from luxonis_ml.ldf.keypoint_positions import (
+    KeypointPosition,
     places_symmetry,
     renaming,
 )
@@ -158,7 +158,7 @@ def rename(
     n_keypoints: int,
     n_probes: int,
     mirror_pairs: Sequence[tuple[int, int]],
-    places: Sequence[PicturePlace | None],
+    places: Sequence[KeypointPosition | None],
 ) -> np.ndarray:
     """Give each keypoint the name its meaning asks for, and drop probes.
 

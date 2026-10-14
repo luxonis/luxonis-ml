@@ -28,7 +28,7 @@ PERSON += [0.32, 0.60, 2]
 # A floor tile has no front, so its corners are named after the picture.
 TILES = KeypointMetadata(
     labels=["a", "b", "c", "d"],
-    picture=["top_left", "top_right", "bottom_right", "bottom_left"],
+    position=["top_left", "top_right", "bottom_right", "bottom_left"],
 )
 TILE = [0.38, 0.38, 2, 0.62, 0.38, 2, 0.62, 0.62, 2, 0.38, 0.62, 2]
 
