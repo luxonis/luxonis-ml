@@ -486,12 +486,12 @@ class LuxonisLoader(BaseLoader):
             else:
                 img_dict[source_name] = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        labels_by_task: dict[str, list[Annotation]] = defaultdict(list)
-        class_ids_by_task: dict[str, list[int]] = defaultdict(list)
-        instance_ids_by_task: dict[str, list[int]] = defaultdict(list)
-        metadata_by_task: dict[str, list[str | int | float | Category]] = (
+        annotations_by_task: dict[str, list[tuple[int, Annotation, int]]] = (
             defaultdict(list)
         )
+        metadata_by_task: dict[
+            str, list[tuple[int, str | int | float | Category]]
+        ] = defaultdict(list)
 
         for annotation_data in ann_rows:
             task_name: str = annotation_data[col["task_name"]]
@@ -510,7 +510,7 @@ class LuxonisLoader(BaseLoader):
                 data["path"] = self.dataset._arrays_path / data["path"]
 
             if task_type.startswith("metadata/"):
-                metadata_by_task[full_task_name].append(data)
+                metadata_by_task[full_task_name].append((instance_id, data))
             else:  # pragma: no cover
                 # Conversion from LDF v1.0
                 if "points" in data and "width" not in data:
@@ -520,37 +520,35 @@ class LuxonisLoader(BaseLoader):
                     data["points"] = [tuple(p) for p in data["points"]]
 
                 annotation = load_annotation(task_type, data)  # type: ignore
-                labels_by_task[full_task_name].append(annotation)
-                if class_name is not None:
-                    class_ids_by_task[full_task_name].append(
-                        self._classes[task_name][class_name]
-                    )
-                else:
-                    class_ids_by_task[full_task_name].append(0)
-                instance_ids_by_task[full_task_name].append(instance_id)
+                class_id = (
+                    self._classes[task_name][class_name]
+                    if class_name is not None
+                    else 0
+                )
+                annotations_by_task[full_task_name].append(
+                    (instance_id, annotation, class_id)
+                )
 
+        # Sort by instance ID so that index i is the same object in every
+        # label array of a task: boxes, keypoints, masks and metadata.
         labels: Labels = {}
         encodings = self.dataset.get_categorical_encodings()
-        for task, metadata in metadata_by_task.items():
+        for task, values in metadata_by_task.items():
+            values.sort(key=lambda x: x[0])
+            metadata = [value for _, value in values]
             if not self._keep_categorical_as_strings and task in encodings:
                 metadata = [encodings[task][m] for m in metadata]  # type: ignore
             labels[task] = np.array(metadata)
 
-        for task, anns in labels_by_task.items():
-            assert anns, f"No annotations found for task {task_name}"
-            instance_ids = instance_ids_by_task[task]
-
-            anns = [
-                ann
-                for _, ann in sorted(
-                    zip(instance_ids, anns, strict=True), key=lambda x: x[0]
-                )
-            ]
+        for task, instances in annotations_by_task.items():
+            instances.sort(key=lambda x: x[0])
+            anns = [ann for _, ann, _ in instances]
+            class_ids = [class_id for _, _, class_id in instances]
 
             task_name, task_type = split_task(task)
             array = anns[0].combine_to_numpy(
                 anns,
-                class_ids_by_task[task],
+                class_ids,
                 len(self._classes[task_name]),
             )
             if task in self._tasks_without_background:
