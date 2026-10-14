@@ -103,6 +103,18 @@ def test_dataset(
                         (4, 6),
                     ]
                 ),
+                # Inferred from the `left_`/`right_` names, with the
+                # midline `nose` correctly left unpaired.
+                flip_pairs=[
+                    (1, 2),
+                    (3, 4),
+                    (5, 6),
+                    (7, 8),
+                    (9, 10),
+                    (11, 12),
+                    (13, 14),
+                    (15, 16),
+                ],
             ),
         }
         assert dataset.get_n_keypoints() == {"coco": 17}

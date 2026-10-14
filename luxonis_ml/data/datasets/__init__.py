@@ -253,31 +253,29 @@ Keypoint Metadata
 =================
 
 Each keypoint task has one `luxonis_ml.ldf.KeypointMetadata` entry. It holds
-the keypoint names, the edges between the keypoints, and the sigmas of the
-object keypoint similarity (OKS) metric. Each keypoint of a record can give
-its part of them, and `LuxonisDataset.add` moves them into the entry of the
-task:
+the keypoint names, the edges between the keypoints, the mirror partners,
+the places in the picture, and the sigmas of the object keypoint similarity
+(OKS) metric. Each keypoint of a record can give its part of them, and
+`LuxonisDataset.add` moves them into the entry of the task:
 
 .. python::
 
     def pose_records():
         yield {
-            "file": "path/to/image.jpg",
-            "task_name": "pose",
+            "media": "path/to/image.jpg",
             "annotation": {
-                "class": "person",
-                "keypoints": {
+                "pose": {
+                    "class": "person",
                     "keypoints": {
-                        "nose": (0.50, 0.30, 2),
-                        "left_eye": {
-                            "x": 0.45,
-                            "y": 0.25,
-                            "connected_to": "nose",
-                        },
-                        "right_eye": {
-                            "x": 0.55,
-                            "y": 0.25,
-                            "connected_to": "nose",
+                        "keypoints": {
+                            "nose": (0.50, 0.30, 2),
+                            "left_eye": {
+                                "x": 0.55,
+                                "y": 0.25,
+                                "connected_to": "nose",
+                                "mirror": "right_eye",
+                            },
+                            "right_eye": (0.45, 0.25, 2),
                         },
                     },
                 },
@@ -285,17 +283,96 @@ task:
         }
 
     dataset.add(pose_records())
-    dataset.get_keypoint_metadata()["pose"].edges  # [(0, 1), (0, 2)]
+    dataset.get_keypoint_metadata()["pose"].flip_pairs  # [(1, 2)]
 
+When no keypoint of a task gives ``mirror``, `LuxonisDataset.add` infers
+the partners from the ``left``/``right`` names. A ``"mirror": None`` on a
+keypoint says that it has no partner, and it turns the inference off. The augmentation then swaps the
+partners after every mirror of the picture; see the section on keypoint
+names in `luxonis_ml.data.augmentations`.
 `LuxonisDataset.set_keypoint_metadata` sets the fields without records.
 
 A dataset from LDF 2.0 or 2.1 stores its keypoint names and edges under
 ``skeletons``. It opens without a change, and reading it does not rewrite
-it. The first metadata write of such a dataset with keypoints, for example
-`LuxonisDataset.add` or `LuxonisDataset.set_keypoint_metadata`, moves it to
-the current LDF version. An older luxonis-ml cannot open it after that.
-`LuxonisDataset.export` with ``ldf_version`` writes a copy that an older
-luxonis-ml can import.
+it. It has no mirror partners, so a flip swaps its left and right keypoints
+only when the augmentation configuration gives ``keypoint_pairs``. To infer
+the partners from the stored names, call:
+
+.. python::
+
+    dataset.set_keypoint_metadata(infer_flip_pairs=True)
+
+The first metadata write of such a dataset with keypoints, for example this
+call or `LuxonisDataset.add`, moves it to the current LDF version. An older
+luxonis-ml cannot open it after that. `LuxonisDataset.export` with
+``ldf_version`` writes a copy that an older luxonis-ml can import.
+
+
+Class Metadata
+==============
+
+A class can say what each turn and mirror of the image makes of it, for
+example that a ``left_hand`` becomes a ``right_hand`` after a mirror. The
+augmentation then gives each label the class it shows; see the section on
+class names in `luxonis_ml.data.augmentations`. A record gives the meaning
+with its class, as a mapping with a ``"name"``:
+
+.. python::
+
+    def hand_records():
+        yield {
+            "media": "path/to/image.jpg",
+            "annotation": {
+                "hands": {
+                    "class": {
+                        "name": "left_hand",
+                        "mirror": "right_hand",
+                    },
+                    "boundingbox": {
+                        "x": 0.1,
+                        "y": 0.4,
+                        "w": 0.2,
+                        "h": 0.2,
+                    },
+                },
+            },
+        }
+
+    dataset.add(hand_records())
+    dataset.get_classes()["hands"]
+    # {"left_hand": 0, "right_hand": 1}
+
+`LuxonisDataset.add` moves the meanings into one
+`luxonis_ml.ldf.ClassMetadata` entry for each task, and
+`LuxonisDataset.get_class_metadata` returns them. Each record of a class
+needs to give its meaning only once, but two records that give one class
+different meanings are an error. A class that a meaning names, such as
+``right_hand`` above, joins the classes of the task, with the next free
+class ID, also before a record shows it. The meanings of a later
+`LuxonisDataset.add` replace the stored ones, with a warning.
+
+`LuxonisDataset.set_class_metadata` sets the meanings without records.
+It takes the same mapping without ``"name"``, and ``None`` removes the
+meaning of a class:
+
+.. python::
+
+    dataset.set_class_metadata(
+        task="digits",
+        classes={
+            "digit_6": {
+                "upright": True,
+            },
+            "digit_9": None,
+        },
+    )
+
+`LuxonisDataset.merge_with` keeps the meanings of both datasets. When both
+give a class different meanings, the meaning of the dataset that is merged
+in wins, with a warning. A native export writes the meanings to the
+``metadata.json`` of the export, and `LuxonisParser` reads them back. An
+export to LDF 2 and the COCO and YOLO exports leave them out.
+
 
 Class Ordering
 ==============

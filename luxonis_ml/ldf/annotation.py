@@ -207,20 +207,21 @@ Each keypoint is a `Keypoint`. It is a named tuple, so ``keypoint[2]`` and
 ``keypoint.visibility`` give the same value. Visibility defaults to
 :math:`2`.
 
-A keypoint can also describe itself for the whole task. Write it as a
-mapping instead of a triplet, with only the keys it needs:
+A keypoint can also say what it means. Write it as a mapping instead of a
+triplet, with only the keys it needs:
 
 .. python::
 
     "keypoints": {
-        "nose": {"x": 0.50, "y": 0.30, "sigma": 0.026},
+        "nose": (0.50, 0.30, 2),
         "left_eye": {
-            "x": 0.40,
-            "y": 0.20,
+            "x": 0.55,
+            "y": 0.25,
             "state": "occluded",
-            "sigma": 0.025,
             "connected_to": "nose",
+            "mirror": "right_eye",
         },
+        "right_eye": (0.45, 0.25, 2),
     }
 
 ======================  ======================================================
@@ -233,15 +234,61 @@ Key                     Meaning
 ``sigma``               The OKS standard deviation. Give it for every
                         keypoint or for none.
 ``connected_to``        A name or a list of names. An edge joins them.
+``mirror``              The keypoint on the other side of the object, or
+                        ``None`` for a keypoint without a partner.
+``position``            A `KeypointPosition`, for a name that follows the
+                        picture.
 ======================  ======================================================
 
-The sigmas and the edges describe the task, not the instance.
-`LuxonisDataset.add` thus moves them into a `KeypointMetadata` and keeps one
-entry for each task. `LuxonisDataset.get_keypoint_metadata` returns the
-entries. The records of a task in one `LuxonisDataset.add` must not give
-different values. A value that differs from the stored one replaces it, with
-a warning. The dataset stores the keypoints of a task in the order that the
-keypoint metadata defines.
+A keypoint name follows the object or the picture, and augmentation keeps
+both right without a special transform:
+
+    - ``mirror`` names a side of the object, such as an eye of a person or
+      a corner of a number plate. Any mirror of the picture swaps the two
+      names, also a vertical flip, and a rotation keeps them. Name the
+      partner on one side only.
+    - ``position`` names a place in the picture, for an object without a
+      front, such as a parking space. After any augmentation, the keypoint
+      takes the name of the place where it is:
+
+.. python::
+
+    "keypoints": {
+        "top_left": {
+            "x": 0.2,
+            "y": 0.6,
+            "position": "top_left",
+        },
+        "top_right": {
+            "x": 0.5,
+            "y": 0.6,
+            "position": "top_right",
+        },
+        "bottom_right": {
+            "x": 0.5,
+            "y": 0.9,
+            "position": "bottom_right",
+        },
+        "bottom_left": {
+            "x": 0.2,
+            "y": 0.9,
+            "position": "bottom_left",
+        },
+    }
+
+A keypoint without either keeps its name. The section on keypoint names in
+`luxonis_ml.data.augmentations` shows the rules at work, with their limits.
+
+These fields describe the task, not the instance. `LuxonisDataset.add`
+moves them into a `KeypointMetadata` and keeps one entry for each task.
+`LuxonisDataset.get_keypoint_metadata` returns the entries. The records of
+a task in one `LuxonisDataset.add` must not give different values. A value
+that differs from the stored one replaces it, with a warning. When a task
+gets new names and no keypoint of its records gives ``mirror``,
+`LuxonisDataset.add` infers the partners from ``left`` and ``right`` names,
+except for the keypoints with a place in the picture. A ``"mirror": None``
+thus turns the inference off. The dataset stores the keypoints of a task in
+the order that the keypoint metadata defines.
 
 A task without names gets the positional keys as its labels. If no record
 gives edges, `LuxonisDataset.add` also joins its keypoints in a chain of
@@ -426,6 +473,7 @@ Important:
 """
 
 import json
+import re
 import warnings
 from abc import ABC, abstractmethod
 from collections import Counter, defaultdict
@@ -461,10 +509,16 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
-from pydantic.types import FilePath, PositiveFloat, PositiveInt
+from pydantic.types import FilePath, NonNegativeInt, PositiveFloat, PositiveInt
 from pydantic_core import core_schema, to_json
 from typing_extensions import Self, deprecated, override
 
+from luxonis_ml.ldf.class_meaning import ClassMeaning
+from luxonis_ml.ldf.keypoint_positions import (
+    KeypointPosition,
+    missing_places,
+    places_symmetry,
+)
 from luxonis_ml.ldf.parquet import ParquetRecord
 from luxonis_ml.typing import (
     BaseModelExtraForbid,
@@ -531,44 +585,70 @@ _STATES: Final[dict[str, KeypointVisibility]] = {
     "unlabeled": 0,
 }
 
+#: Side markers recognized when inferring flip pairs from keypoint names.
+_SIDE_MARKERS: Final = {
+    "left": "left",
+    "l": "left",
+    "right": "right",
+    "r": "right",
+}
+
 
 class KeypointMetadata(BaseModelExtraForbid):
     r"""Task-level description of a set of keypoints.
 
     It describes the keypoints of a whole task, not those of one instance.
     A `KeypointAnnotation` carries the same values: the names of its
-    keypoints, and the sigma and the connections that each keypoint
-    gives.
+    keypoints, and the sigma, the connections, the mirror partner and the
+    position that each keypoint gives.
     `LuxonisDataset.add` moves them here. A dataset keeps one entry for
     each task. `LuxonisDataset.get_keypoint_metadata` returns the entries,
     and `LuxonisDataset.set_keypoint_metadata` changes them.
 
-    Edges accept keypoint names. They resolve against `labels` and store
-    indices, which index into a keypoint array. The field declares
-    indices, so pass the names through ``model_validate``. The constructor
-    resolves them too, but a type checker rejects a name there:
+    Edges and flip pairs accept keypoint names. They resolve against
+    `labels` and store indices, which index into a keypoint array. The
+    fields declare indices, so pass the names through ``model_validate``.
+    The constructor resolves them too, but a type checker rejects a name
+    there:
 
     Example:
         >>> KeypointMetadata.model_validate(
         ...     {
         ...         "labels": ["nose", "left_eye", "right_eye"],
         ...         "edges": [("nose", "left_eye"), ("nose", "right_eye")],
+        ...         "flip_pairs": [("left_eye", "right_eye")],
         ...     }
         ... )
-        KeypointMetadata(labels=['nose', 'left_eye', 'right_eye'], edges=[(0, 1), (0, 2)], sigmas=[])
+        KeypointMetadata(labels=['nose', 'left_eye', 'right_eye'], edges=[(0, 1), (0, 2)], flip_pairs=[(1, 2)], sigmas=[], position=[])
 
     Attributes:
         labels: Keypoint names in index order.
         edges: Keypoint graph edges as :math:`0`-based index pairs. Each
             pair has the lower index first, and the list is sorted.
+        flip_pairs: The mirror partners, as index pairs: keypoints named
+            after a side of the object, such as the left and the right
+            eye. Every mirror of the picture swaps the two names, also a
+            vertical flip and a transpose, and a rotation keeps them. A
+            pair joins two different keypoints, and a keypoint is in at
+            most one pair. Each pair has the lower index first, and the
+            list is sorted.
         sigmas: Standard deviations of the object keypoint similarity
             (OKS), one for each keypoint in `labels` order.
+        position: The `KeypointPosition` of each keypoint whose name follows
+            the picture instead of the object, such as the corners of a
+            parking space, in `labels` order. ``None`` marks a keypoint
+            without a place. After any augmentation, such a keypoint takes
+            the name of the place where it is. The places form full sets:
+            all four corners, all four sides, the center. Empty when no
+            keypoint has a place.
 
     """
 
     labels: list[str] = []
     edges: list[tuple[int, int]] = []
+    flip_pairs: list[tuple[NonNegativeInt, NonNegativeInt]] = []
     sigmas: list[PositiveFloat] = []
+    position: list[KeypointPosition | None] = []
 
     @property
     def has_names(self) -> bool:
@@ -700,23 +780,23 @@ class KeypointMetadata(BaseModelExtraForbid):
                 ``n_keypoints`` keypoints.
 
         """
-        for field in ("labels", "sigmas"):
+        for field in ("labels", "sigmas", "position"):
             value = getattr(self, field)
             if value and len(value) != n_keypoints:
                 raise ValueError(
                     f"The keypoint metadata{_where(context)} defines "
                     f"{len(value)} {field} for {n_keypoints} keypoints."
                 )
-        if not check_edges:
-            return
-        for pair in self.edges:
-            for index in pair:
-                if not 0 <= index < n_keypoints:
-                    raise ValueError(
-                        f"The keypoint metadata{_where(context)} refers to "
-                        f"keypoint {index} in `edges`, but there are only "
-                        f"{n_keypoints} keypoints."
-                    )
+        fields = ("edges", "flip_pairs") if check_edges else ("flip_pairs",)
+        for field in fields:
+            for pair in getattr(self, field):
+                for index in pair:
+                    if not 0 <= index < n_keypoints:
+                        raise ValueError(
+                            f"The keypoint metadata{_where(context)} refers "
+                            f"to keypoint {index} in `{field}`, but there "
+                            f"are only {n_keypoints} keypoints."
+                        )
 
     def validate_labels(self, context: str = "") -> None:
         """Check that no two keypoints have the same name.
@@ -784,52 +864,69 @@ class KeypointMetadata(BaseModelExtraForbid):
         }
 
     def record_keypoints(
-        self, keypoints: Mapping[str, Sequence[float]]
+        self,
+        keypoints: Mapping[str, Sequence[float]],
+        *,
+        declare_no_partners: bool = True,
     ) -> dict[str, Any]:
         """Write keypoints in the record form that gives the task fields.
 
-        A keypoint with a sigma or an edge becomes a mapping that carries
-        them, as a record gives them. The others stay
-        ``[x, y, visibility]`` lists. An edge is written as
-        ``connected_to`` of its first keypoint.
+        A keypoint with a task field becomes a mapping that carries it, as
+        a record gives it. The others stay ``[x, y, visibility]`` lists.
+        An edge is written as ``connected_to`` of its first keypoint, and a
+        mirror pair as ``mirror`` of its first keypoint.
 
         Args:
             keypoints: The coordinates of each keypoint, keyed by name, in
-                the index order of `edges` and `sigmas`.
+                the index order of the task fields.
+            declare_no_partners: Without flip pairs, write
+                ``"mirror": None`` on each keypoint whose name looks like a
+                side, so that an import infers no partner for it.
 
         Returns:
             The keypoints of a record.
 
         Example:
             >>> KeypointMetadata(edges=[(0, 1)]).record_keypoints(
-            ...     {"nose": (0.5, 0.3, 2), "eye": (0.4, 0.2, 1)}
+            ...     {
+            ...         "nose": (0.5, 0.3, 2),
+            ...         "eye": (0.4, 0.2, 1),
+            ...     }
             ... )
             {'nose': {'x': 0.5, 'y': 0.3, 'visibility': 2, 'connected_to': ['eye']}, 'eye': [0.4, 0.2, 1]}
 
         """
         names = list(keypoints)
-        connected: dict[int, list[str]] = {}
+        fields: dict[int, dict[str, Any]] = {i: {} for i in range(len(names))}
+        if self.sigmas:
+            for i, sigma in enumerate(self.sigmas):
+                fields[i]["sigma"] = sigma
         for a, b in self.edges:
-            connected.setdefault(a, []).append(names[b])
-        record: dict[str, Any] = {}
-        for i, (name, (x, y, visibility)) in enumerate(keypoints.items()):
-            fields: dict[str, Any] = {}
-            if self.sigmas:
-                fields["sigma"] = self.sigmas[i]
-            if i in connected:
-                fields["connected_to"] = connected[i]
-            record[name] = (
-                {"x": x, "y": y, "visibility": visibility, **fields}
-                if fields
-                else [x, y, visibility]
-            )
-        return record
+            fields[a].setdefault("connected_to", []).append(names[b])
+        for a, b in self.flip_pairs:
+            fields[a]["mirror"] = names[b]
+        if declare_no_partners and not self.flip_pairs:
+            placed = {i for i, place in enumerate(self.position) if place}
+            for pair in self.infer_flip_pairs(names):
+                if not placed & set(pair):
+                    for i in pair:
+                        fields[i]["mirror"] = None
+        for i, place in enumerate(self.position):
+            if place is not None:
+                fields[i]["position"] = place
+        return {
+            name: {"x": x, "y": y, "visibility": visibility, **fields[i]}
+            if fields[i]
+            else [x, y, visibility]
+            for i, (name, (x, y, visibility)) in enumerate(keypoints.items())
+        }
 
     def reindexed_to(self, labels: Sequence[str]) -> "KeypointMetadata":
         """Return the keypoint metadata for a new list of names.
 
         The new list holds every current name, in any order, and it can
-        hold more names. The edges and the sigmas move to the new indices. A new name has no sigma, so keypoint metadata
+        hold more names. The edges, the flip pairs and the sigmas move to
+        the new indices. A new name has no sigma, so keypoint metadata
         with sigmas accepts only a new list without other names.
 
         Args:
@@ -856,10 +953,69 @@ class KeypointMetadata(BaseModelExtraForbid):
         return KeypointMetadata(
             labels=list(labels),
             edges=[(moved[a], moved[b]) for a, b in self.edges],
+            flip_pairs=[(moved[a], moved[b]) for a, b in self.flip_pairs],
             sigmas=[self.sigmas[self.labels.index(label)] for label in labels]
             if self.sigmas
             else [],
+            position=[
+                self.position[self.labels.index(label)]
+                if label in self.labels
+                else None
+                for label in labels
+            ]
+            if self.position
+            else [],
         )
+
+    @staticmethod
+    def infer_flip_pairs(labels: Iterable[str]) -> list[tuple[int, int]]:
+        """Infer horizontal flip pairs from ``left``/``right`` names.
+
+        A name must carry a ``left``/``right`` or ``l``/``r`` marker at the
+        start or at the end, and a separator must delimit it. The rest of
+        the two names must match. The match ignores case, and ``_``, ``-``
+        and whitespace count as the same separator. A keypoint on the
+        midline, such as ``nose``, stays unpaired. So does a keypoint with
+        no partner. When more than one left name or more than one right
+        name has the same rest, none of them gets a pair, and a warning is
+        logged.
+        The match is narrow on purpose. A wrong flip pair mirrors the wrong
+        keypoints and never fails.
+
+        Args:
+            labels: Keypoint names in index order.
+
+        Returns:
+            Flip pairs as :math:`0`-based index pairs.
+
+        Example:
+            >>> KeypointMetadata.infer_flip_pairs(
+            ...     ["nose", "left_eye", "right_eye", "l_ear", "r_ear"]
+            ... )
+            [(1, 2), (3, 4)]
+
+        """
+        sides: dict[str, dict[str, list[int]]] = defaultdict(
+            lambda: {"left": [], "right": []}
+        )
+        for index, label in enumerate(labels):
+            if (marker := _split_side(label)) is not None:
+                side, name = marker
+                sides[name][side].append(index)
+
+        flip_pairs = []
+        for name, by_side in sides.items():
+            left, right = by_side["left"], by_side["right"]
+            if not left or not right:
+                continue
+            if len(left) > 1 or len(right) > 1:
+                logger.warning(
+                    f"Cannot infer a flip pair for keypoint '{name}': it "
+                    f"matches {len(left)} left and {len(right)} right names."
+                )
+                continue
+            flip_pairs.append((min(left[0], right[0]), max(left[0], right[0])))
+        return sorted(flip_pairs)
 
     @model_validator(mode="before")
     @classmethod
@@ -876,8 +1032,47 @@ class KeypointMetadata(BaseModelExtraForbid):
 
     @model_validator(mode="after")
     def _normalize(self) -> Self:
-        """Order the edges: an edge has no direction."""
+        """Order the edges and the flip pairs, and check the flip pairs."""
+        # An edge has no direction, so its ends order like a flip pair.
         self.edges = sorted((min(a, b), max(a, b)) for a, b in self.edges)
+
+        seen: dict[int, tuple[int, int]] = {}
+        flip_pairs = []
+        for a, b in self.flip_pairs:
+            if a == b:
+                raise ValueError(
+                    f"Flip pair ({a}, {b}) flips keypoint {a} onto itself."
+                )
+            for index in (a, b):
+                if index in seen:
+                    raise ValueError(
+                        f"Keypoint {index} appears in both flip pairs "
+                        f"{seen[index]} and {(a, b)}. "
+                        "Flip pairs must be disjoint."
+                    )
+            seen[a] = seen[b] = (a, b)
+            flip_pairs.append((min(a, b), max(a, b)))
+        self.flip_pairs = sorted(flip_pairs)
+
+        placed = [i for i, place in enumerate(self.position) if place]
+        if both := sorted(set(placed) & set(seen)):
+            names = [self.labels[i] if self.labels else str(i) for i in both]
+            raise ValueError(
+                f"Keypoints {', '.join(names)} have both a mirror partner "
+                "and a place in the picture. A keypoint name follows either "
+                "the object (`mirror`) or the picture (`position`)."
+            )
+        places = [self.position[i] for i in placed]
+        if repeated := _repeated([str(place) for place in places]):
+            raise ValueError(
+                f"More than one keypoint has the place {', '.join(repeated)}."
+            )
+        if missing := missing_places(self.position):
+            raise ValueError(
+                "The places in the picture must form full sets, because a "
+                "rotation or a mirror moves each place to another place of "
+                f"its set. Missing: {', '.join(missing)}."
+            )
         return self
 
 
@@ -1009,7 +1204,22 @@ class Detection(BaseModelExtraForbid):
 
     Attributes:
         class_name: optional class name for the detection. Input data may use
-            the ``"class"`` alias.
+            the ``"class"`` alias. A record can also give a mapping with
+            ``"name"`` and the meaning of the class, which then goes to
+            `class_meaning`:
+
+            .. python::
+
+                "class": {
+                    "name": "left_hand",
+                    "mirror": "right_hand",
+                }
+
+        class_meaning: What the class name says about its side or its
+            direction, from a mapping under ``"class"``. See
+            `luxonis_ml.ldf.class_meaning`. `LuxonisDataset.add` moves it
+            into the class metadata of the task, so a stored row keeps only
+            the class name.
         instance_id: Instance identifier. If not provided, the
             instance IDs will correspond to the order in which
             the detections were added to the dataset.
@@ -1082,6 +1292,7 @@ class Detection(BaseModelExtraForbid):
     class_name: str | None = Field(
         None, validation_alias=AliasChoices("class", "class_name")
     )
+    class_meaning: ClassMeaning | None = Field(default=None, exclude=True)
     instance_id: int = -1
 
     # A literal default is deep-copied into every instance, which the
@@ -1127,6 +1338,26 @@ class Detection(BaseModelExtraForbid):
             task_types.add(f"metadata/{metadata_key}")
 
         return task_types
+
+    @model_validator(mode="before")
+    @classmethod
+    def _split_class_meaning(cls, values: Any) -> Any:
+        """Split a ``class`` mapping into the name and the meaning."""
+        if not isinstance(values, Mapping):
+            return values
+        key = next((k for k in ("class", "class_name") if k in values), None)
+        given = values.get(key) if key is not None else None
+        if not isinstance(given, Mapping):
+            return values
+        given = dict(given)
+        if "name" not in given:
+            raise ValueError(
+                "A `class` mapping needs `name`, the name of the class."
+            )
+        name = given.pop("name")
+        meaning = ClassMeaning.model_validate(given)
+        meaning.check_name(name)
+        return {**values, key: name, "class_meaning": meaning}
 
     @model_validator(mode="after")
     def _validate_names(self) -> Self:
@@ -1435,8 +1666,7 @@ class KeypointAnnotation(Annotation):
     normalized to :math:`\left[0, 1\right]` based on the image size.
 
     A keypoint is an ``(x, y, visibility)`` triplet, or a mapping that can
-    also describe the keypoint for the whole task. The mapping takes these
-    keys:
+    also say what the keypoint means. The mapping takes these keys:
 
         - ``x``, ``y``: The coordinates.
         - ``state``: ``"visible"``, ``"occluded"`` or ``"unlabeled"``,
@@ -1446,6 +1676,13 @@ class KeypointAnnotation(Annotation):
           similarity (OKS). Give it for every keypoint or for none.
         - ``connected_to``: The name of a keypoint, or a list of names,
           that an edge joins to this keypoint.
+        - ``mirror``: The name of the keypoint on the other side of the
+          object. Any mirror of the picture swaps the two names, and a
+          rotation keeps them. Name the partner on one side only.
+          ``None`` says that the keypoint has no partner.
+        - ``position``: A `KeypointPosition`, for a name that follows the
+          picture instead of the object. After any augmentation, the
+          keypoint takes the name of the place where it is.
 
     Example:
         >>> eyes = KeypointAnnotation.model_validate(
@@ -1457,22 +1694,26 @@ class KeypointAnnotation(Annotation):
         ...                 "y": 0.25,
         ...                 "state": "occluded",
         ...                 "connected_to": "nose",
+        ...                 "mirror": "right_eye",
         ...             },
+        ...             "right_eye": (0.55, 0.25, 2),
         ...         }
         ...     }
         ... )
         >>> eyes.to_numpy().tolist()
-        [0.5, 0.3, 2.0, 0.45, 0.25, 1.0]
-        >>> eyes.declared_metadata()
-        KeypointMetadata(labels=['nose', 'left_eye'], edges=[(0, 1)], sigmas=[])
+        [0.5, 0.3, 2.0, 0.45, 0.25, 1.0, 0.55, 0.25, 2.0]
+        >>> metadata = eyes.declared_metadata()
+        >>> metadata.flip_pairs, metadata.edges
+        ([(1, 2)], [(0, 1)])
 
     A plain list of triplets is also accepted. The keypoints are then keyed
     by position as ``"0"``, ``"1"``, .... A list shorter than the keypoints
-    of the task holds the leading ones.
+    of the task holds the leading ones. Only named keypoints can say what
+    they mean.
 
-    The sigmas and the edges describe the task, not the instance.
-    `LuxonisDataset.add` moves them into a `KeypointMetadata`, so a stored
-    payload holds only the coordinates.
+    The sigmas, the edges, the mirror partners and the positions describe
+    the task, not the instance. `LuxonisDataset.add` moves them into a
+    `KeypointMetadata`, so a stored payload holds only the coordinates.
 
     Attributes:
         keypoints: Keypoints in ``(x, y, visibility)`` format, keyed by
@@ -1485,11 +1726,12 @@ class KeypointAnnotation(Annotation):
     """
 
     keypoints: dict[str, Keypoint]
-    # The task fields that the keypoints give: index pairs, and one sigma
-    # for each keypoint or none. They are not fields, so a record can only
-    # give them with each keypoint.
-    _edges: list[tuple[int, int]] = PrivateAttr(default_factory=list)
-    _sigmas: list[float] = PrivateAttr(default_factory=list)
+    # The task fields that the keypoints give, as indices. They are not
+    # fields, so a record can only give them with each keypoint. The
+    # loader builds an annotation for each row, so the default is no
+    # model.
+    _task_fields: KeypointMetadata | None = PrivateAttr(default=None)
+    _gives_mirror: bool = PrivateAttr(default=False)
 
     def to_numpy(self) -> np.ndarray:
         r"""Convert the keypoint annotation to flattened row format.
@@ -1591,10 +1833,10 @@ class KeypointAnnotation(Annotation):
         labels = list(self.keypoints)
         if _is_positional(labels):
             labels = []
-        if not (labels or self._edges or self._sigmas):
-            return None
-        return KeypointMetadata(
-            labels=labels, edges=self._edges, sigmas=self._sigmas
+        if self._task_fields is None:
+            return KeypointMetadata(labels=labels) if labels else None
+        return self._task_fields.model_copy(
+            update={"labels": labels}, deep=True
         )
 
     def with_keypoints(
@@ -1612,9 +1854,18 @@ class KeypointAnnotation(Annotation):
 
         """
         moved = KeypointAnnotation(keypoints=dict(keypoints))
-        moved._edges = list(self._edges)
-        moved._sigmas = list(self._sigmas)
+        moved._task_fields = self._task_fields
+        moved._gives_mirror = self._gives_mirror
         return moved
+
+    @property
+    def gives_mirror(self) -> bool:
+        """Whether a keypoint gives ``mirror``, also as ``None``.
+
+        Such an annotation declares the mirror partners of its task, so
+        `LuxonisDataset.add` infers none from the names.
+        """
+        return self._gives_mirror
 
     @override
     def to_parquet_json(
@@ -1622,8 +1873,9 @@ class KeypointAnnotation(Annotation):
     ) -> str:
         """Serialize the keypoints into a positional parquet payload.
 
-        The names, the edges and the sigmas describe the task, not the
-        instance, so the payload holds only the coordinates.
+        The names, the edges, the flip pairs, the sigmas and the positions
+        describe the task, not the instance, so the payload holds only the
+        coordinates.
 
         Args:
             keypoint_metadata: Keypoint metadata of the task, when known.
@@ -1654,55 +1906,67 @@ class KeypointAnnotation(Annotation):
         info: ValidationInfo,
     ) -> Self:
         """Split the task fields off the keypoints, then check them."""
-        edges: list[tuple[str, str]] = []
-        sigmas: dict[str, Any] = {}
+        fields: dict[str, Any] = {}
         if isinstance(values, Mapping) and isinstance(
             values.get("keypoints"), Mapping
         ):
-            coordinates, edges, sigmas = _split_task_fields(
-                values["keypoints"]
-            )
+            coordinates, fields = _split_task_fields(values["keypoints"])
             values = {**values, "keypoints": coordinates}
         annotation = handler(cls._coerce(values, info))
-        if edges or sigmas:
-            annotation._declare(edges, sigmas)
+        if fields:
+            annotation._declare(fields)
         return annotation
 
     @model_serializer(mode="wrap")
     def _serialize(self, handler: SerializerFunctionWrapHandler) -> Any:
         """Dump the task fields with each keypoint, as a record gives them."""
         data = handler(self)
-        if isinstance(data, dict) and (self._edges or self._sigmas):
-            data["keypoints"] = KeypointMetadata(
-                edges=self._edges, sigmas=self._sigmas
-            ).record_keypoints(self.keypoints)
+        if isinstance(data, dict) and (
+            self._task_fields is not None or self._gives_mirror
+        ):
+            fields = self._task_fields or KeypointMetadata()
+            data["keypoints"] = fields.record_keypoints(
+                self.keypoints, declare_no_partners=self._gives_mirror
+            )
         return data
 
-    def _declare(
-        self, edges: list[tuple[str, str]], sigmas: Mapping[str, Any]
-    ) -> None:
+    def _declare(self, fields: Mapping[str, Any]) -> None:
         """Store the task fields that the keypoints give, as indices.
 
+        Args:
+            fields: The task fields that `_split_task_fields` returns.
+
         Raises:
-            ValueError: If only some keypoints give a sigma, or if an edge
-                names a keypoint that the annotation does not have.
+            ValueError: If only some keypoints give a sigma, if an edge or
+                a mirror names a keypoint that the annotation does not
+                have, or if the fields do not fit the keypoints.
 
         """
         names = list(self.keypoints)
+        sigmas: Mapping[str, Any] = fields.get("sigmas", {})
+        places: Mapping[str, Any] = fields.get("position", {})
+        edges: list[tuple[str, str]] = fields.get("edges", [])
+        mirrors: list[tuple[str, str]] = fields.get("flip_pairs", [])
         if sigmas and (missing := [n for n in names if n not in sigmas]):
             raise ValueError(
                 "Give a sigma for every keypoint or for none. Missing: "
                 f"{', '.join(missing)}."
             )
-        _reject_unknown([name for edge in edges for name in edge], names)
+        _reject_unknown(
+            [name for pair in [*edges, *mirrors] for name in pair], names
+        )
         index = {name: i for i, name in enumerate(names)}
         declared = KeypointMetadata(
             edges=[(index[a], index[b]) for a, b in edges],
+            flip_pairs=[(index[a], index[b]) for a, b in mirrors],
             sigmas=[sigmas[name] for name in names] if sigmas else [],
+            position=[places.get(name) for name in names] if places else [],
         )
         declared.validate_for(len(names))
-        self._edges = declared.edges
-        self._sigmas = declared.sigmas
+        if declared.position:
+            _warn_if_misplaced(declared.position, self.keypoints)
+        self._task_fields = declared
+        self._gives_mirror = bool(fields.get("gives_mirror"))
 
     @classmethod
     def _coerce(cls, values: Any, info: ValidationInfo) -> Any:
@@ -2836,31 +3100,40 @@ def _where(context: str) -> str:
 
 def _split_task_fields(
     keypoints: Mapping[str, Any],
-) -> tuple[dict[str, Any], list[tuple[str, str]], dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Split the mapping of each keypoint into coordinates and task fields.
 
     Returns:
-        The keypoints with only ``x``, ``y`` and ``visibility`` left, the
-        edges that ``connected_to`` gives as name pairs, and the sigma of
-        each keypoint that gives one.
+        The keypoints with only ``x``, ``y`` and ``visibility`` left, and
+        the task fields that the keypoints give. These are ``edges`` and
+        ``flip_pairs`` as name pairs, ``sigmas`` and ``position`` keyed by
+        name, and ``gives_mirror`` when a keypoint gives ``mirror``, also
+        as ``None``. A field that no keypoint gives is left out.
 
     Raises:
-        ValueError: If a state is unknown, or if a keypoint gives both a
-            state and a visibility.
+        ValueError: If a state is unknown, if a keypoint gives both a
+            state and a visibility, or if ``mirror`` is not a name.
 
     Example:
         >>> _split_task_fields(
         ...     {
-        ...         "a": {"x": 0.1, "y": 0.2, "connected_to": "b"},
+        ...         "a": {
+        ...             "x": 0.1,
+        ...             "y": 0.2,
+        ...             "mirror": "b",
+        ...         },
         ...         "b": (0.3, 0.2),
         ...     }
         ... )
-        ({'a': {'x': 0.1, 'y': 0.2}, 'b': (0.3, 0.2)}, [('a', 'b')], {})
+        ({'a': {'x': 0.1, 'y': 0.2}, 'b': (0.3, 0.2)}, {'flip_pairs': [('a', 'b')], 'gives_mirror': True})
 
     """
     coordinates: dict[str, Any] = {}
     edges: list[tuple[str, str]] = []
+    mirrors: list[tuple[str, str]] = []
     sigmas: dict[str, Any] = {}
+    places: dict[str, Any] = {}
+    gives_mirror = False
     for name, value in keypoints.items():
         if isinstance(value, Mapping):
             value = dict(value)
@@ -2882,8 +3155,29 @@ def _split_task_fields(
             if isinstance(connected, str):
                 connected = [connected]
             edges += [(name, other) for other in connected or []]
+            if "mirror" in value:
+                gives_mirror = True
+                partner = value.pop("mirror")
+                if partner is not None and not isinstance(partner, str):
+                    raise ValueError(
+                        f"Keypoint '{name}' gives `mirror`: {partner!r}. "
+                        "`mirror` takes the name of the partner keypoint, "
+                        "or `None` for a keypoint without a partner."
+                    )
+                if partner is not None:
+                    mirrors.append((name, partner))
+            if (place := value.pop("position", None)) is not None:
+                places[name] = place
         coordinates[name] = value
-    return coordinates, _unique_pairs(edges), sigmas
+
+    fields: dict[str, Any] = {
+        "edges": _unique_pairs(edges),
+        "flip_pairs": _unique_pairs(mirrors),
+        "sigmas": sigmas,
+        "position": places,
+        "gives_mirror": gives_mirror,
+    }
+    return coordinates, {key: value for key, value in fields.items() if value}
 
 
 def _unique_pairs(pairs: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
@@ -2895,6 +3189,25 @@ def _unique_pairs(pairs: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
             seen.add(frozenset((a, b)))
             unique.append((a, b))
     return unique
+
+
+def _warn_if_misplaced(
+    places: Sequence[KeypointPosition | None],
+    keypoints: Mapping[str, Keypoint],
+) -> None:
+    """Warn when the keypoints are not at the places that name them."""
+    points = np.array([keypoint[:2] for keypoint in keypoints.values()])
+    labeled = np.array([keypoint[2] > 0 for keypoint in keypoints.values()])
+    symmetry = places_symmetry(places, points, labeled)
+    if symmetry is not None and not np.array_equal(symmetry, np.eye(2)):
+        log_once(
+            logger.warning,
+            "A keypoint annotation names keypoints after places in the "
+            "picture, but the keypoints are not at those places. For "
+            "example, the keypoint called 'top_left' is not the one nearest "
+            "to the top left of the picture. An augmentation names each "
+            "such keypoint by the place where it is.",
+        )
 
 
 def _reject_unknown(names: Iterable[str], labels: Sequence[str]) -> None:
@@ -2928,7 +3241,7 @@ def _repeated(labels: Sequence[str]) -> list[str]:
 def _resolve_pairs(
     values: Mapping[str, Any], labels: Sequence[str] | None, hint: str
 ) -> Mapping[str, Any]:
-    """Replace every keypoint name in ``edges`` with its index.
+    """Replace every keypoint name in ``edges`` and ``flip_pairs``.
 
     Args:
         values: Raw input values.
@@ -2943,28 +3256,37 @@ def _resolve_pairs(
             repeat, or if a name is not one of them.
 
     """
-    edges = values.get("edges")
-    if not isinstance(edges, Iterable) or isinstance(edges, (str, bytes)):
-        return values
     try:
-        pairs = [list(pair) for pair in edges]
+        pairs_by_field = {
+            field: [list(pair) for pair in values[field]]
+            for field in ("edges", "flip_pairs")
+            if isinstance(values.get(field), Iterable)
+            and not isinstance(values[field], (str, bytes))
+        }
     except TypeError:
         # Malformed input. Let pydantic report it against the field type.
         return values
 
-    names = [
+    endpoints = [
         endpoint
+        for pairs in pairs_by_field.values()
         for pair in pairs
         for endpoint in pair
-        if isinstance(endpoint, str)
     ]
+    # A bool is an int to pydantic, so `False` would become keypoint 0.
+    if any(isinstance(endpoint, bool) for endpoint in endpoints):
+        raise ValueError(
+            "An edge or a flip pair refers to a keypoint by True or False. "
+            "Refer to a keypoint by its name or by its index."
+        )
+    names = [endpoint for endpoint in endpoints if isinstance(endpoint, str)]
     if not names:
         return values
 
     if not labels:
         raise ValueError(
-            "Keypoint names are required in order to refer to the edges by "
-            f"name. {hint}"
+            "Keypoint names are required in order to refer to the edges or "
+            f"the flip pairs by name. {hint}"
         )
     if repeated := _repeated(labels):
         raise ValueError(
@@ -2974,16 +3296,37 @@ def _resolve_pairs(
     _reject_unknown(names, labels)
 
     indices = {label: i for i, label in enumerate(labels)}
-    return {
-        **values,
-        "edges": [
+    resolved = dict(values)
+    for field, pairs in pairs_by_field.items():
+        resolved[field] = [
             [
                 indices[endpoint] if isinstance(endpoint, str) else endpoint
                 for endpoint in pair
             ]
             for pair in pairs
-        ],
-    }
+        ]
+    return resolved
+
+
+def _split_side(label: str) -> tuple[str, str] | None:
+    """Split a keypoint name into its side marker and the remainder.
+
+    A separator must delimit the marker. Thus ``bright_spot`` is not a
+    right-side keypoint.
+
+    Returns:
+        The side and the remaining name, or ``None`` if the name carries no
+        side marker.
+
+    """
+    parts = re.split(r"[_\-\s]+", label.strip().lower())
+    if len(parts) < 2:
+        return None
+    if (side := _SIDE_MARKERS.get(parts[0])) is not None:
+        return side, "_".join(parts[1:])
+    if (side := _SIDE_MARKERS.get(parts[-1])) is not None:
+        return side, "_".join(parts[:-1])
+    return None
 
 
 # Also keeps the API docs rooted here: pydoctor moves a re-exported name to

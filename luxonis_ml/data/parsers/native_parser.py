@@ -6,9 +6,11 @@ from typing import Any, TypeAlias
 
 from loguru import logger
 from semver.version import Version
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.constants import LDF_VERSION
+from luxonis_ml.ldf import ClassMetadata
 from luxonis_ml.ldf.annotation import _is_task_mapping
 from luxonis_ml.typing import PathType, PrimitiveType
 from luxonis_ml.utils.path import resolve_manifest_path
@@ -115,6 +117,25 @@ class NativeParser(BaseParser):
         )
         return added_train_imgs, added_val_imgs, added_test_imgs
 
+    @override
+    def _parse_split(self, **kwargs) -> list[Path]:
+        """Parse one split, then restore the class meanings of the export.
+
+        `NativeExporter` writes them to ``metadata.json`` beside the
+        version, so a class without rows keeps its meaning too. A split
+        can lack a task, so each split restores the meanings of the tasks
+        that the dataset has so far.
+        """
+        added_images = super()._parse_split(**kwargs)
+        stamp = Path(kwargs["annotation_path"]).parent.parent / "metadata.json"
+        tasks = self._dataset.get_tasks()
+        for task, class_metadata in _stamped_class_metadata(stamp).items():
+            if task in tasks:
+                self._dataset.set_class_metadata(
+                    task, class_metadata.meanings()
+                )
+        return added_images
+
     def from_split(self, annotation_path: Path) -> ParserOutput:
         """Parse native LDF annotations.
 
@@ -175,6 +196,18 @@ class NativeParser(BaseParser):
                     f"'{stamp}' declares LDF {version}, but this luxonis-ml "
                     f"reads LDF {LDF_VERSION}. Upgrade it if parsing fails."
                 )
+
+
+def _stamped_class_metadata(stamp: Path) -> dict[str, ClassMetadata]:
+    """Read the class meanings of an export, or none if it has no stamp."""
+    with suppress(OSError, ValueError, TypeError, KeyError):
+        return {
+            task: ClassMetadata.model_validate(value)
+            for task, value in json.loads(stamp.read_text())
+            .get("class_metadata", {})
+            .items()
+        }
+    return {}
 
 
 def _resolve_media(media: ManifestValue, base_dir: Path) -> ManifestValue:

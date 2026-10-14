@@ -192,8 +192,8 @@ def test_merge_keeps_keypoint_fields_the_other_dataset_omits(
 ):
     """Test that a merge fills the empty keypoint fields.
 
-    A plainer dataset that merges in must not drop the edges and the
-    sigmas of the target. The fields hold indices into the labels, so
+    A plainer dataset that merges in must not drop the edges, flip pairs
+    and sigmas of the target. The fields hold indices into the labels, so
     they only carry over while both datasets list the same labels in the
     same order.
     """

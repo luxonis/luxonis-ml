@@ -68,11 +68,14 @@ from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.ldf import (
     ArrayAnnotation,
     Category,
+    ClassMeaning,
+    ClassMetadata,
     DatasetRecord,
     Detection,
     InstanceCounter,
     Keypoint,
     KeypointMetadata,
+    KeypointPosition,
     load_annotation,
 )
 from luxonis_ml.typing import PathType
@@ -936,20 +939,26 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         edges: list[KeypointPair] | None = None,
         task: str | None = None,
         *,
+        flip_pairs: list[KeypointPair] | None = None,
         sigmas: list[float] | None = None,
+        infer_flip_pairs: bool | None = None,
+        position: Sequence[KeypointPosition | None] | None = None,
     ) -> None:
         updates = {
             field: value
             for field, value in (
                 ("labels", labels),
                 ("edges", edges),
+                ("flip_pairs", flip_pairs),
                 ("sigmas", sigmas),
+                ("position", position),
             )
             if value is not None
         }
-        if not updates:
+        if not updates and not infer_flip_pairs:
             raise ValueError(
-                "Must provide either keypoint names, edges or sigmas"
+                "Must provide either keypoint names, edges, flip pairs, "
+                "sigmas or places in the picture, or `infer_flip_pairs=True`"
             )
 
         tasks = self.get_task_names() if task is None else [task]
@@ -957,6 +966,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         updated: dict[str, KeypointMetadata] = {}
         for t in tasks:
             current = self._metadata.keypoint_metadata.get(t)
+            if current is None and not updates:
+                continue
             kept = {}
             if current is not None and not _renames_keypoints(current, labels):
                 # Names for placeholder keypoints keep the stored fields,
@@ -980,7 +991,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                     f"task '{t}'",
                     check_edges=edges is not None,
                 )
-            updated[t] = keypoint_metadata
+            updated[t] = _fill_in_flip_pairs(
+                keypoint_metadata,
+                current,
+                infer=infer_flip_pairs if flip_pairs is None else False,
+            )
 
         self._metadata.keypoint_metadata.update(updated)
         self._write_metadata()
@@ -990,6 +1005,57 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         return {
             task: task_keypoints.model_copy(deep=True)
             for task, task_keypoints in self._metadata.keypoint_metadata.items()
+        }
+
+    @override
+    def set_class_metadata(
+        self,
+        task: str,
+        classes: Mapping[str, ClassMeaning | Mapping[str, Any] | None],
+    ) -> None:
+        if task not in self.get_tasks():
+            raise ValueError(
+                f"The dataset has no task '{task}'. Add its records first."
+            )
+        self._store_class_meanings(
+            task,
+            {
+                name: None
+                if meaning is None
+                else ClassMeaning.model_validate(meaning)
+                for name, meaning in classes.items()
+            },
+        )
+        self._write_metadata()
+
+    def _store_class_meanings(
+        self, task: str, meanings: Mapping[str, ClassMeaning | None]
+    ) -> list[str]:
+        """Store class meanings of a task, see `set_class_metadata`.
+
+        Returns:
+            The classes whose stored meaning changed.
+
+        """
+        current = self._metadata.class_metadata.get(task, ClassMetadata())
+        updated = current.with_meanings(meanings)
+        if updated.classes():
+            self._metadata.class_metadata[task] = updated
+            self._metadata.add_classes(updated.classes(), task=task)
+        else:
+            self._metadata.class_metadata.pop(task, None)
+        before = current.table()
+        return sorted(
+            name
+            for name, row in updated.table().items()
+            if name in before and before[name] != row
+        )
+
+    @override
+    def get_class_metadata(self) -> dict[str, ClassMetadata]:
+        return {
+            task: class_metadata.model_copy(deep=True)
+            for task, class_metadata in self._metadata.class_metadata.items()
         }
 
     @override
@@ -1450,16 +1516,17 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         """Add data to the dataset from a generator of records.
 
         The keypoints of a record can be a list or a mapping keyed by
-        keypoint name. A named keypoint can also give its ``sigma`` and
-        ``connected_to``. The names and these fields describe the whole
-        task, so `add` moves them into the keypoint metadata of the task.
-        See `get_keypoint_metadata`.
+        keypoint name. A named keypoint can also give its ``sigma``,
+        ``connected_to``, ``mirror`` and ``position``. The names and these
+        fields describe the whole task, so `add` moves them into the
+        keypoint metadata of the task. See `get_keypoint_metadata`.
 
         The records of a task in one call must agree on these fields, and
         a later call replaces them with a warning. When the task already
         has names, a record can give a subset of them in any order.
         `luxonis_ml.ldf.annotation` describes how the missing keypoints are
-        padded and how keypoints without names are numbered.
+        padded, how keypoints without names are numbered, and when flip
+        pairs are inferred.
 
         The first write to an LDF 2.0 or 2.1 dataset with keypoints moves
         it to the current LDF version. See `luxonis_ml.data.datasets`.
@@ -1543,6 +1610,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         metadata_types = {}
         num_kpts_per_task: dict[str, set[int]] = defaultdict(set)
         declared_keypoint_metadata: dict[str, KeypointMetadata] = {}
+        declared_class_meanings: dict[str, dict[str, ClassMeaning]] = (
+            defaultdict(dict)
+        )
+        tasks_with_mirrors: set[str] = set()
         unnamed_keypoint_rows: set[tuple[str, str, str]] = set()
         sources: set[str] = set()
 
@@ -1568,8 +1639,25 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
             tasks[task_name] |= ann.get_task_types()
 
+            if ann.class_meaning is not None and ann.class_name is not None:
+                earlier = declared_class_meanings[task_name].get(
+                    ann.class_name
+                )
+                if earlier is not None and earlier != ann.class_meaning:
+                    raise ValueError(
+                        f"Two records give class '{ann.class_name}' of task "
+                        f"'{task_name}' different meanings: {earlier} and "
+                        f"{ann.class_meaning}."
+                    )
+                declared_class_meanings[task_name][ann.class_name] = (
+                    ann.class_meaning
+                )
+
             if ann.keypoints is not None:
                 num_kpts_per_task[task_name].add(len(ann.keypoints.keypoints))
+                # A `mirror` turns the inference off, also as `None`.
+                if ann.keypoints.gives_mirror:
+                    tasks_with_mirrors.add(task_name)
                 declared = ann.keypoints.declared_metadata()
                 if declared is not None:
                     declared = _in_stored_order(
@@ -1653,6 +1741,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             resolved_keypoint_metadata = self._resolve_keypoint_metadata(
                 num_kpts_per_task,
                 declared_keypoint_metadata,
+                tasks_with_mirrors,
                 row_widths,
             )
             self._add_process_batch(
@@ -1685,6 +1774,13 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 self.set_classes(list(classes | old_classes), task=task)
 
         self._metadata.keypoint_metadata.update(resolved_keypoint_metadata)
+        for task, meanings in declared_class_meanings.items():
+            if changed := self._store_class_meanings(task, meanings):
+                logger.warning(
+                    f"The records of task '{task}' give classes "
+                    f"{', '.join(changed)} other meanings than the stored "
+                    "ones. Using the new meanings."
+                )
         self._metadata.categorical_encodings = dict(categorical_encodings)
         self._metadata.metadata_types = metadata_types
         # An `add` sees only the records it is given. A later one that
@@ -1927,6 +2023,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 NativeExporter,
                 {
                     "keypoint_metadata": keypoint_metadata,
+                    "class_metadata": self.get_class_metadata(),
                     "ldf_version": target_version,
                 },
             ),
@@ -2334,6 +2431,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         self,
         num_kpts_per_task: dict[str, set[int]],
         declared: dict[str, KeypointMetadata],
+        tasks_with_mirrors: set[str],
         row_widths: dict[str, int],
     ) -> dict[str, KeypointMetadata]:
         """Return the keypoint metadata that `add` stores for each task.
@@ -2348,6 +2446,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             num_kpts_per_task: The numbers of keypoints in the records of
                 each task.
             declared: The keypoint metadata that the records describe.
+            tasks_with_mirrors: The tasks with a keypoint that gives
+                ``mirror``. ``None`` counts too, so these tasks get no
+                inferred flip pairs.
             row_widths: The result of `_keypoint_row_widths`.
 
         Returns:
@@ -2409,7 +2510,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             entry.validate_for(
                 n_keypoints, f"task '{task}'", check_edges=False
             )
-            resolved[task] = entry
+            resolved[task] = _fill_in_flip_pairs(
+                entry,
+                stored,
+                infer=False if task in tasks_with_mirrors else None,
+            )
             if len(sizes) > 1 and task not in aligned:
                 # The labels give the keypoint count, and an earlier `add`
                 # can make it larger than any record of this one.
@@ -2606,12 +2711,49 @@ def _merge_into_stored(
     )
 
 
+def _fill_in_flip_pairs(
+    keypoint_metadata: KeypointMetadata,
+    stored: KeypointMetadata | None,
+    *,
+    infer: bool | None,
+) -> KeypointMetadata:
+    """Infer flip pairs from the keypoint names when none are known.
+
+    Only a write path infers them, never a read path. A read path would
+    give flip pairs to a dataset that never asked for them. A keypoint with
+    a place in the picture gets no partner: its name follows the picture,
+    not a side of the object.
+
+    Args:
+        keypoint_metadata: The new keypoint metadata of the task.
+        stored: The stored keypoint metadata of the task.
+        infer: ``True`` infers flip pairs for all names, and ``False``
+            infers none. ``None`` infers them only when the names of the
+            task change, or when the task has no stored entry. The stored
+            entry does not record that the inference is off, so its empty
+            list can mean that.
+
+    """
+    labels = keypoint_metadata.labels
+    if infer is None:
+        infer = stored is None or stored.labels != labels
+    if not infer or keypoint_metadata.flip_pairs:
+        return keypoint_metadata
+    placed = {i for i, place in enumerate(keypoint_metadata.position) if place}
+    pairs = [
+        (a, b)
+        for a, b in KeypointMetadata.infer_flip_pairs(labels)
+        if a not in placed and b not in placed
+    ]
+    return keypoint_metadata.model_copy(update={"flip_pairs": pairs})
+
+
 def _renames_keypoints(
     current: KeypointMetadata, labels: list[str] | None
 ) -> bool:
     """Whether new labels give the stored indices a new meaning.
 
-    ``edges`` and ``sigmas`` use positional keypoint
+    ``edges``, ``flip_pairs``, and ``sigmas`` use positional keypoint
     indices. New names put a different keypoint at a position, so the
     stored values describe the wrong keypoints. Placeholder names carry
     no identity. A rename that keeps their count therefore only names the

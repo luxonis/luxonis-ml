@@ -1,25 +1,41 @@
 import warnings
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from math import prod
 from typing import Any, Final, Literal, TypeAlias, cast
 
 import albumentations as A
 import numpy as np
+from albumentations.augmentations.geometric.flip import d4_group_elements
 from albumentations.core.composition import TransformsSeqType
 from loguru import logger
 from pydantic import Field
 from typing_extensions import override
 
 from luxonis_ml.data.utils.task_utils import get_task_group, task_is_metadata
+from luxonis_ml.ldf import KeypointMetadata, SquareSymmetry
+from luxonis_ml.ldf.class_meaning import compose as compose_symmetries
 from luxonis_ml.typing import ConfigItem, LoaderMultiOutput, Params
 from luxonis_ml.utils import deprecated
+from luxonis_ml.utils.logging import log_once
 
 from .base_engine import AugmentationEngine
 from .batch_compose import BatchCompose
 from .batch_transform import BatchTransform
+from .class_naming import (
+    IMAGE_PROBES,
+    ClassTable,
+    correction,
+    image_probes,
+    measured_symmetry,
+    relabel_boxes,
+    relabel_channels,
+    relabel_vector,
+)
 from .custom import TRANSFORMATIONS
 from .custom.letterbox_resize import create_letterbox_or_resize
+from .custom.symmetric_keypoints_flip import SymmetricKeypointsTransform
+from .keypoint_naming import PROBES, rename, tag, to_rows, untag
 from .utils import (
     instance_count,
     postprocess_bboxes,
@@ -346,28 +362,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         https://github.com/albumentations-team/albumentations/blob/66212d77a44927a29d6a0e81621d3c27afbd929c/albumentations/core/transforms_interface.py#L49
     """
 
-    def _check_augmentation_warnings(
-        self,
-        config_item: AlbumentationConfigItem,
-        available_target_types: set,
-    ) -> None:
-        augmentation_name = config_item.name
-
-        if "keypoints" in available_target_types and augmentation_name in [
-            "HorizontalFlip",
-            "VerticalFlip",
-            "Transpose",
-        ]:
-            logger.warning(
-                f"Using '{augmentation_name}' with keypoints. "
-                "If your dataset contains symmetric keypoints "
-                "(e.g. left/right arms), you should use our custom "
-                "`HorizontalSymmetricKeypointsFlip`, "
-                "`VerticalSymmetricKeypointsFlip`, "
-                "or `TransposeSymmetricKeypoints`"
-                " to ensure keypoints are correctly reordered."
-            )
-
     @deprecated(
         "is_validation_pipeline",
         suggest={"is_validation_pipeline": "pipeline_stage"},
@@ -390,6 +384,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         min_bbox_visibility: float = 0.0,
         seed: int | None = None,
         bbox_area_threshold: float = 0.0004,
+        keypoint_metadata: Mapping[str, KeypointMetadata] | None = None,
+        class_symmetry: Mapping[str, ClassTable] | None = None,
     ):
         """Create an Albumentations-backed augmentation pipeline.
 
@@ -419,6 +415,18 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             seed: Optional random seed.
             bbox_area_threshold: Minimum normalized bounding-box area kept
                 after augmentation.
+            keypoint_metadata: Keypoint metadata by task name. The symmetric
+                keypoint flips swap the flip pairs that each task stores,
+                unless their ``keypoint_pairs`` replace them.
+            class_symmetry: The class table of each task, by task name: the
+                class ID that each turn and mirror of the image makes of
+                each class ID. After the pipeline, the engine gives every
+                box, image-level class and segmentation channel its new
+                class, and it corrects a sample whose classes cannot show
+                its symmetry. See
+                `luxonis_ml.data.augmentations.class_naming`.
+                `LuxonisLoader` builds the tables from the class metadata
+                of the dataset.
 
         Raises:
             ValueError: If a target task type is unsupported, more than
@@ -438,6 +446,16 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         self._bbox_area_threshold = bbox_area_threshold
         self._applied_augmentations: dict[str, Params] = {}
         self._tracked_augmentation_paths: dict[int, str] = {}
+        self._keypoint_metadata = dict(keypoint_metadata or {})
+        self._class_tables = {
+            task: table
+            for task, table in (class_symmetry or {}).items()
+            if table
+        }
+        self._corrections: dict[SquareSymmetry, Callable[..., Data]] = {}
+        # The `keypoint_pairs` of the deprecated symmetric flips. They give
+        # the mirror partners of a task that stores none.
+        self._configured_pairs: list[tuple[int, int]] = []
 
         for task, task_type in targets.items():
             target_name = self._task_to_target_name(task)
@@ -529,11 +547,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             if cfg.name == "Normalize" or pipeline_stage in cfg.apply_on_stages
         ]
 
-        available_target_types = set(self._targets.values())
-
         for cfg in validated_config:
-            self._check_augmentation_warnings(cfg, available_target_types)
-
             if cfg.use_for_resizing:
                 image_h, image_w = self._image_size
                 cfg_h = cfg.params.get("height")
@@ -551,6 +565,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             transform = self._create_transformation(
                 cfg, self._tracked_augmentation_paths
             )
+            for symmetric in _find_symmetric_transforms(transform):
+                # The engine names the keypoints after the whole pipeline.
+                symmetric.swaps_pairs = False
+                for pair in symmetric.keypoint_pairs:
+                    a, b = sorted(pair)
+                    if a != b and (a, b) not in self._configured_pairs:
+                        self._configured_pairs.append((a, b))
 
             if cfg.use_for_resizing:
                 logger.info(f"Using '{cfg.name}' for resizing.")
@@ -638,11 +659,18 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 "keypoint_params": A.KeypointParams(
                     format="xy", remove_invisible=False
                 ),
-                "additional_targets": (
-                    self._targets
-                    if is_custom
-                    else targets_without_instance_mask
-                ),
+                "additional_targets": {
+                    **(
+                        self._targets
+                        if is_custom
+                        else targets_without_instance_mask
+                    ),
+                    **(
+                        {IMAGE_PROBES: "keypoints"}
+                        if self._class_tables
+                        else {}
+                    ),
+                },
                 "seed": seed,
             }
 
@@ -710,6 +738,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 custom_transforms, **_get_params(is_custom=True)
             )
             self._custom_transform = self._wrap_transform(self._custom_compose)
+            if self._class_tables:
+                self._corrections = self._correction_transforms(
+                    _get_params(is_custom=True)
+                )
 
     @property
     @override
@@ -739,9 +771,12 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         data_batch, n_keypoints, label_specs = self._preprocess_batch(
             input_batch
         )
-
         data = self._batch_transform(
-            data_batch, keypoints_per_instance=n_keypoints
+            data_batch,
+            keypoints_per_instance={
+                target: count + self._n_probes(target)
+                for target, count in n_keypoints.items()
+            },
         )
 
         # A batch transform discards the members it did not merge, and a task
@@ -766,8 +801,25 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 ):
                     emptied_targets[target_name] = contributed[target_name]
 
+        n_rows = {
+            target: len(data[target])
+            for target in n_keypoints
+            if target in data
+        }
+        for target in n_rows:
+            data[target] = tag(data[target])
+        if self._class_tables:
+            height, width = data["image"].shape[:2]
+            data[IMAGE_PROBES] = image_probes(height, width)
+
         data = self._spatial_transform(**data)
         data = self._custom_transform(**data)
+        data, symmetry = self._correct_symmetry(data)
+
+        for target, rows in n_rows.items():
+            data[target] = self._rename_keypoints(
+                target, *untag(data[target], rows), n_keypoints[target]
+            )
 
         transformed_size = data["image"].shape[:2]
 
@@ -791,7 +843,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         for compose in self._compositions:
             self._record_augmentations(compose)
 
-        return self._postprocess(data, n_keypoints, emptied_targets)
+        images, labels = self._postprocess(data, n_keypoints, emptied_targets)
+        if symmetry is not None:
+            self._relabel_classes(labels, symmetry)
+        return images, labels
 
     @property
     def _compositions(self) -> tuple[A.BaseCompose, ...]:
@@ -919,9 +974,14 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     data[target_name] = preprocess_bboxes(array)
 
                 elif target_type == "keypoints":
-                    n_keypoints[target_name] = array.shape[1] // 3
-                    data[target_name] = preprocess_keypoints(
-                        array, height, width
+                    count = array.shape[1] // 3
+                    n_keypoints[target_name] = count
+                    data[target_name] = to_rows(
+                        preprocess_keypoints(array, height, width),
+                        count,
+                        self._n_probes(target_name),
+                        height,
+                        width,
                     )
                 else:
                     data[target_name] = array
@@ -1077,6 +1137,162 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         if pipeline_stage is not None:
             return pipeline_stage
         return "val" if is_validation_pipeline else "train"
+
+    def _mirror_pairs(
+        self, target_name: str, n_keypoints: int
+    ) -> list[tuple[int, int]]:
+        """Return the mirror partners of the task of a keypoint target.
+
+        A task without stored partners takes the ``keypoint_pairs`` of the
+        deprecated symmetric flips, when they fit its keypoints.
+        """
+        task_group = self._target_names_to_task_groups[target_name]
+        metadata = self._keypoint_metadata.get(task_group)
+        if metadata is not None and metadata.flip_pairs:
+            return list(metadata.flip_pairs)
+        if all(max(pair) < n_keypoints for pair in self._configured_pairs):
+            return list(self._configured_pairs)
+        return []
+
+    def _places(self, target_name: str) -> list:
+        """Return the places in the picture of a keypoint target's task."""
+        task_group = self._target_names_to_task_groups[target_name]
+        metadata = self._keypoint_metadata.get(task_group)
+        return list(metadata.position) if metadata is not None else []
+
+    def _n_probes(self, target_name: str) -> int:
+        """Return how many probe rows each instance of a target carries."""
+        task_group = self._target_names_to_task_groups[target_name]
+        metadata = self._keypoint_metadata.get(task_group)
+        stored = metadata is not None and bool(metadata.flip_pairs)
+        return PROBES if stored or self._configured_pairs else 0
+
+    def _correction_transforms(
+        self, params: dict[str, Any]
+    ) -> dict[SquareSymmetry, Callable[..., Data]]:
+        """Build one transform for each symmetry, keyed by the symmetry.
+
+        Each one is a ``D4`` with a fixed element. The symmetry that an
+        element gives is measured once with the image probes, so the
+        engine does not depend on the names Albumentations uses.
+        """
+        transforms: dict[SquareSymmetry, Callable[..., Data]] = {}
+        for element in d4_group_elements:
+            compose_ = A.Compose([_FixedD4(element)], **params)
+            probe = compose_(
+                **{
+                    "image": np.zeros((8, 12, 3), dtype=np.uint8),
+                    IMAGE_PROBES: image_probes(8, 12),
+                }
+            )
+            symmetry = measured_symmetry(np.asarray(probe[IMAGE_PROBES]))
+            if symmetry is not None:
+                transforms[symmetry] = self._wrap_transform(compose_)
+        return transforms
+
+    def _correct_symmetry(
+        self, data: Data
+    ) -> tuple[Data, SquareSymmetry | None]:
+        """Measure the symmetry of the sample, and correct it if needed.
+
+        When a class of the sample cannot show the measured symmetry, one
+        more flip or turn brings the sample to a symmetry that every class
+        can show. See `luxonis_ml.data.augmentations.class_naming`.
+
+        Returns:
+            The data without the image probes, and the final symmetry, or
+            ``None`` when no class has a meaning or the pipeline gave no
+            turn or mirror that the probes can measure.
+
+        """
+        if not self._class_tables:
+            return data, None
+        symmetry = measured_symmetry(np.asarray(data[IMAGE_PROBES]))
+        if symmetry is None:
+            log_once(
+                logger.warning,
+                "A spatial transform moved the image in a way that is no "
+                "turn or mirror, such as a tile shuffle, so the classes of "
+                "such a sample keep their names.",
+            )
+        else:
+            extra = correction(
+                self._present_classes(data), self._class_tables, symmetry
+            )
+            if extra != "identity":
+                log_once(
+                    logger.info,
+                    "A sample shows a class that its turn or mirror cannot "
+                    "show, so the engine turns or flips it once more.",
+                )
+                data = self._corrections[extra](**data)
+                symmetry = compose_symmetries(extra, symmetry)
+        del data[IMAGE_PROBES]
+        return data, symmetry
+
+    def _present_classes(self, data: Data) -> set[tuple[str, int]]:
+        """Return the task and the class ID of each class in the sample."""
+        present: set[tuple[str, int]] = set()
+        for target_name, target_type in self._targets.items():
+            task = self._target_names_to_task_groups.get(target_name)
+            value = data.get(target_name)
+            if task not in self._class_tables or not isinstance(
+                value, np.ndarray
+            ):
+                continue
+            if target_type == "bboxes" and value.size:
+                ids = value[:, 4]
+            elif target_type == "classification":
+                ids = np.flatnonzero(value)
+            elif target_type == "mask" and value.size:
+                ids = np.flatnonzero(value.reshape(-1, value.shape[-1]).any(0))
+            else:
+                continue
+            present |= {(task, int(class_id)) for class_id in ids}
+        return present
+
+    def _relabel_classes(
+        self, labels: dict[str, np.ndarray], symmetry: SquareSymmetry
+    ) -> None:
+        """Give every box, image-level class and channel its new class."""
+        relabel = {
+            "bboxes": relabel_boxes,
+            "classification": relabel_vector,
+            "mask": relabel_channels,
+        }
+        for target_name, target_type in self._targets.items():
+            table = self._class_tables.get(
+                self._target_names_to_task_groups.get(target_name, "")
+            )
+            task = self._target_names_to_tasks.get(target_name)
+            if (
+                table is None
+                or task not in labels
+                or target_type not in relabel
+                or labels[task].size == 0
+            ):
+                continue
+            labels[task] = relabel[target_type](labels[task], table, symmetry)
+
+    def _rename_keypoints(
+        self,
+        target_name: str,
+        rows: np.ndarray,
+        lost: np.ndarray,
+        n_keypoints: int,
+    ) -> np.ndarray:
+        """Give the keypoints of a target the names their meaning asks for.
+
+        See `luxonis_ml.data.augmentations.keypoint_naming`.
+        """
+        return rename(
+            rows,
+            lost,
+            n_keypoints,
+            self._n_probes(target_name),
+            self._mirror_pairs(target_name, n_keypoints),
+            self._places(target_name),
+        )
 
     @staticmethod
     def _mark_invisible_keypoints(
@@ -1292,6 +1508,29 @@ def _reset_params(transform: Any) -> None:
     if isinstance(transform, A.BaseCompose):
         for child in transform.transforms:
             _reset_params(child)
+
+
+class _FixedD4(A.D4):
+    """A ``D4`` that always applies the same element."""
+
+    def __init__(self, element: str):
+        super().__init__(p=1.0)
+        self.element = element
+
+    @override
+    def get_params(self) -> dict[str, Any]:
+        return {"group_element": self.element}
+
+
+def _find_symmetric_transforms(
+    transform: Any,
+) -> Iterator[SymmetricKeypointsTransform]:
+    """Yield the symmetric flips of a transform, also nested ones."""
+    if isinstance(transform, SymmetricKeypointsTransform):
+        yield transform
+    elif isinstance(transform, A.BaseCompose):
+        for child in transform.transforms:
+            yield from _find_symmetric_transforms(child)
 
 
 def _disambiguate_paths(paths: dict[int, str]) -> dict[int, str]:

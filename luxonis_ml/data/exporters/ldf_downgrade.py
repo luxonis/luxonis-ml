@@ -7,13 +7,14 @@ version therefore drops every field introduced above it.
 
 Annotations forbid extra fields as well, so the same holds one level
 down: LDF 2.2 keys the keypoints by name, and a named keypoint can give its
-``sigma`` and ``connected_to``. An older version reads only a list of
-triplets, so the downgrade turns the mapping back into a list in the order
-of the keypoint names, and drops these fields.
+``sigma``, ``connected_to`` and ``mirror``. An older version reads only a
+list of triplets, so the downgrade turns the mapping back into a list in
+the order of the keypoint names, and drops these fields.
 
-LDF 3.0 changed the shape rather than the fields: it groups the detections
-of a record by task name. An older version reads the flat
-``file``/``task_name``/``annotation`` record, so the downgrade rebuilds it.
+LDF 3.0 groups the detections of a record by task name. An older version
+reads the flat ``file``/``task_name``/``annotation`` record, so the
+downgrade rebuilds it. LDF 3.0 also added ``position`` to a keypoint
+annotation, which an older version does not know.
 """
 
 from collections import Counter
@@ -48,6 +49,9 @@ _KEYPOINT_NAMES_ADDED_IN: Final[Version] = _parse("2.2")
 #: The version that grouped a record's detections by task name. Anything
 #: older reads the flat ``file``/``task_name``/``annotation`` shape.
 _TASK_KEYED_RECORDS: Final[Version] = _parse("3.0")
+
+#: LDF 3.0 lets a keypoint give its ``position`` in the picture.
+_KEYPOINT_POSITION_ADDED_IN: Final[Version] = _parse("3.0")
 
 #: The fields of a detection that labels the whole image.
 _WHOLE_IMAGE_FIELDS: Final[frozenset[str]] = frozenset(
@@ -130,6 +134,7 @@ class LDFDowngrader:
             if added_in > target_version
         ]
         self.keeps_keypoint_names = target_version >= _KEYPOINT_NAMES_ADDED_IN
+        self._keeps_positions = target_version >= _KEYPOINT_POSITION_ADDED_IN
         self._flatten_record = target_version < _TASK_KEYED_RECORDS
         self._dropped: Counter[str] = Counter()
         self._n_records = 0
@@ -159,6 +164,7 @@ class LDFDowngrader:
                 task = annotation.get(task_type)
                 if isinstance(task, dict) and task.pop(field, None):
                     self._dropped[f"{task_type}.{field}"] += 1
+            self._strip_keypoint_positions(annotation)
             self._strip_keypoint_names(annotation)
         return record
 
@@ -199,6 +205,18 @@ class LDFDowngrader:
                 f"Exporting to LDF {self.target_version} drops '{field}' "
                 f"from {n_dropped} of {self._n_records} records."
             )
+
+    def _strip_keypoint_positions(self, annotation: dict[str, Any]) -> None:
+        """Drop the ``position`` of each keypoint for a version before 3.0."""
+        keypoints = annotation.get("keypoints")
+        if self._keeps_positions or not isinstance(keypoints, dict):
+            return
+        values = keypoints.get("keypoints")
+        if not isinstance(values, dict):
+            return
+        for value in values.values():
+            if isinstance(value, dict) and value.pop("position", None):
+                self._dropped["keypoints.position"] += 1
 
     def _strip_keypoint_names(self, annotation: dict[str, Any]) -> None:
         """Turn named keypoints back into a positional list.

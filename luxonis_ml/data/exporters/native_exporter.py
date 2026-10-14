@@ -18,7 +18,12 @@ from luxonis_ml.data.exporters.ldf_downgrade import LDFDowngrader
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.data_utils import get_keypoint_row_widths
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.ldf import DatasetRecord, Keypoint, KeypointMetadata
+from luxonis_ml.ldf import (
+    ClassMetadata,
+    DatasetRecord,
+    Keypoint,
+    KeypointMetadata,
+)
 from luxonis_ml.typing import Params
 from luxonis_ml.utils.path import path_to_posix
 
@@ -34,18 +39,20 @@ class NativeExporter(BaseExporter):
     **record-level metadata**, not an annotation label.
 
     The export root also holds a ``metadata.json`` version stamp, such as
-    ``{"ldf_version": "3.0.0"}``. It is not the full `Metadata` model a
-    dataset keeps in its own storage.
+    ``{"ldf_version": "3.0.0"}``. It also holds the class meanings of each
+    task under ``"class_metadata"``, see `luxonis_ml.ldf.class_meaning`. It
+    is not the full `Metadata` model a dataset keeps in its own storage.
 
     A keypoint record keys its keypoints by name when its task names
     them. In one record of each keypoint task in each
-    ``annotations.json``, each keypoint also carries its ``sigma`` and
-    ``connected_to``, so the import restores its `KeypointMetadata`.
+    ``annotations.json``, each keypoint also carries its ``sigma``,
+    ``connected_to``, ``mirror`` and ``position``, so the import restores
+    its `KeypointMetadata`.
 
     Passing an older ``ldf_version`` strips the fields that version does
-    not know -- exporting LDF 2.1 or 2.0 omits the keypoint names, edges
-    and sigmas, and LDF 2.0 also omits ``sample_metadata``. A version
-    before 3.0 also gets the flat ``file``, ``task_name`` and
+    not know -- exporting LDF 2.1 or 2.0 omits the keypoint names, edges,
+    flip pairs and sigmas, and LDF 2.0 also omits ``sample_metadata``. A
+    version before 3.0 also gets the flat ``file``, ``task_name`` and
     ``annotation`` record. See `LDFDowngrader`.
 
     Example:
@@ -85,6 +92,7 @@ class NativeExporter(BaseExporter):
         max_partition_size_gb: float | None,
         *,
         keypoint_metadata: dict[str, KeypointMetadata] | None = None,
+        class_metadata: dict[str, ClassMetadata] | None = None,
         ldf_version: Version | None = None,
     ):
         """Create a native LDF exporter.
@@ -97,6 +105,10 @@ class NativeExporter(BaseExporter):
                 export names the keypoints of each record with it, and it
                 writes the task fields to one record of each task in each
                 ``annotations.json``.
+            class_metadata: Class meanings keyed by task name. The export
+                writes them to ``metadata.json`` beside the version, so a
+                class without rows keeps its meaning too. An export to an
+                LDF version before 3.0 leaves them out.
             ldf_version: LDF version to write. ``None`` writes the current
                 LDF version.
 
@@ -105,6 +117,7 @@ class NativeExporter(BaseExporter):
             dataset_identifier, output_path, max_partition_size_gb
         )
         self.keypoint_metadata = keypoint_metadata or {}
+        self.class_metadata = class_metadata or {}
         self.ldf_version = ldf_version or LDF_VERSION
         self._metadata_attached: set[tuple[int | None, str, str]] = set()
         # The keypoint count of each task. A task without labels has the
@@ -228,8 +241,10 @@ class NativeExporter(BaseExporter):
                     if key in self._metadata_attached:
                         continue
                     self._metadata_attached.add(key)
-                    if task_keypoints.edges or task_keypoints.sigmas:
+                    if named or task_keypoints.edges or task_keypoints.sigmas:
                         # Each keypoint carries its part of the task fields.
+                        # The import infers partners from side names, so a
+                        # keypoint without a partner says so.
                         points = keypoints["keypoints"]
                         if not isinstance(points, dict):
                             points = {
@@ -342,9 +357,14 @@ class NativeExporter(BaseExporter):
         base = self._base_path(output_path, part)
         base.mkdir(parents=True, exist_ok=True)
         # Called once per partition, so every part carries its own stamp.
+        stamp: dict[str, Any] = {"ldf_version": str(self.ldf_version)}
+        if self.class_metadata and self.ldf_version.major >= 3:
+            stamp["class_metadata"] = {
+                task: class_metadata.model_dump(mode="json")
+                for task, class_metadata in self.class_metadata.items()
+            }
         (base / "metadata.json").write_text(
-            json.dumps({"ldf_version": str(self.ldf_version)}, indent=4),
-            encoding="utf-8",
+            json.dumps(stamp, indent=4), encoding="utf-8"
         )
 
         for split_name, items in annotation_splits.items():

@@ -7,10 +7,17 @@ a `DatasetRecord` with its `Detection`, the annotation payloads
 `ClassificationAnnotation`), and the `ParquetRecord` row they are stored as.
 
 A `KeypointAnnotation` holds `Keypoint` triplets, keyed by name or by
-position. A named keypoint can also give its state, its OKS sigma and the
-keypoints it connects to. `LuxonisDataset.add` moves these task-level fields
-into one `KeypointMetadata` for each task, and
-`LuxonisDataset.get_keypoint_metadata` returns them.
+position. A named keypoint can also give its state, its OKS sigma, the
+keypoints it connects to, its mirror partner and its position in the
+picture. `LuxonisDataset.add` moves these task-level fields into one
+`KeypointMetadata` for each task, and `LuxonisDataset.get_keypoint_metadata`
+returns them.
+
+The ``class`` of a `Detection` can be a mapping that gives the name and
+what each turn and mirror of the image makes of the class, as a
+`ClassMeaning`. `LuxonisDataset.add` moves these meanings into one
+`ClassMetadata` for each task. See `luxonis_ml.ldf.class_meaning` for the
+forms and their limits.
 
 Example:
     Build a record with a single bounding box annotation. The referenced
@@ -73,6 +80,13 @@ with guard_missing_extra("ldf"):
         SegmentationAnnotation,
         load_annotation,
     )
+    from .class_meaning import (
+        ClassMeaning,
+        ClassMetadata,
+        Direction,
+        SquareSymmetry,
+    )
+    from .keypoint_positions import KeypointPosition
     from .parquet import ParquetRecord
     from .schema import SCHEMA_METADATA_KEY, DatasetSchema
 
@@ -82,20 +96,25 @@ __all__ = [
     "ArrayAnnotation",
     "BBoxAnnotation",
     "Category",
+    "ClassMeaning",
+    "ClassMetadata",
     "ClassificationAnnotation",
     "DatasetRecord",
     "DatasetSchema",
     "Detection",
+    "Direction",
     "InstanceCounter",
     "InstanceSegmentationAnnotation",
     "Keypoint",
     "KeypointAnnotation",
     "KeypointMetadata",
+    "KeypointPosition",
     "KeypointState",
     "KeypointVisibility",
     "NormalizedFloat",
     "ParquetRecord",
     "PathOrArray",
     "SegmentationAnnotation",
+    "SquareSymmetry",
     "load_annotation",
 ]
