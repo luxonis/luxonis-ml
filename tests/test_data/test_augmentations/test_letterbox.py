@@ -25,6 +25,7 @@ def test_letterbox():
         ("red", (255, 0, 0)),
         ("#0000ff", (0, 0, 255)),
         (128, (128, 128, 128)),
+        (255, (255, 255, 255)),  # the top of the valid range
         ((0, 128, 255), (0, 128, 255)),
     ],
 )
@@ -41,13 +42,29 @@ def test_letterbox_pads_with_the_requested_color(
     assert (padded[:, -1] == expected).all()
 
 
+def test_letterbox_pads_with_black_by_default():
+    """The default fill is the one most configs use, so it gets its own check.
+
+    The source image is deliberately *not* black: padding black onto a black
+    image would pass whether or not the default resolved correctly.
+    """
+    img = np.full((100, 100, 3), 200, dtype=np.uint8)
+    padded = LetterboxResize(HEIGHT, WIDTH)(image=img, labels={})["image"]
+    assert (padded[:, 0] == (0, 0, 0)).all()
+    assert (padded[:, -1] == (0, 0, 0)).all()
+
+
 @pytest.mark.parametrize(
     "fill", [300, -1, (300, 20, 30), (10, 20, -5), (0, 0, 256)]
 )
 def test_letterbox_rejects_out_of_range_fill_values(
     fill: int | tuple[int, int, int],
 ):
-    """`Color.parse` clamps, which would pad with a color nobody asked for."""
+    """A fill value outside [0, 255] is a config error, not something to clamp.
+
+    `Color.parse` clamps, which would silently pad every letterboxed image with
+    a different color than the config asked for.
+    """
     with pytest.raises(ValueError, match=r"out of range \[0, 255\]"):
         LetterboxResize(HEIGHT, WIDTH, image_fill_value=fill)
 

@@ -35,6 +35,7 @@ def _register_subapp(module: str, name: str) -> None:
 _register_subapp("luxonis_ml.data.__main__", "data")
 _register_subapp("luxonis_ml.utils.__main__", "fs")
 _register_subapp("luxonis_ml.nn_archive.__main__", "archive")
+_register_subapp("luxonis_ml.testing.__main__", "test")
 
 
 @app.command
@@ -47,7 +48,7 @@ def checkhealth():
     table.add_column("Module", header_style="magenta i")
     table.add_column("Status", header_style="magenta i")
     table.add_column("Error", header_style="magenta i", max_width=50)
-    for submodule in ["ldf", "data", "utils", "nn_archive"]:
+    for submodule in ["ldf", "data", "vizlab", "utils", "nn_archive"]:
         error_message = ""
         try:
             __import__(f"luxonis_ml.{submodule}")

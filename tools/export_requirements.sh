@@ -43,10 +43,12 @@ export_requirements luxonis_ml/ldf/requirements.txt "${unhashed[@]}" --extra ldf
 export_requirements luxonis_ml/nn_archive/requirements.txt "${unhashed[@]}" --extra nn_archive
 export_requirements luxonis_ml/tracker/requirements.txt "${unhashed[@]}" --extra tracker
 export_requirements luxonis_ml/utils/requirements.txt "${unhashed[@]}" --extra utils
+export_requirements luxonis_ml/vizlab/requirements.txt "${unhashed[@]}" --extra viz
 
 mkdir -p extra_requirements
 export_requirements extra_requirements/gcs.txt "${unhashed[@]}" --extra gcs
 export_requirements extra_requirements/mlflow.txt "${unhashed[@]}" --extra mlflow
+export_requirements extra_requirements/notebook.txt "${unhashed[@]}" --extra notebook
 export_requirements extra_requirements/posthog.txt "${unhashed[@]}" --extra telemetry
 export_requirements extra_requirements/roboflow.txt "${unhashed[@]}" --extra roboflow
 export_requirements extra_requirements/s3.txt "${unhashed[@]}" --extra s3

@@ -11,6 +11,7 @@ alembic==1.20.0
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1
+asttokens==3.0.2
 async-timeout==5.0.1 ; python_full_version < '3.11'
 attrs==26.1.0
 backoff==2.2.1
@@ -26,6 +27,7 @@ charset-normalizer==3.5.1
 click==8.5.0
 cloudpickle==3.1.2
 colorama==0.4.6 ; sys_platform == 'win32'
+comm==0.2.3
 contourpy==1.3.2 ; python_full_version < '3.11'
 contourpy==1.3.3 ; python_full_version == '3.11.*'
 contourpy==1.4.0 ; python_full_version >= '3.12'
@@ -39,6 +41,7 @@ distro==1.9.0
 docker==7.2.0
 docstring-parser==0.18.0
 exceptiongroup==1.3.1 ; python_full_version < '3.11'
+executing==2.2.1
 fastapi==0.141.1
 filelock==3.32.7
 filetype==1.2.0
@@ -68,10 +71,17 @@ h11==0.16.0
 huey==3.4.0
 idna==3.20
 importlib-metadata==9.0.1
+ipyevents==2.0.4
+ipython==8.39.0 ; python_full_version < '3.11'
+ipython==9.17.1 ; python_full_version >= '3.11'
+ipython-pygments-lexers==1.1.1 ; python_full_version >= '3.11'
+ipywidgets==8.1.9
 itsdangerous==2.2.0
+jedi==0.20.0
 jinja2==3.1.6
 jmespath==1.1.0
 joblib==1.6.0
+jupyterlab-widgets==3.0.17
 kiwisolver==1.5.1
 loguru==0.7.3
 mako==1.4.3
@@ -79,6 +89,7 @@ markdown-it-py==4.2.0
 markupsafe==3.0.3
 matplotlib==3.10.9 ; python_full_version < '3.11'
 matplotlib==3.11.2 ; python_full_version >= '3.11'
+matplotlib-inline==0.2.2
 mdurl==0.1.2
 mlflow==3.16.1
 mlflow-skinny==3.16.1
@@ -96,6 +107,8 @@ opentelemetry-semantic-conventions==0.65b0
 packaging==26.3
 pandas==2.3.3 ; python_full_version < '3.11'
 pandas==3.0.6 ; python_full_version >= '3.11'
+parso==0.8.7
+pexpect==4.9.0 ; sys_platform != 'emscripten' and sys_platform != 'win32'
 pillow==12.3.0
 pillow-avif-plugin==1.6.0
 pillow-heif==1.8.0
@@ -103,12 +116,17 @@ polars==1.44.2
 polars-runtime-32==1.44.2
 posthog==7.60.0
 prettytable==3.18.0
+prompt-toolkit==3.0.53
 propcache==0.5.4
 proto-plus==1.28.4
 protobuf==6.33.6
+psutil==7.2.2 ; python_full_version >= '3.11' and sys_platform != 'cygwin' and sys_platform != 'emscripten'
+ptyprocess==0.7.0 ; sys_platform != 'emscripten' and sys_platform != 'win32'
+pure-eval==0.2.4
 pyarrow==23.0.1
 pyasn1==0.6.4
 pyasn1-modules==0.4.2
+pybind11==3.1.0
 pycocotools==2.0.11
 pycparser==3.0 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
 pydantic==2.13.5
@@ -139,16 +157,19 @@ semver==3.1.0
 shellingham==1.5.4
 simsimd==6.5.16
 six==1.17.0
+skia-python==144.0.post2
 skops==0.16.0
 smmap==5.0.3
 soupsieve==2.10
 sqlalchemy==2.0.54
 sqlparse==0.6.0
+stack-data==0.6.3
 starlette==1.7.0
 stringzilla==5.1.2
 threadpoolctl==3.7.0
 tomli==2.4.1 ; python_full_version < '3.11'
 tqdm==4.70.1
+traitlets==5.16.1
 typeguard==4.6.0
 typer==0.25.1
 typing-extensions==4.16.0
@@ -160,6 +181,7 @@ uvicorn==0.53.0
 waitress==3.0.2 ; sys_platform == 'win32'
 wcwidth==0.9.1
 werkzeug==3.1.8
+widgetsnbextension==4.0.16
 win32-setctime==1.2.0 ; sys_platform == 'win32'
 wrapt==1.17.3
 yarl==1.25.1

@@ -402,6 +402,14 @@ def get_duplicates_info(df: pl.LazyFrame) -> dict[str, Any]:
     }
 
 
+#: The task types with a spatial representation, i.e. the ones a heatmap can be
+#: built for. Also what ``data health`` plots at all: a class distribution is
+#: available for metadata too, but has no meaningful health plot.
+HEATMAP_TASK_TYPES = frozenset(
+    {"boundingbox", "keypoints", "segmentation", "instance_segmentation"}
+)
+
+
 def get_heatmaps(
     df: pl.LazyFrame,
     sample_size: int | None = None,

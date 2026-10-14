@@ -48,6 +48,11 @@ jobs:
           uv run --no-sync pytest --help > "${RUNNER_TEMP:-.}/pytest-help.txt"
           grep -q -- '--store-durations' "${RUNNER_TEMP:-.}/pytest-help.txt"
 
+      # skia-python, the renderer of the viz extra, loads libEGL on Linux.
+      - name: Install the system libraries of skia-python
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: sudo apt-get update && sudo apt-get install --yes libegl1 libegl-mesa0
+
       - name: Authenticate to Google Cloud
         if: ${{ env.GCP_CREDENTIALS != '' }}
         id: google-auth

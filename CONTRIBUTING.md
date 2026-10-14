@@ -56,6 +56,7 @@ the uv override that removes `opencv-python-headless`. See the comment in
 | `luxonis_ml/nn_archive`        | Model archive metadata and archive generation utilities.                         |
 | `luxonis_ml/tracker`           | Experiment tracking integrations.                                                |
 | `luxonis_ml/telemetry`         | Lightweight telemetry client, events, redaction, and backends.                   |
+| `luxonis_ml/vizlab`            | Annotation rendering, layout composition, and the interactive viewer.            |
 | `tests`                        | Pytest suite, fixtures, integration tests, and data workflow coverage.           |
 | `tools/export_requirements.sh` | Regenerates `uv.lock` and the `requirements*.txt` exports.                       |
 | `tools/version.py`             | Reports the package version, or changes it for a release.                        |

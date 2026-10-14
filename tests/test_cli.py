@@ -4,7 +4,9 @@ import sys
 import pytest
 
 
-@pytest.mark.parametrize("cmd", ["data", "archive", "fs", "checkhealth"])
+@pytest.mark.parametrize(
+    "cmd", ["data", "archive", "fs", "test", "checkhealth"]
+)
 def test_cli_commands(cmd: str):
     subprocess.run(
         [

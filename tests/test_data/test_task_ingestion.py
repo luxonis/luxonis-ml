@@ -347,6 +347,52 @@ def test_task_ingestion(
     }
 
 
+def test_list_annotation_task_inference(
+    bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
+):
+    dataset = LuxonisDataset(
+        dataset_name,
+        bucket_storage=bucket_storage,
+        delete_local=True,
+        delete_remote=True,
+    )
+    cat = {
+        "class": "cat",
+        "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
+    }
+    car = {
+        "class": "car",
+        "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.2, "h": 0.2},
+    }
+    dataset.add(
+        iter(
+            [
+                {
+                    "media": str(create_image(0, tempdir)),
+                    "annotation": {"animals": [cat], "vehicles": [car]},
+                }
+            ]
+        )
+    )
+
+    # The record names no task. "cat" and "car" live in different tasks,
+    # so each detection has to land in the task of its own class.
+    dataset.add(
+        iter(
+            [
+                {
+                    "media": str(create_image(1, tempdir)),
+                    "annotation": [cat, car],
+                }
+            ]
+        )
+    )
+
+    classes = dataset.get_classes()
+    assert set(classes["animals"]) == {"cat"}
+    assert set(classes["vehicles"]) == {"car"}
+
+
 def test_a_negative_keeps_the_stored_task_types(
     dataset_name: str, tempdir: Path
 ):
