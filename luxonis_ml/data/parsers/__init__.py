@@ -559,7 +559,7 @@ image-normalized coordinates. Masks are written as COCO RLE, with a
 
 A ``keypoints`` payload keys each keypoint by its name when the task names its
 keypoints. One record of each keypoint task in each ``annotations.json`` also
-carries the ``edges``, ``flip_pairs`` and ``sigmas`` of the task.
+carries the ``edges`` and ``sigmas`` of the task.
 `LuxonisDataset.add` moves them into the keypoint metadata of the task. An
 export to LDF 2.1 or 2.0 writes the keypoints as a plain list and leaves these
 fields out.

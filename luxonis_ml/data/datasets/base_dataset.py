@@ -6,7 +6,7 @@ from semver.version import Version
 from typing_extensions import deprecated
 
 from luxonis_ml.data.datasets.source import LuxonisSource
-from luxonis_ml.ldf import DatasetRecord, FlipAxis, KeypointMetadata
+from luxonis_ml.ldf import DatasetRecord, KeypointMetadata
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
@@ -119,21 +119,16 @@ class BaseDataset(
         edges: list[KeypointPair] | None = None,
         task: str | None = None,
         *,
-        flip_pairs: list[KeypointPair]
-        | dict[FlipAxis, list[KeypointPair]]
-        | None = None,
         sigmas: list[float] | None = None,
-        infer_flip_pairs: bool | None = None,
     ) -> None:
         """Set the keypoint metadata of one task or of every task.
 
         Only the fields that you provide are replaced, so a definition can
-        be built up over several calls. The flip pairs replace only the
-        mirrors that you give. New labels are the exception:
+        be built up over several calls. New labels are the exception:
 
-            - Edges, flip pairs and sigmas refer to the keypoints by
-              position. Labels that change a unique name or the number of
-              keypoints thus drop the stored values of these fields.
+            - Edges and sigmas refer to the keypoints by position. Labels
+              that change a unique name or the number of keypoints thus
+              drop the stored values of these fields.
             - `add` gives keypoints without names the labels ``"0"``,
               ``"1"``, ... and joins them in a chain. Names for these
               keypoints drop the edges of that chain, also when a record
@@ -141,8 +136,8 @@ class BaseDataset(
 
         To keep a field, give it in the same call as the labels.
 
-        Prefer the records. A record can carry ``edges``, ``flip_pairs``
-        and ``sigmas`` beside its keypoints, and `add` moves them here.
+        Prefer the records. A record can carry ``edges`` and ``sigmas``
+        beside its keypoints, and `add` moves them here.
 
         For example:
 
@@ -153,7 +148,7 @@ class BaseDataset(
                 edges=[[0, 1], [4, 5], ...]
             )
 
-        Edges and flip pairs may also refer to keypoints by name:
+        Edges may also refer to keypoints by name:
 
         .. python::
 
@@ -162,55 +157,18 @@ class BaseDataset(
                 edges=[("nose", "left_eye"), ("nose", "right_eye")],
             )
 
-        Each mirror of the image has its own flip pairs. This call gives
-        the vertical pairs of the corners of a license plate, and it keeps
-        the horizontal pairs that the task stores:
-
-        .. python::
-
-            dataset.set_keypoint_metadata(
-                task="plate",
-                flip_pairs={
-                    "vertical": [
-                        ("top_left", "bottom_left"),
-                        ("top_right", "bottom_right"),
-                    ],
-                },
-            )
-
         Args:
             labels: Optional keypoint names.
             edges: Optional edges between keypoints.
             task: Optional task to update. If omitted, all tasks are
                 updated.
-            flip_pairs: Optional pairs of keypoints that each mirror of the
-                image swaps, keyed by the mirror. A plain list gives the
-                horizontal pairs. Each mirror that you give replaces the
-                stored pairs of that mirror, and an empty list removes
-                them. See `FlipPairs`.
             sigmas: Optional per-keypoint OKS standard deviations.
-            infer_flip_pairs: Whether to infer the horizontal flip pairs
-                from the ``left``/``right`` keypoint names, for a task
-                without horizontal flip pairs. A call that gives horizontal
-                flip pairs infers none. Nothing infers the pairs of the
-                other mirrors.
-
-                - ``None`` infers them only when the call changes the
-                  names of the task, as `add` does.
-                - ``True`` also infers them for the stored names, for
-                  example for a dataset from an older luxonis-ml. The call
-                  then needs no other field, and it changes only the tasks
-                  with keypoint metadata.
-                - ``False`` infers none.
 
         Raises:
-            ValueError: If you provide none of the fields and
-                ``infer_flip_pairs`` is not ``True``, or if a field does
-                not fit the labels of a task.
-            ValueError: If ``labels`` repeats a name, if an edge or a flip
-                pair refers to a name that is not a label, or if a keypoint
-                is in two flip pairs of one mirror or is paired with
-                itself.
+            ValueError: If you provide none of the fields, or if a field
+                does not fit the labels of a task.
+            ValueError: If ``labels`` repeats a name, or if an edge refers
+                to a name that is not a label.
 
         """
         ...

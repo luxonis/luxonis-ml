@@ -69,7 +69,6 @@ from luxonis_ml.ldf import (
     Category,
     DatasetRecord,
     Detection,
-    FlipAxis,
     Keypoint,
     KeypointMetadata,
     load_annotation,
@@ -937,31 +936,20 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         edges: list[KeypointPair] | None = None,
         task: str | None = None,
         *,
-        flip_pairs: list[KeypointPair]
-        | dict[FlipAxis, list[KeypointPair]]
-        | None = None,
         sigmas: list[float] | None = None,
-        infer_flip_pairs: bool | None = None,
     ) -> None:
-        given_pairs: dict[FlipAxis, list[KeypointPair]] = (
-            {"horizontal": flip_pairs}
-            if isinstance(flip_pairs, list)
-            else flip_pairs or {}
-        )
         updates = {
             field: value
             for field, value in (
                 ("labels", labels),
                 ("edges", edges),
-                ("flip_pairs", flip_pairs),
                 ("sigmas", sigmas),
             )
             if value is not None
         }
-        if not updates and not infer_flip_pairs:
+        if not updates:
             raise ValueError(
-                "Must provide either keypoint names, edges, flip pairs or "
-                "sigmas, or `infer_flip_pairs=True`"
+                "Must provide either keypoint names, edges or sigmas"
             )
 
         tasks = self.get_task_names() if task is None else [task]
@@ -969,8 +957,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         updated: dict[str, KeypointMetadata] = {}
         for t in tasks:
             current = self._metadata.keypoint_metadata.get(t)
-            if current is None and not updates:
-                continue
             kept = {}
             if current is not None and not _renames_keypoints(current, labels):
                 # Names for placeholder keypoints keep the stored fields,
@@ -979,15 +965,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 kept = current.model_dump(
                     exclude=_placeholder_fields(current) if named else None
                 )
-            values = {**kept, **updates}
-            if flip_pairs is not None:
-                # Each mirror that the call gives replaces the stored pairs
-                # of that mirror. The other mirrors keep theirs.
-                values["flip_pairs"] = {
-                    **kept.get("flip_pairs", {}),
-                    **given_pairs,
-                }
-            keypoint_metadata = KeypointMetadata.model_validate(values)
+            keypoint_metadata = KeypointMetadata.model_validate(
+                {**kept, **updates}
+            )
             # Stored names from an older luxonis-ml can repeat. A call that
             # gives no names keeps them.
             if labels is not None:
@@ -1000,13 +980,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                     f"task '{t}'",
                     check_edges=edges is not None,
                 )
-            updated[t] = _fill_in_flip_pairs(
-                keypoint_metadata,
-                current,
-                infer=False
-                if "horizontal" in given_pairs
-                else infer_flip_pairs,
-            )
+            updated[t] = keypoint_metadata
 
         self._metadata.keypoint_metadata.update(updated)
         self._write_metadata()
@@ -1431,8 +1405,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         """Add data to the dataset from a generator of records.
 
         The keypoints of a record can be a list or a mapping keyed by
-        keypoint name. A record can also give ``edges``, ``flip_pairs``
-        and ``sigmas`` beside its keypoints. The names and these fields
+        keypoint name. A record can also give ``edges`` and ``sigmas``
+        beside its keypoints. The names and these fields
         describe the whole task, so `add` moves them into the keypoint
         metadata of the task. See `get_keypoint_metadata`.
 
@@ -1440,8 +1414,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         a later call replaces them with a warning. When the task already
         has names, a record can give a subset of them in any order.
         `luxonis_ml.ldf.annotation` describes how the missing keypoints are
-        padded, how keypoints without names are numbered, and when flip
-        pairs are inferred.
+        padded and how keypoints without names are numbered.
 
         The first write to an LDF 2.0 or 2.1 dataset with keypoints moves
         it to the current LDF version. See `luxonis_ml.data.datasets`.
@@ -1523,7 +1496,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         metadata_types = {}
         num_kpts_per_task: dict[str, set[int]] = defaultdict(set)
         declared_keypoint_metadata: dict[str, KeypointMetadata] = {}
-        tasks_with_horizontal_pairs: set[str] = set()
         unnamed_keypoint_rows: set[tuple[str, str, str]] = set()
         sources: set[str] = set()
 
@@ -1567,10 +1539,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                             num_kpts_per_task[task_name].add(
                                 len(ann.keypoints.keypoints)
                             )
-                            # Horizontal flip pairs turn the inference off,
-                            # also empty ones.
-                            if "horizontal" in ann.keypoints.flip_pairs:
-                                tasks_with_horizontal_pairs.add(task_name)
                             declared = ann.keypoints.declared_metadata()
                             if declared is not None:
                                 declared = _in_stored_order(
@@ -1648,7 +1616,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             resolved_keypoint_metadata = self._resolve_keypoint_metadata(
                 num_kpts_per_task,
                 declared_keypoint_metadata,
-                tasks_with_horizontal_pairs,
                 row_widths,
             )
             self._add_process_batch(
@@ -2321,7 +2288,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         self,
         num_kpts_per_task: dict[str, set[int]],
         declared: dict[str, KeypointMetadata],
-        tasks_with_horizontal_pairs: set[str],
         row_widths: dict[str, int],
     ) -> dict[str, KeypointMetadata]:
         """Return the keypoint metadata that `add` stores for each task.
@@ -2336,9 +2302,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             num_kpts_per_task: The numbers of keypoints in the records of
                 each task.
             declared: The keypoint metadata that the records describe.
-            tasks_with_horizontal_pairs: The tasks with a record that gives
-                horizontal flip pairs. Empty ones count too, so these tasks
-                get no inferred flip pairs.
             row_widths: The result of `_keypoint_row_widths`.
 
         Returns:
@@ -2400,11 +2363,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             entry.validate_for(
                 n_keypoints, f"task '{task}'", check_edges=False
             )
-            resolved[task] = _fill_in_flip_pairs(
-                entry,
-                stored,
-                infer=False if task in tasks_with_horizontal_pairs else None,
-            )
+            resolved[task] = entry
             if len(sizes) > 1 and task not in aligned:
                 # The labels give the keypoint count, and an earlier `add`
                 # can make it larger than any record of this one.
@@ -2601,52 +2560,12 @@ def _merge_into_stored(
     )
 
 
-def _fill_in_flip_pairs(
-    keypoint_metadata: KeypointMetadata,
-    stored: KeypointMetadata | None,
-    *,
-    infer: bool | None,
-) -> KeypointMetadata:
-    """Infer horizontal flip pairs from the keypoint names when none are known.
-
-    Only a write path infers them, never a read path. A read path would
-    give flip pairs to a dataset that never asked for them. The pairs of
-    the other mirrors stay as they are.
-
-    Args:
-        keypoint_metadata: The new keypoint metadata of the task.
-        stored: The stored keypoint metadata of the task.
-        infer: ``True`` infers flip pairs for all names, and ``False``
-            infers none. ``None`` infers them only when the names of the
-            task change, or when the task has no stored entry. The stored
-            entry does not record that the inference is off, so its empty
-            horizontal pairs can mean that.
-
-    """
-    labels = keypoint_metadata.labels
-    if infer is None:
-        infer = stored is None or stored.labels != labels
-    if not infer or "horizontal" in keypoint_metadata.flip_pairs:
-        return keypoint_metadata
-    inferred = KeypointMetadata.infer_flip_pairs(labels)
-    if not inferred:
-        return keypoint_metadata
-    return keypoint_metadata.model_copy(
-        update={
-            "flip_pairs": {
-                "horizontal": inferred,
-                **keypoint_metadata.flip_pairs,
-            }
-        }
-    )
-
-
 def _renames_keypoints(
     current: KeypointMetadata, labels: list[str] | None
 ) -> bool:
     """Whether new labels give the stored indices a new meaning.
 
-    ``edges``, ``flip_pairs``, and ``sigmas`` use positional keypoint
+    ``edges`` and ``sigmas`` use positional keypoint
     indices. New names put a different keypoint at a position, so the
     stored values describe the wrong keypoints. Placeholder names carry
     no identity. A rename that keeps their count therefore only names the
