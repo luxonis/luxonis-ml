@@ -255,7 +255,7 @@ Keypoint Metadata
 Each keypoint task has one `luxonis_ml.ldf.KeypointMetadata` entry. It holds
 the keypoint names, the edges between the keypoints, the mirror partners,
 the places in the picture, and the sigmas of the object keypoint similarity
-(OKS) metric. A record gives them with its keypoints, and
+(OKS) metric. Each keypoint of a record can give its part of them, and
 `LuxonisDataset.add` moves them into the entry of the task:
 
 .. python::
@@ -285,8 +285,9 @@ the places in the picture, and the sigmas of the object keypoint similarity
     dataset.add(pose_records())
     dataset.get_keypoint_metadata()["pose"].flip_pairs  # [(1, 2)]
 
-When no record names a mirror partner, `LuxonisDataset.add` infers the
-partners from the ``left``/``right`` names. The augmentation then swaps the
+When no keypoint of a task gives ``mirror``, `LuxonisDataset.add` infers
+the partners from the ``left``/``right`` names. A ``"mirror": None`` on a
+keypoint says that it has no partner, and it turns the inference off. The augmentation then swaps the
 partners after every mirror of the picture; see the section on keypoint
 names in `luxonis_ml.data.augmentations`.
 `LuxonisDataset.set_keypoint_metadata` sets the fields without records.

@@ -145,8 +145,9 @@ class BaseDataset(
 
         To keep a field, give it in the same call as the labels.
 
-        Prefer the records. A record can carry ``edges``, ``flip_pairs``
-        and ``sigmas`` beside its keypoints, and `add` moves them here.
+        Prefer the records. Each keypoint of a record can give its
+        ``sigma``, ``connected_to``, ``mirror`` and ``position``, and `add`
+        moves them here.
 
         For example:
 

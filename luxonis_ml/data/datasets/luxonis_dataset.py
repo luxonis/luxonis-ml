@@ -1516,10 +1516,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         """Add data to the dataset from a generator of records.
 
         The keypoints of a record can be a list or a mapping keyed by
-        keypoint name. A record can also give ``edges``, ``flip_pairs``
-        and ``sigmas`` beside its keypoints. The names and these fields
-        describe the whole task, so `add` moves them into the keypoint
-        metadata of the task. See `get_keypoint_metadata`.
+        keypoint name. A named keypoint can also give its ``sigma``,
+        ``connected_to``, ``mirror`` and ``position``. The names and these
+        fields describe the whole task, so `add` moves them into the
+        keypoint metadata of the task. See `get_keypoint_metadata`.
 
         The records of a task in one call must agree on these fields, and
         a later call replaces them with a warning. When the task already
@@ -1613,7 +1613,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         declared_class_meanings: dict[str, dict[str, ClassMeaning]] = (
             defaultdict(dict)
         )
-        tasks_with_flip_pairs: set[str] = set()
+        tasks_with_mirrors: set[str] = set()
         unnamed_keypoint_rows: set[tuple[str, str, str]] = set()
         sources: set[str] = set()
 
@@ -1655,11 +1655,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
             if ann.keypoints is not None:
                 num_kpts_per_task[task_name].add(len(ann.keypoints.keypoints))
-                # An empty list of flip pairs turns the inference off. Only
-                # the fields that the record sets tell it apart from an
-                # omitted list.
-                if "flip_pairs" in ann.keypoints.model_fields_set:
-                    tasks_with_flip_pairs.add(task_name)
+                # A `mirror` turns the inference off, also as `None`.
+                if ann.keypoints.gives_mirror:
+                    tasks_with_mirrors.add(task_name)
                 declared = ann.keypoints.declared_metadata()
                 if declared is not None:
                     declared = _in_stored_order(
@@ -1743,7 +1741,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             resolved_keypoint_metadata = self._resolve_keypoint_metadata(
                 num_kpts_per_task,
                 declared_keypoint_metadata,
-                tasks_with_flip_pairs,
+                tasks_with_mirrors,
                 row_widths,
             )
             self._add_process_batch(
@@ -2433,7 +2431,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         self,
         num_kpts_per_task: dict[str, set[int]],
         declared: dict[str, KeypointMetadata],
-        tasks_with_flip_pairs: set[str],
+        tasks_with_mirrors: set[str],
         row_widths: dict[str, int],
     ) -> dict[str, KeypointMetadata]:
         """Return the keypoint metadata that `add` stores for each task.
@@ -2448,8 +2446,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             num_kpts_per_task: The numbers of keypoints in the records of
                 each task.
             declared: The keypoint metadata that the records describe.
-            tasks_with_flip_pairs: The tasks with a record that gives flip
-                pairs. An empty list counts too, so these tasks get no
+            tasks_with_mirrors: The tasks with a keypoint that gives
+                ``mirror``. ``None`` counts too, so these tasks get no
                 inferred flip pairs.
             row_widths: The result of `_keypoint_row_widths`.
 
@@ -2515,7 +2513,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             resolved[task] = _fill_in_flip_pairs(
                 entry,
                 stored,
-                infer=False if task in tasks_with_flip_pairs else None,
+                infer=False if task in tasks_with_mirrors else None,
             )
             if len(sizes) > 1 and task not in aligned:
                 # The labels give the keypoint count, and an earlier `add`

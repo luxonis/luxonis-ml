@@ -1,10 +1,18 @@
 """The ``class`` of a record can say what turns and mirrors make of it."""
 
+from typing import Any
+
 import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from luxonis_ml.ldf import ClassMeaning, ClassMetadata, Detection, Direction
+from luxonis_ml.ldf import (
+    ClassMeaning,
+    ClassMetadata,
+    Detection,
+    Direction,
+    SquareSymmetry,
+)
 from luxonis_ml.ldf.class_meaning import nearest_symmetry, turn
 
 ARROWS: dict[Direction, str] = {
@@ -40,7 +48,9 @@ def test_a_class_mapping_splits_into_the_name_and_the_meaning():
         ({"name": "a", "upright": False}, "upright"),
     ],
 )
-def test_a_class_mapping_that_cannot_hold_is_rejected(value, message):
+def test_a_class_mapping_that_cannot_hold_is_rejected(
+    value: dict[str, Any], message: str
+):
     with pytest.raises(ValidationError, match=message):
         Detection.model_validate({"class": value})
 
@@ -163,7 +173,9 @@ def test_a_class_in_two_relations_is_rejected():
         ([[1.0, 0.0], [0.0, 0.0]], None),
     ],
 )
-def test_nearest_symmetry_rounds_a_measured_map(matrix, symmetry):
+def test_nearest_symmetry_rounds_a_measured_map(
+    matrix: list[list[float]], symmetry: SquareSymmetry | None
+):
     assert nearest_symmetry(np.array(matrix)) == symmetry
 
 

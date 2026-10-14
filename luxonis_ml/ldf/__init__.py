@@ -7,8 +7,9 @@ a `DatasetRecord` with its `Detection`, the annotation payloads
 `ClassificationAnnotation`), and the `ParquetRecord` row they are stored as.
 
 A `KeypointAnnotation` holds `Keypoint` triplets, keyed by name or by
-position. It can also give the edges, the flip pairs and the sigmas of its
-task. `LuxonisDataset.add` moves these task-level fields into one
+position. A named keypoint can also give its state, its OKS sigma, the
+keypoints it connects to, its mirror partner and its position in the
+picture. `LuxonisDataset.add` moves these task-level fields into one
 `KeypointMetadata` for each task, and `LuxonisDataset.get_keypoint_metadata`
 returns them.
 

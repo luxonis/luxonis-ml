@@ -198,16 +198,22 @@ def test_downgrade_gives_a_whole_image_label_no_number(
 
 
 def test_downgrade_removes_the_keypoint_task_fields():
-    """They sit inside the annotation, not on the record.
+    """Each keypoint carries them, so the triplets lose them.
 
     The names are the keys of the payload, so the downgrade also has to
     turn a named mapping back into a positional list.
     """
     keypoints = {
-        "keypoints": {"nose": [0.5, 0.3, 2], "left_eye": [0.4, 0.2, 2]},
-        "edges": [[0, 1]],
-        "flip_pairs": [[0, 1]],
-        "sigmas": [0.026, 0.025],
+        "keypoints": {
+            "nose": {"x": 0.5, "y": 0.3, "visibility": 2, "sigma": 0.026},
+            "left_eye": {
+                "x": 0.4,
+                "y": 0.2,
+                "visibility": 2,
+                "sigma": 0.025,
+                "connected_to": ["nose"],
+            },
+        },
     }
     downgraded = LDFDowngrader(Version.parse("2.0.0"))(
         {"media": "a.jpg", "annotation": {"pose": [{"keypoints": keypoints}]}}
@@ -311,9 +317,13 @@ def test_export_2_2_flattens_the_record_but_keeps_the_keypoint_fields(
         set(k["keypoints"]) == {"nose", "left_eye", "right_eye"}
         for k in keypoints
     )
-    with_fields = [k for k in keypoints if "edges" in k]
+    with_fields = [
+        k
+        for k in keypoints
+        if any(isinstance(v, dict) for v in k["keypoints"].values())
+    ]
     assert len(with_fields) == 1
-    assert with_fields[0]["edges"]
+    assert with_fields[0]["keypoints"]["nose"]["connected_to"] == ["left_eye"]
 
 
 def test_an_export_without_the_task_fields_still_imports(

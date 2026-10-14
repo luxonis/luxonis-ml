@@ -119,7 +119,9 @@ SYMMETRIC = [
 
 @pytest.mark.parametrize("seed", range(4))
 @pytest.mark.parametrize("config", SYMMETRIC)
-def test_an_arrow_points_where_its_tip_is(config, seed: int) -> None:
+def test_an_arrow_points_where_its_tip_is(
+    config: list[dict[str, Any]], seed: int
+) -> None:
     image, box = augment(config, "arrows", seed)
 
     assert ARROWS[int(box[0])] == pointing(mark(image, box, RED))
@@ -127,7 +129,9 @@ def test_an_arrow_points_where_its_tip_is(config, seed: int) -> None:
 
 @pytest.mark.parametrize("seed", range(4))
 @pytest.mark.parametrize("config", SYMMETRIC)
-def test_a_hand_swaps_side_after_each_mirror(config, seed: int) -> None:
+def test_a_hand_swaps_side_after_each_mirror(
+    config: list[dict[str, Any]], seed: int
+) -> None:
     image, box = augment(config, "hands", seed)
 
     expected = "right_hand" if is_mirrored(image, box) else "left_hand"
@@ -136,7 +140,9 @@ def test_a_hand_swaps_side_after_each_mirror(config, seed: int) -> None:
 
 @pytest.mark.parametrize("seed", range(4))
 @pytest.mark.parametrize("config", SYMMETRIC[:5])
-def test_an_upright_class_comes_back_upright(config, seed: int) -> None:
+def test_an_upright_class_comes_back_upright(
+    config: list[dict[str, Any]], seed: int
+) -> None:
     image, box = augment(config, "digits", seed)
 
     assert box[0] == 0

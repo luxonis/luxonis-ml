@@ -44,9 +44,10 @@ class NativeExporter(BaseExporter):
     is not the full `Metadata` model a dataset keeps in its own storage.
 
     A keypoint record keys its keypoints by name when its task names
-    them. One record of each keypoint task in each ``annotations.json``
-    also carries the ``edges``, ``flip_pairs`` and ``sigmas`` of the task,
-    so the import restores its `KeypointMetadata`.
+    them. In one record of each keypoint task in each
+    ``annotations.json``, each keypoint also carries its ``sigma``,
+    ``connected_to``, ``mirror`` and ``position``, so the import restores
+    its `KeypointMetadata`.
 
     Passing an older ``ldf_version`` strips the fields that version does
     not know -- exporting LDF 2.1 or 2.0 omits the keypoint names, edges,
@@ -240,18 +241,18 @@ class NativeExporter(BaseExporter):
                     if key in self._metadata_attached:
                         continue
                     self._metadata_attached.add(key)
-                    # The import infers flip pairs for names without flip
-                    # pairs. An empty list turns that off, so a record with
-                    # names carries it.
-                    keypoints.update(
-                        {
-                            field: value
-                            for field, value in task_keypoints.model_dump(
-                                exclude={"labels"}
-                            ).items()
-                            if value or (named and field == "flip_pairs")
-                        }
-                    )
+                    if named or task_keypoints.edges or task_keypoints.sigmas:
+                        # Each keypoint carries its part of the task fields.
+                        # The import infers partners from side names, so a
+                        # keypoint without a partner says so.
+                        points = keypoints["keypoints"]
+                        if not isinstance(points, dict):
+                            points = {
+                                str(i): value for i, value in enumerate(points)
+                            }
+                        keypoints["keypoints"] = (
+                            task_keypoints.record_keypoints(points)
+                        )
 
     def _fit_keypoint_metadata_to_rows(self, df: pl.DataFrame) -> None:
         """Leave out the keypoint metadata that the import would reject.

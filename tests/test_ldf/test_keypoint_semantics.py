@@ -67,7 +67,32 @@ def test_a_partner_named_on_both_sides_is_one_pair():
         }
     )
 
-    assert annotation.flip_pairs == [(0, 1)]
+    metadata = annotation.declared_metadata()
+    assert metadata is not None
+    assert metadata.flip_pairs == [(0, 1)]
+
+
+def test_a_mirror_of_none_declares_no_partner():
+    """It turns the inference from names off, also after a dump."""
+    annotation = KeypointAnnotation.model_validate(
+        {
+            "keypoints": {
+                "left_mark": {
+                    "x": 0.3,
+                    "y": 0.2,
+                    "mirror": None,
+                },
+                "right_mark": (0.2, 0.2),
+            }
+        }
+    )
+
+    metadata = annotation.declared_metadata()
+    assert metadata is not None
+    assert metadata.flip_pairs == []
+    assert annotation.gives_mirror
+    dumped = annotation.model_dump()
+    assert KeypointAnnotation.model_validate(dumped).gives_mirror
 
 
 def test_the_corners_of_an_object_without_a_front_name_places():
@@ -85,16 +110,23 @@ def test_the_corners_of_an_object_without_a_front_name_places():
     assert metadata.flip_pairs == []
 
 
-def test_a_list_of_task_fields_still_works():
-    annotation = KeypointAnnotation.model_validate(
-        {
-            "keypoints": {"a": (0.4, 0.5), "b": (0.6, 0.5)},
-            "flip_pairs": [("a", "b")],
-            "sigmas": [0.1, 0.1],
-        }
-    )
+@pytest.mark.parametrize(
+    "field", ["edges", "flip_pairs", "sigmas", "position"]
+)
+def test_a_list_of_task_fields_is_rejected(field: str):
+    """Each keypoint gives its own task fields."""
+    with pytest.raises(pydantic.ValidationError, match=field):
+        KeypointAnnotation.model_validate(
+            {"keypoints": {"a": (0.4, 0.5)}, field: []}
+        )
 
-    assert (annotation.flip_pairs, annotation.sigmas) == ([(0, 1)], [0.1, 0.1])
+
+def test_a_bool_end_of_a_flip_pair_is_rejected():
+    """``False`` is an int, so it would pair with keypoint 0."""
+    with pytest.raises(pydantic.ValidationError, match="True or False"):
+        KeypointMetadata.model_validate(
+            {"labels": ["a", "b"], "flip_pairs": [(False, 1)]}
+        )
 
 
 @pytest.mark.parametrize(
@@ -117,12 +149,6 @@ def test_a_list_of_task_fields_still_works():
             {},
             "Missing: b",
             id="some-sigmas",
-        ),
-        pytest.param(
-            {"a": {"x": 0.1, "y": 0.1, "sigma": 0.1}},
-            {"sigmas": [0.1]},
-            "either with each keypoint or as a list",
-            id="sigmas-twice",
         ),
         pytest.param(
             {"a": {"x": 0.1, "y": 0.1, "mirror": "c"}, "b": (0.2, 0.2)},
@@ -176,12 +202,6 @@ def test_a_list_of_task_fields_still_works():
             {},
             "takes the name of the partner",
             id="mirror-false",
-        ),
-        pytest.param(
-            {"a": (0.1, 0.1), "b": (0.2, 0.2)},
-            {"flip_pairs": [(False, 1)]},
-            "True or False",
-            id="bool-pair",
         ),
     ],
 )

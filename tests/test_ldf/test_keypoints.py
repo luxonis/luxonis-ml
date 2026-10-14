@@ -152,9 +152,16 @@ def test_task_fields_are_not_stored_per_annotation():
     """They describe the task, so `add` hoists them into the dataset."""
     annotation = KeypointAnnotation.model_validate(
         {
-            "keypoints": {"nose": (0.1, 0.2, 2), "left_eye": (0.3, 0.4, 1)},
-            "edges": [("nose", "left_eye")],
-            "sigmas": [0.1, 0.2],
+            "keypoints": {
+                "nose": {"x": 0.1, "y": 0.2, "sigma": 0.1},
+                "left_eye": {
+                    "x": 0.3,
+                    "y": 0.4,
+                    "visibility": 1,
+                    "sigma": 0.2,
+                    "connected_to": "nose",
+                },
+            }
         }
     )
 
@@ -162,12 +169,19 @@ def test_task_fields_are_not_stored_per_annotation():
 
 
 def test_a_json_round_trip_keeps_the_task_fields():
-    """Only the stored payload is positional."""
+    """A dump gives the task fields with each keypoint again."""
     annotation = KeypointAnnotation.model_validate(
         {
-            "keypoints": {"nose": (0.1, 0.2, 2), "left_eye": (0.3, 0.4, 1)},
-            "edges": [("nose", "left_eye")],
-            "sigmas": [0.1, 0.2],
+            "keypoints": {
+                "nose": {"x": 0.1, "y": 0.2, "sigma": 0.1},
+                "left_eye": {
+                    "x": 0.3,
+                    "y": 0.4,
+                    "visibility": 1,
+                    "sigma": 0.2,
+                    "connected_to": "nose",
+                },
+            }
         }
     )
 
@@ -285,22 +299,52 @@ def test_positional_names_are_not_a_declaration():
     assert annotation.declared_metadata() is None
 
 
-def test_edges_and_flip_pairs_accept_names():
+def test_connections_and_mirrors_become_index_pairs():
     """Stored as indices: the consumers all index positionally."""
     annotation = KeypointAnnotation.model_validate(
         {
             "keypoints": {
-                "nose": (0.1, 0.1, 2),
-                "left_eye": (0.2, 0.2, 2),
-                "right_eye": (0.3, 0.3, 2),
+                "nose": {
+                    "x": 0.1,
+                    "y": 0.1,
+                    "connected_to": ["left_eye", "right_eye"],
+                },
+                "left_eye": {
+                    "x": 0.2,
+                    "y": 0.2,
+                    "mirror": "right_eye",
+                },
+                "right_eye": {"x": 0.3, "y": 0.3, "connected_to": "nose"},
             },
-            "edges": [("nose", "left_eye"), ("nose", "right_eye")],
-            "flip_pairs": [("left_eye", "right_eye")],
         }
     )
 
-    assert annotation.edges == [(0, 1), (0, 2)]
-    assert annotation.flip_pairs == [(1, 2)]
+    declared = annotation.declared_metadata()
+    assert declared is not None
+    assert declared.edges == [(0, 1), (0, 2)]
+    assert declared.flip_pairs == [(1, 2)]
+
+
+def test_a_state_gives_the_visibility():
+    annotation = KeypointAnnotation.model_validate(
+        {
+            "keypoints": {
+                "a": {"x": 0.1, "y": 0.1, "state": "visible"},
+                "b": {"x": 0.2, "y": 0.2, "state": "occluded"},
+                "c": {"x": 0.3, "y": 0.3, "state": "unlabeled"},
+            }
+        }
+    )
+
+    assert [k.visibility for k in annotation.keypoints.values()] == [2, 1, 0]
+
+
+def test_the_task_fields_are_given_with_each_keypoint():
+    """A record has no lists of edges or sigmas beside its keypoints."""
+    with pytest.raises(pydantic.ValidationError, match="sigmas"):
+        KeypointAnnotation.model_validate(
+            {"keypoints": {"a": (0.1, 0.1, 2)}, "sigmas": [0.1]}
+        )
 
 
 def test_names_and_indices_can_be_mixed():
@@ -366,19 +410,41 @@ def test_invalid_flip_pairs_are_rejected(
 
 
 @pytest.mark.parametrize(
-    ("fields", "match"),
+    ("b", "match"),
     [
-        pytest.param({"sigmas": [0.1, 0.2]}, "2 sigmas", id="sigmas"),
-        pytest.param({"edges": [(0, 5)]}, "keypoint 5", id="edge-range"),
-        pytest.param({"flip_pairs": [(0, 5)]}, "keypoint 5", id="flip-range"),
+        pytest.param({"x": 0.2, "y": 0.2}, "Missing: b", id="some-sigmas"),
+        pytest.param(
+            {"x": 0.2, "y": 0.2, "sigma": 0.1, "connected_to": "c"},
+            "not part of the task",
+            id="unknown-connection",
+        ),
+        pytest.param(
+            {"x": 0.2, "y": 0.2, "sigma": 0.1, "state": "hidden"},
+            "unknown state 'hidden'",
+            id="unknown-state",
+        ),
+        pytest.param(
+            {"x": 0.2, "y": 0.2, "sigma": 0.1, "state": "visible"}
+            | {"visibility": 2},
+            "both a state and a visibility",
+            id="state-and-visibility",
+        ),
+        pytest.param(
+            {"x": 0.2, "y": 0.2, "sigma": 0.1, "mirror": True},
+            "takes the name",
+            id="bool-mirror",
+        ),
+        pytest.param(
+            {"x": 0.2, "y": 0.2, "sigma": 0.1, "mirror": "c"},
+            "not part of the task",
+            id="unknown-mirror",
+        ),
     ],
 )
-def test_the_task_fields_must_match_the_keypoints(
-    fields: dict[str, Any], match: str
-):
+def test_the_task_fields_must_fit_the_keypoints(b: dict[str, Any], match: str):
     with pytest.raises(pydantic.ValidationError, match=match):
         KeypointAnnotation.model_validate(
-            {"keypoints": [(0.1, 0.2, 2)], **fields}
+            {"keypoints": {"a": {"x": 0.1, "y": 0.1, "sigma": 0.1}, "b": b}}
         )
 
 

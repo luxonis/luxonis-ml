@@ -102,10 +102,24 @@ def test_native_export_keeps_the_places(dataset_name: str, tempdir: Path):
 
 
 def test_an_export_for_ldf_2_drops_the_places():
-    keypoints = {"keypoints": {"a": [0.2, 0.2, 2]}, "position": ["center"]}
+    """LDF 2.2 keeps the keypoint mapping, but it has no ``position``."""
+    keypoints = {
+        "keypoints": {
+            "a": {
+                "x": 0.2,
+                "y": 0.2,
+                "visibility": 2,
+                "position": "center",
+            },
+        },
+    }
 
     downgraded = LDFDowngrader(Version.parse("2.2.0"))(
         {"media": "a.jpg", "annotation": {"tiles": [{"keypoints": keypoints}]}}
     )
 
-    assert "position" not in downgraded["annotation"]["keypoints"]
+    assert downgraded["annotation"]["keypoints"]["keypoints"]["a"] == {
+        "x": 0.2,
+        "y": 0.2,
+        "visibility": 2,
+    }

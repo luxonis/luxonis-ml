@@ -71,6 +71,45 @@ def record_generator(
         }
 
 
+def with_task_fields(
+    keypoints: Keypoints, fields: dict[str, Any] | None
+) -> Keypoints | dict[str, dict[str, Any]]:
+    """Give the task fields with each keypoint, as a record does.
+
+    An edge or a flip pair may name its ends or give their positions. With
+    ``flip_pairs``, a keypoint outside every pair gets ``"mirror": None``,
+    so an empty list turns the inference off. A list of keypoints becomes
+    a mapping keyed by position.
+    """
+    if not fields:
+        return keypoints
+    assert set(fields) <= {"edges", "sigmas", "flip_pairs", "position"}, fields
+    if isinstance(keypoints, dict):
+        names, values = list(keypoints), list(keypoints.values())
+    else:
+        names, values = [str(i) for i in range(len(keypoints))], keypoints
+    record: dict[str, dict[str, Any]] = {
+        name: {"x": x, "y": y, "visibility": v}
+        for name, (x, y, v) in zip(names, values, strict=True)
+    }
+    for name, sigma in zip(names, fields.get("sigmas", []), strict=False):
+        record[name]["sigma"] = sigma
+    for a, b in fields.get("edges", []):
+        ends = [names[e] if isinstance(e, int) else e for e in (a, b)]
+        record[ends[0]].setdefault("connected_to", []).append(ends[1])
+    if "flip_pairs" in fields:
+        for name in names:
+            record[name]["mirror"] = None
+        for a, b in fields["flip_pairs"]:
+            ends = [names[e] if isinstance(e, int) else e for e in (a, b)]
+            record[ends[0]]["mirror"] = ends[1]
+            del record[ends[1]]["mirror"]
+    for name, place in zip(names, fields.get("position", []), strict=False):
+        if place is not None:
+            record[name]["position"] = place
+    return record
+
+
 def keypoint_generator(
     tempdir: Path,
     keypoints: Keypoints,
@@ -78,7 +117,7 @@ def keypoint_generator(
     n: int = 4,
     start: int = 0,
 ) -> DatasetIterator:
-    keypoint_annotation = {"keypoints": keypoints, **(fields or {})}
+    keypoint_annotation = {"keypoints": with_task_fields(keypoints, fields)}
     return record_generator(
         tempdir, {"keypoints": keypoint_annotation}, n=n, start=start
     )
@@ -1719,13 +1758,13 @@ def test_only_an_explicit_flag_infers_flip_pairs_for_stored_names(
     assert dataset.get_keypoint_metadata()["pose"].flip_pairs == flip_pairs
 
 
-def test_a_record_turns_the_inference_off_with_an_empty_list(
+def test_a_record_turns_the_inference_off_with_a_mirror_of_none(
     dataset_name: str, tempdir: Path
 ):
-    """An empty list of flip pairs is not the same as no list.
+    """A ``"mirror": None`` is not the same as no ``mirror``.
 
-    It turns the inference off for the task. The native export writes an
-    empty list for that reason.
+    It says that a keypoint has no partner, and it turns the inference off
+    for the task. The native export writes it for that reason.
     """
     dataset = named_dataset(dataset_name, tempdir, fields={"flip_pairs": []})
 
@@ -1747,10 +1786,8 @@ def test_box_relative_keypoints_keep_the_fields_that_the_record_gives(
 ):
     """`scale_to_boxes` builds a new keypoint annotation.
 
-    The new annotation must set only the fields that the record gives. A
-    copy of every field gives an empty list of flip pairs to each record.
-    A copy of only the fields with a value loses the empty list that turns
-    the inference off.
+    The new annotation must keep the task fields that the record gives,
+    also a ``"mirror": None`` that turns the inference off.
     """
 
     dataset = create_dataset(
@@ -1759,7 +1796,9 @@ def test_box_relative_keypoints_keep_the_fields_that_the_record_gives(
             tempdir,
             {
                 "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.5, "h": 0.5},
-                "keypoints": {"keypoints": NAMED_KEYPOINTS, **fields},
+                "keypoints": {
+                    "keypoints": with_task_fields(NAMED_KEYPOINTS, fields)
+                },
                 "scale_to_boxes": True,
             },
         ),
@@ -2483,7 +2522,16 @@ def test_the_exported_task_fields_are_written_once_per_task(
         if keypoints:
             assert all(isinstance(k["keypoints"], dict) for k in keypoints)
             counts.append(
-                (len(keypoints), sum("flip_pairs" in k for k in keypoints))
+                (
+                    len(keypoints),
+                    sum(
+                        any(
+                            isinstance(v, dict)
+                            for v in k["keypoints"].values()
+                        )
+                        for k in keypoints
+                    ),
+                )
             )
 
     assert counts
