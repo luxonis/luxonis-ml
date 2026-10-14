@@ -44,9 +44,8 @@ class FiftyOneClassificationExporter(BaseExporter):
             }
         }
 
-    An image with one class gets its class index. An image with more
-    than one class gets a sorted list of class indices, as in the
-    multi-label layout of ``FiftyOneImageClassificationDataset``.
+    An image with more than one class gets a sorted list of class indices,
+    the multi-label layout of ``FiftyOneImageClassificationDataset``.
 
     Attributes:
         class_to_idx: Class-name to index mapping.

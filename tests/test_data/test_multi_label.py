@@ -7,7 +7,6 @@ export and a parse must give the image all of its classes back.
 
 import json
 import shutil
-from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -29,6 +28,7 @@ EXPECTED_CLASSES = sorted(sorted(classes) for classes in IMAGE_CLASSES)
 
 
 def _multi_label_images(tempdir: Path, task_name: str = "") -> DatasetIterator:
+    """Yield one classification record for each class of each image."""
     for i, classes in enumerate(IMAGE_CLASSES):
         for class_name in sorted(classes):
             yield {
@@ -92,17 +92,6 @@ def _loaded_classes(
     )
 
 
-def _rows(
-    dataset: LuxonisDataset, task_type: str
-) -> dict[tuple[str], Counter]:
-    """Count the rows of a task type for each image, all instances
-    included.
-    """
-    return LDFEquivalence.collect_annotation_multiset(
-        PreparedLDF.from_dataset(dataset), task_type
-    )
-
-
 @pytest.mark.parametrize(
     "dataset_type",
     [DatasetType.NATIVE, DatasetType.CLSDIR, DatasetType.FIFTYONECLS],
@@ -149,13 +138,16 @@ def test_native_round_trip_keeps_every_row(dataset_name: str, tempdir: Path):
 
     imported = _round_trip(dataset, DatasetType.NATIVE, tempdir)
 
+    before = PreparedLDF.from_dataset(dataset)
+    after = PreparedLDF.from_dataset(imported)
     assert LDFEquivalence.collect_image_multiset(
-        PreparedLDF.from_dataset(dataset)
-    ) == LDFEquivalence.collect_image_multiset(
-        PreparedLDF.from_dataset(imported)
-    )
+        before
+    ) == LDFEquivalence.collect_image_multiset(after)
+    # Unlike `assert_equivalence`, this also counts the classes of boxes.
     for task_type in ("boundingbox", "classification", "metadata/text"):
-        assert _rows(dataset, task_type) == _rows(imported, task_type)
+        assert LDFEquivalence.collect_annotation_multiset(
+            before, task_type
+        ) == LDFEquivalence.collect_annotation_multiset(after, task_type)
 
 
 def test_native_export_writes_one_entry_per_detection(

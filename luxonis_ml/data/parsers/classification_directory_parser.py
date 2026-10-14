@@ -113,12 +113,7 @@ class ClassificationDirectoryParser(BaseParser):
         return generator(), {}, added_images
 
     def _image_classes(self, class_dir: Path) -> dict[Path, list[str]]:
-        """Map each image of a split to the names of its class
-        directories.
-
-        A copy of an image in another class directory adds that class to
-        the image. A copy has the same file name and the same content.
-        """
+        """Map each image of a split to its class directory names."""
         image_classes: dict[Path, list[str]] = {}
         images_by_name: defaultdict[str, list[Path]] = defaultdict(list)
         for class_path in class_dir.iterdir():

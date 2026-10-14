@@ -1,13 +1,13 @@
 import numpy as np
 import pytest
 
-from luxonis_ml.data.augmentations import MixUp, Mosaic4
+from luxonis_ml.data.augmentations import BatchTransform, MixUp, Mosaic4
 from luxonis_ml.data.augmentations.custom import (
+    CutMix,
     HorizontalSymmetricKeypointsFlip,
     TransposeSymmetricKeypoints,
     VerticalSymmetricKeypointsFlip,
 )
-from luxonis_ml.data.augmentations.custom.cutmix import CutMix
 
 from .helpers import KeepFirstSample
 
@@ -153,7 +153,7 @@ def test_classification_defaults_to_a_single_absent_class() -> None:
     ],
 )
 def test_batch_transforms_join_multi_label_classes(
-    transform: Mosaic4 | MixUp | CutMix, params: dict[str, int]
+    transform: BatchTransform, params: dict[str, int]
 ) -> None:
     output = transform.apply_to_classification(
         [np.array([1.0, 1.0, 0.0]), np.array([0.0, 1.0, 1.0])], **params
