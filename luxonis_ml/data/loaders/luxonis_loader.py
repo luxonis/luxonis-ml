@@ -28,7 +28,6 @@ from luxonis_ml.data.datasets import (
     load_annotation,
 )
 from luxonis_ml.data.loaders.base_loader import BaseLoader
-from luxonis_ml.data.utils import get_task_group
 from luxonis_ml.ldf import (
     SCHEMA_METADATA_KEY,
     DatasetRecord,
@@ -316,7 +315,7 @@ class LuxonisLoader(BaseLoader):
                 "index 0). If this is not desired then make sure all pixels "
                 "are assigned to one class or rename your background class."
             )
-            self._tasks_without_background.add(f"{task_name}/segmentation")
+            self._tasks_without_background.add(task_name)
             if "background" not in classes:
                 self._synthesized_background.add(task_name)
                 self._classes[task_name] = {
@@ -578,12 +577,12 @@ class LuxonisLoader(BaseLoader):
 
         # An empty label is filled just as an annotated one is, so every
         # sample of the task gives a per-pixel target.
-        for task in self._tasks_without_background:
-            array = output.labels.get(task)
+        for task_name in self._tasks_without_background:
+            array = output.labels.get(f"{task_name}/segmentation")
             if array is None:
                 continue
             unassigned_pixels = ~np.any(array, axis=0)
-            background_idx = self._classes[get_task_group(task)]["background"]
+            background_idx = self._classes[task_name]["background"]
             array[background_idx, unassigned_pixels] = 1
 
         return output.images, output.labels, output.metadata

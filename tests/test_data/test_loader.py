@@ -604,6 +604,37 @@ def test_a_task_named_metadata_keeps_its_boxes(
     assert len(labels["metadata/boundingbox"]) == 1
 
 
+def test_a_task_named_metadata_gets_its_background(
+    dataset_name: str, tempdir: Path
+):
+    """The background fill read the task name back from the label key.
+
+    ``"metadata/segmentation"`` also names the ``segmentation`` metadata of
+    the default task, so the class lookup failed for every sample.
+    """
+    road = np.zeros((512, 512), dtype=np.uint8)
+    road[:256] = 1
+    sky = np.zeros((512, 512), dtype=np.uint8)
+    sky[256:400] = 1
+
+    def generator() -> DatasetIterator:
+        yield {
+            "media": create_image(0, tempdir),
+            "annotation": {
+                "metadata": [
+                    {"class": "road", "segmentation": {"mask": road}},
+                    {"class": "sky", "segmentation": {"mask": sky}},
+                ]
+            },
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+
+    labels = LuxonisLoader(dataset, view="train")[0].labels
+
+    assert labels["metadata/segmentation"][0, 400:].all()
+
+
 @pytest.mark.parametrize(
     ("class_name", "rows"),
     [
