@@ -166,7 +166,9 @@ class BaseDataset(
 
         Raises:
             ValueError: If you provide none of the fields, or if a field
-                does not fit the labels of a task.
+                does not fit the labels of a task. For a task without
+                labels, the call checks the edges against the widest
+                stored row.
             ValueError: If ``labels`` repeats a name, or if an edge refers
                 to a name that is not a label.
 

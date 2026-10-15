@@ -1183,18 +1183,8 @@ def test_a_legacy_dataset_still_loads(dataset_name: str, tempdir: Path):
     assert labels["pose/keypoints"].shape[1] == 9
 
 
-@pytest.mark.parametrize(
-    ("labels", "keypoints"),
-    [
-        pytest.param(LABELS, {"left_eye": (0.4, 0.2, 2)}, id="names"),
-        pytest.param([], list(NAMED_KEYPOINTS.values()), id="no-names"),
-    ],
-)
 def test_a_legacy_edge_out_of_range_does_not_stop_an_add(
-    dataset_name: str,
-    tempdir: Path,
-    labels: list[str],
-    keypoints: Keypoints,
+    dataset_name: str, tempdir: Path
 ):
     """An older luxonis-ml stored the edges without a check.
 
@@ -1203,13 +1193,68 @@ def test_a_legacy_edge_out_of_range_does_not_stop_an_add(
     """
     dataset = legacy_dataset(
         named_dataset(dataset_name, tempdir),
-        {"pose": {"labels": labels, "edges": [[-1, 0], [1, 3]]}},
+        {"pose": {"labels": LABELS, "edges": [[-1, 0], [1, 3]]}},
     )
 
-    dataset.add(keypoint_generator(tempdir, keypoints, n=1, start=4))
+    dataset.add(
+        keypoint_generator(tempdir, {"left_eye": (0.4, 0.2, 2)}, n=1, start=4)
+    )
 
     assert dataset.get_keypoint_metadata()["pose"].edges == [(-1, 0), (1, 3)]
     assert dataset.get_n_keypoints() == {"pose": 3}
+
+
+def test_set_keypoint_metadata_checks_edges_against_the_rows_without_labels(
+    dataset_name: str, tempdir: Path
+):
+    """Without labels, the widest stored row gives the keypoint count."""
+    dataset = named_dataset(dataset_name, tempdir)
+    before = dataset.get_keypoint_metadata()
+
+    with pytest.raises(ValueError, match="keypoint 99"):
+        dataset.set_keypoint_metadata(labels=[], edges=[(0, 99)], task="pose")
+
+    assert dataset.get_keypoint_metadata() == before
+
+
+def test_set_keypoint_metadata_rejects_a_negative_edge_without_rows(
+    dataset_name: str,
+):
+    """A task without labels and rows has no keypoint count yet.
+
+    A negative index is wrong for every count.
+    """
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    dataset.set_tasks({"pose": ["keypoints"]})
+
+    with pytest.raises(ValueError, match="keypoint -1"):
+        dataset.set_keypoint_metadata(edges=[(-1, 0)], task="pose")
+
+    assert dataset.get_keypoint_metadata() == {}
+
+
+@pytest.mark.parametrize("stored_by", ["legacy", "set_keypoint_metadata"])
+def test_add_checks_the_edges_of_a_stored_entry_without_labels(
+    dataset_name: str, tempdir: Path, stored_by: str
+):
+    """An entry without labels gets its keypoint count from `add`.
+
+    Its edges are checked against that count. An older luxonis-ml also
+    stored such an entry, and `add` then replaced its edges.
+    """
+    if stored_by == "legacy":
+        dataset = legacy_dataset(
+            named_dataset(dataset_name, tempdir),
+            {"pose": {"labels": [], "edges": [[1, 3]]}},
+        )
+    else:
+        dataset = pose_dataset(dataset_name, edges=[(1, 3)])
+    n_rows = len(dataset)
+
+    with pytest.raises(ValueError, match="keypoint 3"):
+        dataset.add(positional_generator(tempdir, [3], start=4))
+
+    assert len(dataset) == n_rows
 
 
 def test_set_keypoint_metadata_keeps_a_legacy_edge_it_is_not_given(

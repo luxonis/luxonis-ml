@@ -955,6 +955,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         tasks = self.get_task_names() if task is None else [task]
         # No task changes until every task passes the checks.
         updated: dict[str, KeypointMetadata] = {}
+        row_widths: dict[str, int] | None = None
         for t in tasks:
             current = self._metadata.keypoint_metadata.get(t)
             kept = {}
@@ -979,6 +980,15 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                     len(keypoint_metadata.labels),
                     f"task '{t}'",
                     check_edges=edges is not None,
+                )
+            elif edges is not None:
+                if row_widths is None:
+                    df = self._load_df_offline(lazy=True)
+                    row_widths = (
+                        {} if df is None else get_keypoint_row_widths(df)
+                    )
+                _check_edges_without_labels(
+                    keypoint_metadata, row_widths.get(t), t
                 )
             updated[t] = keypoint_metadata
 
@@ -2356,12 +2366,16 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                         ).labels
                     }
                 )
-            # A stored field must fit the keypoint count too, except the
-            # edges: an older luxonis-ml stored them without a check, and
-            # `Metadata` still accepts them. Each record checks the edges
-            # that it gives, and so does `set_keypoint_metadata`.
+            # A stored field must fit the keypoint count too. The edges of
+            # an entry with labels are the exception: an older luxonis-ml
+            # stored them without a check, and `Metadata` still accepts
+            # them. Each record checks the edges that it gives, and so does
+            # `set_keypoint_metadata` for an entry with labels. An entry
+            # without labels gets its keypoint count only now.
             entry.validate_for(
-                n_keypoints, f"task '{task}'", check_edges=False
+                n_keypoints,
+                f"task '{task}'",
+                check_edges=stored is None or not stored.labels,
             )
             resolved[task] = entry
             if len(sizes) > 1 and task not in aligned:
@@ -2558,6 +2572,33 @@ def _merge_into_stored(
             }
         )
     )
+
+
+def _check_edges_without_labels(
+    keypoint_metadata: KeypointMetadata, n_keypoints: int | None, task: str
+) -> None:
+    """Check the edges of keypoint metadata without labels.
+
+    The widest stored row gives the keypoint count. A task without rows
+    has no count yet, so only a negative index fails here.
+    `LuxonisDataset.add` checks the edges against the count later.
+
+    Raises:
+        ValueError: If an edge refers to a keypoint out of range.
+
+    """
+    if n_keypoints is not None:
+        KeypointMetadata(edges=keypoint_metadata.edges).validate_for(
+            n_keypoints, f"task '{task}'"
+        )
+        return
+    negative = [i for edge in keypoint_metadata.edges for i in edge if i < 0]
+    if negative:
+        raise ValueError(
+            f"The keypoint metadata of task '{task}' refers to keypoint "
+            f"{negative[0]} in `edges`, but a keypoint index cannot be "
+            "negative."
+        )
 
 
 def _renames_keypoints(
