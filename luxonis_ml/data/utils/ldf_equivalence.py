@@ -10,6 +10,9 @@ import polars as pl
 from pycocotools import mask as mask_utils
 
 from luxonis_ml.data.exporters import PreparedLDF
+from luxonis_ml.data.exporters.exporter_utils import (
+    whole_image_classifications,
+)
 from luxonis_ml.utils.environ import environ
 
 if TYPE_CHECKING:
@@ -381,22 +384,15 @@ class LDFEquivalence:
         cls,
         prepared_ldf: PreparedLDF,
     ) -> dict[tuple[str], Counter]:
+        """Count the whole-image classes of each image by its hash."""
         out: dict[tuple[str], Counter] = {}
-        grouped = prepared_ldf.processed_df.group_by(
-            ["file", "group_id"], maintain_order=True
-        )
+        grouped = whole_image_classifications(
+            prepared_ldf.processed_df
+        ).group_by(["file", "group_id"], maintain_order=True)
         for key, entry in grouped:
             file_path, _gid = cast(tuple[str, str], key)
             hashed_key = (cls.file_sha256(Path(file_path)),)
-            classes = []
-            for row in entry.iter_rows(named=True):
-                if (
-                    row["task_type"] == "classification"
-                    and row["instance_id"] == -1
-                ):
-                    classes.append(row["class_name"])
-            if classes:
-                out.setdefault(hashed_key, Counter()).update(classes)
+            out.setdefault(hashed_key, Counter()).update(entry["class_name"])
         return out
 
     @classmethod
@@ -413,10 +409,7 @@ class LDFEquivalence:
             hashed_key = (cls.file_sha256(Path(file_path)),)
             classes = []
             for row in entry.iter_rows(named=True):
-                if (
-                    row["task_type"] == "segmentation"
-                    and row["instance_id"] == -1
-                ):
+                if row["task_type"] == "segmentation":
                     classes.append(row["class_name"])
             if classes:
                 out.setdefault(hashed_key, Counter()).update(classes)
@@ -437,10 +430,7 @@ class LDFEquivalence:
             img_hash = cls.file_sha256(Path(file_path))
 
             for row in entry.iter_rows(named=True):
-                if (
-                    row["task_type"] == "segmentation"
-                    and row["instance_id"] == -1
-                ):
+                if row["task_type"] == "segmentation":
                     d = json.loads(row["annotation"])
                     class_name = row["class_name"]
                     if isinstance(d.get("counts"), str):

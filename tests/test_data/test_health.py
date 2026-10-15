@@ -96,7 +96,7 @@ def test_dataset_sanitize(
             img_copy_path.write_bytes(img.read_bytes())
             # Original image with annotations
             yield {
-                "file": img,
+                "media": img,
                 "annotation": {
                     "class": "person",
                     "boundingbox": {
@@ -109,7 +109,7 @@ def test_dataset_sanitize(
             }
             # Duplicate image with same UUID
             yield {
-                "file": img_copy_path,
+                "media": img_copy_path,
                 "annotation": {
                     "class": "person",
                     "boundingbox": {
@@ -122,7 +122,7 @@ def test_dataset_sanitize(
             }
             # Duplicate annotations
             yield {
-                "file": img,
+                "media": img,
                 "annotation": {
                     "class": "person",
                     "boundingbox": {

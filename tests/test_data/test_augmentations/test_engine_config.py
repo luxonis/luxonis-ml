@@ -7,6 +7,7 @@ import pytest
 from luxonis_ml.data import AlbumentationsEngine
 from luxonis_ml.data.augmentations import AugmentationEngine
 from luxonis_ml.data.augmentations.custom import TRANSFORMATIONS
+from luxonis_ml.data.utils import get_task_group
 from luxonis_ml.typing import Labels, LoaderMultiOutput
 
 Register = Callable[[type], type]
@@ -197,11 +198,11 @@ def test_a_task_with_no_separator_is_its_own_group() -> None:
     Collapsing these to ``""`` would tie a bare keypoints task to a bare
     bbox task it has nothing to do with.
     """
-    assert AlbumentationsEngine._get_task_group("boundingbox") == "boundingbox"
-    assert AlbumentationsEngine._get_task_group("keypoints") == "keypoints"
-    assert AlbumentationsEngine._get_task_group("metadata/id") == "metadata/id"
-    assert AlbumentationsEngine._get_task_group("group/boundingbox") == "group"
-    assert AlbumentationsEngine._get_task_group("a/b/keypoints") == "a/b"
+    assert get_task_group("boundingbox") == "boundingbox"
+    assert get_task_group("keypoints") == "keypoints"
+    assert get_task_group("metadata/id") == "metadata/id"
+    assert get_task_group("group/boundingbox") == "group"
+    assert get_task_group("a/b/keypoints") == "a/b"
 
 
 def test_default_task_types_share_one_group() -> None:
@@ -211,9 +212,9 @@ def test_default_task_types_share_one_group() -> None:
     so they have to land in the same group for the keypoints to be filtered
     and reordered along with the boxes.
     """
-    assert AlbumentationsEngine._get_task_group("/boundingbox") == ""
-    assert AlbumentationsEngine._get_task_group("/keypoints") == ""
-    assert AlbumentationsEngine._get_task_group("/metadata/id") == ""
+    assert get_task_group("/boundingbox") == ""
+    assert get_task_group("/keypoints") == ""
+    assert get_task_group("/metadata/id") == ""
 
 
 def test_unnamed_tasks_are_usable_end_to_end() -> None:

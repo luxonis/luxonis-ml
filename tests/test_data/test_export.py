@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 import pytest
 from pytest_subtests import SubTests
@@ -9,7 +10,7 @@ from luxonis_ml.data import LuxonisLoader, LuxonisParser
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.enums.enums import DatasetType
 
-from .utils import create_dataset, create_image
+from .utils import create_dataset, create_image, export_and_import
 
 # Export formats applicable to COCO_people_subset in this test module.
 # Types that require image-level masks or classification labels are
@@ -113,7 +114,7 @@ def test_native_export_import_preserves_record_metadata(
     def generator() -> DatasetIterator:
         for i in range(2):
             yield {
-                "file": create_image(i, tempdir),
+                "media": create_image(i, tempdir),
                 "annotation": {
                     "class": "person",
                     "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
@@ -126,18 +127,7 @@ def test_native_export_import_preserves_record_metadata(
             }
 
     dataset = create_dataset(dataset_name, generator(), splits=(1, 0, 0))
-    export_path = dataset.export(
-        tempdir / "exported", dataset_type=DatasetType.NATIVE
-    )
-    assert isinstance(export_path, Path)
-    exported_dataset_path = Path(export_path) / dataset.identifier
-    imported_dataset = LuxonisParser(
-        str(exported_dataset_path),
-        dataset_type=DatasetType.NATIVE,
-        dataset_name=f"{dataset_name}_imported",
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
+    imported_dataset = export_and_import(dataset, tempdir)
     imported_dataset.make_splits((1, 0, 0), replace_old_splits=True)
 
     metadata = sorted(
@@ -146,6 +136,177 @@ def test_native_export_import_preserves_record_metadata(
     )
     assert [item["record_id"] for item in metadata] == [0, 1]
     assert {item["origin"] for item in metadata} == {"native-roundtrip"}
+
+
+@pytest.mark.parametrize(
+    "dataset_type",
+    [DatasetType.SEGMASK, DatasetType.CLSDIR, DatasetType.FIFTYONECLS],
+)
+def test_a_whole_image_export_keeps_its_classes(
+    dataset_name: str,
+    tempdir: Path,
+    dataset_type: DatasetType,
+):
+    """These three formats label a whole image, not one instance.
+
+    Each one selected its rows by an instance ID of :math:`-1`, which meant
+    that nobody had numbered the detection. Every detection now carries a
+    number, so the test matched nothing and the export came out empty. A
+    class of a detection with no instance-shaped label names the image.
+    """
+
+    def generator() -> DatasetIterator:
+        for i in range(4):
+            mask = np.zeros((512, 512), dtype=np.uint8)
+            mask[: 256 + i] = 1
+            yield {
+                "media": create_image(i, tempdir),
+                "annotation": {
+                    "class": "road" if i % 2 else "sky",
+                    "segmentation": {"mask": mask},
+                },
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits=(1, 0, 0))
+    imported = export_and_import(dataset, tempdir, dataset_type)
+
+    imported_classes = {
+        class_name
+        for task_classes in imported.get_classes().values()
+        for class_name in task_classes
+    }
+    assert {"road", "sky"} <= imported_classes
+
+
+@pytest.mark.parametrize(
+    "dataset_type", [DatasetType.CLSDIR, DatasetType.FIFTYONECLS]
+)
+def test_a_whole_image_export_leaves_out_the_class_of_an_object(
+    dataset_name: str,
+    tempdir: Path,
+    dataset_type: DatasetType,
+):
+    """A box writes a classification row for its class too.
+
+    That class names one object, not the image, so the image went into
+    the folder of the chair as well.
+    """
+
+    def generator() -> DatasetIterator:
+        yield {
+            "media": create_image(0, tempdir),
+            "annotation": {
+                "objects": [
+                    {
+                        "class": "chair",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.2,
+                            "h": 0.2,
+                        },
+                    }
+                ],
+                "scene": [{"class": "indoor"}],
+            },
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits=(1, 0, 0))
+    imported = export_and_import(dataset, tempdir, dataset_type)
+
+    assert {
+        class_name
+        for task_classes in imported.get_classes().values()
+        for class_name in task_classes
+    } == {"indoor"}
+
+
+def test_coco_keeps_the_instances_of_two_tasks_apart(
+    dataset_name: str,
+    tempdir: Path,
+):
+    """Instance numbers count per task, so two tasks share a number.
+
+    The export grouped the rows of an image by that number alone, and the
+    class of the scene took over the box of the car.
+    """
+
+    def generator() -> DatasetIterator:
+        yield {
+            "media": create_image(0, tempdir),
+            "annotation": {
+                "vehicles": [
+                    {
+                        "class": "car",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.2,
+                            "h": 0.2,
+                        },
+                    }
+                ],
+                "scene": [{"class": "road"}],
+            },
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits=(1, 0, 0))
+    exported = dataset.export(tempdir / "exported", DatasetType.COCO)
+    assert isinstance(exported, Path)
+
+    box_classes = []
+    for path in exported.rglob("_annotations.coco.json"):
+        coco = json.loads(path.read_text())
+        names = {entry["id"]: entry["name"] for entry in coco["categories"]}
+        box_classes += [
+            names[annotation["category_id"]]
+            for annotation in coco["annotations"]
+            if annotation["bbox"]
+        ]
+    assert box_classes == ["car"]
+
+
+def test_native_export_does_not_invent_a_nameless_task(
+    dataset_name: str,
+    tempdir: Path,
+):
+    """A sample with no annotation names no task.
+
+    The exporter wrote ``{"": []}`` for such a row, and `LuxonisDataset.add`
+    registers every key of a record's annotation, so the re-import gained a
+    nameless task the original never had.
+    """
+
+    def generator() -> DatasetIterator:
+        yield {
+            "media": create_image(0, tempdir),
+            "annotation": {
+                "detection": [
+                    {
+                        "class": "person",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.1,
+                            "h": 0.1,
+                        },
+                    }
+                ]
+            },
+        }
+        # A true negative of `detection`, which must survive.
+        yield {
+            "media": create_image(1, tempdir),
+            "annotation": {"detection": []},
+        }
+        # No annotation at all, which must name nothing.
+        yield {"media": create_image(2, tempdir)}
+
+    dataset = create_dataset(dataset_name, generator(), splits=(1, 0, 0))
+    imported_dataset = export_and_import(dataset, tempdir)
+
+    assert "" not in imported_dataset.get_tasks()
+    assert imported_dataset.get_tasks() == dataset.get_tasks()
 
 
 @pytest.mark.parametrize("url", ["COCO_people_subset.zip"])

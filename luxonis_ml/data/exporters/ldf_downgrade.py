@@ -4,15 +4,21 @@
 luxonis-ml fails to validate on an older install -- LDF 2.1 added
 ``sample_metadata``, which nothing older accepts. Exporting to an older
 version therefore drops every field introduced above it.
+
+LDF 3.0 changed the shape rather than the fields: it groups the detections
+of a record by task name. An older version reads the flat
+``file``/``task_name``/``annotation`` record, so the downgrade rebuilds it.
 """
 
 from collections import Counter
-from typing import Any, Final
+from collections.abc import Mapping
+from typing import Any, Final, TypeGuard
 
 from loguru import logger
 from semver.version import Version
 
 from luxonis_ml.data.utils.constants import LDF_VERSION
+from luxonis_ml.typing import Params, ParamValue
 
 
 def _parse(version: str) -> Version:
@@ -24,6 +30,15 @@ def _parse(version: str) -> Version:
 _ADDED_FIELDS: Final[dict[str, Version]] = {
     "sample_metadata": _parse("2.1"),
 }
+
+#: The version that grouped a record's detections by task name. Anything
+#: older reads the flat ``file``/``task_name``/``annotation`` shape.
+_TASK_KEYED_RECORDS: Final[Version] = _parse("3.0")
+
+#: The fields of a detection that labels the whole image.
+_WHOLE_IMAGE_FIELDS: Final[frozenset[str]] = frozenset(
+    {"instance_id", "class", "segmentation"}
+)
 
 #: LDF versions the native exporter can write, newest first.
 SUPPORTED_EXPORT_VERSIONS: Final[tuple[Version, ...]] = (
@@ -92,17 +107,59 @@ class LDFDowngrader:
             for field, added_in in _ADDED_FIELDS.items()
             if added_in > target_version
         ]
+        self._flatten_record = target_version < _TASK_KEYED_RECORDS
         self._dropped: Counter[str] = Counter()
         self._n_records = 0
 
     def __call__(self, record: dict[str, Any]) -> dict[str, Any]:
-        """Rewrite one exported record in place and return it."""
+        """Rewrite one exported record and return the result.
+
+        Args:
+            record: Exported native record.
+
+        Returns:
+            The record in the shape of the target version, without the
+            fields that the target version does not know.
+
+        """
         self._n_records += 1
+        if self._flatten_record:
+            record = self._flatten(record)
         for field in self._to_drop:
             # An empty value is no loss, so drop it but do not report it.
             if record.pop(field, None):
                 self._dropped[field] += 1
         return record
+
+    @staticmethod
+    def _flatten(record: Params) -> Params:
+        """Rewrite a record into the flat shape older LDF versions read.
+
+        The exporter writes one detection per record, so the task-keyed
+        mapping always holds a single task and at most one detection. LDF
+        3.0 numbers every detection, so a whole-image label gets back the
+        -1 that an older version expects.
+        """
+        flattened: Params = {}
+        media = record.pop("media", None)
+        if isinstance(media, dict):
+            flattened["files"] = media
+        elif media is not None:
+            flattened["file"] = media
+
+        annotation = record.pop("annotation", None)
+        if _is_task_keyed(annotation):
+            task_name, detections = next(iter(annotation.items()))
+            flattened["task_name"] = task_name
+            if detections:
+                detection = detections[0]
+                if detection.keys() <= _WHOLE_IMAGE_FIELDS:
+                    detection["instance_id"] = -1
+                flattened["annotation"] = detection
+
+        # The remaining fields keep the order the record had.
+        flattened.update(record)
+        return flattened
 
     def log_summary(self) -> None:
         """Warn about populated data the downgrade discarded."""
@@ -111,3 +168,20 @@ class LDFDowngrader:
                 f"Exporting to LDF {self.target_version} drops '{field}' "
                 f"from {n_dropped} of {self._n_records} records."
             )
+
+
+def _is_task_keyed(
+    annotation: ParamValue,
+) -> TypeGuard[Mapping[str, list[Params]]]:
+    """Whether an annotation payload groups its detections by task name.
+
+    LDF 3.0 keys the detections of a record by task name, and the exporter
+    writes no other shape. The check narrows the type for the flattening.
+    """
+    return (
+        isinstance(annotation, Mapping)
+        and bool(annotation)
+        and all(
+            isinstance(detections, list) for detections in annotation.values()
+        )
+    )
