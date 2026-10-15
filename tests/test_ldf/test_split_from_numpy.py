@@ -117,6 +117,17 @@ def test_arrays_come_back_from_their_class_slot(tempdir: Path):
     assert split[1][0].to_numpy().tolist() == [3.0, 4.0]
 
 
+def test_a_scalar_array_comes_back():
+    """The class slot of a 0-d array is a NumPy scalar, not an array."""
+    scalar = ArrayAnnotation.model_validate({"data": np.array(3.5)})
+    combined = ArrayAnnotation.combine_to_numpy([scalar], [1], 2)
+
+    (annotation, class_id) = ArrayAnnotation.split_from_numpy(combined)[0]
+
+    assert class_id == 1
+    assert annotation.to_numpy().item() == 3.5
+
+
 def test_an_all_zero_array_reports_no_class():
     combined = np.zeros((1, 3, 2))
 

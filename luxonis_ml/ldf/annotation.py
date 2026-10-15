@@ -1530,7 +1530,8 @@ class ArrayAnnotation(Annotation):
             class_id = next(
                 (i for i, slot in enumerate(instance) if slot.any()), None
             )
-            slot = instance[class_id or 0]
+            # A 0-d array leaves a NumPy scalar in its slot.
+            slot = np.asarray(instance[class_id or 0])
             annotations.append(
                 (ArrayAnnotation.model_validate({"data": slot}), class_id)
             )
