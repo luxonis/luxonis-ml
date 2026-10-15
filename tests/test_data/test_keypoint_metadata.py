@@ -30,7 +30,6 @@ from .utils import (
     export_and_import,
     keypoint_annotations,
     read_dataset_metadata,
-    set_ldf_version,
     write_dataset_metadata,
 )
 
@@ -1424,55 +1423,15 @@ def test_new_labels_drop_the_indices_they_invalidate(
     assert task_keypoints.sigmas == []
 
 
-def test_a_keypointless_dataset_omits_the_new_key(
+def test_empty_keypoint_metadata_stores_no_entry(
     dataset_name: str, tempdir: Path
 ):
-    """LDF 2.2 renamed the stored ``skeletons`` to ``keypoint_metadata``.
-
-    `Metadata` forbids extra fields, so the new key alone stops an older
-    ``luxonis-ml`` from opening the dataset. A dataset without keypoints
-    holds nothing that LDF 2.2 added, so no write path adds the key.
-    """
-    dataset = create_dataset(dataset_name, detection_generator(tempdir))
-
-    assert "keypoint_metadata" not in read_dataset_metadata(dataset)
-    assert LuxonisDataset(dataset_name).get_keypoint_metadata() == {}
-
-
-def test_empty_keypoint_metadata_omits_the_new_key(
-    dataset_name: str, tempdir: Path
-):
-    """An entry without values describes no keypoints.
-
-    Empty lists must not store an entry for the detection task, or the
-    dataset gets the key, and an older luxonis-ml refuses to open it.
-    """
+    """An entry without values describes no keypoints."""
     dataset = create_dataset(dataset_name, detection_generator(tempdir))
 
     dataset.set_keypoint_metadata(labels=[], edges=[])
 
-    assert "keypoint_metadata" not in read_dataset_metadata(dataset)
     assert LuxonisDataset(dataset_name).get_keypoint_metadata() == {}
-
-
-def test_the_new_key_stamps_the_current_ldf_version(
-    dataset_name: str, tempdir: Path
-):
-    """A write of the new key also stamps the current LDF version.
-
-    LDF 2.1 cannot read ``keypoint_metadata``, so a dataset with the key
-    must not claim LDF 2.1.
-    """
-    dataset = set_ldf_version(
-        create_dataset(dataset_name, detection_generator(tempdir)), "2.1.0"
-    )
-
-    dataset.add(keypoint_generator(tempdir, NAMED_KEYPOINTS, start=4))
-
-    stored = read_dataset_metadata(dataset)
-    assert "keypoint_metadata" in stored
-    assert stored["ldf_version"] == str(LDF_VERSION)
-    assert dataset.version == LDF_VERSION
 
 
 def test_a_legacy_dataset_merges_with_a_new_dataset(

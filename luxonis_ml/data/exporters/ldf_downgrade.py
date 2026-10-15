@@ -6,7 +6,7 @@ luxonis-ml fails to validate on an older install -- LDF 2.1 added
 version therefore drops every field introduced above it.
 
 Annotations forbid extra fields as well, so the same holds one level
-down: LDF 2.2 keys the keypoints by name, and a named keypoint can give its
+down: LDF 3.0 keys the keypoints by name, and a named keypoint can give its
 ``sigma`` and ``connected_to``. An older version reads only a list of
 triplets, so the downgrade turns the mapping back into a list in the order
 of the keypoint names, and drops these fields.
@@ -37,7 +37,7 @@ _ADDED_ANNOTATION_FIELDS: Final[dict[tuple[str, str], Version]] = {}
 
 #: The version that started to key the keypoints by name. An older one
 #: reads them as a plain list.
-_KEYPOINT_NAMES_ADDED_IN: Final[Version] = _parse("2.2")
+_KEYPOINT_NAMES_ADDED_IN: Final[Version] = _parse("3.0")
 
 #: LDF versions the native exporter can write, newest first.
 SUPPORTED_EXPORT_VERSIONS: Final[tuple[Version, ...]] = (
@@ -154,7 +154,7 @@ class LDFDowngrader:
     def _strip_keypoint_names(self, annotation: dict[str, Any]) -> None:
         """Turn named keypoints back into a positional list.
 
-        LDF 2.2 keys the keypoints by name. An older version reads them as
+        LDF 3.0 keys the keypoints by name. An older version reads them as
         a plain list, so a mapping fails to validate there.
         """
         if self.keeps_keypoint_names:

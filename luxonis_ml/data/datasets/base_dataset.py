@@ -138,6 +138,9 @@ class BaseDataset(
 
         To keep a field, give it in the same call as the labels.
 
+        If all the fields of a task are empty after the call, the task has
+        no keypoint metadata.
+
         Prefer the records. Each keypoint of a record can give its
         ``sigma`` and ``connected_to``, and `add` moves them here.
 

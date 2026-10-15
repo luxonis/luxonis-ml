@@ -23,7 +23,7 @@ class Metadata(BaseModelExtraForbid):
         classes: Class-index mappings per task.
         tasks: Task types per task name.
         keypoint_metadata: Keypoint definitions per task. A dataset written
-            before LDF 2.2 stores them under ``"skeletons"``, which is
+            before LDF 3.0 stores them under ``"skeletons"``, which is
             still accepted.
         categorical_encodings: Integer encodings for categorical metadata.
         metadata_types: Metadata value types per metadata task.

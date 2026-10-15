@@ -808,26 +808,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
     def _write_metadata(self) -> None:
         """Write the metadata file locally and to the remote copy."""
-        # `keypoint_metadata` is new in LDF 2.2 and `Metadata` forbids
-        # extra fields. A dataset without keypoints must not carry the
-        # key, or an older luxonis-ml refuses to open it. An empty entry
-        # describes no keypoints.
-        exclude: set[str] = set()
-        version = self.version
-        if all(
-            entry == KeypointMetadata()
-            for entry in self._metadata.keypoint_metadata.values()
-        ):
-            exclude.add("keypoint_metadata")
-        elif version.major == LDF_VERSION.major and version < LDF_VERSION:
-            # With the key, the file needs the current LDF version. Another
-            # major version keeps its number, because `_load_df_offline`
-            # migrates the rows by that number.
-            self._metadata.ldf_version = str(LDF_VERSION)
         path = self._metadata_path / "metadata.json"
-        path.write_text(
-            self._metadata.model_dump_json(indent=4, exclude=exclude)
-        )
+        path.write_text(self._metadata.model_dump_json(indent=4))
         with suppress(shutil.SameFileError):
             self._fs.put_file(path, "metadata/metadata.json")
 
@@ -1011,7 +993,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 )
             updated[t] = keypoint_metadata
 
-        self._metadata.keypoint_metadata.update(updated)
+        for t, keypoint_metadata in updated.items():
+            # An entry without values describes no keypoints.
+            if keypoint_metadata == KeypointMetadata():
+                self._metadata.keypoint_metadata.pop(t, None)
+            else:
+                self._metadata.keypoint_metadata[t] = keypoint_metadata
         self._write_metadata()
 
     @override
@@ -1904,7 +1891,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 ``{dataset_name}_part{partition_number}``.
             zip_output: Whether to zip the exported dataset or each
                 partition after export.
-            ldf_version: LDF version to write: ``"2.2"``, ``"2.1"`` or
+            ldf_version: LDF version to write: ``"3.0"``, ``"2.1"`` or
                 ``"2.0"``. luxonis-ml 0.9 to 0.10 reads LDF 2.1, and
                 luxonis-ml 0.6 to 0.8 reads LDF 2.0. Native format only.
                 Defaults to the version this installation writes.

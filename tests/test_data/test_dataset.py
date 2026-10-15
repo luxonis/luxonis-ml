@@ -837,10 +837,10 @@ def drop_sample_metadata_column(dataset: LuxonisDataset) -> None:
         pytest.param(False, id="new-target"),
     ],
 )
-def test_datasets_of_different_minor_versions_merge(
+def test_ldf_2_0_and_current_datasets_merge(
     dataset_name: str, tempdir: Path, old_is_target: bool
 ):
-    """Datasets of one major LDF version merge in either direction.
+    """An LDF 2.0 dataset and a current dataset merge in either direction.
 
     The rows of LDF 2.0 have no ``sample_metadata`` column, so the merge
     adds it before it stacks them onto the new rows.
@@ -891,7 +891,7 @@ def test_a_failed_merge_writes_nothing(dataset_name: str, tempdir: Path):
     empty = LuxonisDataset(f"{dataset_name}_empty", delete_local=True)
     # A dataset of another major version opens only through a migration,
     # so the version changes in memory.
-    other._metadata.ldf_version = "3.0.0"
+    other._metadata.ldf_version = str(LDF_VERSION.bump_major())
     rows = target._load_df_offline(raise_when_empty=True)
     splits = target.get_splits()
 
@@ -918,7 +918,7 @@ def test_a_merge_checks_its_arguments_before_the_metadata(dataset_name: str):
     """
     target = LuxonisDataset(f"{dataset_name}_target", delete_local=True)
     other = LuxonisDataset(f"{dataset_name}_other", delete_local=True)
-    other._metadata.ldf_version = "3.0.0"
+    other._metadata.ldf_version = str(LDF_VERSION.bump_major())
 
     with pytest.raises(ValueError, match="must specify a name"):
         target.merge_with(other, inplace=False)

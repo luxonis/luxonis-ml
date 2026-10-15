@@ -2,7 +2,7 @@
 
 `DatasetRecord` forbids extra fields, so LDF 2.1 adding ``sample_metadata``
 made every 2.1 export unreadable by an older luxonis-ml. An annotation
-forbids them too, and LDF 2.2 added the keypoint task fields.
+forbids them too, and LDF 3.0 added the keypoint task fields.
 """
 
 import json
@@ -35,7 +35,7 @@ from .utils import (
 LDF_2_0_RECORD_FIELDS = {"file", "files", "task_name", "annotation"}
 
 #: The same for a keypoint annotation, which gained the task fields
-#: in 2.2.
+#: in 3.0.
 LDF_2_0_KEYPOINT_FIELDS = {"keypoints"}
 
 
@@ -238,7 +238,7 @@ def test_export_2_0_omits_sample_metadata(dataset_name: str, tempdir: Path):
 def test_export_2_0_drops_the_keypoint_task_fields(
     dataset_name: str, tempdir: Path, warnings_log: list[str]
 ):
-    """The keypoint task fields arrived in LDF 2.2.
+    """The keypoint task fields arrived in LDF 3.0.
 
     `test_keypoint_metadata` covers the export writing them at the current
     version, so this only has to show that 2.0 does not.

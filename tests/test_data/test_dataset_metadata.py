@@ -52,7 +52,7 @@ def test_merge_with_different_versions():
 
 @pytest.mark.parametrize(
     ("version", "other_version"),
-    [("2.1.0", "2.2.0"), ("2.2.0", "2.1"), ("2.2", "2.2.0")],
+    [("2.0.0", "2.1.0"), ("2.1.0", "2.0"), ("2.1", "2.1.0")],
 )
 def test_merge_keeps_the_newer_minor_version(version: str, other_version: str):
     """Datasets of one major LDF version merge.
@@ -63,7 +63,7 @@ def test_merge_keeps_the_newer_minor_version(version: str, other_version: str):
     metadata = Metadata(source=None, ldf_version=version)
     other = Metadata(source=None, ldf_version=other_version)
 
-    assert metadata.merge_with(other).ldf_version == "2.2.0"
+    assert metadata.merge_with(other).ldf_version == "2.1.0"
 
 
 def test_merge_classes(basic_metadata: Metadata):
@@ -199,6 +199,7 @@ def test_merge_keeps_keypoint_fields_the_other_dataset_omits(
     """
     other_metadata = Metadata(
         source=None,
+        ldf_version="2.0.0",
         keypoint_metadata={
             "task1": KeypointMetadata(
                 labels=["head", "tail"], sigmas=[0.05, 0.05]
@@ -223,6 +224,7 @@ def test_merge_leaves_out_a_legacy_edge_that_it_cannot_move(
     """
     other_metadata = Metadata(
         source=None,
+        ldf_version="2.0.0",
         keypoint_metadata={
             "task1": KeypointMetadata(
                 labels=["tail", "head"], edges=[(0, 1), (1, 2)]

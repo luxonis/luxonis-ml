@@ -289,7 +289,7 @@ task:
 
 A dataset from LDF 2.0 or 2.1 stores its keypoint names and edges under
 ``skeletons``. It opens without a change, and reading it does not rewrite
-it. The first metadata write of such a dataset with keypoints, for example
+it. The first metadata write of such a dataset, for example
 `LuxonisDataset.add` or `LuxonisDataset.set_keypoint_metadata`, moves it to
 the current LDF version. An older luxonis-ml cannot open it after that.
 `LuxonisDataset.export` with ``ldf_version`` writes a copy that an older

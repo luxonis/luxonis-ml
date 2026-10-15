@@ -21,7 +21,7 @@ from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import environ
 
-from .utils import create_image, read_dataset_metadata
+from .utils import create_image
 
 KEYPOINT_LABELS = ["nose", "left_eye", "right_eye"]
 PERSON_CATEGORY = {
@@ -1285,9 +1285,8 @@ def test_a_solo_split_without_keypoints_gets_no_keypoint_metadata(
 ):
     """SOLO sends empty keypoint metadata for each class.
 
-    The dataset must not store an empty entry, or `metadata.json` gets the
-    LDF 2.2 key ``keypoint_metadata``, and an older luxonis-ml refuses to
-    open a dataset without keypoints.
+    An entry without values describes no keypoints, so the dataset stores
+    none.
     """
     split_dir = tempdir / "solo" / "train"
     write_solo_split(split_dir, [])
@@ -1297,7 +1296,6 @@ def test_a_solo_split_without_keypoints_gets_no_keypoint_metadata(
     )
 
     assert dataset.get_keypoint_metadata() == {}
-    assert "keypoint_metadata" not in read_dataset_metadata(dataset)
 
 
 def test_partial_split_clsdir_is_preserved(
