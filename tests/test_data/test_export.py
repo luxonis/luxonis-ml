@@ -151,8 +151,8 @@ def test_a_whole_image_export_keeps_its_classes(
 
     Each one selected its rows by an instance ID of :math:`-1`, which meant
     that nobody had numbered the detection. Every detection now carries a
-    number, so the test matched nothing and the export came out empty. The
-    task type is what tells a whole-image label from an instance.
+    number, so the test matched nothing and the export came out empty. A
+    class of a detection with no instance-shaped label names the image.
     """
 
     def generator() -> DatasetIterator:
@@ -176,6 +176,49 @@ def test_a_whole_image_export_keeps_its_classes(
         for class_name in task_classes
     }
     assert {"road", "sky"} <= imported_classes
+
+
+@pytest.mark.parametrize(
+    "dataset_type", [DatasetType.CLSDIR, DatasetType.FIFTYONECLS]
+)
+def test_a_whole_image_export_leaves_out_the_class_of_an_object(
+    dataset_name: str,
+    tempdir: Path,
+    dataset_type: DatasetType,
+):
+    """A box writes a classification row for its class too.
+
+    That class names one object, not the image, so the image went into
+    the folder of the chair as well.
+    """
+
+    def generator() -> DatasetIterator:
+        yield {
+            "media": create_image(0, tempdir),
+            "annotation": {
+                "objects": [
+                    {
+                        "class": "chair",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.2,
+                            "h": 0.2,
+                        },
+                    }
+                ],
+                "scene": [{"class": "indoor"}],
+            },
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits=(1, 0, 0))
+    imported = export_and_import(dataset, tempdir, dataset_type)
+
+    assert {
+        class_name
+        for task_classes in imported.get_classes().values()
+        for class_name in task_classes
+    } == {"indoor"}
 
 
 def test_coco_keeps_the_instances_of_two_tasks_apart(

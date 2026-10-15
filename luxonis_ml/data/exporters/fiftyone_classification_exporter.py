@@ -8,6 +8,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
     check_group_file_correspondence,
     exporter_specific_annotation_warning,
     split_of_group,
+    whole_image_classifications,
 )
 from luxonis_ml.enums import DatasetType
 
@@ -81,19 +82,19 @@ class FiftyOneClassificationExporter(BaseExporter):
             self.split_labels[split] = {}
             self.split_image_counter[split] = 0
 
-        all_classes: set[str] = set()
-        for row in prepared_ldf.processed_df.iter_rows(named=True):
-            if row["task_type"] == "classification":
-                cname = row["class_name"]
-                if cname:
-                    all_classes.add(str(cname))
+        classifications = whole_image_classifications(
+            prepared_ldf.processed_df
+        )
+        all_classes = {
+            str(name) for name in classifications["class_name"] if name
+        }
 
         sorted_classes = sorted(all_classes)
         self.class_to_idx = {
             cls: idx for idx, cls in enumerate(sorted_classes)
         }
 
-        grouped = prepared_ldf.processed_df.group_by(
+        grouped = classifications.group_by(
             ["file", "group_id"], maintain_order=True
         )
 
@@ -105,13 +106,10 @@ class FiftyOneClassificationExporter(BaseExporter):
 
             split = split_of_group(prepared_ldf, group_id)
 
-            class_name: str | None = None
-            for row in entry.iter_rows(named=True):
-                if row["task_type"] == "classification":
-                    cname = row["class_name"]
-                    if cname:
-                        class_name = str(cname)
-                        break  # Take first classification label
+            # The first class of the image is its label.
+            class_name = next(
+                (str(name) for name in entry["class_name"] if name), None
+            )
 
             if class_name is None:
                 continue

@@ -192,6 +192,37 @@ def split_of_group(prepared_ldf: PreparedLDF, group_id: Any) -> str:
     return split
 
 
+#: Labels that describe one object of an image, not the whole image.
+_OBJECT_TASK_TYPES = (
+    "boundingbox",
+    "instance_segmentation",
+    "keypoints",
+    "array",
+)
+
+
+def whole_image_classifications(df: pl.DataFrame) -> pl.DataFrame:
+    """Return the classification rows that label a whole image.
+
+    Every detection with a class writes a classification row. When the
+    detection also has a box, an instance mask, keypoints or an array, the
+    class names that object, so its row is left out. LDF 2.x stored -1 for
+    a detection without an ID. Such a row cannot be paired with an object,
+    so it counts for the whole image.
+
+    Args:
+        df: Rows of a prepared dataset.
+
+    Returns:
+        The classification rows of whole-image detections, in their order.
+
+    """
+    is_object = pl.col("task_type").is_in(_OBJECT_TASK_TYPES).any().over(
+        "group_id", "task_name", "instance_id"
+    ) & (pl.col("instance_id") >= 0)
+    return df.filter((pl.col("task_type") == "classification") & ~is_object)
+
+
 def create_zip_output(
     max_partition_size: float | None,
     output_path: Path,
