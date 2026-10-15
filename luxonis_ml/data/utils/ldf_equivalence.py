@@ -390,10 +390,7 @@ class LDFEquivalence:
             hashed_key = (cls.file_sha256(Path(file_path)),)
             classes = []
             for row in entry.iter_rows(named=True):
-                if (
-                    row["task_type"] == "classification"
-                    and row["instance_id"] == -1
-                ):
+                if row["task_type"] == "classification":
                     classes.append(row["class_name"])
             if classes:
                 out.setdefault(hashed_key, Counter()).update(classes)
@@ -413,10 +410,7 @@ class LDFEquivalence:
             hashed_key = (cls.file_sha256(Path(file_path)),)
             classes = []
             for row in entry.iter_rows(named=True):
-                if (
-                    row["task_type"] == "segmentation"
-                    and row["instance_id"] == -1
-                ):
+                if row["task_type"] == "segmentation":
                     classes.append(row["class_name"])
             if classes:
                 out.setdefault(hashed_key, Counter()).update(classes)
@@ -437,10 +431,7 @@ class LDFEquivalence:
             img_hash = cls.file_sha256(Path(file_path))
 
             for row in entry.iter_rows(named=True):
-                if (
-                    row["task_type"] == "segmentation"
-                    and row["instance_id"] == -1
-                ):
+                if row["task_type"] == "segmentation":
                     d = json.loads(row["annotation"])
                     class_name = row["class_name"]
                     if isinstance(d.get("counts"), str):

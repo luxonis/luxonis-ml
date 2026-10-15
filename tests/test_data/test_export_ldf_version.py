@@ -27,6 +27,10 @@ from .utils import create_dataset, create_image
 #: ``extra="forbid"`` on an older install.
 LDF_2_0_RECORD_FIELDS = {"file", "files", "task_name", "annotation"}
 
+#: Record fields LDF 3.0 renamed. The manifest keeps the stored name,
+#: so an export never shows the new one.
+LDF_3_0_RENAMES = {"files": "media"}
+
 
 def _generator(tempdir: Path, with_metadata: bool = True) -> DatasetIterator:
     for i in range(2):
@@ -107,19 +111,49 @@ def test_every_record_field_has_a_known_ldf_version():
     """
     known = LDF_2_0_RECORD_FIELDS | set(_ADDED_FIELDS)
     assert set(DatasetRecord.model_fields) <= known
+    assert set(LDF_3_0_RENAMES) <= set(DatasetRecord.model_fields)
 
 
 def test_downgrade_removes_the_key_rather_than_emptying_it():
     """``sample_metadata: {}`` still fails ``extra="forbid"``."""
     downgraded = LDFDowngrader(Version.parse("2.0.0"))(
-        {"file": "a.jpg", "task_name": "t", "sample_metadata": {"x": 1}}
+        {
+            "media": "a.jpg",
+            "annotation": {"t": []},
+            "sample_metadata": {"x": 1},
+        }
     )
     assert "sample_metadata" not in downgraded
 
 
 def test_downgrade_to_current_version_is_a_passthrough():
-    record = {"file": "a.jpg", "sample_metadata": {"x": 1}}
+    record = {"media": "a.jpg", "sample_metadata": {"x": 1}}
     assert LDFDowngrader(LDF_VERSION)(dict(record)) == record
+
+
+@pytest.mark.parametrize(
+    ("payload", "instance_id"),
+    [
+        pytest.param({}, -1, id="classification"),
+        pytest.param({"segmentation": {"counts": ""}}, -1, id="segmentation"),
+        pytest.param({"boundingbox": {"x": 0.1}}, 0, id="boundingbox"),
+        pytest.param({"metadata": {"color": "red"}}, 0, id="metadata"),
+    ],
+)
+def test_downgrade_gives_a_whole_image_label_no_number(
+    payload: dict, instance_id: int
+):
+    """LDF 2.x tells a whole-image label by its ID of -1.
+
+    Its classification and segmentation exporters keep only such rows. LDF
+    3.0 numbers every detection, so without the -1 they skip the sample.
+    """
+    detection = {"instance_id": 0, "class": "car", **payload}
+    downgraded = LDFDowngrader(Version.parse("2.1.0"))(
+        {"media": "a.jpg", "annotation": {"t": [detection]}}
+    )
+
+    assert downgraded["annotation"]["instance_id"] == instance_id
 
 
 def test_export_2_0_omits_sample_metadata(dataset_name: str, tempdir: Path):

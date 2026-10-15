@@ -157,7 +157,7 @@ def test_dataset_fail(dataset_name: str, tempdir: Path):
         for i in range(10):
             img = create_image(i, tempdir)
             yield {
-                "file": img,
+                "media": img,
                 "annotation": {
                     "class": "person",
                 },
@@ -241,7 +241,7 @@ def test_metadata(
         img = create_image(0, tempdir)
         for i in range(10):
             yield {
-                "file": img,
+                "media": img,
                 "annotation": {
                     "class": "person",
                     "metadata": {
@@ -295,11 +295,11 @@ def test_no_labels(dataset_name: str, tempdir: Path, subtests: SubTests):
             if i == 0:
                 if total:
                     yield {
-                        "file": img,
+                        "media": img,
                     }
                 else:
                     yield {
-                        "file": img,
+                        "media": img,
                         "annotation": {
                             "class": "person",
                             "boundingbox": {
@@ -380,7 +380,7 @@ def test_deep_nested_labels(
     def generator() -> DatasetIterator:
         for i in range(10):
             yield {
-                "file": create_image(i, tempdir),
+                "media": create_image(i, tempdir),
                 "annotation": {
                     "class": "car",
                     "boundingbox": {
@@ -470,18 +470,18 @@ def test_partial_labels(dataset_name: str, tempdir: Path):
             img = create_image(i, tempdir)
             if i < 2:
                 yield {
-                    "file": img,
+                    "media": img,
                 }
             elif i < 4:
                 yield {
-                    "file": img,
+                    "media": img,
                     "annotation": {
                         "class": "dog",
                     },
                 }
             elif i < 6:
                 yield {
-                    "file": img,
+                    "media": img,
                     "annotation": {
                         "class": "dog",
                         "boundingbox": {
@@ -497,7 +497,7 @@ def test_partial_labels(dataset_name: str, tempdir: Path):
                 }
             elif i < 8:
                 yield {
-                    "file": img,
+                    "media": img,
                     "annotation": {
                         "class": "dog",
                         "segmentation": {
@@ -531,7 +531,7 @@ def test_clone_dataset(
         for i in range(3):
             img = create_image(i, tempdir)
             yield {
-                "file": img,
+                "media": img,
                 "annotation": {
                     "class": "person",
                     "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
@@ -586,7 +586,7 @@ def test_merge_datasets(
         for i in range(3):
             img = create_image(i, tempdir)
             yield {
-                "file": img,
+                "media": img,
                 "annotation": {
                     "class": "person",
                     "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
@@ -597,7 +597,7 @@ def test_merge_datasets(
         for i in range(3, 6):
             img = create_image(i, tempdir)
             yield {
-                "file": img,
+                "media": img,
                 "annotation": {
                     "class": "dog",
                     "boundingbox": {"x": 0.2, "y": 0.2, "w": 0.2, "h": 0.2},
@@ -736,7 +736,7 @@ def test_merge_datasets_specific_split(
         for i in range(3):
             img = create_image(i, tempdir)
             yield {
-                "file": img,
+                "media": img,
                 "annotation": {
                     "class": "person",
                     "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
@@ -747,7 +747,7 @@ def test_merge_datasets_specific_split(
         for i in range(3, 6):
             img = create_image(i, tempdir)
             yield {
-                "file": img,
+                "media": img,
                 "annotation": {
                     "class": "dog",
                     "boundingbox": {"x": 0.2, "y": 0.2, "w": 0.2, "h": 0.2},
@@ -846,7 +846,7 @@ def test_clone_dataset_specific_split(
         for i in range(3):
             img = create_image(i, tempdir)
             yield {
-                "file": img,
+                "media": img,
                 "annotation": {
                     "class": "person",
                     "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
@@ -884,7 +884,7 @@ def test_classes_per_task(dataset_name: str, tempdir: Path):
     def generator() -> DatasetIterator:
         img = create_image(0, tempdir)
         yield {
-            "file": img,
+            "media": img,
             "annotation": {
                 "class": "person",
                 "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
@@ -893,7 +893,7 @@ def test_classes_per_task(dataset_name: str, tempdir: Path):
         }
         # Yield a second annotation with only an `instance_id` to check that we don't encounter the issue: "Detected new classes for task group '': []".
         yield {
-            "file": img,
+            "media": img,
             "annotation": {
                 "keypoints": {"keypoints": [[0.1, 0.1, 0], [0.2, 0.2, 1]]},
                 "instance_id": 0,
@@ -911,7 +911,7 @@ def test_keypoints_solo(dataset_name: str, tempdir: Path):
         for i in range(4):
             img = create_image(i, tempdir)
             yield {
-                "file": img,
+                "media": img,
                 "annotation": {
                     "class": "person",
                     "keypoints": {"keypoints": [[0.1, 0.1, 0], [0.2, 0.2, 1]]},
@@ -940,7 +940,7 @@ def test_loader_uses_columns_after_metadata_column_reorder(
 ):
     def generator() -> DatasetIterator:
         yield {
-            "file": create_image(0, tempdir),
+            "media": create_image(0, tempdir),
             "sample_metadata": {"record_id": 0, "origin": "column-order"},
         }
 
@@ -968,7 +968,7 @@ def test_load_df_offline_mixed_old_and_new_metadata_schemas(
     def generator() -> DatasetIterator:
         for i in range(2):
             yield {
-                "file": create_image(i, tempdir),
+                "media": create_image(i, tempdir),
                 "sample_metadata": {"record_id": i},
             }
 
@@ -1008,7 +1008,7 @@ def test_add_to_old_schema_dataset_populates_metadata_column(
     def generator(start: int, end: int) -> DatasetIterator:
         for i in range(start, end):
             yield {
-                "file": create_image(i, tempdir),
+                "media": create_image(i, tempdir),
                 "sample_metadata": {"record_id": i},
             }
 
@@ -1046,7 +1046,7 @@ def test_dataset_push_pull(
         for i in range(start, end):
             img = create_image(i, tempdir)
             yield {
-                "file": img,
+                "media": img,
                 "annotation": {
                     "class": "person",
                     "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
@@ -1167,7 +1167,7 @@ def test_merge_on_different_machines(dataset_name: str, tempdir: Path):
         for i in range(start, end):
             img = create_image(i, tempdir)
             yield {
-                "file": img,
+                "media": img,
                 "annotation": {
                     "class": "person",
                     "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
@@ -1225,7 +1225,7 @@ def create_test_dataset_with_classes(
         for i in range(5):
             img = create_image(i, tempdir)
             yield {
-                "file": img,
+                "media": img,
                 "annotation": {
                     "class": list(task_classes["classification"].keys())[
                         i % len(task_classes["classification"])
@@ -1282,7 +1282,7 @@ def test_class_order_per_task_multiple_tasks(tempdir: Path):
         for i in range(5):
             img = create_image(i, tempdir)
             yield {
-                "file": img,
+                "media": img,
                 "annotation": {
                     "class": list(original_classes["classification"].keys())[
                         i % 3
@@ -1294,7 +1294,7 @@ def test_class_order_per_task_multiple_tasks(tempdir: Path):
         for i in range(5, 10):
             img = create_image(i, tempdir)
             yield {
-                "file": img,
+                "media": img,
                 "annotation": {
                     "class": list(original_classes["detection"].keys())[
                         (i - 5) % 3
@@ -1367,3 +1367,31 @@ def test_class_order_per_task_mismatched_classes(tempdir: Path):
         match=r"Classes for task classification do not match the classes in the dataset.",
     ):
         dataset.set_class_order_per_task(class_order_per_task)
+
+
+def test_an_in_memory_array_stops_a_batch_before_it_starts(
+    dataset_name: str, tempdir: Path
+):
+    """A dataset cannot store an in-memory array, and says so up front.
+
+    The check ran inside the loop, after the progress display started and
+    after the arrays of the earlier records were rewritten. The display
+    then kept running, with a task nothing removed.
+    """
+    array_path = tempdir / "array.npy"
+    np.save(array_path, np.zeros(3))
+
+    def generator() -> DatasetIterator:
+        for i, data in enumerate([array_path, np.ones(3)]):
+            yield {
+                "media": create_image(i, tempdir),
+                "annotation": {"class": "a", "array": {"data": data}},
+            }
+
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+
+    with pytest.raises(NotImplementedError, match="in memory"):
+        dataset.add(generator())
+
+    assert not dataset._progress.tasks
+    assert not dataset._progress.live.is_started

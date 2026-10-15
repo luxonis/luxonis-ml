@@ -7,8 +7,15 @@ from luxonis_ml.data.utils import ParquetRecord, parquet
 
 
 def test_annotation_module_reexports_everything():
-    assert annotation.__all__ == ldf.__all__
-    for name in ldf.__all__:
+    """The shim mirrors the module it stands in for, plus `ParquetRecord`.
+
+    The package exports more than the annotation module defines, such as the
+    dataset schema, and those names never lived under the old path.
+    """
+    assert set(annotation.__all__) == set(ldf.annotation.__all__) | {
+        "ParquetRecord"
+    }
+    for name in annotation.__all__:
         assert getattr(annotation, name) is getattr(ldf, name)
 
 

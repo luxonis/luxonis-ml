@@ -1,6 +1,8 @@
 from collections import defaultdict
 from pathlib import Path
 
+import pytest
+
 from luxonis_ml.data import (
     BucketStorage,
     LuxonisDataset,
@@ -28,6 +30,124 @@ def compute_histogram(dataset: LuxonisDataset) -> dict[str, int]:
     return dict(classes)
 
 
+def test_generated_instance_ids_continue_across_batches(
+    dataset_name: str, tempdir: Path
+):
+    image = create_image(0, tempdir)
+
+    def generator() -> DatasetIterator:
+        for class_name, x in [("cat", 0.1), ("dog", 0.5)]:
+            yield {
+                "media": image,
+                "task_name": "animals",
+                "annotation": {
+                    "class": class_name,
+                    "boundingbox": {"x": x, "y": 0.1, "w": 0.2, "h": 0.2},
+                },
+            }
+
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    dataset.add(generator(), batch_size=1)
+    dataset.make_splits({"train": [image]})
+
+    boxes = LuxonisLoader(dataset, view="train")[0].labels[
+        "animals/boundingbox"
+    ]
+
+    assert boxes[:, 0].tolist() == [0.0, 1.0]
+    assert boxes[:, 1].tolist() == [0.1, 0.5]
+
+
+def test_an_explicit_id_never_joins_a_generated_one(
+    dataset_name: str, tempdir: Path
+):
+    """An explicit ID can arrive after the counter gave out its number.
+
+    The counter only skipped the IDs it had already seen, so the loader
+    read the cat and the dog as one instance: the class of the cat with the
+    box of the dog. The SOLO parser yields its semantic masks, which carry
+    no ID, before its boxes, which do.
+    """
+    image = create_image(0, tempdir)
+
+    def generator() -> DatasetIterator:
+        for annotation in [
+            {
+                "class": "cat",
+                "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
+            },
+            {
+                "instance_id": 0,
+                "class": "dog",
+                "boundingbox": {"x": 0.5, "y": 0.1, "w": 0.2, "h": 0.2},
+            },
+            # The same ID still names the dog.
+            {"instance_id": 0, "class": "dog", "metadata": {"color": "red"}},
+        ]:
+            yield {
+                "media": image,
+                "task_name": "animals",
+                "annotation": annotation,
+            }
+
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    dataset.add(generator())
+    dataset.make_splits({"train": [image]})
+    classes = dataset.get_classes()["animals"]
+
+    labels = LuxonisLoader(dataset, view="train")[0].labels
+
+    assert labels["animals/boundingbox"][:, :2].tolist() == [
+        [classes["cat"], 0.1],
+        [classes["dog"], 0.5],
+    ]
+    assert labels["animals/metadata/color"].tolist() == [None, "red"]
+
+
+BOX = {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}
+FACE = {"class": "face", "boundingbox": BOX}
+DRIVER = {
+    "class": "person",
+    "boundingbox": BOX,
+    "sub_detections": {"face": FACE},
+}
+NESTED_FACE = {"driver": [DRIVER]}
+FLAT_FACE = {"driver/face": [FACE]}
+EXPLICIT_FACE = {
+    "driver": [
+        DRIVER,
+        {**DRIVER, "sub_detections": {"face": {**FACE, "instance_id": 0}}},
+    ]
+}
+
+
+@pytest.mark.parametrize(
+    "annotations",
+    [
+        pytest.param([NESTED_FACE, FLAT_FACE], id="flat-face-after"),
+        pytest.param([FLAT_FACE, NESTED_FACE], id="flat-face-before"),
+        pytest.param([EXPLICIT_FACE], id="explicit-face-id"),
+    ],
+)
+def test_an_inherited_number_is_not_given_twice(
+    dataset_name: str, tempdir: Path, annotations: list[dict]
+):
+    """A sub-detection without an ID takes the number of its parent.
+
+    The counter did not know of that number, so another face of the
+    sub-task could get it too, and the loader then read two faces as one.
+    """
+    image = create_image(0, tempdir)
+
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    dataset.add({"media": image, "annotation": a} for a in annotations)
+    dataset.make_splits({"train": [image]})
+
+    labels = LuxonisLoader(dataset, view="train")[0].labels
+
+    assert len(labels["driver/face/boundingbox"]) == 2
+
+
 def test_task_ingestion(
     bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
 ):
@@ -42,7 +162,7 @@ def test_task_ingestion(
         for i in range(STEP):
             path = create_image(i, tempdir)
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "animals",
                 "annotation": {
                     "class": "dog",
@@ -50,7 +170,7 @@ def test_task_ingestion(
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "animals",
                 "annotation": {
                     "class": "cat",
@@ -58,7 +178,7 @@ def test_task_ingestion(
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "landmass",
                 "annotation": {
                     "class": "water",
@@ -76,7 +196,7 @@ def test_task_ingestion(
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "landmass",
                 "annotation": {
                     "class": "grass",
@@ -101,14 +221,14 @@ def test_task_ingestion(
         for i in range(STEP, 2 * STEP):
             path = create_image(i, tempdir)
             yield {
-                "file": str(path),
+                "media": str(path),
                 "annotation": {
                     "class": "dog",
                     "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "annotation": {
                     "class": "cat",
                     "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.1, "h": 0.3},
@@ -129,7 +249,7 @@ def test_task_ingestion(
         for i in range(2 * STEP, 3 * STEP):
             path = create_image(i, tempdir)
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "animals",
                 "annotation": {
                     "class": "dog",
@@ -137,7 +257,7 @@ def test_task_ingestion(
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "annotation": {
                     "class": "water",
                     "segmentation": {
@@ -167,7 +287,7 @@ def test_task_ingestion(
         for i in range(3 * STEP, 4 * STEP):
             path = create_image(i, tempdir)
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "detection",
                 "annotation": {
                     "class": "bike",
@@ -175,7 +295,7 @@ def test_task_ingestion(
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "segmentation",
                 "annotation": {
                     "class": "body",
@@ -192,7 +312,7 @@ def test_task_ingestion(
                 },
             }
             yield {
-                "file": str(path),
+                "media": str(path),
                 "task_name": "landmass-2",
                 "annotation": {
                     "class": "water",
@@ -224,4 +344,52 @@ def test_task_ingestion(
         "landmass-2": STEP,
         "detection": STEP,
         "segmentation": STEP,
+    }
+
+
+def test_a_negative_keeps_the_stored_task_types(
+    dataset_name: str, tempdir: Path
+):
+    """A later `add` that carries only a negative declares its task.
+
+    The task then arrives with no task type, and the types the first `add`
+    stored have to survive it.
+    """
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    dataset.add(
+        iter(
+            [
+                {
+                    "media": str(create_image(0, tempdir)),
+                    "task_name": "vehicles",
+                    "annotation": {
+                        "class": "car",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.1,
+                            "h": 0.1,
+                        },
+                    },
+                }
+            ]
+        )
+    )
+    assert dataset.get_tasks() == {
+        "vehicles": ["boundingbox", "classification"]
+    }
+
+    dataset.add(
+        iter(
+            [
+                {
+                    "media": str(create_image(1, tempdir)),
+                    "task_name": "vehicles",
+                }
+            ]
+        )
+    )
+
+    assert dataset.get_tasks() == {
+        "vehicles": ["boundingbox", "classification"]
     }
