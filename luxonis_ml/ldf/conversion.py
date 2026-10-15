@@ -20,7 +20,7 @@ from collections.abc import Mapping, Sequence
 from copy import deepcopy
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 from luxonis_ml.typing import Labels, LoaderOutput, Params
 
@@ -248,13 +248,17 @@ def _nest_sub_detections(
 
 
 def _load_images(record: DatasetRecord) -> dict[str, np.ndarray]:
+    """Read each source of a record as an RGB array."""
     images: dict[str, np.ndarray] = {}
     for source_name, file in record.files.items():
         if isinstance(file, np.ndarray):
             images[source_name] = file
             continue
         with Image.open(file) as image:
-            images[source_name] = np.asarray(image.convert("RGB"))
+            # The loader reads with OpenCV, which applies the EXIF
+            # orientation.
+            upright = ImageOps.exif_transpose(image)
+            images[source_name] = np.asarray(upright.convert("RGB"))
     return images
 
 

@@ -3,11 +3,13 @@
 import json
 from pathlib import Path
 
+import cv2
 import numpy as np
 import pytest
+from PIL import ExifTags, Image
 from pydantic import ValidationError
 
-from luxonis_ml.ldf import ArrayAnnotation, DatasetRecord
+from luxonis_ml.ldf import ArrayAnnotation, DatasetRecord, DatasetSchema
 
 
 @pytest.fixture
@@ -54,6 +56,21 @@ def test_a_record_may_hold_the_image_itself():
     )
 
     assert isinstance(record.file, np.ndarray)
+
+
+def test_a_record_reads_its_image_as_the_loader_does(tempdir: Path):
+    """The loader reads with OpenCV, which applies the EXIF orientation."""
+    path = tempdir / "rotated.jpg"
+    exif = Image.Exif()
+    exif[ExifTags.Base.Orientation] = 6
+    Image.new("RGB", (4, 2)).save(path, exif=exif)
+    record = DatasetRecord.model_validate({"media": path})
+
+    image = record.to_loader_output(DatasetSchema()).image
+
+    loaded = cv2.imread(str(path))
+    assert loaded is not None
+    assert image.shape == loaded.shape
 
 
 def test_an_in_memory_image_cannot_be_stored():
