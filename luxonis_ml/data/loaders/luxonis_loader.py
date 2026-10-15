@@ -457,6 +457,27 @@ class LuxonisLoader(BaseLoader):
                 uncovered.add(task_name)
         return uncovered
 
+    def _multilabel_tasks(self) -> set[str]:
+        """Return the tasks with a semantic mask flagged ``multilabel``.
+
+        Every row of the dataset counts, not only the rows of the loaded
+        views, so that the loaders of all views give a task the same
+        label layout.
+
+        """
+        # A dataset of true negatives only stores no annotation at all, and
+        # polars then reads the column as `Null`, which has no `str` methods.
+        flagged = self._df.filter(
+            (pl.col("task_type") == "segmentation")
+            & (
+                pl.col("annotation")
+                .cast(pl.String)
+                .str.json_path_match("$.multilabel")
+                == "true"
+            )
+        )
+        return set(flagged["task_name"].to_list())
+
     def _load_data(
         self, idx: int
     ) -> tuple[dict[str, np.ndarray], Labels, Params]:
@@ -896,6 +917,7 @@ class LuxonisLoader(BaseLoader):
             categorical_encodings=self.dataset.get_categorical_encodings(),
             n_keypoints=self.dataset.get_n_keypoints(),
             synthesized_background=self._synthesized_background,
+            multilabel=self._multilabel_tasks(),
         )
 
     @staticmethod

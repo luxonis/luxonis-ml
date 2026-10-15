@@ -506,6 +506,7 @@ def _semantic_detections(
     if array is None:
         return []
     detections = []
+    multilabel = task_name in schema.multilabel
     for annotation, class_id in SegmentationAnnotation.split_from_numpy(array):
         class_name = _class_name(task_name, class_id, schema)
         # Only the channel the loader added is dropped. A dataset that
@@ -517,6 +518,7 @@ def _semantic_detections(
             and not keep_background
         ):
             continue
+        annotation.multilabel = multilabel
         detections.append(
             Detection(class_name=class_name, segmentation=annotation)
         )

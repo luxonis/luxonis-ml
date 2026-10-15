@@ -14,6 +14,8 @@ of the keypoint names, and drops these fields.
 LDF 3.0 changed the shape rather than the fields: it groups the detections
 of a record by task name. An older version reads the flat
 ``file``/``task_name``/``annotation`` record, so the downgrade rebuilds it.
+LDF 3.0 also adds the ``multilabel`` flag of a semantic mask. An older
+version gives each pixel one class, so the downgrade drops the flag.
 """
 
 from collections import Counter
@@ -39,7 +41,9 @@ _ADDED_FIELDS: Final[dict[str, Version]] = {
 
 #: The same for fields of a single annotation, keyed by the task type
 #: that holds them and the field name.
-_ADDED_ANNOTATION_FIELDS: Final[dict[tuple[str, str], Version]] = {}
+_ADDED_ANNOTATION_FIELDS: Final[dict[tuple[str, str], Version]] = {
+    ("segmentation", "multilabel"): _parse("3.0"),
+}
 
 #: The version that started to key the keypoints by name. An older one
 #: reads them as a plain list.
