@@ -10,6 +10,7 @@ import polars as pl
 from pycocotools import mask as mask_utils
 
 from luxonis_ml.data.exporters import PreparedLDF
+from luxonis_ml.ldf import KeypointMetadata
 from luxonis_ml.utils.environ import environ
 
 if TYPE_CHECKING:
@@ -598,6 +599,16 @@ class LDFEquivalence:
                 f"Dataset '{dataset_path.name}' does not have splits metadata."
             )
         splits = json.loads(splits_path.read_text())
+        metadata = json.loads(
+            (dataset_path / "metadata" / "metadata.json").read_text()
+        )
+        # An LDF 2.x dataset stores no keypoint metadata.
+        keypoint_metadata = {
+            task: KeypointMetadata.model_validate(task_metadata)
+            for task, task_metadata in metadata.get(
+                "keypoint_metadata", {}
+            ).items()
+        }
 
         annotation_files = sorted(
             (dataset_path / "annotations").glob("*.parquet")
@@ -654,4 +665,5 @@ class LDFEquivalence:
             splits=splits,
             processed_df=processed_df,
             grouped_image_sources=grouped_image_sources,
+            keypoint_metadata=keypoint_metadata,
         )
