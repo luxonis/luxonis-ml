@@ -207,7 +207,7 @@ class BaseParser(ABC):
         tasks: dict[str, str] = {}
         # `add` gives a record without a task the task that stores its
         # class, so the classes must be read before `add` changes them.
-        classes = self._dataset.get_classes()
+        classes = dict(self._dataset.get_classes())
         self._dataset.add(
             self._check_keypoints(
                 self._wrap_generator(generator), keypoints, tasks

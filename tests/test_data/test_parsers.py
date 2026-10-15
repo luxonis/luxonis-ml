@@ -1178,6 +1178,66 @@ def test_parser_takes_sigmas_for_the_widest_unnamed_record(
     assert dataset.get_keypoint_metadata()["pose"].sigmas == [0.1] * 5
 
 
+class _PersonInTwoTasksParser(COCOParser):
+    """Parse a person with keypoints and a person box of another task."""
+
+    @override
+    def from_split(
+        self, image_dir: Path, annotation_path: Path
+    ) -> ParserOutput:
+        files = [create_image(i, image_dir) for i in range(2)]
+        records = [
+            {
+                "file": str(files[0]),
+                "annotation": {
+                    "class": "person",
+                    "keypoints": {"keypoints": [(0.1, 0.1, 2)] * 3},
+                },
+            },
+            {
+                "file": str(files[1]),
+                "task_name": "detection",
+                "annotation": {
+                    "class": "person",
+                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
+                },
+            },
+        ]
+        return iter(records), {"person": {"labels": KEYPOINT_LABELS}}, files
+
+
+def test_parser_infers_the_task_from_the_classes_before_add(
+    dataset: LuxonisDataset, tempdir: Path
+):
+    """`add` gives a record without a task the stored task of its class.
+
+    The parser must give the keypoint metadata to that task. The classes
+    after `add` also hold the new task of the box, so the class is then
+    in two tasks and the inference fails.
+    """
+    dataset.add(
+        iter(
+            [
+                {
+                    "file": str(create_image(9, tempdir)),
+                    "task_name": "pose",
+                    "annotation": {
+                        "class": "person",
+                        "keypoints": {"keypoints": [(0.1, 0.1, 2)] * 3},
+                    },
+                }
+            ]
+        )
+    )
+
+    _PersonInTwoTasksParser(dataset, DatasetType.COCO, None).parse_split(
+        image_dir=tempdir, annotation_path=tempdir
+    )
+
+    assert list(dataset.get_keypoint_metadata()) == ["pose"]
+    assert dataset.get_keypoint_metadata()["pose"].labels == KEYPOINT_LABELS
+
+
 def test_solo_keypoints_get_no_invented_edges(
     dataset: LuxonisDataset, tempdir: Path
 ):
