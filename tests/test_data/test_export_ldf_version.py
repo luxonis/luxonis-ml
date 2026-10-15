@@ -21,7 +21,12 @@ from luxonis_ml.data.exporters.ldf_downgrade import (
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.enums.enums import DatasetType
-from luxonis_ml.ldf import DatasetRecord, KeypointAnnotation
+from luxonis_ml.ldf import (
+    Annotation,
+    DatasetRecord,
+    KeypointAnnotation,
+    SegmentationAnnotation,
+)
 
 from .utils import (
     create_dataset,
@@ -37,6 +42,9 @@ LDF_2_0_RECORD_FIELDS = {"file", "files", "task_name", "annotation"}
 #: The same for a keypoint annotation, which gained the task fields
 #: in 2.2.
 LDF_2_0_KEYPOINT_FIELDS = {"keypoints"}
+
+#: The same for a semantic mask, which gained ``multilabel`` in 3.0.
+LDF_2_0_SEGMENTATION_FIELDS = {"height", "width", "counts"}
 
 #: Record fields LDF 3.0 renamed. The manifest keeps the stored name,
 #: so an export never shows the new one.
@@ -145,14 +153,35 @@ def test_every_record_field_has_a_known_ldf_version():
     assert set(LDF_3_0_RENAMES) <= set(DatasetRecord.model_fields)
 
 
-def test_every_keypoint_field_has_a_known_ldf_version():
+@pytest.mark.parametrize(
+    ("task_type", "annotation_type", "ldf_2_0_fields"),
+    [
+        ("keypoints", KeypointAnnotation, LDF_2_0_KEYPOINT_FIELDS),
+        ("segmentation", SegmentationAnnotation, LDF_2_0_SEGMENTATION_FIELDS),
+    ],
+)
+def test_every_annotation_field_has_a_known_ldf_version(
+    task_type: str, annotation_type: type[Annotation], ldf_2_0_fields: set[str]
+):
     """An annotation forbids extra fields just as a record does."""
-    known = LDF_2_0_KEYPOINT_FIELDS | {
+    known = ldf_2_0_fields | {
         field
-        for task_type, field in _ADDED_ANNOTATION_FIELDS
-        if task_type == "keypoints"
+        for added_to, field in _ADDED_ANNOTATION_FIELDS
+        if added_to == task_type
     }
-    assert set(KeypointAnnotation.model_fields) <= known
+    assert set(annotation_type.model_fields) <= known
+
+
+def test_downgrade_removes_the_multilabel_flag_of_a_mask():
+    detection = {
+        "class": "wet",
+        "segmentation": {"counts": "", "multilabel": True},
+    }
+    downgraded = LDFDowngrader(Version.parse("2.2.0"))(
+        {"media": "a.jpg", "annotation": {"t": [detection]}}
+    )
+
+    assert downgraded["annotation"]["segmentation"] == {"counts": ""}
 
 
 def test_downgrade_removes_the_key_rather_than_emptying_it():

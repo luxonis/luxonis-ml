@@ -122,7 +122,8 @@ Output Layouts
      - Rows are :math:`\left[c, x, y, w, h\right]`.
    * - ``segmentation``
      - :math:`\left(C, H, W\right)`
-     - One-hot semantic mask in channel-first layout.
+     - One-hot semantic mask in channel-first layout. Multi-hot where a
+       mask with the ``multilabel`` flag overlaps another mask.
    * - ``instance_segmentation``
      - :math:`\left(N, H, W\right)`
      - One binary mask per instance.

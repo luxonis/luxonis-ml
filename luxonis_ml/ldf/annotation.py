@@ -310,7 +310,53 @@ Note:
     compatibility with datasets that already store masks in that format.
 
 Semantic segmentation loader output uses channel-first masks with shape
-:math:`\left(C, H, W\right)`.
+:math:`\left(C, H, W\right)`. Where the masks of a sample overlap, the first
+mask in instance-ID order keeps the shared pixels, so each pixel has one
+class.
+
+Multi-Label Masks
+-----------------
+
+In a multi-label task, a pixel can have more than one class. A wet road is
+``road`` and ``wet``. Set ``multilabel`` on the mask of such a class:
+
+.. python::
+
+    {
+        "class": "wet",
+        "segmentation": {
+            "mask": wet_mask,
+            "multilabel": True,
+        },
+    }
+
+A flagged mask keeps all of its pixels, and it takes no pixels from the other
+masks. The masks without the flag still give each shared pixel to the first
+of them. One task can thus hold exclusive classes and overlay classes:
+
+=============  ========  ===============================================
+Mask           Flag      Pixels in the label
+=============  ========  ===============================================
+``road``       no        all of its pixels
+``sidewalk``   no        its pixels outside of ``road``
+``wet``        yes       all of its pixels, also those of ``road`` and
+                         ``sidewalk``
+=============  ========  ===============================================
+
+A task with at least one flagged mask in the dataset is multi-label.
+`DatasetSchema.multilabel` names these tasks. Their segmentation labels are
+multi-hot where a flagged mask overlaps another mask.
+
+The flag has these limitations:
+
+- Only semantic masks take the flag. Instance masks keep their overlaps
+  without it, and `InstanceSegmentationAnnotation` rejects it.
+- `LoaderOutput.to_ldf` sets the flag on every mask of a multi-label task.
+  The rebuilt record gives the same labels, but it no longer tells which
+  masks were exclusive.
+- Only the native format stores the flag. A native export to an LDF version
+  older than 3.0 drops it with a warning. The segmentation mask directory
+  format stores one class for each pixel.
 
 
 Instance Segmentation
@@ -1833,6 +1879,9 @@ class SegmentationAnnotation(Annotation):
         height: The height of the segmentation mask.
         width: The width of the segmentation mask.
         counts: Run-length encoded mask data.
+        multilabel: Whether the mask keeps all of its pixels where it
+            overlaps another mask of the sample. The multi-label section
+            of `luxonis_ml.ldf.annotation` explains the rule.
 
     .. _run-length encoding:
         https://en.wikipedia.org/wiki/Run-length_encoding
@@ -1842,6 +1891,9 @@ class SegmentationAnnotation(Annotation):
     height: PositiveInt
     width: PositiveInt
     counts: bytes
+    # Left out of the stored row when unset, so that the rows of a dataset
+    # without multi-label masks do not change.
+    multilabel: bool = Field(default=False, exclude_if=lambda flag: not flag)
 
     def to_numpy(self) -> np.ndarray:
         r"""Convert the segmentation annotation to a binary mask.
@@ -1874,8 +1926,25 @@ class SegmentationAnnotation(Annotation):
             :math:`\left(C, H, W\right)`.
 
         Note:
-            In case of overlapping annotations,
-            the **first** mask in the list takes precedence.
+            Where masks overlap, the **first** mask in the list keeps the
+            shared pixels. A mask with ``multilabel`` set keeps all of its
+            pixels, and it takes no pixels from the masks after it.
+
+        Example:
+            ``wet`` keeps the pixels of ``road`` and ``sidewalk``, but
+            ``sidewalk`` loses its second pixel to ``road``:
+
+            >>> road = SegmentationAnnotation(mask=np.array([[1, 1, 0, 0]]))
+            >>> sidewalk = SegmentationAnnotation(
+            ...     mask=np.array([[0, 1, 1, 0]])
+            ... )
+            >>> wet = SegmentationAnnotation(
+            ...     mask=np.array([[0, 1, 1, 1]]), multilabel=True
+            ... )
+            >>> SegmentationAnnotation.combine_to_numpy(
+            ...     [road, sidewalk, wet], [0, 1, 2], 3
+            ... ).tolist()
+            [[[1, 1, 0, 0]], [[0, 0, 1, 0]], [[0, 1, 1, 1]]]
 
         """
         ref = annotations[0]
@@ -1886,11 +1955,13 @@ class SegmentationAnnotation(Annotation):
 
         assigned_pixels = np.zeros((height, width), dtype=bool)
         for i, class_id in enumerate(classes):
-            mask = masks[i] & (assigned_pixels == 0)
+            mask = masks[i]
+            if not annotations[i].multilabel:
+                mask = mask & (assigned_pixels == 0)
+                assigned_pixels |= mask.astype(bool)
             segmentation[class_id, ...] = np.maximum(
                 segmentation[class_id, ...], mask
             )
-            assigned_pixels |= mask.astype(bool)
 
         return segmentation
 
@@ -1906,8 +1977,9 @@ class SegmentationAnnotation(Annotation):
 
         Returns:
             One annotation per class that has any pixel, with its class ID.
-            The combination gave each pixel to one class, and the split does
-            not restore the overlaps.
+            Each mask is its channel as it is, so a multi-hot pixel stays
+            in every mask that has it. No mask has the ``multilabel`` flag,
+            and `LoaderOutput.to_ldf` sets it from the `DatasetSchema`.
 
         """
         return [
@@ -2087,7 +2159,21 @@ class InstanceSegmentationAnnotation(SegmentationAnnotation):
     an array of shape :math:`\left(N, H, W\right)` where the leading
     dimension :math:`N` corresponds to the number of instance annotations
     instead of the number of classes as in semantic segmentation.
+
+    Instance masks always keep their overlaps, so the ``multilabel`` flag of
+    `SegmentationAnnotation` does not apply. An instance mask with the flag
+    set is invalid.
     """
+
+    @model_validator(mode="after")
+    def _reject_multilabel(self) -> Self:
+        """Refuse the ``multilabel`` flag, which only semantic masks use."""
+        if self.multilabel:
+            raise ValueError(
+                "`multilabel` applies to semantic masks only. Instance "
+                "masks always keep their overlaps."
+            )
+        return self
 
     @staticmethod
     @override

@@ -42,6 +42,10 @@ class DatasetSchema(BaseModelExtraForbid):
             class is dropped when a record is rebuilt. A dataset that
             declares a ``background`` class of its own annotated it, so it is
             data and it stays.
+        multilabel: Names of the tasks with a semantic mask that has the
+            ``multilabel`` flag. Their segmentation labels can give a pixel
+            more than one class, and `LoaderOutput.to_ldf` sets the flag on
+            every mask it rebuilds for them.
 
     Example:
         >>> schema = DatasetSchema(
@@ -61,6 +65,7 @@ class DatasetSchema(BaseModelExtraForbid):
     categorical_encodings: dict[str, dict[str, int]] = {}
     n_keypoints: dict[str, int] = {}
     synthesized_background: set[str] = set()
+    multilabel: set[str] = set()
 
     @cached_property
     def as_metadata(self) -> Params:
