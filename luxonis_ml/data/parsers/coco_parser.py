@@ -283,6 +283,12 @@ class COCOParser(BaseParser):
         Returns:
             Parser output containing annotation records and added images.
 
+        Raises:
+            ValueError: If a category repeats a keypoint name, or if its
+                skeleton or its sigmas do not fit its keypoints. Also if
+                an annotation has a different number of keypoints than
+                its category.
+
         """
         with open(annotation_path) as f:
             annotation_data = json.load(f)

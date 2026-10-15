@@ -4,6 +4,7 @@ from typing import Any
 
 import cv2
 import numpy as np
+import polars as pl
 
 from luxonis_ml.data import LuxonisLoader, LuxonisParser
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
@@ -75,6 +76,13 @@ def write_dataset_metadata(
         json.dumps(dataset_metadata)
     )
     return LuxonisDataset(dataset.identifier)
+
+
+def write_dataset_rows(dataset: LuxonisDataset, df: pl.DataFrame) -> None:
+    """Replace the stored annotation rows of the dataset with ``df``."""
+    for parquet_file in dataset._annotations_path.glob("*.parquet"):
+        parquet_file.unlink()
+    df.write_parquet(dataset._annotations_path / "0000000000.parquet")
 
 
 def set_ldf_version(dataset: LuxonisDataset, version: str) -> LuxonisDataset:

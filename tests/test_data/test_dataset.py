@@ -30,6 +30,7 @@ from .utils import (
     create_image,
     get_loader_output,
     set_ldf_version,
+    write_dataset_rows,
 )
 
 
@@ -820,11 +821,7 @@ def bbox_generator(
 def drop_sample_metadata_column(dataset: LuxonisDataset) -> None:
     """Rewrite the rows without ``sample_metadata``, as LDF 2.0 did."""
     df = dataset._load_df_offline(raise_when_empty=True)
-    for parquet_file in dataset._annotations_path.glob("*.parquet"):
-        parquet_file.unlink()
-    df.drop("sample_metadata").write_parquet(
-        dataset._annotations_path / "0000000000.parquet"
-    )
+    write_dataset_rows(dataset, df.drop("sample_metadata"))
 
 
 @pytest.mark.parametrize(

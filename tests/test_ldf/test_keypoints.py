@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 
 import numpy as np
 import pydantic
@@ -23,6 +24,11 @@ def test_the_state_is_a_word_or_a_number(state: str | int):
 
 def test_a_tuple_without_a_state_is_visible():
     assert Keypoint.model_validate((0.1, 0.2)).state is KeypointState.VISIBLE
+
+
+@pytest.mark.parametrize("x", ["1.5", Decimal("1.5")], ids=["str", "decimal"])
+def test_a_number_that_is_not_a_float_is_clipped(x: object):
+    assert Keypoint.model_validate((x, 0.2)).x == 1.0
 
 
 @pytest.mark.parametrize(

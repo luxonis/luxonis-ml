@@ -17,6 +17,7 @@ from .utils import (
     read_dataset_metadata,
     set_ldf_version,
     write_dataset_metadata,
+    write_dataset_rows,
 )
 
 
@@ -63,11 +64,10 @@ def as_ldf_2_1(
             "task_type", "annotation"
         ).iter_rows()
     ]
-    for parquet_file in dataset._annotations_path.glob("*.parquet"):
-        parquet_file.unlink()
-    df.with_columns(
-        pl.Series("annotation", annotations, dtype=pl.String)
-    ).write_parquet(dataset._annotations_path / "0000000000.parquet")
+    write_dataset_rows(
+        dataset,
+        df.with_columns(pl.Series("annotation", annotations, dtype=pl.String)),
+    )
     stored = read_dataset_metadata(dataset)
     del stored["keypoint_metadata"]
     return write_dataset_metadata(

@@ -10,6 +10,30 @@ from luxonis_ml.typing import BaseModelExtraForbid
 from .source import LuxonisSource
 
 
+def merge_keypoint_metadata(
+    keypoint_metadata: dict[str, KeypointMetadata],
+    task: str,
+    other: KeypointMetadata,
+) -> None:
+    """Merge ``other`` into the keypoint metadata of ``task``, in place.
+
+    Args:
+        keypoint_metadata: The keypoint metadata of each task.
+        task: The task that ``other`` describes.
+        other: The keypoint metadata to add.
+
+    Raises:
+        ValueError: If the two give one keypoint different sigmas. The
+            message names the task.
+
+    """
+    stored = keypoint_metadata.get(task, KeypointMetadata())
+    try:
+        keypoint_metadata[task] = stored.merge(other)
+    except ValueError as e:
+        raise ValueError(f"Task '{task}': {e}") from e
+
+
 class Metadata(BaseModelExtraForbid):
     """Stored metadata for a Luxonis Data Format dataset.
 
@@ -105,11 +129,7 @@ class Metadata(BaseModelExtraForbid):
 
         merged_keypoint_metadata = dict(self.keypoint_metadata)
         for task, theirs in other.keypoint_metadata.items():
-            mine = merged_keypoint_metadata.get(task, KeypointMetadata())
-            try:
-                merged_keypoint_metadata[task] = mine.merge(theirs)
-            except ValueError as e:
-                raise ValueError(f"Task '{task}': {e}") from e
+            merge_keypoint_metadata(merged_keypoint_metadata, task, theirs)
 
         merged_categorical_encodings = {}
         for key in set(self.categorical_encodings) | set(

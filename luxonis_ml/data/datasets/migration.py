@@ -172,7 +172,7 @@ def migrate_metadata(
             ``df`` is ``None``.
 
     """
-    skeletons = metadata.pop("skeletons", None) or {}
+    skeletons = metadata.pop("skeletons", {})
     if version.major == 2:
         # The 2.x schema is current apart from the skeletons. On the old
         # stamp, every load would run `migrate_dataframe` on these rows.
@@ -241,8 +241,8 @@ def _migrate_skeletons(
     """
     migrated = {}
     for task in dict.fromkeys([*skeletons, *widths]):
-        skeleton = skeletons.get(task) or {}
-        labels = list(skeleton.get("labels") or [])
+        skeleton = skeletons.get(task, {})
+        labels = skeleton.get("labels", [])
         n_keypoints = max(len(labels), widths.get(task, 0))
         names = labels + [str(i) for i in range(len(labels), n_keypoints)]
         if len(set(names)) < len(names):
@@ -252,7 +252,7 @@ def _migrate_skeletons(
             )
             names = [str(i) for i in range(n_keypoints)]
         connections: dict[str, list[str]] = {name: [] for name in names}
-        for a, b in skeleton.get("edges") or []:
+        for a, b in skeleton.get("edges", []):
             if not (0 <= a < n_keypoints and 0 <= b < n_keypoints):
                 logger.warning(
                     f"The skeleton of task '{task}' has the edge ({a}, {b}) "

@@ -551,9 +551,9 @@ class LuxonisLoader(BaseLoader):
 
             task_name, task_type = split_task(task)
             if task_type == "keypoints":
-                order = self._keypoint_labels[task_name]
-                array = np.stack(
-                    [cast(KeypointAnnotation, a).to_numpy(order) for a in anns]
+                array = KeypointAnnotation.combine_to_numpy(
+                    cast(list[KeypointAnnotation], anns),
+                    labels=self._keypoint_labels[task_name],
                 )
             else:
                 array = anns[0].combine_to_numpy(

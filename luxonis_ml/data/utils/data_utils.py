@@ -211,12 +211,9 @@ def find_duplicates(df: pl.LazyFrame) -> dict[str, list[dict[str, Any]]]:
         try:
             annotation = json.loads(annotation_str)
             if "keypoints" in annotation:
-                for kp in annotation["keypoints"].values():
-                    if len(kp) >= 3:
-                        x, y, v = kp[0], kp[1], kp[2]
-                        if x != 0 or y != 0 or v != 0:
-                            return False
-                return True
+                return all(
+                    kp == [0, 0, 0] for kp in annotation["keypoints"].values()
+                )
         except (TypeError, ValueError):
             return False
         return False

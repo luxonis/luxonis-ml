@@ -78,7 +78,7 @@ from luxonis_ml.typing import PathType
 from luxonis_ml.utils import LuxonisFileSystem, environ
 
 from .base_dataset import BaseDataset, DatasetIterator
-from .metadata import Metadata
+from .metadata import Metadata, merge_keypoint_metadata
 from .migration import (
     migrate_dataframe,
     migrate_keypoint_rows,
@@ -858,7 +858,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             if version.major != LDF_VERSION.major:
                 metadata = migrate_metadata(
                     metadata_json,
-                    self._load_df_offline(lazy=True, attempt_migration=False),
+                    None if df is None else df.lazy(),
                     version,
                 )
                 # Like the group IDs above, the keypoint rows move to the
@@ -932,8 +932,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     @override
     def get_keypoint_metadata(self) -> dict[str, KeypointMetadata]:
         return {
-            task: task_keypoints.model_copy(deep=True)
-            for task, task_keypoints in self._metadata.keypoint_metadata.items()
+            task: metadata.model_copy(deep=True)
+            for task, metadata in self._metadata.keypoint_metadata.items()
         }
 
     @override
@@ -1413,20 +1413,13 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                         tasks[task_name] |= ann.get_task_types()
 
                         if ann.keypoints is not None:
-                            declared = KeypointMetadata.from_annotation(
-                                ann.keypoints
+                            merge_keypoint_metadata(
+                                keypoint_metadata,
+                                task_name,
+                                KeypointMetadata.from_annotation(
+                                    ann.keypoints
+                                ),
                             )
-                            stored = keypoint_metadata.get(
-                                task_name, KeypointMetadata()
-                            )
-                            try:
-                                keypoint_metadata[task_name] = stored.merge(
-                                    declared
-                                )
-                            except ValueError as e:
-                                raise ValueError(
-                                    f"Task '{task_name}': {e}"
-                                ) from e
                         for name, value in ann.metadata.items():
                             task = f"{task_name}/metadata/{name}"
                             typ = type(value).__name__

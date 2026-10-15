@@ -42,8 +42,8 @@ class NativeExporter(BaseExporter):
 
     A keypoint record holds every keypoint of its task, in the order of the
     task, with its ``sigma`` and its ``connected_to``. A keypoint that the
-    instance does not name is ``"unlabeled"``. The import thus builds the
-    same `KeypointMetadata`.
+    instance does not name gets the state ``0`` (unlabeled). The import
+    thus builds the same `KeypointMetadata`.
 
     Passing an older ``ldf_version`` strips the fields that version does
     not know -- exporting LDF 2.1 or 2.0 writes the keypoints as lists
@@ -269,10 +269,10 @@ def _record_keypoints(
     task_keypoints: KeypointMetadata, stored: dict[str, list[float]]
 ) -> dict[str, dict[str, Any]]:
     """Give a stored row every keypoint and task field of its task."""
-    return {
-        name: Keypoint(
+    record = {}
+    for name, spec in task_keypoints.keypoints.items():
+        x, y, state = stored.get(name, (0.0, 0.0, 0))
+        record[name] = Keypoint(
             **spec.model_dump(), x=x, y=y, state=KeypointState(state)
         ).model_dump(mode="json", exclude_defaults=True)
-        for name, spec in task_keypoints.keypoints.items()
-        for x, y, state in [stored.get(name, (0.0, 0.0, 0))]
-    }
+    return record

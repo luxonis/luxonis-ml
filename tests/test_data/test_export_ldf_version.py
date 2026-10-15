@@ -21,7 +21,7 @@ from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.ldf import DatasetRecord
 
-from .utils import create_dataset, create_image
+from .utils import create_dataset, create_image, export_and_import
 
 #: Fields a pre-2.1 `DatasetRecord` accepts. Anything else trips
 #: ``extra="forbid"`` on an older install.
@@ -184,14 +184,7 @@ def test_export_to_2_x_imports_with_the_keypoints_in_task_order(
         }
 
     dataset = create_dataset(dataset_name, generator(), splits=(1, 0, 0))
-    root = _export(dataset, tempdir, "v2x", ldf_version=version)
-    imported = LuxonisParser(
-        str(root),
-        dataset_type=DatasetType.NATIVE,
-        dataset_name=f"{dataset_name}_imported",
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
+    imported = export_and_import(dataset, tempdir, ldf_version=version)
 
     assert imported.get_keypoint_metadata()["pose"].labels == ["0", "1"]
     imported.make_splits((1, 0, 0), replace_old_splits=True)

@@ -376,16 +376,8 @@ import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping, Sequence
 from enum import IntEnum
-from numbers import Real
 from pathlib import Path
-from typing import (
-    Annotated,
-    Any,
-    Literal,
-    Optional,
-    TypeAlias,
-    TypedDict,
-)
+from typing import Annotated, Any, Literal, Optional, TypeAlias, TypedDict
 
 import numpy as np
 import pycocotools.mask
@@ -1140,27 +1132,30 @@ class KeypointAnnotation(Annotation):
         annotations: list["KeypointAnnotation"],
         classes: list[int] | None = None,  # pyright: ignore[reportUnusedParameter]
         n_classes: int | None = None,  # pyright: ignore[reportUnusedParameter]
+        *,
+        labels: Sequence[str] | None = None,
     ) -> np.ndarray:
         r"""Combine keypoint annotations into flat rows.
-
-        The columns follow the names of all the annotations, in the order
-        that they first occur.
 
         Args:
             annotations: Keypoint annotations to combine.
             classes: Unused class IDs kept for API compatibility.
             n_classes: Unused class count kept for API compatibility.
+            labels: Keypoint names in column order. Defaults to the names
+                of all the annotations, in the order that they first
+                occur.
 
         Returns:
             An array of shape :math:`\left(N, 3K\right)` for :math:`N`
             annotations and :math:`K` names.
 
         """
-        labels = list(
-            dict.fromkeys(
-                name for ann in annotations for name in ann.keypoints
+        if labels is None:
+            labels = list(
+                dict.fromkeys(
+                    name for ann in annotations for name in ann.keypoints
+                )
             )
-        )
         return np.stack([ann.to_numpy(labels) for ann in annotations])
 
     @override
@@ -1882,9 +1877,10 @@ def load_annotation(
 
 def _clip(value: Any) -> Any:
     """Clip a coordinate in [-2, 2] to [0, 1]."""
-    if not isinstance(value, Real):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
         return value
-    number = float(value)
     if 0 <= number <= 1:
         return value
     if not -2 <= number <= 2:
