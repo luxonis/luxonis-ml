@@ -199,6 +199,20 @@ def _merge_keypoint_metadata(
                 f"{', '.join(theirs.labels)}. Give both datasets the same "
                 "names with `LuxonisDataset.set_keypoint_metadata`."
             )
+        # An older luxonis-ml stored edges without a range check. Such an
+        # edge has no position in the new order.
+        edges = [
+            edge
+            for edge in theirs.edges
+            if all(0 <= index < len(theirs.labels) for index in edge)
+        ]
+        if edges != theirs.edges:
+            logger.warning(
+                f"Task '{task}' of the dataset being merged in has edges out "
+                f"of range for its {len(theirs.labels)} keypoints. The merge "
+                "leaves them out."
+            )
+            theirs = theirs.model_copy(update={"edges": edges})
         theirs = theirs.reindexed_to(mine.labels)
 
     conflicts = mine.conflicting_fields(theirs)

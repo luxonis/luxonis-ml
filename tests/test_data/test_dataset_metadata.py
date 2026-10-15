@@ -213,6 +213,31 @@ def test_merge_keeps_keypoint_fields_the_other_dataset_omits(
     )
 
 
+def test_merge_leaves_out_a_legacy_edge_that_it_cannot_move(
+    basic_metadata: Metadata, warnings_log: list[str]
+):
+    """An older luxonis-ml stored edges without a range check.
+
+    A merge moves the edges of the other dataset to the target order. An
+    edge out of range has no new position.
+    """
+    other_metadata = Metadata(
+        source=None,
+        keypoint_metadata={
+            "task1": KeypointMetadata(
+                labels=["tail", "head"], edges=[(0, 1), (1, 2)]
+            )
+        },
+    )
+
+    merged = basic_metadata.merge_with(other_metadata)
+
+    assert merged.keypoint_metadata["task1"] == KeypointMetadata(
+        labels=["head", "tail"], edges=[(0, 1)]
+    )
+    assert any("out of range" in message for message in warnings_log)
+
+
 @pytest.mark.parametrize("unnamed_side", ["mine", "theirs"])
 def test_merge_keeps_the_labels_that_only_one_dataset_has(unnamed_side: str):
     """An empty list of labels is not a different list of labels.
