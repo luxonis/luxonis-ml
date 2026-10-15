@@ -1,4 +1,6 @@
+import json
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
@@ -57,3 +59,25 @@ def create_dataset(
     elif splits:
         dataset.make_splits(splits)
     return dataset
+
+
+def read_dataset_metadata(dataset: LuxonisDataset) -> dict[str, Any]:
+    """Read the stored ``metadata.json`` of the dataset."""
+    return json.loads((dataset._metadata_path / "metadata.json").read_text())
+
+
+def write_dataset_metadata(
+    dataset: LuxonisDataset, dataset_metadata: dict[str, Any]
+) -> LuxonisDataset:
+    """Replace the stored ``metadata.json`` and open the dataset again."""
+    (dataset._metadata_path / "metadata.json").write_text(
+        json.dumps(dataset_metadata)
+    )
+    return LuxonisDataset(dataset.identifier)
+
+
+def set_ldf_version(dataset: LuxonisDataset, version: str) -> LuxonisDataset:
+    """Change the stored LDF version and open the dataset again."""
+    dataset_metadata = read_dataset_metadata(dataset)
+    dataset_metadata["ldf_version"] = version
+    return write_dataset_metadata(dataset, dataset_metadata)
