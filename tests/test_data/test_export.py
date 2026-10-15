@@ -178,6 +178,51 @@ def test_a_whole_image_export_keeps_its_classes(
     assert {"road", "sky"} <= imported_classes
 
 
+def test_coco_keeps_the_instances_of_two_tasks_apart(
+    dataset_name: str,
+    tempdir: Path,
+):
+    """Instance numbers count per task, so two tasks share a number.
+
+    The export grouped the rows of an image by that number alone, and the
+    class of the scene took over the box of the car.
+    """
+
+    def generator() -> DatasetIterator:
+        yield {
+            "media": create_image(0, tempdir),
+            "annotation": {
+                "vehicles": [
+                    {
+                        "class": "car",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.2,
+                            "h": 0.2,
+                        },
+                    }
+                ],
+                "scene": [{"class": "road"}],
+            },
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits=(1, 0, 0))
+    exported = dataset.export(tempdir / "exported", DatasetType.COCO)
+    assert isinstance(exported, Path)
+
+    box_classes = []
+    for path in exported.rglob("_annotations.coco.json"):
+        coco = json.loads(path.read_text())
+        names = {entry["id"]: entry["name"] for entry in coco["categories"]}
+        box_classes += [
+            names[annotation["category_id"]]
+            for annotation in coco["annotations"]
+            if annotation["bbox"]
+        ]
+    assert box_classes == ["car"]
+
+
 def test_native_export_does_not_invent_a_nameless_task(
     dataset_name: str,
     tempdir: Path,

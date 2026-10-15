@@ -89,13 +89,18 @@ class CocoExporter(BaseExporter):
         }
         ann_id_counter: dict[str, int] = dict.fromkeys(splits, 1)
 
+        # Instance numbers count per task, so the task keeps two objects
+        # with one number apart.
         grouped = prepared_ldf.processed_df.group_by(
-            ["file", "instance_id", "group_id"], maintain_order=True
+            ["file", "task_name", "instance_id", "group_id"],
+            maintain_order=True,
         )
         copied_files: set[Path] = set()
 
         for key, entry in grouped:
-            file_name, _instance_id, group_id = cast(tuple[str, int, Any], key)
+            file_name, _task_name, _instance_id, group_id = cast(
+                tuple[str, str, int, Any], key
+            )
 
             split = split_of_group(prepared_ldf, group_id)
             file_path = Path(str(file_name))
