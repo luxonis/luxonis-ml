@@ -187,6 +187,32 @@ def test_downgrade_removes_the_keypoint_task_fields():
     }
 
 
+def test_downgrade_counts_the_task_fields_once_for_each_record(
+    warnings_log: list[str],
+):
+    """The summary counts records, not the keypoints that carry a sigma."""
+    downgrader = LDFDowngrader(Version.parse("2.1.0"))
+    downgrader(
+        {
+            "file": "a.jpg",
+            "annotation": {
+                "keypoints": {
+                    "keypoints": {
+                        name: {"x": 0.5, "y": 0.3, "sigma": 0.025}
+                        for name in ("nose", "left_eye", "right_eye")
+                    }
+                }
+            },
+        }
+    )
+    downgrader.log_summary()
+
+    assert (
+        "Exporting to LDF 2.1.0 drops 'keypoints.sigma_and_connected_to' "
+        "from 1 of 1 records."
+    ) in [message.strip() for message in warnings_log]
+
+
 def test_export_2_0_omits_sample_metadata(dataset_name: str, tempdir: Path):
     dataset = create_dataset(
         dataset_name, _generator(tempdir), splits=(1, 0, 0)

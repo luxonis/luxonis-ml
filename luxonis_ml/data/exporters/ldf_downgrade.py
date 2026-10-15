@@ -167,13 +167,17 @@ class LDFDowngrader:
             triplets = []
             for value in values.values():
                 if isinstance(value, dict):
-                    if value.keys() - {"x", "y", "visibility"}:
-                        self._dropped["keypoints.sigma_and_connected_to"] += 1
                     value = [
                         value["x"],
                         value["y"],
                         value.get("visibility", 2),
                     ]
                 triplets.append(value)
+            if any(
+                isinstance(value, dict)
+                and value.keys() - {"x", "y", "visibility"}
+                for value in values.values()
+            ):
+                self._dropped["keypoints.sigma_and_connected_to"] += 1
             keypoints["keypoints"] = triplets
             self._dropped["keypoints.names"] += 1
