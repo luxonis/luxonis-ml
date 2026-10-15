@@ -314,11 +314,16 @@ class LDFEquivalence:
             for row in entry.iter_rows(named=True):
                 if row["task_type"] == "keypoints":
                     d = json.loads(row["annotation"])
-                    # The loader gives a keypoint that a row does not name
-                    # (0, 0, 0), so such a keypoint counts as absent.
+                    ordered = prepared_ldf.keypoint_row(
+                        row["task_name"], d["keypoints"]
+                    )
+                    # A format without names, such as YOLO, imports the
+                    # keypoints as "0", "1", ..., so compare the position in
+                    # the task. The loader gives a keypoint that a row does
+                    # not name (0, 0, 0), so such a keypoint counts as absent.
                     keypoints.extend(
-                        (name, round(x, 3), round(y, 3), v)
-                        for name, (x, y, v) in d["keypoints"].items()
+                        (i, round(x, 3), round(y, 3), v)
+                        for i, (x, y, v) in enumerate(ordered)
                         if (x, y, v) != (0, 0, 0)
                     )
             if keypoints:
