@@ -115,13 +115,16 @@ def test_resolve_rejects_malformed_versions(version: str):
         resolve_export_version(version)
 
 
-@pytest.mark.parametrize("version", ["3.0", "2.9"])
+@pytest.mark.parametrize(
+    "version",
+    [str(LDF_VERSION.bump_major()), str(LDF_VERSION.bump_minor())],
+)
 def test_resolve_rejects_newer_than_installed(version: str):
     with pytest.raises(ValueError, match="at the newest"):
         resolve_export_version(version)
 
 
-@pytest.mark.parametrize("version", ["1.0", "2.0.1"])
+@pytest.mark.parametrize("version", ["1.0", "2.0.1", "2.9"])
 def test_resolve_rejects_unsupported_versions(version: str):
     with pytest.raises(ValueError, match="Supported versions"):
         resolve_export_version(version)
@@ -416,7 +419,7 @@ def test_import_warns_once_on_newer_export(
     assert version in warned[0]
 
 
-@pytest.mark.parametrize("version", ["2.0.0", None])
+@pytest.mark.parametrize("version", ["2.0.0", "2.1.0", None])
 def test_import_is_quiet_for_current_or_older_exports(
     dataset_name: str,
     tempdir: Path,
