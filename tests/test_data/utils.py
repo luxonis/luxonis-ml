@@ -1,5 +1,4 @@
 import json
-from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -83,21 +82,6 @@ def set_ldf_version(dataset: LuxonisDataset, version: str) -> LuxonisDataset:
     dataset_metadata = read_dataset_metadata(dataset)
     dataset_metadata["ldf_version"] = version
     return write_dataset_metadata(dataset, dataset_metadata)
-
-
-def keypoint_annotations(
-    records: Iterable[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Return the keypoint annotations of exported native records.
-
-    Every keypoint detection also emits a classification record, which
-    the result leaves out.
-    """
-    return [
-        record["annotation"]["keypoints"]
-        for record in records
-        if "keypoints" in record.get("annotation", {})
-    ]
 
 
 def export_and_import(

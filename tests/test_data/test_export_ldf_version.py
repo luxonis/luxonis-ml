@@ -1,8 +1,7 @@
 """Exporting the native format at an older LDF version.
 
 `DatasetRecord` forbids extra fields, so LDF 2.1 adding ``sample_metadata``
-made every 2.1 export unreadable by an older luxonis-ml. An annotation
-forbids them too, and LDF 3.0 added the keypoint task fields.
+made every 2.1 export unreadable by an older luxonis-ml.
 """
 
 import json
@@ -14,29 +13,19 @@ from semver.version import Version
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.exporters.ldf_downgrade import (
-    _ADDED_ANNOTATION_FIELDS,
     _ADDED_FIELDS,
     LDFDowngrader,
     resolve_export_version,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.enums.enums import DatasetType
-from luxonis_ml.ldf import DatasetRecord, KeypointAnnotation
+from luxonis_ml.ldf import DatasetRecord
 
-from .utils import (
-    create_dataset,
-    create_image,
-    export_and_import,
-    keypoint_annotations,
-)
+from .utils import create_dataset, create_image
 
 #: Fields a pre-2.1 `DatasetRecord` accepts. Anything else trips
 #: ``extra="forbid"`` on an older install.
 LDF_2_0_RECORD_FIELDS = {"file", "files", "task_name", "annotation"}
-
-#: The same for a keypoint annotation, which gained the task fields
-#: in 3.0.
-LDF_2_0_KEYPOINT_FIELDS = {"keypoints"}
 
 
 def _generator(tempdir: Path, with_metadata: bool = True) -> DatasetIterator:
@@ -52,26 +41,6 @@ def _generator(tempdir: Path, with_metadata: bool = True) -> DatasetIterator:
         if with_metadata:
             record["sample_metadata"] = {"record_id": i, "origin": "test"}
         yield record
-
-
-def _keypoint_generator(tempdir: Path) -> DatasetIterator:
-    """Yield named keypoints, which `add` promotes to the keypoint metadata."""
-    for i in range(2):
-        yield {
-            "file": create_image(i, tempdir),
-            "task_name": "pose",
-            "sample_metadata": {"record_id": i, "origin": "test"},
-            "annotation": {
-                "class": "person",
-                "keypoints": {
-                    "keypoints": {
-                        "nose": (0.5, 0.3, 2),
-                        "left_eye": (0.4, 0.2, 2),
-                        "right_eye": (0.6, 0.2, 1),
-                    }
-                },
-            },
-        }
 
 
 def _read_records(export_root: Path) -> list[dict]:
@@ -140,16 +109,6 @@ def test_every_record_field_has_a_known_ldf_version():
     assert set(DatasetRecord.model_fields) <= known
 
 
-def test_every_keypoint_field_has_a_known_ldf_version():
-    """An annotation forbids extra fields just as a record does."""
-    known = LDF_2_0_KEYPOINT_FIELDS | {
-        field
-        for task_type, field in _ADDED_ANNOTATION_FIELDS
-        if task_type == "keypoints"
-    }
-    assert set(KeypointAnnotation.model_fields) <= known
-
-
 def test_downgrade_removes_the_key_rather_than_emptying_it():
     """``sample_metadata: {}`` still fails ``extra="forbid"``."""
     downgraded = LDFDowngrader(Version.parse("2.0.0"))(
@@ -158,51 +117,29 @@ def test_downgrade_removes_the_key_rather_than_emptying_it():
     assert "sample_metadata" not in downgraded
 
 
-def test_downgrade_to_current_version_is_a_passthrough():
-    record = {"file": "a.jpg", "sample_metadata": {"x": 1}}
-    assert LDFDowngrader(LDF_VERSION)(dict(record)) == record
-
-
-def test_downgrade_removes_the_keypoint_task_fields():
-    """Each keypoint carries them, so the triplets lose them.
-
-    The names are the keys of the payload, so the downgrade also has to
-    turn a named mapping back into a positional list.
-    """
-    keypoints = {
-        "keypoints": {
-            "nose": {"x": 0.5, "y": 0.3, "visibility": 2, "sigma": 0.026},
-            "left_eye": {
-                "x": 0.4,
-                "y": 0.2,
-                "visibility": 2,
-                "sigma": 0.025,
-                "connected_to": ["nose"],
-            },
-        },
-    }
-    downgraded = LDFDowngrader(Version.parse("2.0.0"))(
-        {"file": "a.jpg", "annotation": {"keypoints": keypoints}}
-    )
-
-    assert downgraded["annotation"]["keypoints"] == {
-        "keypoints": [[0.5, 0.3, 2], [0.4, 0.2, 2]]
-    }
-
-
-def test_downgrade_counts_the_task_fields_once_for_each_record(
+def test_downgrade_writes_named_keypoints_as_a_list(
     warnings_log: list[str],
 ):
-    """The summary counts records, not the keypoints that carry a sigma."""
+    """LDF 2.x reads a list of triplets in the order of the task."""
     downgrader = LDFDowngrader(Version.parse("2.1.0"))
-    downgrader(
+    record = downgrader(
         {
             "file": "a.jpg",
+            "task_name": "pose",
             "annotation": {
                 "keypoints": {
                     "keypoints": {
-                        name: {"x": 0.5, "y": 0.3, "sigma": 0.025}
-                        for name in ("nose", "left_eye", "right_eye")
+                        "nose": {
+                            "x": 0.5,
+                            "y": 0.3,
+                            "sigma": 0.026,
+                        },
+                        "left_eye": {
+                            "x": 0.4,
+                            "y": 0.2,
+                            "state": 1,
+                            "connected_to": ["nose"],
+                        },
                     }
                 }
             },
@@ -210,10 +147,67 @@ def test_downgrade_counts_the_task_fields_once_for_each_record(
     )
     downgrader.log_summary()
 
-    assert (
-        "Exporting to LDF 2.1.0 drops 'keypoints.sigma_and_connected_to' "
-        "from 1 of 1 records."
-    ) in [message.strip() for message in warnings_log]
+    assert record["annotation"]["keypoints"] == {
+        "keypoints": [[0.5, 0.3, 2], [0.4, 0.2, 1]]
+    }
+    assert any("keypoints.names" in msg for msg in warnings_log)
+    assert any(
+        "keypoints.sigma_and_connected_to" in msg for msg in warnings_log
+    )
+
+
+@pytest.mark.parametrize("version", ["2.0", "2.1"])
+def test_export_to_2_x_imports_with_the_keypoints_in_task_order(
+    dataset_name: str, tempdir: Path, version: str
+):
+    def generator() -> DatasetIterator:
+        yield {
+            "file": create_image(0, tempdir),
+            "task_name": "pose",
+            "annotation": {
+                "class": "person",
+                "keypoints": {
+                    "keypoints": {
+                        "nose": (0.5, 0.3),
+                        "left_eye": (0.4, 0.2, 1),
+                    }
+                },
+            },
+        }
+        yield {
+            "file": create_image(1, tempdir),
+            "task_name": "pose",
+            "annotation": {
+                "class": "person",
+                "keypoints": {"keypoints": {"left_eye": (0.6, 0.2)}},
+            },
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits=(1, 0, 0))
+    root = _export(dataset, tempdir, "v2x", ldf_version=version)
+    imported = LuxonisParser(
+        str(root),
+        dataset_type=DatasetType.NATIVE,
+        dataset_name=f"{dataset_name}_imported",
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    assert imported.get_keypoint_metadata()["pose"].labels == ["0", "1"]
+    imported.make_splits((1, 0, 0), replace_old_splits=True)
+    rows = sorted(
+        labels["pose/keypoints"].tolist()
+        for _, labels in LuxonisLoader(imported)
+    )
+    assert rows == [
+        [[0.0, 0.0, 0.0, 0.6, 0.2, 2.0]],
+        [[0.5, 0.3, 2.0, 0.4, 0.2, 1.0]],
+    ]
+
+
+def test_downgrade_to_current_version_is_a_passthrough():
+    record = {"file": "a.jpg", "sample_metadata": {"x": 1}}
+    assert LDFDowngrader(LDF_VERSION)(dict(record)) == record
 
 
 def test_export_2_0_omits_sample_metadata(dataset_name: str, tempdir: Path):
@@ -235,60 +229,17 @@ def test_export_2_0_omits_sample_metadata(dataset_name: str, tempdir: Path):
     assert _read_stamp(root) == "2.0.0"
 
 
-def test_export_2_0_drops_the_keypoint_task_fields(
-    dataset_name: str, tempdir: Path, warnings_log: list[str]
-):
-    """The keypoint task fields arrived in LDF 3.0.
-
-    `test_keypoint_metadata` covers the export writing them at the current
-    version, so this only has to show that 2.0 does not.
-    """
+def test_export_2_1_keeps_sample_metadata(dataset_name: str, tempdir: Path):
+    """LDF 2.1 records have the fields of LDF 3.0, so only the stamp moves."""
     dataset = create_dataset(
-        dataset_name, _keypoint_generator(tempdir), splits=(1, 0, 0)
+        dataset_name, _generator(tempdir), splits=(1, 0, 0)
     )
-    root = _export(dataset, tempdir, "keypoints20", ldf_version="2.0")
+    root = _export(dataset, tempdir, "v21", ldf_version="2.1")
 
-    keypoints = keypoint_annotations(_read_records(root))
-    assert keypoints
-    assert all(isinstance(k["keypoints"], list) for k in keypoints)
-    assert all(set(k) <= LDF_2_0_KEYPOINT_FIELDS for k in keypoints)
-    assert any("keypoints.names" in msg for msg in warnings_log)
-
-
-def test_export_2_1_keeps_sample_metadata_but_drops_the_task_fields(
-    dataset_name: str, tempdir: Path
-):
-    """LDF 2.1 knows ``sample_metadata``. Only the rest is newer."""
-    dataset = create_dataset(
-        dataset_name, _keypoint_generator(tempdir), splits=(1, 0, 0)
-    )
-    root = _export(dataset, tempdir, "keypoints21", ldf_version="2.1")
-
-    assert all("sample_metadata" in r for r in _read_records(root))
-    keypoints = keypoint_annotations(_read_records(root))
-    assert keypoints
-    assert all(set(k) <= LDF_2_0_KEYPOINT_FIELDS for k in keypoints)
+    records = _read_records(root)
+    assert records
+    assert all("sample_metadata" in record for record in records)
     assert _read_stamp(root) == "2.1.0"
-
-
-def test_an_export_without_the_task_fields_still_imports(
-    dataset_name: str, tempdir: Path
-):
-    """A dropped field must not make the export unusable.
-
-    The stored keypoints keep the task order, so the import names them by
-    position.
-    """
-    dataset = create_dataset(
-        dataset_name, _keypoint_generator(tempdir), splits=(1, 0, 0)
-    )
-
-    imported = export_and_import(dataset, tempdir, ldf_version="2.0")
-    imported.make_splits((1, 0, 0), replace_old_splits=True)
-
-    _, labels = LuxonisLoader(imported)[0]
-    assert labels["pose/keypoints"].shape == (1, 9)
-    assert imported.get_keypoint_metadata()["pose"].labels == ["0", "1", "2"]
 
 
 def test_export_defaults_to_current_version(dataset_name: str, tempdir: Path):
@@ -304,12 +255,19 @@ def test_export_defaults_to_current_version(dataset_name: str, tempdir: Path):
 
 
 def test_export_2_0_round_trips(dataset_name: str, tempdir: Path):
-    """A 2.0 export re-imports cleanly, minus the dropped sample metadata."""
+    """A 2.0 export re-imports cleanly, minus the dropped metadata."""
     dataset = create_dataset(
         dataset_name, _generator(tempdir), splits=(1, 0, 0)
     )
+    root = _export(dataset, tempdir, "v20", ldf_version="2.0")
 
-    imported = export_and_import(dataset, tempdir, ldf_version="2.0")
+    imported = LuxonisParser(
+        str(root),
+        dataset_type=DatasetType.NATIVE,
+        dataset_name=f"{dataset_name}_imported",
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
     imported.make_splits((1, 0, 0), replace_old_splits=True)
 
     outputs = list(LuxonisLoader(imported))
@@ -321,7 +279,7 @@ def test_export_2_0_round_trips(dataset_name: str, tempdir: Path):
         assert "origin" not in output.metadata
 
 
-def test_export_2_0_warns_about_dropped_sample_metadata(
+def test_export_2_0_warns_about_dropped_metadata(
     dataset_name: str, tempdir: Path, warnings_log: list[str]
 ):
     dataset = create_dataset(

@@ -165,8 +165,7 @@ class UltralyticsNDJSONParser(BaseParser):
             reuse_cached: Whether to reuse cached remote images if they already exist.
 
         Returns:
-            Parser output containing annotation records, empty keypoint
-            metadata, and added images.
+            Parser output containing annotation records and added images.
 
         Raises:
             ValueError: If the file has an invalid header, a remote image
@@ -177,7 +176,7 @@ class UltralyticsNDJSONParser(BaseParser):
         generator, _added_by_split, added_images = self._build_record_stream(
             ndjson_path, reuse_cached=reuse_cached
         )
-        return generator, {}, added_images
+        return generator, added_images
 
     @override
     def parse_split(

@@ -314,12 +314,13 @@ class LDFEquivalence:
             for row in entry.iter_rows(named=True):
                 if row["task_type"] == "keypoints":
                     d = json.loads(row["annotation"])
-                    for kp in d["keypoints"]:
-                        rounded_kp = tuple(
-                            round(v, 3) if i < 2 else v
-                            for i, v in enumerate(kp)
-                        )
-                        keypoints.append(rounded_kp)
+                    # The loader gives a keypoint that a row does not name
+                    # (0, 0, 0), so such a keypoint counts as absent.
+                    keypoints.extend(
+                        (name, round(x, 3), round(y, 3), v)
+                        for name, (x, y, v) in d["keypoints"].items()
+                        if (x, y, v) != (0, 0, 0)
+                    )
             if keypoints:
                 out.setdefault(hashed_key, Counter()).update(keypoints)
         return out

@@ -98,8 +98,7 @@ class SegmentationMaskDirectoryParser(BaseParser):
             classes_path: CSV file with class names.
 
         Returns:
-            Parser output containing annotation records, keypoint metadata,
-            and added images.
+            Parser output containing annotation records and added images.
 
         """
         # NOTE: space prefix included
@@ -131,4 +130,4 @@ class SegmentationMaskDirectoryParser(BaseParser):
                     }
 
         added_images = self._get_added_images(generator())
-        return generator(), {}, added_images
+        return generator(), added_images

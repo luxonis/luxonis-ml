@@ -12,15 +12,17 @@ from semver.version import Version
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
-    fit_keypoint_metadata_to_rows,
     split_of_group,
-    warn_repeated_keypoint_names,
 )
 from luxonis_ml.data.exporters.ldf_downgrade import LDFDowngrader
 from luxonis_ml.data.utils.constants import LDF_VERSION
-from luxonis_ml.data.utils.data_utils import get_keypoint_row_widths
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.ldf import DatasetRecord, Keypoint, KeypointMetadata
+from luxonis_ml.ldf import (
+    DatasetRecord,
+    Keypoint,
+    KeypointMetadata,
+    KeypointState,
+)
 from luxonis_ml.utils.path import path_to_posix
 
 
@@ -38,15 +40,15 @@ class NativeExporter(BaseExporter):
     ``{"ldf_version": "3.0.0"}``. It is not the full `Metadata` model a
     dataset keeps in its own storage.
 
-    A keypoint record keys its keypoints by name when its task names
-    them. In one record of each keypoint task in each
-    ``annotations.json``, each keypoint also carries its ``sigma`` and
-    ``connected_to``, so the import restores its `KeypointMetadata`.
+    A keypoint record holds every keypoint of its task, in the order of the
+    task, with its ``sigma`` and its ``connected_to``. A keypoint that the
+    instance does not name is ``"unlabeled"``. The import thus builds the
+    same `KeypointMetadata`.
 
     Passing an older ``ldf_version`` strips the fields that version does
-    not know -- exporting LDF 2.1 or 2.0 omits the keypoint names, edges
-    and sigmas, and LDF 2.0 also omits ``sample_metadata``. See
-    `LDFDowngrader`.
+    not know -- exporting LDF 2.1 or 2.0 writes the keypoints as lists
+    without their names and task fields, and LDF 2.0 also omits
+    ``sample_metadata``. See `LDFDowngrader`.
 
     Example:
         .. code-block:: json
@@ -81,42 +83,13 @@ class NativeExporter(BaseExporter):
         output_path: Path,
         max_partition_size_gb: float | None,
         *,
-        keypoint_metadata: dict[str, KeypointMetadata] | None = None,
         ldf_version: Version | None = None,
     ):
-        """Create a native LDF exporter.
-
-        Args:
-            dataset_identifier: Name of the export directory.
-            output_path: Directory where the export is written.
-            max_partition_size_gb: Optional maximum partition size in GiB.
-            keypoint_metadata: Keypoint metadata keyed by task name. The
-                export names the keypoints of each record with it, and it
-                writes the task fields to one record of each task in each
-                ``annotations.json``.
-            ldf_version: LDF version to write. ``None`` writes the current
-                LDF version.
-
-        """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
-        self.keypoint_metadata = keypoint_metadata or {}
         self.ldf_version = ldf_version or LDF_VERSION
-        self._metadata_attached: set[tuple[int | None, str, str]] = set()
-        # The keypoint count of each task. A task without labels has the
-        # count of its widest row.
-        self._n_keypoints: dict[str, int] = {}
-        # The tasks whose rows all have fewer keypoints than the count.
-        self._tasks_without_a_full_row: set[str] = set()
         self._downgrade = LDFDowngrader(self.ldf_version)
-        for task, task_keypoints in self.keypoint_metadata.items():
-            warn_repeated_keypoint_names(
-                task,
-                task_keypoints,
-                "The export cannot key the keypoints by these names, so "
-                "the import numbers the keypoints.",
-            )
 
     @staticmethod
     def get_split_names() -> dict[str, str]:
@@ -126,7 +99,6 @@ class NativeExporter(BaseExporter):
         return DatasetType.NATIVE.supported_annotation_formats
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
-        self._fit_keypoint_metadata_to_rows(prepared_ldf.processed_df)
         annotation_splits: dict[str, list[dict[str, Any]]] = {
             k: [] for k in self.get_split_names()
         }
@@ -149,7 +121,12 @@ class NativeExporter(BaseExporter):
             group_source_names = matched_df.get_column("source_name").to_list()
 
             records = [
-                self._process_row(row, group_source_names, group_files)
+                self._process_row(
+                    row,
+                    group_source_names,
+                    group_files,
+                    prepared_ldf.keypoint_metadata,
+                )
                 for row in group_df.iter_rows(named=True)
             ]
 
@@ -170,87 +147,10 @@ class NativeExporter(BaseExporter):
                     shutil.copy(p, data_path / f"{idx}{p.suffix}")
                     self.current_size += p.stat().st_size
 
-            # The downgrade runs last: the fields attached here are
-            # themselves fields an older LDF version does not know.
-            self._attach_keypoint_metadata(records, split)
-            annotation_splits[split].extend(map(self._downgrade, records))
+            annotation_splits[split].extend(records)
 
         self._dump_annotations(annotation_splits, self.output_path, self.part)
         self._downgrade.log_summary()
-
-    def _attach_keypoint_metadata(
-        self, records: list[dict[str, Any]], split: str
-    ) -> None:
-        """Name the keypoints of each record, and attach the task fields.
-
-        Each record carries the names, so an import into a dataset with
-        another keypoint order moves each record by them. The first
-        eligible record of each task in each ``annotations.json``, one for
-        each split and partition, carries the task fields. A
-        short record is eligible only when its names survive the target
-        LDF version. Without names, the importer cannot tell which
-        keypoints are missing. A task without a full row is the exception:
-        the export pads the short record that carries the task fields, as
-        the loader does, so the import keeps the keypoint count.
-        """
-        for record in records:
-            keypoints = record.get("annotation", {}).get("keypoints")
-            if keypoints is None:
-                continue
-            task_name = record["task_name"]
-            task_keypoints = self.keypoint_metadata.get(task_name)
-            if task_keypoints is None:
-                continue
-            values = keypoints["keypoints"]
-            named = task_keypoints.has_names
-            n_keypoints = self._n_keypoints[task_name]
-            # Each partition has its own annotations file.
-            key = (self.part, split, task_name)
-            if len(values) < n_keypoints:
-                keeps_names = named and self._downgrade.keeps_keypoint_names
-                if not keeps_names and (
-                    task_name not in self._tasks_without_a_full_row
-                    or key in self._metadata_attached
-                ):
-                    continue
-                # COCO's value for a keypoint that is not labeled.
-                values = keypoints["keypoints"] = values + [
-                    Keypoint(0.0, 0.0, 0)
-                ] * (n_keypoints - len(values))
-            if named:
-                keypoints["keypoints"] = dict(
-                    zip(task_keypoints.labels, values, strict=True)
-                )
-            if key in self._metadata_attached:
-                continue
-            self._metadata_attached.add(key)
-            if task_keypoints.edges or task_keypoints.sigmas:
-                # Each keypoint carries its part of the task fields.
-                points = keypoints["keypoints"]
-                if not isinstance(points, dict):
-                    points = {str(i): value for i, value in enumerate(points)}
-                keypoints["keypoints"] = task_keypoints.record_keypoints(
-                    points
-                )
-
-    def _fit_keypoint_metadata_to_rows(self, df: pl.DataFrame) -> None:
-        """Leave out the keypoint metadata that the import would reject.
-
-        See `fit_keypoint_metadata_to_rows`.
-        """
-        widths = get_keypoint_row_widths(df.lazy())
-        kept: dict[str, KeypointMetadata] = {}
-        for task, task_keypoints in self.keypoint_metadata.items():
-            width = widths.get(task, 0)
-            fitted = fit_keypoint_metadata_to_rows(task, task_keypoints, width)
-            if fitted is None:
-                continue
-            n_keypoints = len(fitted.labels) or width
-            kept[task] = fitted
-            self._n_keypoints[task] = n_keypoints
-            if width < n_keypoints:
-                self._tasks_without_a_full_row.add(task)
-        self.keypoint_metadata = kept
 
     def _maybe_roll_partition(
         self,
@@ -275,6 +175,7 @@ class NativeExporter(BaseExporter):
         row: dict[str, Any],
         group_source_names: list[str],
         group_files: list[str],
+        keypoint_metadata: dict[str, KeypointMetadata],
     ) -> dict[str, Any]:
         task_name = row["task_name"]
         class_name = row["class_name"]
@@ -309,18 +210,23 @@ class NativeExporter(BaseExporter):
                 "instance_id": instance_id,
                 "class": class_name,
             }
-            if task_type in (
+            if task_type == "keypoints":
+                ann[task_type] = {
+                    "keypoints": _record_keypoints(
+                        keypoint_metadata[task_name], data["keypoints"]
+                    )
+                }
+            elif task_type in (
                 "boundingbox",
                 "segmentation",
                 "instance_segmentation",
-                "keypoints",
             ):
                 ann[task_type] = data
             elif task_type.startswith("metadata/"):
                 ann["metadata"] = {task_type[9:]: data}
             record["annotation"] = ann
 
-        return record
+        return self._downgrade(record)
 
     def _dump_annotations(
         self,
@@ -357,3 +263,16 @@ class NativeExporter(BaseExporter):
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:
         return self._base_path(output_path, part) / split / "images"
+
+
+def _record_keypoints(
+    task_keypoints: KeypointMetadata, stored: dict[str, list[float]]
+) -> dict[str, dict[str, Any]]:
+    """Give a stored row every keypoint and task field of its task."""
+    return {
+        name: Keypoint(
+            **spec.model_dump(), x=x, y=y, state=KeypointState(state)
+        ).model_dump(mode="json", exclude_defaults=True)
+        for name, spec in task_keypoints.keypoints.items()
+        for x, y, state in [stored.get(name, (0.0, 0.0, 0))]
+    }

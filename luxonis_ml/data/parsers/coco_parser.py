@@ -271,21 +271,17 @@ class COCOParser(BaseParser):
         Annotations include classification, segmentation, object detection,
         and keypoints when present.
 
-        The method also builds the keypoint metadata of each category that
-        holds both a ``keypoints`` field and a ``skeleton`` field. It uses
-        ``keypoints`` as the keypoint names, and it converts the
-        ``skeleton`` pairs to edges. COCO numbers the skeleton joints from
-        1, so the method subtracts 1 from each index. It also reads the
-        optional ``sigmas`` field, which the COCO export of luxonis-ml
-        writes but the COCO format does not define.
+        A category with a ``keypoints`` field names the keypoints of its
+        annotations. Its ``skeleton`` pairs give the connections, and an
+        optional ``sigmas`` list gives the OKS sigma of each keypoint. Each
+        keypoint of a record carries them.
 
         Args:
             image_dir: Directory with images.
             annotation_path: Annotation JSON file.
 
         Returns:
-            Parser output containing annotation records, keypoint metadata
-            keyed by class name, and added images.
+            Parser output containing annotation records and added images.
 
         """
         with open(annotation_path) as f:
@@ -296,17 +292,11 @@ class COCOParser(BaseParser):
         coco_categories = annotation_data.get("categories", [])
         categories = {cat["id"]: cat["name"] for cat in coco_categories}
 
-        skeletons = {}
-        for cat in coco_categories:
-            if "keypoints" in cat and "skeleton" in cat:
-                skeletons[categories[cat["id"]]] = {
-                    "labels": cat["keypoints"],
-                    "edges": list(
-                        map(tuple, (np.array(cat["skeleton"]) - 1).tolist())
-                    ),
-                    # Not part of the COCO spec, but our exporter writes it.
-                    "sigmas": cat.get("sigmas"),
-                }
+        keypoint_fields = {
+            cat["id"]: _keypoint_fields(cat)
+            for cat in coco_categories
+            if "keypoints" in cat
+        }
 
         def generator() -> DatasetIterator:
             img_dict = {img["id"]: img for img in coco_images}
@@ -339,7 +329,7 @@ class COCOParser(BaseParser):
                 img_w = img["width"]
 
                 if not img_anns:
-                    if skeletons:
+                    if keypoint_fields:
                         # Keypoint annotations: skip images with no labels
                         continue
                     # Register image with no annotations (valid COCO case)
@@ -430,21 +420,22 @@ class COCOParser(BaseParser):
                         np.clip(kpts[:, 0], 0, img_w, out=kpts[:, 0])
                         np.clip(kpts[:, 1], 0, img_h, out=kpts[:, 1])
 
-                        keypoints = []
-                        for kp in kpts:
-                            keypoints.append(
-                                (kp[0] / img_w, kp[1] / img_h, int(kp[2]))
-                            )
-
+                        triplets = [
+                            (kp[0] / img_w, kp[1] / img_h, int(kp[2]))
+                            for kp in kpts
+                        ]
+                        fields = keypoint_fields.get(ann["category_id"])
                         record["annotation"]["keypoints"] = {
-                            "keypoints": keypoints
+                            "keypoints": triplets
+                            if fields is None
+                            else _named_keypoints(fields, triplets)
                         }
 
                     yield record
 
         added_images = self._get_added_images(generator())
 
-        return generator(), skeletons, added_images
+        return generator(), added_images
 
     @override
     def _parse_available_splits(
@@ -561,3 +552,54 @@ def clean_annotations(annotation_path: Path) -> Path:
         json.dump(annotation_data, f)
 
     return cleaned_annotation_path
+
+
+def _keypoint_fields(category: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Return the task fields of each keypoint of a COCO category, by name.
+
+    COCO numbers the ends of a skeleton edge from 1.
+    """
+    names: list[str] = category["keypoints"]
+    if len(set(names)) < len(names):
+        raise ValueError(
+            f"Category '{category['name']}' repeats keypoint names: "
+            f"{', '.join(names)}."
+        )
+    fields: dict[str, dict[str, Any]] = {name: {} for name in names}
+    for a, b in category.get("skeleton", []):
+        if not (1 <= a <= len(names) and 1 <= b <= len(names)):
+            raise ValueError(
+                f"Category '{category['name']}' has the skeleton edge "
+                f"({a}, {b}) for {len(names)} keypoints."
+            )
+        fields[names[a - 1]].setdefault("connected_to", []).append(
+            names[b - 1]
+        )
+    if "sigmas" in category:
+        sigmas = category["sigmas"]
+        if len(sigmas) != len(names):
+            raise ValueError(
+                f"Category '{category['name']}' has {len(sigmas)} sigmas for "
+                f"{len(names)} keypoints."
+            )
+        for name, sigma in zip(names, sigmas, strict=True):
+            fields[name]["sigma"] = sigma
+    return fields
+
+
+def _named_keypoints(
+    fields: dict[str, dict[str, Any]],
+    triplets: list[tuple[float, float, int]],
+) -> dict[str, dict[str, Any]]:
+    """Key the keypoints of an annotation by the names of its category."""
+    if len(triplets) != len(fields):
+        raise ValueError(
+            f"An annotation has {len(triplets)} keypoints, but its category "
+            f"names {len(fields)}."
+        )
+    return {
+        name: {"x": x, "y": y, "state": state, **extra}
+        for (name, extra), (x, y, state) in zip(
+            fields.items(), triplets, strict=True
+        )
+    }

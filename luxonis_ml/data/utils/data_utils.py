@@ -211,7 +211,7 @@ def find_duplicates(df: pl.LazyFrame) -> dict[str, list[dict[str, Any]]]:
         try:
             annotation = json.loads(annotation_str)
             if "keypoints" in annotation:
-                for kp in annotation["keypoints"]:
+                for kp in annotation["keypoints"].values():
                     if len(kp) >= 3:
                         x, y, v = kp[0], kp[1], kp[2]
                         if x != 0 or y != 0 or v != 0:
@@ -354,34 +354,6 @@ def get_missing_annotations(df: pl.LazyFrame) -> list[str]:
     return missing_files_df["file"].to_list()
 
 
-def get_keypoint_row_widths(df: pl.LazyFrame) -> dict[str, int]:
-    """Return the keypoint count of the widest row of each task.
-
-    Args:
-        df: Dataset information.
-
-    Returns:
-        The keypoint count of the widest row, keyed by task name.
-
-    """
-    payload = pl.Struct({"keypoints": pl.List(pl.List(pl.Float64))})
-    widths = (
-        df.filter(pl.col("task_type") == "keypoints")
-        .group_by("task_name")
-        .agg(
-            # A shard without annotations stores the column as nulls.
-            pl.col("annotation")
-            .cast(pl.String)
-            .str.json_decode(payload)
-            .struct.field("keypoints")
-            .list.len()
-            .max()
-        )
-        .collect()
-    )
-    return dict(widths.iter_rows())
-
-
 def get_duplicates_info(df: pl.LazyFrame) -> dict[str, Any]:
     """Return duplicate UUID and annotation information.
 
@@ -487,9 +459,7 @@ def get_heatmaps(
                 y = np.array([annotation["y"] + h / 2])
             elif task_type == "keypoints":
                 kps = [
-                    kp
-                    for kp in annotation.get("keypoints", [])
-                    if len(kp) >= 3 and kp[2] > 0
+                    kp for kp in annotation["keypoints"].values() if kp[2] > 0
                 ]
                 if not kps:
                     continue

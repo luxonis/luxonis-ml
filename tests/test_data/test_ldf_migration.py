@@ -1,14 +1,23 @@
 """Opening a dataset written before the LDF 3.0 bump."""
 
+import json
 from pathlib import Path
+from typing import Any
 
+import polars as pl
 import pytest
 
-from luxonis_ml.data import LuxonisLoader
+from luxonis_ml.data import LuxonisDataset, LuxonisLoader
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.utils.constants import LDF_VERSION
 
-from .utils import create_dataset, create_image, set_ldf_version
+from .utils import (
+    create_dataset,
+    create_image,
+    read_dataset_metadata,
+    set_ldf_version,
+    write_dataset_metadata,
+)
 
 
 @pytest.mark.parametrize("version", ["2.0.0", "2.1.0"])
@@ -33,3 +42,119 @@ def test_2_x_dataset_loads(dataset_name: str, tempdir: Path, version: str):
 
     labels = LuxonisLoader(reopened, view="train")[0].labels
     assert labels["vehicles/boundingbox"].shape == (1, 5)
+
+
+def as_ldf_2_1(
+    dataset: LuxonisDataset, skeletons: dict[str, Any]
+) -> LuxonisDataset:
+    """Rewrite the dataset as LDF 2.1 stored it, and open it again.
+
+    LDF 2.1 stores the keypoints as lists and the names under
+    ``skeletons``.
+    """
+    df = dataset._load_df_offline(raise_when_empty=True)
+    annotations = [
+        json.dumps(
+            {"keypoints": list(json.loads(annotation)["keypoints"].values())}
+        )
+        if task_type == "keypoints"
+        else annotation
+        for task_type, annotation in df.select(
+            "task_type", "annotation"
+        ).iter_rows()
+    ]
+    for parquet_file in dataset._annotations_path.glob("*.parquet"):
+        parquet_file.unlink()
+    df.with_columns(
+        pl.Series("annotation", annotations, dtype=pl.String)
+    ).write_parquet(dataset._annotations_path / "0000000000.parquet")
+    stored = read_dataset_metadata(dataset)
+    del stored["keypoint_metadata"]
+    return write_dataset_metadata(
+        dataset, {**stored, "skeletons": skeletons, "ldf_version": "2.1.0"}
+    )
+
+
+def pose_dataset(dataset_name: str, tempdir: Path) -> LuxonisDataset:
+    """Create a dataset with one record of three keypoints by position."""
+
+    def generator() -> DatasetIterator:
+        yield {
+            "file": create_image(0, tempdir),
+            "task_name": "pose",
+            "annotation": {
+                "class": "person",
+                "keypoints": {
+                    "keypoints": [(0.5, 0.3), (0.4, 0.2, 1), (0.6, 0.2)],
+                },
+            },
+        }
+
+    return create_dataset(dataset_name, generator(), splits={"train": 1.0})
+
+
+def test_2_x_keypoints_get_the_names_of_the_skeleton(
+    dataset_name: str, tempdir: Path
+):
+    legacy = as_ldf_2_1(
+        pose_dataset(dataset_name, tempdir),
+        {
+            "pose": {
+                "labels": ["nose", "left_eye", "right_eye"],
+                "edges": [[0, 1], [0, 2]],
+            }
+        },
+    )
+
+    metadata = legacy.get_keypoint_metadata()["pose"]
+    stored_rows = pl.read_parquet(legacy._annotations_path / "*.parquet")
+    keypoint_row = stored_rows.filter(pl.col("task_type") == "keypoints")
+
+    assert metadata.labels == ["nose", "left_eye", "right_eye"]
+    assert metadata.edges == [(0, 1), (0, 2)]
+    assert json.loads(keypoint_row["annotation"].item())["keypoints"] == {
+        "nose": [0.5, 0.3, 2],
+        "left_eye": [0.4, 0.2, 1],
+        "right_eye": [0.6, 0.2, 2],
+    }
+    assert read_dataset_metadata(legacy)["ldf_version"] == "2.1.0"
+    labels = LuxonisLoader(legacy, view="train")[0].labels
+    assert labels["pose/keypoints"].tolist() == [
+        [0.5, 0.3, 2, 0.4, 0.2, 1, 0.6, 0.2, 2]
+    ]
+
+
+@pytest.mark.parametrize(
+    ("skeleton", "labels", "warning"),
+    [
+        (
+            {"labels": ["pt", "pt"], "edges": [[0, 1]]},
+            ["0", "1", "2"],
+            "repeats keypoint names",
+        ),
+        (
+            {"labels": ["nose"], "edges": [[0, 7]]},
+            ["nose", "1", "2"],
+            "The edge is dropped",
+        ),
+    ],
+)
+def test_the_migration_repairs_a_2_x_skeleton(
+    dataset_name: str,
+    tempdir: Path,
+    warnings_log: list[str],
+    skeleton: dict[str, Any],
+    labels: list[str],
+    warning: str,
+):
+    """Names by position replace repeated names, and a bad edge goes.
+
+    A row with more keypoints than the labels names the others by
+    position.
+    """
+    legacy = as_ldf_2_1(
+        pose_dataset(dataset_name, tempdir), {"pose": skeleton}
+    )
+
+    assert legacy.get_keypoint_metadata()["pose"].labels == labels
+    assert any(warning in message for message in warnings_log)

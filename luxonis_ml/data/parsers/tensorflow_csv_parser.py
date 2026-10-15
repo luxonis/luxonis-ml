@@ -69,8 +69,7 @@ class TensorflowCSVParser(BaseParser):
             annotation_path: Annotation CSV file.
 
         Returns:
-            Parser output containing annotation records, keypoint metadata,
-            and added images.
+            Parser output containing annotation records and added images.
 
         """
         df = pl.read_csv(annotation_path).filter(
@@ -126,4 +125,4 @@ class TensorflowCSVParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), {}, added_images
+        return generator(), added_images

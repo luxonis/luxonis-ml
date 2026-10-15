@@ -1,5 +1,4 @@
-import inspect
-from typing import Literal, get_args, get_type_hints
+from typing import Literal
 
 import cv2
 import numpy as np
@@ -310,23 +309,15 @@ def test_visualize_keypoint_label_modes(
         "image",
         labels,
         {"pose": {"person": 0}},
-        keypoint_metadata={"pose": KeypointMetadata(labels=["nose", "eye"])},
+        keypoint_metadata={
+            "pose": KeypointMetadata.model_validate(
+                {"keypoints": {"nose": {}, "eye": {}}}
+            )
+        },
         keypoint_label_mode=mode,
     )
 
     assert calls == expected
-
-
-def test_every_keypoint_label_mode_is_documented():
-    """The API docs come from the docstring, so each mode must appear."""
-    modes = get_args(get_type_hints(visualize)["keypoint_label_mode"])
-    _, _, documented = (inspect.getdoc(visualize) or "").partition(
-        "keypoint_label_mode:"
-    )
-
-    assert modes
-    for mode in modes:
-        assert f'``"{mode}"``' in documented, mode
 
 
 def test_visualize_keypoint_skeletons_respect_visibility():
@@ -337,7 +328,17 @@ def test_visualize_keypoint_skeletons_respect_visibility():
         )
     }
     classes = {"pose": {"person": 0}}
-    keypoint_metadata = {"pose": KeypointMetadata(edges=[(0, 1), (1, 2)])}
+    keypoint_metadata = {
+        "pose": KeypointMetadata.model_validate(
+            {
+                "keypoints": {
+                    "0": {},
+                    "1": {"connected_to": ["0", "2"]},
+                    "2": {},
+                }
+            }
+        )
+    }
 
     without_skeletons = visualize(
         image.copy(),

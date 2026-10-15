@@ -75,8 +75,7 @@ class YoloV4Parser(BaseParser):
             classes_path: File with class names.
 
         Returns:
-            Parser output containing annotation records, keypoint metadata,
-            and added images.
+            Parser output containing annotation records and added images.
 
         """
         with open(classes_path) as f:
@@ -141,4 +140,4 @@ class YoloV4Parser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), {}, added_images
+        return generator(), added_images

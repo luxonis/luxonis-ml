@@ -32,7 +32,7 @@ from luxonis_ml.data.datasets import (
 from luxonis_ml.data.loaders.base_loader import BaseLoader
 from luxonis_ml.data.utils import get_task_type, split_task
 from luxonis_ml.data.utils.task_utils import task_is_metadata
-from luxonis_ml.ldf import DatasetRecord, KeypointMetadata
+from luxonis_ml.ldf import DatasetRecord, KeypointAnnotation
 from luxonis_ml.typing import (
     Labels,
     LoaderOutput,
@@ -216,10 +216,10 @@ class LuxonisLoader(BaseLoader):
 
         self._df = self.dataset._load_df_offline(raise_when_empty=True)
         self._classes = self.dataset.get_classes()
-
-        self._keypoint_metadata = self.dataset.get_keypoint_metadata()
-        # `get_n_keypoints` scans the rows, and every sample needs it.
-        self._n_keypoints = self.dataset.get_n_keypoints()
+        self._keypoint_labels = {
+            task: metadata.labels
+            for task, metadata in self.dataset.get_keypoint_metadata().items()
+        }
 
         if self._filter_task_names is not None:
             if self.dataset.metadata.tasks:
@@ -312,21 +312,6 @@ class LuxonisLoader(BaseLoader):
         """
         return len(self._instances)
 
-    def get_keypoint_metadata(self) -> dict[str, KeypointMetadata]:
-        """Return the keypoint definition of each task.
-
-        It describes the dataset, not one sample. It is thus not part of
-        the loader output.
-
-        Returns:
-            Copies of the keypoint metadata keyed by task name.
-
-        """
-        return {
-            task: task_keypoints.model_copy(deep=True)
-            for task, task_keypoints in self._keypoint_metadata.items()
-        }
-
     @override
     def __getitem__(self, idx: int) -> LoaderOutput:
         """Load a sample and its annotations.
@@ -418,8 +403,7 @@ class LuxonisLoader(BaseLoader):
                     if task_type == "boundingbox":
                         labels[task] = np.zeros((0, 5))
                     elif task_type == "keypoints":
-                        # A keypoint task can lack metadata entirely.
-                        n_keypoints = self._n_keypoints.get(task_name, 0)
+                        n_keypoints = len(self._keypoint_labels[task_name])
                         labels[task] = np.zeros((0, n_keypoints * 3))
                     elif task_type == "instance_segmentation":
                         labels[task] = np.zeros((0, image_height, image_width))
@@ -539,11 +523,7 @@ class LuxonisLoader(BaseLoader):
                     data["height"] = sample_img.shape[0]
                     data["points"] = [tuple(p) for p in data["points"]]
 
-                annotation = load_annotation(
-                    task_type,  # type: ignore[arg-type]
-                    data,
-                    n_keypoints=self._n_keypoints.get(task_name),
-                )
+                annotation = load_annotation(task_type, data)  # type: ignore
                 class_id = (
                     self._classes[task_name][class_name]
                     if class_name is not None
@@ -570,11 +550,17 @@ class LuxonisLoader(BaseLoader):
             class_ids = [class_id for _, _, class_id in instances]
 
             task_name, task_type = split_task(task)
-            array = anns[0].combine_to_numpy(
-                anns,
-                class_ids,
-                len(self._classes[task_name]),
-            )
+            if task_type == "keypoints":
+                order = self._keypoint_labels[task_name]
+                array = np.stack(
+                    [cast(KeypointAnnotation, a).to_numpy(order) for a in anns]
+                )
+            else:
+                array = anns[0].combine_to_numpy(
+                    anns,
+                    class_ids,
+                    len(self._classes[task_name]),
+                )
             if task in self._tasks_without_background:
                 unassigned_pixels = ~np.any(array, axis=0)
                 background_idx = self._classes[task_name]["background"]

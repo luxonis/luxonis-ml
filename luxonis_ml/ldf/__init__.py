@@ -6,11 +6,12 @@ a `DatasetRecord` with its `Detection`, the annotation payloads
 `InstanceSegmentationAnnotation`, `ArrayAnnotation`,
 `ClassificationAnnotation`), and the `ParquetRecord` row they are stored as.
 
-A `KeypointAnnotation` holds `Keypoint` triplets, keyed by name or by
-position. A named keypoint can also give its state, its OKS sigma and the
-keypoints it connects to. `LuxonisDataset.add` moves these task-level fields
-into one `KeypointMetadata` for each task, and
-`LuxonisDataset.get_keypoint_metadata` returns them.
+A `KeypointAnnotation` holds `Keypoint` models keyed by name. A keypoint
+gives its coordinates and its `KeypointState`, and it can give the fields
+that describe the whole task (`KeypointSpec`): its OKS sigma and the
+keypoints it connects to. `LuxonisDataset.add` builds one `KeypointMetadata`
+for each task from them, and `LuxonisDataset.get_keypoint_metadata` returns
+it.
 
 Example:
     Build a record with a single bounding box annotation. The referenced
@@ -54,8 +55,8 @@ with guard_missing_extra("ldf"):
         Keypoint,
         KeypointAnnotation,
         KeypointMetadata,
+        KeypointSpec,
         KeypointState,
-        KeypointVisibility,
         NormalizedFloat,
         SegmentationAnnotation,
         load_annotation,
@@ -74,8 +75,8 @@ __all__ = [
     "Keypoint",
     "KeypointAnnotation",
     "KeypointMetadata",
+    "KeypointSpec",
     "KeypointState",
-    "KeypointVisibility",
     "NormalizedFloat",
     "ParquetRecord",
     "SegmentationAnnotation",

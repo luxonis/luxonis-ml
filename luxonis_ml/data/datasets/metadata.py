@@ -3,10 +3,6 @@
 from collections.abc import Iterable
 from typing import Literal
 
-from loguru import logger
-from pydantic import AliasChoices, Field
-from semver.version import Version
-
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.ldf import KeypointMetadata
 from luxonis_ml.typing import BaseModelExtraForbid
@@ -22,9 +18,7 @@ class Metadata(BaseModelExtraForbid):
         ldf_version: Luxonis Data Format version.
         classes: Class-index mappings per task.
         tasks: Task types per task name.
-        keypoint_metadata: Keypoint definitions per task. A dataset written
-            before LDF 3.0 stores them under ``"skeletons"``, which is
-            still accepted.
+        keypoint_metadata: The keypoints of each task.
         categorical_encodings: Integer encodings for categorical metadata.
         metadata_types: Metadata value types per metadata task.
         parent_dataset: Optional identifier of the source dataset this
@@ -36,18 +30,10 @@ class Metadata(BaseModelExtraForbid):
     ldf_version: str = str(LDF_VERSION)
     classes: dict[str, dict[str, int]] = {}
     tasks: dict[str, list[str]] = {}
-    keypoint_metadata: dict[str, KeypointMetadata] = Field(
-        default_factory=dict,
-        validation_alias=AliasChoices("keypoint_metadata", "skeletons"),
-    )
+    keypoint_metadata: dict[str, KeypointMetadata] = {}
     categorical_encodings: dict[str, dict[str, int]] = {}
     metadata_types: dict[str, Literal["float", "int", "str", "Category"]] = {}
     parent_dataset: str | None = None
-
-    @property
-    def version(self) -> Version:
-        """The parsed LDF version."""
-        return Version.parse(self.ldf_version, optional_minor_and_patch=True)
 
     def set_classes(
         self, classes: list[str] | dict[str, int], task: str
@@ -78,19 +64,18 @@ class Metadata(BaseModelExtraForbid):
         Returns:
             New metadata object containing merged classes, tasks, keypoint
             metadata, categorical encodings, metadata types, and source
-            information. It gets the newer of the two LDF versions.
+            information.
 
         Raises:
-            ValueError: If the two metadata objects use different major
-                LDF versions.
-            ValueError: If the two metadata objects give a task different
-                keypoint names.
+            ValueError: If the two metadata objects use different LDF
+                versions.
+            ValueError: If the two metadata objects give one keypoint
+                different sigmas.
 
         """
-        if self.version.major != other.version.major:
+        if self.ldf_version != other.ldf_version:  # pragma: no cover
             raise ValueError(
-                "Cannot merge metadata with different major LDF versions: "
-                f"{self.ldf_version} and {other.ldf_version}"
+                "Cannot merge metadata with different LDF versions"
             )
 
         merged_classes = {}
@@ -118,12 +103,13 @@ class Metadata(BaseModelExtraForbid):
             else:
                 merged_tasks[key] = other.tasks[key]
 
-        mine, theirs = self.keypoint_metadata, other.keypoint_metadata
-        merged_keypoint_metadata = {**mine, **theirs}
-        for task in set(mine) & set(theirs):
-            merged_keypoint_metadata[task] = _merge_keypoint_metadata(
-                mine[task], theirs[task], task
-            )
+        merged_keypoint_metadata = dict(self.keypoint_metadata)
+        for task, theirs in other.keypoint_metadata.items():
+            mine = merged_keypoint_metadata.get(task, KeypointMetadata())
+            try:
+                merged_keypoint_metadata[task] = mine.merge(theirs)
+            except ValueError as e:
+                raise ValueError(f"Task '{task}': {e}") from e
 
         merged_categorical_encodings = {}
         for key in set(self.categorical_encodings) | set(
@@ -156,7 +142,7 @@ class Metadata(BaseModelExtraForbid):
             merged_source = None
 
         return Metadata(
-            ldf_version=str(max(self.version, other.version)),
+            ldf_version=self.ldf_version,
             source=merged_source,
             classes=merged_classes,
             tasks=merged_tasks,
@@ -170,67 +156,3 @@ class Metadata(BaseModelExtraForbid):
             classes,
             key=lambda x: (0, "") if x == "background" else (1, x.lower()),
         )
-
-
-def _merge_keypoint_metadata(
-    mine: KeypointMetadata, theirs: KeypointMetadata, task: str
-) -> KeypointMetadata:
-    """Merge the keypoint metadata of one task from two datasets.
-
-    The target dataset keeps its keypoint order. The same names in
-    another order move the fields of the other dataset to that order, and
-    `LuxonisDataset.merge_with` moves its rows. The dataset that is merged
-    in wins a field that both set, and a field it leaves empty comes from
-    the target. An entry without labels names no keypoint, so it takes the
-    labels of the other dataset.
-
-    Args:
-        mine: Keypoint metadata of the target dataset.
-        theirs: Keypoint metadata of the dataset that is merged in.
-        task: Name of the task, used in the messages.
-
-    Returns:
-        The merged keypoint metadata.
-
-    Raises:
-        ValueError: If the two datasets give the task different keypoint
-            names. The positional names of keypoints without names count
-            as names.
-
-    """
-    if mine.labels and theirs.labels and mine.labels != theirs.labels:
-        # A repeated name has no single position to move a column to.
-        if (
-            sorted(mine.labels) != sorted(theirs.labels)
-            or mine.repeated_labels
-        ):
-            raise ValueError(
-                f"Task '{task}' has different keypoint names in the two "
-                f"datasets being merged: {', '.join(mine.labels)} and "
-                f"{', '.join(theirs.labels)}. Give both datasets the same "
-                "names with `LuxonisDataset.set_keypoint_metadata`."
-            )
-        # An older luxonis-ml stored edges without a range check. Such an
-        # edge has no position in the new order.
-        edges = [
-            edge
-            for edge in theirs.edges
-            if all(0 <= index < len(theirs.labels) for index in edge)
-        ]
-        if edges != theirs.edges:
-            logger.warning(
-                f"Task '{task}' of the dataset being merged in has edges out "
-                f"of range for its {len(theirs.labels)} keypoints. The merge "
-                "leaves them out."
-            )
-            theirs = theirs.model_copy(update={"edges": edges})
-        theirs = theirs.reindexed_to(mine.labels)
-
-    conflicts = mine.conflicting_fields(theirs)
-    if conflicts:
-        logger.warning(
-            f"Task '{task}' has a different {', '.join(conflicts)} in the "
-            "two datasets being merged. Keeping the one from the dataset "
-            "being merged in."
-        )
-    return theirs.filled_from(mine)

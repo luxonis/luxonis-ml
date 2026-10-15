@@ -250,11 +250,9 @@ Important:
 Keypoint Metadata
 =================
 
-Each keypoint task has one `luxonis_ml.ldf.KeypointMetadata` entry. It holds
-the keypoint names, the edges between the keypoints, and the sigmas of the
-object keypoint similarity (OKS) metric. Each keypoint of a record can give
-its part of them, and `LuxonisDataset.add` moves them into the entry of the
-task:
+Each keypoint task has one `luxonis_ml.ldf.KeypointMetadata`. It holds the
+keypoint names in column order, and the sigma and the connections of each
+keypoint. `LuxonisDataset.add` builds it from the keypoints of the records:
 
 .. python::
 
@@ -266,7 +264,7 @@ task:
                 "class": "person",
                 "keypoints": {
                     "keypoints": {
-                        "nose": (0.50, 0.30, 2),
+                        "nose": (0.50, 0.30),
                         "left_eye": {
                             "x": 0.45,
                             "y": 0.25,
@@ -285,13 +283,13 @@ task:
     dataset.add(pose_records())
     dataset.get_keypoint_metadata()["pose"].edges  # [(0, 1), (0, 2)]
 
-`LuxonisDataset.set_keypoint_metadata` sets the fields without records.
-
 A dataset from LDF 2.0 or 2.1 stores its keypoint names and edges under
-``skeletons``. It opens without a change, and reading it does not rewrite
-it. The first metadata write of such a dataset, for example
-`LuxonisDataset.add` or `LuxonisDataset.set_keypoint_metadata`, moves it to
-the current LDF version. An older luxonis-ml cannot open it after that.
+``skeletons``, and its keypoints as lists in the order of the names. When
+such a dataset opens, the migration turns the skeletons into keypoint
+metadata, and it keys the keypoints of the local rows by name. It does not
+change ``metadata.json``. The first metadata write, for example
+`LuxonisDataset.add`, moves the dataset to the current LDF version. An older
+luxonis-ml cannot open the dataset after the migration.
 `LuxonisDataset.export` with ``ldf_version`` writes a copy that an older
 luxonis-ml can import.
 

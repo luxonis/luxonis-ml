@@ -97,8 +97,7 @@ class SOLOParser(BaseParser):
             split_path: Directory with SOLO sequences and annotations.
 
         Returns:
-            Parser output containing annotation records, keypoint metadata,
-            and added images.
+            Parser output containing annotation records and added images.
 
         Raises:
             FileNotFoundError: If the split directory, annotation
@@ -132,11 +131,6 @@ class SOLOParser(BaseParser):
         keypoint_labels = self._get_solo_keypoint_names(
             annotation_definitions_dict
         )
-
-        skeletons = {
-            class_name: {"labels": keypoint_labels}
-            for class_name in bbox_class_names
-        }
 
         def generator() -> DatasetIterator:
             for sequence_path in split_path.glob("sequence*"):
@@ -319,15 +313,26 @@ class SOLOParser(BaseParser):
                                 for (
                                     keypoints_annotation
                                 ) in keypoint_annotations:
-                                    keypoints = []
+                                    triplets = []
                                     for keypoint in keypoints_annotation[
                                         "keypoints"
                                     ]:
                                         x, y = keypoint["location"]
                                         visibility = keypoint["state"]
-                                        keypoints.append(
+                                        triplets.append(
                                             (x / img_w, y / img_h, visibility)
                                         )
+                                    keypoints = (
+                                        dict(
+                                            zip(
+                                                keypoint_labels,
+                                                triplets,
+                                                strict=True,
+                                            )
+                                        )
+                                        if keypoint_labels
+                                        else triplets
+                                    )
 
                                     instance_id = keypoints_annotation[
                                         "instanceId"
@@ -391,7 +396,7 @@ class SOLOParser(BaseParser):
                                 "annotation": annotation_entry,
                             }
 
-        return generator(), skeletons, []
+        return generator(), []
 
     def _get_solo_annotation_types(
         self, annotation_definitions_dict: dict[str, Any]

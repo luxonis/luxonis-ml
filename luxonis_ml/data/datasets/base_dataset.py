@@ -5,7 +5,6 @@ from collections.abc import Iterator, Mapping, Sequence
 from typing import TypeAlias
 
 from semver.version import Version
-from typing_extensions import deprecated
 
 from luxonis_ml.data.datasets.source import LuxonisSource
 from luxonis_ml.ldf import DatasetRecord, KeypointMetadata
@@ -16,9 +15,6 @@ DATASETS_REGISTRY: Registry[type["BaseDataset"]] = Registry(name="datasets")
 
 
 DatasetIterator: TypeAlias = Iterator[dict | DatasetRecord]
-
-KeypointPair: TypeAlias = tuple[int, int] | tuple[str, str]
-"""A pair of keypoints, given either by index or by name."""
 
 
 class BaseDataset(
@@ -115,127 +111,16 @@ class BaseDataset(
         ...
 
     @abstractmethod
-    def set_keypoint_metadata(
-        self,
-        labels: list[str] | None = None,
-        edges: list[KeypointPair] | None = None,
-        task: str | None = None,
-        *,
-        sigmas: list[float] | None = None,
-    ) -> None:
-        """Set the keypoint metadata of one task or of every task.
-
-        Only the fields that you provide are replaced, so a definition can
-        be built up over several calls. New labels are the exception:
-
-            - Edges and sigmas refer to the keypoints by position. Labels
-              that change a unique name or the number of keypoints thus
-              drop the stored values of these fields.
-            - `add` gives keypoints without names the labels ``"0"``,
-              ``"1"``, ... and joins them in a chain. Names for these
-              keypoints drop the edges of that chain, also when a record
-              or an earlier call set the same edges.
-
-        To keep a field, give it in the same call as the labels.
-
-        If all the fields of a task are empty after the call, the task has
-        no keypoint metadata.
-
-        Prefer the records. Each keypoint of a record can give its
-        ``sigma`` and ``connected_to``, and `add` moves them here.
-
-        For example:
-
-        .. python::
-
-            dataset.set_keypoint_metadata(
-                labels=["right hand", "right shoulder", ...],
-                edges=[[0, 1], [4, 5], ...]
-            )
-
-        Edges may also refer to keypoints by name:
-
-        .. python::
-
-            dataset.set_keypoint_metadata(
-                labels=["nose", "left_eye", "right_eye"],
-                edges=[("nose", "left_eye"), ("nose", "right_eye")],
-            )
-
-        Args:
-            labels: Optional keypoint names.
-            edges: Optional edges between keypoints.
-            task: Optional task to update. If omitted, all tasks are
-                updated.
-            sigmas: Optional per-keypoint OKS standard deviations.
-
-        Raises:
-            ValueError: If you provide none of the fields, or if a field
-                does not fit the labels of a task. For a task without
-                labels, the call checks the edges against the widest
-                stored row.
-            ValueError: If ``labels`` repeats a name, or if an edge refers
-                to a name that is not a label.
-
-        """
-        ...
-
-    @abstractmethod
     def get_keypoint_metadata(self) -> dict[str, KeypointMetadata]:
-        """Return the keypoint definition of each task.
+        """Return the keypoints of each task.
+
+        `add` builds them from the keypoints of the records.
 
         Returns:
             Copies of the keypoint metadata keyed by task name.
 
         """
         ...
-
-    @deprecated("Use `set_keypoint_metadata` instead.")
-    def set_skeletons(
-        self,
-        labels: list[str] | None = None,
-        edges: list[KeypointPair] | None = None,
-        task: str | None = None,
-    ) -> None:
-        """Set the keypoint labels and edges of one task or of every task.
-
-        It calls `set_keypoint_metadata`, so the stored fields follow the
-        rules of that method.
-
-        .. deprecated:: 0.11.0
-            Use `set_keypoint_metadata`, or declare the keypoints on the
-            records.
-
-        Args:
-            labels: Optional keypoint names.
-            edges: Optional edges between keypoints.
-            task: Optional task to update. If omitted, all tasks are
-                updated.
-
-        Raises:
-            ValueError: If you provide neither ``labels`` nor ``edges``, or
-                if a field does not fit the labels of a task.
-
-        """
-        self.set_keypoint_metadata(labels, edges, task)
-
-    @deprecated("Use `get_keypoint_metadata` instead.")
-    def get_skeletons(
-        self,
-    ) -> dict[str, tuple[list[str], list[tuple[int, int]]]]:
-        """Return the keypoint labels and edges of each task.
-
-        .. deprecated:: 0.11.0
-            Use `get_keypoint_metadata`.
-
-        Returns:
-            Keypoint labels and edges keyed by task name.
-
-        """
-        return {
-            task: (entry.labels, entry.edges)
-            for task, entry in self.get_keypoint_metadata().items()
-        }
 
     @abstractmethod
     def add(
@@ -369,6 +254,6 @@ class BaseDataset(
 
         """
         return {
-            task: len(task_keypoints.labels)
-            for task, task_keypoints in self.get_keypoint_metadata().items()
+            task: len(metadata.keypoints)
+            for task, metadata in self.get_keypoint_metadata().items()
         }

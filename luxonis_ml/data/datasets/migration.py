@@ -1,14 +1,18 @@
 """Migration of datasets that an older LDF version wrote."""
 
+import json
 from collections import defaultdict
+from collections.abc import Mapping
 from typing import Any, Final, Literal, cast, overload
 
 import polars as pl
+from loguru import logger
 from semver.version import Version
 from typing_extensions import TypedDict
 
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
+from luxonis_ml.ldf import KeypointMetadata, KeypointSpec
 
 from .metadata import Metadata
 
@@ -34,8 +38,8 @@ LDF_1_0_0_TASK_TYPES: Final[dict[str, str]] = {
 class LDF_1_0_0_Skeleton(TypedDict):
     """Keypoint skeleton as LDF ``1.0.0`` stored it.
 
-    The layout is frozen: these are the raw values read off disk, which
-    `Metadata` validates into a `luxonis_ml.ldf.KeypointMetadata`.
+    LDF 2.x stores the same layout. `migrate_metadata` turns it into a
+    `luxonis_ml.ldf.KeypointMetadata`.
 
     Attributes:
         labels: Keypoint names in index order.
@@ -146,14 +150,18 @@ def migrate_metadata(
 ) -> Metadata:
     """Migrate stored metadata to the schema this version reads.
 
-    LDF 2.x metadata has the current schema, so only its version stamp
-    changes. LDF ``1.0.0`` metadata keeps its stamp, and
-    `migrate_dataframe` converts its annotation rows on every load.
+    LDF 2.x and ``1.0.0`` store the keypoints of a task as a ``skeletons``
+    entry with a list of labels and index edges. It becomes the
+    `KeypointMetadata` of the task. LDF 2.x metadata gets the current
+    version stamp, and `migrate_keypoint_rows` keys its keypoint rows by
+    name. LDF ``1.0.0`` metadata keeps its stamp, and `migrate_dataframe`
+    converts its annotation rows on every load.
 
     Args:
         metadata: Metadata dictionary as it was stored.
-        df: Optional annotation dataframe used to infer task names for
-            non-default datasets. Only LDF ``1.0.0`` needs it.
+        df: Optional annotation dataframe. LDF ``1.0.0`` takes the task
+            names of a non-default dataset from it, and LDF 2.x takes the
+            keypoint count of each task.
         version: LDF version the metadata was written by.
 
     Returns:
@@ -164,13 +172,122 @@ def migrate_metadata(
             ``df`` is ``None``.
 
     """
+    skeletons = metadata.pop("skeletons", None) or {}
     if version.major == 2:
-        # The 2.x schema is current. On the old stamp, every load
-        # would run `migrate_dataframe` on these rows.
+        # The 2.x schema is current apart from the skeletons. On the old
+        # stamp, every load would run `migrate_dataframe` on these rows.
+        widths = {} if df is None else _keypoint_row_widths(df)
         return Metadata.model_validate(
-            {**metadata, "ldf_version": str(LDF_VERSION)}
+            {
+                **metadata,
+                "ldf_version": str(LDF_VERSION),
+                "keypoint_metadata": _migrate_skeletons(skeletons, widths),
+            }
         )
-    return _migrate_ldf_1_0_0(cast(LDF_1_0_0_MetadataDict, metadata), df)
+    migrated = _migrate_ldf_1_0_0(cast(LDF_1_0_0_MetadataDict, metadata), df)
+    return migrated.model_copy(
+        update={"keypoint_metadata": _migrate_skeletons(skeletons, {})}
+    )
+
+
+def migrate_keypoint_rows(
+    df: pl.DataFrame, keypoint_metadata: Mapping[str, KeypointMetadata]
+) -> pl.DataFrame | None:
+    """Key the positional keypoint rows of LDF 2.x by name.
+
+    LDF 2.x stores the keypoints of a row as a list in the order of the
+    skeleton labels. LDF 3.0 stores them by name.
+
+    Args:
+        df: The annotation rows.
+        keypoint_metadata: The migrated keypoint metadata of each task.
+
+    Returns:
+        The migrated rows, or ``None`` if no keypoint row is a list.
+
+    """
+    positional = (pl.col("task_type") == "keypoints") & pl.col(
+        "annotation"
+    ).str.contains(r'^\{"keypoints":\s*\[')
+    if not df.select(positional.any()).item():
+        return None
+
+    def named(row: dict[str, Any]) -> str | None:
+        if row["task_type"] != "keypoints" or row["annotation"] is None:
+            return row["annotation"]
+        keypoints = json.loads(row["annotation"])["keypoints"]
+        if not isinstance(keypoints, list):
+            return row["annotation"]
+        labels = keypoint_metadata[row["task_name"]].labels
+        return json.dumps(
+            {"keypoints": dict(zip(labels, keypoints, strict=False))}
+        )
+
+    return df.with_columns(
+        pl.struct("task_name", "task_type", "annotation")
+        .map_elements(named, return_dtype=pl.String)
+        .alias("annotation")
+    )
+
+
+def _migrate_skeletons(
+    skeletons: Mapping[str, LDF_1_0_0_Skeleton], widths: Mapping[str, int]
+) -> dict[str, KeypointMetadata]:
+    """Turn stored skeletons into the keypoint metadata of each task.
+
+    A row with more keypoints than the labels names the others by
+    position. Repeated names give every keypoint of the task its position
+    as its name, and an edge out of range is dropped. Both log a warning.
+    """
+    migrated = {}
+    for task in dict.fromkeys([*skeletons, *widths]):
+        skeleton = skeletons.get(task) or {}
+        labels = list(skeleton.get("labels") or [])
+        n_keypoints = max(len(labels), widths.get(task, 0))
+        names = labels + [str(i) for i in range(len(labels), n_keypoints)]
+        if len(set(names)) < len(names):
+            logger.warning(
+                f"The skeleton of task '{task}' repeats keypoint names. The "
+                f"keypoints get the names 0 to {n_keypoints - 1}."
+            )
+            names = [str(i) for i in range(n_keypoints)]
+        connections: dict[str, list[str]] = {name: [] for name in names}
+        for a, b in skeleton.get("edges") or []:
+            if not (0 <= a < n_keypoints and 0 <= b < n_keypoints):
+                logger.warning(
+                    f"The skeleton of task '{task}' has the edge ({a}, {b}) "
+                    f"for {n_keypoints} keypoints. The edge is dropped."
+                )
+                continue
+            connections[names[a]].append(names[b])
+        if names:
+            migrated[task] = KeypointMetadata(
+                keypoints={
+                    name: KeypointSpec(connected_to=targets)
+                    for name, targets in connections.items()
+                }
+            )
+    return migrated
+
+
+def _keypoint_row_widths(df: pl.LazyFrame) -> dict[str, int]:
+    """Return the keypoint count of the widest positional row of each task."""
+    payload = pl.Struct({"keypoints": pl.List(pl.List(pl.Float64))})
+    widths = (
+        df.filter(pl.col("task_type") == "keypoints")
+        .group_by("task_name")
+        .agg(
+            # A shard without annotations stores the column as nulls.
+            pl.col("annotation")
+            .cast(pl.String)
+            .str.json_decode(payload)
+            .struct.field("keypoints")
+            .list.len()
+            .max()
+        )
+        .collect()
+    )
+    return dict(widths.iter_rows())
 
 
 def _migrate_ldf_1_0_0(

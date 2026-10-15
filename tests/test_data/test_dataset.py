@@ -23,7 +23,6 @@ from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.ldf import KeypointMetadata
 from luxonis_ml.typing import Params
 
 from .utils import (
@@ -59,52 +58,53 @@ def test_dataset(
         )
         assert set(dataset.get_task_names()) == {"coco"}
         assert dataset.get_classes().get("coco") == {"person": 0}
-        assert dataset.get_keypoint_metadata() == {
-            "coco": KeypointMetadata(
-                labels=[
-                    "nose",
-                    "left_eye",
-                    "right_eye",
-                    "left_ear",
-                    "right_ear",
-                    "left_shoulder",
-                    "right_shoulder",
-                    "left_elbow",
-                    "right_elbow",
-                    "left_wrist",
-                    "right_wrist",
-                    "left_hip",
-                    "right_hip",
-                    "left_knee",
-                    "right_knee",
-                    "left_ankle",
-                    "right_ankle",
-                ],
-                edges=sorted(
-                    [
-                        (15, 13),
-                        (13, 11),
-                        (16, 14),
-                        (14, 12),
-                        (11, 12),
-                        (5, 11),
-                        (6, 12),
-                        (5, 6),
-                        (5, 7),
-                        (6, 8),
-                        (7, 9),
-                        (8, 10),
-                        (1, 2),
-                        (0, 1),
-                        (0, 2),
-                        (1, 3),
-                        (2, 4),
-                        (3, 5),
-                        (4, 6),
-                    ]
-                ),
-            ),
-        }
+        keypoint_metadata = dataset.get_keypoint_metadata()
+        assert list(keypoint_metadata) == ["coco"]
+        assert keypoint_metadata["coco"].labels == [
+            "nose",
+            "left_eye",
+            "right_eye",
+            "left_ear",
+            "right_ear",
+            "left_shoulder",
+            "right_shoulder",
+            "left_elbow",
+            "right_elbow",
+            "left_wrist",
+            "right_wrist",
+            "left_hip",
+            "right_hip",
+            "left_knee",
+            "right_knee",
+            "left_ankle",
+            "right_ankle",
+        ]
+        # COCO joins the keypoints of the skeleton in both directions, and
+        # the metadata gives each edge once, with the lower index first.
+        assert keypoint_metadata["coco"].edges == sorted(
+            (min(edge), max(edge))
+            for edge in [
+                (15, 13),
+                (13, 11),
+                (16, 14),
+                (14, 12),
+                (11, 12),
+                (5, 11),
+                (6, 12),
+                (5, 6),
+                (5, 7),
+                (6, 8),
+                (7, 9),
+                (8, 10),
+                (1, 2),
+                (0, 1),
+                (0, 2),
+                (1, 3),
+                (2, 4),
+                (3, 5),
+                (4, 6),
+            ]
+        )
         assert dataset.get_n_keypoints() == {"coco": 17}
 
         assert dataset.identifier == dataset_name
@@ -172,9 +172,6 @@ def test_dataset_fail(dataset_name: str, tempdir: Path):
             }
 
     dataset = create_dataset(dataset_name, generator())
-
-    with pytest.raises(ValueError, match="Must provide either"):
-        dataset.set_keypoint_metadata()
 
     with pytest.raises(ValueError, match="Must set delete_remote"):
         dataset.delete_dataset()

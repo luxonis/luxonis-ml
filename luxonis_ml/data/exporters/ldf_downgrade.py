@@ -5,11 +5,10 @@ luxonis-ml fails to validate on an older install -- LDF 2.1 added
 ``sample_metadata``, which nothing older accepts. Exporting to an older
 version therefore drops every field introduced above it.
 
-Annotations forbid extra fields as well, so the same holds one level
-down: LDF 3.0 keys the keypoints by name, and a named keypoint can give its
-``sigma`` and ``connected_to``. An older version reads only a list of
-triplets, so the downgrade turns the mapping back into a list in the order
-of the keypoint names, and drops these fields.
+LDF 3.0 keys the keypoints by name, and each keypoint can give its
+``state``, ``sigma`` and ``connected_to``. An older version reads only a
+list of ``(x, y, visibility)`` triplets, so the downgrade writes the
+keypoints as a list, in the order of the task.
 """
 
 from collections import Counter
@@ -19,6 +18,7 @@ from loguru import logger
 from semver.version import Version
 
 from luxonis_ml.data.utils.constants import LDF_VERSION
+from luxonis_ml.ldf import Keypoint
 
 
 def _parse(version: str) -> Version:
@@ -31,13 +31,8 @@ _ADDED_FIELDS: Final[dict[str, Version]] = {
     "sample_metadata": _parse("2.1"),
 }
 
-#: The same for fields of a single annotation, keyed by the task type
-#: that holds them and the field name.
-_ADDED_ANNOTATION_FIELDS: Final[dict[tuple[str, str], Version]] = {}
-
-#: The version that started to key the keypoints by name. An older one
-#: reads them as a plain list.
-_KEYPOINT_NAMES_ADDED_IN: Final[Version] = _parse("3.0")
+#: The version that keys the keypoints by name.
+_NAMED_KEYPOINTS: Final[Version] = _parse("3.0")
 
 #: LDF versions the native exporter can write, newest first.
 SUPPORTED_EXPORT_VERSIONS: Final[tuple[Version, ...]] = (
@@ -96,8 +91,6 @@ class LDFDowngrader:
 
     Attributes:
         target_version: LDF version the records are rewritten to.
-        keeps_keypoint_names: Whether the target version keys the
-            keypoints by name.
 
     """
 
@@ -108,39 +101,20 @@ class LDFDowngrader:
             for field, added_in in _ADDED_FIELDS.items()
             if added_in > target_version
         ]
-        self._to_drop_from_annotation = [
-            path
-            for path, added_in in _ADDED_ANNOTATION_FIELDS.items()
-            if added_in > target_version
-        ]
-        self.keeps_keypoint_names = target_version >= _KEYPOINT_NAMES_ADDED_IN
+        self._lists_keypoints = target_version < _NAMED_KEYPOINTS
         self._dropped: Counter[str] = Counter()
         self._n_records = 0
 
     def __call__(self, record: dict[str, Any]) -> dict[str, Any]:
-        """Rewrite one exported record in place and return it.
-
-        Args:
-            record: Exported native record.
-
-        Returns:
-            The same record, without the fields that the target version
-            does not know.
-
-        """
+        """Rewrite one exported record in place and return it."""
         self._n_records += 1
         for field in self._to_drop:
             # An empty value is no loss, so drop it but do not report it.
             if record.pop(field, None):
                 self._dropped[field] += 1
-
-        annotation = record.get("annotation")
-        if isinstance(annotation, dict):
-            for task_type, field in self._to_drop_from_annotation:
-                task = annotation.get(task_type)
-                if isinstance(task, dict) and task.pop(field, None):
-                    self._dropped[f"{task_type}.{field}"] += 1
-            self._strip_keypoint_names(annotation)
+        keypoints = (record.get("annotation") or {}).get("keypoints")
+        if self._lists_keypoints and keypoints is not None:
+            self._list_keypoints(keypoints)
         return record
 
     def log_summary(self) -> None:
@@ -151,33 +125,16 @@ class LDFDowngrader:
                 f"from {n_dropped} of {self._n_records} records."
             )
 
-    def _strip_keypoint_names(self, annotation: dict[str, Any]) -> None:
-        """Turn named keypoints back into a positional list.
-
-        LDF 3.0 keys the keypoints by name. An older version reads them as
-        a plain list, so a mapping fails to validate there.
-        """
-        if self.keeps_keypoint_names:
-            return
-        keypoints = annotation.get("keypoints")
-        if not isinstance(keypoints, dict):
-            return
-        values = keypoints.get("keypoints")
-        if isinstance(values, dict):
-            triplets = []
-            for value in values.values():
-                if isinstance(value, dict):
-                    value = [
-                        value["x"],
-                        value["y"],
-                        value.get("visibility", 2),
-                    ]
-                triplets.append(value)
-            if any(
-                isinstance(value, dict)
-                and value.keys() - {"x", "y", "visibility"}
-                for value in values.values()
-            ):
-                self._dropped["keypoints.sigma_and_connected_to"] += 1
-            keypoints["keypoints"] = triplets
-            self._dropped["keypoints.names"] += 1
+    def _list_keypoints(self, keypoints: dict[str, Any]) -> None:
+        """Write named keypoints as triplets, and count what is lost."""
+        named: dict[str, dict[str, Any]] = keypoints["keypoints"]
+        keypoints["keypoints"] = [
+            [keypoint.x, keypoint.y, int(keypoint.state)]
+            for keypoint in map(Keypoint.model_validate, named.values())
+        ]
+        self._dropped["keypoints.names"] += 1
+        if any(
+            value.keys() & {"sigma", "connected_to"}
+            for value in named.values()
+        ):
+            self._dropped["keypoints.sigma_and_connected_to"] += 1

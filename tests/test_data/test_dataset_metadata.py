@@ -13,7 +13,14 @@ def basic_metadata() -> Metadata:
         classes={"task1": {"class1": 0, "class2": 1}},
         tasks={"task1": ["subtask1", "subtask2"]},
         keypoint_metadata={
-            "task1": KeypointMetadata(labels=["head", "tail"], edges=[(0, 1)])
+            "task1": KeypointMetadata.model_validate(
+                {
+                    "keypoints": {
+                        "head": {"sigma": 0.05},
+                        "tail": {"connected_to": ["head"]},
+                    }
+                }
+            )
         },
         categorical_encodings={"cat1": {"a": 0, "b": 1}},
         metadata_types={"field1": "str", "field2": "int"},
@@ -21,8 +28,8 @@ def basic_metadata() -> Metadata:
 
 
 def test_merge_with_different_versions():
-    """Test that merging metadata with different major LDF versions
-    raises ValueError.
+    """Test that merging metadata with different LDF versions raises
+    ValueError.
     """
     metadata1 = Metadata(
         ldf_version="2.0.0",
@@ -34,7 +41,7 @@ def test_merge_with_different_versions():
         metadata_types={},
     )
     metadata2 = Metadata(
-        ldf_version="1.0.0",
+        ldf_version="2.0",
         source=None,
         classes={},
         tasks={},
@@ -44,26 +51,9 @@ def test_merge_with_different_versions():
     )
 
     with pytest.raises(
-        ValueError,
-        match="Cannot merge metadata with different major LDF versions",
+        ValueError, match="Cannot merge metadata with different LDF versions"
     ):
         metadata1.merge_with(metadata2)
-
-
-@pytest.mark.parametrize(
-    ("version", "other_version"),
-    [("2.0.0", "2.1.0"), ("2.1.0", "2.0"), ("2.1", "2.1.0")],
-)
-def test_merge_keeps_the_newer_minor_version(version: str, other_version: str):
-    """Datasets of one major LDF version merge.
-
-    The merged metadata holds content of both datasets, so it gets the
-    newer version.
-    """
-    metadata = Metadata(source=None, ldf_version=version)
-    other = Metadata(source=None, ldf_version=other_version)
-
-    assert metadata.merge_with(other).ldf_version == "2.1.0"
 
 
 def test_merge_classes(basic_metadata: Metadata):
@@ -187,81 +177,6 @@ def test_merge_with_none_sources():
     assert merged.source == source
 
 
-def test_merge_keeps_keypoint_fields_the_other_dataset_omits(
-    basic_metadata: Metadata,
-):
-    """Test that a merge fills the empty keypoint fields.
-
-    A plainer dataset that merges in must not drop the edges and the
-    sigmas of the target. The fields hold indices into the labels, so
-    they only carry over while both datasets list the same labels in the
-    same order.
-    """
-    other_metadata = Metadata(
-        source=None,
-        ldf_version="2.0.0",
-        keypoint_metadata={
-            "task1": KeypointMetadata(
-                labels=["head", "tail"], sigmas=[0.05, 0.05]
-            )
-        },
-    )
-
-    merged = basic_metadata.merge_with(other_metadata)
-
-    assert merged.keypoint_metadata["task1"] == KeypointMetadata(
-        labels=["head", "tail"], edges=[(0, 1)], sigmas=[0.05, 0.05]
-    )
-
-
-def test_merge_leaves_out_a_legacy_edge_that_it_cannot_move(
-    basic_metadata: Metadata, warnings_log: list[str]
-):
-    """An older luxonis-ml stored edges without a range check.
-
-    A merge moves the edges of the other dataset to the target order. An
-    edge out of range has no new position.
-    """
-    other_metadata = Metadata(
-        source=None,
-        ldf_version="2.0.0",
-        keypoint_metadata={
-            "task1": KeypointMetadata(
-                labels=["tail", "head"], edges=[(0, 1), (1, 2)]
-            )
-        },
-    )
-
-    merged = basic_metadata.merge_with(other_metadata)
-
-    assert merged.keypoint_metadata["task1"] == KeypointMetadata(
-        labels=["head", "tail"], edges=[(0, 1)]
-    )
-    assert any("out of range" in message for message in warnings_log)
-
-
-@pytest.mark.parametrize("unnamed_side", ["mine", "theirs"])
-def test_merge_keeps_the_labels_that_only_one_dataset_has(unnamed_side: str):
-    """An empty list of labels is not a different list of labels.
-
-    An older luxonis-ml could store edges without labels, so a merge with
-    such a dataset must keep the names of the other one.
-    """
-    named = KeypointMetadata(labels=["head", "tail"], sigmas=[0.05, 0.05])
-    unnamed = KeypointMetadata(edges=[(0, 1)])
-    mine, theirs = (
-        (unnamed, named) if unnamed_side == "mine" else (named, unnamed)
-    )
-
-    merged = Metadata(
-        source=None, keypoint_metadata={"task1": mine}
-    ).merge_with(Metadata(source=None, keypoint_metadata={"task1": theirs}))
-
-    assert merged.keypoint_metadata["task1"] == KeypointMetadata(
-        labels=["head", "tail"], edges=[(0, 1)], sigmas=[0.05, 0.05]
-    )
-
-
 def test_merge_metadata_types(basic_metadata: Metadata):
     """Test merging of metadata types."""
     other_metadata = Metadata(
@@ -279,3 +194,47 @@ def test_merge_metadata_types(basic_metadata: Metadata):
     assert merged.metadata_types["field1"] == "str"
     assert merged.metadata_types["field2"] == "int"
     assert merged.metadata_types["field3"] == "float"
+
+
+def test_merge_adds_the_new_keypoint_names_after_the_own(
+    basic_metadata: Metadata,
+):
+    other = Metadata(
+        source=None,
+        ldf_version="2.0.0",
+        keypoint_metadata={
+            "task1": KeypointMetadata.model_validate(
+                {
+                    "keypoints": {
+                        "fin": {},
+                        "tail": {
+                            "sigma": 0.07,
+                            "connected_to": ["fin"],
+                        },
+                    }
+                }
+            )
+        },
+    )
+
+    merged = basic_metadata.merge_with(other).keypoint_metadata["task1"]
+
+    assert merged.labels == ["head", "tail", "fin"]
+    assert merged.edges == [(0, 1), (1, 2)]
+    assert merged.sigmas == []
+    assert merged.keypoints["tail"].sigma == 0.07
+
+
+def test_merge_rejects_two_sigmas_for_one_keypoint(basic_metadata: Metadata):
+    other = Metadata(
+        source=None,
+        ldf_version="2.0.0",
+        keypoint_metadata={
+            "task1": KeypointMetadata.model_validate(
+                {"keypoints": {"head": {"sigma": 0.08}}}
+            )
+        },
+    )
+
+    with pytest.raises(ValueError, match=r"Task 'task1'.*'head'"):
+        basic_metadata.merge_with(other)

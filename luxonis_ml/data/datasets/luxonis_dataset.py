@@ -21,7 +21,6 @@ import polars as pl
 import rich.progress
 from filelock import FileLock
 from loguru import logger
-from pydantic_core import to_json
 from rich.progress import Progress
 from semver.version import Version
 from typing_extensions import Self, override
@@ -66,7 +65,6 @@ from luxonis_ml.data.utils import (
     warn_on_duplicates,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
-from luxonis_ml.data.utils.data_utils import get_keypoint_row_widths
 from luxonis_ml.data.utils.ldf_equivalence import ldf_equivalent
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.enums.enums import DatasetType
@@ -74,16 +72,18 @@ from luxonis_ml.ldf import (
     Category,
     DatasetRecord,
     Detection,
-    Keypoint,
     KeypointMetadata,
-    load_annotation,
 )
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import LuxonisFileSystem, environ
 
-from .base_dataset import BaseDataset, DatasetIterator, KeypointPair
+from .base_dataset import BaseDataset, DatasetIterator
 from .metadata import Metadata
-from .migration import migrate_dataframe, migrate_metadata
+from .migration import (
+    migrate_dataframe,
+    migrate_keypoint_rows,
+    migrate_metadata,
+)
 from .source import LuxonisComponent, LuxonisSource
 from .utils import (
     find_filepath_group_id,
@@ -206,14 +206,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         )
 
     @property
-    @override
-    def version(self) -> Version:
-        """The version of the underlying LDF that the dataset adheres
-        to.
-        """
-        return self._metadata.version
-
-    @property
     def metadata(self) -> Metadata:
         """Get the dataset metadata.
 
@@ -222,6 +214,15 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         """
         return self._metadata.model_copy(deep=True)
+
+    @cached_property
+    def version(self) -> Version:
+        """The version of the underlying LDF that the dataset adheres
+        to.
+        """
+        return Version.parse(
+            self._metadata.ldf_version, optional_minor_and_patch=True
+        )
 
     @property
     def source(self) -> LuxonisSource:
@@ -438,13 +439,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     ) -> "LuxonisDataset":
         """Merge another dataset into this or a new dataset.
 
-        When both datasets name the keypoints of a task, the names must
-        be the same, in any order. The names ``"0"``, ``"1"``, ... that
-        `add` gives keypoints without names count as names. The merged
-        dataset keeps the keypoint order of this dataset, and the
-        keypoints of ``other`` move to that order. When both datasets set
-        a keypoint field differently, the value of ``other`` wins, with a
-        warning.
+        The keypoints of a task merge by name. The names of ``other`` that
+        this dataset does not have come after its own names.
 
         Args:
             other: Dataset to merge into this dataset.
@@ -463,9 +459,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 different bucket storage types.
             ValueError: If ``inplace`` is ``False`` but no name for the new
                 dataset is provided.
-            ValueError: If the datasets have different major LDF versions.
-            ValueError: If the datasets give a task different keypoint
-                names.
+            ValueError: If the datasets have different LDF versions.
+            ValueError: If the datasets give one keypoint different sigmas.
             FileNotFoundError: If either dataset is empty.
 
         """
@@ -487,11 +482,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             self.pull_from_cloud(UpdateMode.MISSING)
 
         df_self = self._load_df_offline(raise_when_empty=True)
-        df_other = _in_keypoint_order(
-            other._load_df_offline(raise_when_empty=True),
-            other._metadata.keypoint_metadata,
-            merged_metadata.keypoint_metadata,
-        )
+        df_other = other._load_df_offline(raise_when_empty=True)
         duplicate_group_ids = set(df_self["group_id"]).intersection(
             df_other["group_id"]
         )
@@ -807,7 +798,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         return processed
 
     def _write_metadata(self) -> None:
-        """Write the metadata file locally and to the remote copy."""
         path = self._metadata_path / "metadata.json"
         path.write_text(self._metadata.model_dump_json(indent=4))
         with suppress(shutil.SameFileError):
@@ -866,11 +856,20 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 optional_minor_and_patch=True,
             )
             if version.major != LDF_VERSION.major:
-                return migrate_metadata(
+                metadata = migrate_metadata(
                     metadata_json,
                     self._load_df_offline(lazy=True, attempt_migration=False),
                     version,
                 )
+                # Like the group IDs above, the keypoint rows move to the
+                # current layout once, in the local copy.
+                if version.major == 2 and df is not None:
+                    migrated = migrate_keypoint_rows(
+                        df, metadata.keypoint_metadata
+                    )
+                    if migrated is not None:
+                        self._save_df_offline(migrated)
+                return metadata
             return Metadata(**metadata_json)
         return Metadata(
             source=LuxonisSource(),
@@ -931,99 +930,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         return self._metadata.classes
 
     @override
-    def set_keypoint_metadata(
-        self,
-        labels: list[str] | None = None,
-        edges: list[KeypointPair] | None = None,
-        task: str | None = None,
-        *,
-        sigmas: list[float] | None = None,
-    ) -> None:
-        updates = {
-            field: value
-            for field, value in (
-                ("labels", labels),
-                ("edges", edges),
-                ("sigmas", sigmas),
-            )
-            if value is not None
-        }
-        if not updates:
-            raise ValueError(
-                "Must provide either keypoint names, edges or sigmas"
-            )
-
-        tasks = self.get_task_names() if task is None else [task]
-        # No task changes until every task passes the checks.
-        updated: dict[str, KeypointMetadata] = {}
-        row_widths: dict[str, int] | None = None
-        for t in tasks:
-            current = self._metadata.keypoint_metadata.get(t)
-            kept = {}
-            if current is not None and not _renames_keypoints(current, labels):
-                # Names for placeholder keypoints keep the stored fields,
-                # but not the chain edges that `add` invented.
-                named = labels is not None and labels != current.labels
-                kept = current.model_dump(
-                    exclude=_placeholder_fields(current) if named else None
-                )
-            keypoint_metadata = KeypointMetadata.model_validate(
-                {**kept, **updates}
-            )
-            # Stored names from an older luxonis-ml can repeat. A call that
-            # gives no names keeps them.
-            if labels is not None:
-                keypoint_metadata.validate_labels(f"task '{t}'")
-            # Stored edges from an older luxonis-ml can be out of range, so
-            # only the edges of the call are checked.
-            if keypoint_metadata.labels:
-                keypoint_metadata.validate_for(
-                    len(keypoint_metadata.labels),
-                    f"task '{t}'",
-                    check_edges=edges is not None,
-                )
-            elif edges is not None:
-                if row_widths is None:
-                    df = self._load_df_offline(lazy=True)
-                    row_widths = (
-                        {} if df is None else get_keypoint_row_widths(df)
-                    )
-                _check_edges_without_labels(
-                    keypoint_metadata, row_widths.get(t), t
-                )
-            updated[t] = keypoint_metadata
-
-        for t, keypoint_metadata in updated.items():
-            # An entry without values describes no keypoints.
-            if keypoint_metadata == KeypointMetadata():
-                self._metadata.keypoint_metadata.pop(t, None)
-            else:
-                self._metadata.keypoint_metadata[t] = keypoint_metadata
-        self._write_metadata()
-
-    @override
     def get_keypoint_metadata(self) -> dict[str, KeypointMetadata]:
         return {
             task: task_keypoints.model_copy(deep=True)
             for task, task_keypoints in self._metadata.keypoint_metadata.items()
         }
-
-    @override
-    def get_n_keypoints(self) -> dict[str, int]:
-        """Return the number of keypoints for each task.
-
-        A task without labels counts the keypoints of its widest stored
-        row.
-
-        Returns:
-            Number of keypoints keyed by task name.
-
-        """
-        n_keypoints = self._keypoint_row_widths()
-        for task, task_keypoints in self._metadata.keypoint_metadata.items():
-            if task_keypoints.labels or task not in n_keypoints:
-                n_keypoints[task] = len(task_keypoints.labels)
-        return n_keypoints
 
     @override
     def get_tasks(self) -> dict[str, list[str]]:
@@ -1317,43 +1228,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 uuid_dict=uuid_dict,
             )
 
-    def _alignment_keypoint_metadata(
-        self, declared: dict[str, KeypointMetadata]
-    ) -> dict[str, KeypointMetadata]:
-        """Return the keypoint metadata the payload is aligned against.
-
-        The stored keypoint metadata owns the label set of a task, so a
-        record can name a subset of it. Placeholder names that an earlier
-        `add` generated own nothing, so the records win over those. An
-        entry without names aligns nothing, so it is not in the result.
-        Stored names that repeat are the exception. They name no keypoint,
-        but they still set the number of keypoints of the task.
-        """
-        aligned = {
-            task: entry for task, entry in declared.items() if entry.has_names
-        }
-        for task, stored in self._metadata.keypoint_metadata.items():
-            if stored.has_names or stored.repeated_labels:
-                aligned[task] = stored
-        return aligned
-
     def _add_process_batch(
         self,
         data_batch: list[DatasetRecord],
         pfm: ParquetFileManager,
         index: pl.DataFrame | None,
-        declared_keypoint_metadata: dict[str, KeypointMetadata],
-    ) -> set[tuple[str, str, str]]:
-        """Write the rows of a batch.
-
-        Returns:
-            The task, the UUID and the file of each keypoint row that the
-            batch wrote without the names of its task.
-
-        """
-        keypoint_metadata = self._alignment_keypoint_metadata(
-            declared_keypoint_metadata
-        )
+    ) -> None:
         paths = {path for data in data_batch for path in data.all_file_paths}
         logger.info("Generating UUIDs...")
         uuid_dict = self._fs.get_file_uuids(paths, local=True)
@@ -1375,9 +1255,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             "[magenta]Processing data...", total=len(data_batch)
         )
 
-        # The keypoint alignment and the media upload can raise. Both run
-        # before `remove_duplicate_uuids` and the first write, so a failed
-        # batch changes no row.
+        # The media upload can raise. It runs before `remove_duplicate_uuids`
+        # and the first write, so a failed batch changes no row.
         rows: list[tuple[str, ParquetRecord, str]] = []
         with self._progress:
             for record in data_batch:
@@ -1392,7 +1271,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 )
                 rows.extend(
                     (uuid_dict[row["file"]], row, group_id)
-                    for row in record.to_parquet_rows(keypoint_metadata)
+                    for row in record.to_parquet_rows()
                 )
                 self._progress.update(task, advance=1)
         self._progress.remove_task(task)
@@ -1414,33 +1293,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         for uuid, row, group_id in rows:
             pfm.write(uuid, row, group_id)
 
-        return {
-            (row["task_name"], uuid, row["file"])
-            for uuid, row, _ in rows
-            if row["task_type"] == "keypoints"
-            and row["task_name"] not in keypoint_metadata
-        }
-
     @override
     def add(
         self, generator: DatasetIterator, batch_size: int = 1_000_000
     ) -> Self:
         """Add data to the dataset from a generator of records.
-
-        The keypoints of a record can be a list or a mapping keyed by
-        keypoint name. A named keypoint can also give its ``sigma`` and
-        ``connected_to``. The names and these fields describe the whole
-        task, so `add` moves them into the keypoint metadata of the task.
-        See `get_keypoint_metadata`.
-
-        The records of a task in one call must agree on these fields, and
-        a later call replaces them with a warning. When the task already
-        has names, a record can give a subset of them in any order.
-        `luxonis_ml.ldf.annotation` describes how the missing keypoints are
-        padded and how keypoints without names are numbered.
-
-        The first write to an LDF 2.0 or 2.1 dataset with keypoints moves
-        it to the current LDF version. See `luxonis_ml.data.datasets`.
 
         Args:
             generator: The generator should yield either
@@ -1477,11 +1334,14 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                                     "h": 0.40,
                                 },
                                 "keypoints": {
-                                    "keypoints": [
-                                        (0.15, 0.25, 1),
-                                        (0.50, 0.60, 1),
-                                        (0.70, 0.80, 0),
-                                    ],
+                                    "keypoints": {
+                                        "head": (0.15, 0.25, 2),
+                                        "tail": {
+                                            "x": 0.50,
+                                            "y": 0.60,
+                                            "connected_to": "head",
+                                        },
+                                    },
                                 },
                                 "instance_segmentation": {
                                     "mask": "/path/to/mask.png",
@@ -1494,19 +1354,18 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 ``annotation["metadata"]`` is different: it becomes a
                 metadata label task.
 
+                `add` builds the `KeypointMetadata` of each task from the
+                keypoints of its records. See `luxonis_ml.ldf` for the
+                keypoint fields.
+
             batch_size: The number of records to process in a batch before writing
                 to storage. Larger batch sizes may be more efficient but will
                 use more memory.
 
-        Returns:
-            This dataset.
-
         Raises:
             ValueError: If the records yielded by the generator are not in the expected format.
             ValueError: If the dataset contains metadata annotations with conflicting types.
-            ValueError: If the keypoints or the keypoint fields of a record
-                do not fit the keypoint metadata of its task, or if two
-                records of a task give different keypoint fields.
+            ValueError: If two records give one keypoint different sigmas.
 
         """
         logger.info(f"Adding data to dataset '{self._dataset_name}'...")
@@ -1517,9 +1376,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         tasks: dict[str, set[str]] = defaultdict(set)
         categorical_encodings = defaultdict(dict)
         metadata_types = {}
-        num_kpts_per_task: dict[str, set[int]] = defaultdict(set)
-        declared_keypoint_metadata: dict[str, KeypointMetadata] = {}
-        unnamed_keypoint_rows: set[tuple[str, str, str]] = set()
+        keypoint_metadata = dict(self._metadata.keypoint_metadata)
         sources: set[str] = set()
 
         annotations_path = get_dir(
@@ -1530,33 +1387,14 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         )
 
         index = self._get_index()
-        # `add` replaces the rows of a file that it reads again, so the
-        # width of these rows does not count.
-        added_files: set[str] = set()
-
-        def row_widths() -> dict[str, int]:
-            if index is None:
-                return self._keypoint_row_widths()
-            replaced = index.filter(
-                pl.col("original_filepath").is_in(list(added_files))
-            )["uuid"]
-            return self._keypoint_row_widths(replaced.to_list())
-
-        # The stored entries that every record of a task must fit.
-        stored_alignment = self._alignment_keypoint_metadata({})
 
         assert annotations_path is not None
 
         with ParquetFileManager(annotations_path, batch_size) as pfm:
-            for record in generator:
+            for i, record in enumerate(generator, start=1):
                 if not isinstance(record, DatasetRecord):
                     record = DatasetRecord(**record)
                 sources.update(record.files.keys())
-                if index is not None:
-                    added_files.update(
-                        str(Path(path).absolute().resolve())
-                        for path in record.files.values()
-                    )
                 ann = record.annotation
                 if ann is not None:
                     if not record.task_name:
@@ -1575,36 +1413,20 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                         tasks[task_name] |= ann.get_task_types()
 
                         if ann.keypoints is not None:
-                            num_kpts_per_task[task_name].add(
-                                len(ann.keypoints.keypoints)
+                            declared = KeypointMetadata.from_annotation(
+                                ann.keypoints
                             )
-                            declared = ann.keypoints.declared_metadata()
-                            if declared is not None:
-                                declared = _in_stored_order(
-                                    declared,
-                                    self._metadata.keypoint_metadata.get(
-                                        task_name
-                                    ),
-                                    task_name,
-                                )
-                                earlier = declared_keypoint_metadata.get(
-                                    task_name
-                                )
-                                declared_keypoint_metadata[task_name] = (
+                            stored = keypoint_metadata.get(
+                                task_name, KeypointMetadata()
+                            )
+                            try:
+                                keypoint_metadata[task_name] = stored.merge(
                                     declared
-                                    if earlier is None
-                                    else earlier.merge_with(
-                                        declared, f"task '{task_name}'"
-                                    )
                                 )
-                            # `add` does not change stored names, so a later
-                            # record cannot make a wider record fit. The
-                            # alignment thus fails here, before `add` writes
-                            # the batch in front of the record.
-                            if task_name in stored_alignment:
-                                stored_alignment[task_name].align(
-                                    ann.keypoints.keypoints
-                                )
+                            except ValueError as e:
+                                raise ValueError(
+                                    f"Task '{task_name}': {e}"
+                                ) from e
                         for name, value in ann.metadata.items():
                             task = f"{task_name}/metadata/{name}"
                             typ = type(value).__name__
@@ -1635,39 +1457,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
                     update_state(record.task_name, ann)
 
-                # A full batch waits for the next record. The last batch thus
-                # always gets the full check after the loop. A check cannot
-                # undo an earlier batch.
-                if len(data_batch) == batch_size:
-                    if declared_keypoint_metadata:
-                        self._check_declared_keypoint_metadata(
-                            num_kpts_per_task,
-                            declared_keypoint_metadata,
-                            row_widths(),
-                        )
-                    unnamed_keypoint_rows |= self._add_process_batch(
-                        data_batch, pfm, index, declared_keypoint_metadata
-                    )
-                    data_batch = []
                 data_batch.append(record)
+                if i % batch_size == 0:
+                    self._add_process_batch(data_batch, pfm, index)
+                    data_batch = []
 
-            # `add` has read every record, so the check covers the stored
-            # fields too.
-            resolved_keypoint_metadata = self._resolve_keypoint_metadata(
-                num_kpts_per_task,
-                declared_keypoint_metadata,
-                row_widths(),
-            )
-            self._add_process_batch(
-                data_batch, pfm, index, declared_keypoint_metadata
-            )
-
-        # A record can name the keypoints of a task after an earlier batch
-        # wrote some of its rows. Those rows get the names now, so the rows
-        # on disk do not depend on the batch size.
-        self._align_keypoint_rows(
-            annotations_path, unnamed_keypoint_rows, declared_keypoint_metadata
-        )
+            self._add_process_batch(data_batch, pfm, index)
 
         with suppress(shutil.SameFileError):
             self._fs.put_dir(annotations_path, "")
@@ -1683,7 +1478,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
                 self.set_classes(list(classes | old_classes), task=task)
 
-        self._metadata.keypoint_metadata.update(resolved_keypoint_metadata)
+        self._metadata.keypoint_metadata = keypoint_metadata
         self._metadata.categorical_encodings = dict(categorical_encodings)
         self._metadata.metadata_types = metadata_types
         self.set_tasks(tasks)
@@ -1914,21 +1709,15 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 f"not '{dataset_type}'."
             )
         target_version = resolve_export_version(ldf_version)
-        keypoint_metadata = self.get_keypoint_metadata()
 
         EXPORTER_MAP: dict[DatasetType, ExporterSpec] = {
             DatasetType.NATIVE: ExporterSpec(
-                NativeExporter,
-                {
-                    "keypoint_metadata": keypoint_metadata,
-                    "ldf_version": target_version,
-                },
+                NativeExporter, {"ldf_version": target_version}
             ),
             DatasetType.COCO: ExporterSpec(
                 CocoExporter,
                 {
                     "format": COCOFormat.ROBOFLOW,
-                    "keypoint_metadata": keypoint_metadata,
                 },
             ),
             DatasetType.YOLOV8BOUNDINGBOX: ExporterSpec(YoloV8Exporter, {}),
@@ -2277,407 +2066,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
             new_splits[split] = ids
         return new_splits
-
-    def _align_keypoint_rows(
-        self,
-        annotations_path: Path,
-        rows: set[tuple[str, str, str]],
-        declared_keypoint_metadata: dict[str, KeypointMetadata],
-    ) -> None:
-        """Write keypoint rows again against the names of their task.
-
-        Args:
-            annotations_path: The directory of the parquet files.
-            rows: The task, the UUID and the file of each keypoint row to
-                write again. A task without names keeps its rows. The UUID
-                comes from the bytes of the file, so a copy of a file from
-                an earlier `add` has the same UUID. The file tells the rows
-                of this `add` apart, because `add` removes the old rows of
-                a file that it adds again.
-            declared_keypoint_metadata: The keypoint metadata that the
-                records of `add` describe.
-
-        """
-        keypoint_metadata = self._alignment_keypoint_metadata(
-            declared_keypoint_metadata
-        )
-        rows = {row for row in rows if row[0] in keypoint_metadata}
-        if not rows:
-            return
-        uuids = [uuid for _, uuid, _ in rows]
-        for path in annotations_path.glob("*.parquet"):
-            df = pl.read_parquet(path)
-            if not df["uuid"].is_in(uuids).any():
-                continue
-            annotations = [
-                load_annotation(
-                    "keypoints", json.loads(annotation)
-                ).to_parquet_json(keypoint_metadata[task])
-                if task_type == "keypoints" and (task, uuid, file) in rows
-                else annotation
-                for task, uuid, file, task_type, annotation in df.select(
-                    "task_name", "uuid", "file", "task_type", "annotation"
-                ).iter_rows()
-            ]
-            if annotations != df["annotation"].to_list():
-                df.with_columns(
-                    pl.Series("annotation", annotations)
-                ).write_parquet(path)
-
-    def _resolve_keypoint_metadata(
-        self,
-        num_kpts_per_task: dict[str, set[int]],
-        declared: dict[str, KeypointMetadata],
-        row_widths: dict[str, int],
-    ) -> dict[str, KeypointMetadata]:
-        """Return the keypoint metadata that `add` stores for each task.
-
-        A keypoint task with no keypoint metadata gets placeholder names
-        and chain edges. The placeholder fields grow with the keypoint
-        count, and an explicit value survives an `add`. A task with stored
-        names is not in the result when its records describe no keypoint
-        metadata.
-
-        Args:
-            num_kpts_per_task: The numbers of keypoints in the records of
-                each task.
-            declared: The keypoint metadata that the records describe.
-            row_widths: The result of `_keypoint_row_widths`.
-
-        Returns:
-            The new keypoint metadata, keyed by task name.
-
-        Raises:
-            ValueError: If an entry does not fit the keypoints of its task.
-
-        """
-        resolved: dict[str, KeypointMetadata] = {}
-        # `add` pads each row of a task with names to the number of names,
-        # and it rejects a wider row. Only an entry without names can grow.
-        aligned = self._alignment_keypoint_metadata(declared)
-        for task, sizes in num_kpts_per_task.items():
-            n_keypoints = self._keypoint_count(task, sizes, row_widths)
-            stored = self._metadata.keypoint_metadata.get(task)
-            described = declared.get(task)
-            if described is not None and stored is not None:
-                # A placeholder field describes nothing, so replacing it
-                # needs no warning.
-                generated = _placeholder_fields(stored)
-                for field in described.conflicting_fields(stored):
-                    if field not in generated:
-                        logger.warning(
-                            f"The annotations of task '{task}' describe a "
-                            f"different `{field}` than the one already "
-                            "stored. Using the described one. Stored: "
-                            f"{getattr(stored, field)}, described: "
-                            f"{getattr(described, field)}."
-                        )
-            if described is not None:
-                entry = _merge_into_stored(described, stored, n_keypoints)
-            elif stored is None or stored == KeypointMetadata():
-                # An empty entry describes no keypoints, and
-                # `_write_metadata` can leave it out of the file. It thus
-                # gets the same result as no entry.
-                entry = _placeholder_keypoint_metadata(n_keypoints)
-            elif task in aligned:
-                continue
-            else:
-                entry = _merge_into_stored(
-                    KeypointMetadata(), stored, n_keypoints
-                )
-            if not entry.labels:
-                # Only the labels give the keypoint count. Edges or sigmas
-                # alone name nothing, so the records and the stored rows
-                # give the count, and the stored entry has to carry it.
-                entry = entry.model_copy(
-                    update={
-                        "labels": _placeholder_keypoint_metadata(
-                            n_keypoints
-                        ).labels
-                    }
-                )
-            # A stored field must fit the keypoint count too. The edges of
-            # an entry with labels are the exception: an older luxonis-ml
-            # stored them without a check, and `Metadata` still accepts
-            # them. Each record checks the edges that it gives, and so does
-            # `set_keypoint_metadata` for an entry with labels. An entry
-            # without labels gets its keypoint count only now.
-            entry.validate_for(
-                n_keypoints,
-                f"task '{task}'",
-                check_edges=stored is None or not stored.labels,
-            )
-            resolved[task] = entry
-            if len(sizes) > 1 and task not in aligned:
-                # The labels give the keypoint count, and an earlier `add`
-                # can make it larger than any record of this one.
-                logger.warning(
-                    f"Task '{task}' mixes annotations with different "
-                    f"numbers of keypoints ({sorted(sizes)}). Storing "
-                    f"keypoint metadata for {len(entry.labels)} keypoints."
-                )
-        return resolved
-
-    def _check_declared_keypoint_metadata(
-        self,
-        num_kpts_per_task: dict[str, set[int]],
-        declared: dict[str, KeypointMetadata],
-        row_widths: dict[str, int],
-    ) -> None:
-        """Check the declared fields against what `add` knows so far.
-
-        A declared field does not change, and a later record can only add
-        keypoints. It can also replace the stored rows of its own file, so
-        a later record fixes a failure of this check only when it replaces
-        the widest stored row of a task without labels. The check also
-        uses the stored labels and rows, because `add` does not make a task
-        smaller. A later record can replace any other stored field, so only
-        `_resolve_keypoint_metadata` checks those fields.
-
-        Raises:
-            ValueError: If a declaration does not fit the keypoints of its
-                task.
-
-        """
-        for task, task_keypoint_metadata in declared.items():
-            task_keypoint_metadata.validate_for(
-                self._keypoint_count(
-                    task, num_kpts_per_task[task], row_widths
-                ),
-                f"task '{task}'",
-            )
-
-    def _keypoint_count(
-        self, task: str, sizes: set[int], row_widths: dict[str, int]
-    ) -> int:
-        """Return the number of keypoints of a task after `add`.
-
-        The loader pads each stored row to the number of stored labels.
-        `add` does not make the task smaller, because a stored row can be
-        that wide. A task without labels has only its rows, so
-        ``row_widths`` gives its widest row that `add` does not replace.
-        """
-        stored = self._metadata.keypoint_metadata.get(task, KeypointMetadata())
-        return max(*sizes, len(stored.labels), row_widths.get(task, 0))
-
-    def _keypoint_row_widths(
-        self, replaced_uuids: Sequence[str] = ()
-    ) -> dict[str, int]:
-        """Return the keypoint count of the widest stored row of each task.
-
-        The result holds only the tasks without stored labels. The labels
-        of the other tasks cover their rows. The rows of
-        ``replaced_uuids`` do not count, because `add` replaces them.
-        """
-        df = self._load_df_offline(lazy=True)
-        if df is None:
-            return {}
-        labelled = [
-            task
-            for task, entry in self._metadata.keypoint_metadata.items()
-            if entry.labels
-        ]
-        return get_keypoint_row_widths(
-            df.filter(
-                ~pl.col("task_name").is_in(labelled)
-                & ~pl.col("uuid").is_in(list(replaced_uuids))
-            )
-        )
-
-
-def _in_stored_order(
-    declared: KeypointMetadata, stored: KeypointMetadata | None, task: str
-) -> KeypointMetadata:
-    """Move the declaration of a record to the stored names.
-
-    The stored names own the label set. A record can name a subset of
-    them, in any order, and its indices point into its own names.
-
-    Raises:
-        ValueError: If the record names its keypoints, but the stored
-            names of the task repeat.
-        ValueError: If the record names a keypoint that the stored names
-            lack, or gives sigmas for only some of the stored names.
-
-    """
-    if not declared.labels or stored is None:
-        return declared
-    # `add` writes the rows in the stored order. A repeated name has no
-    # single position, so a record with names cannot be written.
-    if stored.repeated_labels:
-        raise ValueError(
-            f"Task '{task}' repeats the keypoint names "
-            f"{', '.join(stored.repeated_labels)}, so a record cannot "
-            "refer to its keypoints by name. Give each keypoint a "
-            "unique name with "
-            "`LuxonisDataset.set_keypoint_metadata(labels=...)`. You "
-            "can also give the keypoints of the record as a list."
-        )
-    if stored.has_names and declared.labels != stored.labels:
-        return declared.reindexed_to(stored.labels)
-    return declared
-
-
-def _in_keypoint_order(
-    df: pl.DataFrame,
-    source: Mapping[str, KeypointMetadata],
-    target: Mapping[str, KeypointMetadata],
-) -> pl.DataFrame:
-    """Move the keypoint rows to the keypoint order of other metadata.
-
-    A row is positional, so the column of a keypoint is its identity.
-    `Metadata.merge_with` lets two datasets give a task the same names in
-    another order only.
-
-    Args:
-        df: The rows.
-        source: The keypoint metadata that the rows follow.
-        target: The keypoint metadata to move the rows to. It holds each
-            task of ``source``.
-
-    Returns:
-        The rows in the keypoint order of ``target``.
-
-    Raises:
-        ValueError: If a row has more keypoints than its task has names.
-
-    """
-    moved = {
-        task: entry.labels
-        for task, entry in source.items()
-        if entry.labels and entry.labels != target[task].labels
-    }
-    if not moved:
-        return df
-    # `Metadata.merge_with` moves only the same names, so each target name
-    # has one source column.
-    orders = {
-        task: [labels.index(label) for label in target[task].labels]
-        for task, labels in moved.items()
-    }
-
-    def move(task: str, annotation: str) -> str:
-        order = orders[task]
-        keypoints = json.loads(annotation)["keypoints"]
-        if len(keypoints) > len(order):
-            raise ValueError(
-                f"Task '{task}' has a row with {len(keypoints)} keypoints, "
-                f"but only {len(order)} keypoint names."
-            )
-        # The loader pads a short row the same way.
-        keypoints += [list(Keypoint(0.0, 0.0, 0))] * (
-            len(order) - len(keypoints)
-        )
-        return to_json({"keypoints": [keypoints[i] for i in order]}).decode()
-
-    annotations = [
-        move(task, annotation)
-        if task_type == "keypoints" and task in moved
-        else annotation
-        for task, task_type, annotation in df.select(
-            "task_name", "task_type", "annotation"
-        ).iter_rows()
-    ]
-    return df.with_columns(pl.Series("annotation", annotations))
-
-
-def _merge_into_stored(
-    declared: KeypointMetadata,
-    stored: KeypointMetadata | None,
-    n_keypoints: int,
-) -> KeypointMetadata:
-    """Combine described keypoints with the ones already stored.
-
-    A described value wins. A field that the description leaves empty
-    comes from the stored keypoint metadata. `LuxonisDataset.add` thus
-    discards nothing, except the placeholder fields that it generated
-    itself. Real names drop those. Without names, it generates them again
-    for ``n_keypoints``. It already moved the description to the stored
-    names, so the stored labels keep their order.
-    """
-    if stored is None:
-        return declared
-    placeholder = (
-        KeypointMetadata()
-        if declared.has_names
-        else _placeholder_keypoint_metadata(n_keypoints)
-    )
-    return declared.filled_from(
-        stored.model_copy(
-            update={
-                field: getattr(placeholder, field)
-                for field in _placeholder_fields(stored)
-            }
-        )
-    )
-
-
-def _check_edges_without_labels(
-    keypoint_metadata: KeypointMetadata, n_keypoints: int | None, task: str
-) -> None:
-    """Check the edges of keypoint metadata without labels.
-
-    The widest stored row gives the keypoint count. A task without rows
-    has no count yet, so only a negative index fails here.
-    `LuxonisDataset.add` checks the edges against the count later.
-
-    Raises:
-        ValueError: If an edge refers to a keypoint out of range.
-
-    """
-    if n_keypoints is not None:
-        KeypointMetadata(edges=keypoint_metadata.edges).validate_for(
-            n_keypoints, f"task '{task}'"
-        )
-        return
-    negative = [i for edge in keypoint_metadata.edges for i in edge if i < 0]
-    if negative:
-        raise ValueError(
-            f"The keypoint metadata of task '{task}' refers to keypoint "
-            f"{negative[0]} in `edges`, but a keypoint index cannot be "
-            "negative."
-        )
-
-
-def _renames_keypoints(
-    current: KeypointMetadata, labels: list[str] | None
-) -> bool:
-    """Whether new labels give the stored indices a new meaning.
-
-    ``edges`` and ``sigmas`` use positional keypoint
-    indices. New names put a different keypoint at a position, so the
-    stored values describe the wrong keypoints. Placeholder names carry
-    no identity. A rename that keeps their count therefore only names the
-    keypoints that are already there.
-    """
-    if labels is None or not current.labels or current.labels == labels:
-        return False
-    return current.has_names or len(current.labels) != len(labels)
-
-
-def _placeholder_keypoint_metadata(n_keypoints: int) -> KeypointMetadata:
-    """Build what `LuxonisDataset.add` writes for keypoints that name none."""
-    return KeypointMetadata(
-        labels=[str(i) for i in range(n_keypoints)],
-        edges=[(i, i + 1) for i in range(n_keypoints - 1)],
-    )
-
-
-def _placeholder_fields(stored: KeypointMetadata) -> set[str]:
-    """Return the fields that still hold what `LuxonisDataset.add` made.
-
-    The chain edges join keypoints only by their position, so they do not
-    describe keypoints with names. An entry without labels holds nothing
-    that was generated.
-    """
-    placeholder = _placeholder_keypoint_metadata(len(stored.labels))
-    if not stored.labels or stored.labels != placeholder.labels:
-        return set()
-    return {
-        field
-        for field in KeypointMetadata.model_fields
-        if getattr(stored, field) == getattr(placeholder, field)
-    }
 
 
 def _resolve_splits(

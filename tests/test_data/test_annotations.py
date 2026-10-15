@@ -542,10 +542,9 @@ def test_detection(subtests: SubTests):
         )
 
         assert detection.keypoints is not None
-        assert list(detection.keypoints.keypoints.values()) == [
-            (0.2 * 0.5 + 0.1, 0.4 * 0.5 + 0.2, 2),
-            (0.5 * 0.5 + 0.1, 0.8 * 0.5 + 0.2, 2),
-        ]
+        assert detection.keypoints.to_numpy().tolist() == pytest.approx(
+            [0.2, 0.4, 2, 0.35, 0.6, 2]
+        )
 
     with subtests.test("no_rescaling"):
         detection = Detection(
@@ -559,9 +558,13 @@ def test_detection(subtests: SubTests):
         )
 
         assert detection.keypoints is not None
-        assert list(detection.keypoints.keypoints.values()) == [
-            (0.2, 0.4, 2),
-            (0.5, 0.8, 2),
+        assert detection.keypoints.to_numpy().tolist() == [
+            0.2,
+            0.4,
+            2,
+            0.5,
+            0.8,
+            2,
         ]
 
     with (
@@ -646,7 +649,7 @@ def test_record(tempdir: Path):
             "task_name": "test",
             "class_name": "person",
             "task_type": "keypoints",
-            "annotation": '{"keypoints":[[0.2,0.4,2],[0.5,0.8,2]]}',
+            "annotation": '{"keypoints": {"0": [0.2, 0.4, 2], "1": [0.5, 0.8, 2]}}',
         },
         {
             **common,
