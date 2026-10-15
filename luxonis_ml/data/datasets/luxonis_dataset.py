@@ -1517,7 +1517,18 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         )
 
         index = self._get_index()
-        row_widths = self._keypoint_row_widths()
+        # `add` replaces the rows of a file that it reads again, so the
+        # width of these rows does not count.
+        added_files: set[str] = set()
+
+        def row_widths() -> dict[str, int]:
+            if index is None:
+                return self._keypoint_row_widths()
+            replaced = index.filter(
+                pl.col("original_filepath").is_in(list(added_files))
+            )["uuid"]
+            return self._keypoint_row_widths(replaced.to_list())
+
         # The stored entries that every record of a task must fit.
         stored_alignment = self._alignment_keypoint_metadata({})
 
@@ -1528,6 +1539,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 if not isinstance(record, DatasetRecord):
                     record = DatasetRecord(**record)
                 sources.update(record.files.keys())
+                if index is not None:
+                    added_files.update(
+                        str(Path(path).absolute().resolve())
+                        for path in record.files.values()
+                    )
                 ann = record.annotation
                 if ann is not None:
                     if not record.task_name:
@@ -1610,11 +1626,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 # always gets the full check after the loop. A check cannot
                 # undo an earlier batch.
                 if len(data_batch) == batch_size:
-                    self._check_declared_keypoint_metadata(
-                        num_kpts_per_task,
-                        declared_keypoint_metadata,
-                        row_widths,
-                    )
+                    if declared_keypoint_metadata:
+                        self._check_declared_keypoint_metadata(
+                            num_kpts_per_task,
+                            declared_keypoint_metadata,
+                            row_widths(),
+                        )
                     unnamed_keypoint_rows |= self._add_process_batch(
                         data_batch, pfm, index, declared_keypoint_metadata
                     )
@@ -1626,7 +1643,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             resolved_keypoint_metadata = self._resolve_keypoint_metadata(
                 num_kpts_per_task,
                 declared_keypoint_metadata,
-                row_widths,
+                row_widths(),
             )
             self._add_process_batch(
                 data_batch, pfm, index, declared_keypoint_metadata
@@ -2396,8 +2413,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     ) -> None:
         """Check the declared fields against what `add` knows so far.
 
-        A later record cannot fix a failure of this check. It can only add
-        keypoints, and a declared field does not change. The check also
+        A declared field does not change, and a later record can only add
+        keypoints. It can also replace the stored rows of its own file, so
+        a later record fixes a failure of this check only when it replaces
+        the widest stored row of a task without labels. The check also
         uses the stored labels and rows, because `add` does not make a task
         smaller. A later record can replace any other stored field, so only
         `_resolve_keypoint_metadata` checks those fields.
@@ -2423,16 +2442,19 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         The loader pads each stored row to the number of stored labels.
         `add` does not make the task smaller, because a stored row can be
         that wide. A task without labels has only its rows, so
-        ``row_widths`` gives its widest row.
+        ``row_widths`` gives its widest row that `add` does not replace.
         """
         stored = self._metadata.keypoint_metadata.get(task, KeypointMetadata())
         return max(*sizes, len(stored.labels), row_widths.get(task, 0))
 
-    def _keypoint_row_widths(self) -> dict[str, int]:
+    def _keypoint_row_widths(
+        self, replaced_uuids: Sequence[str] = ()
+    ) -> dict[str, int]:
         """Return the keypoint count of the widest stored row of each task.
 
         The result holds only the tasks without stored labels. The labels
-        of the other tasks cover their rows.
+        of the other tasks cover their rows. The rows of
+        ``replaced_uuids`` do not count, because `add` replaces them.
         """
         df = self._load_df_offline(lazy=True)
         if df is None:
@@ -2443,7 +2465,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             if entry.labels
         ]
         return get_keypoint_row_widths(
-            df.filter(~pl.col("task_name").is_in(labelled))
+            df.filter(
+                ~pl.col("task_name").is_in(labelled)
+                & ~pl.col("uuid").is_in(list(replaced_uuids))
+            )
         )
 
 

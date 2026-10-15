@@ -637,6 +637,30 @@ def test_add_checks_the_names_against_the_rows_of_an_earlier_batch(
     assert len(dataset) == 2
 
 
+@pytest.mark.parametrize("batch_size", [1, 2, 1_000_000])
+def test_a_corrected_add_replaces_the_rows_of_a_failed_add(
+    dataset_name: str, tempdir: Path, batch_size: int
+):
+    """A failed `add` keeps the rows of its earlier batches.
+
+    The corrected `add` replaces these rows, so their width must not count
+    toward the keypoint count of the task.
+    """
+
+    def generator(width: int) -> DatasetIterator:
+        yield from positional_generator(tempdir, [width] * 3)
+        yield from keypoint_generator(tempdir, NAMED_KEYPOINTS, n=1, start=3)
+
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    with pytest.raises(ValueError, match="3 labels for 5 keypoints"):
+        dataset.add(generator(5), batch_size=2)
+
+    dataset.add(generator(3), batch_size=batch_size)
+
+    assert dataset.get_keypoint_metadata()["pose"].labels == LABELS
+    assert dataset.get_n_keypoints() == {"pose": 3}
+
+
 @pytest.mark.parametrize(
     "labels",
     [
