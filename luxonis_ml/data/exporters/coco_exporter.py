@@ -1,3 +1,5 @@
+"""Export to the COCO format."""
+
 import json
 import sys
 from pathlib import Path

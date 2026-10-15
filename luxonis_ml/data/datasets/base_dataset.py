@@ -1,3 +1,5 @@
+"""Abstract dataset interface and the registry of dataset classes."""
+
 from abc import ABC, abstractmethod
 from collections.abc import Iterator, Mapping, Sequence
 from typing import TypeAlias
