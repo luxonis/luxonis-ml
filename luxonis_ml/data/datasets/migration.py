@@ -271,23 +271,19 @@ def _migrate_skeletons(
 
 
 def _keypoint_row_widths(df: pl.LazyFrame) -> dict[str, int]:
-    """Return the keypoint count of the widest positional row of each task."""
-    payload = pl.Struct({"keypoints": pl.List(pl.List(pl.Float64))})
-    widths = (
+    """Return the keypoint count of the widest keypoint row of each task."""
+    rows = (
         df.filter(pl.col("task_type") == "keypoints")
-        .group_by("task_name")
-        .agg(
-            # A shard without annotations stores the column as nulls.
-            pl.col("annotation")
-            .cast(pl.String)
-            .str.json_decode(payload)
-            .struct.field("keypoints")
-            .list.len()
-            .max()
-        )
+        # A shard without annotations stores the column as nulls.
+        .select("task_name", pl.col("annotation").cast(pl.String))
+        .drop_nulls("annotation")
         .collect()
     )
-    return dict(widths.iter_rows())
+    widths: dict[str, int] = {}
+    for task, annotation in rows.iter_rows():
+        n_keypoints = len(json.loads(annotation)["keypoints"])
+        widths[task] = max(widths.get(task, 0), n_keypoints)
+    return widths
 
 
 def _migrate_ldf_1_0_0(

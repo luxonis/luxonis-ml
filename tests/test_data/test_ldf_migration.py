@@ -124,6 +124,26 @@ def test_2_x_keypoints_get_the_names_of_the_skeleton(
     ]
 
 
+def test_a_migrated_2_x_dataset_opens_again_before_a_write(
+    dataset_name: str, tempdir: Path
+):
+    """The second open reads named rows under the old version stamp."""
+    legacy = as_ldf_2_1(
+        pose_dataset(dataset_name, tempdir),
+        {"pose": {"labels": ["nose"], "edges": [[0, 1]]}},
+    )
+
+    reopened = LuxonisDataset(legacy.identifier)
+
+    assert read_dataset_metadata(reopened)["ldf_version"] == "2.1.0"
+    assert reopened.get_keypoint_metadata() == legacy.get_keypoint_metadata()
+    assert reopened.get_keypoint_metadata()["pose"].labels == [
+        "nose",
+        "1",
+        "2",
+    ]
+
+
 @pytest.mark.parametrize(
     ("skeleton", "labels", "warning"),
     [
