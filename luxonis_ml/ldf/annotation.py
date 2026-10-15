@@ -1521,7 +1521,6 @@ class KeypointAnnotation(Annotation):
             edges=[(index[a], index[b]) for a, b in edges],
             sigmas=[sigmas[name] for name in names] if sigmas else [],
         )
-        declared.validate_for(len(names))
         self._edges = declared.edges
         self._sigmas = declared.sigmas
 
