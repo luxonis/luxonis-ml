@@ -82,6 +82,23 @@ def test_mixup_pads_empty_samples_to_the_batch_width(
         assert mixup.apply_to_keypoints(list(batch), shapes).shape == expected
 
 
+@pytest.mark.parametrize("alpha", [0.7, 0.3])
+def test_mixup_gives_each_pixel_the_classes_of_one_mask(alpha: float):
+    """The mask with the higher alpha keeps its pixels, and its empty
+    pixels take the classes of the other mask.
+    """
+    cat, dog, empty = [1, 0], [0, 1], [0, 0]
+    dominant = np.array([[cat, cat, empty, empty]], dtype=np.uint8)
+    other = np.array([[dog, empty, dog, empty]], dtype=np.uint8)
+    masks = [dominant, other] if alpha >= 0.5 else [other, dominant]
+
+    output = MixUp(p=1.0).apply_to_mask(
+        masks, image_shapes=[(1, 4), (1, 4)], alpha=alpha
+    )
+
+    assert output.tolist() == [[cat, cat, dog, empty]]
+
+
 def test_mixup_leaves_the_callers_batch_alone() -> None:
     mixup = MixUp(p=1.0)
     batch = [np.array([]), np.zeros((2, 7), dtype=np.float32)]

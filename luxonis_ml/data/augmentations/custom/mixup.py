@@ -104,8 +104,11 @@ class MixUp(BatchTransform):
     ) -> np.ndarray:
         r"""Apply MixUp to a batch of semantic segmentation masks.
 
-        Blends masks together. In case of a conflict, the class from the
-        mask associated with the higher :math:`\alpha` is chosen.
+        Combines the masks pixel by pixel. A pixel keeps the classes of
+        the mask associated with the higher :math:`\alpha`. Where that
+        mask has no class, the pixel takes the classes of the other mask.
+        The loader adds its ``background`` class only after the
+        augmentations, so the objects of both images stay in the mask.
 
         Args:
             masks_batch: Masks to transform. Each mask should be of shape
@@ -117,6 +120,18 @@ class MixUp(BatchTransform):
             A single segmentation mask of shape
             :math:`\left(H_{out}, W_{out}, C\right)` or
             :math:`\left(H_{out}, W_{out}\right)`.
+
+        Example:
+            The first mask has the higher :math:`\alpha`. Its ``cat`` pixels
+            stay, and its empty pixels take ``dog`` from the second mask:
+
+            >>> cat, dog, empty = [1, 0], [0, 1], [0, 0]
+            >>> first = np.array([[cat, cat, empty, empty]])
+            >>> second = np.array([[dog, empty, dog, empty]])
+            >>> MixUp(p=1.0).apply_to_mask(
+            ...     [first, second], [(1, 4), (1, 4)], alpha=0.7
+            ... ).tolist()
+            [[[1, 0], [1, 0], [0, 1], [0, 0]]]
 
         """
         mask1, mask2 = masks_batch
@@ -130,14 +145,12 @@ class MixUp(BatchTransform):
         if mask2.size == 0:
             return mask1
 
-        if alpha >= 0.5:
-            mask1[(mask1 == 0) & (mask2 != 0)] = mask2[
-                (mask1 == 0) & (mask2 != 0)
-            ]
-            return mask1
-
-        mask2[(mask2 == 0) & (mask1 != 0)] = mask1[(mask2 == 0) & (mask1 != 0)]
-        return mask2
+        dominant, other = (mask1, mask2) if alpha >= 0.5 else (mask2, mask1)
+        # The classes of a pixel are one vector across the channels, so a
+        # pixel takes the whole vector of one mask, never a mix of the two.
+        unassigned = ~dominant.any(axis=-1)
+        dominant[unassigned] = other[unassigned]
+        return dominant
 
     @override
     def apply_to_instance_mask(
