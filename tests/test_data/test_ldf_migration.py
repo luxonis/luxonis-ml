@@ -12,15 +12,8 @@ from .utils import create_dataset, create_image, set_ldf_version
 
 
 @pytest.mark.parametrize("version", ["2.0.0", "2.1.0"])
-def test_a_2_x_dataset_still_loads(
-    dataset_name: str, tempdir: Path, version: str
-):
-    """A major bump sends every older dataset through a migration.
-
-    The only one that existed was written for LDF 1.0, and it renames
-    columns a 2.x dataset does not have. Without a version to dispatch on,
-    the bump would stop every stored dataset from opening.
-    """
+def test_2_x_dataset_loads(dataset_name: str, tempdir: Path, version: str):
+    """A 2.x dataset takes the current stamp, and its labels load."""
 
     def generator() -> DatasetIterator:
         yield {
@@ -35,12 +28,8 @@ def test_a_2_x_dataset_still_loads(
     dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
     reopened = set_ldf_version(dataset, version)
 
-    # The migration ran, so the dataset now reports the version it was
-    # migrated to. A dataset left on its old stamp would be migrated again
-    # on every open, and could never merge with one this version wrote.
     assert reopened.version == LDF_VERSION
     assert reopened.get_classes() == {"vehicles": {"car": 0}}
 
     labels = LuxonisLoader(reopened, view="train")[0].labels
-
     assert labels["vehicles/boundingbox"].shape == (1, 5)

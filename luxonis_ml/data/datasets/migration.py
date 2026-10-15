@@ -1,7 +1,7 @@
 """Migration of datasets that an older LDF version wrote."""
 
 from collections import defaultdict
-from typing import Any, Final, Literal, overload
+from typing import Any, Final, Literal, cast, overload
 
 import polars as pl
 from semver.version import Version
@@ -124,7 +124,7 @@ def migrate_dataframe(
 
 
 def migrate_metadata(
-    metadata: LDF_1_0_0_MetadataDict,
+    metadata: dict[str, Any],
     df: pl.LazyFrame | None,
     version: Version,
 ) -> Metadata:
@@ -149,12 +149,18 @@ def migrate_metadata(
 
     """
     if version.major == 2:
-        # A dataset that keeps its old stamp is migrated again on every
-        # open, and cannot merge with a dataset that this version wrote.
+        # The 2.x schema is current. On the old stamp, every load
+        # would run `migrate_dataframe` on these rows.
         return Metadata.model_validate(
             {**metadata, "ldf_version": str(LDF_VERSION)}
         )
+    return _migrate_ldf_1_0_0(cast(LDF_1_0_0_MetadataDict, metadata), df)
 
+
+def _migrate_ldf_1_0_0(
+    metadata: LDF_1_0_0_MetadataDict, df: pl.LazyFrame | None
+) -> Metadata:  # pragma: no cover
+    """Migrate LDF ``1.0.0`` metadata to the current schema."""
     new_metadata = {}
     old_classes = metadata["classes"]
     if set(old_classes.keys()) <= LDF_1_0_0_TASKS:
