@@ -66,9 +66,12 @@ def _export(
     return tempdir / name / dataset.identifier
 
 
-@pytest.mark.parametrize("version", ["2.0", "2.0.0"])
-def test_resolve_accepts_short_and_full_versions(version: str):
-    assert resolve_export_version(version) == Version.parse("2.0.0")
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [("2.0", "2.0.0"), ("2.0.0", "2.0.0"), ("2.1", "2.1.0")],
+)
+def test_resolve_accepts_short_and_full_versions(version: str, expected: str):
+    assert resolve_export_version(version) == Version.parse(expected)
 
 
 def test_resolve_defaults_to_current_version():
@@ -81,13 +84,16 @@ def test_resolve_rejects_malformed_versions(version: str):
         resolve_export_version(version)
 
 
-@pytest.mark.parametrize("version", ["3.0", "2.9"])
+@pytest.mark.parametrize(
+    "version",
+    [str(LDF_VERSION.bump_major()), str(LDF_VERSION.bump_minor())],
+)
 def test_resolve_rejects_newer_than_installed(version: str):
     with pytest.raises(ValueError, match="at the newest"):
         resolve_export_version(version)
 
 
-@pytest.mark.parametrize("version", ["1.0", "2.0.1"])
+@pytest.mark.parametrize("version", ["1.0", "2.0.1", "2.9"])
 def test_resolve_rejects_unsupported_versions(version: str):
     with pytest.raises(ValueError, match="Supported versions"):
         resolve_export_version(version)
@@ -133,6 +139,19 @@ def test_export_2_0_omits_sample_metadata(dataset_name: str, tempdir: Path):
     for record in records:
         assert set(record) <= LDF_2_0_RECORD_FIELDS
     assert _read_stamp(root) == "2.0.0"
+
+
+def test_export_2_1_keeps_sample_metadata(dataset_name: str, tempdir: Path):
+    """LDF 2.1 records have the fields of LDF 3.0, so only the stamp moves."""
+    dataset = create_dataset(
+        dataset_name, _generator(tempdir), splits=(1, 0, 0)
+    )
+    root = _export(dataset, tempdir, "v21", ldf_version="2.1")
+
+    records = _read_records(root)
+    assert records
+    assert all("sample_metadata" in record for record in records)
+    assert _read_stamp(root) == "2.1.0"
 
 
 def test_export_defaults_to_current_version(dataset_name: str, tempdir: Path):
@@ -270,7 +289,7 @@ def test_import_warns_once_on_newer_export(
     assert version in warned[0]
 
 
-@pytest.mark.parametrize("version", ["2.0.0", None])
+@pytest.mark.parametrize("version", ["2.0.0", "2.1.0", None])
 def test_import_is_quiet_for_current_or_older_exports(
     dataset_name: str,
     tempdir: Path,

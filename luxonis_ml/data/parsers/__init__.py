@@ -496,7 +496,7 @@ LDF export without `LuxonisParser`::
         └── images/
 
 ``metadata.json`` holds the LDF version of the export, such as
-``{"ldf_version": "2.1.0"}``. It is optional, and the parser reads it only to
+``{"ldf_version": "3.0.0"}``. It is optional, and the parser reads it only to
 warn about an export from a newer version. An export larger than
 ``max_partition_size_gb`` is written as ``<name>_part0``, ``<name>_part1``,
 and so on, and each part repeats this layout.

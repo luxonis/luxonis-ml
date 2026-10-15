@@ -1,11 +1,13 @@
-"""Migration of LDF ``1.0.0`` datasets to the current layout."""
+"""Migration of datasets that an older LDF version wrote."""
 
 from collections import defaultdict
-from typing import Any, Final, Literal, overload
+from typing import Any, Final, Literal, cast, overload
 
 import polars as pl
+from semver.version import Version
 from typing_extensions import TypedDict
 
+from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 
 from .metadata import Metadata, Skeletons
@@ -122,14 +124,21 @@ def migrate_dataframe(
 
 
 def migrate_metadata(
-    metadata: LDF_1_0_0_MetadataDict, df: pl.LazyFrame | None
-) -> Metadata:  # pragma: no cover
-    """Migrate LDF ``1.0.0`` metadata to the current schema.
+    metadata: dict[str, Any],
+    df: pl.LazyFrame | None,
+    version: Version,
+) -> Metadata:
+    """Migrate stored metadata to the schema this version reads.
+
+    LDF 2.x metadata has the current schema, so only its version stamp
+    changes. LDF ``1.0.0`` metadata keeps its stamp, and
+    `migrate_dataframe` converts its annotation rows on every load.
 
     Args:
-        metadata: Metadata dictionary in the LDF ``1.0.0`` layout.
+        metadata: Metadata dictionary as it was stored.
         df: Optional annotation dataframe used to infer task names for
-            non-default datasets.
+            non-default datasets. Only LDF ``1.0.0`` needs it.
+        version: LDF version the metadata was written by.
 
     Returns:
         Migrated metadata model.
@@ -139,6 +148,19 @@ def migrate_metadata(
             ``df`` is ``None``.
 
     """
+    if version.major == 2:
+        # The 2.x schema is current. On the old stamp, every load
+        # would run `migrate_dataframe` on these rows.
+        return Metadata.model_validate(
+            {**metadata, "ldf_version": str(LDF_VERSION)}
+        )
+    return _migrate_ldf_1_0_0(cast(LDF_1_0_0_MetadataDict, metadata), df)
+
+
+def _migrate_ldf_1_0_0(
+    metadata: LDF_1_0_0_MetadataDict, df: pl.LazyFrame | None
+) -> Metadata:  # pragma: no cover
+    """Migrate LDF ``1.0.0`` metadata to the current schema."""
     new_metadata = {}
     old_classes = metadata["classes"]
     if set(old_classes.keys()) <= LDF_1_0_0_TASKS:

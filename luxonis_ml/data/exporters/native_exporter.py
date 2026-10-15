@@ -32,7 +32,7 @@ class NativeExporter(BaseExporter):
     ``files``. It is **record-level metadata**, not an annotation label.
 
     The export root also holds a ``metadata.json`` version stamp, such as
-    ``{"ldf_version": "2.1.0"}``. It is not the full `Metadata` model a
+    ``{"ldf_version": "3.0.0"}``. It is not the full `Metadata` model a
     dataset keeps in its own storage.
 
     Passing an older ``ldf_version`` strips the fields that version does
