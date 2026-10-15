@@ -136,10 +136,6 @@ A custom engine should subclass `AugmentationEngine` and implement:
 Engines may also override `AugmentationEngine.applied_augmentations` to
 report the configured paths and runtime parameters of their latest call.
 
-When the ``__init__`` of an engine takes a ``keypoint_metadata`` parameter,
-`LuxonisLoader` passes the `KeypointMetadata` of each keypoint task, keyed by
-task name.
-
 
 Tips and Tricks
 ===============
