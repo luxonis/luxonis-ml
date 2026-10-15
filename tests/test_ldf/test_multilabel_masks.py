@@ -20,6 +20,10 @@ SIDEWALK = np.array([[0, 1, 1, 0]])
 WET = np.array([[0, 1, 1, 1]])
 
 
+def mask(array: np.ndarray, *, multilabel: bool = False) -> dict:
+    return {"mask": array, "multilabel": multilabel}
+
+
 def scene(*, wet_is_flagged: bool) -> tuple[DatasetRecord, DatasetSchema]:
     """Return a record of the three masks and the schema of its task."""
     record = DatasetRecord.model_validate(
@@ -27,14 +31,11 @@ def scene(*, wet_is_flagged: bool) -> tuple[DatasetRecord, DatasetSchema]:
             "media": IMAGE,
             "annotation": {
                 "scene": [
-                    {"class": "road", "segmentation": {"mask": ROAD}},
-                    {"class": "sidewalk", "segmentation": {"mask": SIDEWALK}},
+                    {"class": "road", "segmentation": mask(ROAD)},
+                    {"class": "sidewalk", "segmentation": mask(SIDEWALK)},
                     {
                         "class": "wet",
-                        "segmentation": {
-                            "mask": WET,
-                            "multilabel": wet_is_flagged,
-                        },
+                        "segmentation": mask(WET, multilabel=wet_is_flagged),
                     },
                 ]
             },
@@ -48,8 +49,13 @@ def scene(*, wet_is_flagged: bool) -> tuple[DatasetRecord, DatasetSchema]:
     return record, schema
 
 
-def mask(array: np.ndarray, *, multilabel: bool = False) -> dict:
-    return {"mask": array, "multilabel": multilabel}
+def flags(record: DatasetRecord) -> list[bool]:
+    """Return the ``multilabel`` flag of each mask of the record."""
+    return [
+        detection.segmentation.multilabel
+        for detection in record.annotation["scene"]
+        if detection.segmentation is not None
+    ]
 
 
 def test_a_flagged_mask_takes_no_pixels_from_a_later_mask():
@@ -81,17 +87,14 @@ def test_an_instance_mask_refuses_the_flag():
 
 def test_a_rebuilt_multilabel_record_gives_the_same_labels():
     record, schema = scene(wet_is_flagged=True)
-    labels = record.to_loader_output(schema).labels["scene/segmentation"]
+    output = record.to_loader_output(schema)
+    labels = output.labels["scene/segmentation"]
 
-    rebuilt = record.to_loader_output(schema).to_ldf()
+    rebuilt = output.to_ldf()
     rebuilt_labels = rebuilt.to_loader_output(schema).labels
 
     assert labels.tolist() == [[[1, 1, 0, 0]], [[0, 0, 1, 0]], [[0, 1, 1, 1]]]
-    assert all(
-        detection.segmentation is not None
-        and detection.segmentation.multilabel
-        for detection in rebuilt.annotation["scene"]
-    )
+    assert flags(rebuilt) == [True, True, True]
     assert np.array_equal(rebuilt_labels["scene/segmentation"], labels)
 
 
@@ -101,8 +104,4 @@ def test_a_rebuilt_single_label_record_has_no_flag():
 
     rebuilt = record.to_loader_output(schema).to_ldf()
 
-    assert not any(
-        detection.segmentation is not None
-        and detection.segmentation.multilabel
-        for detection in rebuilt.annotation["scene"]
-    )
+    assert flags(rebuilt) == [False, False, False]

@@ -20,33 +20,28 @@ WET = np.zeros((512, 512), dtype=np.uint8)
 WET[200:] = 1
 
 
+def scene(media: Path, *, wet_is_flagged: bool) -> dict:
+    """Return a record of the ``road`` and ``wet`` masks."""
+    wet = {"mask": WET, "multilabel": wet_is_flagged}
+    return {
+        "media": media,
+        "annotation": {
+            "scene": [
+                {"class": "road", "segmentation": {"mask": ROAD}},
+                {"class": "wet", "segmentation": wet},
+            ]
+        },
+    }
+
+
 @pytest.fixture
 def dataset(dataset_name: str, tempdir: Path) -> LuxonisDataset:
     """Build a dataset with the flagged ``wet`` mask in ``train`` only."""
     flagged, plain = create_image(0, tempdir), create_image(1, tempdir)
 
     def generator() -> DatasetIterator:
-        yield {
-            "media": flagged,
-            "annotation": {
-                "scene": [
-                    {"class": "road", "segmentation": {"mask": ROAD}},
-                    {
-                        "class": "wet",
-                        "segmentation": {"mask": WET, "multilabel": True},
-                    },
-                ]
-            },
-        }
-        yield {
-            "media": plain,
-            "annotation": {
-                "scene": [
-                    {"class": "road", "segmentation": {"mask": ROAD}},
-                    {"class": "wet", "segmentation": {"mask": WET}},
-                ]
-            },
-        }
+        yield scene(flagged, wet_is_flagged=True)
+        yield scene(plain, wet_is_flagged=False)
 
     dataset = create_dataset(dataset_name, generator(), splits=False)
     dataset.make_splits({"train": [flagged], "val": [plain]})
