@@ -1,6 +1,8 @@
 """Commands of ``luxonis_ml data``."""
 
 import shutil
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Annotated, Literal, TypeAlias
 
@@ -39,6 +41,7 @@ from luxonis_ml.data.utils.visualizations import (
     visualize,
 )
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.typing import Labels, LoaderOutput, Params
 
 app = App(help="Dataset utilities.")
 
@@ -104,24 +107,23 @@ def delete(
         )
         raise SystemExit(2)
 
+    if bucket_storage is BucketStorage.LOCAL and remote:
+        print(
+            "[yellow]Warning: You specified remote deletion, "
+            "but the bucket is local. "
+            "Remote deletion will not be performed.[/yellow]"
+        )
+        remote = False
+
+    storage = (
+        "local and remote"
+        if local and remote
+        else "local"
+        if local
+        else "remote"
+    )
     for name in names:
         check_exists(name, bucket_storage)
-
-        if bucket_storage is BucketStorage.LOCAL and remote:
-            print(
-                "[yellow]Warning: You specified remote deletion, "
-                "but the bucket is local. "
-                "Remote deletion will not be performed.[/yellow]"
-            )
-            remote = False
-
-        storage = (
-            "local and remote"
-            if local and remote
-            else "local"
-            if local
-            else "remote"
-        )
         if not yes and not Confirm.ask(
             f"Delete dataset '{name}' with specified bucket "
             f"'{bucket_storage}' from {storage} storage?"
@@ -276,149 +278,198 @@ def inspect(
         )
         list_augmentations = False
 
-    view = view or ["train"]
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
-
     if len(dataset) == 0:
         raise ValueError(f"Dataset '{name}' is empty.")
 
     loader = LuxonisLoader(
         dataset,
-        view=view,
+        view=view or ["train"],
         update_mode="all" if force_update else "missing",
     )
-
     if aug_config is not None:
-        sample_img = loader[0][0]
-        img = (
-            next(iter(sample_img.values()))
-            if isinstance(sample_img, dict)
-            else sample_img
-        )
-        h, w = img.shape[:2]
-
-        loader._augmentations = loader._init_augmentations(
-            augmentation_engine="albumentations",
-            augmentation_config=aug_config,
-            height=h,
-            width=w,
+        _apply_aug_config(
+            loader,
+            aug_config,
             keep_aspect_ratio=not ignore_aspect_ratio,
-            seed=42 if deterministic else None,
+            deterministic=deterministic,
         )
 
-    classes = dataset.get_classes()
-    categorical_encodings = dataset.get_categorical_encodings()
-    keypoint_skeletons = (
-        dataset.get_skeletons()
-        if skeletons or keypoint_labels in ("names", "full")
-        else None
+    draw_names = keypoint_labels in ("names", "full")
+    draw = partial(
+        visualize,
+        classes=dataset.get_classes(),
+        blend_all=blend_all,
+        categorical_encodings=dataset.get_categorical_encodings(),
+        skeletons=dataset.get_skeletons() if skeletons or draw_names else None,
+        draw_skeletons=skeletons,
+        keypoint_label_mode=keypoint_labels,
     )
-    prev_windows = set()
-
+    viewer = _SampleViewer(
+        draw,
+        size_multiplier=size_multiplier,
+        per_instance=per_instance,
+        list_augmentations=list_augmentations,
+        print_sample_metadata=print_sample_metadata,
+    )
     for data in loader:
-        images_dict = data.images
-        labels = data.labels
-        tracked_augmentations = get_tracked_augmentations(data.metadata)
-
-        if print_sample_metadata:
-            metadata = data.metadata
-            if not list_augmentations and tracked_augmentations is not None:
-                # The runtime parameters of every transformation would bury
-                # the record metadata this flag exists to show.
-                metadata = {
-                    k: v for k, v in metadata.items() if k != "augmentations"
-                }
-            print("Sample metadata:", metadata)
-
-        current_windows = set(images_dict.keys())
-        for stale_window in prev_windows - current_windows:
-            cv2.destroyWindow(stale_window)
-
-        instance_keys = [
-            "/boundingbox",
-            "/keypoints",
-            "/instance_segmentation",
-        ]
-        matched_instance_keys = [
-            k for k in labels if any(k.endswith(ik) for ik in instance_keys)
-        ]
-
-        for source_name, image in images_dict.items():
-            image = image.astype(np.uint8)
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-            h, w = image.shape[:2]
-            new_h, new_w = int(h * size_multiplier), int(w * size_multiplier)
-            image = cv2.resize(image, (new_w, new_h))
-
-            cv2.namedWindow(source_name, cv2.WINDOW_NORMAL)
-            if per_instance and matched_instance_keys:
-                extra_keys = [
-                    k for k in labels if k not in matched_instance_keys
-                ]
-                if extra_keys:
-                    print(
-                        f"[yellow]Warning: Ignoring non-instance keys in labels: {extra_keys}[/yellow]"
-                    )
-                n_instances = len(labels[matched_instance_keys[0]])
-                for i in range(n_instances):
-                    instance_labels = {
-                        k: np.expand_dims(v[i], axis=0)
-                        for k, v in labels.items()
-                        if k in matched_instance_keys and len(v) > i
-                    }
-                    instance_image = visualize(
-                        image.copy(),
-                        source_name,
-                        instance_labels,
-                        classes,
-                        blend_all=blend_all,
-                        categorical_encodings=categorical_encodings,
-                        skeletons=keypoint_skeletons,
-                        draw_skeletons=skeletons,
-                        keypoint_label_mode=keypoint_labels,
-                    )
-                    if list_augmentations:
-                        instance_image = add_augmentation_footer(
-                            instance_image, list(tracked_augmentations or {})
-                        )
-                    cv2.resizeWindow(
-                        source_name,
-                        instance_image.shape[1],
-                        instance_image.shape[0],
-                    )
-                    cv2.imshow(source_name, instance_image)
-                    if cv2.waitKey() == ord("q"):
-                        break
-            else:
-                if per_instance:
-                    print(
-                        "[yellow]Warning: Per-instance mode is not supported for this dataset. "
-                        f"Showing all labels in one window for '{source_name}'.[/yellow]"
-                    )
-                labeled_image = visualize(
-                    image,
-                    source_name,
-                    labels,
-                    classes,
-                    blend_all=blend_all,
-                    categorical_encodings=categorical_encodings,
-                    skeletons=keypoint_skeletons,
-                    draw_skeletons=skeletons,
-                    keypoint_label_mode=keypoint_labels,
-                )
-                if list_augmentations:
-                    labeled_image = add_augmentation_footer(
-                        labeled_image, list(tracked_augmentations or {})
-                    )
-                cv2.resizeWindow(
-                    source_name, labeled_image.shape[1], labeled_image.shape[0]
-                )
-                cv2.imshow(source_name, labeled_image)
-
-        prev_windows = current_windows
-
+        viewer.show(data)
         if cv2.waitKey() == ord("q"):
             break
+
+
+def _apply_aug_config(
+    loader: LuxonisLoader,
+    aug_config: Path,
+    *,
+    keep_aspect_ratio: bool,
+    deterministic: bool,
+) -> None:
+    """Give a loader the augmentations of a config, sized like its first image."""
+    sample_img = loader[0][0]
+    img = (
+        next(iter(sample_img.values()))
+        if isinstance(sample_img, dict)
+        else sample_img
+    )
+    h, w = img.shape[:2]
+
+    loader._augmentations = loader._init_augmentations(
+        augmentation_engine="albumentations",
+        augmentation_config=aug_config,
+        height=h,
+        width=w,
+        keep_aspect_ratio=keep_aspect_ratio,
+        seed=42 if deterministic else None,
+    )
+
+
+_INSTANCE_TASK_TYPES = ("/boundingbox", "/keypoints", "/instance_segmentation")
+
+
+class _SampleViewer:
+    """Show the images of loader samples in OpenCV windows, one per source."""
+
+    def __init__(
+        self,
+        draw: Callable[[np.ndarray, str, Labels], np.ndarray],
+        *,
+        size_multiplier: float,
+        per_instance: bool,
+        list_augmentations: bool,
+        print_sample_metadata: bool,
+    ):
+        self._draw = draw
+        self._size_multiplier = size_multiplier
+        self._per_instance = per_instance
+        self._list_augmentations = list_augmentations
+        self._print_sample_metadata = print_sample_metadata
+        self._windows: set[str] = set()
+
+    def show(self, data: LoaderOutput) -> None:
+        """Show one sample and close the windows of sources it lacks."""
+        tracked_augmentations = get_tracked_augmentations(data.metadata)
+        if self._print_sample_metadata:
+            self._print_metadata(data.metadata, tracked_augmentations)
+
+        current_windows = set(data.images)
+        for stale_window in self._windows - current_windows:
+            cv2.destroyWindow(stale_window)
+        self._windows = current_windows
+
+        footer = None
+        if self._list_augmentations:
+            footer = list(tracked_augmentations or {})
+        for source_name, image in data.images.items():
+            self._show_source(
+                source_name, self._scale(image), data.labels, footer
+            )
+
+    def _print_metadata(
+        self, metadata: Params, tracked_augmentations: object
+    ) -> None:
+        """Print the sample metadata."""
+        if not self._list_augmentations and tracked_augmentations is not None:
+            # The runtime parameters of every transformation would bury
+            # the record metadata this flag exists to show.
+            metadata = {
+                k: v for k, v in metadata.items() if k != "augmentations"
+            }
+        print("Sample metadata:", metadata)
+
+    def _scale(self, image: np.ndarray) -> np.ndarray:
+        """Convert an image to BGR and scale it by the size multiplier."""
+        image = cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_RGB2BGR)
+        h, w = image.shape[:2]
+        new_h, new_w = (
+            int(h * self._size_multiplier),
+            int(w * self._size_multiplier),
+        )
+        return cv2.resize(image, (new_w, new_h))
+
+    def _show_source(
+        self,
+        source_name: str,
+        image: np.ndarray,
+        labels: Labels,
+        footer: list[str] | None,
+    ) -> None:
+        """Show the labels of one source, per instance when asked and possible."""
+        cv2.namedWindow(source_name, cv2.WINDOW_NORMAL)
+        instance_keys = [k for k in labels if k.endswith(_INSTANCE_TASK_TYPES)]
+        if self._per_instance and instance_keys:
+            self._show_instances(
+                source_name, image, labels, instance_keys, footer
+            )
+            return
+
+        if self._per_instance:
+            print(
+                "[yellow]Warning: Per-instance mode is not supported for this dataset. "
+                f"Showing all labels in one window for '{source_name}'.[/yellow]"
+            )
+        self._show_window(
+            source_name, self._draw(image, source_name, labels), footer
+        )
+
+    def _show_instances(
+        self,
+        source_name: str,
+        image: np.ndarray,
+        labels: Labels,
+        instance_keys: list[str],
+        footer: list[str] | None,
+    ) -> None:
+        """Show the instances of one source one by one; ``q`` skips the rest."""
+        extra_keys = [k for k in labels if k not in instance_keys]
+        if extra_keys:
+            print(
+                f"[yellow]Warning: Ignoring non-instance keys in labels: {extra_keys}[/yellow]"
+            )
+        n_instances = len(labels[instance_keys[0]])
+        for i in range(n_instances):
+            instance_labels = {
+                k: np.expand_dims(v[i], axis=0)
+                for k, v in labels.items()
+                if k in instance_keys and len(v) > i
+            }
+            self._show_window(
+                source_name,
+                self._draw(image.copy(), source_name, instance_labels),
+                footer,
+            )
+            if cv2.waitKey() == ord("q"):
+                break
+
+    @staticmethod
+    def _show_window(
+        window: str, image: np.ndarray, footer: list[str] | None
+    ) -> None:
+        """Show an image in its window, with the augmentation footer if any."""
+        if footer is not None:
+            image = add_augmentation_footer(image, footer)
+        cv2.resizeWindow(window, image.shape[1], image.shape[0])
+        cv2.imshow(window, image)
 
 
 @app.command
@@ -635,52 +686,49 @@ def health(
     )
 
     if duplicate_uuids:
-        duuid_table = Table(
-            title="Duplicate UUIDs", box=rich.box.ROUNDED, row_styles=["red"]
+        _print_table(
+            console,
+            "Duplicate UUIDs",
+            {"UUID": "magenta", "Files": "cyan"},
+            [
+                (item["uuid"], ", ".join(item["files"]))
+                for item in duplicate_uuids
+            ],
+            row_style="red",
         )
-        duuid_table.add_column("UUID", style="magenta")
-        duuid_table.add_column("Files", style="cyan")
-
-        for item in duplicate_uuids:
-            duuid_table.add_row(item["uuid"], ", ".join(item["files"]))
-
-        console.print(duuid_table)
 
     if duplicate_annotations:
-        dann_table = Table(
-            title="Duplicate Annotations",
-            box=rich.box.ROUNDED,
-            row_styles=["red"],
+        _print_table(
+            console,
+            "Duplicate Annotations",
+            {
+                "File Name": "cyan",
+                "Task Name": "magenta",
+                "Task Type": "magenta",
+                "Annotation": "yellow",
+                "Count": "green",
+            },
+            [
+                (
+                    item["file_name"],
+                    item["task_name"],
+                    item["task_type"],
+                    str(item["annotation"]),
+                    str(item["count"]),
+                )
+                for item in duplicate_annotations
+            ],
+            row_style="red",
         )
-        dann_table.add_column("File Name", style="cyan")
-        dann_table.add_column("Task Name", style="magenta")
-        dann_table.add_column("Task Type", style="magenta")
-        dann_table.add_column("Annotation", style="yellow")
-        dann_table.add_column("Count", style="green")
-
-        for item in duplicate_annotations:
-            dann_table.add_row(
-                item["file_name"],
-                item["task_name"],
-                item["task_type"],
-                str(item["annotation"]),
-                str(item["count"]),
-            )
-
-        console.print(dann_table)
 
     if missing_annotations:
-        missing_table = Table(
-            title="Files With Missing Annotations",
-            box=rich.box.ROUNDED,
-            row_styles=["yellow"],
+        _print_table(
+            console,
+            "Files With Missing Annotations",
+            {"File Name": "cyan"},
+            [(file,) for file in missing_annotations],
+            row_style="yellow",
         )
-        missing_table.add_column("File Name", style="cyan")
-
-        for file in missing_annotations:
-            missing_table.add_row(file)
-
-        console.print(missing_table)
 
     summary_table = Table(
         title="Dataset Health Summary",
@@ -718,48 +766,82 @@ def health(
         return
 
     for task_name in all_task_names:
-        class_dist_by_type = stats["class_distributions"].get(task_name, {})
-        heatmaps_by_type = stats["heatmaps"].get(task_name, {})
-        all_task_types = sorted(
-            set(class_dist_by_type.keys()) | set(heatmaps_by_type.keys())
+        _plot_task_health(
+            console,
+            task_name,
+            stats["class_distributions"].get(task_name, {}),
+            stats["heatmaps"].get(task_name, {}),
+            save_dir,
         )
 
-        if not all_task_types:
-            console.print(f"[info]No plots for task name: {task_name}[/info]")
-            continue
 
-        nrows = len(all_task_types)
-        square_size = 4
-        fig, axs = plt.subplots(
-            nrows, 2, figsize=(square_size * 2, square_size * nrows)
+def _print_table(
+    console: Console,
+    title: str,
+    columns: dict[str, str],
+    rows: list[tuple[str, ...]],
+    *,
+    row_style: str,
+) -> None:
+    """Print a rounded table with one style per column."""
+    table = Table(title=title, box=rich.box.ROUNDED, row_styles=[row_style])
+    for name, style in columns.items():
+        table.add_column(name, style=style)
+    for row in rows:
+        table.add_row(*row)
+    console.print(table)
+
+
+def _plot_task_health(
+    console: Console,
+    task_name: str,
+    class_dist_by_type: dict[str, list],
+    heatmaps_by_type: dict[str, np.ndarray],
+    save_dir: str | None,
+) -> None:
+    """Plot the class distribution and heatmap of each task type.
+
+    The figure is saved under ``save_dir`` when given, else shown.
+    """
+    all_task_types = sorted(
+        set(class_dist_by_type.keys()) | set(heatmaps_by_type.keys())
+    )
+    if not all_task_types:
+        console.print(f"[info]No plots for task name: {task_name}[/info]")
+        return
+
+    nrows = len(all_task_types)
+    square_size = 4
+    fig, axs = plt.subplots(
+        nrows, 2, figsize=(square_size * 2, square_size * nrows)
+    )
+    if task_name != "":
+        fig.suptitle(f"Task Name: {task_name}", fontsize=14)
+
+    if nrows == 1:
+        axs = [axs]
+
+    for i, task_type in enumerate(all_task_types):
+        plot_class_distribution(
+            axs[i][0], task_type, class_dist_by_type.get(task_type, [])
         )
-        if task_name != "":
-            fig.suptitle(f"Task Name: {task_name}", fontsize=14)
+        plot_heatmap(
+            axs[i][1],
+            fig,  # type: ignore
+            task_type,
+            heatmaps_by_type.get(task_type),  # type: ignore
+        )
 
-        if nrows == 1:
-            axs = [axs]
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.9, hspace=0.5)
 
-        for i, task_type in enumerate(all_task_types):
-            plot_class_distribution(
-                axs[i][0], task_type, class_dist_by_type.get(task_type, [])
-            )
-            plot_heatmap(
-                axs[i][1],
-                fig,  # type: ignore
-                task_type,
-                heatmaps_by_type.get(task_type),  # type: ignore
-            )
-
-        plt.tight_layout()
-        plt.subplots_adjust(top=0.9, hspace=0.5)
-
-        if save_dir:
-            fig.savefig(f"{save_dir}/dataset_health_{task_name}.png", dpi=150)  # type: ignore
+    if save_dir:
+        fig.savefig(f"{save_dir}/dataset_health_{task_name}.png", dpi=150)  # type: ignore
+        plt.close(fig)
+    else:
+        plt.show(block=False)
+        if plt.waitforbuttonpress():
             plt.close(fig)
-        else:
-            plt.show(block=False)
-            if plt.waitforbuttonpress():
-                plt.close(fig)
 
 
 @app.command
