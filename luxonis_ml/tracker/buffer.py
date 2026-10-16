@@ -20,6 +20,7 @@ import time
 from abc import ABC, abstractmethod
 from collections.abc import Generator, Mapping
 from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar, cast
@@ -43,10 +44,15 @@ class BufferedBackend(TrackerBackend, register=False):
     loop:
 
         - A transient failure, as `TrackerBackend.is_transient` tells it,
-          puts the call into a buffer. The wrapper then leaves the
-          service alone for ``retry_interval`` seconds, so that an outage
-          does not stall every logging call. The next call after that
-          time sends the buffer first, in the original order.
+          puts the call into a buffer. The calls of its kind then wait
+          ``retry_interval`` seconds, and keep their order. The other
+          kinds still go out, so one call that the service keeps
+          failing does not stop them. The kinds are hyperparameters,
+          metrics, images, matrices and artifacts.
+        - When a second kind fails before any call gets through, the
+          service is down. All calls then wait ``retry_interval``
+          seconds, so that an outage does not stall every logging call.
+          The next attempt sends the buffer first.
         - Any other failure drops the call with a warning. The service
           rejected it, and it would fail again.
         - A rejected first `start` raises, so that a wrong configuration
@@ -113,6 +119,8 @@ class BufferedBackend(TrackerBackend, register=False):
         self._busy = False
         self._pending_close: RunStatus | None = None
         self._retry_at = 0.0
+        self._kind_retry_at: dict[type[_Call], float] = {}
+        self._failed_kinds: set[type[_Call]] = set()
         self._reported_drop = False
 
     def start(self) -> None:
@@ -129,7 +137,7 @@ class BufferedBackend(TrackerBackend, register=False):
         if self._busy:
             return
         with self._hold():
-            self._flush(raise_rejected=True)
+            self._flush(raise_rejected_start=True)
 
     def log_hyperparams(self, params: Mapping[str, ParamValue]) -> None:
         """Send the hyperparameters, or buffer them.
@@ -205,6 +213,8 @@ class BufferedBackend(TrackerBackend, register=False):
             OSError: If the calls that never got through cannot be
                 saved. The run ends all the same.
             Exception: The error of the close of the wrapped backend.
+                After an earlier error, the close error gives only a
+                warning, and the earlier error is raised.
 
         """
         if self._busy:
@@ -212,14 +222,25 @@ class BufferedBackend(TrackerBackend, register=False):
             return
         # the last chance, whatever the backoff says
         self._retry_at = 0
+        self._kind_retry_at.clear()
+        first_error: BaseException | None = None
         try:
             self._flush()
-        finally:
+        except BaseException as error:
+            first_error = error
+        try:
+            self._spill()
+        except BaseException as error:
+            first_error = first_error or error
+        if self._started:
             try:
-                self._spill()
-            finally:
-                if self._started:
-                    self.backend.close(status)
+                self.backend.close(status)
+            except Exception as error:
+                if first_error is None:
+                    raise
+                logger.warning(f"Could not close the {self.name} run: {error}")
+        if first_error is not None:
+            raise first_error
 
     def flush(self) -> None:
         """Send the buffered calls, and flush the wrapped backend.
@@ -281,44 +302,71 @@ class BufferedBackend(TrackerBackend, register=False):
                 # an interrupt of the replay keeps the new call too
                 self._buffer(call)
                 raise
-            if self._calls or not self._started:
+            kind = type(call)
+            if (
+                not self._started
+                or self._waits(kind)
+                # the calls of a kind keep their order
+                or any(type(waiting) is kind for waiting in self._calls)
+            ):
                 self._buffer(call)
                 return
             try:
-                call.send(self.backend)
-            except Exception as error:
-                if not self.backend.is_transient(error):
-                    logger.warning(f"{self.name} rejected a call: {error}")
-                    return
-                self._back_off(error)
-                self._buffer(call)
+                sent = self._send(call)
             except BaseException:
                 self._buffer(call)
                 raise
+            if not sent:
+                self._buffer(call)
 
-    def _flush(self, *, raise_rejected: bool = False) -> None:
-        """Start the backend if needed, and send the buffered calls."""
-        if time.monotonic() < self._retry_at:
+    def _flush(self, *, raise_rejected_start: bool = False) -> None:
+        """Start the backend if needed, and send the buffered calls.
+
+        The calls of a kind that waits for its next attempt stay in the
+        buffer. Only a rejected start raises, and only with
+        ``raise_rejected_start``. A rejected call gives a warning.
+        """
+        if self._waits():
             return
-        if not self._started and not self._start(raise_rejected):
+        if not self._started and not self._start(raise_rejected_start):
             return
-        while self._calls:
-            call = self._calls.pop(0)
+        index = 0
+        # a signal handler can add calls during the loop
+        while index < len(self._calls) and not self._waits():
+            call = self._calls[index]
+            if self._waits(type(call)):
+                index += 1
+                continue
+            del self._calls[index]
             try:
-                call.send(self.backend)
-            except Exception as error:
-                if self.backend.is_transient(error):
-                    self._calls.insert(0, call)
-                    self._back_off(error)
-                    return
-                logger.warning(
-                    f"{self.name} rejected a buffered call: {error}"
-                )
+                sent = self._send(call)
             except BaseException:
-                self._calls.insert(0, call)
+                self._calls.insert(index, call)
                 raise
-            call.discard()
-        self._reported_drop = False
+            if sent:
+                call.discard()
+            else:
+                self._calls.insert(index, call)
+                index += 1
+        if not self._calls:
+            self._reported_drop = False
+
+    def _send(self, call: "_Call") -> bool:
+        """Make the call, and return whether it is done with.
+
+        A rejected call is done with, and gives a warning. A call that
+        fails with a transient error is not, and its kind waits.
+        """
+        try:
+            call.send(self.backend)
+        except Exception as error:
+            if self.backend.is_transient(error):
+                self._back_off(error, type(call))
+                return False
+            logger.warning(f"{self.name} rejected a call: {error}")
+        # the service answered, so it is not down
+        self._failed_kinds.clear()
+        return True
 
     def _start(self, raise_rejected: bool) -> bool:
         """Start the backend, and return whether it started."""
@@ -340,12 +388,40 @@ class BufferedBackend(TrackerBackend, register=False):
         self._started = True
         return True
 
-    def _back_off(self, error: Exception) -> None:
-        """Leave the service alone for ``retry_interval`` seconds."""
-        self._retry_at = time.monotonic() + self.retry_interval
+    def _waits(self, kind: type["_Call"] | None = None) -> bool:
+        """Tell whether all calls, or the calls of ``kind``, wait for
+        their next attempt.
+        """
+        now = time.monotonic()
+        return now < self._retry_at or (
+            kind is not None and now < self._kind_retry_at.get(kind, 0)
+        )
+
+    def _back_off(
+        self, error: Exception, kind: type["_Call"] | None = None
+    ) -> None:
+        """Leave the calls of ``kind`` for ``retry_interval`` seconds.
+
+        A failed start, or a failure of a second kind before any call
+        gets through, means that the service is down. Then all calls
+        wait.
+        """
+        retry_at = time.monotonic() + self.retry_interval
+        if kind is not None:
+            self._failed_kinds.add(kind)
+        if kind is None or len(self._failed_kinds) > 1:
+            self._retry_at = retry_at
+            logger.warning(
+                f"{self.name} is unavailable: {error}. The calls are "
+                "buffered, the next attempt is in "
+                f"{self.retry_interval:.0f} seconds."
+            )
+            return
+        self._kind_retry_at[kind] = retry_at
         logger.warning(
-            f"{self.name} is unavailable: {error}. The calls are buffered, "
-            f"the next attempt is in {self.retry_interval:.0f} seconds."
+            f"{self.name} failed a {kind.label} call: {error}. The "
+            f"{kind.label} calls are buffered, the next attempt is in "
+            f"{self.retry_interval:.0f} seconds. The other calls go on."
         )
 
     def _buffer(self, call: "_Call") -> None:
@@ -418,6 +494,9 @@ class _Call(ABC):
     limit: ClassVar[int]
     """How many calls of this kind the buffer holds."""
 
+    label: ClassVar[str]
+    """Name of the kind in the messages."""
+
     @abstractmethod
     def send(self, backend: TrackerBackend) -> None:
         """Make the call on ``backend``."""
@@ -435,7 +514,7 @@ class _Call(ABC):
 
     def copy(self) -> "_Call":
         """Return the call with its own copy of the arrays and mappings
-        of the caller.
+        of the caller, nested values included.
         """
         return self
 
@@ -445,6 +524,7 @@ class _Hyperparams(_Call):
     """A buffered `TrackerBackend.log_hyperparams` call."""
 
     limit: ClassVar[int] = 100
+    label: ClassVar[str] = "hyperparameter"
     params: Mapping[str, ParamValue]
 
     def send(self, backend: TrackerBackend) -> None:
@@ -454,7 +534,7 @@ class _Hyperparams(_Call):
         return {"call": "log_hyperparams", "params": dict(self.params)}
 
     def copy(self) -> "_Hyperparams":
-        return _Hyperparams(dict(self.params))
+        return _Hyperparams(deepcopy(dict(self.params)))
 
 
 @dataclass(frozen=True, eq=False)
@@ -462,6 +542,7 @@ class _Metrics(_Call):
     """A buffered `TrackerBackend.log_metrics` call."""
 
     limit: ClassVar[int] = 500
+    label: ClassVar[str] = "metric"
     metrics: Mapping[str, float]
     step: int
 
@@ -484,6 +565,7 @@ class _Image(_Call):
     """A buffered `TrackerBackend.log_image` call."""
 
     limit: ClassVar[int] = 50
+    label: ClassVar[str] = "image"
     name: str
     image: npt.NDArray[Any]
     step: int
@@ -511,6 +593,7 @@ class _Matrix(_Call):
     """A buffered `TrackerBackend.log_matrix` call."""
 
     limit: ClassVar[int] = 500
+    label: ClassVar[str] = "matrix"
     matrix: npt.NDArray[Any]
     name: str
     step: int
@@ -530,7 +613,10 @@ class _Matrix(_Call):
 
     def copy(self) -> "_Matrix":
         return _Matrix(
-            self.matrix.copy(), self.name, self.step, dict(self.extra_data)
+            self.matrix.copy(),
+            self.name,
+            self.step,
+            deepcopy(dict(self.extra_data)),
         )
 
 
@@ -547,6 +633,7 @@ class _Artifact(_Call):
     """
 
     limit: ClassVar[int] = 10
+    label: ClassVar[str] = "artifact"
     path: Path
     name: str | None
     typ: str

@@ -2,6 +2,7 @@ import json
 from collections import UserDict
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -169,6 +170,60 @@ def test_the_replay_stops_at_an_outage_and_skips_a_rejected_call(
     inner.errors = [Rejected()]
     log(buffered, 3)
     assert inner.calls == [metrics(1), metrics(2), metrics(3)]
+
+
+class BrokenImageBackend(FakeBackend, register=False):
+    """Fail each image, as a server with a broken artifact store does,
+    and take the other calls.
+    """
+
+    image_attempts = 0
+
+    def log_image(self, name: str, image: npt.NDArray[Any], step: int) -> None:
+        self.image_attempts += 1
+        raise ConnectionError("artifact store")
+
+
+def test_a_call_that_keeps_failing_does_not_hold_back_other_kinds(
+    run: RunContext, clock: FakeClock, image: npt.NDArray[np.uint8]
+):
+    inner = BrokenImageBackend(run)
+    buffered = BufferedBackend(inner, "fake", retry_interval=RETRY_INTERVAL)
+    buffered.start()
+
+    buffered.log_image("image", image, 0)
+    buffered.log_image("image", image, 1)
+    log(buffered, 0)
+    clock.now = RETRY_INTERVAL
+    log(buffered, 1)
+
+    assert inner.calls == [metrics(0), metrics(1)]
+    # one attempt at the call, and one retry after the interval
+    assert inner.image_attempts == 2
+
+
+def test_a_second_kind_that_fails_makes_all_calls_wait(
+    run: RunContext, clock: FakeClock, image: npt.NDArray[np.uint8]
+):
+    inner = FlakyBackend(run)
+    buffered = BufferedBackend(inner, "fake", retry_interval=RETRY_INTERVAL)
+    buffered.start()
+    inner.errors = [ConnectionError(), ConnectionError()]
+    log(buffered, 0)
+    buffered.log_hyperparams({"lr": 0.1})
+    # the service is down, so the image waits without an attempt
+    buffered.log_image("image", image, 0)
+    assert inner.calls == []
+
+    clock.now = RETRY_INTERVAL
+    log(buffered, 1)
+
+    assert [call[0] for call in inner.calls] == [
+        "log_metrics",
+        "log_hyperparams",
+        "log_image",
+        "log_metrics",
+    ]
 
 
 def test_a_full_buffer_drops_the_oldest_call_of_the_kind(
@@ -406,6 +461,37 @@ def test_close_ends_the_run_when_the_save_fails(
     assert inner.status == "failed"
 
 
+@pytest.mark.parametrize(
+    ("replay_error", "expected"),
+    [
+        (ConnectionError(), FileExistsError),
+        (KeyboardInterrupt(), KeyboardInterrupt),
+    ],
+)
+def test_a_failed_close_does_not_hide_the_first_error(
+    run: RunContext,
+    clock: FakeClock,
+    warnings_log: list[str],
+    replay_error: BaseException,
+    expected: type[BaseException],
+):
+    """A save that fails, or an interrupt, says more than the close of
+    a service that is down.
+    """
+    inner = FlakyBackend(run)
+    buffered = BufferedBackend(inner, "fake")
+    buffered.start()
+    inner.errors = [ConnectionError(), replay_error, ConnectionError("gone")]
+    log(buffered, 0)
+    buffered.unsent_directory.parent.mkdir(parents=True)
+    buffered.unsent_directory.touch()
+
+    with pytest.raises(expected):
+        buffered.close("failed")
+
+    assert any("Could not close the fake run: gone" in m for m in warnings_log)
+
+
 def test_an_interrupted_close_still_saves_the_calls(
     run: RunContext, clock: FakeClock
 ):
@@ -622,13 +708,15 @@ def test_a_buffered_call_keeps_the_values_of_the_caller(
     """A caller can reuse its arrays and mappings after the call."""
     buffered.start()
     inner.error = ConnectionError()
-    params = {"lr": 0.1}
+    params = {"optimizer": {"lr": 0.1}}
+    labels = ["a"]
     matrix = np.eye(2)
     original_image = image.copy()
     buffered.log_hyperparams(params)
-    buffered.log_matrix(matrix, "matrix", 0, {})
+    buffered.log_matrix(matrix, "matrix", 0, {"labels": labels})
     buffered.log_image("image", image, 0)
-    params["lr"] = 0.2
+    params["optimizer"]["lr"] = 0.2
+    labels.append("b")
     matrix[:] = 0
     image[:] = 0
     inner.error = None
@@ -636,8 +724,9 @@ def test_a_buffered_call_keeps_the_values_of_the_caller(
     clock.now = RETRY_INTERVAL
     buffered.flush()
 
-    assert inner.calls[0] == ("log_hyperparams", {"lr": 0.1})
+    assert inner.calls[0] == ("log_hyperparams", {"optimizer": {"lr": 0.1}})
     np.testing.assert_array_equal(inner.calls[1][1], np.eye(2))
+    assert inner.calls[1][4] == {"labels": ["a"]}
     np.testing.assert_array_equal(inner.calls[2][2], original_image)
 
 

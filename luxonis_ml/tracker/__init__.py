@@ -209,8 +209,14 @@ MLflow runs on a server that can be down for a while.
 which keeps the training going:
 
     - A call that fails because the server is down waits in a buffer.
-      The tracker tries the server again after 60 seconds, and sends the
-      buffer first, in order.
+      The calls of its kind wait 60 seconds, and keep their order. The
+      other kinds still go out. So an image upload that a broken
+      artifact store fails again and again does not stop the metrics.
+      The kinds are hyperparameters, metrics, images, matrices and
+      artifacts.
+    - When a second kind fails before any call gets through, the server
+      is down. All calls then wait 60 seconds, and the next attempt
+      sends the buffer first.
     - A call that the server rejects, for example with a 4xx status, is
       dropped with a warning.
     - A first start that the server rejects, for example for an unknown
