@@ -23,6 +23,18 @@ if TYPE_CHECKING:
 ParserOutput = tuple[DatasetIterator, dict[str, dict], list[Path]]
 
 
+def yolo_box_to_ldf(
+    x_center: Any, y_center: Any, width: Any, height: Any
+) -> dict[str, float]:
+    """Convert a normalized YOLO center box to an LDF corner box."""
+    return {
+        "x": float(x_center) - float(width) / 2,
+        "y": float(y_center) - float(height) / 2,
+        "w": float(width),
+        "h": float(height),
+    }
+
+
 class BaseParser(ABC):
     """Base class for dataset-format parsers."""
 
@@ -651,23 +663,28 @@ class BaseParser(ABC):
             if isinstance(item, dict):
                 item = DatasetRecord(**item)
 
-            if self._task_name is not None:
-                if item.annotation is None:
-                    for task_name in set(self._task_name.values()):
-                        yield item.model_copy(
-                            update={"task_name": task_name}, deep=True
-                        )
-                else:
-                    class_name = item.annotation.class_name
-                    if class_name is not None:
-                        try:
-                            task_name = self._task_name[class_name]
-                        except KeyError:
-                            raise ValueError(
-                                f"Class '{class_name}' not found in task names."
-                            ) from None
-
-                        item.task_name = task_name
-                    yield item
-            else:
+            if self._task_name is None:
                 yield item
+            elif item.annotation is None:
+                # A record without labels belongs to every task.
+                for task_name in set(self._task_name.values()):
+                    yield item.model_copy(
+                        update={"task_name": task_name}, deep=True
+                    )
+            else:
+                self._assign_task_name(item)
+                yield item
+
+    def _assign_task_name(self, item: DatasetRecord) -> None:
+        """Set the task name that the class of a record maps to."""
+        assert self._task_name is not None
+        assert item.annotation is not None
+        class_name = item.annotation.class_name
+        if class_name is None:
+            return
+        try:
+            item.task_name = self._task_name[class_name]
+        except KeyError:
+            raise ValueError(
+                f"Class '{class_name}' not found in task names."
+            ) from None

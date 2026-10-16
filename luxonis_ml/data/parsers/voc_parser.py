@@ -95,57 +95,34 @@ class VOCParser(BaseParser):
                 )
                 continue
 
-            curr_annotations = {"path": path, "classes": [], "bboxes": []}
-            size_item = root.find("size")
-            assert size_item is not None
-            height = float(self._xml_find(size_item, "height"))
-            width = float(self._xml_find(size_item, "width"))
+            images_annotations.append((path, self._image_boxes(root)))
 
-            for object_item in root.findall("object"):
-                class_name = self._xml_find(object_item, "name")
-                curr_annotations["classes"].append(class_name)
+        added_images = self._get_added_images(_records(images_annotations))
 
-                bbox_info = object_item.find("bndbox")
-                if bbox_info is not None:
-                    bbox_xywh = np.array(
-                        [
-                            float(self._xml_find(bbox_info, "xmin")),
-                            float(self._xml_find(bbox_info, "ymin")),
-                            float(self._xml_find(bbox_info, "xmax"))
-                            - float(self._xml_find(bbox_info, "xmin")),
-                            float(self._xml_find(bbox_info, "ymax"))
-                            - float(self._xml_find(bbox_info, "ymin")),
-                        ]
-                    )
-                    bbox_xywh[::2] /= width
-                    bbox_xywh[1::2] /= height
-                    bbox_xywh = bbox_xywh.tolist()
-                    curr_annotations["bboxes"].append((class_name, bbox_xywh))
-            images_annotations.append(curr_annotations)
+        return _records(images_annotations), {}, added_images
 
-        def generator() -> DatasetIterator:
-            for curr_annotations in images_annotations:
-                path = str(curr_annotations["path"])
-                if not curr_annotations["bboxes"]:
-                    yield {"file": path, "annotation": None}
-                    continue
-                for bbox_class, bbox in curr_annotations["bboxes"]:
-                    yield {
-                        "file": path,
-                        "annotation": {
-                            "class": bbox_class,
-                            "boundingbox": {
-                                "x": bbox[0],
-                                "y": bbox[1],
-                                "w": bbox[2],
-                                "h": bbox[3],
-                            },
-                        },
-                    }
+    def _image_boxes(self, root: ET.Element) -> list[tuple[str, list[float]]]:
+        """Return the ``(class, [x, y, w, h])`` normalized boxes of an image."""
+        size_item = root.find("size")
+        assert size_item is not None
+        height = float(self._xml_find(size_item, "height"))
+        width = float(self._xml_find(size_item, "width"))
 
-        added_images = self._get_added_images(generator())
-
-        return generator(), {}, added_images
+        boxes = []
+        for object_item in root.findall("object"):
+            class_name = self._xml_find(object_item, "name")
+            bbox_info = object_item.find("bndbox")
+            if bbox_info is None:
+                continue
+            xmin = float(self._xml_find(bbox_info, "xmin"))
+            ymin = float(self._xml_find(bbox_info, "ymin"))
+            xmax = float(self._xml_find(bbox_info, "xmax"))
+            ymax = float(self._xml_find(bbox_info, "ymax"))
+            bbox_xywh = np.array([xmin, ymin, xmax - xmin, ymax - ymin])
+            bbox_xywh[::2] /= width
+            bbox_xywh[1::2] /= height
+            boxes.append((class_name, bbox_xywh.tolist()))
+        return boxes
 
     @staticmethod
     def _xml_find(root: ET.Element, tag: str) -> str:
@@ -153,3 +130,21 @@ class VOCParser(BaseParser):
         if item is not None and item.text is not None:
             return item.text
         raise ValueError(f"Could not find {tag} in {root}")
+
+
+def _records(
+    images_annotations: list[tuple[Path, list[tuple[str, list[float]]]]],
+) -> DatasetIterator:
+    """Yield one record per box, or one record without labels per image."""
+    for path, boxes in images_annotations:
+        if not boxes:
+            yield {"file": str(path), "annotation": None}
+            continue
+        for bbox_class, (x, y, w, h) in boxes:
+            yield {
+                "file": str(path),
+                "annotation": {
+                    "class": bbox_class,
+                    "boundingbox": {"x": x, "y": y, "w": w, "h": h},
+                },
+            }
