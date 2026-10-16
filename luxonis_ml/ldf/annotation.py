@@ -491,9 +491,11 @@ class Keypoint(KeypointSpec):
             key: _clip(value[key]) for key in ("x", "y") if key in value
         }
         if any(clipped[key] != value[key] for key in clipped):
-            logger.warning(
+            # Once, not for each keypoint of each annotation.
+            log_once(
+                logger.warning,
                 "Keypoint annotation has values outside of [0, 1] range. "
-                "Clipping them to [0, 1]."
+                "Clipping them to [0, 1].",
             )
         return {**value, **clipped}
 
