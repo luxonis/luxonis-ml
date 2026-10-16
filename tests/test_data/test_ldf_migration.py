@@ -12,6 +12,7 @@ from luxonis_ml.data import LuxonisDataset, LuxonisLoader
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.enums import BucketStorage
+from luxonis_ml.data.utils.parquet import ParquetFileManager
 from luxonis_ml.utils import environ
 
 from .utils import (
@@ -256,7 +257,24 @@ def test_each_download_names_the_2_x_rows_of_the_bucket(
     ]
 
 
+def test_an_interrupted_open_keeps_the_2_x_rows(
+    dataset_name: str, tempdir: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The old shards stay until the rewrite of the rows ends."""
+    store_as_ldf_2_1(pose_dataset(dataset_name, tempdir), FACE)
 
+    def interrupt(*_: Any) -> None:
+        raise RuntimeError("interrupted")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(ParquetFileManager, "write", interrupt)
+        with pytest.raises(RuntimeError, match="interrupted"):
+            LuxonisDataset(dataset_name)
+
+    labels = LuxonisLoader(LuxonisDataset(dataset_name), view="train")[
+        0
+    ].labels
+    assert labels["pose/keypoints"].tolist() == [FACE_ROW]
 
 
 

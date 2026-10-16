@@ -313,13 +313,15 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         """
         annotations_path = Path(self._annotations_path)
-
-        for old_file in annotations_path.glob("*.parquet"):
-            old_file.unlink()
+        # The old shards stay until the new ones are complete, so an
+        # interrupted rewrite keeps the dataset.
+        staging_path = annotations_path.with_name("annotations.new")
+        shutil.rmtree(staging_path, ignore_errors=True)
+        staging_path.mkdir()
 
         rows = pl_df.to_dicts()
 
-        with ParquetFileManager(annotations_path) as pfm:
+        with ParquetFileManager(staging_path) as pfm:
             for row in rows:
                 uuid_val = row.get("uuid")
                 group_id_val = row.get("group_id")
@@ -331,6 +333,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 data_dict.pop("group_id", None)
 
                 pfm.write(uuid_val, data_dict, group_id_val)  # type: ignore
+
+        replaced_path = annotations_path.with_name("annotations.old")
+        annotations_path.rename(replaced_path)
+        staging_path.rename(annotations_path)
+        shutil.rmtree(replaced_path)
 
         logger.info(
             f"Saved DataFrame to Parquet files in '{annotations_path}'."
