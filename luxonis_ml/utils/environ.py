@@ -22,10 +22,6 @@ class Environ(BaseSettings):
         AWS_SECRET_ACCESS_KEY: AWS secret key used by S3-compatible
             storage.
         AWS_S3_ENDPOINT_URL: Optional custom S3 endpoint.
-        MLFLOW_CLOUDFLARE_ID: Optional Cloudflare access client ID for
-            MLflow.
-        MLFLOW_CLOUDFLARE_SECRET: Optional Cloudflare access client
-            secret for MLflow.
         MLFLOW_S3_BUCKET: Optional S3 bucket used by MLflow artifacts.
         MLFLOW_S3_ENDPOINT_URL: Optional S3 endpoint used by MLflow
             artifacts.
@@ -63,8 +59,6 @@ class Environ(BaseSettings):
     AWS_SECRET_ACCESS_KEY: SecretStr | None = None
     AWS_S3_ENDPOINT_URL: str | None = None
 
-    MLFLOW_CLOUDFLARE_ID: str | None = None
-    MLFLOW_CLOUDFLARE_SECRET: SecretStr | None = None
     MLFLOW_S3_BUCKET: str | None = None
     MLFLOW_S3_ENDPOINT_URL: str | None = None
     MLFLOW_TRACKING_URI: str | None = None

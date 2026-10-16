@@ -1,0 +1,147 @@
+from collections.abc import Callable, Mapping
+from pathlib import Path
+from typing import Any, TypeVar
+
+import numpy as np
+import numpy.typing as npt
+import pytest
+
+import luxonis_ml.tracker.backends.mlflow as mlflow_module
+from luxonis_ml.tracker import (
+    LuxonisTracker,
+    RunContext,
+    RunStatus,
+    TrackerBackend,
+)
+from luxonis_ml.tracker.tracker import RUN_NAME_ENV
+from luxonis_ml.typing import ParamValue
+
+MAX_RETRIES_ENV = "MLFLOW_HTTP_REQUEST_MAX_RETRIES"
+
+_BackendT = TypeVar("_BackendT", bound=TrackerBackend)
+
+
+def backend_of(
+    tracker: LuxonisTracker, name: str, kind: type[_BackendT]
+) -> _BackendT:
+    """Return the backend of ``name`` without a start, as ``kind``."""
+    backend = tracker.backends[name]
+    assert isinstance(backend, kind)
+    return backend
+
+
+class FakeClock:
+    """Stand in for the `time` module. `sleep` advances the clock and
+    runs ``on_sleep``.
+    """
+
+    def __init__(self, on_sleep: Callable[[], object] | None = None) -> None:
+        self.now = 0.0
+        self.on_sleep = on_sleep
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+        if self.on_sleep is not None:
+            self.on_sleep()
+
+
+class Rejected(Exception):
+    """An error that `FakeBackend.is_transient` does not retry."""
+
+
+class FakeBackend(TrackerBackend, register_name="fake"):
+    """Record each call. While `error` is set, `start`, `flush`,
+    `close` and every logging call raise it.
+    """
+
+    def __init__(self, run: RunContext, *, option: str = "default") -> None:
+        super().__init__(run)
+        self.option = option
+        self.calls: list[tuple[Any, ...]] = []
+        self.starts = 0
+        self.flushes = 0
+        self.status: RunStatus | None = None
+        self.error: Exception | None = None
+
+    def start(self) -> None:
+        self._raise()
+        self.starts += 1
+
+    def log_hyperparams(self, params: Mapping[str, ParamValue]) -> None:
+        self._record("log_hyperparams", dict(params))
+
+    def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
+        self._record("log_metrics", dict(metrics), step)
+
+    def log_image(self, name: str, image: npt.NDArray[Any], step: int) -> None:
+        self._record("log_image", name, image, step)
+
+    def log_matrix(
+        self,
+        matrix: npt.NDArray[Any],
+        name: str,
+        step: int,
+        extra_data: Mapping[str, ParamValue],
+    ) -> None:
+        self._record("log_matrix", matrix, name, step, dict(extra_data))
+
+    def upload_artifact(self, path: Path, name: str | None, typ: str) -> None:
+        self._raise()
+        self._record("upload_artifact", path.read_text(), name, typ)
+
+    def flush(self) -> None:
+        self._raise()
+        self.flushes += 1
+
+    def close(self, status: RunStatus) -> None:
+        self._raise()
+        self.status = status
+
+    def is_transient(self, error: Exception) -> bool:
+        return not isinstance(error, Rejected)
+
+    def _record(self, *call: Any) -> None:
+        self._raise()
+        self.calls.append(call)
+
+    def _raise(self) -> None:
+        if self.error is not None:
+            raise self.error
+
+
+class OtherFakeBackend(FakeBackend, register_name="other_fake"):
+    """A second fake, to see that each call reaches each backend."""
+
+
+class BufferedFakeBackend(FakeBackend, register_name="buffered_fake"):
+    buffered = True
+
+
+@pytest.fixture(autouse=True)
+def isolated_process_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Undo what a tracker leaves in the process: the exported run
+    name, the MLflow retry count, and the open MLflow runs.
+    """
+    monkeypatch.setenv(RUN_NAME_ENV, "")
+    # `setenv` records the original state, so that the teardown also
+    # removes a value that the MLflow backend sets during the test
+    monkeypatch.setenv(MAX_RETRIES_ENV, "")
+    monkeypatch.delenv(MAX_RETRIES_ENV)
+    monkeypatch.setattr(mlflow_module, "_open_runs", [])
+
+
+@pytest.fixture
+def run(tmp_path: Path) -> RunContext:
+    return RunContext(
+        run_name="0-test",
+        save_directory=tmp_path,
+        project_name="project",
+    )
+
+
+@pytest.fixture
+def image() -> npt.NDArray[np.uint8]:
+    return np.arange(4 * 5 * 3, dtype=np.uint8).reshape(4, 5, 3)
