@@ -1403,6 +1403,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         categorical_encodings = defaultdict(dict)
         metadata_types = {}
         keypoint_metadata = dict(self._metadata.keypoint_metadata)
+        # Most records repeat the keypoint fields of their task, and a
+        # repeat changes nothing, so each distinct one merges once.
+        merged_keypoint_fields: defaultdict[str, set[tuple]] = defaultdict(set)
         sources: set[str] = set()
 
         annotations_path = get_dir(
@@ -1441,13 +1444,19 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                         tasks[task_name] |= ann.get_task_types()
 
                         if ann.keypoints is not None:
-                            merge_keypoint_metadata(
-                                keypoint_metadata,
-                                task_name,
-                                KeypointMetadata.from_annotation(
-                                    ann.keypoints
-                                ),
+                            fields = tuple(
+                                (name, kp.sigma, tuple(kp.connected_to))
+                                for name, kp in ann.keypoints.keypoints.items()
                             )
+                            if fields not in merged_keypoint_fields[task_name]:
+                                merged_keypoint_fields[task_name].add(fields)
+                                merge_keypoint_metadata(
+                                    keypoint_metadata,
+                                    task_name,
+                                    KeypointMetadata.from_annotation(
+                                        ann.keypoints
+                                    ),
+                                )
                         for name, value in ann.metadata.items():
                             task = f"{task_name}/metadata/{name}"
                             typ = type(value).__name__
