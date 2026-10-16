@@ -156,6 +156,19 @@ def test_flush_writes_the_events_and_keeps_the_run_open(
     assert "_hparams_/experiment" in {value.tag for _, value in values}
 
 
+def test_a_writer_taken_before_a_flush_still_writes(
+    backend: TensorBoardBackend,
+):
+    writer = backend.writer
+
+    backend.flush()
+    writer.add_scalar("late", 1.0, 3)
+    backend.close("success")
+
+    assert backend.writer is writer
+    assert "late" in {v.tag for _, v in read_summaries(backend.log_dir)}
+
+
 def test_a_run_without_hyperparameters_writes_none(
     backend: TensorBoardBackend, run: RunContext
 ):

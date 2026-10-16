@@ -374,7 +374,12 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
             ``True`` if a later attempt of the same call can succeed.
 
         """
-        from mlflow.exceptions import MlflowException
+        try:
+            from mlflow.exceptions import MlflowException
+        except ImportError:
+            # the start failed on the missing SDK, and its error names
+            # the extra to install
+            return super().is_transient(error)
 
         if isinstance(error, MlflowException):
             return self._is_outage_status(error.get_http_status_code())

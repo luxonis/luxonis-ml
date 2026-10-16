@@ -178,9 +178,10 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
 
         ``tensorboardX`` writes the events from a queue in the
         background, and only the close of the writer waits for that
-        queue. So the backend closes the writer, and opens a new event
-        file in the same directory for the later calls. TensorBoard
-        reads each event file of the directory.
+        queue. So the backend closes the writer, and the writer opens a
+        new event file in the same directory at its next call. The
+        writer stays the same object, so a handle from `writer` stays
+        valid. TensorBoard reads each event file of the directory.
 
         The hyperparameters wait for `close`, because the dashboard reads
         only the first set of a run.
@@ -189,16 +190,12 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
             RuntimeError: If the backend has not started.
 
         """
-        from tensorboardX import SummaryWriter
-
-        log_dir = self.log_dir
         self.writer.close()
         self._flushes += 1
         # the name of an event file holds the current second, so a new
-        # file of the same second would replace the one just closed
-        self._writer = SummaryWriter(
-            logdir=str(log_dir), filename_suffix=f".{self._flushes}"
-        )
+        # file of the same second would replace the one just closed.
+        # The writer reads this suffix when it opens the next file.
+        self.writer._filename_suffix = f".{self._flushes}"  # pyright: ignore[reportPrivateUsage]
 
     def close(self, status: RunStatus) -> None:
         """Write the hyperparameters, and close the event file.
@@ -229,10 +226,9 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
             else str(value)
             for key, value in self._hparams.items()
         }
-        # `add_hparams` would write into a new run directory of its own
-        file_writer = self.writer.file_writer
-        # the constructor of the writer creates the file writer
-        assert file_writer is not None
+        # `add_hparams` would write into a new run directory of its own.
+        # After a flush, this call opens the next event file.
+        file_writer = self.writer._get_file_writer()  # pyright: ignore[reportPrivateUsage]
         for summary in hparams(scalars, {"placeholder_metric": 0}):
             file_writer.add_summary(summary)
 

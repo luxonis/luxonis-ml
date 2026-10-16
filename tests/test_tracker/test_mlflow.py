@@ -31,7 +31,13 @@ from mlflow.utils.mlflow_tags import (
 )
 
 import luxonis_ml.tracker.backends.mlflow as mlflow_module
-from luxonis_ml.tracker import LuxonisTracker, MLflowBackend, RunContext
+from luxonis_ml.tracker import (
+    BufferedBackend,
+    LuxonisTracker,
+    MLflowBackend,
+    RunContext,
+    TrackerBackend,
+)
 
 from .conftest import MAX_RETRIES_ENV, backend_of
 
@@ -554,12 +560,20 @@ def test_system_metrics_need_psutil(
     assert any("Install `psutil`" in m for m in warnings_log)
 
 
+@pytest.mark.parametrize("buffered", [False, True])
 def test_a_missing_sdk_names_the_extra(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, buffered: bool
 ):
     monkeypatch.setitem(sys.modules, "mlflow", None)
+    # the test module imported this one already
+    monkeypatch.setitem(sys.modules, "mlflow.exceptions", None)
 
-    backend = MLflowBackend(make_run(tmp_path, "project"), tracking_uri="uri")
+    backend: TrackerBackend = MLflowBackend(
+        make_run(tmp_path, "project"), tracking_uri="uri"
+    )
+    if buffered:
+        # the tracker wraps MLflow, and the wrapper asks `is_transient`
+        backend = BufferedBackend(backend, "mlflow")
 
     with pytest.raises(ImportError, match=r"luxonis-ml\[mlflow\]"):
         backend.start()

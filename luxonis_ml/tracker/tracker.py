@@ -50,7 +50,8 @@ RUN_NAME_ENV = "LUXONIS_TRACKER_RUN_NAME"
 """The environment variable that hands the run name to the other ranks.
 
 Rank :math:`0` exports the run name that it generates. A worker process
-that starts later inherits the variable and joins the same run.
+that starts while the run is open inherits the variable and joins the
+same run. `LuxonisTracker.close` removes the variable.
 """
 
 _JOIN_TIMEOUT = 30.0
@@ -194,7 +195,7 @@ class LuxonisTracker:
             elif value is True:
                 configs[name] = legacy_options.get(name, {})
             elif value is not None:
-                configs[name] = value
+                configs[name] = {**legacy_options.get(name, {}), **value}
         if not configs:
             raise ValueError("Enable at least one backend.")
         if legacy_names:
@@ -575,7 +576,8 @@ class LuxonisTracker:
 
         A backend that fails to close gives a warning, and the others
         still close. A second call does nothing, and the tracker ignores
-        the logging calls that come after it.
+        the logging calls that come after it. The close also removes the
+        run name that the tracker exported in `RUN_NAME_ENV`.
 
         Args:
             status: ``"success"`` or ``"finished"`` for a run that
@@ -592,6 +594,9 @@ class LuxonisTracker:
             return
         self._closed = True
         atexit.unregister(self._close_at_exit)
+        if os.environ.get(RUN_NAME_ENV) == self.run_name:
+            # a process that starts after the run must not join it
+            del os.environ[RUN_NAME_ENV]
         self._status = (
             "success" if status in {"success", "finished"} else "failed"
         )
@@ -694,7 +699,8 @@ def _legacy_backends(
     Returns:
         The backends that the flags turn on, and the options that
         ``wandb_entity`` and ``mlflow_tracking_uri`` give. The options
-        also apply to a backend that its keyword turns on with ``True``.
+        also apply to a backend that its keyword turns on, with ``True``
+        or with a mapping. A key of the mapping wins.
 
     """
     options: dict[str, Mapping[str, object]] = {}

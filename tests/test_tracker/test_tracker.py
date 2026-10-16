@@ -200,6 +200,7 @@ def test_a_backend_keyword_overrides_a_deprecated_flag(tmp_path: Path):
         {"is_wandb": True, "is_mlflow": True},
         {"wandb": True, "mlflow": True},
         {"is_wandb": True, "is_mlflow": True, "wandb": True, "mlflow": True},
+        {"wandb": {}, "mlflow": {}},
     ],
 )
 def test_deprecated_options_reach_the_backends(
@@ -254,6 +255,17 @@ def test_rank_zero_exports_a_generated_run_name(tmp_path: Path):
     tracker = make_tracker(tmp_path, run_name=None)
 
     assert os.environ[RUN_NAME_ENV] == tracker.run_name
+
+
+def test_close_withdraws_the_exported_run_name(tmp_path: Path):
+    """A process that starts after the run must not join it."""
+    first = make_tracker(tmp_path, run_name=None)
+    second = make_tracker(tmp_path, run_name=None)
+
+    first.close()
+    assert os.environ[RUN_NAME_ENV] == second.run_name
+    second.close()
+    assert RUN_NAME_ENV not in os.environ
 
 
 def test_an_explicit_run_name_is_not_exported(tmp_path: Path):

@@ -177,7 +177,8 @@ other ranks `LuxonisTracker.start` and each logging call do nothing.
 
 The ranks must agree on the run name. Rank :math:`0` exports a
 generated name in ``LUXONIS_TRACKER_RUN_NAME``, and a worker that it
-starts later, as Lightning does, joins that run. When all ranks start at
+starts while the run is open, as Lightning does, joins that run. The
+close of the run removes the variable. When all ranks start at
 the same time, as with ``torchrun``, a worker waits for a new run
 directory. After one second it joins the newest run, and after 30
 seconds without any run it raises ``RuntimeError``. Pass ``run_name`` to
