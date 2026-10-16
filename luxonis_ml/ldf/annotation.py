@@ -346,7 +346,7 @@ Important:
 import json
 import warnings
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Annotated, Any, Literal, Optional, TypeAlias, TypedDict
 
@@ -1473,59 +1473,27 @@ class DatasetRecord(BaseModelExtraForbid):
         file_items = sorted(self.files.items(), key=lambda x: str(x[1]))
         for i, (source, file_path) in enumerate(file_items):
             is_main = i == 0
-
             if annotation is None or not is_main:
-                yield {
-                    "file": str(file_path),
-                    "source_name": source,
-                    "task_name": task_name,
-                    "class_name": None,
-                    "instance_id": None,
-                    "task_type": None,
-                    "annotation": None,
-                    "sample_metadata": sample_metadata,
-                }
-            else:
-                for task_type in _LABEL_TASK_TYPES:
-                    label: Annotation | None = getattr(annotation, task_type)
+                yield _parquet_row(
+                    file_path, source, task_name, sample_metadata
+                )
+                continue
 
-                    if label is not None:
-                        yield {
-                            "file": str(file_path),
-                            "source_name": source,
-                            "task_name": task_name,
-                            "class_name": annotation.class_name,
-                            "instance_id": annotation.instance_id,
-                            "task_type": task_type,
-                            "annotation": label.model_dump_json(),
-                            "sample_metadata": sample_metadata,
-                        }
-                for key, data in annotation.metadata.items():
-                    yield {
-                        "file": str(file_path),
-                        "source_name": source,
-                        "task_name": task_name,
-                        "class_name": annotation.class_name,
-                        "instance_id": annotation.instance_id,
-                        "task_type": f"metadata/{key}",
-                        "annotation": json.dumps(data),
-                        "sample_metadata": sample_metadata,
-                    }
-                if annotation.class_name is not None:
-                    yield {
-                        "file": str(file_path),
-                        "source_name": source,
-                        "task_name": task_name,
-                        "class_name": annotation.class_name,
-                        "instance_id": annotation.instance_id,
-                        "task_type": "classification",
-                        "annotation": "{}",
-                        "sample_metadata": sample_metadata,
-                    }
-                for name, detection in annotation.sub_detections.items():
-                    yield from self._to_parquet_rows(
-                        detection, f"{task_name}/{name}", sample_metadata
-                    )
+            for task_type, label in _label_columns(annotation):
+                yield _parquet_row(
+                    file_path,
+                    source,
+                    task_name,
+                    sample_metadata,
+                    class_name=annotation.class_name,
+                    instance_id=annotation.instance_id,
+                    task_type=task_type,
+                    annotation=label,
+                )
+            for name, detection in annotation.sub_detections.items():
+                yield from self._to_parquet_rows(
+                    detection, f"{task_name}/{name}", sample_metadata
+                )
 
     @staticmethod
     def decode_metadata(value: Any) -> Params:
@@ -1604,3 +1572,43 @@ __all__ = [
     "SegmentationAnnotation",
     "load_annotation",
 ]
+
+
+def _label_columns(annotation: Detection) -> Iterator[tuple[str, str]]:
+    """Yield the ``(task_type, serialized label)`` pairs of a detection.
+
+    The labels come first, then the metadata, then the class as a
+    classification label.
+    """
+    for task_type in _LABEL_TASK_TYPES:
+        label: Annotation | None = getattr(annotation, task_type)
+        if label is not None:
+            yield task_type, label.model_dump_json()
+    for key, data in annotation.metadata.items():
+        yield f"metadata/{key}", json.dumps(data)
+    if annotation.class_name is not None:
+        yield "classification", "{}"
+
+
+def _parquet_row(
+    file_path: Path,
+    source: str,
+    task_name: str,
+    sample_metadata: str,
+    *,
+    class_name: str | None = None,
+    instance_id: int | None = None,
+    task_type: str | None = None,
+    annotation: str | None = None,
+) -> ParquetRecord:
+    """Build one parquet row; the key order is the column order."""
+    return {
+        "file": str(file_path),
+        "source_name": source,
+        "task_name": task_name,
+        "class_name": class_name,
+        "instance_id": instance_id,
+        "task_type": task_type,
+        "annotation": annotation,
+        "sample_metadata": sample_metadata,
+    }
