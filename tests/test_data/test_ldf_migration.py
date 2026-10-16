@@ -19,6 +19,7 @@ from luxonis_ml.utils import environ
 from .utils import (
     create_dataset,
     create_image,
+    export_and_import,
     read_dataset_metadata,
     set_ldf_version,
     write_dataset_rows,
@@ -302,3 +303,14 @@ def test_a_2_x_task_with_empty_keypoint_rows_opens(
     assert legacy.get_keypoint_metadata()["pose"].labels == []
 
 
+def test_a_2_x_edge_out_of_range_exports_and_imports(
+    dataset_name: str, tempdir: Path
+):
+    legacy = as_ldf_2_1(
+        pose_dataset(dataset_name, tempdir),
+        {"pose": {"labels": ["nose", "left_eye"], "edges": [[0, 2], [0, 7]]}},
+    )
+
+    imported = export_and_import(legacy, tempdir)
+
+    assert imported.get_keypoint_metadata() == legacy.get_keypoint_metadata()

@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from luxonis_ml.data import LuxonisDataset, LuxonisLoader
+from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.enums import DatasetType
 
@@ -178,6 +178,48 @@ def test_merge_unites_the_keypoint_names(dataset_name: str, tempdir: Path):
     ]
 
 
+def test_a_native_import_keeps_each_keypoint_by_name(
+    dataset_name: str, tempdir: Path
+):
+    """The target orders the names differently, and a row lacks one."""
+    source = create_dataset(
+        dataset_name,
+        pose_records(
+            tempdir,
+            {"right_eye": (0.6, 0.2), "left_eye": (0.4, 0.2)},
+            {"right_eye": (0.7, 0.3)},
+        ),
+        splits=(1, 0, 0),
+    )
+    target_name = f"{dataset_name}_target"
+    create_dataset(
+        target_name,
+        pose_records(
+            tempdir, {"left_eye": (0.1, 0.1), "right_eye": (0.2, 0.2)}, start=2
+        ),
+        splits=(1, 0, 0),
+    )
+    exported = source.export(tempdir / "exported", DatasetType.NATIVE)
+    assert isinstance(exported, Path)
+
+    target = LuxonisParser(
+        str(exported / source.identifier),
+        dataset_type=DatasetType.NATIVE,
+        dataset_name=target_name,
+        save_dir=tempdir,
+    ).parse()
+
+    assert target.get_keypoint_metadata()["pose"].labels == [
+        "left_eye",
+        "right_eye",
+    ]
+    assert pose_rows(target) == [
+        [0, 0, 0, 0.7, 0.3, 2],
+        [0.1, 0.1, 2, 0.2, 0.2, 2],
+        [0.4, 0.2, 2, 0.6, 0.2, 2],
+    ]
+
+
 def test_native_export_gives_each_record_every_keypoint_of_the_task(
     dataset_name: str, tempdir: Path
 ):
@@ -261,3 +303,22 @@ def test_export_and_import_keep_the_keypoint_metadata(
     assert metadata.labels == original.labels
     assert metadata.edges == original.edges
     assert metadata.sigmas == original.sigmas
+
+
+def test_a_native_round_trip_keeps_a_task_that_no_row_fills(
+    dataset_name: str, tempdir: Path
+):
+    """Each row names only some keypoints of the task."""
+    dataset = create_dataset(
+        dataset_name,
+        pose_records(
+            tempdir,
+            {"nose": {"x": 0.5, "y": 0.3, "sigma": 0.026}},
+            {"left_eye": {"x": 0.4, "y": 0.2, "sigma": 0.025}},
+        ),
+        splits=(1, 0, 0),
+    )
+
+    imported = export_and_import(dataset, tempdir)
+
+    assert imported.get_keypoint_metadata() == dataset.get_keypoint_metadata()

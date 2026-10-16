@@ -1075,3 +1075,4 @@ def test_coco_rejects_a_keypoint_category_that_does_not_fit(
 
     with pytest.raises(ValueError, match=match):
         COCOParser(dataset, DatasetType.COCO, None).parse_split(**split)
+    assert dataset._load_df_offline() is None
