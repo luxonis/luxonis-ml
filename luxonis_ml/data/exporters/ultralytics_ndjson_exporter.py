@@ -189,20 +189,25 @@ class UltralyticsNDJSONExporter(BaseExporter):
             ]
             return {"segments": segments} if segments else {}
 
-        poses = [
-            pose_line
-            for instance in instances.values()
-            if "keypoints" in instance
-            for pose_line in [
-                self._keypoints_to_line(
-                    int(instance["class_id"]),
-                    instance.get("boundingbox"),
-                    instance["keypoints"],
-                )
-            ]
-            if pose_line is not None
-        ]
+        poses = self._pose_lines(instances)
         return {"pose": poses} if poses else {}
+
+    def _pose_lines(
+        self, instances: dict[tuple[str, int], dict[str, Any]]
+    ) -> list[str]:
+        """Return one pose line per instance with keypoints."""
+        poses = []
+        for instance in instances.values():
+            if "keypoints" not in instance:
+                continue
+            pose_line = self._keypoints_to_line(
+                int(instance["class_id"]),
+                instance.get("boundingbox"),
+                instance["keypoints"],
+            )
+            if pose_line is not None:
+                poses.append(pose_line)
+        return poses
 
     def _maybe_roll_partition(
         self,

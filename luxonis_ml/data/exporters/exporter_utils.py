@@ -1,5 +1,6 @@
 """Helpers shared by the dataset exporters."""
 
+import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -290,34 +291,76 @@ def annotation_to_polygons(
         no polygon.
 
     """
-    polygons: list[list[tuple[float, float]]] = []
+    if "counts" not in ann:
+        return []
 
     # COCO RLE -> decode to mask -> contours -> polygons
-    if "counts" in ann:
-        H = int(ann["height"])
-        W = int(ann["width"])
-        rle = {"size": [H, W], "counts": ann["counts"]}
-        try:
-            mask = maskUtils.decode(rle)  # type: ignore
-            if mask.ndim == 3:
-                mask = mask[:, :, 0]
-            mask = (mask > 0).astype(np.uint8)
+    H = int(ann["height"])
+    W = int(ann["width"])
+    rle = {"size": [H, W], "counts": ann["counts"]}
+    try:
+        mask = maskUtils.decode(rle)  # type: ignore
+        if mask.ndim == 3:
+            mask = mask[:, :, 0]
+        mask = (mask > 0).astype(np.uint8)
+        contours, _ = cv2.findContours(
+            mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        return [
+            [(float(x) / W, float(y) / H) for x, y in cnt.squeeze(1).tolist()]
+            for cnt in contours
+            if len(cnt) >= 3
+        ]
+    except Exception:
+        logger.warning("Failed to decode COCO RLE; skipping this instance.")
+        return []
 
-            contours, _ = cv2.findContours(
-                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-            )
-            for cnt in contours:
-                if len(cnt) < 3:
-                    continue
-                cnt = cnt.squeeze(1)
-                poly = [(float(x) / W, float(y) / H) for x, y in cnt.tolist()]
-                if len(poly) >= 3:
-                    polygons.append(poly)
-        except Exception:
-            logger.warning(
-                "Failed to decode COCO RLE; skipping this instance.",
-                RuntimeWarning,
-            )
-        return polygons
 
-    return polygons
+def whole_image_rows(df: pl.DataFrame, task_type: str) -> pl.DataFrame:
+    """Return the rows of a task type that describe the whole image.
+
+    Such a row has the instance ID -1.
+    """
+    return df.filter(
+        (pl.col("task_type") == task_type) & (pl.col("instance_id") == -1)
+    )
+
+
+def whole_image_classes(df: pl.DataFrame) -> list[str]:
+    """List the whole-image classification class names, in row order."""
+    classes = whole_image_rows(df, "classification")["class_name"].to_list()
+    return [str(cname) for cname in classes if cname]
+
+
+def class_id(
+    cname: str, class_to_id: dict[str, int], class_names: list[str]
+) -> int:
+    """Return the ID of a class; a new class gets the next free ID."""
+    if cname not in class_to_id:
+        class_to_id[cname] = len(class_to_id)
+        class_names.append(cname)
+    return class_to_id[cname]
+
+
+def yolo_bbox_label(
+    row: dict[str, Any], class_to_id: dict[str, int], class_names: list[str]
+) -> tuple[int, float, float, float, float] | None:
+    """Return the YOLO ``(class_id, x, y, w, h)`` of a bounding-box row.
+
+    A row of another task type, without an annotation or without a
+    class gives ``None``. A new class is registered through `class_id`.
+    """
+    if row["annotation"] is None or row["task_type"] != "boundingbox":
+        return None
+    cname = row["class_name"]
+    if not cname:
+        return None
+    cid = class_id(cname, class_to_id, class_names)
+    data = json.loads(row["annotation"])
+    return (
+        cid,
+        float(data.get("x", 0.0)),
+        float(data.get("y", 0.0)),
+        float(data.get("w", 0.0)),
+        float(data.get("h", 0.0)),
+    )

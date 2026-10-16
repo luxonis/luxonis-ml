@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+import polars as pl
 from PIL import Image
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
@@ -62,38 +63,7 @@ class TensorflowCSVExporter(BaseExporter):
             with Image.open(file_path) as im:
                 width, height = im.size
 
-            per_image_rows: list[dict[str, Any]] = []
-            for row in group_df.iter_rows(named=True):
-                if row["task_type"] != "boundingbox":
-                    continue
-                ann = row["annotation"]
-                ann = json.loads(ann)
-                cname = row["class_name"]
-                if ann is None or not cname:
-                    continue
-
-                x_tl = float(ann.get("x", 0.0))
-                y_tl = float(ann.get("y", 0.0))
-                w = float(ann.get("w", 0.0))
-                h = float(ann.get("h", 0.0))
-
-                xmin = x_tl * width
-                ymin = y_tl * height
-                xmax = (x_tl + w) * width
-                ymax = (y_tl + h) * height
-
-                per_image_rows.append(
-                    {
-                        "filename": new_name,
-                        "width": int(width),
-                        "height": int(height),
-                        "class": cname,
-                        "xmin": round(xmin),
-                        "ymin": round(ymin),
-                        "xmax": round(xmax),
-                        "ymax": round(ymax),
-                    }
-                )
+            per_image_rows = _csv_rows(group_df, new_name, width, height)
 
             # NOTE: We use a rough constant (64) to approximate the per-row CSV bytes that do NOT
             # depend on variable-length fields. Getting the true on-disk size here would require
@@ -185,3 +155,36 @@ class TensorflowCSVExporter(BaseExporter):
             else output_path / self.dataset_identifier
         )
         return base / split_name
+
+
+def _csv_rows(
+    group_df: pl.DataFrame, new_name: str, width: int, height: int
+) -> list[dict[str, Any]]:
+    """Return one CSV row per bounding box of an image, in pixels."""
+    rows = []
+    for row in group_df.iter_rows(named=True):
+        if row["task_type"] != "boundingbox":
+            continue
+        cname = row["class_name"]
+        if row["annotation"] is None or not cname:
+            continue
+        ann = json.loads(row["annotation"])
+
+        x_tl = float(ann.get("x", 0.0))
+        y_tl = float(ann.get("y", 0.0))
+        w = float(ann.get("w", 0.0))
+        h = float(ann.get("h", 0.0))
+
+        rows.append(
+            {
+                "filename": new_name,
+                "width": int(width),
+                "height": int(height),
+                "class": cname,
+                "xmin": round(x_tl * width),
+                "ymin": round(y_tl * height),
+                "xmax": round((x_tl + w) * width),
+                "ymax": round((y_tl + h) * height),
+            }
+        )
+    return rows
