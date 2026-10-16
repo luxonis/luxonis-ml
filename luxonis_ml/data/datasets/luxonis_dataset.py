@@ -846,29 +846,27 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                         }
                         metadata_json["source"]["components"] = new_components
                         metadata_json["source"]["main_component"] = "image"
+            version = Version.parse(
+                metadata_json.get("ldf_version", "1.0.0"),
+                optional_minor_and_patch=True,
+            )
+            if self.is_remote and version.major == 2:
+                # The migration takes the keypoint count of each task from
+                # the rows, so it needs the rows of the bucket.
+                get_dir(self._fs, "annotations", self._local_path)
             df = self._load_df_offline(lazy=False, attempt_migration=False)
             if df is not None and "group_id" not in df.columns:
                 df = df.with_columns(pl.col("uuid").alias("group_id"))
                 self._save_df_offline(df)
 
-            version = Version.parse(
-                metadata_json.get("ldf_version", "1.0.0"),
-                optional_minor_and_patch=True,
-            )
             if version.major != LDF_VERSION.major:
                 metadata = migrate_metadata(
                     metadata_json,
                     None if df is None else df.lazy(),
                     version,
                 )
-                # Like the group IDs above, the keypoint rows move to the
-                # current layout once, in the local copy.
-                if version.major == 2 and df is not None:
-                    migrated = migrate_keypoint_rows(
-                        df, metadata.keypoint_metadata
-                    )
-                    if migrated is not None:
-                        self._save_df_offline(migrated)
+                if version.major == 2:
+                    self._name_keypoint_rows(metadata.keypoint_metadata)
                 return metadata
             return Metadata(**metadata_json)
         return Metadata(
@@ -880,6 +878,26 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             categorical_encodings={},
             metadata_types={},
         )
+
+    def _name_keypoint_rows(
+        self, keypoint_metadata: Mapping[str, KeypointMetadata]
+    ) -> None:
+        """Key the LDF 2.x keypoint rows of the local copy by name.
+
+        Only the local copy changes. A download of the annotations brings
+        back the rows of the bucket as LDF 2.x wrote them, so each download
+        calls this again. The bucket gets the named rows with the next
+        write that uploads the annotations.
+
+        Args:
+            keypoint_metadata: The keypoint metadata of each task.
+
+        """
+        df = self._load_df_offline(lazy=True)
+        if df is not None:
+            migrated = migrate_keypoint_rows(df, keypoint_metadata)
+            if migrated is not None:
+                self._save_df_offline(migrated)
 
     @property
     def is_remote(self) -> bool:
@@ -1036,6 +1054,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             )
             for dir_name in ["annotations", "metadata"]:
                 _ = get_dir(self._fs, dir_name, self._local_path)
+            self._name_keypoint_rows(self._metadata.keypoint_metadata)
 
             index = self._get_index(lazy=False)
             missing_media_paths = []
@@ -1385,6 +1404,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             self._local_path,
             default=self._annotations_path,
         )
+        if self.is_remote:
+            self._name_keypoint_rows(keypoint_metadata)
 
         index = self._get_index()
 

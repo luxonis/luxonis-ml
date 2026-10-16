@@ -191,7 +191,7 @@ def migrate_metadata(
 
 
 def migrate_keypoint_rows(
-    df: pl.DataFrame, keypoint_metadata: Mapping[str, KeypointMetadata]
+    df: pl.LazyFrame, keypoint_metadata: Mapping[str, KeypointMetadata]
 ) -> pl.DataFrame | None:
     """Key the positional keypoint rows of LDF 2.x by name.
 
@@ -199,17 +199,20 @@ def migrate_keypoint_rows(
     skeleton labels. LDF 3.0 stores them by name.
 
     Args:
-        df: The annotation rows.
+        df: The annotation rows. The check for list rows reads only the
+            task type and the annotation of each row.
         keypoint_metadata: The migrated keypoint metadata of each task.
 
     Returns:
         The migrated rows, or ``None`` if no keypoint row is a list.
 
     """
-    positional = (pl.col("task_type") == "keypoints") & pl.col(
-        "annotation"
-    ).str.contains(r'^\{"keypoints":\s*\[')
-    if not df.select(positional.any()).item():
+    # A shard without annotations stores the column as nulls.
+    annotation = pl.col("annotation").cast(pl.String)
+    positional = (
+        pl.col("task_type") == "keypoints"
+    ) & annotation.str.contains(r'^\{"keypoints":\s*\[')
+    if not df.select(positional.any()).collect().item():
         return None
 
     def named(row: dict[str, Any]) -> str | None:
@@ -224,10 +227,10 @@ def migrate_keypoint_rows(
         )
 
     return df.with_columns(
-        pl.struct("task_name", "task_type", "annotation")
+        pl.struct("task_name", "task_type", annotation)
         .map_elements(named, return_dtype=pl.String)
         .alias("annotation")
-    )
+    ).collect()
 
 
 def _migrate_skeletons(
