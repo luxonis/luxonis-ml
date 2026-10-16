@@ -1,7 +1,7 @@
 import json
 import shutil
 from pathlib import Path
-from typing import NoReturn, cast
+from typing import Any, NoReturn, cast
 
 import numpy as np
 import pytest
@@ -287,55 +287,56 @@ def test_metadata(
     }
 
 
+def _every_label_kind() -> dict:
+    """Build an annotation with one label of every kind."""
+    return {
+        "class": "person",
+        "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
+        "keypoints": {"keypoints": [[0.1, 0.1, 0], [0.2, 0.2, 1]]},
+        "segmentation": {"mask": np.random.rand(512, 512) > 0.5},
+        "instance_segmentation": {"mask": np.random.rand(512, 512) > 0.5},
+        "metadata": {"color": "red"},
+        "sub_detections": {
+            "head": {
+                "boundingbox": {"x": 0.2, "y": 0.2, "w": 0.1, "h": 0.1},
+            },
+        },
+    }
+
+
+def _single_record(tempdir: Path, *, annotated: bool) -> DatasetIterator:
+    """One record for the first of ten images, labeled or not."""
+    images = [create_image(i, tempdir) for i in range(10)]
+    record: dict[str, Any] = {"file": images[0]}
+    if annotated:
+        record["annotation"] = _every_label_kind()
+    yield record
+
+
+def _assert_loader_tasks(
+    dataset: LuxonisDataset, expected_tasks: set[str]
+) -> None:
+    """Check the label keys of every sample, plain and augmented."""
+    for _, labels in LuxonisLoader(dataset):
+        assert set(labels.keys()) == expected_tasks
+
+    augmented_loader = LuxonisLoader(
+        dataset,
+        width=512,
+        height=512,
+        augmentation_config=[{"name": "Affine", "params": {}}],
+    )
+    for _, labels in augmented_loader:
+        assert set(labels.keys()) == expected_tasks
+
+
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_no_labels(dataset_name: str, tempdir: Path, subtests: SubTests):
-    def generator(total: bool) -> DatasetIterator:
-        for i in range(10):
-            img = create_image(i, tempdir)
-            if i == 0:
-                if total:
-                    yield {
-                        "file": img,
-                    }
-                else:
-                    yield {
-                        "file": img,
-                        "annotation": {
-                            "class": "person",
-                            "boundingbox": {
-                                "x": 0.1,
-                                "y": 0.1,
-                                "w": 0.1,
-                                "h": 0.1,
-                            },
-                            "keypoints": {
-                                "keypoints": [[0.1, 0.1, 0], [0.2, 0.2, 1]]
-                            },
-                            "segmentation": {
-                                "mask": np.random.rand(512, 512) > 0.5
-                            },
-                            "instance_segmentation": {
-                                "mask": np.random.rand(512, 512) > 0.5
-                            },
-                            "metadata": {
-                                "color": "red",
-                            },
-                            "sub_detections": {
-                                "head": {
-                                    "boundingbox": {
-                                        "x": 0.2,
-                                        "y": 0.2,
-                                        "w": 0.1,
-                                        "h": 0.1,
-                                    },
-                                },
-                            },
-                        },
-                    }
-
     for total in [True, False]:
         with subtests.test(f"test_{'total' if total else 'almost'}_empty"):
-            dataset = create_dataset(dataset_name, generator(total=total))
+            dataset = create_dataset(
+                dataset_name, _single_record(tempdir, annotated=not total)
+            )
 
             if total:
                 expected_tasks = set()
@@ -349,18 +350,7 @@ def test_no_labels(dataset_name: str, tempdir: Path, subtests: SubTests):
                     "/metadata/color",
                     "/head/boundingbox",
                 }
-
-            for _, labels in LuxonisLoader(dataset):
-                assert set(labels.keys()) == expected_tasks
-
-            augmented_loader = LuxonisLoader(
-                dataset,
-                width=512,
-                height=512,
-                augmentation_config=[{"name": "Affine", "params": {}}],
-            )
-            for _, labels in augmented_loader:
-                assert set(labels.keys()) == expected_tasks
+            _assert_loader_tasks(dataset, expected_tasks)
 
         if total is False:
             with subtests.test("test_almost_empty_exclude_empty"):

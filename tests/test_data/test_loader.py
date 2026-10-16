@@ -857,41 +857,12 @@ def test_edge_cases(tempdir: Path):
         ]
     )
 
-    def generator() -> DatasetIterator:
-        num_samples = len(keypoints_before)
-        for i in range(num_samples):
-            img = create_image(i, tempdir)
-            keypoints_list = keypoints_before[i].tolist()
-            bbox_list = bboxes_before[i].tolist()
-
-            keypoints_split = [
-                [x, y, int(visibility)]
-                for x, y, visibility in (
-                    keypoints_list[j : j + 3]
-                    for j in range(0, len(keypoints_list), 3)
-                )
-            ]
-
-            yield {
-                "file": img,
-                "annotation": {
-                    "class": "dog",
-                    "boundingbox": {
-                        "x": bbox_list[1],
-                        "y": bbox_list[2],
-                        "w": bbox_list[3],
-                        "h": bbox_list[4],
-                    },
-                    "keypoints": {"keypoints": keypoints_split},
-                },
-            }
-
     dataset = LuxonisDataset(
         "test_edge_cases",
         delete_local=True,
         delete_remote=True,
         bucket_storage=BucketStorage.LOCAL,
-    ).add(generator())
+    ).add(_dog_records(tempdir, keypoints_before, bboxes_before))
 
     dataset.make_splits((1, 0, 0))
 
@@ -953,32 +924,70 @@ def test_edge_cases(tempdir: Path):
     )
     for _ in range(20):
         for batch in loader:
-            keypoints = batch[1]["/keypoints"]
-            bboxes = batch[1]["/boundingbox"]
-            keypoints = keypoints.reshape(-1, 3)
-            for kp in keypoints:
-                x, y, v = kp
-                assert not (x == 0 and y == 0 and v in {1, 2}), (
-                    f"Invalid keypoint detected: {kp}"
-                )
-                assert 0 <= x <= 1, f"Keypoint x out of bounds: {kp}"
-                assert 0 <= y <= 1, f"Keypoint y out of bounds: {kp}"
+            _assert_keypoints_valid(batch[1]["/keypoints"].reshape(-1, 3))
+            _assert_bboxes_valid(batch[1]["/boundingbox"])
 
-            for bbox in bboxes:
-                _, x_min, y_min, width, height = bbox
 
-                x_max = x_min + width
-                y_max = y_min + height
+def _dog_records(
+    tempdir: Path, keypoints_before: np.ndarray, bboxes_before: np.ndarray
+) -> DatasetIterator:
+    """Yield one ``dog`` record per row of keypoints and boxes."""
+    for i in range(len(keypoints_before)):
+        img = create_image(i, tempdir)
+        keypoints_list = keypoints_before[i].tolist()
+        bbox_list = bboxes_before[i].tolist()
 
-                assert 0 <= x_min <= 1, f"BBox x_min out of bounds: {bbox}"
-                assert 0 <= y_min <= 1, f"BBox y_min out of bounds: {bbox}"
-                assert 0 <= x_max <= 1, f"BBox x_max out of bounds: {bbox}"
-                assert 0 <= y_max <= 1, f"BBox y_max out of bounds: {bbox}"
+        keypoints_split = [
+            [x, y, int(visibility)]
+            for x, y, visibility in (
+                keypoints_list[j : j + 3]
+                for j in range(0, len(keypoints_list), 3)
+            )
+        ]
 
-                bbox_area = width * height
-                assert bbox_area >= 0.0004, (
-                    f"BBox area too small: {bbox}, area={bbox_area}"
-                )
+        yield {
+            "file": img,
+            "annotation": {
+                "class": "dog",
+                "boundingbox": {
+                    "x": bbox_list[1],
+                    "y": bbox_list[2],
+                    "w": bbox_list[3],
+                    "h": bbox_list[4],
+                },
+                "keypoints": {"keypoints": keypoints_split},
+            },
+        }
+
+
+def _assert_keypoints_valid(keypoints: np.ndarray) -> None:
+    """Check that every visible keypoint lies inside the image."""
+    for kp in keypoints:
+        x, y, v = kp
+        assert not (x == 0 and y == 0 and v in {1, 2}), (
+            f"Invalid keypoint detected: {kp}"
+        )
+        assert 0 <= x <= 1, f"Keypoint x out of bounds: {kp}"
+        assert 0 <= y <= 1, f"Keypoint y out of bounds: {kp}"
+
+
+def _assert_bboxes_valid(bboxes: np.ndarray) -> None:
+    """Check that every box lies inside the image and is not tiny."""
+    for bbox in bboxes:
+        _, x_min, y_min, width, height = bbox
+
+        x_max = x_min + width
+        y_max = y_min + height
+
+        assert 0 <= x_min <= 1, f"BBox x_min out of bounds: {bbox}"
+        assert 0 <= y_min <= 1, f"BBox y_min out of bounds: {bbox}"
+        assert 0 <= x_max <= 1, f"BBox x_max out of bounds: {bbox}"
+        assert 0 <= y_max <= 1, f"BBox y_max out of bounds: {bbox}"
+
+        bbox_area = width * height
+        assert bbox_area >= 0.0004, (
+            f"BBox area too small: {bbox}, area={bbox_area}"
+        )
 
 
 def test_dataset_reproducibility(storage_url: str, tempdir: Path):
