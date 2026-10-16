@@ -220,123 +220,120 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata):
 
         """
         defined_params = {k for k, v in dict(values).items() if v is not None}
-
-        common_fields = [
-            "postprocessor_path",
-            "yolo_outputs",
-            "mask_outputs",
-            "protos_outputs",
-            "keypoints_outputs",
-            "angles_outputs",
-            "subtype",
-            "iou_threshold",
-            "conf_threshold",
-            "max_det",
-            "classes",
-            "n_classes",
-            "anchors",
-            "strides",
-        ]
-        defined_params = defined_params.difference(common_fields)
-
-        required_fields = {
-            "object_detection": [],
-            "instance_segmentation": [
-                "n_prototypes",
-                "is_softmax",
-            ],
-            "keypoint_detection": ["n_keypoints"],
-        }
-
-        unsupported_fields = {
-            "object_detection": [
-                "n_prototypes",
-                "n_keypoints",
-                "is_softmax",
-            ],
-            "instance_segmentation": ["n_keypoints"],
-            "keypoint_detection": [
-                "n_prototypes",
-                "is_softmax",
-            ],
-        }
-
-        tasks = []
-        # Extract the task type
-        if all(
-            field in defined_params
-            for field in required_fields.get("instance_segmentation", [])
-        ):
-            tasks.append("instance_segmentation")
-        if all(
-            field in defined_params
-            for field in required_fields.get("keypoint_detection", [])
-        ):
-            tasks.append("keypoint_detection")
-        if all(
-            field not in defined_params
-            for field in unsupported_fields.get("object_detection", [])
-        ):
-            tasks.append("object_detection")
-
-        if len(tasks) == 0:
-            raise ValueError(
-                "Invalid combination of parameters. No specific task can be inferred."
-            )
-
-        for param in defined_params:
-            if not any(param in required_fields[task] for task in tasks):
-                raise ValueError(
-                    "Invalid combination of parameters. "
-                    f"Field {param} is not supported for the tasks {tasks}."
-                )
-
-        # Validate Outputs
-        defined_params = {k for k, v in dict(values).items() if v is not None}
-        common_fields = [
-            "postprocessor_path",
-            "subtype",
-            "iou_threshold",
-            "conf_threshold",
-            "max_det",
-            "classes",
-            "n_classes",
-            "anchors",
-            "n_prototypes",
-            "n_keypoints",
-            "is_softmax",
-            "strides",
-        ]
-        defined_params = defined_params.difference(common_fields)
-
-        supported_output_params = {
-            "instance_segmentation": [
-                "yolo_outputs",
-                "mask_outputs",
-                "protos_outputs",
-            ],
-            "keypoint_detection": ["yolo_outputs", "keypoints_outputs"],
-            "object_detection": ["yolo_outputs"],
-        }
-
-        # Check if all required output fields are present
-        if not all(
-            field in defined_params
-            for task in tasks
-            for field in supported_output_params[task]
-        ):
-            raise ValueError(f"Invalid output fields for tasks {tasks}")
-
-        # Check if all defined fields are supported
-        for param in defined_params:
-            if param == "angles_outputs" and "object_detection" in tasks:
-                continue
-            if not any(
-                param in supported_output_params[task] for task in tasks
-            ):
-                raise ValueError(
-                    "Invalid combination of output parameters. "
-                    f"Field {param} is not supported for the tasks {tasks}."
-                )
-
+        tasks = _infer_yolo_tasks(defined_params - _YOLO_COMMON_FIELDS)
+        _check_yolo_outputs(defined_params - _YOLO_NON_OUTPUT_FIELDS, tasks)
         return values
+
+
+# Fields that every YOLO task may set.
+_YOLO_COMMON_FIELDS = frozenset(
+    {
+        "postprocessor_path",
+        "yolo_outputs",
+        "mask_outputs",
+        "protos_outputs",
+        "keypoints_outputs",
+        "angles_outputs",
+        "subtype",
+        "iou_threshold",
+        "conf_threshold",
+        "max_det",
+        "classes",
+        "n_classes",
+        "anchors",
+        "strides",
+    }
+)
+
+# Fields that are not output names.
+_YOLO_NON_OUTPUT_FIELDS = frozenset(
+    {
+        "postprocessor_path",
+        "subtype",
+        "iou_threshold",
+        "conf_threshold",
+        "max_det",
+        "classes",
+        "n_classes",
+        "anchors",
+        "n_prototypes",
+        "n_keypoints",
+        "is_softmax",
+        "strides",
+    }
+)
+
+_YOLO_REQUIRED_FIELDS = {
+    "object_detection": [],
+    "instance_segmentation": ["n_prototypes", "is_softmax"],
+    "keypoint_detection": ["n_keypoints"],
+}
+
+_YOLO_UNSUPPORTED_FIELDS = {
+    "object_detection": ["n_prototypes", "n_keypoints", "is_softmax"],
+    "instance_segmentation": ["n_keypoints"],
+    "keypoint_detection": ["n_prototypes", "is_softmax"],
+}
+
+_YOLO_OUTPUT_FIELDS = {
+    "instance_segmentation": [
+        "yolo_outputs",
+        "mask_outputs",
+        "protos_outputs",
+    ],
+    "keypoint_detection": ["yolo_outputs", "keypoints_outputs"],
+    "object_detection": ["yolo_outputs"],
+}
+
+
+def _infer_yolo_tasks(defined_params: set[str]) -> list[str]:
+    """Infer the YOLO tasks that the task-specific fields describe.
+
+    Every defined field must belong to one of the inferred tasks.
+    """
+    tasks = []
+    for task in ("instance_segmentation", "keypoint_detection"):
+        if all(f in defined_params for f in _YOLO_REQUIRED_FIELDS[task]):
+            tasks.append(task)
+    if all(
+        f not in defined_params
+        for f in _YOLO_UNSUPPORTED_FIELDS["object_detection"]
+    ):
+        tasks.append("object_detection")
+
+    if len(tasks) == 0:
+        raise ValueError(
+            "Invalid combination of parameters. No specific task can be inferred."
+        )
+
+    for param in defined_params:
+        if not any(param in _YOLO_REQUIRED_FIELDS[task] for task in tasks):
+            raise ValueError(
+                "Invalid combination of parameters. "
+                f"Field {param} is not supported for the tasks {tasks}."
+            )
+    return tasks
+
+
+def _check_yolo_outputs(defined_params: set[str], tasks: list[str]) -> None:
+    """Check that the output fields are the ones of the tasks.
+
+    Every task needs all of its output fields, and every defined output
+    field must belong to a task. Object detection may also set
+    ``angles_outputs``.
+    """
+    if not all(
+        field in defined_params
+        for task in tasks
+        for field in _YOLO_OUTPUT_FIELDS[task]
+    ):
+        raise ValueError(f"Invalid output fields for tasks {tasks}")
+
+    for param in defined_params:
+        if param == "angles_outputs" and "object_detection" in tasks:
+            continue
+        if not any(param in _YOLO_OUTPUT_FIELDS[task] for task in tasks):
+            raise ValueError(
+                "Invalid combination of output parameters. "
+                f"Field {param} is not supported for the tasks {tasks}."
+            )

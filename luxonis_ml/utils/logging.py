@@ -169,25 +169,10 @@ def deprecated(
         def wrapper(*f_args, **f_kwargs) -> Any:
             fname = func.__name__
             if altogether:
-                msg = f"'{fname}' is deprecated and will be removed in future versions."
-                if additional_message:
-                    msg += f" {additional_message}"
-                warnings.warn(msg, DeprecationWarning, stacklevel=2)
+                _warn_deprecated_function(fname, additional_message)
 
-            if args:
-                pos_arg_names = list(sig.parameters.keys())[: len(f_args)]
-
-                for arg_name in pos_arg_names:
-                    if arg_name in args:
-                        _warn_deprecated(
-                            arg_name, fname, suggest, additional_message
-                        )
-
-                for arg_name in f_kwargs:
-                    if arg_name in args:
-                        _warn_deprecated(
-                            arg_name, fname, suggest, additional_message
-                        )
+            for arg_name in _deprecated_args_used(sig, args, f_args, f_kwargs):
+                _warn_deprecated(arg_name, fname, suggest, additional_message)
 
             return func(*f_args, **f_kwargs)
 
@@ -212,6 +197,28 @@ def log_once(logger: Callable[[str], None], message: str) -> None:
     if message not in log_once._cache:
         logger(message)
         log_once._cache.add(message)
+
+
+def _deprecated_args_used(
+    sig: inspect.Signature,
+    deprecated_args: tuple[str, ...],
+    f_args: tuple,
+    f_kwargs: dict[str, Any],
+) -> list[str]:
+    """List the deprecated parameters that a call passes, positional first."""
+    pos_arg_names = list(sig.parameters.keys())[: len(f_args)]
+    return [
+        name for name in (*pos_arg_names, *f_kwargs) if name in deprecated_args
+    ]
+
+
+def _warn_deprecated_function(
+    fname: str, additional_message: str | None
+) -> None:
+    msg = f"'{fname}' is deprecated and will be removed in future versions."
+    if additional_message:
+        msg += f" {additional_message}"
+    warnings.warn(msg, DeprecationWarning, stacklevel=3)
 
 
 def _warn_deprecated(
