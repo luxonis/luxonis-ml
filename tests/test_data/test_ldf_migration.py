@@ -286,5 +286,19 @@ def test_a_2_x_dataset_compares_by_name(dataset_name: str, tempdir: Path):
     assert ldf_equivalent(dataset_name, current.identifier)
 
 
+def test_a_2_x_task_with_empty_keypoint_rows_opens(
+    dataset_name: str, tempdir: Path
+):
+    def generator() -> DatasetIterator:
+        yield {
+            "file": create_image(0, tempdir),
+            "task_name": "pose",
+            "annotation": {"class": "person", "keypoints": {"keypoints": []}},
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    legacy = as_ldf_2_1(dataset, {"pose": {"labels": [], "edges": []}})
+
+    assert legacy.get_keypoint_metadata()["pose"].labels == []
 
 

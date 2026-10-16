@@ -263,7 +263,10 @@ def _migrate_skeletons(
                 )
                 continue
             connections[names[a]].append(names[b])
-        if names:
+        # A skeleton without names that no keypoint row uses describes no
+        # keypoint task. A task with keypoint rows keeps its entry, also
+        # when each row is empty.
+        if names or task in widths:
             migrated[task] = KeypointMetadata(
                 keypoints={
                     name: KeypointSpec(connected_to=targets)
