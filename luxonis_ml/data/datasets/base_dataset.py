@@ -7,7 +7,7 @@ from typing import TypeAlias
 from semver.version import Version
 
 from luxonis_ml.data.datasets.source import LuxonisSource
-from luxonis_ml.ldf import DatasetRecord
+from luxonis_ml.ldf import DatasetRecord, KeypointMetadata
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
@@ -111,43 +111,13 @@ class BaseDataset(
         ...
 
     @abstractmethod
-    def set_skeletons(
-        self,
-        labels: list[str] | None = None,
-        edges: list[tuple[int, int]] | None = None,
-        task: str | None = None,
-    ) -> None:
-        """Set keypoint skeleton semantics for tasks that use keypoints.
+    def get_keypoint_metadata(self) -> dict[str, KeypointMetadata]:
+        """Return the keypoints of each task.
 
-        For example:
-
-        .. python::
-
-            dataset.set_skeletons(
-                labels=["right hand", "right shoulder", ...],
-                edges=[[0, 1], [4, 5], ...]
-            )
-
-        Args:
-            labels: Optional keypoint names.
-            edges: Optional edges between keypoints.
-            task: Optional task to update. If omitted, all keypoint tasks
-                are updated.
-
-        Raises:
-            ValueError: If neither ``labels`` nor ``edges`` are provided.
-
-        """
-        ...
-
-    @abstractmethod
-    def get_skeletons(
-        self,
-    ) -> dict[str, tuple[list[str], list[tuple[int, int]]]]:
-        """Return keypoint skeletons for each task.
+        `add` builds them from the keypoints of the records.
 
         Returns:
-            Keypoint labels and edges keyed by task name.
+            Copies of the keypoint metadata keyed by task name.
 
         """
         ...
@@ -283,5 +253,7 @@ class BaseDataset(
             Number of keypoints keyed by task name.
 
         """
-        skeletons = self.get_skeletons()
-        return {task: len(skeletons[task][0]) for task in skeletons}
+        return {
+            task: len(metadata.keypoints)
+            for task, metadata in self.get_keypoint_metadata().items()
+        }

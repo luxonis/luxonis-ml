@@ -1,6 +1,7 @@
 """Helpers shared by the dataset exporters."""
 
 import shutil
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -10,6 +11,8 @@ import numpy as np
 import polars as pl
 from loguru import logger
 from pycocotools import mask as maskUtils
+
+from luxonis_ml.ldf import KeypointMetadata
 
 if TYPE_CHECKING:
     from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
@@ -25,6 +28,7 @@ class PreparedLDF:
             files.
         grouped_image_sources: Unique mapping of group IDs, source names,
             and file paths.
+        keypoint_metadata: The keypoints of each task.
 
     """
 
@@ -33,10 +37,32 @@ class PreparedLDF:
         splits: dict[str, Any],
         processed_df: pl.DataFrame,
         grouped_image_sources: pl.DataFrame,
+        keypoint_metadata: dict[str, KeypointMetadata] | None = None,
     ):
         self.splits = splits
         self.processed_df = processed_df
         self.grouped_image_sources = grouped_image_sources
+        self.keypoint_metadata = keypoint_metadata or {}
+
+    def keypoint_row(
+        self, task_name: str, keypoints: Mapping[str, list[float]]
+    ) -> list[list[float]]:
+        """Return the stored keypoints of a row in the order of its task.
+
+        Args:
+            task_name: Task of the row.
+            keypoints: The stored ``[x, y, v]`` of each keypoint, keyed by
+                name.
+
+        Returns:
+            One ``[x, y, v]`` for each keypoint of the task. A keypoint
+            that the row does not name is ``[0, 0, 0]``.
+
+        """
+        return [
+            keypoints.get(name, [0.0, 0.0, 0])
+            for name in self.keypoint_metadata[task_name].labels
+        ]
 
     @classmethod
     def from_dataset(cls, dataset: "LuxonisDataset") -> "PreparedLDF":
@@ -103,6 +129,7 @@ class PreparedLDF:
             splits=splits,
             processed_df=processed_df,
             grouped_image_sources=grouped_image_sources,
+            keypoint_metadata=dataset.get_keypoint_metadata(),
         )
 
 
@@ -231,26 +258,6 @@ def create_zip_output(
             archives.append(Path(archive_file))
 
     return archives if len(archives) > 1 else archives[0]
-
-
-def get_single_skeleton(
-    allow_keypoints: bool, skeletons: dict[str, Any] | None = None
-) -> tuple[list[str], list[list[int]]]:
-    """Return labels and COCO-style edges for the single skeleton.
-
-    Edges are converted to 1-based indices per COCO spec.
-    """
-    if not allow_keypoints or skeletons is None:
-        return [], []
-    if isinstance(skeletons, dict):
-        sk = next(iter(skeletons.values()))
-    else:  # list
-        sk = skeletons[0]
-    labels = list(sk.get("labels", []))
-    edges = sk.get("edges", [])
-    # COCO expects 1-based indices in skeleton
-    skeleton_1_based = [[a + 1, b + 1] for a, b in edges]
-    return labels, skeleton_1_based
 
 
 def decode_rle_with_pycoco(ann: dict[str, Any]) -> np.ndarray:

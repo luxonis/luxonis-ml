@@ -8,8 +8,10 @@ from typing import TYPE_CHECKING, Any, Union, cast
 import numpy as np
 import polars as pl
 from pycocotools import mask as mask_utils
+from semver.version import Version
 
 from luxonis_ml.data.exporters import PreparedLDF
+from luxonis_ml.ldf import KeypointMetadata
 from luxonis_ml.utils.environ import environ
 
 if TYPE_CHECKING:
@@ -314,12 +316,18 @@ class LDFEquivalence:
             for row in entry.iter_rows(named=True):
                 if row["task_type"] == "keypoints":
                     d = json.loads(row["annotation"])
-                    for kp in d["keypoints"]:
-                        rounded_kp = tuple(
-                            round(v, 3) if i < 2 else v
-                            for i, v in enumerate(kp)
-                        )
-                        keypoints.append(rounded_kp)
+                    ordered = prepared_ldf.keypoint_row(
+                        row["task_name"], d["keypoints"]
+                    )
+                    # A format without names, such as YOLO, imports the
+                    # keypoints as "0", "1", ..., so compare the position in
+                    # the task. The loader gives a keypoint that a row does
+                    # not name (0, 0, 0), so such a keypoint counts as absent.
+                    keypoints.extend(
+                        (i, round(x, 3), round(y, 3), v)
+                        for i, (x, y, v) in enumerate(ordered)
+                        if (x, y, v) != (0, 0, 0)
+                    )
             if keypoints:
                 out.setdefault(hashed_key, Counter()).update(keypoints)
         return out
@@ -592,6 +600,9 @@ class LDFEquivalence:
                 f"Dataset '{dataset_path.name}' does not have splits metadata."
             )
         splits = json.loads(splits_path.read_text())
+        metadata = json.loads(
+            (dataset_path / "metadata" / "metadata.json").read_text()
+        )
 
         annotation_files = sorted(
             (dataset_path / "annotations").glob("*.parquet")
@@ -606,6 +617,32 @@ class LDFEquivalence:
         ).collect()
         if df.is_empty():
             raise FileNotFoundError(f"Dataset '{dataset_path.name}' is empty.")
+
+        version = Version.parse(
+            metadata.get("ldf_version", "1.0.0"),
+            optional_minor_and_patch=True,
+        )
+        if version.major == 2:
+            from luxonis_ml.data.datasets.migration import (
+                migrate_keypoint_rows,
+                migrate_metadata,
+            )
+
+            # The stored skeletons and list rows of LDF 2.x get their
+            # names, as when the dataset opens.
+            keypoint_metadata = migrate_metadata(
+                metadata, df.lazy(), version
+            ).keypoint_metadata
+            migrated = migrate_keypoint_rows(df.lazy(), keypoint_metadata)
+            if migrated is not None:
+                df = migrated
+        else:
+            keypoint_metadata = {
+                task: KeypointMetadata.model_validate(task_metadata)
+                for task, task_metadata in metadata.get(
+                    "keypoint_metadata", {}
+                ).items()
+            }
 
         df = df.with_row_count("row_idx")
         media_path = dataset_path / "media"
@@ -648,4 +685,5 @@ class LDFEquivalence:
             splits=splits,
             processed_df=processed_df,
             grouped_image_sources=grouped_image_sources,
+            keypoint_metadata=keypoint_metadata,
         )

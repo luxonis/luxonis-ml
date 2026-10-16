@@ -39,7 +39,7 @@ def test_native_parser_accepts_windows_style_file_paths(tempdir: Path):
         encoding="utf-8",
     )
 
-    generator, _, added_images = NativeParser(
+    generator, added_images = NativeParser(
         dataset=None,  # type: ignore[arg-type]
         dataset_type=DatasetType.NATIVE,
         task_name=None,
@@ -73,7 +73,7 @@ def test_yolov4_parser_keeps_unlabeled_image_with_duplicate_basename(
     classes_path = split_dir / "_classes.txt"
     classes_path.write_text("class0\n", encoding="utf-8")
 
-    generator, _, _ = YoloV4Parser(
+    generator, _ = YoloV4Parser(
         dataset=None,  # type: ignore[arg-type]
         dataset_type=DatasetType.YOLOV4,
         task_name=None,
@@ -125,7 +125,7 @@ def test_native_parser_resolves_array_annotation_paths(tempdir: Path):
         encoding="utf-8",
     )
 
-    generator, _, _ = NativeParser(
+    generator, _ = NativeParser(
         dataset=None,  # type: ignore[arg-type]
         dataset_type=DatasetType.NATIVE,
         task_name=None,
@@ -169,7 +169,7 @@ def test_native_parser_resolves_paths_for_a_list_of_annotations(
         encoding="utf-8",
     )
 
-    generator, _, _ = NativeParser(
+    generator, _ = NativeParser(
         dataset=None,  # type: ignore[arg-type]
         dataset_type=DatasetType.NATIVE,
         task_name=None,
@@ -216,7 +216,7 @@ def test_native_parser_resolves_paths_inside_sub_detections(tempdir: Path):
         encoding="utf-8",
     )
 
-    generator, _, _ = NativeParser(
+    generator, _ = NativeParser(
         dataset=None,  # type: ignore[arg-type]
         dataset_type=DatasetType.NATIVE,
         task_name=None,

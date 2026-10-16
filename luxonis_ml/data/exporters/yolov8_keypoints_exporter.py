@@ -91,7 +91,9 @@ class YoloV8KeypointsExporter(BaseExporter):
                     continue
 
                 ann = json.loads(ann_str)
-                keypoints = ann.get("keypoints", None)
+                keypoints = prepared_ldf.keypoint_row(
+                    row["task_name"], ann["keypoints"]
+                )
                 if not keypoints:
                     continue
 

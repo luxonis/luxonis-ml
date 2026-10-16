@@ -152,28 +152,56 @@ Loader output combines boxes into :math:`\left(N, 5\right)` arrays with rows
 Keypoints
 =========
 
-`KeypointAnnotation` stores keypoints as ``(x, y, visibility)`` triplets.
-Coordinates are normalized and visibility follows the COCO convention:
-
-    - :math:`0`: not visible or not labeled.
-    - :math:`1`: occluded.
-    - :math:`2`: visible.
+`KeypointAnnotation` keys its keypoints by name. Each keypoint gives its
+coordinates and its state. It can also describe itself for the whole task:
 
 .. python::
 
     {
-        "class": "car",
-        "instance_id": 17,
+        "class": "person",
         "keypoints": {
-            "keypoints": [
-                (0.10, 0.20, 2),
-                (0.30, 0.40, 1),
-            ],
+            "keypoints": {
+                "nose": {
+                    "x": 0.50,
+                    "y": 0.30,
+                    "sigma": 0.026,
+                },
+                "left_eye": {
+                    "x": 0.40,
+                    "y": 0.20,
+                    "state": "occluded",
+                    "sigma": 0.025,
+                    "connected_to": ["nose"],
+                },
+            },
         },
     }
 
+======================  ======================================================
+Key                     Meaning
+======================  ======================================================
+``x``, ``y``            The coordinates, normalized by the image size.
+``state``               ``"visible"`` (default), ``"occluded"`` or
+                        ``"unlabeled"``, or the COCO visibility :math:`2`,
+                        :math:`1` or :math:`0`.
+``sigma``               The OKS standard deviation.
+``connected_to``        A name or a list of names of the same annotation. An
+                        edge joins them.
+======================  ======================================================
+
+A keypoint can also be a tuple ``(x, y)`` or ``(x, y, state)``. A plain list
+of keypoints is keyed ``"0"``, ``"1"``, ... by position. These keys are
+ordinary names.
+
+`LuxonisDataset.add` builds the `KeypointMetadata` of each task from its
+records. It holds the keypoint names in the order that the records first give
+them, and the sigma and the connections of each keypoint. Two records that
+give one keypoint different sigmas are an error. An annotation can name only
+some keypoints of its task.
+
 For :math:`K` keypoints and :math:`N` instances, loader output uses shape
-:math:`\left(N, 3 \cdot K\right)`.
+:math:`\left(N, 3 \cdot K\right)`, in the order of the keypoint metadata. A
+keypoint that an instance does not name gives :math:`\left(0, 0, 0\right)`.
 
 
 Segmentation
@@ -346,7 +374,8 @@ Important:
 import json
 import warnings
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
+from enum import IntEnum
 from pathlib import Path
 from typing import Annotated, Any, Literal, Optional, TypeAlias, TypedDict
 
@@ -362,7 +391,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from pydantic.types import FilePath, PositiveInt
+from pydantic.types import FilePath, PositiveFloat, PositiveInt
 from pydantic_core import core_schema
 from typing_extensions import Self, deprecated, override
 
@@ -375,17 +404,243 @@ from luxonis_ml.typing import (
 )
 from luxonis_ml.utils.logging import log_once
 
-KeypointVisibility: TypeAlias = Literal[0, 1, 2]
-"""Keypoint visibility following the COCO convention.
-
-The values indicate the visibility of a keypoint in an image:
-
-    - :math:`0`: Not visible or not labeled.
-    - :math:`1`: Occluded.
-    - :math:`2`: Visible.
-"""
 NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
 """A float value normalized to the range [0, 1]."""
+
+
+class KeypointState(IntEnum):
+    """Keypoint visibility following the COCO convention.
+
+    A record gives the state as a word or as the number. The loader output
+    holds the number.
+
+    Attributes:
+        UNLABELED: Not visible or not labeled, :math:`0`.
+        OCCLUDED: Occluded, :math:`1`.
+        VISIBLE: Visible, :math:`2`.
+
+    """
+
+    UNLABELED = 0
+    OCCLUDED = 1
+    VISIBLE = 2
+
+
+class KeypointSpec(BaseModelExtraForbid):
+    """The fields of a keypoint that describe the whole task.
+
+    `KeypointMetadata` keeps one for each keypoint name of a task.
+
+    Attributes:
+        sigma: The standard deviation of the object keypoint similarity
+            (OKS).
+        connected_to: Names of the keypoints that an edge joins to this
+            keypoint.
+
+    """
+
+    sigma: PositiveFloat | None = None
+    connected_to: list[str] = []
+
+    @field_validator("connected_to", mode="before")
+    @classmethod
+    def _one_name_is_a_list(cls, value: Any) -> Any:
+        """Accept a single name instead of a list."""
+        return [value] if isinstance(value, str) else value
+
+
+class Keypoint(KeypointSpec):
+    r"""A single keypoint of an annotation.
+
+    A record gives a keypoint as a mapping, or as an ``(x, y)`` or
+    ``(x, y, state)`` tuple. A coordinate in :math:`\left[-2, 2\right]` but
+    outside :math:`\left[0, 1\right]` is clipped, with a warning.
+
+    Example:
+        >>> keypoint = Keypoint.model_validate((0.1, 0.2, "occluded"))
+        >>> keypoint.state
+        <KeypointState.OCCLUDED: 1>
+        >>> keypoint.model_dump(mode="json", exclude_defaults=True)
+        {'x': 0.1, 'y': 0.2, 'state': 1}
+
+    Attributes:
+        x: Normalized x coordinate.
+        y: Normalized y coordinate.
+        state: Visibility of the keypoint.
+
+    """
+
+    x: NormalizedFloat
+    y: NormalizedFloat
+    state: KeypointState = KeypointState.VISIBLE
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_tuple(cls, value: Any) -> Any:
+        """Read an ``(x, y)`` or ``(x, y, state)`` tuple, and clip x and y."""
+        if isinstance(value, Sequence) and not isinstance(value, str):
+            if len(value) not in (2, 3):
+                raise ValueError(
+                    "A keypoint tuple holds (x, y) or (x, y, state), not "
+                    f"{len(value)} values."
+                )
+            value = dict(zip(("x", "y", "state"), value, strict=False))
+        if not isinstance(value, Mapping):
+            return value
+        clipped = {
+            key: _clip(value[key]) for key in ("x", "y") if key in value
+        }
+        if any(clipped[key] != value[key] for key in clipped):
+            # Once, not for each keypoint of each annotation.
+            log_once(
+                logger.warning,
+                "Keypoint annotation has values outside of [0, 1] range. "
+                "Clipping them to [0, 1].",
+            )
+        return {**value, **clipped}
+
+    @field_validator("state", mode="before")
+    @classmethod
+    def _state_from_word(cls, value: Any) -> Any:
+        """Read ``"visible"``, ``"occluded"`` or ``"unlabeled"``."""
+        if (
+            isinstance(value, str)
+            and value.upper() in KeypointState.__members__
+        ):
+            return KeypointState[value.upper()]
+        return value
+
+
+class KeypointMetadata(BaseModelExtraForbid):
+    """The keypoints of a task.
+
+    `LuxonisDataset.add` builds it from the records. It holds each keypoint
+    name of the task, in the order that the records first give it, with the
+    fields that describe the whole task. The loader output uses the same
+    order. `LuxonisDataset.get_keypoint_metadata` returns one for each task.
+
+    Example:
+        >>> metadata = KeypointMetadata.model_validate(
+        ...     {
+        ...         "keypoints": {
+        ...             "nose": {"sigma": 0.026},
+        ...             "left_eye": {
+        ...                 "sigma": 0.025,
+        ...                 "connected_to": ["nose"],
+        ...             },
+        ...         }
+        ...     }
+        ... )
+        >>> metadata.labels
+        ['nose', 'left_eye']
+        >>> metadata.edges
+        [(0, 1)]
+        >>> metadata.sigmas
+        [0.026, 0.025]
+
+    Attributes:
+        keypoints: The task fields of each keypoint, keyed by name, in the
+            column order of the loader output.
+
+    """
+
+    keypoints: dict[str, KeypointSpec] = {}
+
+    @property
+    def labels(self) -> list[str]:
+        """The keypoint names, in column order."""
+        return list(self.keypoints)
+
+    @property
+    def edges(self) -> list[tuple[int, int]]:
+        """The connections as sorted index pairs, lower index first."""
+        index = {name: i for i, name in enumerate(self.keypoints)}
+        pairs: set[tuple[int, int]] = set()
+        for name, spec in self.keypoints.items():
+            for target in spec.connected_to:
+                i, j = index[name], index[target]
+                pairs.add((min(i, j), max(i, j)))
+        return sorted(pairs)
+
+    @property
+    def sigmas(self) -> list[float]:
+        """The sigma of each keypoint, or nothing if one keypoint has none."""
+        sigmas = [
+            spec.sigma
+            for spec in self.keypoints.values()
+            if spec.sigma is not None
+        ]
+        return sigmas if len(sigmas) == len(self.keypoints) else []
+
+    @classmethod
+    def from_annotation(cls, annotation: "KeypointAnnotation") -> Self:
+        """Take the task fields of each keypoint of an annotation.
+
+        Args:
+            annotation: The keypoint annotation of one instance.
+
+        Returns:
+            The keypoint metadata that the annotation gives.
+
+        """
+        fields = set(KeypointSpec.model_fields)
+        return cls(
+            keypoints={
+                name: KeypointSpec.model_validate(
+                    keypoint.model_dump(include=fields)
+                )
+                for name, keypoint in annotation.keypoints.items()
+            }
+        )
+
+    def merge(self, other: "KeypointMetadata") -> "KeypointMetadata":
+        """Combine the keypoints of two descriptions of one task.
+
+        The names of ``other`` that are new come after the names of this
+        metadata. A keypoint takes a sigma that only one side gives, and the
+        connections of both sides.
+
+        Args:
+            other: The keypoint metadata to add.
+
+        Returns:
+            The combined keypoint metadata.
+
+        Raises:
+            ValueError: If the two sides give one keypoint different sigmas.
+
+        """
+        merged = dict(self.keypoints)
+        for name, theirs in other.keypoints.items():
+            mine = merged.get(name)
+            if mine is None:
+                merged[name] = theirs
+                continue
+            if (
+                None not in (mine.sigma, theirs.sigma)
+                and mine.sigma != theirs.sigma
+            ):
+                raise ValueError(
+                    f"Keypoint '{name}' has the sigmas {mine.sigma} and "
+                    f"{theirs.sigma}. Give each keypoint one sigma."
+                )
+            merged[name] = mine.model_copy(
+                update={
+                    "sigma": mine.sigma
+                    if mine.sigma is not None
+                    else theirs.sigma,
+                    "connected_to": list(
+                        dict.fromkeys(mine.connected_to + theirs.connected_to)
+                    ),
+                }
+            )
+        return KeypointMetadata(keypoints=merged)
+
+    @model_validator(mode="after")
+    def _check_connections(self) -> Self:
+        """Reject a ``connected_to`` name that is not a keypoint."""
+        _reject_unknown_connections(self.keypoints)
+        return self
 
 
 class _SerializedRLE(TypedDict):
@@ -598,6 +853,7 @@ class Detection(BaseModelExtraForbid):
 
     @model_validator(mode="after")
     def _rescale_values(self) -> Self:
+        """Rescale box-relative keypoints to image coordinates."""
         if not self.scale_to_boxes:
             return self
         if self.boundingbox is None:
@@ -613,11 +869,17 @@ class Detection(BaseModelExtraForbid):
         )
 
         if self.keypoints is not None:
-            self.keypoints = KeypointAnnotation(
-                keypoints=[
-                    (x + w * kp[0], y + h * kp[1], kp[2])
-                    for kp in self.keypoints.keypoints
-                ]
+            self.keypoints = KeypointAnnotation.model_validate(
+                {
+                    "keypoints": {
+                        name: {
+                            **keypoint.model_dump(),
+                            "x": x + w * keypoint.x,
+                            "y": y + h * keypoint.y,
+                        }
+                        for name, keypoint in self.keypoints.keypoints.items()
+                    }
+                }
             )
         return self
 
@@ -638,6 +900,15 @@ class Detection(BaseModelExtraForbid):
 
 class Annotation(ABC, BaseModelExtraForbid):
     """Base class for an annotation."""
+
+    def to_parquet_json(self) -> str:
+        """Serialize the annotation into its stored parquet payload.
+
+        Returns:
+            The serialized annotation.
+
+        """
+        return self.model_dump_json()
 
     @staticmethod
     @abstractmethod
@@ -805,106 +1076,123 @@ class BBoxAnnotation(Annotation):
 class KeypointAnnotation(Annotation):
     r"""Keypoint annotation.
 
-    The coordinates are normalized to :math:`\left[0, 1\right]`
-    based on the image size.
+    The keypoints are keyed by name, so an annotation says which keypoints
+    it holds. A plain list of keypoints is keyed ``"0"``, ``"1"``, ... by
+    position. Each keypoint is a `Keypoint`. The fields that describe the
+    whole task, such as the sigma, go into the `KeypointMetadata` of the
+    task. A ``connected_to`` name must be a keypoint of the same annotation.
+
+    Example:
+        >>> eyes = KeypointAnnotation.model_validate(
+        ...     {
+        ...         "keypoints": {
+        ...             "nose": (0.50, 0.30),
+        ...             "left_eye": {
+        ...                 "x": 0.45,
+        ...                 "y": 0.25,
+        ...                 "state": "occluded",
+        ...                 "connected_to": "nose",
+        ...             },
+        ...         }
+        ...     }
+        ... )
+        >>> eyes.to_numpy(["nose", "left_eye", "right_eye"]).tolist()
+        [0.5, 0.3, 2.0, 0.45, 0.25, 1.0, 0.0, 0.0, 0.0]
 
     Attributes:
-        keypoints: Keypoints in ``(x, y, visibility)`` format.
-            Visibility follows the COCO convention:
-
-                - :math:`0`: Not visible or not labeled.
-                - :math:`1`: Occluded.
-                - :math:`2`: Visible.
+        keypoints: The keypoints, keyed by name.
 
     """
 
-    keypoints: list[
-        tuple[NormalizedFloat, NormalizedFloat, KeypointVisibility]
-    ]
+    keypoints: dict[str, Keypoint]
 
-    def to_numpy(self) -> np.ndarray:
-        r"""Convert the keypoint annotation to flattened row format.
+    def to_numpy(self, labels: Sequence[str] | None = None) -> np.ndarray:
+        r"""Convert the keypoints to a flat row.
+
+        Args:
+            labels: Keypoint names in column order. A name that the
+                annotation does not have gives :math:`\left(0, 0, 0\right)`.
+                Defaults to the names of the annotation.
 
         Returns:
             An array of shape :math:`\left(3K,\right)` where :math:`K`
-            is the number of keypoints. The format of the array is
-            :math:`\left[x_1, y_1, v_1, x_2, y_2, v_2, \ldots \right]`
-            where :math:`\left(x_i, y_i, v_i\right)` are the coordinates and visibility
-            of the :math:`i`-th keypoint.
+            is the number of labels. The format of the array is
+            :math:`\left[x_1, y_1, v_1, x_2, y_2, v_2, \ldots \right]`.
 
         """
-        return np.array(self.keypoints).reshape((-1, 3)).flatten()
+        if labels is None:
+            labels = list(self.keypoints)
+        row = np.zeros((len(labels), 3))
+        for i, name in enumerate(labels):
+            if (keypoint := self.keypoints.get(name)) is not None:
+                row[i] = (keypoint.x, keypoint.y, keypoint.state)
+        return row.reshape(-1)
 
     @staticmethod
     @override
     def combine_to_numpy(
         annotations: list["KeypointAnnotation"],
         classes: list[int] | None = None,  # pyright: ignore[reportUnusedParameter]
-        n_classes: int | None = None,
+        n_classes: int | None = None,  # pyright: ignore[reportUnusedParameter]
+        *,
+        labels: Sequence[str] | None = None,
     ) -> np.ndarray:
-        r"""Combine keypoint annotations into flattened keypoint rows.
+        r"""Combine keypoint annotations into flat rows.
 
         Args:
             annotations: Keypoint annotations to combine.
             classes: Unused class IDs kept for API compatibility.
             n_classes: Unused class count kept for API compatibility.
+            labels: Keypoint names in column order. Defaults to the names
+                of all the annotations, in the order that they first
+                occur.
 
         Returns:
-            An array of shape :math:`\left(N, 3K\right)` where :math:`N`
-            is the number of keypoint annotations and :math:`K` is the number
-            of keypoints per annotation.
-            Flattened keypoint rows. Each row contains keypoint coordinates
-            and visibility in the format
-            :math:`\left[x_1, y_1, v_1, x_2, y_2, v_2, \ldots \right]`
-            where :math:`\left(x_i, y_i, v_i\right)` are the coordinates and visibility
-            of the :math:`i`-th keypoint.
+            An array of shape :math:`\left(N, 3K\right)` for :math:`N`
+            annotations and :math:`K` names.
 
         """
-        keypoints = np.empty(
-            (len(annotations), len(annotations[0].keypoints) * 3)
-        )
-        for i, ann in enumerate(annotations):
-            keypoints[i] = ann.to_numpy()
-        return keypoints
-
-    @model_validator(mode="before")
-    @classmethod
-    def _validate_values(cls, values: Any) -> Any:
-        if not isinstance(values, Mapping) or "keypoints" not in values:
-            return values
-
-        # Coerced up front for the same reason as in `BBoxAnnotation`.
-        try:
-            keypoints = [
-                [float(keypoint[0]), float(keypoint[1]), *list(keypoint)[2:]]
-                for keypoint in values["keypoints"]
-            ]
-        except (LookupError, TypeError, ValueError):
-            return values
-
-        warn = False
-        for keypoint in keypoints:
-            x, y = keypoint[0], keypoint[1]
-            if (x < -2 or x > 2) or (y < -2 or y > 2):
-                raise ValueError(
-                    "Keypoint annotation has value outside of automatic clipping range ([-2, 2]). "
-                    "Values should be normalized based on image size to range [0, 1]."
+        if labels is None:
+            labels = list(
+                dict.fromkeys(
+                    name for ann in annotations for name in ann.keypoints
                 )
-            if not (0 <= x <= 1):
-                keypoint[0] = max(0.0, min(1.0, x))
-                warn = True
-            if not (0 <= y <= 1):
-                keypoint[1] = max(0.0, min(1.0, y))
-                warn = True
-
-        if warn:
-            logger.warning(
-                "Keypoint annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
             )
-        return {
-            **values,
-            "keypoints": [tuple(keypoint) for keypoint in keypoints],
-        }
+        return np.stack([ann.to_numpy(labels) for ann in annotations])
+
+    @override
+    def to_parquet_json(self) -> str:
+        """Serialize the keypoints as ``{"keypoints": {name: [x, y, v]}}``.
+
+        The task fields go into the `KeypointMetadata` of the task, so a
+        stored row holds only the coordinates and the state.
+
+        Returns:
+            The serialized keypoints.
+
+        """
+        return json.dumps(
+            {
+                "keypoints": {
+                    name: [keypoint.x, keypoint.y, int(keypoint.state)]
+                    for name, keypoint in self.keypoints.items()
+                }
+            }
+        )
+
+    @field_validator("keypoints", mode="before")
+    @classmethod
+    def _key_by_position(cls, value: Any) -> Any:
+        """Key a plain list of keypoints ``"0"``, ``"1"``, ... by position."""
+        if isinstance(value, Sequence) and not isinstance(value, str):
+            return {str(i): keypoint for i, keypoint in enumerate(value)}
+        return value
+
+    @model_validator(mode="after")
+    def _check_connections(self) -> Self:
+        """Reject a ``connected_to`` name that the annotation does not have."""
+        _reject_unknown_connections(self.keypoints)
+        return self
 
 
 class SegmentationAnnotation(Annotation):
@@ -1470,6 +1758,7 @@ class DatasetRecord(BaseModelExtraForbid):
         task_name: str,
         sample_metadata: str,
     ) -> Iterable[ParquetRecord]:
+        """Yield the rows of ``annotation`` and of its sub-detections."""
         file_items = sorted(self.files.items(), key=lambda x: str(x[1]))
         for i, (source, file_path) in enumerate(file_items):
             is_main = i == 0
@@ -1497,7 +1786,7 @@ class DatasetRecord(BaseModelExtraForbid):
                             "class_name": annotation.class_name,
                             "instance_id": annotation.instance_id,
                             "task_type": task_type,
-                            "annotation": label.model_dump_json(),
+                            "annotation": label.to_parquet_json(),
                             "sample_metadata": sample_metadata,
                         }
                 for key, data in annotation.metadata.items():
@@ -1571,7 +1860,8 @@ def load_annotation(
         An instance of the appropriate `Annotation` subclass based on the task type.
 
     Raises:
-        ValueError: If the task type is unknown.
+        ValueError: If the task type is unknown, or if ``data`` is not a
+            valid annotation of that type.
 
     """
     classes = {
@@ -1587,6 +1877,38 @@ def load_annotation(
     return classes[task_type].model_validate(data)
 
 
+def _clip(value: Any) -> Any:
+    """Clip a coordinate in [-2, 2] to [0, 1]."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return value
+    if 0 <= number <= 1:
+        return value
+    if not -2 <= number <= 2:
+        raise ValueError(
+            "Keypoint annotation has value outside of automatic clipping "
+            "range ([-2, 2]). Values should be normalized based on image "
+            "size to range [0, 1]."
+        )
+    return min(max(number, 0.0), 1.0)
+
+
+def _reject_unknown_connections(
+    keypoints: Mapping[str, KeypointSpec],
+) -> None:
+    """Raise a ``ValueError`` if ``connected_to`` names a missing keypoint."""
+    unknown = sorted(
+        {target for spec in keypoints.values() for target in spec.connected_to}
+        - set(keypoints)
+    )
+    if unknown:
+        raise ValueError(
+            f"Keypoints {', '.join(unknown)} are connected to, but not given. "
+            f"Given keypoints: {', '.join(keypoints)}."
+        )
+
+
 # Also keeps the API docs rooted here: pydoctor moves a re-exported name to
 # the re-exporting module unless the module defining it lists it in `__all__`.
 __all__ = [
@@ -1598,8 +1920,11 @@ __all__ = [
     "DatasetRecord",
     "Detection",
     "InstanceSegmentationAnnotation",
+    "Keypoint",
     "KeypointAnnotation",
-    "KeypointVisibility",
+    "KeypointMetadata",
+    "KeypointSpec",
+    "KeypointState",
     "NormalizedFloat",
     "SegmentationAnnotation",
     "load_annotation",

@@ -4,11 +4,13 @@ from typing import Any
 
 import cv2
 import numpy as np
+import polars as pl
 
-from luxonis_ml.data import LuxonisLoader
+from luxonis_ml.data import LuxonisLoader, LuxonisParser
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
 from luxonis_ml.data.utils.enums import BucketStorage
+from luxonis_ml.enums import DatasetType
 
 
 def gather_tasks(dataset: LuxonisDataset) -> set[str]:
@@ -76,8 +78,33 @@ def write_dataset_metadata(
     return LuxonisDataset(dataset.identifier)
 
 
+def write_dataset_rows(dataset: LuxonisDataset, df: pl.DataFrame) -> None:
+    """Replace the stored annotation rows of the dataset with ``df``."""
+    for parquet_file in dataset._annotations_path.glob("*.parquet"):
+        parquet_file.unlink()
+    df.write_parquet(dataset._annotations_path / "0000000000.parquet")
+
+
 def set_ldf_version(dataset: LuxonisDataset, version: str) -> LuxonisDataset:
     """Change the stored LDF version and open the dataset again."""
     dataset_metadata = read_dataset_metadata(dataset)
     dataset_metadata["ldf_version"] = version
     return write_dataset_metadata(dataset, dataset_metadata)
+
+
+def export_and_import(
+    dataset: LuxonisDataset,
+    tempdir: Path,
+    dataset_type: DatasetType = DatasetType.NATIVE,
+    **kwargs,
+) -> LuxonisDataset:
+    """Export the dataset to ``tempdir / "exported"`` and parse it back."""
+    exported = dataset.export(tempdir / "exported", dataset_type, **kwargs)
+    assert isinstance(exported, Path)
+    return LuxonisParser(
+        str(exported / dataset.identifier),
+        dataset_type=dataset_type,
+        dataset_name=f"{dataset.identifier}_imported",
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()

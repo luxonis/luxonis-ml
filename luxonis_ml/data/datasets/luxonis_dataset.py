@@ -68,13 +68,22 @@ from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.ldf_equivalence import ldf_equivalent
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.enums.enums import DatasetType
-from luxonis_ml.ldf import Category, DatasetRecord, Detection
+from luxonis_ml.ldf import (
+    Category,
+    DatasetRecord,
+    Detection,
+    KeypointMetadata,
+)
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import LuxonisFileSystem, environ
 
 from .base_dataset import BaseDataset, DatasetIterator
-from .metadata import Metadata
-from .migration import migrate_dataframe, migrate_metadata
+from .metadata import Metadata, merge_keypoint_metadata
+from .migration import (
+    migrate_dataframe,
+    migrate_keypoint_rows,
+    migrate_metadata,
+)
 from .source import LuxonisComponent, LuxonisSource
 from .utils import (
     find_filepath_group_id,
@@ -273,6 +282,15 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         self._metadata_path = self._local_path / "metadata"
         self._arrays_path = self._local_path / "arrays"
 
+        # A stop between the two renames of `_save_df_offline` leaves the
+        # annotations only in the replaced directory.
+        replaced_path = self._annotations_path.with_name("annotations.old")
+        if replaced_path.exists() and not any(
+            self._annotations_path.glob("*.parquet")
+        ):
+            shutil.rmtree(self._annotations_path, ignore_errors=True)
+            replaced_path.rename(self._annotations_path)
+
         for path in [
             self._media_path,
             self._annotations_path,
@@ -304,13 +322,15 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         """
         annotations_path = Path(self._annotations_path)
-
-        for old_file in annotations_path.glob("*.parquet"):
-            old_file.unlink()
+        # The old shards stay until the new ones are complete, so an
+        # interrupted rewrite keeps the dataset.
+        staging_path = annotations_path.with_name("annotations.new")
+        shutil.rmtree(staging_path, ignore_errors=True)
+        staging_path.mkdir()
 
         rows = pl_df.to_dicts()
 
-        with ParquetFileManager(annotations_path) as pfm:
+        with ParquetFileManager(staging_path) as pfm:
             for row in rows:
                 uuid_val = row.get("uuid")
                 group_id_val = row.get("group_id")
@@ -323,14 +343,16 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
                 pfm.write(uuid_val, data_dict, group_id_val)  # type: ignore
 
+        replaced_path = annotations_path.with_name("annotations.old")
+        # A stop after the two renames leaves the replaced directory.
+        shutil.rmtree(replaced_path, ignore_errors=True)
+        annotations_path.rename(replaced_path)
+        staging_path.rename(annotations_path)
+        shutil.rmtree(replaced_path)
+
         logger.info(
             f"Saved DataFrame to Parquet files in '{annotations_path}'."
         )
-
-    def _merge_metadata_with(self, other: "LuxonisDataset") -> None:
-        """Merge relevant metadata from ``other`` into ``self``."""
-        self._metadata = self._metadata.merge_with(other._metadata)
-        self._write_metadata()
 
     def clone(
         self,
@@ -435,6 +457,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     ) -> "LuxonisDataset":
         """Merge another dataset into this or a new dataset.
 
+        The keypoints of a task merge by name. The names of ``other`` that
+        this dataset does not have come after its own names.
+
         Args:
             other: Dataset to merge into this dataset.
             inplace: Whether to merge into this dataset. If ``False``, a
@@ -453,24 +478,22 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             ValueError: If ``inplace`` is ``False`` but no name for the new
                 dataset is provided.
             ValueError: If the datasets have different LDF versions.
+            ValueError: If the datasets give one keypoint different sigmas.
             FileNotFoundError: If either dataset is empty.
 
         """
-        if inplace:
-            target_dataset = self
-        elif new_dataset_name:
-            if self._bucket_storage != other._bucket_storage:
-                raise ValueError(
-                    "Cannot merge datasets with different bucket storage types."
-                )
-            target_dataset = self.clone(
-                new_dataset_name, push_to_cloud=False, team_id=team_id
-            )
-        else:
+        if not (inplace or new_dataset_name):
             raise ValueError(
                 "You must specify a name for the new dataset "
                 "when `inplace` is `False`"
             )
+        if not inplace and self._bucket_storage != other._bucket_storage:
+            raise ValueError(
+                "Cannot merge datasets with different bucket storage types."
+            )
+        # The metadata merge and the reads below can raise. The clone and
+        # the writes come after them, so a failed merge changes nothing.
+        merged_metadata = self._metadata.merge_with(other._metadata)
 
         if self.is_remote:
             other.pull_from_cloud(UpdateMode.MISSING)
@@ -503,8 +526,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 k: v for k, v in splits_other.items() if k in splits_to_merge
             }
 
-        df_merged = pl.concat([df_self, df_other])
-        target_dataset._save_df_offline(df_merged)
+        # `_load_df_offline` appends the `sample_metadata` column that LDF
+        # 2.0 lacks, so the two datasets can order their columns differently.
+        df_merged = pl.concat([df_self, df_other], how="diagonal_relaxed")
 
         splits_other = {
             split_name: [
@@ -515,6 +539,13 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             for split_name, group_ids in splits_other.items()
         }
         self._merge_splits(splits_self, splits_other)
+
+        target_dataset = (
+            self.clone(new_dataset_name, push_to_cloud=False, team_id=team_id)
+            if new_dataset_name and not inplace
+            else self
+        )
+        target_dataset._save_df_offline(df_merged)
         target_dataset._save_splits(splits_self)
 
         if self.is_remote:
@@ -543,7 +574,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 dst_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(src_path, dst_path)
 
-        target_dataset._merge_metadata_with(other)
+        target_dataset._metadata = merged_metadata
+        target_dataset._write_metadata()
 
         return target_dataset
 
@@ -832,31 +864,58 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                         }
                         metadata_json["source"]["components"] = new_components
                         metadata_json["source"]["main_component"] = "image"
+            version = Version.parse(
+                metadata_json.get("ldf_version", "1.0.0"),
+                optional_minor_and_patch=True,
+            )
+            if self.is_remote and version.major == 2:
+                # The migration takes the keypoint count of each task from
+                # the rows, so it needs the rows of the bucket.
+                get_dir(self._fs, "annotations", self._local_path)
             df = self._load_df_offline(lazy=False, attempt_migration=False)
             if df is not None and "group_id" not in df.columns:
                 df = df.with_columns(pl.col("uuid").alias("group_id"))
                 self._save_df_offline(df)
 
-            version = Version.parse(
-                metadata_json.get("ldf_version", "1.0.0"),
-                optional_minor_and_patch=True,
-            )
             if version.major != LDF_VERSION.major:
-                return migrate_metadata(
+                metadata = migrate_metadata(
                     metadata_json,
-                    self._load_df_offline(lazy=True, attempt_migration=False),
+                    None if df is None else df.lazy(),
                     version,
                 )
+                if version.major == 2:
+                    self._name_keypoint_rows(metadata.keypoint_metadata)
+                return metadata
             return Metadata(**metadata_json)
         return Metadata(
             source=LuxonisSource(),
             ldf_version=str(LDF_VERSION),
             classes={},
             tasks={},
-            skeletons={},
+            keypoint_metadata={},
             categorical_encodings={},
             metadata_types={},
         )
+
+    def _name_keypoint_rows(
+        self, keypoint_metadata: Mapping[str, KeypointMetadata]
+    ) -> None:
+        """Key the LDF 2.x keypoint rows of the local copy by name.
+
+        Only the local copy changes. A download of the annotations brings
+        back the rows of the bucket as LDF 2.x wrote them, so each download
+        calls this again. The bucket gets the named rows with the next
+        write that uploads the annotations.
+
+        Args:
+            keypoint_metadata: The keypoint metadata of each task.
+
+        """
+        df = self._load_df_offline(lazy=True)
+        if df is not None:
+            migrated = migrate_keypoint_rows(df, keypoint_metadata)
+            if migrated is not None:
+                self._save_df_offline(migrated)
 
     @property
     def is_remote(self) -> bool:
@@ -907,42 +966,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         return self._metadata.classes
 
     @override
-    def set_skeletons(
-        self,
-        labels: list[str] | None = None,
-        edges: list[tuple[int, int]] | None = None,
-        task: str | None = None,
-    ) -> None:
-        """Set keypoint skeleton metadata.
-
-        Args:
-            labels: Optional keypoint names.
-            edges: Optional keypoint edges as :math:`0`-based index pairs.
-            task: Optional task to update. If omitted, all tasks are
-                updated.
-
-        Raises:
-            ValueError: If neither ``labels`` nor ``edges`` is provided.
-
-        """
-        if labels is None and edges is None:
-            raise ValueError("Must provide either keypoint names or edges")
-
-        tasks = self.get_task_names() if task is None else [task]
-        for t in tasks:
-            self._metadata.skeletons[t] = {
-                "labels": labels or [],
-                "edges": sorted(edges or []),
-            }
-        self._write_metadata()
-
-    @override
-    def get_skeletons(
-        self,
-    ) -> dict[str, tuple[list[str], list[tuple[int, int]]]]:
+    def get_keypoint_metadata(self) -> dict[str, KeypointMetadata]:
         return {
-            task: (skel["labels"], skel["edges"])
-            for task, skel in self._metadata.skeletons.items()
+            task: metadata.model_copy(deep=True)
+            for task, metadata in self._metadata.keypoint_metadata.items()
         }
 
     @override
@@ -1045,6 +1072,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             )
             for dir_name in ["annotations", "metadata"]:
                 _ = get_dir(self._fs, dir_name, self._local_path)
+            self._name_keypoint_rows(self._metadata.keypoint_metadata)
 
             index = self._get_index(lazy=False)
             missing_media_paths = []
@@ -1343,11 +1371,14 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                                     "h": 0.40,
                                 },
                                 "keypoints": {
-                                    "keypoints": [
-                                        (0.15, 0.25, 1),
-                                        (0.50, 0.60, 1),
-                                        (0.70, 0.80, 0),
-                                    ],
+                                    "keypoints": {
+                                        "head": (0.15, 0.25, 2),
+                                        "tail": {
+                                            "x": 0.50,
+                                            "y": 0.60,
+                                            "connected_to": "head",
+                                        },
+                                    },
                                 },
                                 "instance_segmentation": {
                                     "mask": "/path/to/mask.png",
@@ -1360,6 +1391,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 ``annotation["metadata"]`` is different: it becomes a
                 metadata label task.
 
+                `add` builds the `KeypointMetadata` of each task from the
+                keypoints of its records. See `luxonis_ml.ldf` for the
+                keypoint fields.
+
             batch_size: The number of records to process in a batch before writing
                 to storage. Larger batch sizes may be more efficient but will
                 use more memory.
@@ -1367,6 +1402,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         Raises:
             ValueError: If the records yielded by the generator are not in the expected format.
             ValueError: If the dataset contains metadata annotations with conflicting types.
+            ValueError: If two records give one keypoint different sigmas.
 
         """
         logger.info(f"Adding data to dataset '{self._dataset_name}'...")
@@ -1377,7 +1413,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         tasks: dict[str, set[str]] = defaultdict(set)
         categorical_encodings = defaultdict(dict)
         metadata_types = {}
-        num_kpts_per_task: dict[str, int] = {}
+        keypoint_metadata = dict(self._metadata.keypoint_metadata)
+        # Most records repeat the keypoint fields of their task, and a
+        # repeat changes nothing, so each distinct one merges once.
+        merged_keypoint_fields: defaultdict[str, set[tuple]] = defaultdict(set)
         sources: set[str] = set()
 
         annotations_path = get_dir(
@@ -1386,6 +1425,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             self._local_path,
             default=self._annotations_path,
         )
+        if self.is_remote:
+            self._name_keypoint_rows(keypoint_metadata)
 
         index = self._get_index()
 
@@ -1414,9 +1455,19 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                         tasks[task_name] |= ann.get_task_types()
 
                         if ann.keypoints is not None:
-                            num_kpts_per_task[task_name] = len(
-                                ann.keypoints.keypoints
+                            fields = tuple(
+                                (name, kp.sigma, tuple(kp.connected_to))
+                                for name, kp in ann.keypoints.keypoints.items()
                             )
+                            if fields not in merged_keypoint_fields[task_name]:
+                                merged_keypoint_fields[task_name].add(fields)
+                                merge_keypoint_metadata(
+                                    keypoint_metadata,
+                                    task_name,
+                                    KeypointMetadata.from_annotation(
+                                        ann.keypoints
+                                    ),
+                                )
                         for name, value in ann.metadata.items():
                             task = f"{task_name}/metadata/{name}"
                             typ = type(value).__name__
@@ -1468,13 +1519,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
                 self.set_classes(list(classes | old_classes), task=task)
 
-        for task, num_kpts in num_kpts_per_task.items():
-            self.set_skeletons(
-                labels=[str(i) for i in range(num_kpts)],
-                edges=[(i, i + 1) for i in range(num_kpts - 1)],
-                task=task,
-            )
-
+        self._metadata.keypoint_metadata = keypoint_metadata
         self._metadata.categorical_encodings = dict(categorical_encodings)
         self._metadata.metadata_types = metadata_types
         self.set_tasks(tasks)
@@ -1682,10 +1727,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 ``{dataset_name}_part{partition_number}``.
             zip_output: Whether to zip the exported dataset or each
                 partition after export.
-            ldf_version: LDF version to write, for example ``"2.0"``, so
-                the export can be read by an older luxonis-ml. Native
-                format only. Defaults to the version this installation
-                writes. Downgrading is lossy and warns about what it drops.
+            ldf_version: LDF version to write: ``"3.0"``, ``"2.1"`` or
+                ``"2.0"``. luxonis-ml 0.9 to 0.10 reads LDF 2.1, and
+                luxonis-ml 0.6 to 0.8 reads LDF 2.0. Native format only.
+                Defaults to the version this installation writes.
+                Downgrading is lossy and warns about what it drops.
 
         Returns:
             Export directory, or ZIP archive paths when ``zip_output`` is
@@ -1713,7 +1759,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 CocoExporter,
                 {
                     "format": COCOFormat.ROBOFLOW,
-                    "skeletons": getattr(self.metadata, "skeletons", None),
                 },
             ),
             DatasetType.YOLOV8BOUNDINGBOX: ExporterSpec(YoloV8Exporter, {}),

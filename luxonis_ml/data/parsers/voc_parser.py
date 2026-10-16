@@ -67,8 +67,7 @@ class VOCParser(BaseParser):
             annotation_dir: Directory with ``.xml`` annotations.
 
         Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+            Parser output containing annotation records and added images.
 
         Raises:
             ValueError: If an annotation XML file cannot be parsed or a
@@ -145,7 +144,7 @@ class VOCParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), {}, added_images
+        return generator(), added_images
 
     @staticmethod
     def _xml_find(root: ET.Element, tag: str) -> str:

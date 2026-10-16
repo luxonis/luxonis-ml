@@ -4,6 +4,11 @@
 luxonis-ml fails to validate on an older install -- LDF 2.1 added
 ``sample_metadata``, which nothing older accepts. Exporting to an older
 version therefore drops every field introduced above it.
+
+LDF 3.0 keys the keypoints by name, and each keypoint can give its
+``state``, ``sigma`` and ``connected_to``. An older version reads only a
+list of ``(x, y, visibility)`` triplets, so the downgrade writes the
+keypoints as a list, in the order of the task.
 """
 
 from collections import Counter
@@ -13,6 +18,7 @@ from loguru import logger
 from semver.version import Version
 
 from luxonis_ml.data.utils.constants import LDF_VERSION
+from luxonis_ml.ldf import Keypoint
 
 
 def _parse(version: str) -> Version:
@@ -24,6 +30,9 @@ def _parse(version: str) -> Version:
 _ADDED_FIELDS: Final[dict[str, Version]] = {
     "sample_metadata": _parse("2.1"),
 }
+
+#: The version that keys the keypoints by name.
+_NAMED_KEYPOINTS: Final[Version] = _parse("3.0")
 
 #: LDF versions the native exporter can write, newest first.
 SUPPORTED_EXPORT_VERSIONS: Final[tuple[Version, ...]] = (
@@ -92,6 +101,7 @@ class LDFDowngrader:
             for field, added_in in _ADDED_FIELDS.items()
             if added_in > target_version
         ]
+        self._lists_keypoints = target_version < _NAMED_KEYPOINTS
         self._dropped: Counter[str] = Counter()
         self._n_records = 0
 
@@ -102,6 +112,9 @@ class LDFDowngrader:
             # An empty value is no loss, so drop it but do not report it.
             if record.pop(field, None):
                 self._dropped[field] += 1
+        keypoints = (record.get("annotation") or {}).get("keypoints")
+        if self._lists_keypoints and keypoints is not None:
+            self._list_keypoints(keypoints)
         return record
 
     def log_summary(self) -> None:
@@ -111,3 +124,17 @@ class LDFDowngrader:
                 f"Exporting to LDF {self.target_version} drops '{field}' "
                 f"from {n_dropped} of {self._n_records} records."
             )
+
+    def _list_keypoints(self, keypoints: dict[str, Any]) -> None:
+        """Write named keypoints as triplets, and count what is lost."""
+        named: dict[str, dict[str, Any]] = keypoints["keypoints"]
+        keypoints["keypoints"] = [
+            [keypoint.x, keypoint.y, int(keypoint.state)]
+            for keypoint in map(Keypoint.model_validate, named.values())
+        ]
+        self._dropped["keypoints.names"] += 1
+        if any(
+            value.keys() & {"sigma", "connected_to"}
+            for value in named.values()
+        ):
+            self._dropped["keypoints.sigma_and_connected_to"] += 1
