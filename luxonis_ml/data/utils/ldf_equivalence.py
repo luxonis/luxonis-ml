@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Union, cast
 import numpy as np
 import polars as pl
 from pycocotools import mask as mask_utils
+from semver.version import Version
 
 from luxonis_ml.data.exporters import PreparedLDF
 from luxonis_ml.ldf import KeypointMetadata
@@ -602,13 +603,6 @@ class LDFEquivalence:
         metadata = json.loads(
             (dataset_path / "metadata" / "metadata.json").read_text()
         )
-        # An LDF 2.x dataset stores no keypoint metadata.
-        keypoint_metadata = {
-            task: KeypointMetadata.model_validate(task_metadata)
-            for task, task_metadata in metadata.get(
-                "keypoint_metadata", {}
-            ).items()
-        }
 
         annotation_files = sorted(
             (dataset_path / "annotations").glob("*.parquet")
@@ -623,6 +617,32 @@ class LDFEquivalence:
         ).collect()
         if df.is_empty():
             raise FileNotFoundError(f"Dataset '{dataset_path.name}' is empty.")
+
+        version = Version.parse(
+            metadata.get("ldf_version", "1.0.0"),
+            optional_minor_and_patch=True,
+        )
+        if version.major == 2:
+            from luxonis_ml.data.datasets.migration import (
+                migrate_keypoint_rows,
+                migrate_metadata,
+            )
+
+            # The stored skeletons and list rows of LDF 2.x get their
+            # names, as when the dataset opens.
+            keypoint_metadata = migrate_metadata(
+                metadata, df.lazy(), version
+            ).keypoint_metadata
+            migrated = migrate_keypoint_rows(df.lazy(), keypoint_metadata)
+            if migrated is not None:
+                df = migrated
+        else:
+            keypoint_metadata = {
+                task: KeypointMetadata.model_validate(task_metadata)
+                for task, task_metadata in metadata.get(
+                    "keypoint_metadata", {}
+                ).items()
+            }
 
         df = df.with_row_count("row_idx")
         media_path = dataset_path / "media"

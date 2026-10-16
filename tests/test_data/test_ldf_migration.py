@@ -12,6 +12,7 @@ from luxonis_ml.data import LuxonisDataset, LuxonisLoader
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.enums import BucketStorage
+from luxonis_ml.data.utils.ldf_equivalence import ldf_equivalent
 from luxonis_ml.data.utils.parquet import ParquetFileManager
 from luxonis_ml.utils import environ
 
@@ -276,6 +277,13 @@ def test_an_interrupted_open_keeps_the_2_x_rows(
     ].labels
     assert labels["pose/keypoints"].tolist() == [FACE_ROW]
 
+
+def test_a_2_x_dataset_compares_by_name(dataset_name: str, tempdir: Path):
+    """The comparison names the stored list rows, as the open does."""
+    current = pose_dataset(f"{dataset_name}_current", tempdir)
+    store_as_ldf_2_1(pose_dataset(dataset_name, tempdir), FACE)
+
+    assert ldf_equivalent(dataset_name, current.identifier)
 
 
 
