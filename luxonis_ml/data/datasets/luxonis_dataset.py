@@ -282,6 +282,15 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         self._metadata_path = self._local_path / "metadata"
         self._arrays_path = self._local_path / "arrays"
 
+        # A stop between the two renames of `_save_df_offline` leaves the
+        # annotations only in the replaced directory.
+        replaced_path = self._annotations_path.with_name("annotations.old")
+        if replaced_path.exists() and not any(
+            self._annotations_path.glob("*.parquet")
+        ):
+            shutil.rmtree(self._annotations_path, ignore_errors=True)
+            replaced_path.rename(self._annotations_path)
+
         for path in [
             self._media_path,
             self._annotations_path,
@@ -335,6 +344,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 pfm.write(uuid_val, data_dict, group_id_val)  # type: ignore
 
         replaced_path = annotations_path.with_name("annotations.old")
+        # A stop after the two renames leaves the replaced directory.
+        shutil.rmtree(replaced_path, ignore_errors=True)
         annotations_path.rename(replaced_path)
         staging_path.rename(annotations_path)
         shutil.rmtree(replaced_path)

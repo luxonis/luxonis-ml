@@ -279,6 +279,32 @@ def test_an_interrupted_open_keeps_the_2_x_rows(
     assert labels["pose/keypoints"].tolist() == [FACE_ROW]
 
 
+@pytest.mark.parametrize("stop", ["between_the_renames", "before_the_cleanup"])
+def test_the_next_open_recovers_from_a_stopped_swap(
+    dataset_name: str, tempdir: Path, stop: str
+):
+    """A rewrite swaps the annotation directories with two renames.
+
+    A stop between the renames leaves only ``annotations.old``. A stop
+    after them leaves ``annotations.old`` next to the new directory.
+    """
+    dataset = pose_dataset(dataset_name, tempdir)
+    store_as_ldf_2_1(dataset, FACE)
+    annotations = dataset._annotations_path
+    replaced = annotations.with_name("annotations.old")
+    if stop == "between_the_renames":
+        annotations.rename(replaced)
+    else:
+        shutil.copytree(annotations, replaced)
+
+    labels = LuxonisLoader(LuxonisDataset(dataset_name), view="train")[
+        0
+    ].labels
+
+    assert labels["pose/keypoints"].tolist() == [FACE_ROW]
+    assert not replaced.exists()
+
+
 def test_a_2_x_dataset_compares_by_name(dataset_name: str, tempdir: Path):
     """The comparison names the stored list rows, as the open does."""
     current = pose_dataset(f"{dataset_name}_current", tempdir)
