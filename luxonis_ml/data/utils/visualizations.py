@@ -1,3 +1,5 @@
+"""Colors and drawing helpers for the labels of a sample."""
+
 import colorsys
 import hashlib
 import math
@@ -442,7 +444,17 @@ def append_text_block(
 def add_augmentation_footer(
     image: np.ndarray, augmentations: list[str]
 ) -> np.ndarray:
-    """Append the applied augmentations as a footer below the image."""
+    """Append the applied augmentations as a footer below the image.
+
+    Args:
+        image: Image to extend.
+        augmentations: Configured paths of the applied augmentations. An
+            empty list writes ``none``.
+
+    Returns:
+        A new image with the footer below ``image``.
+
+    """
     min_dimension = min(image.shape[:2])
     font_scale = max(0.25, min(1.1, 0.4 * min_dimension / 500))
     augmentations_text = ", ".join(augmentations) if augmentations else "none"

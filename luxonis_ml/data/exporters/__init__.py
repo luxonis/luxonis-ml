@@ -1,5 +1,15 @@
 """Exporters that convert LDF datasets to external formats.
 
+`LuxonisDataset.export` picks the exporter for the requested format:
+
+.. python::
+
+    from luxonis_ml.data import LuxonisDataset
+    from luxonis_ml.enums import DatasetType
+
+    dataset = LuxonisDataset("parking_lot")
+    dataset.export("exports", dataset_type=DatasetType.COCO)
+
 This package contains exporter implementations for writing Luxonis Data Format
 (LDF) datasets into common annotation formats used by training frameworks,
 dataset tools, and interchange workflows. Exporters operate on prepared LDF
