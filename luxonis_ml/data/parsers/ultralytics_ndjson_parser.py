@@ -356,7 +356,12 @@ class UltralyticsNDJSONParser(BaseParser):
                 "boundingbox": yolo_box_to_ldf(
                     x_center, y_center, width, height
                 ),
-                "keypoints": {"keypoints": keypoints},
+                "keypoints": {
+                    "keypoints": [
+                        (float(x), float(y), int(v))
+                        for x, y, v in keypoints.tolist()
+                    ]
+                },
             }
             instance_id += 1
 
@@ -538,8 +543,8 @@ def _add_unique(items: list[Path], seen: set[Path], item: Path) -> None:
 
 def _pose_keypoints(
     keypoints: list[Any], kpt_shape: tuple[int, int] | None
-) -> list[tuple[float, float, int]]:
-    """Group a flat keypoint list into ``(x, y, visibility)`` triples.
+) -> np.ndarray:
+    """Reshape a flat keypoint list into ``(x, y, visibility)`` rows.
 
     Without a ``kpt_shape`` the list must hold triples. Pairs get full
     visibility.
@@ -561,6 +566,4 @@ def _pose_keypoints(
             [keypoints_array, np.ones((n_kpts, 1), dtype=float) * 2],
             axis=1,
         )
-    return [
-        (float(x), float(y), int(v)) for x, y, v in keypoints_array.tolist()
-    ]
+    return keypoints_array

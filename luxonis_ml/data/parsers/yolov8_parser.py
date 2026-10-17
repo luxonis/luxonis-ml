@@ -107,11 +107,13 @@ class YOLOv8Parser(BaseParser):
                 "boundingbox": yolo_box_to_ldf(*elements[1:]),
             }
         if kpt_shape is not None:
-            keypoints = _keypoints(elements[5:], kpt_shape)
+            keypoints = _keypoints_array(elements[5:], kpt_shape)
+            class_name = class_names[int(elements[0])]
+            triples = [(p[0], p[1], int(p[2])) for p in keypoints.tolist()]
             return {
-                "class": class_names[int(elements[0])],
+                "class": class_name,
                 "boundingbox": yolo_box_to_ldf(*elements[1:5]),
-                "keypoints": {"keypoints": keypoints},
+                "keypoints": {"keypoints": triples},
             }
 
         img = cv2.imread(str(img_path))
@@ -414,10 +416,10 @@ def _annotation_lines(ann_path: Path) -> list[str]:
         return [line for line in f if line.strip()]
 
 
-def _keypoints(
+def _keypoints_array(
     elements: list[str], kpt_shape: tuple[int, int]
-) -> list[tuple[float, float, int]]:
-    """Group flat keypoint elements into ``(x, y, visibility)`` triples.
+) -> np.ndarray:
+    """Reshape flat keypoint elements into ``(x, y, visibility)`` rows.
 
     Two-dimensional keypoints get full visibility.
     """
@@ -428,4 +430,4 @@ def _keypoints(
         keypoints = np.concatenate(
             [keypoints, np.ones((n_kpts, 1)) * 2], axis=1
         )
-    return [(p[0], p[1], int(p[2])) for p in keypoints.tolist()]
+    return keypoints

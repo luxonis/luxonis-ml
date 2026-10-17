@@ -215,8 +215,10 @@ class LuxonisLoader(BaseLoader):
             column: i for i, column in enumerate(self._df.columns)
         }
 
+        view_instances = self._view_instances()
         group_ids = self._df["group_id"].to_list()
-        self._instances = self._view_instances(set(group_ids))
+        group_id_set = set(group_ids)
+        self._instances = [g for g in view_instances if g in group_id_set]
 
         idx_map: dict[str, list[int]] = defaultdict(list)
         for i, group_id in enumerate(group_ids):
@@ -272,8 +274,8 @@ class LuxonisLoader(BaseLoader):
             if task_name in self._classes
         }
 
-    def _view_instances(self, group_ids: set[str]) -> list[str]:
-        """List the group IDs of the view that the dataframe holds."""
+    def _view_instances(self) -> list[str]:
+        """List the group IDs of the splits in the view."""
         splits_path = self.dataset._metadata_path / "splits.json"
         if not splits_path.exists():
             raise RuntimeError(
@@ -285,8 +287,7 @@ class LuxonisLoader(BaseLoader):
         instances: list[str] = []
         for v in self._view:
             instances.extend(splits[v])
-
-        return [group_id for group_id in instances if group_id in group_ids]
+        return instances
 
     def _add_background_class(self, task_name: str) -> None:
         """Give a segmentation task with unassigned pixels a background class.

@@ -1,5 +1,4 @@
 import csv
-import itertools
 import json
 from collections import OrderedDict, defaultdict
 from collections.abc import Iterator
@@ -169,15 +168,16 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
 
         Returns ``None`` when no row names a class.
         """
-        class_masks = self._class_masks(seg_rows)
-        first = next(class_masks, None)
-        if first is None:
-            return None
-
-        # Start with background (0) everywhere
-        combined = np.zeros(first[1].shape, dtype=np.uint16)
-        for cname, m in itertools.chain([first], class_masks):
-            combined[m != 0] = self._class_id_for(split, cname)
+        combined = None
+        for cname, m in self._class_masks(seg_rows):
+            # Start with background (0) everywhere
+            canvas = (
+                combined
+                if combined is not None
+                else np.zeros(m.shape, dtype=np.uint16)
+            )
+            canvas[m != 0] = self._class_id_for(split, cname)
+            combined = canvas
         return combined
 
     @staticmethod

@@ -302,6 +302,7 @@ class COCOParser(BaseParser):
         with open(annotation_path) as f:
             annotation_data = json.load(f)
 
+        coco_images = annotation_data["images"]
         coco_categories = annotation_data.get("categories", [])
         categories = {cat["id"]: cat["name"] for cat in coco_categories}
         skeletons = {
@@ -320,7 +321,8 @@ class COCOParser(BaseParser):
             self._records,
             image_dir,
             annotation_path,
-            annotation_data,
+            coco_images,
+            annotation_data.get("annotations", []),
             categories,
             skip_unlabeled=bool(skeletons),
         )
@@ -332,7 +334,8 @@ class COCOParser(BaseParser):
         self,
         image_dir: Path,
         annotation_path: Path,
-        annotation_data: dict[str, Any],
+        coco_images: list[dict[str, Any]],
+        coco_annotations: list[dict[str, Any]],
         categories: dict[int, str],
         *,
         skip_unlabeled: bool,
@@ -342,8 +345,7 @@ class COCOParser(BaseParser):
         An image without annotations yields one record with no
         annotation, unless ``skip_unlabeled`` is set.
         """
-        coco_annotations = annotation_data.get("annotations", [])
-        img_dict = {img["id"]: img for img in annotation_data["images"]}
+        img_dict = {img["id"]: img for img in coco_images}
         ann_dict: dict[int, list[dict[str, Any]]] = defaultdict(list)
         for ann in coco_annotations:
             ann_dict[ann["image_id"]].append(ann)

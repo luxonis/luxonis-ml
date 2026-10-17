@@ -550,8 +550,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     def _register_targets(self, targets: dict[str, str]) -> None:
         """Record the Albumentations target of each task."""
         for task, task_type in targets.items():
-            target_type = _resolve_target_type(task, task_type)
             target_name = self._task_to_target_name(task)
+            target_type = _resolve_target_type(task, task_type)
             # Some Albumentations transforms read data["bboxes"] directly.
             if target_type == "bboxes" and "bboxes" not in self._targets:
                 target_name = "bboxes"
