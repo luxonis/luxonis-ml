@@ -344,95 +344,113 @@ class LuxonisTracker:
             self._experiment = {}
 
         if self.is_tensorboard and "tensorboard" not in self._experiment:
-            from torch.utils.tensorboard.writer import SummaryWriter
-
-            log_dir = self.save_directory / "tensorboard_logs" / self.run_name
-            if self.is_sweep:
-                trial_id = 0
-                if log_dir.exists():
-                    trial_id = (
-                        max(
-                            (
-                                int(f.split("_")[-1])
-                                for f in os.listdir(log_dir)  # noqa: PTH208
-                                if f.startswith("trial_")
-                            ),
-                            default=0,
-                        )
-                        + 1
-                    )
-                log_dir = log_dir / f"trial_{trial_id}"
-
-            self._experiment["tensorboard"] = SummaryWriter(log_dir=log_dir)
+            self._experiment["tensorboard"] = self._tensorboard_writer()
 
         if self.is_wandb and "wandb" not in self._experiment:
-            import wandb
-
-            self._experiment["wandb"] = wandb
-
-            log_dir = self.save_directory / "wandb_logs"
-            log_dir.mkdir(parents=True, exist_ok=True)
-
-            self._experiment["wandb"].init(
-                project=self.project_name
-                if self.project_name is not None
-                else self.project_id,
-                entity=self.wandb_entity,
-                dir=log_dir,
-                name=self.run_name,
-            )
+            self._start_wandb_run()
 
         if self.is_mlflow and self.mlflow_initialized is False:
             try:
-                import mlflow
-
-                if find_spec("psutil") is not None:
-                    mlflow.enable_system_metrics_logging()
-                    if find_spec("pynvml") is None:
-                        logger.warning(
-                            "pynvml not found, GPU stats will not be monitored. "
-                            "To enable GPU monitoring, install it using 'pip install pynvml'"
-                        )
-                else:
-                    logger.warning(
-                        "`psutil` not found. To enable system metric logging, "
-                        "install it using 'pip install psutil'"
-                    )
-
-                self._experiment["mlflow"] = mlflow
-
-                self.artifacts_dir = self.run_directory / "artifacts"
-                self.artifacts_dir.mkdir(parents=True, exist_ok=True)
-
-                self._experiment["mlflow"].set_tracking_uri(
-                    self.mlflow_tracking_uri
-                )
-
-                if self.project_id is not None:
-                    self.project_name = None
-
-                experiment = self._experiment["mlflow"].set_experiment(
-                    experiment_name=self.project_name,
-                    experiment_id=self.project_id,
-                )
-                self.project_id = experiment.experiment_id
-
-                # If self.run_id is None, create a new run; otherwise, use the existing one
-                run = self._experiment["mlflow"].start_run(
-                    run_id=self.run_id,
-                    run_name=self.run_name,
-                    nested=self.is_sweep,
-                )
-                self.run_id = run.info.run_id
-                self.mlflow_initialized = (
-                    True  # Mark MLflow as initialized successfully
-                )
-
+                self._start_mlflow_run()
+                self.mlflow_initialized = True
             except Exception as e:
                 logger.warning(f"Failed to initialize MLflow: {e}")
                 self.mlflow_initialized = False  # Mark MLflow as unavailable
 
         return self._experiment
+
+    def _tensorboard_writer(self) -> Any:
+        """Create the TensorBoard writer; a sweep gets a new trial directory."""
+        from torch.utils.tensorboard.writer import SummaryWriter
+
+        log_dir = self.save_directory / "tensorboard_logs" / self.run_name
+        if self.is_sweep:
+            trial_id = 0
+            if log_dir.exists():
+                trial_id = (
+                    max(
+                        (
+                            int(f.split("_")[-1])
+                            for f in os.listdir(log_dir)  # noqa: PTH208
+                            if f.startswith("trial_")
+                        ),
+                        default=0,
+                    )
+                    + 1
+                )
+            log_dir = log_dir / f"trial_{trial_id}"
+        return SummaryWriter(log_dir=log_dir)
+
+    def _start_wandb_run(self) -> None:
+        """Start the Weights & Biases run.
+
+        The module is stored before the run starts, so a failed start is
+        not tried again on the next access.
+        """
+        import wandb
+
+        assert self._experiment is not None
+        self._experiment["wandb"] = wandb
+
+        log_dir = self.save_directory / "wandb_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        wandb.init(
+            project=self.project_name
+            if self.project_name is not None
+            else self.project_id,
+            entity=self.wandb_entity,
+            dir=log_dir,
+            name=self.run_name,
+        )
+
+    def _start_mlflow_run(self) -> None:
+        """Start the MLflow run.
+
+        System metrics are logged when ``psutil`` is installed. The module
+        is stored before the run starts, so a failed start still leaves
+        `log_to_mlflow` its fallback. The run continues an existing one
+        when `run_id` is set.
+        """
+        import mlflow
+
+        if find_spec("psutil") is not None:
+            mlflow.enable_system_metrics_logging()
+            if find_spec("pynvml") is None:
+                logger.warning(
+                    "pynvml not found, GPU stats will not be monitored. "
+                    "To enable GPU monitoring, install it using 'pip install pynvml'"
+                )
+        else:
+            logger.warning(
+                "`psutil` not found. To enable system metric logging, "
+                "install it using 'pip install psutil'"
+            )
+
+        assert self._experiment is not None
+        self._experiment["mlflow"] = mlflow
+
+        self.artifacts_dir = self.run_directory / "artifacts"
+        self.artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+
+        if self.project_id is not None:
+            self.project_name = None
+
+        experiment = mlflow.set_experiment(
+            experiment_name=self.project_name,
+            experiment_id=self.project_id,
+        )
+        self.project_id = experiment.experiment_id
+
+        # If self.run_id is None, create a new run; otherwise, use the existing one
+        run = mlflow.start_run(
+            run_id=self.run_id,
+            run_name=self.run_name,
+            nested=self.is_sweep,
+        )
+        self.run_id = run.info.run_id
 
     @rank_zero_only
     def log_hyperparams(

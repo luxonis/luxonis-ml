@@ -9,7 +9,7 @@ from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 
-from .base_parser import BaseParser, ParserOutput
+from .base_parser import BaseParser, ParserOutput, yolo_box_to_ldf
 
 
 class Format(str, Enum):
@@ -83,6 +83,54 @@ class YOLOv8Parser(BaseParser):
 
     This is one of the formats that Roboflow can generate.
     """
+
+    def _parse_annotation(
+        self,
+        elements: list[str],
+        img_path: Path,
+        class_names: dict[int, str],
+        kpt_shape: tuple[int, int] | None,
+    ) -> dict[str, Any]:
+        """Parse the elements of one label line.
+
+        Five elements are a box: ``class_id x_center y_center width
+        height``. More elements are the box and keypoints when the dataset
+        YAML has a ``kpt_shape``, else a polygon: ``class_id x1 y1 ...``.
+        """
+        if len(elements) < 5:
+            raise ValueError(
+                f"Malformed YOLO annotation line: {' '.join(elements)!r}"
+            )
+        if len(elements) == 5:
+            return {
+                "class": class_names[int(elements[0])],
+                "boundingbox": yolo_box_to_ldf(*elements[1:]),
+            }
+        if kpt_shape is not None:
+            keypoints = _keypoints_array(elements[5:], kpt_shape)
+            class_name = class_names[int(elements[0])]
+            triples = [(p[0], p[1], int(p[2])) for p in keypoints.tolist()]
+            return {
+                "class": class_name,
+                "boundingbox": yolo_box_to_ldf(*elements[1:5]),
+                "keypoints": {"keypoints": triples},
+            }
+
+        img = cv2.imread(str(img_path))
+        if img is None:
+            raise ValueError(f"Failed to read image: {img_path}")
+        height, width = img.shape[:2]
+        points = np.array([float(p) for p in elements[1:]]).reshape(-1, 2)
+        boundingbox = self.fit_boundingbox(points)
+        return {
+            "class": class_names[int(elements[0])],
+            "boundingbox": boundingbox,
+            "instance_segmentation": {
+                "height": height,
+                "width": width,
+                "points": [(p[0], p[1]) for p in points.tolist()],
+            },
+        }
 
     def fit_boundingbox(self, points: np.ndarray) -> dict[str, float]:
         """Fit a bounding box around a polygon mask."""
@@ -175,34 +223,34 @@ class YOLOv8Parser(BaseParser):
         if not yaml_file:
             return False
 
+        root, splits = cls._split_dirs(dataset_dir, dir_format)
+        if "train" not in splits or len(splits) < 2:
+            return False
+        return all(cls.validate_split(root / split) for split in splits)
+
+    @staticmethod
+    def _split_dirs(
+        dataset_dir: Path, dir_format: Format
+    ) -> tuple[Path, list[str]]:
+        """Return the directory that holds the splits, and their names.
+
+        Roboflow keeps ``train``, ``valid`` and ``test`` at the top.
+        Ultralytics keeps the splits under ``images`` and ``labels``;
+        without both folders there is no split.
+        """
         if dir_format is Format.ROBOFLOW:
-            splits = [
+            names = [
                 d.name
                 for d in dataset_dir.iterdir()
                 if d.is_dir() and d.name in ("train", "valid", "test")
             ]
-            if "train" not in splits or len(splits) < 2:
-                return False
-            return all(cls.validate_split(dataset_dir / s) for s in splits)
+            return dataset_dir, names
 
-        if dir_format is Format.ULTRALYTICS:
-            non_split_folders = ["images", "labels"]
-            folders = [d.name for d in dataset_dir.iterdir() if d.is_dir()]
-            if not all(f in folders for f in non_split_folders):
-                return False
-            subfolders = [
-                d.name
-                for d in (dataset_dir / "images").iterdir()
-                if d.is_dir()
-            ]
-            if "train" not in subfolders or len(subfolders) < 2:
-                return False
-            return all(
-                cls.validate_split(dataset_dir / "images" / split)
-                for split in subfolders
-            )
-
-        return False
+        folders = [d.name for d in dataset_dir.iterdir() if d.is_dir()]
+        images_dir = dataset_dir / "images"
+        if "images" not in folders or "labels" not in folders:
+            return images_dir, []
+        return images_dir, [d.name for d in images_dir.iterdir() if d.is_dir()]
 
     @classmethod
     @override
@@ -337,129 +385,49 @@ class YOLOv8Parser(BaseParser):
             """
             class_names = classes_data["names"]
 
+        kpt_shape = classes_data.get("kpt_shape")
+
         def generator() -> DatasetIterator:
             for img_path in self._list_images(image_dir):
                 ann_path = annotation_dir / img_path.with_suffix(".txt").name
-
-                annotation_data = []
-                # First check if file exists (would crash otherwise)
-                if ann_path.exists():
-                    with open(ann_path) as f:
-                        annotation_data = f.readlines()
-
-                # pre-filter empty lines
-                annotation_data = [
-                    line for line in annotation_data if line.strip()
-                ]
-
-                # Handle missing annotations
-                if not annotation_data:
+                lines = _annotation_lines(ann_path)
+                if not lines:
                     yield {"file": str(img_path), "annotation": None}
                     continue
 
-                for instance_id, ann_line in enumerate(annotation_data):
-                    annotation_elements = ann_line.split()
-                    # object detection format: class_id x_center y_center width height
-                    # segmentation format: class_id x1 y1 x2 y2 x3 y3 ... xn yn (min 3 points)
-                    # keypoints format: class_id x_center y_center width height kp1_x kp1_y kp2_x kp2_y ... kpn_x kpn_y (it can also have 3rd dimension for visibility)
-
-                    if len(annotation_elements) == 5:
-                        task_type = "detection"
-                    elif len(annotation_elements) > 5:
-                        if classes_data.get("kpt_shape", None) is not None:
-                            task_type = "keypoints"
-                        else:
-                            task_type = "segmentation"
-
-                    if task_type == "detection":
-                        class_id, x_center, y_center, width, height = (
-                            annotation_elements
-                        )
-                        class_name = class_names[int(class_id)]
-
-                        yield {
-                            "file": str(img_path),
-                            "annotation": {
-                                "class": class_name,
-                                "instance_id": instance_id,
-                                "boundingbox": {
-                                    "x": float(x_center) - float(width) / 2,
-                                    "y": float(y_center) - float(height) / 2,
-                                    "w": float(width),
-                                    "h": float(height),
-                                },
-                            },
-                        }
-
-                    elif task_type == "segmentation":
-                        img = cv2.imread(str(img_path))
-                        if img is None:
-                            raise ValueError(
-                                f"Failed to read image: {img_path}"
-                            )
-                        height, width = img.shape[:2]
-
-                        class_id, *points = annotation_elements
-                        points = [float(p) for p in points]
-                        points = np.array(points).reshape(-1, 2)
-                        boundingbox = self.fit_boundingbox(points)
-                        points = [(p[0], p[1]) for p in points.tolist()]
-                        class_name = class_names[int(class_id)]
-
-                        yield {
-                            "file": str(img_path),
-                            "annotation": {
-                                "class": class_name,
-                                "instance_id": instance_id,
-                                "boundingbox": boundingbox,
-                                "instance_segmentation": {
-                                    "height": height,
-                                    "width": width,
-                                    "points": points,
-                                },
-                            },
-                        }
-
-                    elif task_type == "keypoints":
-                        kpt_shape = classes_data.get("kpt_shape")
-                        n_kpts, kpt_dim = kpt_shape
-                        class_id, *points = annotation_elements
-                        x_center, y_center, width, height, *keypoints = points
-                        keypoints = [float(p) for p in keypoints]
-                        keypoints = np.array(keypoints).reshape(
-                            n_kpts, kpt_dim
-                        )
-                        class_name = class_names[int(class_id)]
-
-                        if kpt_dim == 2:
-                            # add full visibility as last dimension
-                            keypoints = np.concatenate(
-                                [keypoints, np.ones((n_kpts, 1)) * 2], axis=1
-                            )
-
-                        keypoints = [
-                            (p[0], p[1], int(p[2])) for p in keypoints.tolist()
-                        ]
-
-                        yield {
-                            "file": str(img_path),
-                            "annotation": {
-                                "class": class_name,
-                                "instance_id": instance_id,
-                                "boundingbox": {
-                                    "x": float(x_center) - float(width) / 2,
-                                    "y": float(y_center) - float(height) / 2,
-                                    "w": float(width),
-                                    "h": float(height),
-                                },
-                                "keypoints": {
-                                    "keypoints": keypoints,
-                                },
-                            },
-                        }
-
-                    instance_id += 1
+                for instance_id, line in enumerate(lines):
+                    annotation = self._parse_annotation(
+                        line.split(), img_path, class_names, kpt_shape
+                    )
+                    annotation["instance_id"] = instance_id
+                    yield {"file": str(img_path), "annotation": annotation}
 
         added_images = self._get_added_images(generator())
 
         return generator(), {}, added_images
+
+
+def _annotation_lines(ann_path: Path) -> list[str]:
+    """Return the non-blank lines of a label file; none for a missing file."""
+    # First check if file exists (would crash otherwise)
+    if not ann_path.exists():
+        return []
+    with open(ann_path) as f:
+        return [line for line in f if line.strip()]
+
+
+def _keypoints_array(
+    elements: list[str], kpt_shape: tuple[int, int]
+) -> np.ndarray:
+    """Reshape flat keypoint elements into ``(x, y, visibility)`` rows.
+
+    Two-dimensional keypoints get full visibility.
+    """
+    n_kpts, kpt_dim = kpt_shape
+    keypoints = np.array([float(p) for p in elements]).reshape(n_kpts, kpt_dim)
+    if kpt_dim == 2:
+        # add full visibility as last dimension
+        keypoints = np.concatenate(
+            [keypoints, np.ones((n_kpts, 1)) * 2], axis=1
+        )
+    return keypoints

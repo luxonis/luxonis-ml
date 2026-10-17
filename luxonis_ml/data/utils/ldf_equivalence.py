@@ -314,12 +314,7 @@ class LDFEquivalence:
             for row in entry.iter_rows(named=True):
                 if row["task_type"] == "keypoints":
                     d = json.loads(row["annotation"])
-                    for kp in d["keypoints"]:
-                        rounded_kp = tuple(
-                            round(v, 3) if i < 2 else v
-                            for i, v in enumerate(kp)
-                        )
-                        keypoints.append(rounded_kp)
+                    keypoints.extend(_rounded_keypoints(d["keypoints"]))
             if keypoints:
                 out.setdefault(hashed_key, Counter()).update(keypoints)
         return out
@@ -649,3 +644,11 @@ class LDFEquivalence:
             processed_df=processed_df,
             grouped_image_sources=grouped_image_sources,
         )
+
+
+def _rounded_keypoints(keypoints: list[list[float]]) -> list[tuple]:
+    """Round the coordinates of each keypoint to 3 decimals, visibility kept."""
+    return [
+        tuple(round(v, 3) if i < 2 else v for i, v in enumerate(kp))
+        for kp in keypoints
+    ]

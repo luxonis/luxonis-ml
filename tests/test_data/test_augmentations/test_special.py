@@ -1,5 +1,3 @@
-from typing import Any
-
 import albumentations as A
 import numpy as np
 import pytest
@@ -8,15 +6,8 @@ from luxonis_ml.data import AlbumentationsEngine
 from luxonis_ml.data.augmentations.custom import LetterboxResize
 
 
-def _get_transform_names(wrapped_transform: Any) -> list[str]:
-    return next(
-        (
-            [t.__class__.__name__ for t in cell.cell_contents.transforms]
-            for cell in wrapped_transform.__closure__  # type: ignore[attr-defined]
-            if hasattr(cell.cell_contents, "transforms")
-        ),
-        [],
-    )
+def _get_transform_names(compose: A.BaseCompose) -> list[str]:
+    return [t.__class__.__name__ for t in compose.transforms]
 
 
 def test_metadata_no_boxes():
@@ -89,7 +80,7 @@ def test_skip_augmentations():
     )
 
     spatial_transform_names = _get_transform_names(
-        augmentations._spatial_transform
+        augmentations._spatial_compose
     )
 
     batched_transform_names = [
@@ -133,8 +124,8 @@ def test_apply_on_stages_filters_eval_pipeline():
         pipeline_stage="val",
     )
 
-    assert _get_transform_names(augmentations._spatial_transform) == []
-    assert _get_transform_names(augmentations._pixel_transform) == [
+    assert _get_transform_names(augmentations._spatial_compose) == []
+    assert _get_transform_names(augmentations._pixel_compose) == [
         "Defocus",
         "Normalize",
     ]
@@ -160,7 +151,7 @@ def test_is_validation_pipeline_backwards_compatibility_uses_eval_stage():
             is_validation_pipeline=True,
         )
 
-    assert _get_transform_names(augmentations._pixel_transform) == ["Defocus"]
+    assert _get_transform_names(augmentations._pixel_compose) == ["Defocus"]
 
 
 def test_use_for_resizing_wraps_probabilistic_resize_in_oneof():
@@ -185,14 +176,7 @@ def test_use_for_resizing_wraps_probabilistic_resize_in_oneof():
         keep_aspect_ratio=False,
     )
 
-    resize_ops = next(
-        (
-            cell.cell_contents.transforms
-            for cell in augmentations._resize_transform.__closure__  # type: ignore
-            if hasattr(cell.cell_contents, "transforms")
-        ),
-        [],
-    )
+    resize_ops = augmentations._resize_compose.transforms
 
     resize_op = resize_ops[0]
     assert isinstance(resize_op, A.OneOf)
@@ -229,14 +213,7 @@ def test_use_for_resizing_uses_letterbox_fallback_when_keeping_aspect_ratio():
         keep_aspect_ratio=True,
     )
 
-    resize_ops = next(
-        (
-            cell.cell_contents.transforms
-            for cell in augmentations._resize_transform.__closure__  # type: ignore
-            if hasattr(cell.cell_contents, "transforms")
-        ),
-        [],
-    )
+    resize_ops = augmentations._resize_compose.transforms
 
     resize_op = resize_ops[0]
     assert isinstance(resize_op, A.OneOf)

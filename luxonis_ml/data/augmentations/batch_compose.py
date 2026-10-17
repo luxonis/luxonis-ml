@@ -116,41 +116,18 @@ class BatchCompose(A.Compose):
             for i, batch in enumerate(
                 yield_batches(data_batch, transform.batch_size)
             ):
-                # Captured before padding so that a transform which does not
-                # fire returns the first sample exactly as it came in.
-                first_sample = {key: value[0] for key, value in batch.items()}
-                self._pad_absent_instances(batch, keypoints_per_instance)
-
-                data = transform(**batch)  # type: ignore
                 batch_indices = input_indices[
                     i * transform.batch_size : (i + 1) * transform.batch_size
                 ]
-
-                # A transform that applied collapsed the batched lists
-                # `yield_batches` produced into single values. Empty
-                # ``params`` does not tell the two apart, as a transform can
-                # apply while sampling no parameters at all.
-                if isinstance(next(iter(data.values())), list):
-                    data = first_sample
-                    new_indices.append(batch_indices[0])
-                else:
-                    merged_indices = [
-                        index for indices in batch_indices for index in indices
-                    ]
-                    invocations.append(
-                        (id(transform), merged_indices, dict(transform.params))
-                    )
-                    new_indices.append(merged_indices)
-
-                bbox_counts = self._reindex_bboxes(data)
-                data = self.check_data_post_transform(data)
-                self._compact_bbox_associated_labels(
-                    data, bbox_counts, keypoints_per_instance
+                data, indices, applied = self._apply_once(
+                    transform, batch, batch_indices, keypoints_per_instance
                 )
-                # Filtering left gaps in the index column; close them so the
-                # next transform starts from contiguous indices again.
-                self._reindex_bboxes(data)
+                if applied:
+                    invocations.append(
+                        (id(transform), indices, dict(transform.params))
+                    )
                 new_batch.append(data)
+                new_indices.append(indices)
             data_batch = new_batch
             input_indices = new_indices
 
@@ -175,6 +152,47 @@ class BatchCompose(A.Compose):
         data["_original_image_key"] = original_image_key
 
         return data
+
+    def _apply_once(
+        self,
+        transform: BatchTransform,
+        batch: dict[str, list[np.ndarray]],
+        batch_indices: list[list[int]],
+        keypoints_per_instance: dict[str, int],
+    ) -> tuple[dict[str, np.ndarray], list[int], bool]:
+        """Apply a batch transform to one sub-batch.
+
+        Returns the output sample, the inputs it is made of, and whether
+        the transform applied. A transform that did not apply passes its
+        first input through unchanged.
+        """
+        # Captured before padding so that a transform which does not
+        # fire returns the first sample exactly as it came in.
+        first_sample = {key: value[0] for key, value in batch.items()}
+        self._pad_absent_instances(batch, keypoints_per_instance)
+
+        data = transform(**batch)  # type: ignore
+
+        # A transform that applied collapsed the batched lists
+        # `yield_batches` produced into single values. Empty
+        # ``params`` does not tell the two apart, as a transform can
+        # apply while sampling no parameters at all.
+        applied = not isinstance(next(iter(data.values())), list)
+        if applied:
+            indices = [index for group in batch_indices for index in group]
+        else:
+            data = first_sample
+            indices = batch_indices[0]
+
+        bbox_counts = self._reindex_bboxes(data)
+        data = self.check_data_post_transform(data)
+        self._compact_bbox_associated_labels(
+            data, bbox_counts, keypoints_per_instance
+        )
+        # Filtering left gaps in the index column; close them so the
+        # next transform starts from contiguous indices again.
+        self._reindex_bboxes(data)
+        return data, indices, applied
 
     def _locate_index_column(self) -> int:
         """Position of the instance-index column, counted from the right.
@@ -241,17 +259,37 @@ class BatchCompose(A.Compose):
         for i, value in enumerate(values):
             if value.size or not bbox_counts[i]:
                 continue
+            image_shape = image_shapes[i] if i < len(image_shapes) else None
+            shape = BatchCompose._instances_shape(
+                target_type,
+                bbox_counts[i],
+                template.shape[1:],
+                image_shape,
+                n_keypoints,
+            )
+            if shape is not None:
+                values[i] = np.zeros(shape, dtype=template.dtype)
 
-            if target_type == "instance_mask":
-                if i >= len(image_shapes):
-                    continue
-                shape = (*image_shapes[i], bbox_counts[i])
-            elif target_type == "keypoints":
-                shape = (bbox_counts[i] * n_keypoints, *template.shape[1:])
-            else:
-                shape = (bbox_counts[i], *template.shape[1:])
+    @staticmethod
+    def _instances_shape(
+        target_type: str,
+        count: int,
+        trailing: tuple[int, ...],
+        image_shape: tuple[int, ...] | None,
+        n_keypoints: int,
+    ) -> tuple[int, ...] | None:
+        """Return the shape of ``count`` zeroed instances of a target.
 
-            values[i] = np.zeros(shape, dtype=template.dtype)
+        Instance masks are ``(H, W, N)``, so they need the image shape;
+        without one there is nothing to fill.
+        """
+        if target_type == "instance_mask":
+            if image_shape is None:
+                return None
+            return (*image_shape, count)
+        if target_type == "keypoints":
+            return (count * n_keypoints, *trailing)
+        return (count, *trailing)
 
     def _reindex_bboxes(self, data: dict[str, np.ndarray]) -> dict[str, int]:
         """Give each bbox field contiguous indices and return its size.
@@ -315,33 +353,56 @@ class BatchCompose(A.Compose):
                 value = data.get(field_name)
                 if value is None:
                     continue
+                data[field_name] = self._compact_field(
+                    field_name,
+                    value,
+                    target_type,
+                    keypoints_per_instance.get(field_name, 0),
+                    bbox_field=bbox_field,
+                    bbox_count=bbox_count,
+                    indices=indices,
+                    unfiltered=unfiltered,
+                )
 
-                if bbox_count == 0:
-                    if target_type == "instance_mask" and value.ndim > 1:
-                        data[field_name] = value[..., :0]
-                    else:
-                        data[field_name] = value[:0]
-                    continue
+    def _compact_field(
+        self,
+        field_name: str,
+        value: np.ndarray,
+        target_type: str,
+        n_keypoints: int,
+        *,
+        bbox_field: str,
+        bbox_count: int,
+        indices: np.ndarray,
+        unfiltered: bool,
+    ) -> np.ndarray:
+        """Keep the instances of one field whose boxes survived.
 
-                if value.size == 0:
-                    continue
+        A field that cannot be matched to the boxes comes back as it is.
+        """
+        if bbox_count == 0:
+            if target_type == "instance_mask" and value.ndim > 1:
+                return value[..., :0]
+            return value[:0]
 
-                # Keypoint rows can only be counted by instance once it is
-                # known how many keypoints each instance carries.
-                n_keypoints = keypoints_per_instance.get(field_name, 0)
-                countable = target_type != "keypoints" or n_keypoints > 0
+        if value.size == 0:
+            return value
 
-                if not countable or (
-                    instance_count(value, target_type, n_keypoints)
-                    != bbox_count
-                ):
-                    self._warn_unmatched(
-                        field_name, value, bbox_count, bbox_field
-                    )
-                elif not unfiltered:
-                    data[field_name] = self._select_instances(
-                        value, target_type, indices, bbox_count, n_keypoints
-                    )
+        # Keypoint rows can only be counted by instance once it is
+        # known how many keypoints each instance carries.
+        countable = target_type != "keypoints" or n_keypoints > 0
+        if (
+            not countable
+            or instance_count(value, target_type, n_keypoints) != bbox_count
+        ):
+            self._warn_unmatched(field_name, value, bbox_count, bbox_field)
+            return value
+
+        if unfiltered:
+            return value
+        return self._select_instances(
+            value, target_type, indices, bbox_count, n_keypoints
+        )
 
     @staticmethod
     def _select_instances(
