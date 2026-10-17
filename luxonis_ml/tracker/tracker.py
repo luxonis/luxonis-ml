@@ -347,7 +347,7 @@ class LuxonisTracker:
             self._experiment["tensorboard"] = self._tensorboard_writer()
 
         if self.is_wandb and "wandb" not in self._experiment:
-            self._experiment["wandb"] = self._init_wandb()
+            self._start_wandb_run()
 
         if self.is_mlflow and self.mlflow_initialized is False:
             try:
@@ -381,9 +381,16 @@ class LuxonisTracker:
             log_dir = log_dir / f"trial_{trial_id}"
         return SummaryWriter(log_dir=log_dir)
 
-    def _init_wandb(self) -> Any:
-        """Start the Weights & Biases run and return the module."""
+    def _start_wandb_run(self) -> None:
+        """Start the Weights & Biases run.
+
+        The module is stored before the run starts, so a failed start is
+        not tried again on the next access.
+        """
         import wandb
+
+        assert self._experiment is not None
+        self._experiment["wandb"] = wandb
 
         log_dir = self.save_directory / "wandb_logs"
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -396,20 +403,16 @@ class LuxonisTracker:
             dir=log_dir,
             name=self.run_name,
         )
-        return wandb
 
     def _start_mlflow_run(self) -> None:
         """Start the MLflow run.
 
-        The module is stored first, so that a failed start still leaves
-        `log_to_mlflow` its fallback. System metrics are logged when
-        ``psutil`` is installed. The run continues an existing one when
-        `run_id` is set.
+        System metrics are logged when ``psutil`` is installed. The module
+        is stored before the run starts, so a failed start still leaves
+        `log_to_mlflow` its fallback. The run continues an existing one
+        when `run_id` is set.
         """
         import mlflow
-
-        assert self._experiment is not None
-        self._experiment["mlflow"] = mlflow
 
         if find_spec("psutil") is not None:
             mlflow.enable_system_metrics_logging()
@@ -423,6 +426,9 @@ class LuxonisTracker:
                 "`psutil` not found. To enable system metric logging, "
                 "install it using 'pip install psutil'"
             )
+
+        assert self._experiment is not None
+        self._experiment["mlflow"] = mlflow
 
         self.artifacts_dir = self.run_directory / "artifacts"
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)

@@ -7,8 +7,8 @@ import numpy as np
 from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
     check_group_file_correspondence,
-    class_id,
     exporter_specific_annotation_warning,
+    register_class,
     split_of_group,
 )
 from luxonis_ml.enums import DatasetType
@@ -105,14 +105,15 @@ class YoloV8KeypointsExporter(BaseExporter):
         """Return the YOLO pose line of a keypoint row, or ``None``.
 
         The box of the line encloses the visible keypoints. The class is
-        registered before the keypoints are checked, as before.
+        registered before the keypoints are checked, so a class whose
+        keypoints are all rejected still gets an ID.
         """
         if row["annotation"] is None or row["task_type"] != "keypoints":
             return None
         cname = row["class_name"]
         if not cname:
             return None
-        cid = class_id(cname, self.class_to_id, self.class_names)
+        cid = register_class(cname, self.class_to_id, self.class_names)
 
         keypoints = json.loads(row["annotation"]).get("keypoints", None)
         if not keypoints:

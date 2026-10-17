@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 from typing import Any, cast
 
@@ -8,6 +7,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
     check_group_file_correspondence,
     exporter_specific_annotation_warning,
     split_of_group,
+    yolo_bbox_label,
 )
 from luxonis_ml.enums import DatasetType
 
@@ -98,31 +98,12 @@ class DarknetExporter(BaseExporter):
         label_lines: list[str] = []
 
         for row in group_df.iter_rows(named=True):
-            ttype = row["task_type"]
-            ann_str = row["annotation"]
-            cname = row["class_name"]
-
-            if ttype != "boundingbox" or ann_str is None:
+            label = yolo_bbox_label(row, self.class_to_id, self.class_names)
+            if label is None:
                 continue
-
-            # Register class if new
-            if cname and cname not in self.class_to_id:
-                self.class_to_id[cname] = len(self.class_to_id)
-                self.class_names.append(cname)
-
-            if not cname or cname not in self.class_to_id:
-                continue
-
-            data = json.loads(ann_str)
-            x_tl = float(data.get("x", 0.0))
-            y_tl = float(data.get("y", 0.0))
-            w = float(data.get("w", 0.0))
-            h = float(data.get("h", 0.0))
-
+            cid, x_tl, y_tl, w, h = label
             cx = x_tl + w / 2.0
             cy = y_tl + h / 2.0
-
-            cid = self.class_to_id[cname]
             label_lines.append(f"{cid} {cx:.12f} {cy:.12f} {w:.12f} {h:.12f}")
 
         return label_lines

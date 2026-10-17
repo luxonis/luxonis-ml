@@ -332,7 +332,7 @@ def whole_image_classes(df: pl.DataFrame) -> list[str]:
     return [str(cname) for cname in classes if cname]
 
 
-def class_id(
+def register_class(
     cname: str, class_to_id: dict[str, int], class_names: list[str]
 ) -> int:
     """Return the ID of a class; a new class gets the next free ID."""
@@ -348,14 +348,14 @@ def yolo_bbox_label(
     """Return the YOLO ``(class_id, x, y, w, h)`` of a bounding-box row.
 
     A row of another task type, without an annotation or without a
-    class gives ``None``. A new class is registered through `class_id`.
+    class gives ``None``. A new class is registered through `register_class`.
     """
     if row["annotation"] is None or row["task_type"] != "boundingbox":
         return None
     cname = row["class_name"]
     if not cname:
         return None
-    cid = class_id(cname, class_to_id, class_names)
+    cid = register_class(cname, class_to_id, class_names)
     data = json.loads(row["annotation"])
     return (
         cid,

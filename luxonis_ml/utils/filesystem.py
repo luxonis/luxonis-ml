@@ -959,20 +959,22 @@ class LuxonisFileSystem:
         copy_contents: bool,
     ) -> None:
         """Upload a directory to the MLflow run in one call."""
-        artifact_path = self._get_mlflow_upload_dir(
-            local_dir, remote_dir, copy_contents
-        )
         if not self._is_mlflow_active_run:
             self._get_mlflow_client().log_artifacts(
                 run_id=self._require_mlflow_run_id(),
                 local_dir=str(local_dir),
-                artifact_path=artifact_path,
+                artifact_path=self._get_mlflow_upload_dir(
+                    local_dir, remote_dir, copy_contents
+                ),
             )
             return
         if mlflow_instance is None:
             raise ValueError("No active mlflow_instance provided.")
         mlflow_instance.log_artifacts(
-            str(local_dir), artifact_path=artifact_path
+            str(local_dir),
+            artifact_path=self._get_mlflow_upload_dir(
+                local_dir, remote_dir, copy_contents
+            ),
         )
 
     def _put_files(

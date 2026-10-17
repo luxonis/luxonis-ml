@@ -6,8 +6,8 @@ from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
     annotation_to_polygons,
     check_group_file_correspondence,
-    class_id,
     exporter_specific_annotation_warning,
+    register_class,
     split_of_group,
 )
 from luxonis_ml.enums import DatasetType
@@ -109,7 +109,7 @@ class YoloV8InstanceSegmentationExporter(BaseExporter):
         if not cname:
             return []
 
-        cid = class_id(cname, self.class_to_id, self.class_names)
+        cid = register_class(cname, self.class_to_id, self.class_names)
         polygons = annotation_to_polygons(
             json.loads(row["annotation"]), file_path
         )

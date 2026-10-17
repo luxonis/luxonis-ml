@@ -10,6 +10,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
     annotation_to_polygons,
     check_group_file_correspondence,
     exporter_specific_annotation_warning,
+    register_class,
     split_of_group,
 )
 from luxonis_ml.enums import DatasetType
@@ -137,13 +138,11 @@ class UltralyticsNDJSONExporter(BaseExporter):
             ):
                 continue
 
-            if class_name not in self.class_to_id:
-                self.class_to_id[class_name] = len(self.class_to_id)
-                self.class_names.append(class_name)
-
+            cid = register_class(
+                class_name, self.class_to_id, self.class_names
+            )
             instance = instances.setdefault(
-                (class_name, int(instance_id)),
-                {"class_id": self.class_to_id[class_name]},
+                (class_name, int(instance_id)), {"class_id": cid}
             )
             instance[task_type] = json.loads(annotation)
 

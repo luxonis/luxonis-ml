@@ -147,9 +147,10 @@ def _box_annotation(
 ) -> dict[str, Any]:
     """Convert one ``x1,y1,x2,y2,class_id`` pixel box to a normalized LDF box."""
     curr_ann_data = ann_data.split(",")
+    class_name = class_names[int(curr_ann_data[4])]
     x1, y1, x2, y2 = (float(i) for i in curr_ann_data[:4])
     return {
-        "class": class_names[int(curr_ann_data[4])],
+        "class": class_name,
         "boundingbox": {
             "x": x1 / width,
             "y": y1 / height,

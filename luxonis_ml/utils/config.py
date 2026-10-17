@@ -196,9 +196,13 @@ def _merge_override(data: dict | list, dot_name: str, value: Any) -> None:
 
     key_tail = ".".join(tail)
     if key.isdecimal() or key == "+":
+        if not isinstance(data, list):
+            raise ValueError("int keys are not allowed for non-list values")
         _merge_into_list(data, key, key_tail, value)
-    else:
+    elif isinstance(data, dict):
         _merge_into_dict(data, key, key_tail, value)
+    else:
+        raise ValueError("Only dict values can be accessed with string keys")
 
 
 def _set_leaf(data: dict | list, key: str, value: Any) -> None:
@@ -219,12 +223,8 @@ def _set_leaf(data: dict | list, key: str, value: Any) -> None:
         data[key] = value
 
 
-def _merge_into_list(
-    data: dict | list, key: str, key_tail: str, value: Any
-) -> None:
+def _merge_into_list(data: list, key: str, key_tail: str, value: Any) -> None:
     """Descend into the list item at ``key``; a new item copies the first."""
-    if not isinstance(data, list):
-        raise TypeError("int keys are not allowed for non-list values")
     if key == "+":
         data.append(type(data[0])())
         _merge_override(data[-1], key_tail, value)
@@ -241,12 +241,8 @@ def _merge_into_list(
         _merge_into_new(data, 0, key_tail, value)
 
 
-def _merge_into_dict(
-    data: dict | list, key: str, key_tail: str, value: Any
-) -> None:
+def _merge_into_dict(data: dict, key: str, key_tail: str, value: Any) -> None:
     """Descend into the dict entry at ``key``, creating it if missing."""
-    if not isinstance(data, dict):
-        raise TypeError("Only dict values can be accessed with string keys")
     if key in data:
         _merge_override(data[key], key_tail, value)
         return

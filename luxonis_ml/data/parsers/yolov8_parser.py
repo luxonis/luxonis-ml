@@ -101,19 +101,17 @@ class YOLOv8Parser(BaseParser):
             raise ValueError(
                 f"Malformed YOLO annotation line: {' '.join(elements)!r}"
             )
-        class_name = class_names[int(elements[0])]
         if len(elements) == 5:
             return {
-                "class": class_name,
+                "class": class_names[int(elements[0])],
                 "boundingbox": yolo_box_to_ldf(*elements[1:]),
             }
         if kpt_shape is not None:
+            keypoints = _keypoints(elements[5:], kpt_shape)
             return {
-                "class": class_name,
+                "class": class_names[int(elements[0])],
                 "boundingbox": yolo_box_to_ldf(*elements[1:5]),
-                "keypoints": {
-                    "keypoints": _keypoints(elements[5:], kpt_shape)
-                },
+                "keypoints": {"keypoints": keypoints},
             }
 
         img = cv2.imread(str(img_path))
@@ -121,9 +119,10 @@ class YOLOv8Parser(BaseParser):
             raise ValueError(f"Failed to read image: {img_path}")
         height, width = img.shape[:2]
         points = np.array([float(p) for p in elements[1:]]).reshape(-1, 2)
+        boundingbox = self.fit_boundingbox(points)
         return {
-            "class": class_name,
-            "boundingbox": self.fit_boundingbox(points),
+            "class": class_names[int(elements[0])],
+            "boundingbox": boundingbox,
             "instance_segmentation": {
                 "height": height,
                 "width": width,

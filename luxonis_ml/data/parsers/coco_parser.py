@@ -302,15 +302,17 @@ class COCOParser(BaseParser):
         with open(annotation_path) as f:
             annotation_data = json.load(f)
 
+        coco_categories = annotation_data.get("categories", [])
+        categories = {cat["id"]: cat["name"] for cat in coco_categories}
         skeletons = {
-            cat["name"]: {
+            categories[cat["id"]]: {
                 "labels": cat["keypoints"],
                 "edges": [
                     tuple(edge)
                     for edge in (np.array(cat["skeleton"]) - 1).tolist()
                 ],
             }
-            for cat in annotation_data.get("categories", [])
+            for cat in coco_categories
             if "keypoints" in cat and "skeleton" in cat
         }
 
@@ -319,6 +321,7 @@ class COCOParser(BaseParser):
             image_dir,
             annotation_path,
             annotation_data,
+            categories,
             skip_unlabeled=bool(skeletons),
         )
         added_images = self._get_added_images(records())
@@ -330,6 +333,7 @@ class COCOParser(BaseParser):
         image_dir: Path,
         annotation_path: Path,
         annotation_data: dict[str, Any],
+        categories: dict[int, str],
         *,
         skip_unlabeled: bool,
     ) -> DatasetIterator:
@@ -339,10 +343,6 @@ class COCOParser(BaseParser):
         annotation, unless ``skip_unlabeled`` is set.
         """
         coco_annotations = annotation_data.get("annotations", [])
-        categories = {
-            cat["id"]: cat["name"]
-            for cat in annotation_data.get("categories", [])
-        }
         img_dict = {img["id"]: img for img in annotation_data["images"]}
         ann_dict: dict[int, list[dict[str, Any]]] = defaultdict(list)
         for ann in coco_annotations:
@@ -362,13 +362,14 @@ class COCOParser(BaseParser):
                 continue
 
             img_anns = ann_dict.get(img_id, [])
+            img_size = (img["height"], img["width"])
             if not img_anns and not skip_unlabeled:
                 yield {"file": file, "annotation": None}
 
             for ann in img_anns:
                 annotation = self._annotation(
                     ann,
-                    img,
+                    img_size,
                     categories,
                     instance_ids,
                     source=annotation_path,
@@ -380,7 +381,7 @@ class COCOParser(BaseParser):
     def _annotation(
         self,
         ann: dict[str, Any],
-        img: dict[str, Any],
+        img_size: tuple[int, int],
         categories: dict[int, str],
         instance_ids: "_InstanceIds",
         *,
@@ -399,8 +400,7 @@ class COCOParser(BaseParser):
             return None
 
         class_name = categories[ann["category_id"]]
-        img_h = img["height"]
-        img_w = img["width"]
+        img_h, img_w = img_size
         segmentation = _coco_segmentation(
             ann.get("segmentation", []), img_h, img_w
         )

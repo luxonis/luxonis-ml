@@ -107,23 +107,18 @@ def delete(
         )
         raise SystemExit(2)
 
-    if bucket_storage is BucketStorage.LOCAL and remote:
-        print(
-            "[yellow]Warning: You specified remote deletion, "
-            "but the bucket is local. "
-            "Remote deletion will not be performed.[/yellow]"
-        )
-        remote = False
-
-    storage = (
-        "local and remote"
-        if local and remote
-        else "local"
-        if local
-        else "remote"
-    )
     for name in names:
         check_exists(name, bucket_storage)
+
+        if bucket_storage is BucketStorage.LOCAL and remote:
+            print(
+                "[yellow]Warning: You specified remote deletion, "
+                "but the bucket is local. "
+                "Remote deletion will not be performed.[/yellow]"
+            )
+            remote = False
+
+        storage = _storage_label(local=local, remote=remote)
         if not yes and not Confirm.ask(
             f"Delete dataset '{name}' with specified bucket "
             f"'{bucket_storage}' from {storage} storage?"
@@ -140,6 +135,13 @@ def delete(
             delete_remote=remote,
         )
         print(f"Dataset '{name}' deleted from {storage} storage.")
+
+
+def _storage_label(*, local: bool, remote: bool) -> str:
+    """Name the storage that a deletion targets."""
+    if local and remote:
+        return "local and remote"
+    return "local" if local else "remote"
 
 
 @app.command
@@ -382,7 +384,7 @@ class _SampleViewer:
             footer = list(tracked_augmentations or {})
         for source_name, image in data.images.items():
             self._show_source(
-                source_name, self._scale(image), data.labels, footer
+                source_name, self._display_image(image), data.labels, footer
             )
 
     def _print_metadata(
@@ -397,7 +399,7 @@ class _SampleViewer:
             }
         print("Sample metadata:", metadata)
 
-    def _scale(self, image: np.ndarray) -> np.ndarray:
+    def _display_image(self, image: np.ndarray) -> np.ndarray:
         """Convert an image to BGR and scale it by the size multiplier."""
         image = cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_RGB2BGR)
         h, w = image.shape[:2]

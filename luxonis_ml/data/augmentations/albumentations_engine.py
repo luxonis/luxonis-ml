@@ -1261,7 +1261,7 @@ _TARGET_WARNINGS: Final[dict[str, str]] = {
 
 def _resolve_target_type(task: str, task_type: str) -> TargetType:
     """Map the task type of a task to its Albumentations target type."""
-    if task_is_metadata(task):
+    if task_type not in {"array", "classification"} and task_is_metadata(task):
         target_type: TargetType = "metadata"
     elif task_type in _TARGET_TYPES:
         target_type = _TARGET_TYPES[task_type]

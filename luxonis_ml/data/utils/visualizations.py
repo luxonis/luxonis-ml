@@ -673,13 +673,14 @@ class _LabelDrawer:
         """Return the image of a task, or a fresh copy of the source."""
         return self.images.get(self._image_name(task_name), self.image.copy())
 
-    def _box_class_color(self, task_name: str, index: int) -> RGB | None:
+    @staticmethod
+    def _box_class_color(
+        task_classes: bidict[str, int], box_classes: list[int], index: int
+    ) -> RGB | None:
         """Return the class color of the ``index``-th drawn box of a task."""
-        box_classes = self.bbox_classes[task_name]
         if index >= len(box_classes):
             return None
-        class_name = self.mappings[task_name].inverse[box_classes[index]]
-        return str_to_rgb(class_name)
+        return str_to_rgb(task_classes.inverse[box_classes[index]])
 
     def _blend_masks(
         self,
@@ -696,13 +697,14 @@ class _LabelDrawer:
                 mask, (self.w, self.h), interpolation=cv2.INTER_NEAREST
             )
             if is_instance:
-                color = self._box_class_color(task_name, i) or (255, 0, 0)
-                mask_viz[mask > 0] = color
+                color = self._box_class_color(
+                    self.mappings[task_name], self.bbox_classes[task_name], i
+                )
+                mask_viz[mask > 0] = color or (255, 0, 0)
             elif i != 0 or len(arr) == 1:
+                # With several classes, class 0 is the background: no color.
                 class_name = self.mappings[task_name].inverse[i]
                 mask_viz[mask == 1] = str_to_rgb(class_name)
-            else:
-                mask_viz[mask == 1] = (0, 0, 0)
 
         binary_mask = (mask_viz > 0).astype(np.uint8)
         return np.where(
@@ -768,11 +770,14 @@ class _LabelDrawer:
         """Draw the keypoints of a task, colored like their boxes."""
         task_name = get_task_name(task)
         canvas = self._canvas(task_name)
+        task_classes = self.mappings[task_name]
         keypoint_names, edges = (skeletons or {}).get(task_name, ([], []))
 
         for i, kp in enumerate(arr):
             kp = kp.reshape(-1, 3)
-            class_color = self._box_class_color(task_name, i)
+            class_color = self._box_class_color(
+                task_classes, self.bbox_classes[task_name], i
+            )
             if class_color is None:
                 color = (255, 0, 0)
             else:

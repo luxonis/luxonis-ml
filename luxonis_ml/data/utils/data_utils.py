@@ -416,7 +416,7 @@ def get_heatmaps(
         :math:`15 \times 15` nested list of counts.
 
     """
-    grid_size = 15
+    grid_edges = np.linspace(0, 1, 15 + 1)
     heatmaps: dict[str, dict[str, np.ndarray]] = {}
 
     annotations_df = (
@@ -451,7 +451,7 @@ def get_heatmaps(
         if points is None:
             continue
 
-        counts = _grid_counts(*points, grid_size)
+        counts = _grid_counts(*points, grid_edges)
         task_heatmaps = heatmaps.setdefault(row["task_name"], {})
         task_heatmaps[task_type] = task_heatmaps.get(task_type, 0) + counts
 
@@ -509,9 +509,11 @@ def _annotation_points(
     return cols_idx / w_, rows_idx / h_
 
 
-def _grid_counts(x: np.ndarray, y: np.ndarray, grid_size: int) -> np.ndarray:
-    """Count the points in each cell of a ``grid_size`` square grid."""
-    edges = np.linspace(0, 1, grid_size + 1)
+def _grid_counts(
+    x: np.ndarray, y: np.ndarray, edges: np.ndarray
+) -> np.ndarray:
+    """Count the points in each cell of the square grid with these edges."""
+    grid_size = len(edges) - 1
     xi = np.clip(np.digitize(x, edges) - 1, 0, grid_size - 1)
     yi = np.clip(np.digitize(y, edges) - 1, 0, grid_size - 1)
     indices = xi * grid_size + yi

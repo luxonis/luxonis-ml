@@ -345,18 +345,23 @@ class BatchCompose(A.Compose):
                 if bboxes.size
                 else np.array([], dtype=int)
             )
+            unfiltered = bool(
+                bbox_count and np.array_equal(indices, np.arange(bbox_count))
+            )
 
             for field_name, target_type in associations.items():
-                if field_name not in data:
+                value = data.get(field_name)
+                if value is None:
                     continue
                 data[field_name] = self._compact_field(
                     field_name,
-                    data[field_name],
+                    value,
                     target_type,
                     keypoints_per_instance.get(field_name, 0),
                     bbox_field=bbox_field,
                     bbox_count=bbox_count,
                     indices=indices,
+                    unfiltered=unfiltered,
                 )
 
     def _compact_field(
@@ -369,6 +374,7 @@ class BatchCompose(A.Compose):
         bbox_field: str,
         bbox_count: int,
         indices: np.ndarray,
+        unfiltered: bool,
     ) -> np.ndarray:
         """Keep the instances of one field whose boxes survived.
 
@@ -392,9 +398,7 @@ class BatchCompose(A.Compose):
             self._warn_unmatched(field_name, value, bbox_count, bbox_field)
             return value
 
-        # A transform that drops boxes itself leaves the surviving indices
-        # looking untouched, so the counts above are compared regardless.
-        if np.array_equal(indices, np.arange(bbox_count)):
+        if unfiltered:
             return value
         return self._select_instances(
             value, target_type, indices, bbox_count, n_keypoints

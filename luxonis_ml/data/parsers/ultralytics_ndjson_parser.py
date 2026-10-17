@@ -299,11 +299,10 @@ class UltralyticsNDJSONParser(BaseParser):
                     image_path,
                 )
 
-                annotations = list(
-                    self._record_annotations(record, class_names, kpt_shape)
+                yield from _file_records(
+                    str(image_path),
+                    self._record_annotations(record, class_names, kpt_shape),
                 )
-                for annotation in annotations or [None]:
-                    yield {"file": str(image_path), "annotation": annotation}
 
         return generator(), added_by_split, added_images
 
@@ -321,11 +320,14 @@ class UltralyticsNDJSONParser(BaseParser):
         """
         annotations = record.get("annotations") or {}
         instance_id = 0
-        for class_id, *box in annotations.get("boxes", []):
+        for box in annotations.get("boxes", []):
+            class_id, x_center, y_center, width, height = box
             yield {
                 "class": class_names[int(class_id)],
                 "instance_id": instance_id,
-                "boundingbox": yolo_box_to_ldf(*box),
+                "boundingbox": yolo_box_to_ldf(
+                    x_center, y_center, width, height
+                ),
             }
             instance_id += 1
 
@@ -345,15 +347,16 @@ class UltralyticsNDJSONParser(BaseParser):
             }
             instance_id += 1
 
-        for class_id, *box_and_keypoints in annotations.get("pose", []):
-            box, keypoints = box_and_keypoints[:4], box_and_keypoints[4:]
+        for pose in annotations.get("pose", []):
+            class_id, x_center, y_center, width, height, *flat = pose
+            keypoints = _pose_keypoints(flat, kpt_shape)
             yield {
                 "class": class_names[int(class_id)],
                 "instance_id": instance_id,
-                "boundingbox": yolo_box_to_ldf(*box),
-                "keypoints": {
-                    "keypoints": _pose_keypoints(keypoints, kpt_shape)
-                },
+                "boundingbox": yolo_box_to_ldf(
+                    x_center, y_center, width, height
+                ),
+                "keypoints": {"keypoints": keypoints},
             }
             instance_id += 1
 
@@ -512,6 +515,18 @@ def _check_remote_image_dir(
     logger.warning(
         f"Reusing existing remote NDJSON image directory '{remote_image_dir}'."
     )
+
+
+def _file_records(
+    file: str, annotations: Iterator[dict[str, Any]]
+) -> DatasetIterator:
+    """Yield one record per annotation, or one record without labels."""
+    yielded_annotation = False
+    for annotation in annotations:
+        yielded_annotation = True
+        yield {"file": file, "annotation": annotation}
+    if not yielded_annotation:
+        yield {"file": file, "annotation": None}
 
 
 def _add_unique(items: list[Path], seen: set[Path], item: Path) -> None:

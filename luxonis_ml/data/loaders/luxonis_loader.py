@@ -215,10 +215,11 @@ class LuxonisLoader(BaseLoader):
             column: i for i, column in enumerate(self._df.columns)
         }
 
-        self._instances = self._view_instances()
+        group_ids = self._df["group_id"].to_list()
+        self._instances = self._view_instances(set(group_ids))
 
         idx_map: dict[str, list[int]] = defaultdict(list)
-        for i, group_id in enumerate(self._df["group_id"].to_list()):
+        for i, group_id in enumerate(group_ids):
             idx_map[group_id].append(i)
         self._idx_to_df_row = [idx_map[uuid] for uuid in self._instances]
 
@@ -271,7 +272,7 @@ class LuxonisLoader(BaseLoader):
             if task_name in self._classes
         }
 
-    def _view_instances(self) -> list[str]:
+    def _view_instances(self, group_ids: set[str]) -> list[str]:
         """List the group IDs of the view that the dataframe holds."""
         splits_path = self.dataset._metadata_path / "splits.json"
         if not splits_path.exists():
@@ -285,7 +286,6 @@ class LuxonisLoader(BaseLoader):
         for v in self._view:
             instances.extend(splits[v])
 
-        group_ids = set(self._df["group_id"].to_list())
         return [group_id for group_id in instances if group_id in group_ids]
 
     def _add_background_class(self, task_name: str) -> None:
@@ -484,15 +484,15 @@ class LuxonisLoader(BaseLoader):
                 continue
             task, instance_id, value = parsed
             if isinstance(value, Annotation):
-                class_id = self._class_id(task, row)
+                class_id = self._class_id(row)
                 annotations_by_task[task].append(
                     (instance_id, value, class_id)
                 )
             else:
                 metadata_by_task[task].append((instance_id, value))
 
-        # Sort by instance ID so that index i is the same object in every
-        # label array of a task: boxes, keypoints, masks and metadata.
+        # Both helpers sort by instance ID, so that index i is the same object
+        # in every label array of a task: boxes, keypoints, masks and metadata.
         labels = self._metadata_labels(metadata_by_task)
         for task, instances in annotations_by_task.items():
             labels[task] = self._annotation_label(task, instances)
@@ -555,7 +555,7 @@ class LuxonisLoader(BaseLoader):
 
         return task, instance_id, load_annotation(task_type, data)  # type: ignore
 
-    def _class_id(self, task: str, row: tuple) -> int:
+    def _class_id(self, row: tuple) -> int:
         """Return the class index of a row, or 0 for a row without a class."""
         col = self._df_col_indices
         class_name: str | None = row[col["class_name"]]
