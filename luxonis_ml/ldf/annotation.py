@@ -453,8 +453,9 @@ class Keypoint(KeypointSpec):
     r"""A single keypoint of an annotation.
 
     A record gives a keypoint as a mapping, or as an ``(x, y)`` or
-    ``(x, y, state)`` tuple. A coordinate in :math:`\left[-2, 2\right]` but
-    outside :math:`\left[0, 1\right]` is clipped, with a warning.
+    ``(x, y, state)`` tuple or numpy row. A coordinate in
+    :math:`\left[-2, 2\right]` but outside :math:`\left[0, 1\right]` is
+    clipped, with a warning.
 
     Example:
         >>> keypoint = Keypoint.model_validate((0.1, 0.2, "occluded"))
@@ -477,7 +478,9 @@ class Keypoint(KeypointSpec):
     @model_validator(mode="before")
     @classmethod
     def _from_tuple(cls, value: Any) -> Any:
-        """Read an ``(x, y)`` or ``(x, y, state)`` tuple."""
+        """Read an ``(x, y)`` or ``(x, y, state)`` tuple or array row."""
+        if isinstance(value, np.ndarray):
+            value = value.tolist()
         if not isinstance(value, Sequence) or isinstance(value, str):
             return value
         if len(value) not in (2, 3):
@@ -1080,10 +1083,11 @@ class KeypointAnnotation(Annotation):
     r"""Keypoint annotation.
 
     The keypoints are keyed by name, so an annotation says which keypoints
-    it holds. A plain list of keypoints is keyed ``"0"``, ``"1"``, ... by
-    position. Each keypoint is a `Keypoint`. The fields that describe the
-    whole task, such as the sigma, go into the `KeypointMetadata` of the
-    task. A ``connected_to`` name must be a keypoint of the same annotation.
+    it holds. A plain list or a numpy array of keypoints is keyed ``"0"``,
+    ``"1"``, ... by position. Each keypoint is a `Keypoint`. The fields that
+    describe the whole task, such as the sigma, go into the
+    `KeypointMetadata` of the task. A ``connected_to`` name must be a
+    keypoint of the same annotation.
 
     Example:
         >>> eyes = KeypointAnnotation.model_validate(
@@ -1186,7 +1190,9 @@ class KeypointAnnotation(Annotation):
     @field_validator("keypoints", mode="before")
     @classmethod
     def _key_by_position(cls, value: Any) -> Any:
-        """Key a plain list of keypoints ``"0"``, ``"1"``, ... by position."""
+        """Key a list or array of keypoints by position."""
+        if isinstance(value, np.ndarray):
+            value = value.tolist()
         if isinstance(value, Sequence) and not isinstance(value, str):
             return {str(i): keypoint for i, keypoint in enumerate(value)}
         return value

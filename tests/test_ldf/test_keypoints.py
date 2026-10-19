@@ -72,6 +72,22 @@ def test_a_list_is_keyed_by_position():
     assert list(annotation.keypoints) == ["0", "1"]
 
 
+@pytest.mark.parametrize(
+    "keypoints",
+    [
+        np.array([[0.1, 0.2, 2], [0.3, 0.4, 1]]),
+        list(np.array([[0.1, 0.2, 2], [0.3, 0.4, 1]])),
+    ],
+    ids=["array", "list_of_rows"],
+)
+def test_a_numpy_array_is_keyed_by_position(keypoints: object):
+    annotation = KeypointAnnotation.model_validate({"keypoints": keypoints})
+
+    assert json.loads(annotation.to_parquet_json()) == {
+        "keypoints": {"0": [0.1, 0.2, 2], "1": [0.3, 0.4, 1]}
+    }
+
+
 def test_a_connection_needs_both_keypoints_in_the_annotation():
     with pytest.raises(pydantic.ValidationError, match="nose"):
         KeypointAnnotation.model_validate(
