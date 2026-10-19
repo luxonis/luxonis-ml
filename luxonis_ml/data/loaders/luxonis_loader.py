@@ -90,6 +90,7 @@ class LuxonisLoader(BaseLoader):
         self,
         dataset: LuxonisDataset,
         view: str | list[str] = "train",
+        *,
         augmentation_engine: Literal["albumentations"]
         | str = "albumentations",
         augmentation_config: list[Params] | PathType | None = None,
@@ -103,7 +104,6 @@ class LuxonisLoader(BaseLoader):
         seed: int | None = None,
         min_bbox_visibility: float = 0.0,
         bbox_area_threshold: float = 0.0004,
-        *,
         keep_categorical_as_strings: bool = False,
         update_mode: UpdateMode | Literal["all", "missing"] = UpdateMode.ALL,
         filter_task_names: list[str] | None = None,
@@ -234,12 +234,12 @@ class LuxonisLoader(BaseLoader):
         self._augmentations = self._init_augmentations(
             augmentation_engine,
             augmentation_config or [],
-            height,
-            width,
-            keep_aspect_ratio,
-            seed,
-            min_bbox_visibility,
-            bbox_area_threshold,
+            height=height,
+            width=width,
+            keep_aspect_ratio=keep_aspect_ratio,
+            seed=seed,
+            min_bbox_visibility=min_bbox_visibility,
+            bbox_area_threshold=bbox_area_threshold,
         )
 
     def _resolve_color_space(
@@ -723,6 +723,7 @@ class LuxonisLoader(BaseLoader):
         self,
         augmentation_engine: Literal["albumentations"] | str,
         augmentation_config: list[Params] | PathType,
+        *,
         height: int | None,
         width: int | None,
         keep_aspect_ratio: bool,

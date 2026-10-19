@@ -23,6 +23,7 @@ class LetterboxResize(A.DualTransform):
         self,
         height: int,
         width: int,
+        *,
         interpolation: int = cv2.INTER_LINEAR,
         image_fill_value: ColorLike = "black",
         mask_fill_value: int = 0,
@@ -152,12 +153,12 @@ class LetterboxResize(A.DualTransform):
         """
         return self._apply_to_image_data(
             img,
-            pad_top,
-            pad_bottom,
-            pad_left,
-            pad_right,
-            self._interpolation,
-            self._image_fill_value,
+            pad_top=pad_top,
+            pad_bottom=pad_bottom,
+            pad_left=pad_left,
+            pad_right=pad_right,
+            interpolation=self._interpolation,
+            fill_value=self._image_fill_value,
         )
 
     @override
@@ -187,12 +188,12 @@ class LetterboxResize(A.DualTransform):
         """
         return self._apply_to_image_data(
             mask,
-            pad_top,
-            pad_bottom,
-            pad_left,
-            pad_right,
-            cv2.INTER_NEAREST,
-            self._mask_fill_value,
+            pad_top=pad_top,
+            pad_bottom=pad_bottom,
+            pad_left=pad_left,
+            pad_right=pad_right,
+            interpolation=cv2.INTER_NEAREST,
+            fill_value=self._mask_fill_value,
         )
 
     @override
@@ -317,6 +318,7 @@ class LetterboxResize(A.DualTransform):
     def _apply_to_image_data(
         self,
         img: np.ndarray,
+        *,
         pad_top: int,
         pad_bottom: int,
         pad_left: int,

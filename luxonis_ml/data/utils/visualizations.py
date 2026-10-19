@@ -215,6 +215,7 @@ def draw_dashed_rectangle(
     pt1: tuple[int, int],
     pt2: tuple[int, int],
     color: Color,
+    *,
     thickness: int = 1,
     dash_length: int = 10,
 ) -> None:
@@ -285,6 +286,7 @@ def create_text_image(
     text: str,
     width: int,
     height: int,
+    *,
     font_size: float = 0.7,
     bg_color: Color = 255,
     text_color: Color = 0,
@@ -546,6 +548,7 @@ def draw_keypoint_label(
     image: np.ndarray,
     text: str,
     point: tuple[int, int],
+    *,
     size: int,
     color: tuple[int, int, int],
     font_scale: float,
@@ -582,9 +585,9 @@ def visualize(
     source_name: str,
     labels: Labels,
     classes: dict[str, dict[str, int]],
+    *,
     blend_all: bool = False,
     categorical_encodings: dict[str, dict[str, int]] | None = None,
-    *,
     skeletons: dict[str, tuple[list[str], list[tuple[int, int]]]]
     | None = None,
     draw_skeletons: bool = False,
@@ -847,7 +850,12 @@ class _LabelDrawer:
             text = _keypoint_label(j, keypoint_names, label_mode)
             if text is not None:
                 draw_keypoint_label(
-                    canvas, text, point, size, color, self.font_scale
+                    canvas,
+                    text,
+                    point,
+                    size=size,
+                    color=color,
+                    font_scale=self.font_scale,
                 )
 
 

@@ -400,6 +400,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         targets: dict[str, str],
         n_classes: dict[str, int],
         source_names: list[str],
+        *,
         config: Iterable[Params],
         keep_aspect_ratio: bool = True,
         is_validation_pipeline: bool | None = None,

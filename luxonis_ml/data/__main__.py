@@ -1004,6 +1004,7 @@ def clone(
 def merge(
     source_name: str,
     target_name: str,
+    *,
     new_name: Annotated[
         str | None,
         Parameter(alias="-n"),

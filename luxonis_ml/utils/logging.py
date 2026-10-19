@@ -94,7 +94,8 @@ def setup_logging(
             rotation=None,
         )
 
-    def _custom_warning_handler(
+    # `warnings.showwarning` passes every argument by position.
+    def _custom_warning_handler(  # noqa: PLR0917
         message: str,
         category: type[Warning],
         filename: str,

@@ -15,6 +15,7 @@ ULTRALYTICS_NDJSON_EXPORT_TYPES = {
 
 
 def _export_and_reimport(
+    *,
     url: str,
     dataset_type: DatasetType,
     dataset_name: str,
@@ -183,6 +184,7 @@ def build_params():
     build_params(),
 )
 def test_export_import_equivalence(
+    *,
     dataset_name: str,
     storage_url: str,
     tempdir: Path,

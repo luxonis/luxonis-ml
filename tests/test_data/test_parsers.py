@@ -314,6 +314,7 @@ def test_fiftyone_classification_parser_discovers_validation_split(
     ],
 )
 def test_dir_parser_explicit_type(
+    *,
     dataset_name: str,
     url: str,
     dataset_type: str,
@@ -818,6 +819,7 @@ def test_partial_split_clsdir_explicit_type_uses_dir_mode(
     ],
 )
 def test_partial_split_fixture_is_preserved(
+    *,
     dataset_name: str,
     storage_url: str,
     tempdir: Path,

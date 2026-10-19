@@ -39,7 +39,7 @@ def build(
         targets,
         dict.fromkeys(targets, 1),
         ["image"],
-        config,
+        config=config,
         **kwargs,
     )
 
@@ -239,7 +239,7 @@ def test_pixel_transforms_replay_across_every_image_source() -> None:
         {"task/boundingbox": "boundingbox"},
         {"task/boundingbox": 1},
         sources,
-        [{"name": "InvertImg", "params": {"p": 1.0}}],
+        config=[{"name": "InvertImg", "params": {"p": 1.0}}],
     )
     images = {name: np.zeros((32, 32, 3), dtype=np.uint8) for name in sources}
     labels: Labels = {
@@ -262,7 +262,7 @@ def test_pixel_replay_skips_sources_without_a_channel_axis() -> None:
         {"task/boundingbox": "boundingbox"},
         {"task/boundingbox": 1},
         ["rgb", "flat"],
-        [{"name": "InvertImg", "params": {"p": 1.0}}],
+        config=[{"name": "InvertImg", "params": {"p": 1.0}}],
     )
     images = {
         "rgb": np.zeros((16, 16, 3), dtype=np.uint8),
@@ -310,7 +310,9 @@ def test_grayscale_sources_keep_a_channel_axis() -> None:
         {"task/boundingbox": "boundingbox"},
         {"task/boundingbox": 1},
         ["image"],
-        [{"name": "ToGray", "params": {"p": 1.0, "num_output_channels": 1}}],
+        config=[
+            {"name": "ToGray", "params": {"p": 1.0, "num_output_channels": 1}}
+        ],
     )
 
     out_images, _ = engine.apply(

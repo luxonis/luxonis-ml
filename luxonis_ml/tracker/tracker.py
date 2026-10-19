@@ -54,6 +54,7 @@ class LuxonisTracker:
 
     def __init__(
         self,
+        *,
         project_name: str | None = None,
         project_id: str | None = None,
         run_name: str | None = None,

@@ -284,10 +284,12 @@ def test_visualize_keypoint_label_modes(monkeypatch: pytest.MonkeyPatch):
         _image: np.ndarray,
         text: str,
         _point: tuple[int, int],
-        _size: int,
-        _color: tuple[int, int, int],
-        _font_scale: float,
+        *,
+        size: int,
+        color: tuple[int, int, int],
+        font_scale: float,
     ) -> None:
+        del size, color, font_scale
         calls.append(text)
 
     monkeypatch.setattr(

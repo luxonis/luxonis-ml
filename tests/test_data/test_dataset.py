@@ -27,6 +27,7 @@ from .utils import create_dataset, create_image, get_loader_output
 
 
 def test_dataset(
+    *,
     bucket_storage: BucketStorage,
     dataset_name: str,
     augmentation_config: list[Params],

@@ -62,6 +62,7 @@ class Mosaic4(BatchTransform):
         self,
         height: int | None = None,
         width: int | None = None,
+        *,
         image_fill_value: float | list[int] | list[float] | None = None,
         mask_fill_value: float | list[int] | list[float] | None = None,
         p: float = 0.5,
@@ -164,11 +165,11 @@ class Mosaic4(BatchTransform):
         """
         return self._apply_mosaic4_to_images(
             image_batch,
-            self._height,
-            self._width,
-            x_crop,
-            y_crop,
-            self._image_fill_value,
+            out_height=self._height,
+            out_width=self._width,
+            x_crop=x_crop,
+            y_crop=y_crop,
+            padding=self._image_fill_value,
         )
 
     @override
@@ -211,11 +212,11 @@ class Mosaic4(BatchTransform):
                     )
         return self._apply_mosaic4_to_images(
             mask_batch,
-            self._height,
-            self._width,
-            x_crop,
-            y_crop,
-            self._mask_fill_value,
+            out_height=self._height,
+            out_width=self._width,
+            x_crop=x_crop,
+            y_crop=y_crop,
+            padding=self._mask_fill_value,
         )
 
     @override
@@ -239,11 +240,11 @@ class Mosaic4(BatchTransform):
         """
         return self._apply_mosaic4_to_instance_masks(
             masks_batch,
-            self._height,
-            self._width,
-            x_crop,
-            y_crop,
-            self._image_fill_value,
+            out_height=self._height,
+            out_width=self._width,
+            x_crop=x_crop,
+            y_crop=y_crop,
+            value=self._image_fill_value,
         )
 
     @override
@@ -274,13 +275,13 @@ class Mosaic4(BatchTransform):
         ):
             bbox = self._apply_mosaic4_to_bboxes(
                 bboxes,
-                orig_height,
-                orig_width,
-                i,
-                self._height,
-                self._width,
-                x_crop,
-                y_crop,
+                in_height=orig_height,
+                in_width=orig_width,
+                position_index=i,
+                out_height=self._height,
+                out_width=self._width,
+                x_crop=x_crop,
+                y_crop=y_crop,
             )
             new_bboxes.append(bbox)
 
@@ -314,13 +315,13 @@ class Mosaic4(BatchTransform):
         ):
             new_keypoint = self._apply_mosaic4_to_keypoints(
                 keypoints,
-                orig_height,
-                orig_width,
-                i,
-                self._height,
-                self._width,
-                x_crop,
-                y_crop,
+                in_height=orig_height,
+                in_width=orig_width,
+                position_index=i,
+                out_height=self._height,
+                out_width=self._width,
+                x_crop=x_crop,
+                y_crop=y_crop,
             )
             new_keypoints.append(new_keypoint)
         return np.concatenate(new_keypoints, axis=0)
@@ -391,6 +392,7 @@ class Mosaic4(BatchTransform):
     @staticmethod
     def _apply_mosaic4_to_instance_masks(
         masks_batch: list[np.ndarray],
+        *,
         out_height: int,
         out_width: int,
         x_crop: int,
@@ -455,6 +457,7 @@ class Mosaic4(BatchTransform):
     @staticmethod
     def _apply_mosaic4_to_images(
         image_batch: list[np.ndarray],
+        *,
         out_height: int,
         out_width: int,
         x_crop: int,
@@ -544,6 +547,7 @@ class Mosaic4(BatchTransform):
     @staticmethod
     def _apply_mosaic4_to_bboxes(
         bbox: np.ndarray,
+        *,
         in_height: int,
         in_width: int,
         position_index: int,
@@ -579,6 +583,7 @@ class Mosaic4(BatchTransform):
     @staticmethod
     def _apply_mosaic4_to_keypoints(
         keypoints: np.ndarray,
+        *,
         in_height: int,
         in_width: int,
         position_index: int,

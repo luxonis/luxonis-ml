@@ -315,14 +315,14 @@ class CutMix(BatchTransform):
         else:
             bbox1 = self._occlude_bboxes(
                 bbox1,
-                image_shapes[0][0],
-                image_shapes[0][1],
-                x1,
-                y1,
-                x2,
-                y2,
-                self._bbox_min_visibility,
-                self._occluded_bbox_strategy,
+                height=image_shapes[0][0],
+                width=image_shapes[0][1],
+                x1=x1,
+                y1=y1,
+                x2=x2,
+                y2=y2,
+                min_visibility=self._bbox_min_visibility,
+                strategy=self._occluded_bbox_strategy,
             )
 
         if bbox2.size == 0:
@@ -336,7 +336,13 @@ class CutMix(BatchTransform):
                 orig_width=image_shapes[1][1],
             )
             bbox2 = self._clip_bboxes_to_patch(
-                bbox2, image_shapes[0][0], image_shapes[0][1], x1, y1, x2, y2
+                bbox2,
+                height=image_shapes[0][0],
+                width=image_shapes[0][1],
+                x1=x1,
+                y1=y1,
+                x2=x2,
+                y2=y2,
             )
 
         return np.concatenate([bbox1, bbox2], axis=0)
@@ -382,7 +388,12 @@ class CutMix(BatchTransform):
             keypoints1 = self._empty_rows(keypoints1, 5)
         else:
             keypoints1 = self._mark_keypoints_in_patch(
-                keypoints1.copy(), x1, y1, x2, y2, visible_inside=False
+                keypoints1.copy(),
+                x1=x1,
+                y1=y1,
+                x2=x2,
+                y2=y2,
+                visible_inside=False,
             )
 
         if keypoints2.size == 0:
@@ -397,7 +408,12 @@ class CutMix(BatchTransform):
                 orig_width=image_shapes[1][1],
             )
             keypoints2 = self._mark_keypoints_in_patch(
-                keypoints2.copy(), x1, y1, x2, y2, visible_inside=True
+                keypoints2.copy(),
+                x1=x1,
+                y1=y1,
+                x2=x2,
+                y2=y2,
+                visible_inside=True,
             )
 
         return np.concatenate([keypoints1, keypoints2], axis=0)
@@ -502,6 +518,7 @@ class CutMix(BatchTransform):
     @staticmethod
     def _clip_bboxes_to_patch(
         bboxes: np.ndarray,
+        *,
         height: int,
         width: int,
         x1: int,
@@ -526,6 +543,7 @@ class CutMix(BatchTransform):
     @staticmethod
     def _occlude_bboxes(
         bboxes: np.ndarray,
+        *,
         height: int,
         width: int,
         x1: int,
@@ -620,6 +638,7 @@ class CutMix(BatchTransform):
     @staticmethod
     def _mark_keypoints_in_patch(
         keypoints: np.ndarray,
+        *,
         x1: int,
         y1: int,
         x2: int,

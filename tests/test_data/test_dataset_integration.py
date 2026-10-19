@@ -30,6 +30,7 @@ def get_annotations(sequence_path: Path):
 
 
 def test_parking_lot_generate(
+    *,
     tempdir: Path,
     bucket_storage: BucketStorage,
     dataset_name: str,

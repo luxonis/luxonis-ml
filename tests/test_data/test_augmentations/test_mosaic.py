@@ -15,7 +15,12 @@ def test_mosaic4_helpers(subtests: SubTests):
     with subtests.test("image"):
         img = (np.random.rand(HEIGHT, WIDTH, 3) * 255).astype(np.uint8)
         mosaic = Mosaic4._apply_mosaic4_to_images(
-            [img, img, img, img], HEIGHT, WIDTH, 0, 0, 0
+            [img, img, img, img],
+            out_height=HEIGHT,
+            out_width=WIDTH,
+            x_crop=0,
+            y_crop=0,
+            padding=0,
         )
         assert mosaic.shape == (HEIGHT, WIDTH, 3)
 
@@ -31,13 +36,13 @@ def test_mosaic4_helpers(subtests: SubTests):
             normalized_bbox = normalize_bboxes(bbox, (HEIGHT, WIDTH))
             mosaic_bbox = Mosaic4._apply_mosaic4_to_bboxes(
                 normalized_bbox,
-                HEIGHT // 2,
-                WIDTH // 2,
-                i,
-                HEIGHT,
-                WIDTH,
-                0,
-                0,
+                in_height=HEIGHT // 2,
+                in_width=WIDTH // 2,
+                position_index=i,
+                out_height=HEIGHT,
+                out_width=WIDTH,
+                x_crop=0,
+                y_crop=0,
             )[0].tolist()
             assert pytest.approx(mosaic_bbox, abs=0.01) == expected_bbox[i]
 
@@ -58,13 +63,13 @@ def test_mosaic4_helpers(subtests: SubTests):
         ):
             mosaic_keypoint = Mosaic4._apply_mosaic4_to_keypoints(
                 np.array([w, h, 0, 2])[None, ...],
-                HEIGHT // 2,
-                WIDTH // 2,
-                i,
-                HEIGHT,
-                WIDTH,
-                0,
-                0,
+                in_height=HEIGHT // 2,
+                in_width=WIDTH // 2,
+                position_index=i,
+                out_height=HEIGHT,
+                out_width=WIDTH,
+                x_crop=0,
+                y_crop=0,
             )[0].tolist()
             assert pytest.approx(mosaic_keypoint, abs=0.1) == expected_kpts[i]
 

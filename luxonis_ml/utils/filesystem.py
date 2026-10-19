@@ -134,6 +134,7 @@ class LuxonisFileSystem:
     def __init__(
         self,
         path: str,
+        *,
         allow_active_mlflow_run: bool | None = False,
         allow_local: bool | None = True,
         cache_storage: str | None = None,

@@ -27,7 +27,7 @@ def test_metadata_no_boxes():
         {"/metadata/id": "metadata/id"},
         {"/metadata/id": 0},
         ["image"],
-        config,
+        config=config,
     )
     _, labels = augmentations.apply(
         [
@@ -76,7 +76,7 @@ def test_skip_augmentations():
     }
     source_names = ["image"]
     augmentations = AlbumentationsEngine(
-        256, 256, targets, n_classes, source_names, config
+        256, 256, targets, n_classes, source_names, config=config
     )
 
     spatial_transform_names = _get_transform_names(
@@ -106,7 +106,7 @@ def test_apply_on_stages_filters_eval_pipeline():
         {"/classification": "classification"},
         {"/classification": 1},
         ["image"],
-        [
+        config=[
             {"name": "HorizontalFlip", "params": {"p": 1.0}},
             {
                 "name": "Defocus",
@@ -141,7 +141,7 @@ def test_is_validation_pipeline_backwards_compatibility_uses_eval_stage():
             {"/classification": "classification"},
             {"/classification": 1},
             ["image"],
-            [
+            config=[
                 {
                     "name": "Defocus",
                     "params": {"p": 1.0},
@@ -161,7 +161,7 @@ def test_use_for_resizing_wraps_probabilistic_resize_in_oneof():
         {"task/boundingbox": "boundingbox"},
         {"task/boundingbox": 1},
         ["image"],
-        [
+        config=[
             {
                 "name": "AtLeastOneBBoxRandomCrop",
                 "params": {
@@ -198,7 +198,7 @@ def test_use_for_resizing_uses_letterbox_fallback_when_keeping_aspect_ratio():
         {"task/boundingbox": "boundingbox"},
         {"task/boundingbox": 1},
         ["image"],
-        [
+        config=[
             {
                 "name": "AtLeastOneBBoxRandomCrop",
                 "params": {
@@ -237,7 +237,7 @@ def test_use_for_resizing_falls_back_to_default_resize():
         {"task/boundingbox": "boundingbox"},
         {"task/boundingbox": 1},
         ["image"],
-        [
+        config=[
             {
                 "name": "AtLeastOneBBoxRandomCrop",
                 "params": {
