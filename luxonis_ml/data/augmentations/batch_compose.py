@@ -282,6 +282,18 @@ class BatchCompose(A.Compose):
 
         Instance masks are ``(H, W, N)``, so they need the image shape;
         without one there is nothing to fill.
+
+        Examples:
+            >>> BatchCompose._instances_shape(
+            ...     "instance_mask", 2, (), (5, 6), 0
+            ... )
+            (5, 6, 2)
+            >>> BatchCompose._instances_shape("instance_mask", 2, (), None, 0)
+            >>> BatchCompose._instances_shape("keypoints", 2, (3,), None, 4)
+            (8, 3)
+            >>> BatchCompose._instances_shape("array", 2, (7,), None, 0)
+            (2, 7)
+
         """
         if target_type == "instance_mask":
             if image_shape is None:

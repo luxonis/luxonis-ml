@@ -203,7 +203,17 @@ def _duplicate_uuids(df: pl.LazyFrame) -> list[dict[str, Any]]:
 
 
 def _is_all_zero_keypoints(annotation_str: str) -> bool:
-    """Check if a keypoints annotation has all zeros (x, y, visibility)."""
+    """Check if a keypoints annotation has all zeros (x, y, visibility).
+
+    Examples:
+        >>> _is_all_zero_keypoints('{"keypoints": [[0, 0, 0], [0, 0, 0]]}')
+        True
+        >>> _is_all_zero_keypoints('{"keypoints": [[0.5, 0, 2]]}')
+        False
+        >>> _is_all_zero_keypoints('{"x": 0.1}'), _is_all_zero_keypoints(None)
+        (False, False)
+
+    """
     try:
         annotation = json.loads(annotation_str)
         if "keypoints" in annotation:

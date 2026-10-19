@@ -95,29 +95,45 @@ class VOCParser(BaseParser):
                 )
                 continue
 
-            images_annotations.append((path, self._image_boxes(root)))
+            images_annotations.append((path, VOCParser._image_boxes(root)))
 
         added_images = self._get_added_images(_records(images_annotations))
 
         return _records(images_annotations), {}, added_images
 
-    def _image_boxes(self, root: ET.Element) -> list[tuple[str, list[float]]]:
-        """Return the ``(class, [x, y, w, h])`` normalized boxes of an image."""
+    @staticmethod
+    def _image_boxes(root: ET.Element) -> list[tuple[str, list[float]]]:
+        """Return the ``(class, [x, y, w, h])`` normalized boxes of an image.
+
+        An object without a ``bndbox`` has no box.
+
+        Examples:
+            >>> import xml.etree.ElementTree as ET
+            >>> root = ET.fromstring(
+            ...     "<annotation><size><height>10</height><width>20</width>"
+            ...     "</size><object><name>cat</name></object><object>"
+            ...     "<name>dog</name><bndbox><xmin>2</xmin><ymin>1</ymin>"
+            ...     "<xmax>12</xmax><ymax>6</ymax></bndbox></object></annotation>"
+            ... )
+            >>> VOCParser._image_boxes(root)
+            [('dog', [0.1, 0.1, 0.5, 0.5])]
+
+        """
         size_item = root.find("size")
         assert size_item is not None
-        height = float(self._xml_find(size_item, "height"))
-        width = float(self._xml_find(size_item, "width"))
+        height = float(VOCParser._xml_find(size_item, "height"))
+        width = float(VOCParser._xml_find(size_item, "width"))
 
         boxes = []
         for object_item in root.findall("object"):
-            class_name = self._xml_find(object_item, "name")
+            class_name = VOCParser._xml_find(object_item, "name")
             bbox_info = object_item.find("bndbox")
             if bbox_info is None:
                 continue
-            xmin = float(self._xml_find(bbox_info, "xmin"))
-            ymin = float(self._xml_find(bbox_info, "ymin"))
-            xmax = float(self._xml_find(bbox_info, "xmax"))
-            ymax = float(self._xml_find(bbox_info, "ymax"))
+            xmin = float(VOCParser._xml_find(bbox_info, "xmin"))
+            ymin = float(VOCParser._xml_find(bbox_info, "ymin"))
+            xmax = float(VOCParser._xml_find(bbox_info, "xmax"))
+            ymax = float(VOCParser._xml_find(bbox_info, "ymax"))
             bbox_xywh = np.array([xmin, ymin, xmax - xmin, ymax - ymin])
             bbox_xywh[::2] /= width
             bbox_xywh[1::2] /= height

@@ -2094,7 +2094,16 @@ def _last_part_index(base: Path, ds_id: str) -> int | None:
 
 
 def _migrate_single_component_source(metadata_json: dict[str, Any]) -> None:
-    """Name the only component of an old source ``image`` and make it main."""
+    """Name the only component of an old source ``image`` and make it main.
+
+    Examples:
+        >>> metadata = {"source": {"components": {"a": {}, "b": {}}}}
+        >>> _migrate_single_component_source(metadata)
+        >>> sorted(metadata["source"]["components"])
+        ['a', 'b']
+        >>> _migrate_single_component_source({"source": None})
+
+    """
     source_data = metadata_json.get("source")
     if not isinstance(source_data, dict):
         return
@@ -2141,7 +2150,20 @@ class _AddedLabels:
             self.update(f"{task_name}/{name}", sub_detection)
 
     def _update_metadata(self, task: str, value: object) -> None:
-        """Record the type of a metadata value and encode a category."""
+        """Record the type of a metadata value and encode a category.
+
+        Examples:
+            >>> added = _AddedLabels()
+            >>> added._update_metadata("cars/metadata/score", 1)
+            >>> added._update_metadata("cars/metadata/score", 0.5)
+            >>> added.metadata_types
+            {'cars/metadata/score': 'float'}
+            >>> added._update_metadata("cars/metadata/score", "high")
+            Traceback (most recent call last):
+            ...
+            ValueError: Metadata type mismatch for cars/metadata/score: float and str
+
+        """
         typ = type(value).__name__
         known = self.metadata_types.get(task)
         if known is None or known == typ:

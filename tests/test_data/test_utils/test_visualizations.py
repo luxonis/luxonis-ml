@@ -1,9 +1,13 @@
 import cv2
 import numpy as np
 import pytest
+from bidict import bidict
 
 from luxonis_ml.data.utils.visualizations import (
     ColorMap,
+    _classification_lines,
+    _format_metadata_value,
+    _metadata_lines,
     concat_images,
     create_text_image,
     distinct_color_generator,
@@ -360,3 +364,76 @@ def test_visualize_keypoint_skeletons_respect_visibility():
     assert np.count_nonzero(without_panel[50, 35]) == 0
     assert np.count_nonzero(with_panel[50, 35]) > 0
     assert np.count_nonzero(with_panel[50, 65]) == 0
+
+
+def test_classification_lines_list_each_task():
+    mappings = {
+        "animals": bidict({"cat": 0, "dog": 1}),
+        "colors": bidict({"red": 0, "blue": 1}),
+    }
+    animals = {"animals/classification": np.array([0, 1])}
+
+    assert _classification_lines(animals, mappings) == ["Classes:", "dog"]
+    assert _classification_lines(
+        {**animals, "colors/classification": np.array([1, 1])}, mappings
+    ) == ["Classification labels:", "animals: dog", "colors: red, blue"]
+
+
+def test_metadata_lines_decode_and_deduplicate_values():
+    labels = {
+        "car/metadata/color": np.array([0, 1, 0]),
+        "car/metadata/score": np.array([0.5, 0.25]),
+        "car/metadata/plate": np.array(["AB1", "AB1"]),
+        "car/metadata/empty": np.array([]),
+        "car/boundingbox": np.zeros((0, 5)),
+    }
+    encodings = {"car/metadata/color": {"red": 0, "blue": 1}}
+
+    assert _metadata_lines(labels, encodings) == [
+        "Metadata labels:",
+        "car/color: red, blue",
+        "car/score: 0.5, 0.25",
+        "car/plate: AB1",
+    ]
+
+
+def test_metadata_value_without_an_encoding_stays_as_it_is():
+    mapping = bidict({"red": 0})
+
+    assert _format_metadata_value(mapping, 5) == "5"
+    assert _format_metadata_value(mapping, "red") == "red"
+
+
+def test_visualize_appends_the_label_text():
+    image = np.zeros((64, 64, 3), dtype=np.uint8)
+    classes = {"animals": {"cat": 0, "dog": 1}}
+
+    plain = visualize(image.copy(), "image", {}, classes)
+    with_text = visualize(
+        image.copy(),
+        "image",
+        {"animals/classification": np.array([0, 1])},
+        classes,
+    )
+
+    assert with_text.shape[0] > plain.shape[0]
+
+
+def test_visualize_skips_skeleton_edges_outside_the_keypoints():
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    labels = {"pose/keypoints": np.array([[0.2, 0.5, 2.0, 0.8, 0.5, 2.0]])}
+    classes = {"pose": {"person": 0}}
+
+    def draw(edges: list[tuple[int, int]]) -> np.ndarray:
+        return visualize(
+            image.copy(),
+            "image",
+            labels,
+            classes,
+            blend_all=True,
+            skeletons={"pose": ([], edges)},
+            draw_skeletons=True,
+            keypoint_label_mode="none",
+        )
+
+    assert np.array_equal(draw([(0, 1)]), draw([(0, 1), (0, 7), (-1, 1)]))

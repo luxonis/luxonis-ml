@@ -683,14 +683,12 @@ class LuxonisFileSystem:
                 artifact_path or "", download_path, mlflow_instance
             )
             return download_path
-        if self.is_fsspec:
-            self._fs.get(
-                str(self._path / remote_dir), str(local_dir), recursive=True
-            )
-            if not existed:
-                return local_dir
-            return local_dir / PurePosixPath(remote_dir).name
-        return local_dir
+        self._fs.get(
+            str(self._path / remote_dir), str(local_dir), recursive=True
+        )
+        if not existed:
+            return local_dir
+        return local_dir / PurePosixPath(remote_dir).name
 
     def delete_dir(
         self, remote_dir: PosixPathType = "", allow_delete_parent: bool = False
@@ -742,10 +740,8 @@ class LuxonisFileSystem:
         """
         if self.is_mlflow:
             entries = self._mlflow_entries(remote_dir)
-        elif self.is_fsspec:
-            entries = self._fsspec_entries(remote_dir)
         else:
-            return
+            entries = self._fsspec_entries(remote_dir)
 
         for name, file_type in entries:
             if typ in ("all", file_type):

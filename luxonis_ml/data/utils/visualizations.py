@@ -859,7 +859,22 @@ def _keypoint_label(
     keypoint_names: list[str],
     mode: Literal["none", "numbers", "names", "full"],
 ) -> str | None:
-    """Return the text drawn next to a keypoint, or ``None`` for none."""
+    """Return the text drawn next to a keypoint, or ``None`` for none.
+
+    Examples:
+        >>> names = ["nose", "eye"]
+        >>> (
+        ...     _keypoint_label(1, names, "numbers"),
+        ...     _keypoint_label(1, names, "names"),
+        ... )
+        ('1', 'eye')
+        >>> (
+        ...     _keypoint_label(1, names, "full"),
+        ...     _keypoint_label(5, names, "full"),
+        ... )
+        ('1: eye', None)
+
+    """
     if mode == "numbers":
         return str(index)
     if mode == "none" or index >= len(keypoint_names):

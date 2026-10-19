@@ -290,6 +290,15 @@ def annotation_to_polygons(
         annotation without ``counts``, or one that fails to decode, gives
         no polygon.
 
+    Examples:
+        >>> from pathlib import Path
+        >>> annotation_to_polygons({"height": 4, "width": 4}, Path("a.png"))
+        []
+        >>> annotation_to_polygons(
+        ...     {"height": 4, "width": 4, "counts": 0}, Path("a.png")
+        ... )
+        []
+
     """
     if "counts" not in ann:
         return []
@@ -299,10 +308,7 @@ def annotation_to_polygons(
     W = int(ann["width"])
     rle = {"size": [H, W], "counts": ann["counts"]}
     try:
-        mask = maskUtils.decode(rle)  # type: ignore
-        if mask.ndim == 3:
-            mask = mask[:, :, 0]
-        mask = (mask > 0).astype(np.uint8)
+        mask = (maskUtils.decode(rle) > 0).astype(np.uint8)  # type: ignore
         contours, _ = cv2.findContours(
             mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
@@ -349,6 +355,22 @@ def yolo_bbox_label(
 
     A row of another task type, without an annotation or without a
     class gives ``None``. A new class is registered through `register_class`.
+
+    Examples:
+        >>> class_to_id, class_names = {}, []
+        >>> row = {
+        ...     "task_type": "boundingbox",
+        ...     "class_name": "car",
+        ...     "annotation": '{"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4}',
+        ... }
+        >>> yolo_bbox_label(row, class_to_id, class_names)
+        (0, 0.1, 0.2, 0.3, 0.4)
+        >>> yolo_bbox_label(
+        ...     {**row, "class_name": None}, class_to_id, class_names
+        ... )
+        >>> class_names
+        ['car']
+
     """
     if row["annotation"] is None or row["task_type"] != "boundingbox":
         return None

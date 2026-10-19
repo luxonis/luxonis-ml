@@ -500,7 +500,14 @@ class _InstanceIds:
         self._next = 0
 
     def of(self, ann: dict[str, Any]) -> int:
-        """Return the instance ID of one annotation."""
+        """Return the instance ID of one annotation.
+
+        Examples:
+            >>> ids = _InstanceIds([{"id": 0}, {"id": 2}])
+            >>> ids.of({"id": 7}), ids.of({}), ids.of({})
+            (7, 1, 3)
+
+        """
         if "id" in ann:
             return ann["id"]
         while self._next in self._taken:
@@ -513,7 +520,17 @@ class _InstanceIds:
 def _coco_bbox(
     bbox: list[Any], img_w: int, img_h: int
 ) -> dict[str, float] | None:
-    """Normalize a COCO ``[x, y, w, h]`` box, or ``None`` if not numeric."""
+    """Normalize a COCO ``[x, y, w, h]`` box, or ``None`` if not numeric.
+
+    Examples:
+        >>> _coco_bbox([10, 20, 30, 40], 100, 200)
+        {'x': 0.1, 'y': 0.1, 'w': 0.3, 'h': 0.2}
+        >>> _coco_bbox(["a", 0, 1, 1], 100, 100) is None
+        True
+        >>> _coco_bbox([float("nan"), 0, 1, 1], 100, 100) is None
+        True
+
+    """
     try:
         x, y, w, h = (float(value) for value in bbox)
     except (TypeError, ValueError):
@@ -526,7 +543,15 @@ def _coco_bbox(
 def _coco_segmentation(
     coco_seg: Any, img_h: int, img_w: int
 ) -> dict[str, Any] | None:
-    """Convert a COCO polygon list or RLE dict to an LDF RLE dict."""
+    """Convert a COCO polygon list or RLE dict to an LDF RLE dict.
+
+    Examples:
+        >>> _coco_segmentation({"size": [4, 5], "counts": "abc"}, 4, 5)
+        {'height': 4, 'width': 5, 'counts': 'abc'}
+        >>> _coco_segmentation([], 4, 5), _coco_segmentation(None, 4, 5)
+        (None, None)
+
+    """
     if isinstance(coco_seg, list):
         if not coco_seg:
             return None

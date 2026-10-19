@@ -67,7 +67,7 @@ def parse_split_ratio(
         {'train': 0.7, 'val': 0.2, 'test': 0.1}
         >>> parse_split_ratio(train=0.7, val=0.2, test=0.1)
         {'train': 0.7, 'val': 0.2, 'test': 0.1}
-        >>> parse_split_ratio([10, 27])
+        >>> parse_split_ratio("[10, 27]")
         Traceback (most recent call last):
         ...
         ValueError: Split ratio must be a list of 3 values (train, val, test).

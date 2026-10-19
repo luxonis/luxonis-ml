@@ -193,7 +193,7 @@ class UltralyticsNDJSONExporter(BaseExporter):
 
     def _pose_lines(
         self, instances: dict[tuple[str, int], dict[str, Any]]
-    ) -> list[str]:
+    ) -> list[list[float | int]]:
         """Return one pose line per instance with keypoints."""
         poses = []
         for instance in instances.values():

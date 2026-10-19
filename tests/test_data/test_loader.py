@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
 
+import cv2
 import numpy as np
 import pytest
 
@@ -16,6 +17,7 @@ from luxonis_ml.data import (
 )
 from luxonis_ml.data.augmentations import AugmentationEngine
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
+from luxonis_ml.data.loaders.luxonis_loader import _read_image
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.typing import (
     LoaderMultiOutput,
@@ -1125,3 +1127,35 @@ def test_colorspace(storage_url: str, tempdir: Path):
     gray_img, _ = cast(LoaderSingleOutput, next(iter(loader)))
     assert len(gray_img.shape) == 3
     assert gray_img.shape[2] == 1
+
+
+def test_loader_needs_splits(randint: int, tempdir: Path):
+    dataset = create_dataset(
+        f"test_loader_needs_splits_{randint}",
+        iter(
+            [
+                {
+                    "file": create_image(0, tempdir),
+                    "annotation": {"class": "cat"},
+                }
+            ]
+        ),
+        splits=False,
+    )
+
+    with pytest.raises(RuntimeError, match="Cannot find splits"):
+        LuxonisLoader(dataset)
+    dataset.delete_dataset(delete_local=True)
+
+
+def test_read_image_needs_a_supported_gray_image(tempdir: Path):
+    gray = tempdir / "gray.png"
+    cv2.imwrite(str(gray), np.full((4, 6), 7, dtype=np.uint8))
+    rgba = tempdir / "rgba.png"
+    cv2.imwrite(str(rgba), np.zeros((4, 6, 4), dtype=np.uint8))
+
+    assert _read_image(gray, "GRAY").shape == (4, 6, 1)
+    with pytest.raises(ValueError, match="Unsupported image format"):
+        _read_image(rgba, "GRAY")
+    with pytest.raises(FileNotFoundError, match="Cannot read image"):
+        _read_image(tempdir / "missing.png", "RGB")

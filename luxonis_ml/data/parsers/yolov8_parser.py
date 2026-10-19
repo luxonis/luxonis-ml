@@ -408,7 +408,13 @@ class YOLOv8Parser(BaseParser):
 
 
 def _annotation_lines(ann_path: Path) -> list[str]:
-    """Return the non-blank lines of a label file; none for a missing file."""
+    """Return the non-blank lines of a label file; none for a missing file.
+
+    Examples:
+        >>> _annotation_lines(Path("no_such_labels.txt"))
+        []
+
+    """
     # First check if file exists (would crash otherwise)
     if not ann_path.exists():
         return []
@@ -422,6 +428,11 @@ def _keypoints_array(
     """Reshape flat keypoint elements into ``(x, y, visibility)`` rows.
 
     Two-dimensional keypoints get full visibility.
+
+    Examples:
+        >>> _keypoints_array(["0.1", "0.2", "0.3", "0.4"], (2, 2)).tolist()
+        [[0.1, 0.2, 2.0], [0.3, 0.4, 2.0]]
+
     """
     n_kpts, kpt_dim = kpt_shape
     keypoints = np.array([float(p) for p in elements]).reshape(n_kpts, kpt_dim)

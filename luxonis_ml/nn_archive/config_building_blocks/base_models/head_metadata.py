@@ -290,6 +290,17 @@ def _infer_yolo_tasks(defined_params: set[str]) -> list[str]:
     """Infer the YOLO tasks that the task-specific fields describe.
 
     Every defined field must belong to one of the inferred tasks.
+
+    Examples:
+        >>> _infer_yolo_tasks(set())
+        ['object_detection']
+        >>> _infer_yolo_tasks({"n_keypoints"})
+        ['keypoint_detection']
+        >>> _infer_yolo_tasks({"is_softmax"})
+        Traceback (most recent call last):
+        ...
+        ValueError: Invalid combination of parameters. No specific task can be inferred.
+
     """
     tasks = []
     for task in ("instance_segmentation", "keypoint_detection"):
@@ -321,6 +332,18 @@ def _check_yolo_outputs(defined_params: set[str], tasks: list[str]) -> None:
     Every task needs all of its output fields, and every defined output
     field must belong to a task. Object detection may also set
     ``angles_outputs``.
+
+    Examples:
+        >>> _check_yolo_outputs(
+        ...     {"yolo_outputs", "angles_outputs"}, ["object_detection"]
+        ... )
+        >>> _check_yolo_outputs(
+        ...     {"yolo_outputs", "mask_outputs"}, ["object_detection"]
+        ... )
+        Traceback (most recent call last):
+        ...
+        ValueError: Invalid combination of output parameters. ...
+
     """
     if not all(
         field in defined_params

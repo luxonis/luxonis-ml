@@ -115,8 +115,6 @@ class YoloV8InstanceSegmentationExporter(BaseExporter):
         )
         lines = []
         for poly in polygons:
-            if len(poly) < 3:
-                continue
             parts = [
                 f"{min(max(x, 0.0), 1.0):.12f} {min(max(y, 0.0), 1.0):.12f}"
                 for x, y in poly

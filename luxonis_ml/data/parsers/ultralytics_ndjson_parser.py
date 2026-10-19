@@ -548,6 +548,17 @@ def _pose_keypoints(
 
     Without a ``kpt_shape`` the list must hold triples. Pairs get full
     visibility.
+
+    Examples:
+        >>> _pose_keypoints([0.1, 0.2, 2, 0.3, 0.4, 0], None).tolist()
+        [[0.1, 0.2, 2.0], [0.3, 0.4, 0.0]]
+        >>> _pose_keypoints([0.1, 0.2], (1, 2)).tolist()
+        [[0.1, 0.2, 2.0]]
+        >>> _pose_keypoints([0.1, 0.2], None)
+        Traceback (most recent call last):
+        ...
+        ValueError: Ultralytics NDJSON pose annotations require `kpt_shape` ...
+
     """
     if kpt_shape is None:
         if len(keypoints) % 3 != 0:
