@@ -196,6 +196,7 @@ def print_info(dataset: LuxonisDataset) -> None:
         {name: sorted(types) for name, types in dataset.get_tasks().items()},
     )
 
+    splits = dataset.get_splits()
     source_names = dataset.get_source_names()
     total_groups = len(dataset)
     if source_names:
@@ -209,8 +210,7 @@ def print_info(dataset: LuxonisDataset) -> None:
         yield f"[magenta b]Team ID: [not b cyan]{dataset._team_id}"
         yield ""
         yield Panel.fit(
-            _sizes_panel(dataset.get_splits(), total_groups),
-            title="Split Sizes",
+            _sizes_panel(splits, total_groups), title="Split Sizes"
         )
         yield class_table
         yield task_table

@@ -387,9 +387,9 @@ def test_metadata_lines_decode_and_deduplicate_values():
         "car/metadata/empty": np.array([]),
         "car/boundingbox": np.zeros((0, 5)),
     }
-    encodings = {"car/metadata/color": {"red": 0, "blue": 1}}
+    mappings = {"car/metadata/color": bidict({"red": 0, "blue": 1})}
 
-    assert _metadata_lines(labels, encodings) == [
+    assert _metadata_lines(labels, mappings) == [
         "Metadata labels:",
         "car/color: red, blue",
         "car/score: 0.5, 0.25",
@@ -397,7 +397,7 @@ def test_metadata_lines_decode_and_deduplicate_values():
     ]
 
 
-def test_metadata_value_without_an_encoding_stays_as_it_is():
+def test_metadata_value_outside_the_encoding_stays_as_it_is():
     mapping = bidict({"red": 0})
 
     assert _format_metadata_value(mapping, 5) == "5"

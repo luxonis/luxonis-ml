@@ -617,12 +617,18 @@ def visualize(
     """
 
     drawer = _LabelDrawer(image, source_name, classes, blend_all=blend_all)
+    metadata_mappings = {
+        task: bidict(encoding)
+        for task, encoding in (categorical_encodings or {}).items()
+    }
     for task, arr in task_type_iterator(labels, "segmentation"):
         drawer.draw_segmentation(task, arr)
     for task, arr in task_type_iterator(labels, "boundingbox"):
         drawer.draw_boxes(task, arr)
     for task, arr in task_type_iterator(labels, "instance_segmentation"):
         drawer.draw_instance_segmentation(task, arr)
+    text_lines = _classification_lines(labels, drawer.mappings)
+    text_lines += _metadata_lines(labels, metadata_mappings)
     for task, arr in task_type_iterator(labels, "keypoints"):
         drawer.draw_keypoints(
             task,
@@ -633,8 +639,6 @@ def visualize(
         )
 
     output = concat_images(drawer.images)
-    text_lines = _classification_lines(labels, drawer.mappings)
-    text_lines += _metadata_lines(labels, categorical_encodings or {})
     if text_lines:
         output = append_text_block(output, text_lines, drawer.font_scale)
     return output
@@ -916,13 +920,9 @@ def _classification_lines(
 
 
 def _metadata_lines(
-    labels: Labels, categorical_encodings: dict[str, dict[str, int]]
+    labels: Labels, metadata_mappings: dict[str, bidict[str, int]]
 ) -> list[str]:
     """List the metadata labels of a sample as text lines."""
-    metadata_mappings = {
-        task: bidict(encoding)
-        for task, encoding in categorical_encodings.items()
-    }
     lines: list[str] = []
     for task, arr in labels.items():
         task_type = get_task_type(task)

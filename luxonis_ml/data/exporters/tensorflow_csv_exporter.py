@@ -163,12 +163,12 @@ def _csv_rows(
     """Return one CSV row per bounding box of an image, in pixels."""
     rows = []
     for row in group_df.iter_rows(named=True):
-        if row["task_type"] != "boundingbox":
-            continue
-        cname = row["class_name"]
-        if row["annotation"] is None or not cname:
+        if row["task_type"] != "boundingbox" or row["annotation"] is None:
             continue
         ann = json.loads(row["annotation"])
+        cname = row["class_name"]
+        if ann is None or not cname:
+            continue
 
         x_tl = float(ann.get("x", 0.0))
         y_tl = float(ann.get("y", 0.0))

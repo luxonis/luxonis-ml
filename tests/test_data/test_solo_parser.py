@@ -36,7 +36,7 @@ def _capture(sequence_path: Path) -> dict:
         "annotations": [
             {"@type": f"{_SOLO}DepthAnnotation"},
             box,
-            {**box, "values": []},
+            {**box, "values": [{**box["values"][0], "labelName": "truck"}]},
             {
                 "@type": f"{_SOLO}InstanceSegmentationAnnotation",
                 "filename": "step0.instance.png",

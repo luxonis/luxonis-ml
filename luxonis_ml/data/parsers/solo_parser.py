@@ -241,19 +241,26 @@ def _parse_capture(
     Each annotation kind is read once per step. ``processed`` holds the
     kinds that an earlier capture of the same step already read.
     """
+    img_fname = capture["filename"]
     img_w, img_h = capture["dimension"]
-    img_path = resolve_manifest_path(sequence_path, capture["filename"])
+    annotations = capture["annotations"]
+    img_path = resolve_manifest_path(sequence_path, img_fname)
     if not img_path.exists():
         raise FileNotFoundError(f"{img_path} not existent.")
 
     bounding_boxes: dict[int, dict[str, Any]] = {}
     instance_keypoints: dict[int, list[tuple[float, float, int]]] = {}
     instance_masks: dict[int, np.ndarray] = {}
-    for anno in capture["annotations"]:
+    for anno in annotations:
         kind = next(
-            (k for k in _ANNOTATION_KINDS if anno["@type"].endswith(k)), None
+            (
+                k
+                for k in _ANNOTATION_KINDS
+                if k not in processed and anno["@type"].endswith(k)
+            ),
+            None,
         )
-        if kind is None or kind in processed:
+        if kind is None:
             continue
         processed.add(kind)
         if kind == "SemanticSegmentationAnnotation":
@@ -314,10 +321,14 @@ def _bounding_boxes(
     """Map each instance ID to its class and normalized bounding box."""
     boxes = {}
     for value in anno.get("values", []):
-        xmin, ymin = value["origin"]
-        bbox_w, bbox_h = value["dimension"]
-        boxes[value["instanceId"]] = {
-            "class": value["labelName"],
+        class_name = value["labelName"]
+        origin = value["origin"]
+        dimension = value["dimension"]
+        xmin, ymin = origin
+        bbox_w, bbox_h = dimension
+        instance_id = value["instanceId"]
+        boxes[instance_id] = {
+            "class": class_name,
             "boundingbox": {
                 "x": xmin / img_w,
                 "y": ymin / img_h,
@@ -333,10 +344,10 @@ def _instance_masks(
 ) -> dict[int, np.ndarray]:
     """Map each instance ID to its binary mask."""
     mask = _read_mask(sequence_path, anno)
-    return {
-        instance["instanceId"]: _color_mask(mask, instance["color"])
-        for instance in anno.get("instances", [])
-    }
+    masks = {}
+    for instance in anno.get("instances", []):
+        masks[instance["instanceId"]] = _color_mask(mask, instance["color"])
+    return masks
 
 
 def _instance_keypoints(
@@ -348,7 +359,8 @@ def _instance_keypoints(
         keypoints = []
         for keypoint in value["keypoints"]:
             x, y = keypoint["location"]
-            keypoints.append((x / img_w, y / img_h, keypoint["state"]))
+            visibility = keypoint["state"]
+            keypoints.append((x / img_w, y / img_h, visibility))
         result[value["instanceId"]] = keypoints
     return result
 
