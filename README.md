@@ -30,7 +30,7 @@ tracking, and utility layers that the other Luxonis tools build on.
 - **Bring Your Own Data**: Convert `COCO`, `YOLO`, `VOC`, `RoboFlow`, and other common formats with a single call.
 - **Storage Agnostic**: Keep the images locally, in `Google Cloud Storage`, or in `S3`, without a change to your training code.
 - **Rich Annotations**: Bounding boxes, keypoints, semantic and instance segmentation, classification, arrays, and free-form metadata.
-- **One Tracking API**: Log metrics to `TensorBoard`, `Weights & Biases`, or `MLflow` through one interface.
+- **One Tracking API**: Log metrics to `TensorBoard`, `Weights & Biases`, `MLflow`, or the console through one interface.
 
 > [!WARNING]
 > **The project is in a beta state and might be unstable or contain bugs - please report any feedback.**
@@ -113,7 +113,7 @@ Each module links to its own API reference:
 | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | -------------------------------------------------------------------------- |
 | [`luxonis_ml.data`](https://docs.luxonis.com/software-v3/ai-inference/model-source/training/luxonis-ml/luxonis-ml-api-reference/data)             | `data`       | Dataset creation, conversion, loading, augmentation, and export.           |
 | [`luxonis_ml.ldf`](https://docs.luxonis.com/software-v3/ai-inference/model-source/training/luxonis-ml/luxonis-ml-api-reference/ldf)               | `ldf`        | The annotation schemas of the Luxonis Data Format. A subset of `data`.     |
-| [`luxonis_ml.tracker`](https://docs.luxonis.com/software-v3/ai-inference/model-source/training/luxonis-ml/luxonis-ml-api-reference/tracker)       | `tracker`    | One experiment tracking API for TensorBoard, Weights & Biases, and MLflow. |
+| [`luxonis_ml.tracker`](https://docs.luxonis.com/software-v3/ai-inference/model-source/training/luxonis-ml/luxonis-ml-api-reference/tracker)       | `tracker`    | One tracking API for TensorBoard, Weights & Biases, MLflow, and a console. |
 | [`luxonis_ml.telemetry`](https://docs.luxonis.com/software-v3/ai-inference/model-source/training/luxonis-ml/luxonis-ml-api-reference/telemetry)   | `telemetry`  | A lightweight telemetry client with pluggable backends.                    |
 | [`luxonis_ml.nn_archive`](https://docs.luxonis.com/software-v3/ai-inference/model-source/training/luxonis-ml/luxonis-ml-api-reference/nn_archive) | `nn_archive` | NN Archive creation and inspection.                                        |
 | [`luxonis_ml.utils`](https://docs.luxonis.com/software-v3/ai-inference/model-source/training/luxonis-ml/luxonis-ml-api-reference/utils)           | `utils`      | Config, environment, filesystem, logging, graph, and registry helpers.     |

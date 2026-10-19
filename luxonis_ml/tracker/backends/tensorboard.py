@@ -19,7 +19,7 @@ See:
 """
 
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -29,7 +29,7 @@ import numpy.typing as npt
 from luxonis_ml.guard_extras import guard_missing_extra
 from luxonis_ml.typing import ParamValue
 
-from .base import RunContext, RunStatus, TrackerBackend
+from .base import RunContext, RunStatus, TableCell, TrackerBackend
 
 if TYPE_CHECKING:
     from tensorboardX import SummaryWriter
@@ -154,24 +154,52 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
         matrix: npt.NDArray[Any],
         name: str,
         step: int,
-        extra_data: Mapping[str, ParamValue],
+        labels: Sequence[str],
     ) -> None:
-        """Write the matrix as text.
+        r"""Write the confusion matrix as a markdown table.
 
-        The text holds every element, also of a large matrix.
+        The text tab of TensorBoard renders the table. Its first column
+        holds the true classes, and its header the predicted ones.
 
         Args:
-            matrix: The matrix.
+            matrix: The counts, of shape :math:`\left(N, N\right)`.
             name: Name of the matrix, which is the tag of the text.
             step: The training step of the matrix.
-            extra_data: Ignored, because the text has no place for it.
+            labels: The :math:`N` class names.
 
         Raises:
             RuntimeError: If the backend has not started.
 
         """
-        text = np.array2string(matrix, separator=", ", threshold=matrix.size)
+        rows = [
+            [label, *row]
+            for label, row in zip(labels, matrix.tolist(), strict=True)
+        ]
+        text = _markdown_table(["true \\ pred", *labels], rows)
         self.writer.add_text(name, text, step)
+
+    def log_table(
+        self,
+        name: str,
+        rows: Sequence[Sequence[TableCell]],
+        columns: Sequence[str],
+        step: int,
+    ) -> None:
+        """Write the table as a markdown table.
+
+        The text tab of TensorBoard renders the table.
+
+        Args:
+            name: Name of the table, which is the tag of the text.
+            rows: The rows, each with one cell for each column.
+            columns: Names of the columns.
+            step: The training step of the table.
+
+        Raises:
+            RuntimeError: If the backend has not started.
+
+        """
+        self.writer.add_text(name, _markdown_table(columns, rows), step)
 
     def flush(self) -> None:
         """Write the pending events to disk.
@@ -231,6 +259,29 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
         file_writer = self.writer._get_file_writer()  # pyright: ignore[reportPrivateUsage]
         for summary in hparams(scalars, {"placeholder_metric": 0}):
             file_writer.add_summary(summary)
+
+
+def _markdown_table(
+    columns: Sequence[str], rows: Iterable[Sequence[TableCell]]
+) -> str:
+    r"""Return a markdown table, with the first column on the left and
+    the others on the right.
+
+    Example:
+        >>> print(_markdown_table(["Name", "Value"], [("a|b", 0.5)]))
+        | Name | Value |
+        |:---|---:|
+        | a\|b | 0.5 |
+
+    """
+
+    def line(cells: Iterable[TableCell]) -> str:
+        # a bare `|` would end the cell
+        text = " | ".join(str(cell).replace("|", r"\|") for cell in cells)
+        return f"| {text} |"
+
+    rule = "|:---|" + "---:|" * (len(columns) - 1)
+    return "\n".join([line(columns), rule, *map(line, rows)])
 
 
 def _next_trial(log_dir: Path) -> int:

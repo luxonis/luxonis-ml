@@ -29,6 +29,7 @@ from mlflow.utils.mlflow_tags import (
     MLFLOW_SOURCE_NAME,
     MLFLOW_USER,
 )
+from PIL import Image
 
 import luxonis_ml.tracker.backends.mlflow as mlflow_module
 from luxonis_ml.tracker import (
@@ -356,17 +357,36 @@ def test_an_image_goes_under_its_step(
     assert (artifacts / "4" / "plain.png").is_file()
 
 
-def test_a_matrix_goes_to_a_json_file(
-    backend: MLflowBackend, client: MlflowClient
+@pytest.mark.parametrize("n_classes", [2, 21])
+def test_a_matrix_goes_to_a_json_file_and_a_figure(
+    backend: MLflowBackend, client: MlflowClient, n_classes: int
 ):
-    backend.log_matrix(np.eye(2), "matrix", 5, {"labels": ["a", "b"]})
+    matrix = np.eye(n_classes, dtype=np.int64) * 4
+    labels = [f"class {i}" for i in range(n_classes)]
+    backend.log_matrix(matrix, "val/cm", 5, labels)
 
     assert backend.run_id is not None
-    matrix_file = artifact_root(client, backend.run_id) / "matrix.json"
-    assert json.loads(matrix_file.read_text()) == {
-        "flat_array": [1.0, 0.0, 0.0, 1.0],
-        "shape": [2, 2],
-        "labels": ["a", "b"],
+    directory = artifact_root(client, backend.run_id) / "val" / "cm"
+    assert json.loads((directory / "step_5.json").read_text()) == {
+        "labels": labels,
+        "matrix": matrix.tolist(),
+    }
+    with Image.open(directory / "step_5.png") as figure:
+        assert figure.format == "PNG"
+
+
+def test_a_table_goes_to_a_json_file(
+    backend: MLflowBackend, client: MlflowClient
+):
+    backend.log_table("quant", [("map", 0.41), ("loss", 1.9)], ["A", "B"], 7)
+
+    assert backend.run_id is not None
+    table_file = (
+        artifact_root(client, backend.run_id) / "quant" / "step_7.json"
+    )
+    assert json.loads(table_file.read_text()) == {
+        "columns": ["A", "B"],
+        "data": [["map", 0.41], ["loss", 1.9]],
     }
 
 

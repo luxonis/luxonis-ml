@@ -18,7 +18,7 @@ See:
 """
 
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from importlib.util import find_spec
 from pathlib import Path
 from time import time_ns
@@ -33,7 +33,13 @@ from luxonis_ml.typing import ParamValue
 from luxonis_ml.utils.environ import environ
 from luxonis_ml.utils.filesystem import LuxonisFileSystem
 
-from .base import RunContext, RunStatus, TrackerBackend, check_options
+from .base import (
+    RunContext,
+    RunStatus,
+    TableCell,
+    TrackerBackend,
+    check_options,
+)
 
 if TYPE_CHECKING:
     from mlflow import MlflowClient
@@ -286,20 +292,21 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         matrix: npt.NDArray[Any],
         name: str,
         step: int,
-        extra_data: Mapping[str, ParamValue],
+        labels: Sequence[str],
     ) -> None:
-        """Log the matrix as the artifact ``<name>.json``.
+        r"""Log the confusion matrix as a JSON file and as a figure.
 
-        The file holds the keys ``flat_array`` and ``shape``, and the keys
-        of ``extra_data``. Each call replaces the file of the previous
-        call with the same name, so the file holds the matrix of the last
-        step.
+        The artifact ``<name>/step_<step>.json`` holds the keys
+        ``labels`` and ``matrix``, a list of the rows. The artifact
+        ``<name>/step_<step>.png`` shows the matrix as a heatmap, with
+        the counts in the cells when the matrix has 20 classes or fewer.
 
         Args:
-            matrix: The matrix.
-            name: Name of the matrix, and of the file.
-            step: Ignored, because the file holds one matrix.
-            extra_data: More keys for the file, such as the class names.
+            matrix: The counts, of shape :math:`\left(N, N\right)`.
+            name: Name of the matrix, which is the directory of the
+                files.
+            step: The training step of the matrix.
+            labels: The :math:`N` class names.
 
         Raises:
             RuntimeError: If the backend has not started.
@@ -308,11 +315,50 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
 
         """
         data: dict[str, ParamValue] = {
-            "flat_array": matrix.flatten().tolist(),
-            "shape": list(matrix.shape),
-            **extra_data,
+            "labels": list(labels),
+            "matrix": matrix.tolist(),
         }
-        self.client.log_dict(self._run_id, data, f"{name}.json")
+        self.client.log_dict(self._run_id, data, f"{name}/step_{step}.json")
+        # matplotlib comes with the mlflow extra, not with the tracker one
+        from ._figures import confusion_figure
+
+        figure = confusion_figure(matrix, labels, f"{name}\nstep {step}")
+        # MLflow leaves the type of the figure unresolved
+        self.client.log_figure(  # pyright: ignore[reportUnknownMemberType]
+            self._run_id, figure, f"{name}/step_{step}.png"
+        )
+
+    def log_table(
+        self,
+        name: str,
+        rows: Sequence[Sequence[TableCell]],
+        columns: Sequence[str],
+        step: int,
+    ) -> None:
+        """Log the table as the artifact ``<name>/step_<step>.json``.
+
+        The file is the one of ``MlflowClient.log_table``, which the
+        artifact view of MLflow shows as a table.
+
+        Args:
+            name: Name of the table, which is the directory of the file.
+            rows: The rows, each with one cell for each column.
+            columns: Names of the columns.
+            step: The training step of the table.
+
+        Raises:
+            RuntimeError: If the backend has not started.
+            mlflow.exceptions.MlflowException: If the server rejects the
+                call or cannot be reached.
+
+        """
+        data = {
+            column: [row[i] for row in rows]
+            for i, column in enumerate(columns)
+        }
+        self.client.log_table(
+            self._run_id, data, artifact_file=f"{name}/step_{step}.json"
+        )
 
     def upload_artifact(self, path: Path, name: str | None, typ: str) -> None:
         """Upload the file to the root of the run artifacts.

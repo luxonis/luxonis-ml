@@ -83,10 +83,10 @@ def test_a_float_image_saturates(backend: TensorBoardBackend):
 def test_the_logged_values_reach_the_event_file(
     backend: TensorBoardBackend, image: npt.NDArray[np.uint8]
 ):
-    matrix = np.arange(1200).reshape(40, 30)
     backend.log_metrics({"loss": 0.5, "acc": 0.9}, 3)
     backend.log_image("val/image", image, 4)
-    backend.log_matrix(matrix, "matrix", 5, {"ignored": 1})
+    backend.log_matrix(np.array([[3, 1], [0, 2]]), "cm", 5, ["cat", "a|b"])
+    backend.log_table("quant", [("map", 0.41)], ["Name", "INT8"], 6)
     backend.close("success")
 
     values = read_summaries(backend.log_dir)
@@ -97,11 +97,21 @@ def test_the_logged_values_reach_the_event_file(
     assert by_tag["val/image"][0] == 4
     assert by_tag["val/image"][1].image.height == 4
     assert by_tag["val/image"][1].image.width == 5
-    step, text = by_tag["matrix/text_summary"]
+    step, text = by_tag["cm/text_summary"]
     assert step == 5
-    # the whole matrix, not the abbreviated form of `array2string`
-    assert "1199" in text.tensor.string_val[0].decode()
-    assert "..." not in text.tensor.string_val[0].decode()
+    assert text.tensor.string_val[0].decode().splitlines() == [
+        r"| true \ pred | cat | a\|b |",
+        "|:---|---:|---:|",
+        "| cat | 3 | 1 |",
+        r"| a\|b | 0 | 2 |",
+    ]
+    step, text = by_tag["quant/text_summary"]
+    assert step == 6
+    assert text.tensor.string_val[0].decode().splitlines() == [
+        "| Name | INT8 |",
+        "|:---|---:|",
+        "| map | 0.41 |",
+    ]
 
 
 def test_the_hyperparameters_stay_in_the_run(

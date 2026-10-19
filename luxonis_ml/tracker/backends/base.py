@@ -15,7 +15,7 @@ See:
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Container, Mapping
+from collections.abc import Container, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar, Literal, TypeAlias
@@ -31,6 +31,9 @@ RunStatus: TypeAlias = Literal["success", "failed"]
 `LuxonisTracker.close` turns ``"success"`` and ``"finished"`` into
 ``"success"``, and every other status into ``"failed"``.
 """
+
+TableCell: TypeAlias = str | int | float
+"""A cell of a table that `TrackerBackend.log_table` receives."""
 
 TRACKER_BACKENDS: Registry[type["TrackerBackend"]] = Registry(
     name="tracker_backends"
@@ -233,17 +236,41 @@ class TrackerBackend(
         matrix: npt.NDArray[Any],
         name: str,
         step: int,
-        extra_data: Mapping[str, ParamValue],
+        labels: Sequence[str],
     ) -> None:
-        r"""Log a matrix, such as a confusion matrix.
+        r"""Log a confusion matrix.
 
         Args:
-            matrix: The matrix, usually of shape :math:`\left(M, N\right)`.
+            matrix: The counts, of shape :math:`\left(N, N\right)`. Row
+                :math:`i` holds the samples of the true class :math:`i`,
+                and column :math:`j` the samples that the model predicts
+                as class :math:`j`.
             name: Name of the matrix.
             step: The training step of the matrix.
-            extra_data: More data to store with the matrix, such as the
-                class names. A service that has no place for it can
-                ignore it.
+            labels: The :math:`N` class names, of the rows and of the
+                columns alike.
+
+        Raises:
+            Exception: Any error of the service. `is_transient` tells
+                whether a later attempt can succeed.
+
+        """
+
+    @abstractmethod
+    def log_table(
+        self,
+        name: str,
+        rows: Sequence[Sequence[TableCell]],
+        columns: Sequence[str],
+        step: int,
+    ) -> None:
+        """Log a table, such as a comparison of metrics.
+
+        Args:
+            name: Name of the table.
+            rows: The rows, each with one cell for each column.
+            columns: Names of the columns.
+            step: The training step of the table.
 
         Raises:
             Exception: Any error of the service. `is_transient` tells

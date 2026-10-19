@@ -105,14 +105,31 @@ def test_calls_leave_the_step_to_wandb(
     assert wandb_image._caption == "val/image"
 
 
-def test_a_matrix_becomes_a_table(backend: WandbBackend, spy: RunSpy):
-    backend.log_matrix(np.array([[1, 2], [3, 4]]), "matrix", 9, {})
-    backend.log_matrix(np.array([5, 6, 7]), "vector", 9, {})
+def test_a_matrix_becomes_a_confusion_matrix_chart(
+    backend: WandbBackend, spy: RunSpy
+):
+    matrix = np.array([[3, 1], [0, 2]])
+    backend.log_matrix(matrix, "val/cm", 9, ["cat", "dog"])
 
-    table = spy.logged[0]["matrix_table"]
-    assert table.columns == ["Row Index", "Col 0", "Col 1"]
-    assert table.data == [[0, 1, 2], [1, 3, 4]]
-    assert spy.logged[1]["vector_table"].data == [[0, 5, 6, 7]]
+    chart = spy.logged[0]["val/cm"]
+    assert chart.spec.spec_name == "wandb/confusion_matrix/v1"
+    assert chart.spec.string_fields == {"title": "val/cm"}
+    assert chart.table.columns == ["Actual", "Predicted", "nPredictions"]
+    assert chart.table.data == [
+        ["cat", "cat", 3],
+        ["cat", "dog", 1],
+        ["dog", "cat", 0],
+        ["dog", "dog", 2],
+    ]
+
+
+def test_a_table_becomes_a_wandb_table(backend: WandbBackend, spy: RunSpy):
+    backend.log_table("quant", [("map", 0.41), ("loss", 1.9)], ["A", "B"], 9)
+
+    table = spy.logged[0]["quant"]
+    assert isinstance(table, wandb.Table)
+    assert table.columns == ["A", "B"]
+    assert table.data == [["map", 0.41], ["loss", 1.9]]
 
 
 @pytest.mark.parametrize(

@@ -17,7 +17,7 @@ import re
 import sys
 import time
 import warnings
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType, TracebackType
 from typing import Any, TypeVar
@@ -37,8 +37,10 @@ from .backends.base import (
     TRACKER_BACKENDS,
     RunContext,
     RunStatus,
+    TableCell,
     TrackerBackend,
 )
+from .backends.console import ConsoleOptions
 from .backends.mlflow import MLflowBackend, MLflowOptions
 from .backends.tensorboard import TensorBoardBackend
 from .backends.wandb import WandbBackend, WandbOptions
@@ -129,6 +131,7 @@ class LuxonisTracker:
         tensorboard: bool | None = None,
         wandb: WandbOptions | bool | None = None,
         mlflow: MLflowOptions | bool | None = None,
+        console: ConsoleOptions | bool | None = None,
         **plugins: Mapping[str, object] | bool | None,
     ) -> None:
         """Create a tracker.
@@ -157,6 +160,8 @@ class LuxonisTracker:
             tensorboard: Whether to log to `TensorBoardBackend`.
             wandb: `WandbBackend`, with the options of `WandbOptions`.
             mlflow: `MLflowBackend`, with the options of `MLflowOptions`.
+            console: `ConsoleBackend`, with the options of
+                `ConsoleOptions`.
             **plugins: The other backends in `TRACKER_BACKENDS`, keyed by
                 their name.
 
@@ -181,6 +186,7 @@ class LuxonisTracker:
             "tensorboard": tensorboard,
             "wandb": wandb,
             "mlflow": mlflow,
+            "console": console,
             **plugins,
         }
         for name, value in requested.items():
@@ -506,26 +512,98 @@ class LuxonisTracker:
         matrix: npt.NDArray[Any],
         name: str,
         step: int,
-        extra_data: Mapping[str, ParamValue] | None = None,
+        labels: Sequence[str] | None = None,
     ) -> None:
-        """Log a matrix, such as a confusion matrix.
+        r"""Log a confusion matrix.
+
+        Example:
+            .. code-block:: python
+
+                tracker.log_matrix(
+                    np.array([[50, 2], [4, 44]]),
+                    "val/head/confusion_matrix",
+                    step=3,
+                    labels=["cat", "dog"],
+                )
 
         Args:
-            matrix: The matrix.
+            matrix: The counts, of shape :math:`\left(N, N\right)`. Row
+                :math:`i` holds the samples of the true class :math:`i`,
+                and column :math:`j` the samples that the model predicts
+                as class :math:`j`.
             name: Name of the matrix.
             step: The training step of the matrix.
-            extra_data: More data to store with the matrix, such as the
-                class names. Only MLflow stores it.
+            labels: The :math:`N` class names, of the rows and of the
+                columns alike. ``None`` names the classes ``"0"``,
+                ``"1"``, and so on.
 
         Raises:
+            ValueError: If the matrix is not square, or ``labels`` does
+                not hold one name for each row.
             Exception: The error of a backend that fails to start. A
                 buffered backend raises only when the service rejects
                 the start.
 
         """
-        data = extra_data or {}
+        if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
+            raise ValueError(
+                f"A confusion matrix is square, not of shape {matrix.shape}."
+            )
+        if labels is None:
+            labels = [str(i) for i in range(len(matrix))]
+        elif len(labels) != len(matrix):
+            raise ValueError(
+                f"The matrix has {len(matrix)} classes, but {len(labels)} "
+                "labels."
+            )
+        names = list(labels)
         self._send(
-            lambda backend: backend.log_matrix(matrix, name, step, data)
+            lambda backend: backend.log_matrix(matrix, name, step, names)
+        )
+
+    def log_table(
+        self,
+        name: str,
+        rows: Sequence[Sequence[TableCell]],
+        columns: Sequence[str],
+        step: int,
+    ) -> None:
+        """Log a table, such as a comparison of metrics.
+
+        Example:
+            .. code-block:: python
+
+                tracker.log_table(
+                    "quantization",
+                    [
+                        ("map", 0.41, 0.37),
+                        ("loss", 1.90, 2.25),
+                    ],
+                    ["Name", "Float", "INT8"],
+                    step=3000,
+                )
+
+        Args:
+            name: Name of the table.
+            rows: The rows, each with one cell for each column.
+            columns: Names of the columns.
+            step: The training step of the table.
+
+        Raises:
+            ValueError: If a row does not hold one cell for each column.
+            Exception: The error of a backend that fails to start. A
+                buffered backend raises only when the service rejects
+                the start.
+
+        """
+        for row in rows:
+            if len(row) != len(columns):
+                raise ValueError(
+                    f"The table has {len(columns)} columns, but the row "
+                    f"{tuple(row)} has {len(row)} cells."
+                )
+        self._send(
+            lambda backend: backend.log_table(name, rows, columns, step)
         )
 
     def upload_artifact(

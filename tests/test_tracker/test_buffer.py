@@ -57,14 +57,16 @@ def test_a_healthy_backend_gets_each_call_at_once(
     buffered.log_hyperparams({"lr": 0.1})
     log(buffered, 1)
     buffered.log_image("image", image, 2)
-    buffered.log_matrix(matrix, "matrix", 3, {"labels": ["a", "b"]})
+    buffered.log_matrix(matrix, "matrix", 3, ["a", "b"])
+    buffered.log_table("table", [("map", 0.5)], ["Name", "Value"], 4)
     buffered.upload_artifact(artifact, "final.txt", "weights")
 
     assert inner.calls == [
         ("log_hyperparams", {"lr": 0.1}),
         metrics(1),
         ("log_image", "image", image, 2),
-        ("log_matrix", matrix, "matrix", 3, {"labels": ["a", "b"]}),
+        ("log_matrix", matrix, "matrix", 3, ["a", "b"]),
+        ("log_table", "table", [["map", 0.5]], ["Name", "Value"], 4),
         ("upload_artifact", "weights", "final.txt", "weights"),
     ]
     # nothing waited, so the buffer kept no copy of the artifact
@@ -397,7 +399,8 @@ def test_close_saves_what_never_got_through(
     buffered.log_hyperparams({"lr": 0.1, "layers": [1, 2]})
     buffered.log_metrics({"loss": 0.5}, 1)
     buffered.log_image("val/image", image, 2)
-    buffered.log_matrix(np.eye(2), "matrix", 3, {"labels": ["a", "b"]})
+    buffered.log_matrix(np.eye(2), "matrix", 3, ["a", "b"])
+    buffered.log_table("table", [("map", 0.5)], ["Name", "Value"], 4)
     buffered.upload_artifact(artifact, "final.txt", "weights")
 
     buffered.close("failed")
@@ -422,10 +425,17 @@ def test_close_saves_what_never_got_through(
         "name": "matrix",
         "step": 3,
         "matrix": [[1.0, 0.0], [0.0, 1.0]],
-        "extra_data": {"labels": ["a", "b"]},
+        "labels": ["a", "b"],
     }
-    assert records[4]["name"] == "final.txt"
-    assert Path(records[4]["path"]).read_text() == "weights"
+    assert records[4] == {
+        "call": "log_table",
+        "name": "table",
+        "step": 4,
+        "columns": ["Name", "Value"],
+        "rows": [["map", 0.5]],
+    }
+    assert records[5]["name"] == "final.txt"
+    assert Path(records[5]["path"]).read_text() == "weights"
     assert inner.status is None
 
 
@@ -709,16 +719,21 @@ def test_a_buffered_call_keeps_the_values_of_the_caller(
     buffered.start()
     inner.error = ConnectionError()
     params = {"optimizer": {"lr": 0.1}}
-    labels = ["a"]
+    labels = ["a", "b"]
     matrix = np.eye(2)
+    row: list[str | float] = ["map", 0.5]
+    columns = ["Name", "Value"]
     original_image = image.copy()
     buffered.log_hyperparams(params)
-    buffered.log_matrix(matrix, "matrix", 0, {"labels": labels})
+    buffered.log_matrix(matrix, "matrix", 0, labels)
     buffered.log_image("image", image, 0)
+    buffered.log_table("table", [row], columns, 0)
     params["optimizer"]["lr"] = 0.2
-    labels.append("b")
+    labels[0] = "z"
     matrix[:] = 0
     image[:] = 0
+    row[1] = 0.0
+    columns.append("Extra")
     inner.error = None
 
     clock.now = RETRY_INTERVAL
@@ -726,8 +741,15 @@ def test_a_buffered_call_keeps_the_values_of_the_caller(
 
     assert inner.calls[0] == ("log_hyperparams", {"optimizer": {"lr": 0.1}})
     np.testing.assert_array_equal(inner.calls[1][1], np.eye(2))
-    assert inner.calls[1][4] == {"labels": ["a"]}
+    assert inner.calls[1][4] == ["a", "b"]
     np.testing.assert_array_equal(inner.calls[2][2], original_image)
+    assert inner.calls[3] == (
+        "log_table",
+        "table",
+        [["map", 0.5]],
+        ["Name", "Value"],
+        0,
+    )
 
 
 def test_flush_sends_the_buffer_and_flushes_the_backend(

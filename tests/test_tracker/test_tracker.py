@@ -14,6 +14,7 @@ import luxonis_ml.tracker as tracker_package
 import luxonis_ml.tracker.tracker as tracker_module
 from luxonis_ml.tracker import (
     TRACKER_BACKENDS,
+    ConsoleBackend,
     LuxonisTracker,
     MLflowBackend,
     RunContext,
@@ -333,6 +334,7 @@ def test_other_ranks_never_start_or_log(
     tracker.log_metric("loss", 0.5, 1)
     tracker.log_image("image", image, 1)
     tracker.log_matrix(np.eye(2), "matrix", 1)
+    tracker.log_table("table", [("map", 0.5)], ["Name", "Value"], 1)
     tracker.upload_artifact(tmp_path / "missing.txt")
     tracker.start()
     tracker.close()
@@ -379,7 +381,8 @@ def test_each_call_reaches_each_backend(
     tracker.log_metrics({"acc": 0.9}, 2)
     tracker.log_images({"a": image, "b": image}, 3)
     tracker.log_matrix(matrix, "matrix", 4)
-    tracker.log_matrix(matrix, "labelled", 5, {"labels": ["x", "y"]})
+    tracker.log_matrix(matrix, "labelled", 5, ["x", "y"])
+    tracker.log_table("table", [("map", 0.5)], ["Name", "Value"], 6)
     tracker.upload_artifact(str(artifact), name="final.txt", typ="weights")
 
     # the arrays compare by identity inside the tuples
@@ -389,12 +392,51 @@ def test_each_call_reaches_each_backend(
         ("log_metrics", {"acc": 0.9}, 2),
         ("log_image", "a", image, 3),
         ("log_image", "b", image, 3),
-        ("log_matrix", matrix, "matrix", 4, {}),
-        ("log_matrix", matrix, "labelled", 5, {"labels": ["x", "y"]}),
+        ("log_matrix", matrix, "matrix", 4, ["0", "1"]),
+        ("log_matrix", matrix, "labelled", 5, ["x", "y"]),
+        ("log_table", "table", [["map", 0.5]], ["Name", "Value"], 6),
         ("upload_artifact", "weights", "final.txt", "weights"),
     ]
     assert fake(tracker).calls == expected
     assert fake(tracker, "other_fake").calls == expected
+
+
+@pytest.mark.parametrize(
+    ("matrix", "labels", "message"),
+    [
+        (np.eye(2, 3), None, r"square, not of shape \(2, 3\)"),
+        (np.ones(3), None, r"square, not of shape \(3,\)"),
+        (np.eye(2), ["a", "b", "c"], "2 classes, but 3 labels"),
+    ],
+)
+def test_a_matrix_that_is_no_confusion_matrix_is_rejected(
+    tmp_path: Path,
+    matrix: npt.NDArray[np.float64],
+    labels: list[str] | None,
+    message: str,
+):
+    tracker = make_tracker(tmp_path)
+
+    with pytest.raises(ValueError, match=message):
+        tracker.log_matrix(matrix, "matrix", 1, labels)
+
+    assert fake(tracker).calls == []
+
+
+def test_a_table_row_must_fill_each_column(tmp_path: Path):
+    tracker = make_tracker(tmp_path)
+
+    with pytest.raises(ValueError, match=r"row \('map',\) has 1 cells"):
+        tracker.log_table("table", [("map", 0.5), ("map",)], ["A", "B"], 1)
+
+    assert fake(tracker).calls == []
+
+
+def test_the_console_keyword_turns_on_the_console_backend(tmp_path: Path):
+    tracker = make_tracker(tmp_path, fake=False, console={"rich": False})
+
+    console = backend_of(tracker, "console", ConsoleBackend)
+    assert not console.rich
 
 
 def test_a_backend_that_fails_to_log_does_not_stop_the_others(

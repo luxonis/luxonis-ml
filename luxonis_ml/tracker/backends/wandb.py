@@ -14,7 +14,7 @@ See:
 
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
@@ -25,7 +25,13 @@ from typing_extensions import Unpack
 from luxonis_ml.guard_extras import guard_missing_extra
 from luxonis_ml.typing import ParamValue
 
-from .base import RunContext, RunStatus, TrackerBackend, check_options
+from .base import (
+    RunContext,
+    RunStatus,
+    TableCell,
+    TrackerBackend,
+    check_options,
+)
 
 if TYPE_CHECKING:
     from wandb.sdk.wandb_run import Run
@@ -166,18 +172,21 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
         matrix: npt.NDArray[Any],
         name: str,
         step: int,
-        extra_data: Mapping[str, ParamValue],
+        labels: Sequence[str],
     ) -> None:
-        """Log the matrix as a table under ``<name>_table``.
+        r"""Log the confusion matrix as a WandB confusion-matrix chart.
 
-        The table has a ``Row Index`` column and a ``Col <n>`` column for
-        each column of the matrix. A 1-dimensional array is one row.
+        The chart is the one of ``wandb.plot.confusion_matrix``, built
+        from the counts. Its table has the columns ``Actual``,
+        ``Predicted`` and ``nPredictions``, with one row for each cell
+        of the matrix.
 
         Args:
-            matrix: The matrix.
-            name: Name of the matrix.
+            matrix: The counts, of shape :math:`\left(N, N\right)`.
+            name: Name of the matrix, which is the key and the title of
+                the chart.
             step: Ignored. See the class description.
-            extra_data: Ignored, because the table has no place for it.
+            labels: The :math:`N` class names.
 
         Raises:
             RuntimeError: If the backend has not started.
@@ -185,13 +194,50 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
         """
         import wandb
 
-        rows = np.atleast_2d(matrix)
         table = wandb.Table(
-            columns=["Row Index", *(f"Col {i}" for i in range(rows.shape[1]))]
+            columns=["Actual", "Predicted", "nPredictions"],
+            data=[
+                [labels[i], labels[j], count.item()]
+                for (i, j), count in np.ndenumerate(matrix)
+            ],
         )
-        for i, row in enumerate(rows):
-            table.add_data(i, *row)
-        self.wandb_run.log({f"{name}_table": table})
+        chart = wandb.plot_table(
+            "wandb/confusion_matrix/v1",
+            table,
+            {
+                "Actual": "Actual",
+                "Predicted": "Predicted",
+                "nPredictions": "nPredictions",
+            },
+            {"title": name},
+        )
+        self.wandb_run.log({name: chart})
+
+    def log_table(
+        self,
+        name: str,
+        rows: Sequence[Sequence[TableCell]],
+        columns: Sequence[str],
+        step: int,
+    ) -> None:
+        """Log the table as a ``wandb.Table`` at the next WandB step.
+
+        Args:
+            name: Name of the table, which is its key.
+            rows: The rows, each with one cell for each column.
+            columns: Names of the columns.
+            step: Ignored. See the class description.
+
+        Raises:
+            RuntimeError: If the backend has not started.
+
+        """
+        import wandb
+
+        table = wandb.Table(
+            columns=list(columns), data=[list(row) for row in rows]
+        )
+        self.wandb_run.log({name: table})
 
     def upload_artifact(self, path: Path, name: str | None, typ: str) -> None:
         """Log the file as a WandB artifact of the run.

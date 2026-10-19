@@ -1,4 +1,4 @@
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -11,6 +11,7 @@ from luxonis_ml.tracker import (
     LuxonisTracker,
     RunContext,
     RunStatus,
+    TableCell,
     TrackerBackend,
 )
 from luxonis_ml.tracker.tracker import RUN_NAME_ENV
@@ -84,9 +85,19 @@ class FakeBackend(TrackerBackend, register_name="fake"):
         matrix: npt.NDArray[Any],
         name: str,
         step: int,
-        extra_data: Mapping[str, ParamValue],
+        labels: Sequence[str],
     ) -> None:
-        self._record("log_matrix", matrix, name, step, dict(extra_data))
+        self._record("log_matrix", matrix, name, step, list(labels))
+
+    def log_table(
+        self,
+        name: str,
+        rows: Sequence[Sequence[TableCell]],
+        columns: Sequence[str],
+        step: int,
+    ) -> None:
+        rows_copy = [list(row) for row in rows]
+        self._record("log_table", name, rows_copy, list(columns), step)
 
     def upload_artifact(self, path: Path, name: str | None, typ: str) -> None:
         self._raise()

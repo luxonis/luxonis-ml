@@ -18,7 +18,7 @@ import math
 import shutil
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Generator, Mapping
+from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
@@ -32,7 +32,7 @@ from loguru import logger
 
 from luxonis_ml.typing import ParamValue
 
-from .backends.base import RunStatus, TrackerBackend
+from .backends.base import RunStatus, TableCell, TrackerBackend
 
 
 class BufferedBackend(TrackerBackend, register=False):
@@ -48,7 +48,7 @@ class BufferedBackend(TrackerBackend, register=False):
           ``retry_interval`` seconds, and keep their order. The other
           kinds still go out, so one call that the service keeps
           failing does not stop them. The kinds are hyperparameters,
-          metrics, images, matrices and artifacts.
+          metrics, images, matrices, tables and artifacts.
         - When a second kind fails before any call gets through, the
           service is down. All calls then wait ``retry_interval``
           seconds, so that an outage does not stall every logging call.
@@ -60,9 +60,9 @@ class BufferedBackend(TrackerBackend, register=False):
           rejected, the wrapper keeps the calls until `close`.
 
     The buffer holds at most 100 hyperparameter calls, 500 metric calls,
-    50 images, 500 matrices and 10 artifacts. A full buffer drops the
-    oldest call of that kind, and warns once for each outage. The wrapper
-    keeps the default `TrackerBackend.log_metric` and
+    50 images, 500 matrices, 100 tables and 10 artifacts. A full buffer
+    drops the oldest call of that kind, and warns once for each outage.
+    The wrapper keeps the default `TrackerBackend.log_metric` and
     `TrackerBackend.log_images`, so it sends them as `log_metrics` and
     `log_image` calls.
 
@@ -174,18 +174,36 @@ class BufferedBackend(TrackerBackend, register=False):
         matrix: npt.NDArray[Any],
         name: str,
         step: int,
-        extra_data: Mapping[str, ParamValue],
+        labels: Sequence[str],
     ) -> None:
-        """Send the matrix, or buffer it.
+        r"""Send the confusion matrix, or buffer it.
 
         Args:
-            matrix: The matrix.
+            matrix: The counts, of shape :math:`\left(N, N\right)`.
             name: Name of the matrix.
             step: The training step of the matrix.
-            extra_data: More data to store with the matrix.
+            labels: The :math:`N` class names.
 
         """
-        self._submit(_Matrix(matrix, name, step, extra_data))
+        self._submit(_Matrix(matrix, name, step, labels))
+
+    def log_table(
+        self,
+        name: str,
+        rows: Sequence[Sequence[TableCell]],
+        columns: Sequence[str],
+        step: int,
+    ) -> None:
+        """Send the table, or buffer it.
+
+        Args:
+            name: Name of the table.
+            rows: The rows, each with one cell for each column.
+            columns: Names of the columns.
+            step: The training step of the table.
+
+        """
+        self._submit(_Table(name, rows, columns, step))
 
     def upload_artifact(self, path: Path, name: str | None, typ: str) -> None:
         """Upload the file, or buffer a link or a copy of it.
@@ -597,10 +615,10 @@ class _Matrix(_Call):
     matrix: npt.NDArray[Any]
     name: str
     step: int
-    extra_data: Mapping[str, ParamValue]
+    labels: Sequence[str]
 
     def send(self, backend: TrackerBackend) -> None:
-        backend.log_matrix(self.matrix, self.name, self.step, self.extra_data)
+        backend.log_matrix(self.matrix, self.name, self.step, self.labels)
 
     def record(self, directory: Path) -> dict[str, ParamValue]:
         return {
@@ -608,15 +626,44 @@ class _Matrix(_Call):
             "name": self.name,
             "step": self.step,
             "matrix": self.matrix.tolist(),
-            "extra_data": dict(self.extra_data),
+            "labels": list(self.labels),
         }
 
     def copy(self) -> "_Matrix":
         return _Matrix(
-            self.matrix.copy(),
+            self.matrix.copy(), self.name, self.step, list(self.labels)
+        )
+
+
+@dataclass(frozen=True, eq=False)
+class _Table(_Call):
+    """A buffered `TrackerBackend.log_table` call."""
+
+    limit: ClassVar[int] = 100
+    label: ClassVar[str] = "table"
+    name: str
+    rows: Sequence[Sequence[TableCell]]
+    columns: Sequence[str]
+    step: int
+
+    def send(self, backend: TrackerBackend) -> None:
+        backend.log_table(self.name, self.rows, self.columns, self.step)
+
+    def record(self, directory: Path) -> dict[str, ParamValue]:
+        return {
+            "call": "log_table",
+            "name": self.name,
+            "step": self.step,
+            "columns": list(self.columns),
+            "rows": [list(row) for row in self.rows],
+        }
+
+    def copy(self) -> "_Table":
+        return _Table(
             self.name,
+            [list(row) for row in self.rows],
+            list(self.columns),
             self.step,
-            deepcopy(dict(self.extra_data)),
         )
 
 
