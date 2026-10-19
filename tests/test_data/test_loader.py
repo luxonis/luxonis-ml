@@ -508,6 +508,38 @@ def test_loader_preserves_metadata_for_custom_batch_engines(
     } == {0, 1}
 
 
+def test_loader_repeats_the_only_sample_for_a_batch_augmentation(
+    dataset_name: str, tempdir: Path
+) -> None:
+    def generator() -> DatasetIterator:
+        yield {
+            "file": create_image(0, tempdir),
+            "sample_metadata": {"record_id": 0},
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    loader = LuxonisLoader(
+        dataset,
+        view="train",
+        height=256,
+        width=256,
+        autopopulate_metadata=False,
+        augmentation_engine="compatibility_batch_engine",
+        augmentation_config=[{"name": "Normalize"}],
+    )
+
+    with pytest.warns(UserWarning, match="larger than dataset size"):
+        metadata = loader[0].metadata
+
+    batch_metadata = cast(
+        list[dict[str, Params]], metadata["batch_augmentation_metadata"]
+    )
+    assert [
+        cast(int, entry["sample_metadata"]["record_id"])
+        for entry in batch_metadata
+    ] == [0, 0]
+
+
 def test_loader_uses_metadata_from_custom_engine_single_contributor(
     dataset_name: str, tempdir: Path
 ) -> None:

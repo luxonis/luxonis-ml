@@ -649,7 +649,7 @@ class LuxonisLoader(BaseLoader):
                 "Samples will include repetitions.",
                 stacklevel=3,
             )
-            other_indices = [i for i in range(len(self)) if i != idx]
+            other_indices = [i for i in range(len(self)) if i != idx] or [idx]
             return random.choices(other_indices, k=n_others)
 
         picked: set[int] = set()

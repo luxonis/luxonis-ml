@@ -64,8 +64,10 @@ class BaseParser(ABC):
         """
         self._dataset = dataset
         self._dataset_type = dataset_type
+        self._default_task_name: str | None = None
         if isinstance(task_name, str):
             self._task_name = defaultdict(lambda: task_name)
+            self._default_task_name = task_name
         else:
             self._task_name = task_name
         self._parser_issue_messages: list[ParserIssueMessage] = []
@@ -667,7 +669,12 @@ class BaseParser(ABC):
                 yield item
             elif item.annotation is None:
                 # A record without labels belongs to every task.
-                for task_name in set(self._task_name.values()):
+                task_names = (
+                    {self._default_task_name}
+                    if self._default_task_name is not None
+                    else set(self._task_name.values())
+                )
+                for task_name in task_names:
                     yield item.model_copy(
                         update={"task_name": task_name}, deep=True
                     )

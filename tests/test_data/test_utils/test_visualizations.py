@@ -366,6 +366,32 @@ def test_visualize_keypoint_skeletons_respect_visibility():
     assert np.count_nonzero(with_panel[50, 65]) == 0
 
 
+def test_visualize_task_without_classes_draws_in_red():
+    image = np.zeros((20, 20, 3), dtype=np.uint8)
+    instance_mask = np.zeros((1, 20, 20), dtype=np.uint8)
+    instance_mask[:, :5, :5] = 1
+    labels = {
+        "pose/keypoints": np.array([[0.5, 0.5, 2.0]]),
+        "pose/instance_segmentation": instance_mask,
+    }
+
+    def draw(classes: dict[str, dict[str, int]]) -> np.ndarray:
+        output = visualize(
+            image.copy(),
+            "image",
+            labels,
+            classes,
+            blend_all=True,
+            keypoint_label_mode="none",
+        )
+        return _labels_panel(output, image)
+
+    panel = draw({})
+    assert np.array_equal(panel, draw({"pose": {}}))
+    assert panel[..., 0].any()
+    assert not panel[..., 1:].any()
+
+
 def test_classification_lines_list_each_task():
     mappings = {
         "animals": bidict({"cat": 0, "dog": 1}),

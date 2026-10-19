@@ -1155,6 +1155,29 @@ def test_task_name_map_routes_each_record(tempdir: Path):
         )
 
 
+def test_task_name_string_keeps_unlabeled_records(tempdir: Path):
+    parser = YOLOv8Parser(
+        cast(BaseDataset, _DummyDataset()),
+        DatasetType.YOLOV8BOUNDINGBOX,
+        "fruits",
+    )
+    image = create_image(0, tempdir)
+
+    records = [
+        cast(DatasetRecord, record)
+        for record in parser._wrap_generator(
+            iter(
+                [
+                    {"file": image},
+                    {"file": image, "annotation": {"class": "apple"}},
+                ]
+            )
+        )
+    ]
+
+    assert [r.task_name for r in records] == ["fruits", "fruits"]
+
+
 def _yolov8_split(tempdir: Path, label: str) -> tuple[Path, Path, Path]:
     """Lay out one image, its label file and the class names."""
     image_dir = tempdir / "images"
