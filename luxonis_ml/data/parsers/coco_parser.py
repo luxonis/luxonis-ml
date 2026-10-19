@@ -96,16 +96,13 @@ class COCOParser(BaseParser):
     ) -> COCOFormat | None:
         """Tell FiftyOne from Roboflow when both layouts match equally.
 
-        The validation split name decides when it is present. Partial
-        layouts like train-only are ambiguous by directory names alone,
-        so the annotation filename inside any present split decides:
-        Roboflow has ``_annotations.coco.json``, FiftyOne has
-        ``labels.json``.
+        A ``validation`` folder means FiftyOne. Partial layouts like
+        train-only are ambiguous by directory names alone, so the
+        annotation filename inside any present split decides: Roboflow
+        has ``_annotations.coco.json``, FiftyOne has ``labels.json``.
         """
         if "validation" in existing:
             return COCOFormat.FIFTYONE
-        if "valid" in existing:
-            return COCOFormat.ROBOFLOW
 
         for split_name in splits:
             split_info = COCOParser.validate_split(dataset_dir / split_name)
@@ -404,7 +401,7 @@ class COCOParser(BaseParser):
         class_name = categories[ann["category_id"]]
         img_h, img_w = img_size
         segmentation = _coco_segmentation(
-            ann.get("segmentation", []), img_h, img_w
+            ann.get("segmentation", []), img_w, img_h
         )
         bbox = _coco_bbox(ann["bbox"], img_w, img_h)
         if bbox is None:
@@ -491,8 +488,9 @@ class COCOParser(BaseParser):
 class _InstanceIds:
     """Hand out the instance ID of each COCO annotation.
 
-    An annotation without an ``id`` gets the lowest non-negative integer
-    that no annotation of the split uses.
+    An annotation without an ``id`` gets the next integer, counting
+    from 0, that no annotation of the split uses and no earlier
+    annotation got.
     """
 
     def __init__(self, annotations: list[dict[str, Any]]):
@@ -541,14 +539,14 @@ def _coco_bbox(
 
 
 def _coco_segmentation(
-    coco_seg: Any, img_h: int, img_w: int
+    coco_seg: Any, img_w: int, img_h: int
 ) -> dict[str, Any] | None:
     """Convert a COCO polygon list or RLE dict to an LDF RLE dict.
 
     Examples:
-        >>> _coco_segmentation({"size": [4, 5], "counts": "abc"}, 4, 5)
+        >>> _coco_segmentation({"size": [4, 5], "counts": "abc"}, 5, 4)
         {'height': 4, 'width': 5, 'counts': 'abc'}
-        >>> _coco_segmentation([], 4, 5), _coco_segmentation(None, 4, 5)
+        >>> _coco_segmentation([], 5, 4), _coco_segmentation(None, 5, 4)
         (None, None)
 
     """

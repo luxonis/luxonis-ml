@@ -215,6 +215,7 @@ def _deprecated_args_used(
 def _warn_deprecated_function(
     fname: str, additional_message: str | None
 ) -> None:
+    """Warn that the whole function ``fname`` is deprecated."""
     msg = f"'{fname}' is deprecated and will be removed in future versions."
     if additional_message:
         msg += f" {additional_message}"

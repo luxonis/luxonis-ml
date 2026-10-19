@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, TypeAlias, cast
+from typing import Any, cast
 
 from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
@@ -12,8 +12,6 @@ from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils.path import path_to_posix
 
 from .base_exporter import BaseExporter
-
-BBox: TypeAlias = tuple[int, float, float, float, float]
 
 
 class YoloV8Exporter(BaseExporter):

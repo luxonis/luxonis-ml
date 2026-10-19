@@ -305,9 +305,8 @@ def _every_label_kind() -> dict:
 
 
 def _single_record(tempdir: Path, *, annotated: bool) -> DatasetIterator:
-    """One record for the first of ten images, labeled or not."""
-    images = [create_image(i, tempdir) for i in range(10)]
-    record: dict[str, Any] = {"file": images[0]}
+    """Yield one record for one image, labeled or not."""
+    record: dict[str, Any] = {"file": create_image(0, tempdir)}
     if annotated:
         record["annotation"] = _every_label_kind()
     yield record
@@ -354,13 +353,10 @@ def test_no_labels(dataset_name: str, tempdir: Path, subtests: SubTests):
 
         if total is False:
             with subtests.test("test_almost_empty_exclude_empty"):
-                for i, (_, labels) in enumerate(
-                    LuxonisLoader(dataset, exclude_empty_annotations=True)
+                for _, labels in LuxonisLoader(
+                    dataset, exclude_empty_annotations=True
                 ):
-                    if i == 0:
-                        assert set(labels.keys()) == expected_tasks
-                    else:
-                        assert not labels
+                    assert set(labels.keys()) == expected_tasks
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")

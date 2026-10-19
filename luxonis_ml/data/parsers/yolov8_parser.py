@@ -223,34 +223,13 @@ class YOLOv8Parser(BaseParser):
         if not yaml_file:
             return False
 
-        root, splits = cls._split_dirs(dataset_dir, dir_format)
+        root = dataset_dir
+        if dir_format is Format.ULTRALYTICS:
+            root = dataset_dir / "images"
+            splits = [d.name for d in root.iterdir() if d.is_dir()]
         if "train" not in splits or len(splits) < 2:
             return False
         return all(cls.validate_split(root / split) for split in splits)
-
-    @staticmethod
-    def _split_dirs(
-        dataset_dir: Path, dir_format: Format
-    ) -> tuple[Path, list[str]]:
-        """Return the directory that holds the splits, and their names.
-
-        Roboflow keeps ``train``, ``valid`` and ``test`` at the top.
-        Ultralytics keeps the splits under ``images`` and ``labels``;
-        without both folders there is no split.
-        """
-        if dir_format is Format.ROBOFLOW:
-            names = [
-                d.name
-                for d in dataset_dir.iterdir()
-                if d.is_dir() and d.name in ("train", "valid", "test")
-            ]
-            return dataset_dir, names
-
-        folders = [d.name for d in dataset_dir.iterdir() if d.is_dir()]
-        images_dir = dataset_dir / "images"
-        if "images" not in folders or "labels" not in folders:
-            return images_dir, []
-        return images_dir, [d.name for d in images_dir.iterdir() if d.is_dir()]
 
     @classmethod
     @override
@@ -415,7 +394,6 @@ def _annotation_lines(ann_path: Path) -> list[str]:
         []
 
     """
-    # First check if file exists (would crash otherwise)
     if not ann_path.exists():
         return []
     with open(ann_path) as f:

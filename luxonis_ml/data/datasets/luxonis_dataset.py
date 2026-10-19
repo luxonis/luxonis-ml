@@ -2097,11 +2097,19 @@ def _migrate_single_component_source(metadata_json: dict[str, Any]) -> None:
     """Name the only component of an old source ``image`` and make it main.
 
     Examples:
+        >>> metadata = {"source": {"components": {"cam": {"name": "cam"}}}}
+        >>> _migrate_single_component_source(metadata)
+        >>> source = metadata["source"]
+        >>> source["main_component"], list(source["components"])
+        ('image', ['image'])
         >>> metadata = {"source": {"components": {"a": {}, "b": {}}}}
         >>> _migrate_single_component_source(metadata)
         >>> sorted(metadata["source"]["components"])
         ['a', 'b']
-        >>> _migrate_single_component_source({"source": None})
+        >>> metadata = {"source": None}
+        >>> _migrate_single_component_source(metadata)
+        >>> metadata
+        {'source': None}
 
     """
     source_data = metadata_json.get("source")
@@ -2135,10 +2143,9 @@ class _AddedLabels:
 
     def update(self, task_name: str, ann: Detection) -> None:
         """Record one annotation and its sub-detections."""
+        classes = self.classes_per_task[task_name]  # registers the task
         if ann.class_name is not None:
-            self.classes_per_task[task_name].add(ann.class_name)
-        elif not self.classes_per_task[task_name]:
-            self.classes_per_task[task_name] = set()
+            classes.add(ann.class_name)
 
         self.tasks[task_name] |= ann.get_task_types()
 

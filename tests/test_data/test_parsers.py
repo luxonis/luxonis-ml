@@ -20,7 +20,6 @@ from luxonis_ml.data.parsers import (
     luxonis_parser,
 )
 from luxonis_ml.data.parsers.base_parser import BaseParser, ParserOutput
-from luxonis_ml.data.parsers.yolov8_parser import Format
 from luxonis_ml.data.utils import COCOFormat, get_task_type
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.ldf import DatasetRecord
@@ -1074,15 +1073,25 @@ def test_zip_root_keeps_a_wrapper_that_holds_no_dataset(tempdir: Path):
     assert LuxonisParser._resolve_extracted_zip_root(unzip_dir) == unzip_dir
 
 
-def test_coco_layout_follows_the_validation_split_name(tempdir: Path):
-    def layout(existing: list[str]) -> COCOFormat | None:
-        return COCOParser._disambiguate_dir_format(
-            tempdir, existing, ["train"]
-        )
+def test_coco_layout_with_validation_and_valid_is_fiftyone(tempdir: Path):
+    for name in ("train", "validation", "valid"):
+        (tempdir / name).mkdir()
 
-    assert layout(["train", "validation"]) is COCOFormat.FIFTYONE
-    assert layout(["train", "valid"]) is COCOFormat.ROBOFLOW
-    assert layout(["train"]) is None
+    assert COCOParser._detect_dataset_dir_format(tempdir) == (
+        COCOFormat.FIFTYONE,
+        ["train", "validation"],
+    )
+
+
+def test_coco_train_only_layout_without_annotations_is_fiftyone(
+    tempdir: Path,
+):
+    (tempdir / "train").mkdir()
+
+    assert COCOParser._detect_dataset_dir_format(tempdir) == (
+        COCOFormat.FIFTYONE,
+        ["train"],
+    )
 
 
 def test_ndjson_records_skip_blank_lines_and_missing_images(tempdir: Path):
@@ -1134,10 +1143,10 @@ def test_task_name_map_routes_each_record(tempdir: Path):
         )
     ]
 
+    assert len(records) == 4  # the unlabeled record goes to both tasks
     assert sorted(r.task_name for r in records[:2]) == ["animals", "vehicles"]
     assert records[2].task_name == "animals"
-    assert records[3].annotation is not None
-    assert records[3].annotation.class_name is None
+    assert records[3].task_name == ""  # no class, so no task to map to
     with pytest.raises(ValueError, match="Class 'dog' not found"):
         list(
             parser._wrap_generator(
@@ -1160,6 +1169,7 @@ def _yolov8_split(tempdir: Path, label: str) -> tuple[Path, Path, Path]:
 
 
 def _yolov8_parser() -> YOLOv8Parser:
+    """Build a YOLOv8 box parser over a dummy dataset."""
     return YOLOv8Parser(
         cast(BaseDataset, _DummyDataset()), DatasetType.YOLOV8BOUNDINGBOX, None
     )
@@ -1178,12 +1188,3 @@ def test_yolov8_polygon_needs_a_readable_image(tempdir: Path):
 
     with pytest.raises(ValueError, match="Failed to read image"):
         _yolov8_parser().from_split(image_dir, label_dir, classes_path)
-
-
-def test_yolov8_ultralytics_layout_needs_a_labels_folder(tempdir: Path):
-    (tempdir / "images" / "train").mkdir(parents=True)
-
-    assert YOLOv8Parser._split_dirs(tempdir, Format.ULTRALYTICS) == (
-        tempdir / "images",
-        [],
-    )

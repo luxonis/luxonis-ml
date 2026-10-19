@@ -215,9 +215,10 @@ class LuxonisFileSystem:
         allow_active_mlflow_run: bool | None,
         tracking_uri: str | None,
     ) -> str:
-        """Read the MLflow run from the path, or use the active run.
+        """Set up the MLflow run from the path, or use the active run.
 
-        Returns the artifact path inside the run.
+        Returns the value for ``self._path``: ``path`` itself, or ``""``
+        for the active run.
         """
         self._allow_active_mlflow_run = allow_active_mlflow_run
         self._is_mlflow_active_run = False

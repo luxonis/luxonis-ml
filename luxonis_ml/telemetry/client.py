@@ -321,7 +321,7 @@ class Telemetry:
 def _update_unreserved(
     context: dict[str, Any], extra: Mapping[str, Any]
 ) -> None:
-    """Merge ``extra`` into ``context``, except the reserved keys it holds."""
+    """Merge ``extra`` into ``context``; a reserved key already set stays."""
     for key, value in extra.items():
         if key in RESERVED_METADATA_KEYS and key in context:
             logger.debug(

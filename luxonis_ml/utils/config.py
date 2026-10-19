@@ -224,7 +224,10 @@ def _set_leaf(data: dict | list, key: str, value: Any) -> None:
 
 
 def _merge_into_list(data: list, key: str, key_tail: str, value: Any) -> None:
-    """Descend into the list item at ``key``; a new item copies the first."""
+    """Descend into the list item at ``key``.
+
+    The key ``+`` appends an empty item of the type of the first one.
+    """
     if key == "+":
         data.append(type(data[0])())
         _merge_override(data[-1], key_tail, value)

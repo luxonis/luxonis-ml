@@ -104,8 +104,7 @@ class YoloV8KeypointsExporter(BaseExporter):
     def _keypoint_line(self, row: dict[str, Any]) -> str | None:
         """Return the YOLO pose line of a keypoint row, or ``None``.
 
-        The box of the line encloses the visible keypoints. The class is
-        registered before the keypoints are checked, so a class whose
+        The box of the line encloses the visible keypoints. A class whose
         keypoints are all rejected still gets an ID.
         """
         if row["annotation"] is None or row["task_type"] != "keypoints":
@@ -243,15 +242,13 @@ def _keypoints_bbox(kp_arr: np.ndarray) -> tuple[float, float, float, float]:
 
 
 def _flat_keypoints(kp_arr: np.ndarray) -> str:
-    """Format ``(x, y, visibility)`` rows as one YOLO keypoint string."""
+    """Format clipped ``(x, y, visibility)`` rows as one YOLO keypoint string."""
     parts = []
     for x, y, v in kp_arr.tolist():
-        # YOLOv8 accepts integer vis (0/1/2). Cast safely.
+        # YOLOv8 accepts integer vis (0/1/2).
         try:
             v_int = int(v)
-        except Exception:
+        except (ValueError, OverflowError):
             v_int = 2
-        parts.append(
-            f"{min(max(x, 0.0), 1.0):.12f} {min(max(y, 0.0), 1.0):.12f} {v_int}"
-        )
+        parts.append(f"{x:.12f} {y:.12f} {v_int}")
     return " ".join(parts)

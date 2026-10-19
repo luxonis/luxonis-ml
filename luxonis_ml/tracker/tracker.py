@@ -407,10 +407,8 @@ class LuxonisTracker:
     def _start_mlflow_run(self) -> None:
         """Start the MLflow run.
 
-        System metrics are logged when ``psutil`` is installed. The module
-        is stored before the run starts, so a failed start still leaves
-        `log_to_mlflow` its fallback. The run continues an existing one
-        when `run_id` is set.
+        The module is stored before the run starts, so a failed start still
+        leaves `log_to_mlflow` its fallback.
         """
         import mlflow
 

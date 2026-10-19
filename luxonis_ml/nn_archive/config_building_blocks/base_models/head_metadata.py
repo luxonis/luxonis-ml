@@ -225,7 +225,7 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata):
         return values
 
 
-# Fields that every YOLO task may set.
+# Fields that do not decide the YOLO task.
 _YOLO_COMMON_FIELDS = frozenset(
     {
         "postprocessor_path",
@@ -269,11 +269,10 @@ _YOLO_REQUIRED_FIELDS = {
     "keypoint_detection": ["n_keypoints"],
 }
 
-_YOLO_UNSUPPORTED_FIELDS = {
-    "object_detection": ["n_prototypes", "n_keypoints", "is_softmax"],
-    "instance_segmentation": ["n_keypoints"],
-    "keypoint_detection": ["n_prototypes", "is_softmax"],
-}
+# Fields that rule out plain object detection.
+_YOLO_DETECTION_EXCLUDED_FIELDS = frozenset(
+    {"n_prototypes", "n_keypoints", "is_softmax"}
+)
 
 _YOLO_OUTPUT_FIELDS = {
     "instance_segmentation": [
@@ -306,10 +305,7 @@ def _infer_yolo_tasks(defined_params: set[str]) -> list[str]:
     for task in ("instance_segmentation", "keypoint_detection"):
         if all(f in defined_params for f in _YOLO_REQUIRED_FIELDS[task]):
             tasks.append(task)
-    if all(
-        f not in defined_params
-        for f in _YOLO_UNSUPPORTED_FIELDS["object_detection"]
-    ):
+    if defined_params.isdisjoint(_YOLO_DETECTION_EXCLUDED_FIELDS):
         tasks.append("object_detection")
 
     if len(tasks) == 0:

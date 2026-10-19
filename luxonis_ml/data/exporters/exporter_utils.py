@@ -4,7 +4,7 @@ import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 import cv2
 import numpy as np
@@ -15,6 +15,8 @@ from pycocotools import mask as maskUtils
 if TYPE_CHECKING:
     from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
     from luxonis_ml.data.exporters.base_exporter import BaseExporter
+
+BBox: TypeAlias = tuple[int, float, float, float, float]
 
 
 class PreparedLDF:
@@ -346,11 +348,12 @@ def register_class(
 
 def yolo_bbox_label(
     row: dict[str, Any], class_to_id: dict[str, int], class_names: list[str]
-) -> tuple[int, float, float, float, float] | None:
-    """Return the YOLO ``(class_id, x, y, w, h)`` of a bounding-box row.
+) -> BBox | None:
+    """Return the class ID and the top-left ``x, y, w, h`` of a box row.
 
     A row of another task type, without an annotation or without a
-    class gives ``None``. A new class is registered through `register_class`.
+    class gives ``None``. An unseen class is added to ``class_to_id``
+    and ``class_names``.
 
     Examples:
         >>> class_to_id, class_names = {}, []

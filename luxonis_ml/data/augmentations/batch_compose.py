@@ -284,14 +284,18 @@ class BatchCompose(A.Compose):
         without one there is nothing to fill.
 
         Examples:
-            >>> BatchCompose._instances_shape(
-            ...     "instance_mask", 2, (), (5, 6), 0
+            >>> shape = BatchCompose._instances_shape
+            >>> shape(
+            ...     "instance_mask", 2, (), image_shape=(5, 6), n_keypoints=0
             ... )
             (5, 6, 2)
-            >>> BatchCompose._instances_shape("instance_mask", 2, (), None, 0)
-            >>> BatchCompose._instances_shape("keypoints", 2, (3,), None, 4)
+            >>> shape(
+            ...     "instance_mask", 2, (), image_shape=None, n_keypoints=0
+            ... ) is None
+            True
+            >>> shape("keypoints", 2, (3,), image_shape=None, n_keypoints=4)
             (8, 3)
-            >>> BatchCompose._instances_shape("array", 2, (7,), None, 0)
+            >>> shape("array", 2, (7,), image_shape=None, n_keypoints=0)
             (2, 7)
 
         """

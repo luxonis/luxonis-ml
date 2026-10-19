@@ -403,6 +403,15 @@ def get_duplicates_info(df: pl.LazyFrame) -> dict[str, Any]:
     }
 
 
+_HEATMAP_GRID_SIZE = 15
+_HEATMAP_TASK_TYPES = (
+    "boundingbox",
+    "keypoints",
+    "segmentation",
+    "instance_segmentation",
+)
+
+
 def get_heatmaps(
     df: pl.LazyFrame,
     sample_size: int | None = None,
@@ -426,7 +435,7 @@ def get_heatmaps(
         :math:`15 \times 15` nested list of counts.
 
     """
-    grid_edges = np.linspace(0, 1, 15 + 1)
+    grid_edges = np.linspace(0, 1, _HEATMAP_GRID_SIZE + 1)
     heatmaps: dict[str, dict[str, np.ndarray]] = {}
 
     annotations_df = (
@@ -469,14 +478,6 @@ def get_heatmaps(
         t_name: {t_type: grid.T.tolist() for t_type, grid in tasks.items()}
         for t_name, tasks in heatmaps.items()
     }
-
-
-_HEATMAP_TASK_TYPES = (
-    "boundingbox",
-    "keypoints",
-    "segmentation",
-    "instance_segmentation",
-)
 
 
 def _annotation_points(

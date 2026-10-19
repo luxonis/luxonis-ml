@@ -1148,14 +1148,21 @@ def test_loader_needs_splits(randint: int, tempdir: Path):
     dataset.delete_dataset(delete_local=True)
 
 
-def test_read_image_needs_a_supported_gray_image(tempdir: Path):
+def test_read_image_gives_a_gray_image_a_channel_axis(tempdir: Path):
     gray = tempdir / "gray.png"
     cv2.imwrite(str(gray), np.full((4, 6), 7, dtype=np.uint8))
+
+    assert _read_image(gray, "GRAY").shape == (4, 6, 1)
+
+
+def test_read_image_rejects_rgba_as_gray(tempdir: Path):
     rgba = tempdir / "rgba.png"
     cv2.imwrite(str(rgba), np.zeros((4, 6, 4), dtype=np.uint8))
 
-    assert _read_image(gray, "GRAY").shape == (4, 6, 1)
     with pytest.raises(ValueError, match="Unsupported image format"):
         _read_image(rgba, "GRAY")
+
+
+def test_read_image_needs_the_file(tempdir: Path):
     with pytest.raises(FileNotFoundError, match="Cannot read image"):
         _read_image(tempdir / "missing.png", "RGB")

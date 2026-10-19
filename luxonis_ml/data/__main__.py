@@ -41,7 +41,12 @@ from luxonis_ml.data.utils.visualizations import (
     visualize,
 )
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.typing import Labels, LoaderOutput, Params
+from luxonis_ml.typing import (
+    Labels,
+    LoaderOutput,
+    Params,
+    TrackedAugmentations,
+)
 
 app = App(help="Dataset utilities.")
 
@@ -388,7 +393,9 @@ class _SampleViewer:
             )
 
     def _print_metadata(
-        self, metadata: Params, tracked_augmentations: object
+        self,
+        metadata: Params,
+        tracked_augmentations: TrackedAugmentations | None,
     ) -> None:
         """Print the sample metadata."""
         if not self._list_augmentations and tracked_augmentations is not None:

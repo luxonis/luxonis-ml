@@ -26,6 +26,7 @@ BOX = json.dumps({"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4})
 
 
 def _keypoint_row(keypoints: Any, class_name: str | None = "person") -> dict:
+    """Build a keypoint row of the prepared LDF frame."""
     return {
         "task_type": "keypoints",
         "class_name": class_name,
@@ -50,7 +51,8 @@ def test_keypoint_line_gives_pairs_full_visibility(tempdir: Path):
     line = exporter._keypoint_line(_keypoint_row([[0.25, 0.5], [0.75, 0.5]]))
 
     assert line is not None
-    assert line.split()[7::3] == ["2", "2"]
+    keypoints = line.split()[5:]  # after the class ID and the 4 box values
+    assert keypoints[2::3] == ["2", "2"]
     assert exporter.kpt_shape == (2, 2)
 
 

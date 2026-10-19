@@ -1,7 +1,6 @@
 import csv
 import json
 from collections import OrderedDict, defaultdict
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
 
@@ -169,29 +168,16 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
         Returns ``None`` when no row names a class.
         """
         combined = None
-        for cname, m in self._class_masks(seg_rows):
-            # Start with background (0) everywhere
-            canvas = (
-                combined
-                if combined is not None
-                else np.zeros(m.shape, dtype=np.uint16)
-            )
-            canvas[m != 0] = self._class_id_for(split, cname)
-            combined = canvas
-        return combined
-
-    @staticmethod
-    def _class_masks(
-        seg_rows: list[dict[str, Any]],
-    ) -> Iterator[tuple[str, np.ndarray]]:
-        """Yield the ``(class name, mask)`` of each row that names a class."""
         for row in seg_rows:
             cname = str(row["class_name"] or "")
-            if cname:
-                yield (
-                    cname,
-                    decode_rle_with_pycoco(json.loads(row["annotation"])),
-                )
+            if not cname:
+                continue
+            m = decode_rle_with_pycoco(json.loads(row["annotation"]))
+            if combined is None:
+                # Start with background (0) everywhere
+                combined = np.zeros(m.shape, dtype=np.uint16)
+            combined[m != 0] = self._class_id_for(split, cname)
+        return combined
 
     def _dump_annotations(
         self,

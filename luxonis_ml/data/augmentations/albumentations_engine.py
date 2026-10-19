@@ -74,6 +74,19 @@ ASSOCIATED_TARGET_TYPES = frozenset(
     {"instance_mask", "keypoints", "array", "metadata"}
 )
 
+_Transforms: TypeAlias = list[A.BasicTransform | A.BaseCompose]
+
+
+@dataclass
+class _TransformGroups:
+    """The configured transforms, sorted by the stage that applies them."""
+
+    pixel: _Transforms = field(default_factory=list)
+    spatial: _Transforms = field(default_factory=list)
+    batch: _Transforms = field(default_factory=list)
+    custom: _Transforms = field(default_factory=list)
+    resize: A.BasicTransform | A.BaseCompose | None = None
+
 
 class AlbumentationConfigItem(ConfigItem):
     """Configuration item for `AlbumentationsEngine`.
@@ -511,7 +524,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 "seed": seed,
             }
 
+        self._bbox_targets_by_group = self._group_bbox_targets()
         bbox_associations = self._associate_bbox_targets()
+        # Only targets tied to a bbox target, the boxes included, are
+        # reported as empty when a transform clears them out.
+        self._grouped_targets = set(
+            self._bbox_targets_by_group.values()
+        ).union(*bbox_associations.values())
 
         # Warning issued when "bbox_params" or "keypoint_params"
         # are provided to a compose with transformations that
@@ -564,7 +583,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
     def _add_transform(
         self,
-        transforms: "_TransformGroups",
+        transforms: _TransformGroups,
         cfg: AlbumentationConfigItem,
         keep_aspect_ratio: bool,
     ) -> None:
@@ -683,14 +702,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         return bbox_targets_by_group
 
     def _associate_bbox_targets(self) -> dict[str, dict[str, str]]:
-        """Map each bounding-box target to the targets of its task group.
-
-        Also records the grouped targets: the ones tied to a bbox target,
-        the boxes themselves included. Only these are reported as empty
-        when a transform clears them out.
-        """
-        self._bbox_targets_by_group = self._group_bbox_targets()
-        bbox_associations: dict[str, dict[str, str]] = {
+        """Map each bounding-box target to the targets of its task group."""
+        return {
             bbox_target: {
                 target_name: target_type
                 for target_name, target_type in self._targets.items()
@@ -700,12 +713,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             }
             for task_group, bbox_target in self._bbox_targets_by_group.items()
         }
-        self._grouped_targets = set(self._bbox_targets_by_group.values()) | {
-            target_name
-            for associations in bbox_associations.values()
-            for target_name in associations
-        }
-        return bbox_associations
 
     @property
     @override
@@ -1207,22 +1214,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
         if is_pixel:
             return partial(_apply_pixel_transform, transform, source_names)
-        return partial(_apply_spatial_transform, transform)
-
-
-@dataclass
-class _TransformGroups:
-    """The configured transforms, sorted by the stage that applies them."""
-
-    pixel: list[A.BasicTransform | A.BaseCompose] = field(default_factory=list)
-    spatial: list[A.BasicTransform | A.BaseCompose] = field(
-        default_factory=list
-    )
-    batch: list[A.BasicTransform | A.BaseCompose] = field(default_factory=list)
-    custom: list[A.BasicTransform | A.BaseCompose] = field(
-        default_factory=list
-    )
-    resize: A.BasicTransform | A.BaseCompose | None = None
+        return partial(_apply_compose, transform)
 
 
 _TARGET_TYPES: Final[dict[str, TargetType]] = {
@@ -1299,9 +1291,7 @@ def _preprocess_label(
     return array
 
 
-def _apply_spatial_transform(
-    transform: A.BaseCompose, /, **data: np.ndarray
-) -> Data:
+def _apply_compose(transform: A.BaseCompose, /, **data: np.ndarray) -> Data:
     """Apply a composition and keep the source-name marker out of it."""
     if not transform.transforms:
         return data
