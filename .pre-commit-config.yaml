@@ -11,7 +11,7 @@ repos:
         files: ^(pyproject\.toml|uv\.lock|luxonis_ml/__init__\.py|tools/export_requirements\.sh|(.*/)?requirements(-[a-z]+)?\.txt|extra_requirements/.*\.txt)$
 
   - repo: https://github.com/crate-ci/typos
-    rev: v1.47.2
+    rev: v1.51.1
     hooks:
       - id: typos
 
@@ -19,13 +19,13 @@ repos:
   # refactor plans for it. Check by hand with
   # `uv run complexipy luxonis_ml tests`.
   - repo: https://github.com/rohaquinlop/complexipy-pre-commit
-    rev: v8.0.1
+    rev: v8.1.0
     hooks:
       - id: complexipy
         args: [--suggest-refactors]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.2
+    rev: v0.17.1
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
@@ -41,7 +41,7 @@ repos:
           - mdformat-gfm==1.0.0
 
   - repo: https://github.com/JoC0de/pre-commit-prettier
-    rev: v3.8.1
+    rev: v3.9.10
     hooks:
       - id: prettier
         types_or: [yaml]
