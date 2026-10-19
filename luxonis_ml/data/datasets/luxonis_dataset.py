@@ -1756,10 +1756,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 NativeExporter, {"ldf_version": target_version}
             ),
             DatasetType.COCO: ExporterSpec(
-                CocoExporter,
-                {
-                    "format": COCOFormat.ROBOFLOW,
-                },
+                CocoExporter, {"format": COCOFormat.ROBOFLOW}
             ),
             DatasetType.YOLOV8BOUNDINGBOX: ExporterSpec(YoloV8Exporter, {}),
             DatasetType.YOLOV8INSTANCESEGMENTATION: ExporterSpec(

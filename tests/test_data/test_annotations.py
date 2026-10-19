@@ -542,8 +542,12 @@ def test_detection(subtests: SubTests):
         )
 
         assert detection.keypoints is not None
-        assert detection.keypoints.to_numpy().tolist() == pytest.approx(
-            [0.2, 0.4, 2, 0.35, 0.6, 2]
+        assert np.allclose(
+            detection.keypoints.to_numpy().reshape(-1, 3),
+            [
+                (0.2 * 0.5 + 0.1, 0.4 * 0.5 + 0.2, 2),
+                (0.5 * 0.5 + 0.1, 0.8 * 0.5 + 0.2, 2),
+            ],
         )
 
     with subtests.test("no_rescaling"):
@@ -558,13 +562,9 @@ def test_detection(subtests: SubTests):
         )
 
         assert detection.keypoints is not None
-        assert detection.keypoints.to_numpy().tolist() == [
-            0.2,
-            0.4,
-            2,
-            0.5,
-            0.8,
-            2,
+        assert detection.keypoints.to_numpy().reshape(-1, 3).tolist() == [
+            [0.2, 0.4, 2],
+            [0.5, 0.8, 2],
         ]
 
     with (

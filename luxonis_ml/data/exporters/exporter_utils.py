@@ -37,12 +37,12 @@ class PreparedLDF:
         splits: dict[str, Any],
         processed_df: pl.DataFrame,
         grouped_image_sources: pl.DataFrame,
-        keypoint_metadata: dict[str, KeypointMetadata] | None = None,
+        keypoint_metadata: dict[str, KeypointMetadata],
     ):
         self.splits = splits
         self.processed_df = processed_df
         self.grouped_image_sources = grouped_image_sources
-        self.keypoint_metadata = keypoint_metadata or {}
+        self.keypoint_metadata = keypoint_metadata
 
     def keypoint_row(
         self, task_name: str, keypoints: Mapping[str, list[float]]

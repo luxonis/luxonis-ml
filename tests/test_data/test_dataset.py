@@ -80,32 +80,27 @@ def test_dataset(
             "left_ankle",
             "right_ankle",
         ]
-        # COCO joins the keypoints of the skeleton in both directions, and
-        # the metadata gives each edge once, with the lower index first.
-        assert keypoint_metadata["coco"].edges == sorted(
-            (min(edge), max(edge))
-            for edge in [
-                (15, 13),
-                (13, 11),
-                (16, 14),
-                (14, 12),
-                (11, 12),
-                (5, 11),
-                (6, 12),
-                (5, 6),
-                (5, 7),
-                (6, 8),
-                (7, 9),
-                (8, 10),
-                (1, 2),
-                (0, 1),
-                (0, 2),
-                (1, 3),
-                (2, 4),
-                (3, 5),
-                (4, 6),
-            ]
-        )
+        assert keypoint_metadata["coco"].edges == [
+            (0, 1),
+            (0, 2),
+            (1, 2),
+            (1, 3),
+            (2, 4),
+            (3, 5),
+            (4, 6),
+            (5, 6),
+            (5, 7),
+            (5, 11),
+            (6, 8),
+            (6, 12),
+            (7, 9),
+            (8, 10),
+            (11, 12),
+            (11, 13),
+            (12, 14),
+            (13, 15),
+            (14, 16),
+        ]
         assert dataset.get_n_keypoints() == {"coco": 17}
 
         assert dataset.identifier == dataset_name

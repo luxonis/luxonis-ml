@@ -477,37 +477,45 @@ class Keypoint(KeypointSpec):
     @model_validator(mode="before")
     @classmethod
     def _from_tuple(cls, value: Any) -> Any:
-        """Read an ``(x, y)`` or ``(x, y, state)`` tuple, and clip x and y."""
-        if isinstance(value, Sequence) and not isinstance(value, str):
-            if len(value) not in (2, 3):
-                raise ValueError(
-                    "A keypoint tuple holds (x, y) or (x, y, state), not "
-                    f"{len(value)} values."
-                )
-            value = dict(zip(("x", "y", "state"), value, strict=False))
-        if not isinstance(value, Mapping):
+        """Read an ``(x, y)`` or ``(x, y, state)`` tuple."""
+        if not isinstance(value, Sequence) or isinstance(value, str):
             return value
-        clipped = {
-            key: _clip(value[key]) for key in ("x", "y") if key in value
-        }
-        if any(clipped[key] != value[key] for key in clipped):
-            # Once, not for each keypoint of each annotation.
-            log_once(
-                logger.warning,
-                "Keypoint annotation has values outside of [0, 1] range. "
-                "Clipping them to [0, 1].",
+        if len(value) not in (2, 3):
+            raise ValueError(
+                "A keypoint tuple holds (x, y) or (x, y, state), not "
+                f"{len(value)} values."
             )
-        return {**value, **clipped}
+        return dict(zip(("x", "y", "state"), value, strict=False))
+
+    @field_validator("x", "y", mode="before")
+    @classmethod
+    def _clip(cls, value: Any) -> Any:
+        """Clip a coordinate in [-2, 2] to [0, 1], with a warning."""
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return value
+        if 0 <= number <= 1:
+            return value
+        if not -2 <= number <= 2:
+            raise ValueError(
+                "Keypoint annotation has value outside of automatic "
+                "clipping range ([-2, 2]). Values should be normalized "
+                "based on image size to range [0, 1]."
+            )
+        log_once(
+            logger.warning,
+            "Keypoint annotation has values outside of [0, 1] range. "
+            "Clipping them to [0, 1].",
+        )
+        return min(max(number, 0.0), 1.0)
 
     @field_validator("state", mode="before")
     @classmethod
     def _state_from_word(cls, value: Any) -> Any:
         """Read ``"visible"``, ``"occluded"`` or ``"unlabeled"``."""
-        if (
-            isinstance(value, str)
-            and value.upper() in KeypointState.__members__
-        ):
-            return KeypointState[value.upper()]
+        if isinstance(value, str):
+            return KeypointState.__members__.get(value.upper(), value)
         return value
 
 
@@ -616,19 +624,14 @@ class KeypointMetadata(BaseModelExtraForbid):
             if mine is None:
                 merged[name] = theirs
                 continue
-            if (
-                None not in (mine.sigma, theirs.sigma)
-                and mine.sigma != theirs.sigma
-            ):
+            if mine.sigma and theirs.sigma and mine.sigma != theirs.sigma:
                 raise ValueError(
                     f"Keypoint '{name}' has the sigmas {mine.sigma} and "
                     f"{theirs.sigma}. Give each keypoint one sigma."
                 )
             merged[name] = mine.model_copy(
                 update={
-                    "sigma": mine.sigma
-                    if mine.sigma is not None
-                    else theirs.sigma,
+                    "sigma": mine.sigma or theirs.sigma,
                     "connected_to": list(
                         dict.fromkeys(mine.connected_to + theirs.connected_to)
                     ),
@@ -1875,23 +1878,6 @@ def load_annotation(
     if task_type not in classes:
         raise ValueError(f"Unknown label type: {task_type}")
     return classes[task_type].model_validate(data)
-
-
-def _clip(value: Any) -> Any:
-    """Clip a coordinate in [-2, 2] to [0, 1]."""
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return value
-    if 0 <= number <= 1:
-        return value
-    if not -2 <= number <= 2:
-        raise ValueError(
-            "Keypoint annotation has value outside of automatic clipping "
-            "range ([-2, 2]). Values should be normalized based on image "
-            "size to range [0, 1]."
-        )
-    return min(max(number, 0.0), 1.0)
 
 
 def _reject_unknown_connections(

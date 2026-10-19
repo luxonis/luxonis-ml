@@ -20,6 +20,8 @@ from .utils import (
     create_dataset,
     create_image,
     export_and_import,
+    pose_records,
+    pose_rows,
     read_dataset_metadata,
     set_ldf_version,
     write_dataset_rows,
@@ -90,20 +92,26 @@ def as_ldf_2_1(
 
 def pose_dataset(dataset_name: str, tempdir: Path) -> LuxonisDataset:
     """Create a dataset with one record of three keypoints by position."""
+    return create_dataset(
+        dataset_name,
+        pose_records(tempdir, [(0.5, 0.3), (0.4, 0.2, 1), (0.6, 0.2)]),
+        splits={"train": 1.0},
+    )
 
-    def generator() -> DatasetIterator:
-        yield {
-            "file": create_image(0, tempdir),
-            "task_name": "pose",
-            "annotation": {
-                "class": "person",
-                "keypoints": {
-                    "keypoints": [(0.5, 0.3), (0.4, 0.2, 1), (0.6, 0.2)],
-                },
-            },
-        }
 
-    return create_dataset(dataset_name, generator(), splits={"train": 1.0})
+FACE = {"pose": {"labels": ["nose", "left_eye", "right_eye"], "edges": []}}
+FACE_ROW = [0.5, 0.3, 2, 0.4, 0.2, 1, 0.6, 0.2, 2]
+
+
+def stored_keypoints(dataset_path: Path) -> list[Any]:
+    """Return the stored keypoints of each keypoint row."""
+    rows = pl.read_parquet(dataset_path / "annotations" / "*.parquet")
+    return [
+        json.loads(annotation)["keypoints"]
+        for annotation in rows.filter(pl.col("task_type") == "keypoints")[
+            "annotation"
+        ]
+    ]
 
 
 def test_2_x_keypoints_get_the_names_of_the_skeleton(
@@ -120,21 +128,18 @@ def test_2_x_keypoints_get_the_names_of_the_skeleton(
     )
 
     metadata = legacy.get_keypoint_metadata()["pose"]
-    stored_rows = pl.read_parquet(legacy._annotations_path / "*.parquet")
-    keypoint_row = stored_rows.filter(pl.col("task_type") == "keypoints")
 
     assert metadata.labels == ["nose", "left_eye", "right_eye"]
     assert metadata.edges == [(0, 1), (0, 2)]
-    assert json.loads(keypoint_row["annotation"].item())["keypoints"] == {
-        "nose": [0.5, 0.3, 2],
-        "left_eye": [0.4, 0.2, 1],
-        "right_eye": [0.6, 0.2, 2],
-    }
-    assert read_dataset_metadata(legacy)["ldf_version"] == "2.1.0"
-    labels = LuxonisLoader(legacy, view="train")[0].labels
-    assert labels["pose/keypoints"].tolist() == [
-        [0.5, 0.3, 2, 0.4, 0.2, 1, 0.6, 0.2, 2]
+    assert stored_keypoints(legacy._local_path) == [
+        {
+            "nose": [0.5, 0.3, 2],
+            "left_eye": [0.4, 0.2, 1],
+            "right_eye": [0.6, 0.2, 2],
+        }
     ]
+    assert read_dataset_metadata(legacy)["ldf_version"] == "2.1.0"
+    assert pose_rows(legacy) == [FACE_ROW]
 
 
 def test_a_migrated_2_x_dataset_opens_again_before_a_write(
@@ -193,21 +198,6 @@ def test_the_migration_repairs_a_2_x_skeleton(
     assert any(warning in message for message in warnings_log)
 
 
-FACE = {"pose": {"labels": ["nose", "left_eye", "right_eye"], "edges": []}}
-FACE_ROW = [0.5, 0.3, 2, 0.4, 0.2, 1, 0.6, 0.2, 2]
-
-
-def stored_keypoints(dataset_path: Path) -> list[Any]:
-    """Return the stored keypoints of each keypoint row."""
-    rows = pl.read_parquet(dataset_path / "annotations" / "*.parquet")
-    return [
-        json.loads(annotation)["keypoints"]
-        for annotation in rows.filter(pl.col("task_type") == "keypoints")[
-            "annotation"
-        ]
-    ]
-
-
 def test_each_download_names_the_2_x_rows_of_the_bucket(
     dataset_name: str, tempdir: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -227,27 +217,13 @@ def test_each_download_names_the_2_x_rows_of_the_bucket(
     )
 
     remote = LuxonisDataset(dataset_name, bucket_storage=BucketStorage.GCS)
-    labels = LuxonisLoader(remote, view="train")[0].labels
 
-    assert labels["pose/keypoints"].tolist() == [FACE_ROW]
+    assert pose_rows(remote) == [FACE_ROW]
     assert stored_keypoints(bucket) == [
         [[0.5, 0.3, 2], [0.4, 0.2, 1], [0.6, 0.2, 2]]
     ]
 
-    remote.add(
-        iter(
-            [
-                {
-                    "file": create_image(1, tempdir),
-                    "task_name": "pose",
-                    "annotation": {
-                        "class": "person",
-                        "keypoints": {"keypoints": {"nose": (0.1, 0.1)}},
-                    },
-                }
-            ]
-        )
-    )
+    remote.add(pose_records(tempdir, {"nose": (0.1, 0.1)}, start=1))
 
     assert stored_keypoints(bucket) == [
         {
@@ -273,10 +249,7 @@ def test_an_interrupted_open_keeps_the_2_x_rows(
         with pytest.raises(RuntimeError, match="interrupted"):
             LuxonisDataset(dataset_name)
 
-    labels = LuxonisLoader(LuxonisDataset(dataset_name), view="train")[
-        0
-    ].labels
-    assert labels["pose/keypoints"].tolist() == [FACE_ROW]
+    assert pose_rows(LuxonisDataset(dataset_name)) == [FACE_ROW]
 
 
 @pytest.mark.parametrize("stop", ["between_the_renames", "before_the_cleanup"])
@@ -297,11 +270,7 @@ def test_the_next_open_recovers_from_a_stopped_swap(
     else:
         shutil.copytree(annotations, replaced)
 
-    labels = LuxonisLoader(LuxonisDataset(dataset_name), view="train")[
-        0
-    ].labels
-
-    assert labels["pose/keypoints"].tolist() == [FACE_ROW]
+    assert pose_rows(LuxonisDataset(dataset_name)) == [FACE_ROW]
     assert not replaced.exists()
 
 
@@ -316,14 +285,9 @@ def test_a_2_x_dataset_compares_by_name(dataset_name: str, tempdir: Path):
 def test_a_2_x_task_with_empty_keypoint_rows_opens(
     dataset_name: str, tempdir: Path
 ):
-    def generator() -> DatasetIterator:
-        yield {
-            "file": create_image(0, tempdir),
-            "task_name": "pose",
-            "annotation": {"class": "person", "keypoints": {"keypoints": []}},
-        }
-
-    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    dataset = create_dataset(
+        dataset_name, pose_records(tempdir, []), splits={"train": 1.0}
+    )
     legacy = as_ldf_2_1(dataset, {"pose": {"labels": [], "edges": []}})
 
     assert legacy.get_keypoint_metadata()["pose"].labels == []

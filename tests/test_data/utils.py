@@ -63,6 +63,31 @@ def create_dataset(
     return dataset
 
 
+def pose_records(
+    tempdir: Path, *keypoints: dict[str, Any] | list[Any], start: int = 0
+) -> DatasetIterator:
+    """Yield one record of the task ``pose`` for each set of keypoints."""
+    for i, named in enumerate(keypoints, start=start):
+        yield {
+            "file": create_image(i, tempdir),
+            "task_name": "pose",
+            "annotation": {
+                "class": "person",
+                "instance_id": 0,
+                "keypoints": {"keypoints": named},
+            },
+        }
+
+
+def pose_rows(dataset: LuxonisDataset) -> list[list[float]]:
+    """Return the keypoint rows of every sample, sorted."""
+    return sorted(
+        row
+        for _, labels in LuxonisLoader(dataset)
+        for row in labels["pose/keypoints"].tolist()
+    )
+
+
 def read_dataset_metadata(dataset: LuxonisDataset) -> dict[str, Any]:
     """Read the stored ``metadata.json`` of the dataset."""
     return json.loads((dataset._metadata_path / "metadata.json").read_text())

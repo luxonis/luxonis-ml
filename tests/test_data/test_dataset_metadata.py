@@ -221,8 +221,8 @@ def test_merge_adds_the_new_keypoint_names_after_the_own(
 
     assert merged.labels == ["head", "tail", "fin"]
     assert merged.edges == [(0, 1), (1, 2)]
-    assert merged.sigmas == []
-    assert merged.keypoints["tail"].sigma == 0.07
+    sigmas = {name: spec.sigma for name, spec in merged.keypoints.items()}
+    assert sigmas == {"head": 0.05, "tail": 0.07, "fin": None}
 
 
 def test_merge_rejects_two_sigmas_for_one_keypoint(basic_metadata: Metadata):

@@ -125,16 +125,15 @@ class LDFDowngrader:
                 f"from {n_dropped} of {self._n_records} records."
             )
 
-    def _list_keypoints(self, keypoints: dict[str, Any]) -> None:
+    def _list_keypoints(self, annotation: dict[str, Any]) -> None:
         """Write named keypoints as triplets, and count what is lost."""
-        named: dict[str, dict[str, Any]] = keypoints["keypoints"]
-        keypoints["keypoints"] = [
-            [keypoint.x, keypoint.y, int(keypoint.state)]
-            for keypoint in map(Keypoint.model_validate, named.values())
+        keypoints = [
+            Keypoint.model_validate(value)
+            for value in annotation["keypoints"].values()
+        ]
+        annotation["keypoints"] = [
+            [kp.x, kp.y, int(kp.state)] for kp in keypoints
         ]
         self._dropped["keypoints.names"] += 1
-        if any(
-            value.keys() & {"sigma", "connected_to"}
-            for value in named.values()
-        ):
+        if any(kp.sigma or kp.connected_to for kp in keypoints):
             self._dropped["keypoints.sigma_and_connected_to"] += 1

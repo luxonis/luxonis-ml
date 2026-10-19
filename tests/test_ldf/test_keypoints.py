@@ -14,6 +14,23 @@ from luxonis_ml.ldf import (
     load_annotation,
 )
 
+NOSE_AND_EYE = {
+    "keypoints": {
+        "nose": {
+            "x": 0.5,
+            "y": 0.3,
+            "sigma": 0.026,
+        },
+        "left_eye": {
+            "x": 0.4,
+            "y": 0.2,
+            "state": "occluded",
+            "sigma": 0.025,
+            "connected_to": "nose",
+        },
+    }
+}
+
 
 @pytest.mark.parametrize("state", ["occluded", 1, KeypointState.OCCLUDED])
 def test_the_state_is_a_word_or_a_number(state: str | int):
@@ -98,23 +115,7 @@ def test_combine_to_numpy_gives_each_name_one_column():
 
 
 def test_the_stored_payload_holds_only_the_coordinates():
-    annotation = KeypointAnnotation.model_validate(
-        {
-            "keypoints": {
-                "nose": {
-                    "x": 0.5,
-                    "y": 0.3,
-                    "sigma": 0.026,
-                },
-                "left_eye": {
-                    "x": 0.4,
-                    "y": 0.2,
-                    "state": "occluded",
-                    "connected_to": "nose",
-                },
-            }
-        }
-    )
+    annotation = KeypointAnnotation.model_validate(NOSE_AND_EYE)
 
     payload = json.loads(annotation.to_parquet_json())
     stored = load_annotation("keypoints", payload)
@@ -127,23 +128,7 @@ def test_the_stored_payload_holds_only_the_coordinates():
 
 
 def test_metadata_takes_the_task_fields_of_each_keypoint():
-    annotation = KeypointAnnotation.model_validate(
-        {
-            "keypoints": {
-                "nose": {
-                    "x": 0.5,
-                    "y": 0.3,
-                    "sigma": 0.026,
-                },
-                "left_eye": {
-                    "x": 0.4,
-                    "y": 0.2,
-                    "sigma": 0.025,
-                    "connected_to": "nose",
-                },
-            }
-        }
-    )
+    annotation = KeypointAnnotation.model_validate(NOSE_AND_EYE)
 
     metadata = KeypointMetadata.from_annotation(annotation)
 

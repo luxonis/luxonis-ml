@@ -2,41 +2,13 @@
 
 import json
 from pathlib import Path
-from typing import Any
 
 import pytest
 
-from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
-from luxonis_ml.data.datasets.base_dataset import DatasetIterator
+from luxonis_ml.data import LuxonisParser
 from luxonis_ml.enums import DatasetType
 
-from .utils import create_dataset, create_image, export_and_import
-
-
-def pose_records(
-    tempdir: Path, *keypoints: dict[str, Any] | list[Any], start: int = 0
-) -> DatasetIterator:
-    """Yield one record of the task ``pose`` for each set of keypoints."""
-    for i, named in enumerate(keypoints, start=start):
-        yield {
-            "file": create_image(i, tempdir),
-            "task_name": "pose",
-            "annotation": {
-                "class": "person",
-                "instance_id": 0,
-                "keypoints": {"keypoints": named},
-            },
-        }
-
-
-def pose_rows(dataset: LuxonisDataset) -> list[list[float]]:
-    """Return the keypoint rows of every sample, sorted."""
-    return sorted(
-        row
-        for _, labels in LuxonisLoader(dataset)
-        for row in labels["pose/keypoints"].tolist()
-    )
-
+from .utils import create_dataset, export_and_import, pose_records, pose_rows
 
 NOSE_AND_EYE = {
     "nose": {
@@ -237,53 +209,44 @@ def test_native_export_gives_each_record_every_keypoint_of_the_task(
         for record in json.loads(path.read_text())
         if "keypoints" in (record.get("annotation") or {})
     ]
+    keypoints = sorted(
+        (record["annotation"]["keypoints"]["keypoints"] for record in records),
+        key=lambda named: named["right_eye"]["x"],
+    )
 
-    assert {
-        json.dumps(record["annotation"]["keypoints"], sort_keys=True)
-        for record in records
-    } == {
-        json.dumps(
-            {
-                "keypoints": {
-                    "nose": {
-                        "x": 0.5,
-                        "y": 0.3,
-                        "sigma": 0.026,
-                    },
-                    "left_eye": {
-                        "x": 0.4,
-                        "y": 0.2,
-                        "state": 1,
-                        "sigma": 0.025,
-                        "connected_to": ["nose"],
-                    },
-                    "right_eye": {"x": 0.0, "y": 0.0, "state": 0},
-                }
+    assert keypoints == [
+        {
+            "nose": {
+                "x": 0.5,
+                "y": 0.3,
+                "sigma": 0.026,
             },
-            sort_keys=True,
-        ),
-        json.dumps(
-            {
-                "keypoints": {
-                    "nose": {
-                        "x": 0.0,
-                        "y": 0.0,
-                        "state": 0,
-                        "sigma": 0.026,
-                    },
-                    "left_eye": {
-                        "x": 0.0,
-                        "y": 0.0,
-                        "state": 0,
-                        "sigma": 0.025,
-                        "connected_to": ["nose"],
-                    },
-                    "right_eye": {"x": 0.6, "y": 0.2},
-                }
+            "left_eye": {
+                "x": 0.4,
+                "y": 0.2,
+                "state": 1,
+                "sigma": 0.025,
+                "connected_to": ["nose"],
             },
-            sort_keys=True,
-        ),
-    }
+            "right_eye": {"x": 0.0, "y": 0.0, "state": 0},
+        },
+        {
+            "nose": {
+                "x": 0.0,
+                "y": 0.0,
+                "state": 0,
+                "sigma": 0.026,
+            },
+            "left_eye": {
+                "x": 0.0,
+                "y": 0.0,
+                "state": 0,
+                "sigma": 0.025,
+                "connected_to": ["nose"],
+            },
+            "right_eye": {"x": 0.6, "y": 0.2},
+        },
+    ]
 
 
 @pytest.mark.parametrize(
