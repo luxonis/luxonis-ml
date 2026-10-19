@@ -11,6 +11,7 @@ from luxonis_ml.data.exporters import (
     YoloV8InstanceSegmentationExporter,
     YoloV8KeypointsExporter,
 )
+from luxonis_ml.data.exporters.exporter_utils import annotation_to_polygons
 from luxonis_ml.data.exporters.segmentation_mask_directory_exporter import (
     _write_mask,
 )
@@ -126,3 +127,9 @@ def test_segmentation_mask_must_fit_in_8_bits(tempdir: Path):
 
     with pytest.raises(ValueError, match="exceeds 255"):
         _write_mask(mask, tempdir / "mask.png")
+
+
+def test_polygons_of_an_undecodable_mask(tempdir: Path):
+    annotation = {"height": 4, "width": 4, "counts": 0}
+
+    assert annotation_to_polygons(annotation, tempdir / "image.png") == []

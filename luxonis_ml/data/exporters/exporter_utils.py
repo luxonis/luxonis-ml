@@ -294,10 +294,6 @@ def annotation_to_polygons(
         >>> from pathlib import Path
         >>> annotation_to_polygons({"height": 4, "width": 4}, Path("a.png"))
         []
-        >>> annotation_to_polygons(
-        ...     {"height": 4, "width": 4, "counts": 0}, Path("a.png")
-        ... )
-        []
 
     """
     if "counts" not in ann:
