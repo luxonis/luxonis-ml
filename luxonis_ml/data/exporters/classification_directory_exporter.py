@@ -7,6 +7,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
     check_group_file_correspondence,
     exporter_specific_annotation_warning,
     split_of_group,
+    whole_image_classes,
 )
 from luxonis_ml.enums import DatasetType
 
@@ -38,16 +39,7 @@ class ClassificationDirectoryExporter(BaseExporter):
 
             split = split_of_group(prepared_ldf, group_id)
 
-            class_names: set[str] = set()
-            for row in entry.iter_rows(named=True):
-                if (
-                    row["task_type"] == "classification"
-                    and row["instance_id"] == -1
-                ):
-                    cname = row["class_name"]
-                    if cname:
-                        class_names.add(str(cname))
-
+            class_names = set(whole_image_classes(entry))
             if not class_names:
                 continue
 

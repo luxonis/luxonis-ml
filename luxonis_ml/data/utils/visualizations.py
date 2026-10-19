@@ -215,6 +215,7 @@ def draw_dashed_rectangle(
     pt1: tuple[int, int],
     pt2: tuple[int, int],
     color: Color,
+    *,
     thickness: int = 1,
     dash_length: int = 10,
 ) -> None:
@@ -285,6 +286,7 @@ def create_text_image(
     text: str,
     width: int,
     height: int,
+    *,
     font_size: float = 0.7,
     bg_color: Color = 255,
     text_color: Color = 0,
@@ -546,6 +548,7 @@ def draw_keypoint_label(
     image: np.ndarray,
     text: str,
     point: tuple[int, int],
+    *,
     size: int,
     color: tuple[int, int, int],
     font_scale: float,
@@ -582,9 +585,9 @@ def visualize(
     source_name: str,
     labels: Labels,
     classes: dict[str, dict[str, int]],
+    *,
     blend_all: bool = False,
     categorical_encodings: dict[str, dict[str, int]] | None = None,
-    *,
     skeletons: dict[str, tuple[list[str], list[tuple[int, int]]]]
     | None = None,
     draw_skeletons: bool = False,
@@ -616,127 +619,281 @@ def visualize(
 
     """
 
-    h, w, _ = image.shape
-    images = {source_name: image}
-    mappings = {task: bidict(c) for task, c in classes.items()}
+    drawer = _LabelDrawer(image, source_name, classes, blend_all=blend_all)
     metadata_mappings = {
         task: bidict(encoding)
         for task, encoding in (categorical_encodings or {}).items()
     }
+    for task, arr in task_type_iterator(labels, "segmentation"):
+        drawer.draw_segmentation(task, arr)
+    for task, arr in task_type_iterator(labels, "boundingbox"):
+        drawer.draw_boxes(task, arr)
+    for task, arr in task_type_iterator(labels, "instance_segmentation"):
+        drawer.draw_instance_segmentation(task, arr)
+    text_lines = _classification_lines(labels, drawer.mappings)
+    text_lines += _metadata_lines(labels, metadata_mappings)
+    for task, arr in task_type_iterator(labels, "keypoints"):
+        drawer.draw_keypoints(
+            task,
+            arr,
+            skeletons=skeletons,
+            draw_skeletons=draw_skeletons,
+            label_mode=keypoint_label_mode,
+        )
 
-    min_dimension = min(h, w)
-    font_scale = max(0.25, min(1.1, 0.4 * min_dimension / 500))
-    small_kp_size = max(2, round(0.002 * min_dimension))
-    large_kp_size = max(4, round(0.004 * min_dimension))
+    output = concat_images(drawer.images)
+    if text_lines:
+        output = append_text_block(output, text_lines, drawer.font_scale)
+    return output
 
-    def create_mask(
-        image: np.ndarray, arr: np.ndarray, task_name: str, is_instance: bool
+
+class _LabelDrawer:
+    """Draw the labels of one sample, one image per task name."""
+
+    def __init__(
+        self,
+        image: np.ndarray,
+        source_name: str,
+        classes: dict[str, dict[str, int]],
+        *,
+        blend_all: bool,
+    ):
+        self.image = image
+        self.h, self.w, _ = image.shape
+        self.mappings = {task: bidict(c) for task, c in classes.items()}
+        self.blend_all = blend_all
+        self.images = {source_name: image}
+        self.bbox_classes: defaultdict[str, list[int]] = defaultdict(list)
+
+        min_dimension = min(self.h, self.w)
+        self.font_scale = max(0.25, min(1.1, 0.4 * min_dimension / 500))
+        self.small_kp_size = max(2, round(0.002 * min_dimension))
+        self.large_kp_size = max(4, round(0.004 * min_dimension))
+
+    def _image_name(self, task_name: str) -> str:
+        """Return the key in `images` that labels of a task draw on."""
+        if task_name and not self.blend_all:
+            return task_name
+        return "labels"
+
+    def _canvas(self, task_name: str) -> np.ndarray:
+        """Return the image of a task, or a fresh copy of the source."""
+        return self.images.get(self._image_name(task_name), self.image.copy())
+
+    def _box_class_color(self, task_name: str, index: int) -> RGB | None:
+        """Return the class color of the ``index``-th drawn box of a task."""
+        box_classes = self.bbox_classes[task_name]
+        if index >= len(box_classes):
+            return None
+        return str_to_rgb(self.mappings[task_name].inverse[box_classes[index]])
+
+    def _blend_masks(
+        self,
+        image: np.ndarray,
+        arr: np.ndarray,
+        task_name: str,
+        *,
+        is_instance: bool,
     ) -> np.ndarray:
-        mask_viz = np.zeros((h, w, 3)).astype(np.uint8)
+        """Blend the colored masks of one task into an image."""
+        mask_viz = np.zeros((self.h, self.w, 3)).astype(np.uint8)
         for i, mask in enumerate(arr):
-            mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
+            mask = cv2.resize(
+                mask, (self.w, self.h), interpolation=cv2.INTER_NEAREST
+            )
             if is_instance:
-                task_classes = mappings[task_name]
-                if len(bbox_classes[task_name]) > i:
-                    class_id = bbox_classes[task_name][i]
-                    color = str_to_rgb(task_classes.inverse[class_id])
-                else:
-                    color = (255, 0, 0)
-                mask_viz[mask > 0] = color
-            else:
-                mask_viz[mask == 1] = (
-                    str_to_rgb(mappings[task_name].inverse[i])
-                    if (i != 0 or len(arr) == 1)
-                    else (0, 0, 0)
-                )
+                color = self._box_class_color(task_name, i)
+                mask_viz[mask > 0] = color or (255, 0, 0)
+            elif i != 0 or len(arr) == 1:
+                # With several classes, class 0 is the background: no color.
+                class_name = self.mappings[task_name].inverse[i]
+                mask_viz[mask == 1] = str_to_rgb(class_name)
 
         binary_mask = (mask_viz > 0).astype(np.uint8)
-
         return np.where(
             binary_mask > 0,
             cv2.addWeighted(image, 0.4, mask_viz, 0.6, 0),
             image,
         )
 
-    bbox_classes = defaultdict(list)
-    classification_labels: list[tuple[str, list[str]]] = []
-    metadata_labels: list[tuple[str, list[str]]] = []
-
-    def format_metadata_value(task: str, value: object) -> str:
-        if isinstance(value, np.generic):
-            value = value.item()
-
-        if task in metadata_mappings and isinstance(
-            value, (int, str, bytes, bytearray)
-        ):
-            try:
-                return metadata_mappings[task].inverse[int(value)]
-            except (KeyError, ValueError):
-                pass
-
-        if isinstance(value, float):
-            return f"{value:g}"
-        return str(value)
-
-    def format_keypoint_label(
-        index: int, keypoint_names: list[str]
-    ) -> str | None:
-        if keypoint_label_mode == "numbers":
-            return str(index)
-        if keypoint_label_mode != "none" and index < len(keypoint_names):
-            if keypoint_label_mode == "full":
-                return f"{index}: {keypoint_names[index]}"
-            return keypoint_names[index]
-        return None
-
-    for task, arr in task_type_iterator(labels, "segmentation"):
+    def draw_segmentation(self, task: str, arr: np.ndarray) -> None:
+        """Blend the semantic masks of a task over the source image."""
         task_name = get_task_name(task)
-        image_name = task_name if task_name and not blend_all else "labels"
-        images[image_name] = create_mask(
-            image, arr, task_name, is_instance=False
+        self.images[self._image_name(task_name)] = self._blend_masks(
+            self.image, arr, task_name, is_instance=False
         )
 
-    for task, arr in task_type_iterator(labels, "boundingbox"):
+    def draw_instance_segmentation(self, task: str, arr: np.ndarray) -> None:
+        """Blend the instance masks of a task over its image."""
         task_name = get_task_name(task)
-        image_name = task_name if task_name and not blend_all else "labels"
-        curr_image = images.get(image_name, image.copy())
+        self.images[self._image_name(task_name)] = self._blend_masks(
+            self._canvas(task_name), arr, task_name, is_instance=True
+        )
 
-        draw_function = cv2.rectangle
+    def draw_boxes(self, task: str, arr: np.ndarray) -> None:
+        """Draw the boxes of a task and record their classes.
 
+        Boxes of a sub-label task get a dashed outline.
+        """
+        task_name = get_task_name(task)
+        canvas = self._canvas(task_name)
         is_sublabel = len(task.split("/")) > 2
+        draw_function = draw_dashed_rectangle if is_sublabel else cv2.rectangle
 
-        if is_sublabel:
-            draw_function = draw_dashed_rectangle
-
-        arr[:, [1, 3]] *= w
-        arr[:, [2, 4]] *= h
+        arr[:, [1, 3]] *= self.w
+        arr[:, [2, 4]] *= self.h
         arr[:, 3] += arr[:, 1]
         arr[:, 4] += arr[:, 2]
         arr = arr.astype(int)
 
         for box in arr:
             class_id = int(box[0])
-            bbox_classes[task_name].append(class_id)
-            class_name = mappings[task_name].inverse[class_id]
+            self.bbox_classes[task_name].append(class_id)
+            class_name = self.mappings[task_name].inverse[class_id]
             color = str_to_rgb(class_name)
             draw_function(
-                curr_image,
+                canvas,
                 (box[1], box[2]),
                 (box[3], box[4]),
                 color,
                 thickness=2,
             )
-            draw_bbox_label(curr_image, class_name, box, color, font_scale)
-        images[image_name] = curr_image
+            draw_bbox_label(canvas, class_name, box, color, self.font_scale)
+        self.images[self._image_name(task_name)] = canvas
 
-    for task, arr in task_type_iterator(labels, "instance_segmentation"):
+    def draw_keypoints(
+        self,
+        task: str,
+        arr: np.ndarray,
+        *,
+        skeletons: dict[str, tuple[list[str], list[tuple[int, int]]]] | None,
+        draw_skeletons: bool,
+        label_mode: Literal["none", "numbers", "names", "full"],
+    ) -> None:
+        """Draw the keypoints of a task, colored like their boxes."""
         task_name = get_task_name(task)
-        image_name = task_name if task_name and not blend_all else "labels"
-        curr_image = images.get(image_name, image.copy())
-        images[image_name] = create_mask(
-            curr_image, arr, task_name, is_instance=True
-        )
+        canvas = self._canvas(task_name)
+        keypoint_names, edges = (skeletons or {}).get(task_name, ([], []))
 
+        for i, kp in enumerate(arr):
+            kp = kp.reshape(-1, 3)
+            class_color = self._box_class_color(task_name, i)
+            if class_color is None:
+                color = (255, 0, 0)
+            else:
+                color = get_contrast_color(class_color)
+
+            if draw_skeletons:
+                self._draw_edges(canvas, kp, edges, color)
+            self._draw_points(canvas, kp, color, keypoint_names, label_mode)
+
+        self.images[self._image_name(task_name)] = canvas
+
+    def _draw_edges(
+        self,
+        canvas: np.ndarray,
+        kp: np.ndarray,
+        edges: list[tuple[int, int]],
+        color: RGB,
+    ) -> None:
+        """Draw the skeleton edges between the visible keypoints."""
+        for start_idx, end_idx in edges:
+            if not (0 <= start_idx < len(kp) and 0 <= end_idx < len(kp)):
+                continue
+            if int(kp[start_idx][-1]) == 0 or int(kp[end_idx][-1]) == 0:
+                continue
+            start_point = (
+                int(kp[start_idx][0] * self.w),
+                int(kp[start_idx][1] * self.h),
+            )
+            end_point = (
+                int(kp[end_idx][0] * self.w),
+                int(kp[end_idx][1] * self.h),
+            )
+            cv2.line(
+                canvas,
+                start_point,
+                end_point,
+                color,
+                thickness=2,
+                lineType=cv2.LINE_AA,
+            )
+
+    def _draw_points(
+        self,
+        canvas: np.ndarray,
+        kp: np.ndarray,
+        color: RGB,
+        keypoint_names: list[str],
+        label_mode: Literal["none", "numbers", "names", "full"],
+    ) -> None:
+        """Draw the visible keypoints and their labels.
+
+        A keypoint with visibility 2 is a circle, a keypoint with
+        visibility 1 a larger cross.
+        """
+        for j, k in enumerate(kp):
+            visibility = int(k[-1])
+            if visibility == 0:
+                continue
+
+            if visibility == 2:
+                draw_function = cv2.circle
+                size = self.small_kp_size
+            else:
+                draw_function = draw_cross
+                size = self.large_kp_size
+
+            point = (int(k[0] * self.w), int(k[1] * self.h))
+            draw_function(canvas, point, size, color=color, thickness=2)
+
+            text = _keypoint_label(j, keypoint_names, label_mode)
+            if text is not None:
+                draw_keypoint_label(
+                    canvas,
+                    text,
+                    point,
+                    size=size,
+                    color=color,
+                    font_scale=self.font_scale,
+                )
+
+
+def _keypoint_label(
+    index: int,
+    keypoint_names: list[str],
+    mode: Literal["none", "numbers", "names", "full"],
+) -> str | None:
+    """Return the text drawn next to a keypoint, or ``None`` for none.
+
+    Examples:
+        >>> names = ["nose", "eye"]
+        >>> (
+        ...     _keypoint_label(1, names, "numbers"),
+        ...     _keypoint_label(1, names, "names"),
+        ... )
+        ('1', 'eye')
+        >>> (
+        ...     _keypoint_label(1, names, "full"),
+        ...     _keypoint_label(5, names, "full"),
+        ... )
+        ('1: eye', None)
+
+    """
+    if mode == "numbers":
+        return str(index)
+    if mode == "none" or index >= len(keypoint_names):
+        return None
+    if mode == "full":
+        return f"{index}: {keypoint_names[index]}"
+    return keypoint_names[index]
+
+
+def _classification_lines(
+    labels: Labels, mappings: dict[str, bidict[str, int]]
+) -> list[str]:
+    """List the classification labels of a sample as text lines."""
+    classification_labels: list[tuple[str, list[str]]] = []
     for task, arr in task_type_iterator(labels, "classification"):
         task_name = get_task_name(task)
         task_classes = mappings.get(task_name)
@@ -752,6 +909,22 @@ def visualize(
         ]
         classification_labels.append((task_name, class_names))
 
+    if len(classification_labels) == 1:
+        _, class_names = classification_labels[0]
+        return ["Classes:", ", ".join(class_names)]
+    if classification_labels:
+        return ["Classification labels:"] + [
+            f"{task_name}: {', '.join(class_names)}"
+            for task_name, class_names in classification_labels
+        ]
+    return []
+
+
+def _metadata_lines(
+    labels: Labels, metadata_mappings: dict[str, bidict[str, int]]
+) -> list[str]:
+    """List the metadata labels of a sample as text lines."""
+    lines: list[str] = []
     for task, arr in labels.items():
         task_type = get_task_type(task)
         if not task_type.startswith("metadata/"):
@@ -767,118 +940,30 @@ def visualize(
             continue
 
         formatted_values = [
-            format_metadata_value(task, value) for value in values
+            _format_metadata_value(metadata_mappings.get(task), value)
+            for value in values
         ]
-        unique_values = list(dict.fromkeys(formatted_values))
-        metadata_labels.append((label_name, unique_values))
+        unique_values = dict.fromkeys(formatted_values)
+        lines.append(f"{label_name}: {', '.join(unique_values)}")
 
-    for task, arr in task_type_iterator(labels, "keypoints"):
-        task_name = get_task_name(task)
-        image_name = task_name if task_name and not blend_all else "labels"
-        curr_image = images.get(image_name, image.copy())
+    if lines:
+        return ["Metadata labels:", *lines]
+    return []
 
-        task_classes = mappings[task_name]
-        keypoint_names: list[str] = []
-        edges: list[tuple[int, int]] = []
-        if skeletons is not None and task_name in skeletons:
-            keypoint_names, edges = skeletons[task_name]
 
-        for i, kp in enumerate(arr):
-            kp = kp.reshape(-1, 3)
-            if len(bbox_classes[task_name]) > i:
-                class_id = bbox_classes[task_name][i]
-                color = get_contrast_color(
-                    str_to_rgb(task_classes.inverse[class_id])
-                )
-            else:
-                color = (255, 0, 0)
+def _format_metadata_value(
+    mapping: bidict[str, int] | None, value: object
+) -> str:
+    """Format one metadata value, decoded through its encoding if any."""
+    if isinstance(value, np.generic):
+        value = value.item()
 
-            if draw_skeletons:
-                for start_idx, end_idx in edges:
-                    if (
-                        start_idx < 0
-                        or end_idx < 0
-                        or start_idx >= len(kp)
-                        or end_idx >= len(kp)
-                    ):
-                        continue
-                    if (
-                        int(kp[start_idx][-1]) == 0
-                        or int(kp[end_idx][-1]) == 0
-                    ):
-                        continue
+    if mapping is not None and isinstance(value, (int, str, bytes, bytearray)):
+        try:
+            return mapping.inverse[int(value)]
+        except (KeyError, ValueError):
+            pass
 
-                    start_point = (
-                        int(kp[start_idx][0] * w),
-                        int(kp[start_idx][1] * h),
-                    )
-                    end_point = (
-                        int(kp[end_idx][0] * w),
-                        int(kp[end_idx][1] * h),
-                    )
-                    cv2.line(
-                        curr_image,
-                        start_point,
-                        end_point,
-                        color,
-                        thickness=2,
-                        lineType=cv2.LINE_AA,
-                    )
-
-            for j, k in enumerate(kp):
-                visibility = int(k[-1])
-                if visibility == 0:
-                    continue
-
-                if visibility == 2:
-                    draw_function = cv2.circle
-                    size = small_kp_size
-                else:
-                    draw_function = draw_cross
-                    size = large_kp_size
-
-                point = (int(k[0] * w), int(k[1] * h))
-                draw_function(
-                    curr_image,
-                    point,
-                    size,
-                    color=color,
-                    thickness=2,
-                )
-
-                text = format_keypoint_label(j, keypoint_names)
-                if text is not None:
-                    draw_keypoint_label(
-                        curr_image, text, point, size, color, font_scale
-                    )
-
-        images[image_name] = curr_image
-
-    output = concat_images(images)
-
-    text_lines: list[str] = []
-    if len(classification_labels) == 1:
-        _, class_names = classification_labels[0]
-        text_lines.extend(["Classes:", ", ".join(class_names)])
-    elif classification_labels:
-        text_lines.extend(
-            ["Classification labels:"]
-            + [
-                f"{task_name}: {', '.join(class_names)}"
-                for task_name, class_names in classification_labels
-            ]
-        )
-
-    if metadata_labels:
-        text_lines.extend(
-            ["Metadata labels:"]
-            + [
-                f"{label_name}: {', '.join(values)}"
-                for label_name, values in metadata_labels
-            ]
-        )
-
-    if text_lines:
-        output = append_text_block(output, text_lines, font_scale)
-
-    return output
+    if isinstance(value, float):
+        return f"{value:g}"
+    return str(value)

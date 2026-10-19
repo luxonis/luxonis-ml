@@ -10,6 +10,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
     annotation_to_polygons,
     check_group_file_correspondence,
     exporter_specific_annotation_warning,
+    register_class,
     split_of_group,
 )
 from luxonis_ml.enums import DatasetType
@@ -137,13 +138,11 @@ class UltralyticsNDJSONExporter(BaseExporter):
             ):
                 continue
 
-            if class_name not in self.class_to_id:
-                self.class_to_id[class_name] = len(self.class_to_id)
-                self.class_names.append(class_name)
-
+            cid = register_class(
+                class_name, self.class_to_id, self.class_names
+            )
             instance = instances.setdefault(
-                (class_name, int(instance_id)),
-                {"class_id": self.class_to_id[class_name]},
+                (class_name, int(instance_id)), {"class_id": cid}
             )
             instance[task_type] = json.loads(annotation)
 
@@ -189,20 +188,25 @@ class UltralyticsNDJSONExporter(BaseExporter):
             ]
             return {"segments": segments} if segments else {}
 
-        poses = [
-            pose_line
-            for instance in instances.values()
-            if "keypoints" in instance
-            for pose_line in [
-                self._keypoints_to_line(
-                    int(instance["class_id"]),
-                    instance.get("boundingbox"),
-                    instance["keypoints"],
-                )
-            ]
-            if pose_line is not None
-        ]
+        poses = self._pose_lines(instances)
         return {"pose": poses} if poses else {}
+
+    def _pose_lines(
+        self, instances: dict[tuple[str, int], dict[str, Any]]
+    ) -> list[list[float | int]]:
+        """Return one pose line per instance with keypoints."""
+        poses = []
+        for instance in instances.values():
+            if "keypoints" not in instance:
+                continue
+            pose_line = self._keypoints_to_line(
+                int(instance["class_id"]),
+                instance.get("boundingbox"),
+                instance["keypoints"],
+            )
+            if pose_line is not None:
+                poses.append(pose_line)
+        return poses
 
     def _maybe_roll_partition(
         self,
