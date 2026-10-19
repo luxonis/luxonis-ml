@@ -388,8 +388,10 @@ def test_visualize_task_without_classes_draws_in_red():
 
     panel = draw({})
     assert np.array_equal(panel, draw({"pose": {}}))
-    assert panel[..., 0].any()
-    assert not panel[..., 1:].any()
+    assert panel[:5, :5, 0].any()
+    assert not panel[:5, :5, 1:].any()
+    assert panel[8:13, 8:13, 0].any()
+    assert not panel[8:13, 8:13, 1:].any()
 
 
 def test_classification_lines_list_each_task():
