@@ -969,11 +969,15 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 image_size=image_size,
             )
 
-        for target_name, (trailing, dtype) in emptied_targets.items():
+        for target_name, (recorded, dtype) in emptied_targets.items():
             task = self._target_names_to_tasks[target_name]
-            if self._targets[target_name] == "instance_mask":
-                # The recorded shape is the pre-augmentation one.
-                trailing = image_size
+            # The recorded shape of an instance mask is the
+            # pre-augmentation one.
+            trailing = (
+                image_size
+                if self._targets[target_name] == "instance_mask"
+                else recorded
+            )
             out_labels[task] = np.zeros((0, *trailing), dtype=dtype)
 
         return out_image_dict, out_labels
@@ -1346,9 +1350,9 @@ def _normalize_params(
 
     """
     normalized: Params = {}
-    for key, value in params.items():
-        key = str(key)
-        value = _normalize_value(value)
+    for raw_key, raw_value in params.items():
+        key = str(raw_key)
+        value = _normalize_value(raw_value)
         if value is _OMIT or _is_configured(transform, key, value):
             continue
         normalized[key] = value
@@ -1378,8 +1382,8 @@ def _normalize_value(value: Any) -> Any:
         return _normalize_params(value)
     if isinstance(value, (list, tuple)):
         normalized = []
-        for item in value:
-            item = _normalize_value(item)
+        for raw_item in value:
+            item = _normalize_value(raw_item)
             # Dropping a single item would reindex the sequence and
             # misrepresent its length.
             if item is _OMIT:
@@ -1413,6 +1417,7 @@ def _disambiguate_paths(paths: dict[int, str]) -> dict[int, str]:
     for key, path in paths.items():
         if path in duplicated:
             seen[path] += 1
-            path = f"{path}#{seen[path]}"
-        disambiguated[key] = path
+            disambiguated[key] = f"{path}#{seen[path]}"
+        else:
+            disambiguated[key] = path
     return disambiguated

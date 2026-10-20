@@ -1412,9 +1412,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         assert annotations_path is not None
 
         with ParquetFileManager(annotations_path, batch_size) as pfm:
-            for i, record in enumerate(generator, start=1):
-                if not isinstance(record, DatasetRecord):
-                    record = DatasetRecord(**record)
+            for i, item in enumerate(generator, start=1):
+                record = (
+                    item
+                    if isinstance(item, DatasetRecord)
+                    else DatasetRecord(**item)
+                )
                 added.sources.update(record.files.keys())
                 ann = record.annotation
                 if ann is not None:

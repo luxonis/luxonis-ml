@@ -243,8 +243,8 @@ def draw_dashed_rectangle(
             (i, i + dash_length)
             for i in range(0, line_length, 2 * dash_length)
         ]
-        for start, end in dashes:
-            end = min(end, line_length)
+        for start, dash_end in dashes:
+            end = min(dash_end, line_length)
             start_point = (
                 int(p1[0] + (p2[0] - p1[0]) * start / line_length),
                 int(p1[1] + (p2[1] - p1[1]) * start / line_length),
@@ -700,9 +700,9 @@ class _LabelDrawer:
     ) -> np.ndarray:
         """Blend the colored masks of one task into an image."""
         mask_viz = np.zeros((self.h, self.w, 3)).astype(np.uint8)
-        for i, mask in enumerate(arr):
+        for i, task_mask in enumerate(arr):
             mask = cv2.resize(
-                mask, (self.w, self.h), interpolation=cv2.INTER_NEAREST
+                task_mask, (self.w, self.h), interpolation=cv2.INTER_NEAREST
             )
             if is_instance:
                 color = self._box_class_color(task_name, i)
@@ -778,8 +778,8 @@ class _LabelDrawer:
         canvas = self._canvas(task_name)
         keypoint_names, edges = (skeletons or {}).get(task_name, ([], []))
 
-        for i, kp in enumerate(arr):
-            kp = kp.reshape(-1, 3)
+        for i, flat_kp in enumerate(arr):
+            kp = flat_kp.reshape(-1, 3)
             class_color = self._box_class_color(task_name, i)
             if class_color is None:
                 color = (255, 0, 0)

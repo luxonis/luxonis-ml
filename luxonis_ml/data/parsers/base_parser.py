@@ -662,12 +662,10 @@ class BaseParser(ABC):
 
         """
         for item in generator:
-            if isinstance(item, dict):
-                item = DatasetRecord(**item)
-
+            record = DatasetRecord(**item) if isinstance(item, dict) else item
             if self._task_name is None:
-                yield item
-            elif item.annotation is None:
+                yield record
+            elif record.annotation is None:
                 # A record without labels belongs to every task.
                 task_names = (
                     {self._default_task_name}
@@ -675,12 +673,12 @@ class BaseParser(ABC):
                     else set(self._task_name.values())
                 )
                 for task_name in task_names:
-                    yield item.model_copy(
+                    yield record.model_copy(
                         update={"task_name": task_name}, deep=True
                     )
             else:
-                self._assign_task_name(item)
-                yield item
+                self._assign_task_name(record)
+                yield record
 
     def _assign_task_name(self, item: DatasetRecord) -> None:
         """Set the task name that the class of a record maps to."""

@@ -257,8 +257,8 @@ def test_metadata(
 
     dataset = create_dataset(dataset_name, generator(), bucket_storage)
     loader = LuxonisLoader(dataset)
-    for _, labels in loader:
-        labels = {get_task_type(k): v for k, v in labels.items()}
+    for _, task_labels in loader:
+        labels = {get_task_type(k): v for k, v in task_labels.items()}
         assert {
             "metadata/color",
             "metadata/distance",
@@ -273,8 +273,8 @@ def test_metadata(
         assert labels["metadata/license_plate"].tolist() == ["xyz"] * 10
 
     loader = LuxonisLoader(dataset, keep_categorical_as_strings=True)
-    for _, labels in loader:
-        labels = {get_task_type(k): v for k, v in labels.items()}
+    for _, task_labels in loader:
+        labels = {get_task_type(k): v for k, v in task_labels.items()}
         assert labels["metadata/color"].tolist() == ["red", "blue"] * 5
 
     assert dataset.get_categorical_encodings() == {

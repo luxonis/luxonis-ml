@@ -265,14 +265,16 @@ def _duplicate_annotations(df: pl.LazyFrame) -> list[dict[str, Any]]:
     ) in duplicate_annotation.iter_rows():
         if task_is_metadata(task_type):
             continue
-        if task_type == "segmentation":
-            annotation = "<binary mask>"
         result.append(
             {
                 "file_name": file_name,
                 "task_type": task_type,
                 "task_name": task_name,
-                "annotation": annotation,
+                "annotation": (
+                    "<binary mask>"
+                    if task_type == "segmentation"
+                    else annotation
+                ),
                 "count": count,
             }
         )
