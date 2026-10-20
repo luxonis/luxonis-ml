@@ -221,6 +221,7 @@ reportIncompatibleVariableOverride = "none"
 reportIncompatibleMethodOverride = "none"
 reportUnnecessaryIsInstance = "none"
 reportImplicitOverride = "error"
+reportUnnecessaryTypeIgnoreComment = "error"
 
 [tool.pytest]
 doctest_optionflags = [

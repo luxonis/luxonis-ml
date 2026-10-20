@@ -1136,7 +1136,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         else:
             constructor = TRANSFORMATIONS.get(config.name)
 
-        transform = constructor(**params)  # type: ignore
+        transform = constructor(**params)
 
         if not isinstance(transform, A.BaseCompose):
             tracked_paths[id(transform)] = "/".join(current_path)

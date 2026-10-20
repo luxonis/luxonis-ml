@@ -128,7 +128,7 @@ def test_dataset_record(tempdir: Path):
                 **empty_metadata,
             },
             {
-                "file": left,  # type: ignore
+                "file": left,
                 "source_name": "image",
                 "task_name": "",
                 "class_name": "person",

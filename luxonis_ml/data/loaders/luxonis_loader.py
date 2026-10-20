@@ -710,7 +710,7 @@ class LuxonisLoader(BaseLoader):
 
         metadata = deepcopy(metadata_batch[0])
 
-        metadata["batch_augmentation_metadata"] = [  # type: ignore
+        metadata["batch_augmentation_metadata"] = [
             {
                 "input_index": i,
                 "sample_metadata": deepcopy(m),

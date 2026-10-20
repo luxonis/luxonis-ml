@@ -288,7 +288,7 @@ def test_indices_are_restamped_without_a_bbox_processor() -> None:
 def test_make_contiguous_leaves_non_arrays_alone() -> None:
     data = {"image": np.zeros((4, 4))[::2], "note": "kept as is"}
 
-    out = BatchCompose._make_contiguous(data)  # type: ignore[arg-type]
+    out = BatchCompose._make_contiguous(data)
 
     assert out["image"].flags["C_CONTIGUOUS"]
     assert out["note"] == "kept as is"

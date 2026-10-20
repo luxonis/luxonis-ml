@@ -20,7 +20,7 @@ def register_transform() -> Iterator[Register]:
 
     def _register(cls: type) -> type:
         name = cls.__name__
-        TRANSFORMATIONS[name] = cls  # type: ignore[assignment]
+        TRANSFORMATIONS[name] = cls
         registered.append(name)
         return cls
 

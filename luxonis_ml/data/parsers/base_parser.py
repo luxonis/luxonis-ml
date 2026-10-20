@@ -421,7 +421,7 @@ class BaseParser(ABC):
             elif is_counts:
                 sampled = self._apply_counts_to_splits(
                     original_splits,
-                    split_ratios,  # type: ignore[arg-type]
+                    split_ratios,
                 )
                 self._dataset.make_splits(sampled)
                 self._remove_unsplit_records()

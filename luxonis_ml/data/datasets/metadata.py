@@ -114,7 +114,7 @@ class Metadata(BaseModelExtraForbid):
                 other.categorical_encodings,
                 lambda a, b: {**a, **b},
             ),
-            metadata_types={**self.metadata_types, **other.metadata_types},  # type: ignore
+            metadata_types={**self.metadata_types, **other.metadata_types},
         )
 
     def _merge_class_maps(

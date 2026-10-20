@@ -60,7 +60,7 @@ def plot_class_distribution(
     ax.tick_params(
         axis="x", rotation=90 if num_classes > 5 else 45, labelsize=8
     )
-    for tick in ax.get_xticklabels():  # type: ignore
+    for tick in ax.get_xticklabels():
         tick.set_ha("center")  # type: ignore
     ax.margins(x=0.01)
 

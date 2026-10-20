@@ -836,7 +836,7 @@ def _plot_task_health(
         )
         plot_heatmap(
             axs[i][1],
-            fig,  # type: ignore
+            fig,
             task_type,
             heatmaps_by_type.get(task_type),  # type: ignore
         )
@@ -845,7 +845,7 @@ def _plot_task_health(
     plt.subplots_adjust(top=0.9, hspace=0.5)
 
     if save_dir:
-        fig.savefig(f"{save_dir}/dataset_health_{task_name}.png", dpi=150)  # type: ignore
+        fig.savefig(f"{save_dir}/dataset_health_{task_name}.png", dpi=150)
         plt.close(fig)
     else:
         plt.show(block=False)

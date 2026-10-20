@@ -839,7 +839,7 @@ class KeypointAnnotation(Annotation):
     @override
     def combine_to_numpy(
         annotations: list["KeypointAnnotation"],
-        classes: list[int] | None = None,  # pyright: ignore[reportUnusedParameter]
+        classes: list[int] | None = None,
         n_classes: int | None = None,
     ) -> np.ndarray:
         r"""Combine keypoint annotations into flattened keypoint rows.

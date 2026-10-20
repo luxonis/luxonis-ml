@@ -30,7 +30,7 @@ from luxonis_ml.utils import LuxonisFileSystem
 
 from .utils import create_dataset, create_image
 
-AUGMENTATIONS_CONFIG: list[Params] = [  # type: ignore[reportAssignmentType]
+AUGMENTATIONS_CONFIG: list[Params] = [
     {
         "name": "Mosaic4",
         "params": {"p": 1, "out_width": 512, "out_height": 512},

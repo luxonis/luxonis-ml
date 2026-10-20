@@ -1826,7 +1826,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         splits = self.get_splits()
         if splits is not None and view and view in splits:
-            df = df.filter(pl.col("uuid").is_in(splits[view]))  # type: ignore
+            df = df.filter(pl.col("uuid").is_in(splits[view]))
 
         stats["duplicates"] = get_duplicates_info(df)
 
