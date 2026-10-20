@@ -718,7 +718,7 @@ def load_annotations(annotation_name: str) -> list[dict[str, Any]]:
         remote_path = f"gs://luxonis-test-bucket/luxonis-ml-test-data/test-augmentation-data/{annotation_name}"
         local_path = LuxonisFileSystem.download(remote_path, dest=dest_dir)
 
-    with open(local_path) as f:
+    with local_path.open() as f:
         return json.load(f)
 
 

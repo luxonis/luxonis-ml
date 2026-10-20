@@ -573,7 +573,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
     def _load_splits(self, path: Path) -> dict[str, list[str]]:
         splits_path = path / "splits.json"
-        with open(splits_path) as f:
+        with splits_path.open() as f:
             return json.load(f)
 
     def _ignore_files_not_in_uuid_set(
@@ -606,7 +606,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
     def _save_splits(self, splits: dict[str, list[str]]) -> None:
         splits_path_self = self._metadata_path / "splits.json"
-        with open(splits_path_self, "w") as f:
+        with splits_path_self.open("w") as f:
             json.dump(splits, f, indent=4)
 
     @overload
@@ -1501,7 +1501,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         if splits_path is None:
             return None
 
-        with open(splits_path) as file:
+        with splits_path.open() as file:
             return json.load(file)
 
     @override
@@ -1530,7 +1530,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         )
         old_splits: dict[str, list[str]] = defaultdict(list)
         if splits_path.exists():
-            with open(splits_path) as file:
+            with splits_path.open() as file:
                 old_splits = defaultdict(list, json.load(file))
 
         defined_group_ids: set[str] = set()

@@ -390,7 +390,7 @@ class UltralyticsNDJSONParser(BaseParser):
         dataset_record = None
         has_image_record = False
         try:
-            with open(ndjson_path, encoding="utf-8-sig") as file:
+            with ndjson_path.open(encoding="utf-8-sig") as file:
                 for raw_line in file:
                     line = raw_line.strip()
                     if not line:
@@ -501,7 +501,7 @@ class UltralyticsNDJSONParser(BaseParser):
 
 def _image_records(ndjson_path: Path) -> Iterator[dict[str, Any]]:
     """Yield the image records of an NDJSON file, other lines skipped."""
-    with open(ndjson_path, encoding="utf-8-sig") as file:
+    with ndjson_path.open(encoding="utf-8-sig") as file:
         for raw_line in file:
             line = raw_line.strip()
             if not line:

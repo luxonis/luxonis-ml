@@ -279,7 +279,7 @@ class LuxonisLoader(BaseLoader):
             raise RuntimeError(
                 "Cannot find splits! Ensure you call dataset.make_splits()"
             )
-        with open(splits_path) as file:
+        with splits_path.open() as file:
             splits = json.load(file)
 
         instances: list[str] = []
@@ -730,7 +730,7 @@ class LuxonisLoader(BaseLoader):
         bbox_area_threshold: float = 0.0004,
     ) -> AugmentationEngine | None:
         if isinstance(augmentation_config, PathType):
-            with open(augmentation_config) as file:
+            with Path(augmentation_config).open() as file:
                 augmentation_config = cast(
                     list[Params], yaml.safe_load(file) or []
                 )

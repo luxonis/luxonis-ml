@@ -71,7 +71,7 @@ class FiftyOneClassificationParser(BaseParser):
             return None
 
         try:
-            with open(labels_path) as f:
+            with labels_path.open() as f:
                 labels_data = json.load(f)
             if "classes" not in labels_data or "labels" not in labels_data:
                 return None
@@ -114,7 +114,7 @@ class FiftyOneClassificationParser(BaseParser):
         if is_flat_structure:
             labels_path = clean_imagenet_annotations(labels_path)
 
-        with open(labels_path) as f:
+        with labels_path.open() as f:
             labels_data = json.load(f)
 
         classes = labels_data["classes"]
@@ -176,7 +176,7 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
         Path to the cleaned labels file.
 
     """
-    with open(labels_path) as f:
+    with labels_path.open() as f:
         labels_data = json.load(f)
 
     classes = labels_data["classes"]
@@ -226,7 +226,7 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
     labels_data["labels"] = labels
 
     cleaned_labels_path = labels_path.with_name("labels_fixed.json")
-    with open(cleaned_labels_path, "w") as f:
+    with cleaned_labels_path.open("w") as f:
         json.dump(labels_data, f)
 
     logger.info(f"Cleaned annotations saved to {cleaned_labels_path}")

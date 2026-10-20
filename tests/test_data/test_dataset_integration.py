@@ -22,7 +22,7 @@ from .utils import gather_tasks
 
 def get_annotations(sequence_path: Path):
     frame_data = sequence_path / "step0.frame_data.json"
-    with open(frame_data) as f:
+    with frame_data.open() as f:
         data = json.load(f)["captures"][0]
         frame_data = data["annotations"]
 

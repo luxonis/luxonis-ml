@@ -60,7 +60,7 @@ class SOLOParser(BaseParser):
             json_path = next(split_path.glob(json_fname), None)
             if not json_path:
                 return None
-        with open(split_path / "metadata.json") as json_file:
+        with (split_path / "metadata.json").open() as json_file:
             metadata_dict = json.load(json_file)
         # check if all sequences are present
         total_sequences_expected = metadata_dict["totalSequences"]
@@ -119,7 +119,7 @@ class SOLOParser(BaseParser):
             split_path / "annotation_definitions.json"
         )
         if annotation_definitions_path.exists():
-            with open(annotation_definitions_path) as json_file:
+            with annotation_definitions_path.open() as json_file:
                 annotation_definitions_dict = json.load(json_file)
         else:
             raise FileNotFoundError(

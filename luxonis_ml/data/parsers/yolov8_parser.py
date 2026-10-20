@@ -351,7 +351,7 @@ class YOLOv8Parser(BaseParser):
             and added images.
 
         """
-        with open(classes_path) as f:
+        with classes_path.open() as f:
             classes_data = yaml.safe_load(f)
 
         if isinstance(classes_data["names"], list):
@@ -400,7 +400,7 @@ def _annotation_lines(ann_path: Path) -> list[str]:
     """
     if not ann_path.exists():
         return []
-    with open(ann_path) as f:
+    with ann_path.open() as f:
         return [line for line in f if line.strip()]
 
 

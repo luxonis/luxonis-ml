@@ -292,7 +292,7 @@ class LuxonisTracker:
                 artifact["path"] = str(local_path)
 
         log_dir = self.run_directory / "local_logs.json"
-        with open(log_dir, "w") as f:
+        with log_dir.open("w") as f:
             json.dump(
                 {
                     k: self.local_logs[k]

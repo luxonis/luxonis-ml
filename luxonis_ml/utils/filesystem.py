@@ -825,7 +825,7 @@ class LuxonisFileSystem:
                         dst_path=temp_dir,
                     )
                 )
-                with open(download_path, "rb") as f:
+                with download_path.open("rb") as f:
                     buffer = BytesIO(f.read())
 
         else:
@@ -863,7 +863,7 @@ class LuxonisFileSystem:
 
         """
         if local:
-            with open(path, "rb") as file:
+            with Path(path).open("rb") as file:
                 return _uuid_from_stream(file)
 
         if self.is_mlflow:

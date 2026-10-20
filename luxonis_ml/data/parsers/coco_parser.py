@@ -117,7 +117,7 @@ class COCOParser(BaseParser):
     def _is_coco_json(json_path: Path) -> bool:
         """Check if JSON file has required COCO format fields."""
         try:
-            with open(json_path) as f:
+            with json_path.open() as f:
                 data = json.load(f)
             if not isinstance(data, dict):
                 return False
@@ -300,7 +300,7 @@ class COCOParser(BaseParser):
             and added images.
 
         """
-        with open(annotation_path) as f:
+        with annotation_path.open() as f:
             annotation_data = json.load(f)
 
         coco_images = annotation_data["images"]
@@ -605,7 +605,7 @@ def clean_annotations(annotation_path: Path) -> Path:
         "000000578492.jpg",
         "000000531721.jpg",
     ]
-    with open(annotation_path) as f:
+    with annotation_path.open() as f:
         annotation_data = json.load(f)
 
     filtered_images = [
@@ -628,7 +628,7 @@ def clean_annotations(annotation_path: Path) -> Path:
     annotation_data["annotations"] = filtered_annotations
 
     cleaned_annotation_path = annotation_path.with_name("labels_fixed.json")
-    with open(cleaned_annotation_path, "w") as f:
+    with cleaned_annotation_path.open("w") as f:
         json.dump(annotation_data, f)
 
     return cleaned_annotation_path

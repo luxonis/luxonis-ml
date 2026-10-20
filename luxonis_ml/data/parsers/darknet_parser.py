@@ -72,7 +72,7 @@ class DarknetParser(BaseParser):
             and added images.
 
         """
-        with open(classes_path) as f:
+        with classes_path.open() as f:
             class_names = {
                 i: line.rstrip() for i, line in enumerate(f.readlines())
             }
@@ -82,7 +82,7 @@ class DarknetParser(BaseParser):
                 ann_path = img_path.with_suffix(".txt")
                 file = str(img_path)
                 if ann_path.exists():
-                    with open(ann_path) as f:
+                    with ann_path.open() as f:
                         annotation_data = f.readlines()
                 else:
                     annotation_data = []

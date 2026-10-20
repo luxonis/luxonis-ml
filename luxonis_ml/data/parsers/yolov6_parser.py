@@ -132,7 +132,7 @@ class YoloV6Parser(BaseParser):
             and added images.
 
         """
-        with open(classes_path) as f:
+        with classes_path.open() as f:
             classes_data = yaml.safe_load(f)
         class_names = dict(enumerate(classes_data["names"]))
 
@@ -142,7 +142,7 @@ class YoloV6Parser(BaseParser):
 
                 annotation_data = []
                 if ann_path.exists():
-                    with open(ann_path) as f:
+                    with ann_path.open() as f:
                         annotation_data = f.readlines()
 
                 if not annotation_data:
