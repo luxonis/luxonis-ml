@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 from cyclopts import App, Parameter
-from rich import print
+from rich import print as rich_print
 
 from luxonis_ml.utils import LuxonisFileSystem
 
@@ -76,4 +76,4 @@ def ls(
     """
     fs = LuxonisFileSystem(url.rstrip("/"))
     for file in fs.walk_dir("", recursive=recursive, typ=typ):
-        print(file)
+        rich_print(file)

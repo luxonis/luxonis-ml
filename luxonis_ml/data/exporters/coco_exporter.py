@@ -40,14 +40,14 @@ class CocoExporter(BaseExporter):
         dataset_identifier: str,
         output_path: Path,
         max_partition_size_gb: float | None,
-        format: COCOFormat = COCOFormat.ROBOFLOW,
+        coco_format: COCOFormat = COCOFormat.ROBOFLOW,
         *,
         skeletons: dict[str, Any] | None = None,
     ):
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
-        self.format = format
+        self.format = coco_format
         self.skeletons = skeletons
         if self.skeletons is None:
             self.allow_keypoints = False

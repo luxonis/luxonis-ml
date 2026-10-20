@@ -1743,7 +1743,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             DatasetType.COCO: ExporterSpec(
                 CocoExporter,
                 {
-                    "format": COCOFormat.ROBOFLOW,
+                    "coco_format": COCOFormat.ROBOFLOW,
                     "skeletons": getattr(self.metadata, "skeletons", None),
                 },
             ),

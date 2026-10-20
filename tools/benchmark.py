@@ -5,7 +5,7 @@ from typing import Annotated
 import cv2
 import numpy as np
 from cyclopts import App, Parameter
-from rich import print
+from rich import print as rich_print
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
@@ -91,7 +91,7 @@ def main(
             dataset.add(generator(size))
             dataset.make_splits()
             avg += time.time() - t
-        print(f"Time to write: {avg / repeat:.2f}s")
+        rich_print(f"Time to write: {avg / repeat:.2f}s")
 
     if not no_read:
         avg = 0
@@ -111,7 +111,7 @@ def main(
                 pass
 
             avg += time.time() - t
-        print(f"Time to read: {avg / repeat:.2f}s")
+        rich_print(f"Time to read: {avg / repeat:.2f}s")
 
 
 if __name__ == "__main__":
