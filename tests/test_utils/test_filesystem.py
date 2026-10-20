@@ -252,8 +252,8 @@ def test_static_directory(
 
     with subtests.test("download"):
         assert fs.exists(dir_name)
-        dir = LuxonisFileSystem.download(url, protocol_tempdir)
-        compare_directories(dir, local_dir)
+        downloaded_dir = LuxonisFileSystem.download(url, protocol_tempdir)
+        compare_directories(downloaded_dir, local_dir)
 
 
 def test_walk_dir(

@@ -114,6 +114,7 @@ docstring-code-format = true
 
 [tool.ruff.lint]
 select = [
+  "A",
   "ANN",
   "ASYNC",
   "B",

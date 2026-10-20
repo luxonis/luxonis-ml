@@ -67,8 +67,8 @@ def rgb_to_bool_masks(
     }
 
     lookup_table = np.zeros((256, 256, 256), dtype=np.uint8)
-    for color, id in color_to_id.items():
-        lookup_table[color[0], color[1], color[2]] = id + 1
+    for color, class_id in color_to_id.items():
+        lookup_table[color[0], color[1], color[2]] = class_id + 1
 
     segmentation_ids = lookup_table[
         segmentation_mask[:, :, 0],
