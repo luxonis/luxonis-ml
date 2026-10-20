@@ -69,7 +69,7 @@ class LuxonisConfig(BaseModelExtraForbid):
             data = cfg
 
         cls._merge_overrides(data, overrides)
-        return cls(**data)  # type: ignore
+        return cls(**data)
 
     @override
     def __str__(self) -> str:

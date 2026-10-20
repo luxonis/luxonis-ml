@@ -167,7 +167,7 @@ def test_bbox_annotation(subtests: SubTests):
                 with pytest.raises(
                     ValueError, match="outside of automatic clipping"
                 ):
-                    BBoxAnnotation(**curr_dict)  # type: ignore
+                    BBoxAnnotation(**curr_dict)
 
         bbox_ann = BBoxAnnotation(x=0.9, y=0, w=0.2, h=0)
         assert bbox_ann.x + bbox_ann.w <= 1
@@ -184,7 +184,7 @@ def test_bbox_annotation(subtests: SubTests):
             for v in [-1.1, 1.3, -1.3, 2]:
                 curr_dict = base_dict.copy()
                 curr_dict[k] = v
-                bbox_ann = BBoxAnnotation(**curr_dict)  # type: ignore
+                bbox_ann = BBoxAnnotation(**curr_dict)
                 assert 0 <= bbox_ann.x <= 1
                 assert 0 <= bbox_ann.y <= 1
                 assert 0 <= bbox_ann.w <= 1
