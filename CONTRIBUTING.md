@@ -20,7 +20,7 @@ uv run luxonis_ml checkhealth
 
 `uv sync` creates `.venv` and installs the package in editable mode together
 with the `dev` dependency group. That group depends on `luxonis-ml[all]`, so a
-plain `uv sync` pulls in every extra as well — you do not need `--all-extras`.
+plain `uv sync` pulls in every extra as well. You do not need `--all-extras`.
 There is no `source .venv/bin/activate` step: `uv run <cmd>` syncs the
 environment and runs the command inside it. Use `uv run --no-sync <cmd>` when
 you have hand-installed something into `.venv` that a sync would revert, such
