@@ -16,7 +16,7 @@ docstring-parser==0.18.0
 filetype==1.2.0
 fonttools==4.65.0 ; python_full_version < '3.11'
 fonttools==4.66.1 ; python_full_version >= '3.11'
-fsspec==2024.6.1
+fsspec==2026.9.0
 idna==3.20
 kiwisolver==1.5.1
 loguru==0.7.3
