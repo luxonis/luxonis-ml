@@ -559,6 +559,49 @@ def test_clone_dataset(
     cloned_dataset.delete_dataset(delete_local=True, delete_remote=True)
 
 
+def _boxes(
+    tempdir: Path, indices: range, class_name: str, size: float
+) -> DatasetIterator:
+    """Yield one square box of ``class_name`` for each image index."""
+    for i in indices:
+        yield {
+            "file": create_image(i, tempdir),
+            "annotation": {
+                "class": class_name,
+                "boundingbox": {"x": size, "y": size, "w": size, "h": size},
+            },
+        }
+
+
+def _box_counts(dataset: LuxonisDataset) -> set[tuple[int, str]]:
+    """Return the box count of each class of ``dataset``."""
+    stats = dataset.get_statistics()
+    return {
+        (item["count"], item["class_name"])
+        for item in stats["class_distributions"][""]["boundingbox"]
+    }
+
+
+def _pulled_from_cloud(dataset: LuxonisDataset) -> LuxonisDataset:
+    """Pull a GCS dataset again and check that its statistics stay."""
+    local_stats = dataset.get_statistics()
+    synced = LuxonisDataset(
+        dataset._dataset_name,
+        bucket_storage=BucketStorage.GCS,
+        delete_local=True,
+        delete_remote=False,
+    )
+    synced.pull_from_cloud(update_mode=UpdateMode.MISSING)
+    synced_stats = synced.get_statistics()
+    for stats in (local_stats, synced_stats):
+        stats["class_distributions"][""]["boundingbox"] = sorted(
+            stats["class_distributions"][""]["boundingbox"],
+            key=lambda x: x["class_name"],
+        )
+    assert local_stats == synced_stats
+    return synced
+
+
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_merge_datasets(
     bucket_storage: BucketStorage,
@@ -570,38 +613,16 @@ def test_merge_datasets(
     dataset1_name = f"{dataset_name}_1"
     dataset2_name = f"{dataset_name}_2"
 
-    def generator1() -> DatasetIterator:
-        for i in range(3):
-            img = create_image(i, tempdir)
-            yield {
-                "file": img,
-                "annotation": {
-                    "class": "person",
-                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
-                },
-            }
-
-    def generator2() -> DatasetIterator:
-        for i in range(3, 6):
-            img = create_image(i, tempdir)
-            yield {
-                "file": img,
-                "annotation": {
-                    "class": "dog",
-                    "boundingbox": {"x": 0.2, "y": 0.2, "w": 0.2, "h": 0.2},
-                },
-            }
-
     dataset1 = create_dataset(
         dataset1_name,
-        generator1(),
+        _boxes(tempdir, range(3), "person", 0.1),
         bucket_storage,
         splits={"train": 0.6, "val": 0.4},
     )
 
     dataset2 = create_dataset(
         dataset2_name,
-        generator2(),
+        _boxes(tempdir, range(3, 6), "dog", 0.2),
         bucket_storage,
         splits={"train": 0.6, "val": 0.4},
     )
@@ -614,40 +635,14 @@ def test_merge_datasets(
             dataset2, inplace=True
         )
 
-        if bucket_storage == BucketStorage.GCS:  # test GCS push/pull
-            local_stats = cloned_dataset1_merged_with_dataset2.get_statistics()
-            cloned_dataset1_merged_with_dataset2 = LuxonisDataset(
-                cloned_dataset1_merged_with_dataset2._dataset_name,
-                bucket_storage=bucket_storage,
-                delete_local=True,
-                delete_remote=False,
+        if bucket_storage == BucketStorage.GCS:
+            cloned_dataset1_merged_with_dataset2 = _pulled_from_cloud(
+                cloned_dataset1_merged_with_dataset2
             )
-            cloned_dataset1_merged_with_dataset2.pull_from_cloud(
-                update_mode=UpdateMode.MISSING
-            )
-            synced_stats = (
-                cloned_dataset1_merged_with_dataset2.get_statistics()
-            )
-            synced_stats["class_distributions"][""]["boundingbox"] = sorted(
-                synced_stats["class_distributions"][""]["boundingbox"],
-                key=lambda x: x["class_name"],
-            )
-            local_stats["class_distributions"][""]["boundingbox"] = sorted(
-                local_stats["class_distributions"][""]["boundingbox"],
-                key=lambda x: x["class_name"],
-            )
-            assert local_stats == synced_stats
-
-        cloned_dataset1_merged_with_dataset2_stats = (
-            cloned_dataset1_merged_with_dataset2.get_statistics()
-        )
-        found = {
-            (item["count"], item["class_name"])
-            for item in cloned_dataset1_merged_with_dataset2_stats[
-                "class_distributions"
-            ][""]["boundingbox"]
+        assert _box_counts(cloned_dataset1_merged_with_dataset2) == {
+            (3, "person"),
+            (3, "dog"),
         }
-        assert found == {(3, "person"), (3, "dog")}
 
         classes = cloned_dataset1_merged_with_dataset2.get_classes()
         assert set(classes[""]) == {"person", "dog"}
@@ -658,40 +653,17 @@ def test_merge_datasets(
         new_dataset_name=f"{dataset1_name}_{dataset2_name}_merged",
     )
     with subtests.test("test_out_of_place"):
-        if bucket_storage == BucketStorage.GCS:  # test GCS push/pull
-            local_stats = dataset1_merged_with_dataset2.get_statistics()
-            dataset1_merged_with_dataset2 = LuxonisDataset(
-                dataset1_merged_with_dataset2._dataset_name,
-                bucket_storage=bucket_storage,
-                delete_local=True,
-                delete_remote=False,
+        if bucket_storage == BucketStorage.GCS:
+            dataset1_merged_with_dataset2 = _pulled_from_cloud(
+                dataset1_merged_with_dataset2
             )
-            dataset1_merged_with_dataset2.pull_from_cloud(
-                update_mode=UpdateMode.MISSING
-            )
-            synced_stats = dataset1_merged_with_dataset2.get_statistics()
-            synced_stats["class_distributions"][""]["boundingbox"] = sorted(
-                synced_stats["class_distributions"][""]["boundingbox"],
-                key=lambda x: x["class_name"],
-            )
-            local_stats["class_distributions"][""]["boundingbox"] = sorted(
-                local_stats["class_distributions"][""]["boundingbox"],
-                key=lambda x: x["class_name"],
-            )
-            assert local_stats == synced_stats
 
     classes = dataset1_merged_with_dataset2.get_classes()
     assert set(classes[""]) == {"person", "dog"}
-    dataset1_merged_with_dataset2_stats = (
-        dataset1_merged_with_dataset2.get_statistics()
-    )
-    found = {
-        (item["count"], item["class_name"])
-        for item in dataset1_merged_with_dataset2_stats["class_distributions"][
-            ""
-        ]["boundingbox"]
+    assert _box_counts(dataset1_merged_with_dataset2) == {
+        (3, "person"),
+        (3, "dog"),
     }
-    assert found == {(3, "person"), (3, "dog")}
 
     df_merged = dataset1_merged_with_dataset2._load_df_offline()
     df_cloned_merged = dataset1.merge_with(
@@ -719,38 +691,16 @@ def test_merge_datasets_specific_split(
     dataset1_name = f"{dataset_name}_1"
     dataset2_name = f"{dataset_name}_2"
 
-    def generator1() -> DatasetIterator:
-        for i in range(3):
-            img = create_image(i, tempdir)
-            yield {
-                "file": img,
-                "annotation": {
-                    "class": "person",
-                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
-                },
-            }
-
-    def generator2() -> DatasetIterator:
-        for i in range(3, 6):
-            img = create_image(i, tempdir)
-            yield {
-                "file": img,
-                "annotation": {
-                    "class": "dog",
-                    "boundingbox": {"x": 0.2, "y": 0.2, "w": 0.2, "h": 0.2},
-                },
-            }
-
     dataset1 = create_dataset(
         dataset1_name,
-        generator1(),
+        _boxes(tempdir, range(3), "person", 0.1),
         bucket_storage,
         splits={"train": 0.6, "val": 0.4},
     )
 
     dataset2 = create_dataset(
         dataset2_name,
-        generator2(),
+        _boxes(tempdir, range(3, 6), "dog", 0.2),
         bucket_storage,
         splits={"train": 0.6, "val": 0.4},
     )
