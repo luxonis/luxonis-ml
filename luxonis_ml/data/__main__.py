@@ -365,7 +365,7 @@ class _SampleViewer:
         per_instance: bool,
         list_augmentations: bool,
         print_sample_metadata: bool,
-    ):
+    ) -> None:
         self._draw = draw
         self._size_multiplier = size_multiplier
         self._per_instance = per_instance

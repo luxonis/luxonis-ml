@@ -28,7 +28,7 @@ class LetterboxResize(A.DualTransform):
         image_fill_value: ColorLike = "black",
         mask_fill_value: int = 0,
         p: float = 1.0,
-    ):
+    ) -> None:
         """Create a ``LetterboxResize`` augmentation.
 
         Args:

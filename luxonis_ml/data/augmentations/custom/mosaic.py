@@ -70,7 +70,7 @@ class Mosaic4(BatchTransform):
         out_width: int | None = None,
         value: float | list[int] | list[float] | None = None,
         mask_value: float | list[int] | list[float] | None = None,
-    ):
+    ) -> None:
         """Create a Mosaic4 augmentation.
 
 

@@ -42,7 +42,7 @@ class UltralyticsNDJSONExporter(BaseExporter):
         *,
         dataset_type: DatasetType,
         ndjson_task: UltralyticsTask,
-    ):
+    ) -> None:
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )

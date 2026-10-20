@@ -16,7 +16,7 @@ class BatchTransform(ABC, A.DualTransform):
 
     """
 
-    def __init__(self, batch_size: int, **kwargs):
+    def __init__(self, batch_size: int, **kwargs) -> None:
         """Create a batch transformation.
 
         Batch transformations combine multiple images and their labels into

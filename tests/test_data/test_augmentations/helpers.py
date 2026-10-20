@@ -11,7 +11,7 @@ class KeepFirstSample(BatchTransform):
     real transform rewriting the targets on the way through.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(batch_size=2, p=1.0)
 
     @override

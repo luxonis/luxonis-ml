@@ -17,7 +17,9 @@ class HorizontalSymmetricKeypointsFlip(A.DualTransform):
 
     """
 
-    def __init__(self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5):
+    def __init__(
+        self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5
+    ) -> None:
         """Flip an image and symmetric keypoints horizontally.
 
         Bounding boxes and segmentation masks are flipped as well.
@@ -161,7 +163,9 @@ class VerticalSymmetricKeypointsFlip(A.DualTransform):
 
     """
 
-    def __init__(self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5):
+    def __init__(
+        self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5
+    ) -> None:
         """Flip an image and symmetric keypoints vertically.
 
         Bounding boxes and segmentation masks are flipped as well.
@@ -309,7 +313,7 @@ class TransposeSymmetricKeypoints(A.DualTransform):
         self,
         keypoint_pairs: list[tuple[int, int]],
         p: float = 0.5,
-    ):
+    ) -> None:
         """Transpose an image and symmetric keypoints.
 
         Equivalent to 90 degree rotation followed by horizontal flip.

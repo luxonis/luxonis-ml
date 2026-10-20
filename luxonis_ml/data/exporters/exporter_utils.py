@@ -36,7 +36,7 @@ class PreparedLDF:
         splits: dict[str, Any],
         processed_df: pl.DataFrame,
         grouped_image_sources: pl.DataFrame,
-    ):
+    ) -> None:
         self.splits = splits
         self.processed_df = processed_df
         self.grouped_image_sources = grouped_image_sources

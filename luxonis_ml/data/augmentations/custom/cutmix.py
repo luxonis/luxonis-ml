@@ -44,7 +44,7 @@ class CutMix(BatchTransform):
         bbox_min_visibility: float = 0.5,
         occluded_bbox_strategy: Literal["keep", "clip"] = "keep",
         p: float = 0.5,
-    ):
+    ) -> None:
         r"""Create a CutMix augmentation.
 
         Args:

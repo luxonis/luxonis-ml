@@ -20,7 +20,7 @@ class _InfoDataset:
         classes: dict[str, dict[str, int]],
         tasks: dict[str, list[str]],
         splits: dict[str, list[str]] | None,
-    ):
+    ) -> None:
         self._classes = classes
         self._tasks = tasks
         self._splits = splits
