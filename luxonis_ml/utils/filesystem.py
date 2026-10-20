@@ -1500,10 +1500,13 @@ def _move_onto(source: Path, destination: Path) -> None:
 
 
 def _check_package_installed(protocol: str) -> None:  # pragma: no cover
+    """Install the package that ``protocol`` needs if it is missing."""
+    # gcsfs and s3fs pin fsspec, which is already imported
+    fsspec_pin = f"fsspec=={fsspec.__version__}"
     if protocol in {"gs", "gcs"} and find_spec("gcsfs") is None:
-        _pip_install(protocol, "gcsfs==2024.6.1")
+        _pip_install(protocol, "gcsfs>=2026.1.0", fsspec_pin)
     elif protocol == "s3" and find_spec("s3fs") is None:
-        _pip_install(protocol, "s3fs==2024.6.1")
+        _pip_install(protocol, "s3fs>=2026.1.0", fsspec_pin)
     elif protocol == "mlflow" and find_spec("mlflow") is None:
         _pip_install(protocol, "mlflow~=3.1")
 
@@ -1568,9 +1571,13 @@ def _uuid_from_stream(stream: IO[bytes]) -> str:
     return str(uuid.UUID(bytes=digest.digest()[:16], version=5))
 
 
-def _pip_install(protocol: str, package: str) -> None:  # pragma: no cover
+def _pip_install(
+    protocol: str, package: str, *constraints: str
+) -> None:  # pragma: no cover
+    """Install ``package`` with pip, held to ``constraints``."""
     logger.error(f"'{package}' is necessary for '{protocol}://' protocol.")
     logger.info(f"Installing {package}...")
     subprocess.run(
-        [sys.executable, "-m", "pip", "install", package], check=True
+        [sys.executable, "-m", "pip", "install", package, *constraints],
+        check=True,
     )

@@ -9,14 +9,14 @@ colorama==0.4.6 ; sys_platform == 'win32'
 cyclopts==4.25.3
 distro==1.9.0
 docstring-parser==0.18.0
-fsspec==2024.6.1
+fsspec==2026.9.0
 idna==3.20
 loguru==0.7.3
 markdown-it-py==4.2.0
 mdurl==0.1.2
-posthog==7.62.1
-pydantic==2.13.5
-pydantic-core==2.46.5
+posthog==7.68.0
+pydantic==2.14.1
+pydantic-core==2.50.1
 pydantic-extra-types==2.11.1
 pydantic-settings==2.15.0
 pygments==2.21.0
@@ -26,7 +26,7 @@ requests==2.34.2
 rich==15.0.0
 rich-rst==2.2.0
 semver==3.1.0
-tomli==2.4.1 ; python_full_version < '3.11'
+tomli==2.5.0 ; python_full_version < '3.11'
 typeguard==4.6.0
 typing-extensions==4.16.0
 typing-inspection==0.4.4
