@@ -8,6 +8,7 @@ from typing import Any, cast
 import cv2
 import numpy as np
 import pytest
+from typing_extensions import override
 
 from luxonis_ml.data import (
     BucketStorage,
@@ -161,10 +162,12 @@ class CompatibilityOnlyEngine(
         )
         type(self).last_is_validation_pipeline = is_validation_pipeline
 
+    @override
     def apply(self, data: list[LoaderMultiOutput]) -> LoaderMultiOutput:
         return data[0]
 
     @property
+    @override
     def batch_size(self) -> int:
         return 1
 
@@ -173,6 +176,7 @@ class CompatibilityBatchEngine(
     CompatibilityOnlyEngine, register_name="compatibility_batch_engine"
 ):
     @property
+    @override
     def batch_size(self) -> int:
         return 2
 
@@ -180,10 +184,12 @@ class CompatibilityBatchEngine(
 class SelectiveBatchEngine(
     CompatibilityBatchEngine, register_name="selective_batch_engine"
 ):
+    @override
     def apply(self, data: list[LoaderMultiOutput]) -> LoaderMultiOutput:
         return data[1]
 
     @property
+    @override
     def batch_augmentation_indices(self) -> list[int]:
         return [1]
 

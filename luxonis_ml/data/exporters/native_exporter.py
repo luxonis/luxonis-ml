@@ -8,6 +8,7 @@ from typing import Any
 
 import polars as pl
 from semver.version import Version
+from typing_extensions import override
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
@@ -84,9 +85,11 @@ class NativeExporter(BaseExporter):
     def get_split_names() -> dict[str, str]:
         return {"train": "train", "val": "val", "test": "test"}
 
+    @override
     def supported_ann_types(self) -> list[str]:
         return DatasetType.NATIVE.supported_annotation_formats
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         annotation_splits: dict[str, list[dict[str, Any]]] = {
             k: [] for k in self.get_split_names()
@@ -206,6 +209,7 @@ class NativeExporter(BaseExporter):
 
         return self._downgrade(record)
 
+    @override
     def _dump_annotations(
         self,
         annotation_splits: dict[str, list[dict[str, Any]]],
@@ -237,6 +241,7 @@ class NativeExporter(BaseExporter):
         )
         return output_path / name
 
+    @override
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:

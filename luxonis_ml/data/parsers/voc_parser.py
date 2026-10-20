@@ -4,6 +4,7 @@ from typing import Any
 
 import numpy as np
 from defusedxml.ElementTree import parse
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
@@ -29,6 +30,7 @@ class VOCParser(BaseParser):
     """
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -39,6 +41,7 @@ class VOCParser(BaseParser):
             return None
         return {"image_dir": split_path, "annotation_dir": split_path}
 
+    @override
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -55,6 +58,7 @@ class VOCParser(BaseParser):
         )
         return added_train_imgs, added_val_imgs, added_test_imgs
 
+    @override
     def from_split(
         self, image_dir: Path, annotation_dir: Path
     ) -> ParserOutput:

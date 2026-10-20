@@ -5,6 +5,7 @@ from typing import Any
 
 import albumentations as A
 import numpy as np
+from typing_extensions import override
 
 from luxonis_ml.data import AlbumentationsEngine
 from luxonis_ml.data.augmentations import BatchCompose, BatchTransform
@@ -46,11 +47,13 @@ class PickSecond(BatchTransform):
     def __init__(self, p: float = 1.0) -> None:
         super().__init__(batch_size=2, p=p)
 
+    @override
     def update_transform_params(
         self, params: dict[str, Any], data: dict[str, Any]
     ) -> dict[str, Any]:
         return params
 
+    @override
     def apply(self, image_batch: list[np.ndarray], **_: Any) -> np.ndarray:
         return image_batch[1]
 
@@ -67,10 +70,12 @@ class MergeEverySecondSubBatch(BatchTransform):
         super().__init__(batch_size=2, p=1.0)
         self.invocations = 0
 
+    @override
     def should_apply(self, force_apply: bool = False) -> bool:
         self.invocations += 1
         return self.invocations % 2 == 0
 
+    @override
     def apply(self, image_batch: list[np.ndarray], **_: Any) -> np.ndarray:
         return image_batch[1]
 
@@ -87,10 +92,12 @@ class CountedMerge(BatchTransform):
         super().__init__(batch_size=2, p=1.0)
         self.invocations = 0
 
+    @override
     def get_params(self) -> Params:
         self.invocations += 1
         return {"invocation": self.invocations}
 
+    @override
     def apply(self, image_batch: list[np.ndarray], **_: Any) -> np.ndarray:
         return image_batch[0]
 
@@ -627,9 +634,11 @@ def test_tracks_transforms_registered_under_an_alias():
     """
 
     class AliasedBlur(A.ImageOnlyTransform):
+        @override
         def apply(self, img: np.ndarray, **_) -> np.ndarray:
             return img
 
+        @override
         def get_params(self) -> Params:
             return {"strength": 7}
 

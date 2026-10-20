@@ -3,7 +3,7 @@ from pathlib import Path, PurePath
 from typing import Any, TypeVar
 
 import yaml
-from typing_extensions import Self, deprecated
+from typing_extensions import Self, deprecated, override
 
 from luxonis_ml.typing import BaseModelExtraForbid, Params, PathType
 
@@ -71,9 +71,11 @@ class LuxonisConfig(BaseModelExtraForbid):
         cls._merge_overrides(data, overrides)
         return cls(**data)  # type: ignore
 
+    @override
     def __str__(self) -> str:
         return self.model_dump_json(indent=4)
 
+    @override
     def __repr__(self) -> str:
         return self.__str__()
 

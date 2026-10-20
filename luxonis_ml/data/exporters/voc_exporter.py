@@ -6,6 +6,7 @@ from xml.etree.ElementTree import Element, ElementTree, SubElement
 import polars as pl
 from defusedxml import minidom
 from PIL import Image
+from typing_extensions import override
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
@@ -22,9 +23,11 @@ class VOCExporter(BaseExporter):
     def get_split_names() -> dict[str, str]:
         return {"train": "train", "val": "valid", "test": "test"}
 
+    @override
     def supported_ann_types(self) -> list[str]:
         return DatasetType.VOC.supported_annotation_formats
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
         exporter_specific_annotation_warning(
@@ -111,6 +114,7 @@ class VOCExporter(BaseExporter):
         header = 300  # folder/filename/path/size etc.
         return header + per_object * max(1, len(objects))
 
+    @override
     def _dump_annotations(
         self,
         per_split_data: dict[str, dict[str, dict[str, Any]]],
@@ -202,6 +206,7 @@ class VOCExporter(BaseExporter):
         buf.extend(pretty.encode("utf-8"))
         return bytes(buf)
 
+    @override
     def _get_data_path(
         self, output_path: Path, split_name: str, part: int | None = None
     ) -> Path:

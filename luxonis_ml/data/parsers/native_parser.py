@@ -5,6 +5,7 @@ from typing import Any
 
 from loguru import logger
 from semver.version import Version
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.constants import LDF_VERSION
@@ -81,12 +82,14 @@ class NativeParser(BaseParser):
         self._checked_stamps: set[Path] = set()
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         annotation_path = split_path / "annotations.json"
         if not annotation_path.exists():
             return None
         return {"annotation_path": annotation_path}
 
+    @override
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -101,6 +104,7 @@ class NativeParser(BaseParser):
         )
         return added_train_imgs, added_val_imgs, added_test_imgs
 
+    @override
     def from_split(self, annotation_path: Path) -> ParserOutput:
         """Parse native LDF annotations.
 

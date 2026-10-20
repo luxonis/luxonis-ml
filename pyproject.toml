@@ -220,6 +220,7 @@ reportPrivateUsage = "none"
 reportIncompatibleVariableOverride = "none"
 reportIncompatibleMethodOverride = "none"
 reportUnnecessaryIsInstance = "none"
+reportImplicitOverride = "error"
 
 [tool.pytest]
 doctest_optionflags = [

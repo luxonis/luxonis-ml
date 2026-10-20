@@ -134,6 +134,7 @@ class COCOParser(BaseParser):
             return False
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -156,6 +157,7 @@ class COCOParser(BaseParser):
         return {"image_dir": image_dir, "annotation_path": json_path}
 
     @classmethod
+    @override
     def validate(cls, dataset_dir: Path) -> bool:
         dir_format, splits = cls._detect_dataset_dir_format(dataset_dir)
         if dir_format is None:
@@ -180,6 +182,7 @@ class COCOParser(BaseParser):
             discovered[cls._canonicalize_split_name(split_name)] = split_kwargs
         return discovered
 
+    @override
     def from_dir(
         self,
         dataset_dir: Path,
@@ -273,6 +276,7 @@ class COCOParser(BaseParser):
             )
         return split_definitions
 
+    @override
     def from_split(
         self, image_dir: Path, annotation_path: Path
     ) -> ParserOutput:

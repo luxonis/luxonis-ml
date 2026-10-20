@@ -4,6 +4,7 @@ from typing import Any, Literal, cast
 
 from pydantic import NonNegativeInt, SecretStr, model_serializer
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing_extensions import override
 
 from luxonis_ml.typing import Params
 
@@ -116,6 +117,7 @@ class _EnvironProxy:
         real = _load_environ()
         return getattr(real, name)
 
+    @override
     def __repr__(self) -> str:
         return "<EnvironProxy loading from .env>"
 

@@ -10,6 +10,7 @@ from typing import Any, cast
 
 import pytest
 from cyclopts import App
+from typing_extensions import override
 
 import luxonis_ml.telemetry.singleton as telemetry_singleton
 from luxonis_ml.telemetry import (
@@ -58,12 +59,15 @@ class DummyBackend(TelemetryBackend):
         self.flush_count = 0
         self.shutdown_count = 0
 
+    @override
     def capture(self, event: Any) -> None:
         self.events.append(event)
 
+    @override
     def flush(self) -> None:
         self.flush_count += 1
 
+    @override
     def shutdown(self) -> None:
         self.shutdown_count += 1
 
@@ -85,12 +89,15 @@ def dummy_backend(
         def __init__(self, config: TelemetryConfig) -> None:
             super().__init__(config)
 
+        @override
         def capture(self, event: Any) -> None:
             backend.capture(event)
 
+        @override
         def flush(self) -> None:
             backend.flush()
 
+        @override
         def shutdown(self) -> None:
             backend.shutdown()
 
@@ -816,6 +823,7 @@ def test_registering_custom_backend_keeps_builtin_backends(
     reset_backend_registry: Generator[None, None, None],
 ) -> None:
     class RegisteredDummyBackend(TelemetryBackend):
+        @override
         def capture(self, event: Any) -> None:
             return
 
@@ -838,6 +846,7 @@ def test_register_backend_is_case_insensitive(
         def __init__(self, config: TelemetryConfig) -> None:
             super().__init__(config)
 
+        @override
         def capture(self, event: Any) -> None:
             backend.capture(event)
 
@@ -943,6 +952,7 @@ def test_init_backend_falls_back_to_noop_when_backend_init_fails(
             super().__init__(config)
             raise RuntimeError("broken")
 
+        @override
         def capture(self, event: Any) -> None:
             return
 

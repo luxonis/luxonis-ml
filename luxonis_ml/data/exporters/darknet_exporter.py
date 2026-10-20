@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Any, cast
 
+from typing_extensions import override
+
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
@@ -37,9 +39,11 @@ class DarknetExporter(BaseExporter):
     def get_split_names() -> dict[str, str]:
         return {"train": "train", "val": "valid", "test": "test"}
 
+    @override
     def supported_ann_types(self) -> list[str]:
         return DatasetType.DARKNET.supported_annotation_formats
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
         exporter_specific_annotation_warning(
@@ -126,6 +130,7 @@ class DarknetExporter(BaseExporter):
             return {v: {} for v in self.get_split_names().values()}
         return labels_by_split
 
+    @override
     def _dump_annotations(
         self,
         labels_by_split: dict[str, dict[str, list[str]]],
@@ -158,6 +163,7 @@ class DarknetExporter(BaseExporter):
                 encoding="utf-8",
             )
 
+    @override
     def _get_data_path(
         self, output_path: Path, split_name: str, part: int | None = None
     ) -> Path:

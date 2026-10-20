@@ -11,6 +11,7 @@ import cv2
 import matplotlib.colors
 import numpy as np
 from bidict import bidict
+from typing_extensions import override
 
 from luxonis_ml.data.utils import (
     get_task_name,
@@ -34,14 +35,17 @@ class ColorMap(Mapping[Hashable, RGB]):
         self._generator = distinct_color_generator()
         self._color_dict: dict[Hashable, RGB] = {}
 
+    @override
     def __getitem__(self, label: Hashable) -> RGB:
         if label not in self._color_dict:
             self._color_dict[label] = next(self._generator)
         return self._color_dict[label]
 
+    @override
     def __iter__(self) -> Iterator[Hashable]:
         return iter(self._color_dict)
 
+    @override
     def __len__(self) -> int:
         return len(self._color_dict)
 

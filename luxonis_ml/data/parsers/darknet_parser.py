@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Any
 
+from typing_extensions import override
+
 from luxonis_ml.data import DatasetIterator
 
 from .base_parser import BaseParser, ParserOutput, yolo_box_to_ldf
@@ -24,6 +26,7 @@ class DarknetParser(BaseParser):
     """
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -36,6 +39,7 @@ class DarknetParser(BaseParser):
             "classes_path": split_path / "_darknet.labels",
         }
 
+    @override
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -53,6 +57,7 @@ class DarknetParser(BaseParser):
         )
         return added_train_imgs, added_val_imgs, added_test_imgs
 
+    @override
     def from_split(self, image_dir: Path, classes_path: Path) -> ParserOutput:
         """Parse Darknet annotations into LDF records.
 

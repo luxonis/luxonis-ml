@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from PIL import Image
+from typing_extensions import override
 
 from luxonis_ml.data.exporters.exporter_utils import (
     BBox,
@@ -45,9 +46,11 @@ class YoloV4Exporter(BaseExporter):
     def _yaml_filename(self) -> str:
         return ""
 
+    @override
     def supported_ann_types(self) -> list[str]:
         return DatasetType.YOLOV4.supported_annotation_formats
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
         exporter_specific_annotation_warning(
@@ -119,6 +122,7 @@ class YoloV4Exporter(BaseExporter):
             return {k: {} for k in self.get_split_names().values()}
         return annotation_splits
 
+    @override
     def _dump_annotations(
         self,
         annotation_splits: dict[str, dict[str, list[BBox]]],
@@ -176,6 +180,7 @@ class YoloV4Exporter(BaseExporter):
                 encoding="utf-8",
             )
 
+    @override
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:

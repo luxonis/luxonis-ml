@@ -5,6 +5,7 @@ from typing import Any
 import cv2
 import numpy as np
 from loguru import logger
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.utils.path import resolve_manifest_path
@@ -34,6 +35,7 @@ class SOLOParser(BaseParser):
     """
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         """Validate whether a split directory has the expected SOLO
         format.
@@ -72,6 +74,7 @@ class SOLOParser(BaseParser):
             )
         return {"split_path": split_path}
 
+    @override
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -90,6 +93,7 @@ class SOLOParser(BaseParser):
 
         return added_train_imgs, added_valid_imgs, added_test_imgs
 
+    @override
     def from_split(self, split_path: Path) -> ParserOutput:
         """Parse one SOLO split into LDF records.
 

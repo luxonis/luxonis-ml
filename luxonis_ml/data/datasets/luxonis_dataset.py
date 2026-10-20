@@ -236,6 +236,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     def identifier(self) -> str:
         return self._dataset_name
 
+    @override
     def __eq__(self, other: object) -> bool | NotImplementedType:
         """Compare datasets for equivalence."""
         if not isinstance(other, (LuxonisDataset, str)):

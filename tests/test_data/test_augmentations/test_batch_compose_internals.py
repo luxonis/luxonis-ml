@@ -1,6 +1,7 @@
 import albumentations as A
 import numpy as np
 import pytest
+from typing_extensions import override
 
 from luxonis_ml.data.augmentations import BatchCompose, BatchTransform, MixUp
 
@@ -16,6 +17,7 @@ class PushFirstBoxOutOfFrame(KeepFirstSample):
     the non-contiguous indices that compaction exists to handle.
     """
 
+    @override
     def apply_to_bboxes(
         self, bboxes_batch: list[np.ndarray], **_
     ) -> np.ndarray:
@@ -25,6 +27,7 @@ class PushFirstBoxOutOfFrame(KeepFirstSample):
 
 
 class ReturnsFlatBoxes(KeepFirstSample):
+    @override
     def apply_to_bboxes(self, _batch: list[np.ndarray], **_) -> np.ndarray:
         return np.array([1.0, 2.0, 3.0])
 
@@ -36,6 +39,7 @@ class DropsFirstBox(KeepFirstSample):
     instance count gives the mismatch away.
     """
 
+    @override
     def apply_to_bboxes(
         self, bboxes_batch: list[np.ndarray], **_
     ) -> np.ndarray:

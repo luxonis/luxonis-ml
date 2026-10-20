@@ -6,6 +6,7 @@ from typing import Any, cast
 import pytest
 from loguru import logger
 from pydantic import SecretStr
+from typing_extensions import override
 
 from luxonis_ml.data import (
     BaseDataset,
@@ -533,14 +534,17 @@ class _WarningParser(BaseParser):
         self.reason = reason
 
     @staticmethod
+    @override
     def validate_split(_split_path: Path) -> dict[str, Any]:
         return {}
 
+    @override
     def from_dir(
         self, dataset_dir: Path, **kwargs: Any
     ) -> tuple[list[Path], list[Path], list[Path]]:
         return [], [], []
 
+    @override
     def from_split(self, **kwargs: Any) -> ParserOutput:
         for annotation_id in range(self.warning_count):
             self._warn_skipped_annotation(

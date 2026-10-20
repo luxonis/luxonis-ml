@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
@@ -29,6 +30,7 @@ class CreateMLParser(BaseParser):
     """
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -41,6 +43,7 @@ class CreateMLParser(BaseParser):
             "annotation_path": split_path / "_annotations.createml.json",
         }
 
+    @override
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -65,6 +68,7 @@ class CreateMLParser(BaseParser):
 
         return added_train_imgs, added_val_imgs, added_test_imgs
 
+    @override
     def from_split(
         self, image_dir: Path, annotation_path: Path
     ) -> ParserOutput:

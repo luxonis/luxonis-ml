@@ -1,6 +1,7 @@
 import re
 
 from pydantic import Field, field_validator
+from typing_extensions import override
 
 from luxonis_ml.typing import BaseModelExtraForbid
 
@@ -58,8 +59,10 @@ class Config(BaseModelExtraForbid):
             )
         return v
 
+    @override
     def __str__(self) -> str:  # pragma: no cover
         return self.model_dump_json(indent=4)
 
+    @override
     def __repr__(self) -> str:  # pragma: no cover
         return self.__str__()

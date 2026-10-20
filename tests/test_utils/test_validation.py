@@ -18,6 +18,7 @@ from pydantic import (
     field_validator,
 )
 from rich.console import Console
+from typing_extensions import override
 
 from luxonis_ml.utils.validation import (
     format_validation_error,
@@ -568,6 +569,7 @@ def test_long_values_keep_their_tail():
 
 def test_unprintable_input_does_not_break_formatter():
     class BadRepr:
+        @override
         def __repr__(self) -> str:
             raise RuntimeError("broken repr")
 

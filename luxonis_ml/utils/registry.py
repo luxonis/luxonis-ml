@@ -3,7 +3,7 @@ from abc import ABCMeta
 from collections.abc import Callable
 from typing import Generic, TypeVar, overload
 
-from typing_extensions import deprecated
+from typing_extensions import deprecated, override
 
 T = TypeVar("T", bound=type)
 
@@ -26,9 +26,11 @@ class Registry(Generic[T]):
         self._module_dict: dict[str, T] = {}
         self._name = name
 
+    @override
     def __str__(self) -> str:
         return f"Registry('{self.name}')"
 
+    @override
     def __repr__(self) -> str:
         return self.__str__()
 

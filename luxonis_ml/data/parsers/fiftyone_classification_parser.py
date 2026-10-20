@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
@@ -55,6 +56,7 @@ class FiftyOneClassificationParser(BaseParser):
     _SPLIT_NAMES: tuple[str, ...] = ("train", "validation", "test")
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -78,6 +80,7 @@ class FiftyOneClassificationParser(BaseParser):
 
         return {"split_path": split_path}
 
+    @override
     def from_dir(
         self, dataset_dir: Path, **kwargs
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -102,6 +105,7 @@ class FiftyOneClassificationParser(BaseParser):
 
         return added_train_imgs, added_val_imgs, added_test_imgs
 
+    @override
     def from_split(self, split_path: Path) -> ParserOutput:
         labels_path = split_path / "labels.json"
         data_path = split_path / "data"

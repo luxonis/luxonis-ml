@@ -3,6 +3,7 @@ from collections.abc import Callable, Iterator
 import albumentations as A
 import numpy as np
 import pytest
+from typing_extensions import override
 
 from luxonis_ml.data import AlbumentationsEngine
 from luxonis_ml.data.augmentations import AugmentationEngine
@@ -51,12 +52,14 @@ def test_engines_default_to_using_every_input_position() -> None:
     ):
         def __init__(self, *_, **__) -> None: ...
 
+        @override
         def apply(
             self, input_batch: list[LoaderMultiOutput]
         ) -> LoaderMultiOutput:
             return input_batch[0]
 
         @property
+        @override
         def batch_size(self) -> int:
             return 4
 
@@ -138,9 +141,11 @@ def test_plain_basic_transforms_run_as_custom_transforms(
     @register_transform
     class CountingBasicTransform(A.BasicTransform):
         @property
+        @override
         def targets(self) -> dict:
             return {"image": self.apply}
 
+        @override
         def apply(self, img: np.ndarray, **_) -> np.ndarray:
             seen.append(1)
             return img

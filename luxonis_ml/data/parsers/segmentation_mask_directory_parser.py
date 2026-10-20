@@ -4,6 +4,7 @@ from typing import Any
 import cv2
 import numpy as np
 import polars as pl
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 
@@ -49,6 +50,7 @@ class SegmentationMaskDirectoryParser(BaseParser):
     """
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -65,6 +67,7 @@ class SegmentationMaskDirectoryParser(BaseParser):
             "classes_path": split_path / "_classes.csv",
         }
 
+    @override
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -85,6 +88,7 @@ class SegmentationMaskDirectoryParser(BaseParser):
         )
         return added_train_imgs, added_val_imgs, added_test_imgs
 
+    @override
     def from_split(
         self, image_dir: Path, seg_dir: Path, classes_path: Path
     ) -> ParserOutput:
