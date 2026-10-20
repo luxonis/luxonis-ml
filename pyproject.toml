@@ -221,6 +221,7 @@ reportImplicitOverride = "error"
 reportUnnecessaryTypeIgnoreComment = "error"
 reportUnnecessaryCast = "error"
 reportUnnecessaryComparison = "error"
+reportUnreachable = "error"
 
 [tool.pytest]
 doctest_optionflags = [

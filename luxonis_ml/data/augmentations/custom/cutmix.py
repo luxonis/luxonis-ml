@@ -490,11 +490,9 @@ class CutMix(BatchTransform):
             return self._resize_transform.apply_to_bboxes(
                 data, *padding, **kwargs
             )
-        if target_type == "keypoints":
-            return self._resize_transform.apply_to_keypoints(
-                data, *padding, **kwargs
-            )
-        raise ValueError(f"Unsupported target type: {target_type}")
+        return self._resize_transform.apply_to_keypoints(
+            data, *padding, **kwargs
+        )
 
     @staticmethod
     def _compute_patch(
