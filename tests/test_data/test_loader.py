@@ -636,7 +636,7 @@ def test_loader_merges_metadata_only_for_applied_batch_augmentations(
         } == {0, 1}
         assert (
             metadata["record_id"]
-            == cast(Params, batch_metadata[0]["sample_metadata"])["record_id"]
+            == batch_metadata[0]["sample_metadata"]["record_id"]
         )
     else:
         assert metadata in (
