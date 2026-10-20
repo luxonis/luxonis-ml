@@ -547,7 +547,9 @@ class Detection(BaseModelExtraForbid):
     )
     instance_id: int = -1
 
-    metadata: dict[str, int | float | str | Category] = {}
+    metadata: dict[str, int | float | str | Category] = Field(
+        default_factory=dict
+    )
 
     boundingbox: Optional["BBoxAnnotation"] = None
     keypoints: Optional["KeypointAnnotation"] = None
@@ -557,7 +559,7 @@ class Detection(BaseModelExtraForbid):
 
     scale_to_boxes: bool = False
 
-    sub_detections: dict[str, "Detection"] = {}
+    sub_detections: dict[str, "Detection"] = Field(default_factory=dict)
 
     def get_task_types(self) -> set[str]:
         """Get all the task type associated with this detection.
