@@ -311,9 +311,7 @@ class LuxonisParser(Generic[T]):
         return dataset
 
     def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
-        """Return parser issue messages collected during the last
-        parse.
-        """
+        """Return the parser issue messages of the last parse."""
         return self._get_parser_issue_messages()
 
     def _get_parser_issue_messages(self) -> list[ParserIssueMessage]:

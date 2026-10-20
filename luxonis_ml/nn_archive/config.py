@@ -30,8 +30,7 @@ class Config(BaseModelExtraForbid):
     @field_validator("config_version")
     @classmethod
     def validate_config_version_format(cls, v: str) -> str:
-        """Validate that the schema version uses ``major.minor``
-        format.
+        """Validate that the schema version has the ``major.minor`` format.
 
         Args:
             v: Schema version string.

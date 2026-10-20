@@ -328,8 +328,7 @@ class LuxonisFileSystem:
         return f"{self._protocol}://{self._path}"
 
     def init_fsspec_filesystem(self) -> fsspec.AbstractFileSystem:
-        """Initialize an ``fsspec`` filesystem for the configured
-        protocol.
+        """Initialize an ``fsspec`` filesystem for the configured protocol.
 
         Returns:
             Initialized ``fsspec`` filesystem.
@@ -839,8 +838,7 @@ class LuxonisFileSystem:
         return buffer
 
     def get_file_uuid(self, path: PathType, local: bool = False) -> str:
-        """Read a file and returns the (unique) UUID generated from
-        file bytes.
+        """Read a file and return the UUID generated from its bytes.
 
         Args:
             path: Relative path to the remote file, or a
@@ -907,8 +905,7 @@ class LuxonisFileSystem:
 
     @staticmethod
     def _split_mlflow_path(path: PathType) -> list[str | None]:
-        """Split an MLflow path into experiment, run, and artifact
-        parts.
+        """Split an MLflow path into experiment, run and artifact parts.
 
         Args:
             path: MLflow path to split.

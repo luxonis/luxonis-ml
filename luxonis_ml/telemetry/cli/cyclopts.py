@@ -91,9 +91,7 @@ def _wrap_cyclopts(
 
 
 def _iter_unique_subapps(subapps: Iterable[object]) -> list[cyclopts.App]:
-    """Deduplicate Cyclopts subapps because aliases share the same app
-    object.
-    """
+    """Deduplicate Cyclopts subapps, because aliases share one app object."""
     unique: list[cyclopts.App] = []
     seen: set[int] = set()
     for subapp in subapps:
@@ -108,9 +106,7 @@ def _iter_unique_subapps(subapps: Iterable[object]) -> list[cyclopts.App]:
 
 
 def _primary_name(name: tuple[str, ...] | str | None) -> str:
-    """Return the primary command name from a Cyclopts app name
-    value.
-    """
+    """Return the primary command name from a Cyclopts app name value."""
     if name is None:
         return ""
     if isinstance(name, tuple):

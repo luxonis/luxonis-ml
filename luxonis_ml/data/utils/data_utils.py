@@ -316,8 +316,7 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
 def get_class_distributions(
     df: pl.LazyFrame,
 ) -> dict[str, dict[str, list[dict[str, Any]]]]:
-    """Return class distribution information for non-classification
-    tasks.
+    """Return the class distribution of the non-classification tasks.
 
     Args:
         df: Dataset information.
@@ -536,8 +535,7 @@ def _grid_counts(
 
 
 def merge_uuids(uuids: Iterable[str]) -> uuid.UUID:
-    """Merge multiple UUIDs into a single deterministic UUID,
-    independent of order.
+    """Merge UUIDs into one deterministic UUID, independent of order.
 
     Args:
         uuids: UUID strings to merge.

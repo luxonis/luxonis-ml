@@ -37,8 +37,7 @@ class SOLOParser(BaseParser):
     @staticmethod
     @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
-        """Validate whether a split directory has the expected SOLO
-        format.
+        """Validate whether a split directory has the expected SOLO format.
 
         Args:
             split_path: Path to a split directory.

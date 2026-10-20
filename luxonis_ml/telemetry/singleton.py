@@ -217,9 +217,7 @@ def _reconcile_existing_telemetry(
     context_providers: list[ContextProvider] | None,
     system_context_providers: list[SystemContextProvider] | None,
 ) -> None:
-    """Merge additive inputs and warn when immutable args are
-    ignored.
-    """
+    """Merge additive inputs and warn when immutable args are ignored."""
     resolved_source_component = _resolve_source_component(
         library_name=library_name,
         source_component=source_component,
