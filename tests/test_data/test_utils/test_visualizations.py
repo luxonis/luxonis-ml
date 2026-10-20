@@ -3,9 +3,13 @@ from typing import Literal
 import cv2
 import numpy as np
 import pytest
+from bidict import bidict
 
 from luxonis_ml.data.utils.visualizations import (
     ColorMap,
+    _classification_lines,
+    _format_metadata_value,
+    _metadata_lines,
     concat_images,
     create_text_image,
     distinct_color_generator,
@@ -293,10 +297,12 @@ def test_visualize_keypoint_label_modes(
         _image: np.ndarray,
         text: str,
         _point: tuple[int, int],
-        _size: int,
-        _color: tuple[int, int, int],
-        _font_scale: float,
+        *,
+        size: int,
+        color: tuple[int, int, int],
+        font_scale: float,
     ) -> None:
+        del size, color, font_scale
         calls.append(text)
 
     monkeypatch.setattr(
@@ -367,3 +373,112 @@ def test_visualize_keypoint_skeletons_respect_visibility():
     assert np.count_nonzero(without_panel[50, 35]) == 0
     assert np.count_nonzero(with_panel[50, 35]) > 0
     assert np.count_nonzero(with_panel[50, 65]) == 0
+
+
+def test_visualize_task_without_classes_draws_in_red():
+    image = np.zeros((20, 20, 3), dtype=np.uint8)
+    instance_mask = np.zeros((1, 20, 20), dtype=np.uint8)
+    instance_mask[:, :5, :5] = 1
+    labels = {
+        "pose/keypoints": np.array([[0.5, 0.5, 2.0]]),
+        "pose/instance_segmentation": instance_mask,
+    }
+
+    def draw(classes: dict[str, dict[str, int]]) -> np.ndarray:
+        output = visualize(
+            image.copy(),
+            "image",
+            labels,
+            classes,
+            blend_all=True,
+            keypoint_label_mode="none",
+        )
+        return _labels_panel(output, image)
+
+    panel = draw({})
+    assert np.array_equal(panel, draw({"pose": {}}))
+    assert panel[:5, :5, 0].any()
+    assert not panel[:5, :5, 1:].any()
+    assert panel[8:13, 8:13, 0].any()
+    assert not panel[8:13, 8:13, 1:].any()
+
+
+def test_classification_lines_list_each_task():
+    mappings = {
+        "animals": bidict({"cat": 0, "dog": 1}),
+        "colors": bidict({"red": 0, "blue": 1}),
+    }
+    animals = {"animals/classification": np.array([0, 1])}
+
+    assert _classification_lines(animals, mappings) == ["Classes:", "dog"]
+    assert _classification_lines(
+        {**animals, "colors/classification": np.array([1, 1])}, mappings
+    ) == ["Classification labels:", "animals: dog", "colors: red, blue"]
+
+
+def test_metadata_lines_decode_and_deduplicate_values():
+    labels = {
+        "car/metadata/color": np.array([0, 1, 0]),
+        "car/metadata/score": np.array([0.5, 0.25]),
+        "car/metadata/plate": np.array(["AB1", "AB1"]),
+        "car/metadata/empty": np.array([]),
+        "car/boundingbox": np.zeros((0, 5)),
+    }
+    mappings = {"car/metadata/color": bidict({"red": 0, "blue": 1})}
+
+    assert _metadata_lines(labels, mappings) == [
+        "Metadata labels:",
+        "car/color: red, blue",
+        "car/score: 0.5, 0.25",
+        "car/plate: AB1",
+    ]
+
+
+def test_metadata_value_outside_the_encoding_stays_as_it_is():
+    mapping = bidict({"red": 0})
+
+    assert _format_metadata_value(mapping, 5) == "5"
+    assert _format_metadata_value(mapping, "red") == "red"
+
+
+def test_visualize_appends_the_label_text():
+    image = np.zeros((64, 64, 3), dtype=np.uint8)
+    classes = {"animals": {"cat": 0, "dog": 1}}
+
+    plain = visualize(image.copy(), "image", {}, classes)
+    with_text = visualize(
+        image.copy(),
+        "image",
+        {"animals/classification": np.array([0, 1])},
+        classes,
+    )
+
+    assert with_text.shape[0] > plain.shape[0]
+
+
+def test_visualize_skips_skeleton_edges_outside_the_keypoints():
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    labels = {"pose/keypoints": np.array([[0.2, 0.5, 2.0, 0.8, 0.5, 2.0]])}
+    classes = {"pose": {"person": 0}}
+
+    def draw(keypoints: dict[str, dict]) -> np.ndarray:
+        return visualize(
+            image.copy(),
+            "image",
+            labels,
+            classes,
+            blend_all=True,
+            keypoint_metadata={
+                "pose": KeypointMetadata.model_validate(
+                    {"keypoints": keypoints}
+                )
+            },
+            draw_skeletons=True,
+            keypoint_label_mode="none",
+        )
+
+    pair = {"a": {"connected_to": ["b"]}, "b": {}}
+    # The labels have no column for "c", so its edge is left out.
+    assert np.array_equal(
+        draw(pair), draw({**pair, "c": {"connected_to": ["a"]}})
+    )

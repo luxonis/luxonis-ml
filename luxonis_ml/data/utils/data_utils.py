@@ -169,12 +169,14 @@ def find_duplicates(df: pl.LazyFrame) -> dict[str, list[dict[str, Any]]]:
             ``"annotation"`` (or ``"<binary mask>"`` for segmentation), and duplicate ``"count"``.
 
     """
-    result = {
-        "duplicate_uuids": [],
-        "duplicate_annotations": [],
+    return {
+        "duplicate_uuids": _duplicate_uuids(df),
+        "duplicate_annotations": _duplicate_annotations(df),
     }
 
-    # Find duplicate UUIDs
+
+def _duplicate_uuids(df: pl.LazyFrame) -> list[dict[str, Any]]:
+    """List each UUID that more than one file carries, with its files."""
     uuid_file_pairs = (
         df.select(
             pl.col("uuid").map_elements(lambda x: x, return_dtype=pl.Utf8),
@@ -190,40 +192,50 @@ def find_duplicates(df: pl.LazyFrame) -> dict[str, list[dict[str, Any]]]:
         .filter(pl.col("file_count") > 1)
     )
 
-    if not duplicates.is_empty():
-        for row in duplicates.iter_rows():
-            uuid = row[0]
-            files = uuid_file_pairs.filter(pl.col("uuid") == uuid)[
-                "file"
-            ].to_list()
-            result["duplicate_uuids"].append(
-                {
-                    "uuid": uuid,
-                    "files": files,
-                }
+    result = []
+    for row in duplicates.iter_rows():
+        uuid = row[0]
+        files = uuid_file_pairs.filter(pl.col("uuid") == uuid)[
+            "file"
+        ].to_list()
+        result.append({"uuid": uuid, "files": files})
+    return result
+
+
+def _is_all_zero_keypoints(annotation_str: str) -> bool:
+    """Check if a keypoints annotation has all zeros (x, y, visibility).
+
+    Examples:
+        >>> _is_all_zero_keypoints('{"keypoints": {"a": [0, 0, 0]}}')
+        True
+        >>> _is_all_zero_keypoints('{"keypoints": {"a": [0.5, 0, 2]}}')
+        False
+        >>> _is_all_zero_keypoints('{"x": 0.1}'), _is_all_zero_keypoints(None)
+        (False, False)
+
+    """
+    try:
+        annotation = json.loads(annotation_str)
+        if "keypoints" in annotation:
+            return all(
+                kp == [0, 0, 0] for kp in annotation["keypoints"].values()
             )
-
-    # Find duplicate annotations
-    def is_all_zero_keypoints(annotation_str: str) -> bool:
-        """Check if a keypoints annotation has all zeros (x, y,
-        visibility).
-        """
-        try:
-            annotation = json.loads(annotation_str)
-            if "keypoints" in annotation:
-                return all(
-                    kp == [0, 0, 0] for kp in annotation["keypoints"].values()
-                )
-        except (TypeError, ValueError):
-            return False
+    except (TypeError, ValueError):
         return False
+    return False
 
+
+def _duplicate_annotations(df: pl.LazyFrame) -> list[dict[str, Any]]:
+    """List each annotation that repeats on one file, with its count.
+
+    All-zero keypoints, empty annotations and metadata do not count.
+    """
     filtered_df = df.filter(
         ~(
             (pl.col("task_type") == "keypoints")
             & (
                 pl.col("annotation").map_elements(
-                    is_all_zero_keypoints, return_dtype=pl.Boolean
+                    _is_all_zero_keypoints, return_dtype=pl.Boolean
                 )
             )
         )
@@ -240,6 +252,7 @@ def find_duplicates(df: pl.LazyFrame) -> dict[str, list[dict[str, Any]]]:
         .filter(pl.col("annotation") != "{}")
     ).collect()
 
+    result = []
     for (
         file_name,
         task_type,
@@ -247,19 +260,19 @@ def find_duplicates(df: pl.LazyFrame) -> dict[str, list[dict[str, Any]]]:
         annotation,
         count,
     ) in duplicate_annotation.iter_rows():
+        if task_is_metadata(task_type):
+            continue
         if task_type == "segmentation":
             annotation = "<binary mask>"
-        if not task_is_metadata(task_type):
-            result["duplicate_annotations"].append(
-                {
-                    "file_name": file_name,
-                    "task_type": task_type,
-                    "task_name": task_name,
-                    "annotation": annotation,
-                    "count": count,
-                }
-            )
-
+        result.append(
+            {
+                "file_name": file_name,
+                "task_type": task_type,
+                "task_name": task_name,
+                "annotation": annotation,
+                "count": count,
+            }
+        )
     return result
 
 
@@ -387,6 +400,15 @@ def get_duplicates_info(df: pl.LazyFrame) -> dict[str, Any]:
     }
 
 
+_HEATMAP_GRID_SIZE = 15
+_HEATMAP_TASK_TYPES = (
+    "boundingbox",
+    "keypoints",
+    "segmentation",
+    "instance_segmentation",
+)
+
+
 def get_heatmaps(
     df: pl.LazyFrame,
     sample_size: int | None = None,
@@ -410,38 +432,24 @@ def get_heatmaps(
         :math:`15 \times 15` nested list of counts.
 
     """
-    task_types = [
-        "boundingbox",
-        "keypoints",
-        "segmentation",
-        "instance_segmentation",
-    ]
-    grid_size = 15
-    x_edges = np.linspace(0, 1, grid_size + 1)
-    y_edges = np.linspace(0, 1, grid_size + 1)
+    grid_edges = np.linspace(0, 1, _HEATMAP_GRID_SIZE + 1)
     heatmaps: dict[str, dict[str, np.ndarray]] = {}
 
-    annotations_df = df.filter(
-        pl.col("task_type").is_not_null() & pl.col("task_name").is_not_null()
+    annotations_df = (
+        df.filter(
+            pl.col("task_type").is_not_null()
+            & pl.col("task_name").is_not_null()
+        )
+        .select("task_name", "task_type", "annotation")
+        .collect()
     )
+    if sample_size is not None and 0 < sample_size <= len(annotations_df):
+        annotations_df = annotations_df.sample(n=sample_size, shuffle=True)
 
-    annotations_df = annotations_df.select(
-        "task_name", "task_type", "annotation"
-    ).collect()
-
-    if sample_size is not None and sample_size > 0:
-        if sample_size > len(annotations_df):
-            sample_size = None
-        else:
-            annotations_df = annotations_df.sample(n=sample_size, shuffle=True)
-
-    rows = annotations_df.iter_rows(named=True)
-    for row in rows:
-        task_name = row["task_name"]
+    for row in annotations_df.iter_rows(named=True):
         task_type = row["task_type"]
         annotation_str = row["annotation"]
-
-        if task_type not in task_types or not annotation_str:
+        if task_type not in _HEATMAP_TASK_TYPES or not annotation_str:
             continue
 
         try:
@@ -450,64 +458,72 @@ def get_heatmaps(
             continue
 
         try:
-            if task_type == "boundingbox":
-                w, h = annotation["w"], annotation["h"]
-                x = np.array([annotation["x"] + w / 2])
-                y = np.array([annotation["y"] + h / 2])
-            elif task_type == "keypoints":
-                kps = [
-                    kp for kp in annotation["keypoints"].values() if kp[2] > 0
-                ]
-                if not kps:
-                    continue
-                coords = np.array([(kp[0], kp[1]) for kp in kps])
-                x = coords[:, 0]
-                y = coords[:, 1]
-            elif task_type in ["segmentation", "instance_segmentation"]:
-                rle = {
-                    "counts": annotation["counts"],
-                    "size": [annotation["height"], annotation["width"]],
-                }
-                mask = mask_utils.decode(rle)  # type: ignore
-                if downsample_factor > 1:
-                    mask = mask[::downsample_factor, ::downsample_factor]
-                rows_idx, cols_idx = np.where(mask)
-                if rows_idx.size == 0:
-                    continue
-                h_, w_ = mask.shape
-                x = cols_idx / w_
-                y = rows_idx / h_
-            else:
-                continue
-
-            xi = np.digitize(x, x_edges) - 1
-            xi = np.clip(xi, 0, grid_size - 1)
-            yi = np.digitize(y, y_edges) - 1
-            yi = np.clip(yi, 0, grid_size - 1)
-            indices = xi * grid_size + yi
-            counts = np.bincount(
-                indices, minlength=grid_size * grid_size
-            ).reshape(grid_size, grid_size)
-
-            if task_name not in heatmaps:
-                heatmaps[task_name] = {}
-            if task_type not in heatmaps[task_name]:
-                heatmaps[task_name][task_type] = np.zeros(
-                    (grid_size, grid_size), dtype=np.int64
-                )
-            heatmaps[task_name][task_type] += counts
-
+            points = _annotation_points(
+                task_type, annotation, downsample_factor
+            )
         except KeyError as e:
             logger.warning(f"Missing key in annotation: {e}")
             continue
+        if points is None:
+            continue
 
-    result: dict[str, dict[str, list[list[int]]]] = {}
-    for t_name, tasks in heatmaps.items():
-        result[t_name] = {}
-        for t_type, grid in tasks.items():
-            result[t_name][t_type] = grid.T.tolist()
+        counts = _grid_counts(*points, grid_edges)
+        task_heatmaps = heatmaps.setdefault(row["task_name"], {})
+        task_heatmaps[task_type] = task_heatmaps.get(task_type, 0) + counts
 
-    return result
+    return {
+        t_name: {t_type: grid.T.tolist() for t_type, grid in tasks.items()}
+        for t_name, tasks in heatmaps.items()
+    }
+
+
+def _annotation_points(
+    task_type: str, annotation: dict[str, Any], downsample_factor: int
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Return the normalized ``(x, y)`` points of one annotation.
+
+    A box gives its center, keypoints give the visible ones, and a mask
+    gives its foreground pixels after downsampling. An annotation with
+    no point gives ``None``.
+    """
+    if task_type == "boundingbox":
+        w, h = annotation["w"], annotation["h"]
+        return np.array([annotation["x"] + w / 2]), np.array(
+            [annotation["y"] + h / 2]
+        )
+
+    if task_type == "keypoints":
+        kps = [kp for kp in annotation["keypoints"].values() if kp[2] > 0]
+        if not kps:
+            return None
+        coords = np.array([(kp[0], kp[1]) for kp in kps])
+        return coords[:, 0], coords[:, 1]
+
+    rle = {
+        "counts": annotation["counts"],
+        "size": [annotation["height"], annotation["width"]],
+    }
+    mask = mask_utils.decode(rle)  # type: ignore
+    if downsample_factor > 1:
+        mask = mask[::downsample_factor, ::downsample_factor]
+    rows_idx, cols_idx = np.where(mask)
+    if rows_idx.size == 0:
+        return None
+    h_, w_ = mask.shape
+    return cols_idx / w_, rows_idx / h_
+
+
+def _grid_counts(
+    x: np.ndarray, y: np.ndarray, edges: np.ndarray
+) -> np.ndarray:
+    """Count the points in each cell of the square grid with these edges."""
+    grid_size = len(edges) - 1
+    xi = np.clip(np.digitize(x, edges) - 1, 0, grid_size - 1)
+    yi = np.clip(np.digitize(y, edges) - 1, 0, grid_size - 1)
+    indices = xi * grid_size + yi
+    return np.bincount(indices, minlength=grid_size * grid_size).reshape(
+        grid_size, grid_size
+    )
 
 
 def merge_uuids(uuids: Iterable[str]) -> uuid.UUID:

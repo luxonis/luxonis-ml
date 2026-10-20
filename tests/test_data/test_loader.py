@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
 
+import cv2
 import numpy as np
 import pytest
 
@@ -16,6 +17,7 @@ from luxonis_ml.data import (
 )
 from luxonis_ml.data.augmentations import AugmentationEngine
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
+from luxonis_ml.data.loaders.luxonis_loader import _read_image
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.typing import (
     LoaderMultiOutput,
@@ -137,6 +139,7 @@ class CompatibilityOnlyEngine(
         targets: Mapping[str, str],
         n_classes: Mapping[str, int],
         source_names: list[str],
+        *,
         config: Iterable[Params],
         keep_aspect_ratio: bool,
         is_validation_pipeline: bool | None = None,
@@ -506,6 +509,38 @@ def test_loader_preserves_metadata_for_custom_batch_engines(
     } == {0, 1}
 
 
+def test_loader_repeats_the_only_sample_for_a_batch_augmentation(
+    dataset_name: str, tempdir: Path
+) -> None:
+    def generator() -> DatasetIterator:
+        yield {
+            "file": create_image(0, tempdir),
+            "sample_metadata": {"record_id": 0},
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    loader = LuxonisLoader(
+        dataset,
+        view="train",
+        height=256,
+        width=256,
+        autopopulate_metadata=False,
+        augmentation_engine="compatibility_batch_engine",
+        augmentation_config=[{"name": "Normalize"}],
+    )
+
+    with pytest.warns(UserWarning, match="larger than dataset size"):
+        metadata = loader[0].metadata
+
+    batch_metadata = cast(
+        list[dict[str, Params]], metadata["batch_augmentation_metadata"]
+    )
+    assert [
+        cast(int, entry["sample_metadata"]["record_id"])
+        for entry in batch_metadata
+    ] == [0, 0]
+
+
 def test_loader_uses_metadata_from_custom_engine_single_contributor(
     dataset_name: str, tempdir: Path
 ) -> None:
@@ -857,41 +892,12 @@ def test_edge_cases(tempdir: Path):
         ]
     )
 
-    def generator() -> DatasetIterator:
-        num_samples = len(keypoints_before)
-        for i in range(num_samples):
-            img = create_image(i, tempdir)
-            keypoints_list = keypoints_before[i].tolist()
-            bbox_list = bboxes_before[i].tolist()
-
-            keypoints_split = [
-                [x, y, int(visibility)]
-                for x, y, visibility in (
-                    keypoints_list[j : j + 3]
-                    for j in range(0, len(keypoints_list), 3)
-                )
-            ]
-
-            yield {
-                "file": img,
-                "annotation": {
-                    "class": "dog",
-                    "boundingbox": {
-                        "x": bbox_list[1],
-                        "y": bbox_list[2],
-                        "w": bbox_list[3],
-                        "h": bbox_list[4],
-                    },
-                    "keypoints": {"keypoints": keypoints_split},
-                },
-            }
-
     dataset = LuxonisDataset(
         "test_edge_cases",
         delete_local=True,
         delete_remote=True,
         bucket_storage=BucketStorage.LOCAL,
-    ).add(generator())
+    ).add(_dog_records(tempdir, keypoints_before, bboxes_before))
 
     dataset.make_splits((1, 0, 0))
 
@@ -953,32 +959,70 @@ def test_edge_cases(tempdir: Path):
     )
     for _ in range(20):
         for batch in loader:
-            keypoints = batch[1]["/keypoints"]
-            bboxes = batch[1]["/boundingbox"]
-            keypoints = keypoints.reshape(-1, 3)
-            for kp in keypoints:
-                x, y, v = kp
-                assert not (x == 0 and y == 0 and v in {1, 2}), (
-                    f"Invalid keypoint detected: {kp}"
-                )
-                assert 0 <= x <= 1, f"Keypoint x out of bounds: {kp}"
-                assert 0 <= y <= 1, f"Keypoint y out of bounds: {kp}"
+            _assert_keypoints_valid(batch[1]["/keypoints"].reshape(-1, 3))
+            _assert_bboxes_valid(batch[1]["/boundingbox"])
 
-            for bbox in bboxes:
-                _, x_min, y_min, width, height = bbox
 
-                x_max = x_min + width
-                y_max = y_min + height
+def _dog_records(
+    tempdir: Path, keypoints_before: np.ndarray, bboxes_before: np.ndarray
+) -> DatasetIterator:
+    """Yield one ``dog`` record per row of keypoints and boxes."""
+    for i in range(len(keypoints_before)):
+        img = create_image(i, tempdir)
+        keypoints_list = keypoints_before[i].tolist()
+        bbox_list = bboxes_before[i].tolist()
 
-                assert 0 <= x_min <= 1, f"BBox x_min out of bounds: {bbox}"
-                assert 0 <= y_min <= 1, f"BBox y_min out of bounds: {bbox}"
-                assert 0 <= x_max <= 1, f"BBox x_max out of bounds: {bbox}"
-                assert 0 <= y_max <= 1, f"BBox y_max out of bounds: {bbox}"
+        keypoints_split = [
+            [x, y, int(visibility)]
+            for x, y, visibility in (
+                keypoints_list[j : j + 3]
+                for j in range(0, len(keypoints_list), 3)
+            )
+        ]
 
-                bbox_area = width * height
-                assert bbox_area >= 0.0004, (
-                    f"BBox area too small: {bbox}, area={bbox_area}"
-                )
+        yield {
+            "file": img,
+            "annotation": {
+                "class": "dog",
+                "boundingbox": {
+                    "x": bbox_list[1],
+                    "y": bbox_list[2],
+                    "w": bbox_list[3],
+                    "h": bbox_list[4],
+                },
+                "keypoints": {"keypoints": keypoints_split},
+            },
+        }
+
+
+def _assert_keypoints_valid(keypoints: np.ndarray) -> None:
+    """Check that every visible keypoint lies inside the image."""
+    for kp in keypoints:
+        x, y, v = kp
+        assert not (x == 0 and y == 0 and v in {1, 2}), (
+            f"Invalid keypoint detected: {kp}"
+        )
+        assert 0 <= x <= 1, f"Keypoint x out of bounds: {kp}"
+        assert 0 <= y <= 1, f"Keypoint y out of bounds: {kp}"
+
+
+def _assert_bboxes_valid(bboxes: np.ndarray) -> None:
+    """Check that every box lies inside the image and is not tiny."""
+    for bbox in bboxes:
+        _, x_min, y_min, width, height = bbox
+
+        x_max = x_min + width
+        y_max = y_min + height
+
+        assert 0 <= x_min <= 1, f"BBox x_min out of bounds: {bbox}"
+        assert 0 <= y_min <= 1, f"BBox y_min out of bounds: {bbox}"
+        assert 0 <= x_max <= 1, f"BBox x_max out of bounds: {bbox}"
+        assert 0 <= y_max <= 1, f"BBox y_max out of bounds: {bbox}"
+
+        bbox_area = width * height
+        assert bbox_area >= 0.0004, (
+            f"BBox area too small: {bbox}, area={bbox_area}"
+        )
 
 
 def test_dataset_reproducibility(storage_url: str, tempdir: Path):
@@ -1116,3 +1160,42 @@ def test_colorspace(storage_url: str, tempdir: Path):
     gray_img, _ = cast(LoaderSingleOutput, next(iter(loader)))
     assert len(gray_img.shape) == 3
     assert gray_img.shape[2] == 1
+
+
+def test_loader_needs_splits(randint: int, tempdir: Path):
+    dataset = create_dataset(
+        f"test_loader_needs_splits_{randint}",
+        iter(
+            [
+                {
+                    "file": create_image(0, tempdir),
+                    "annotation": {"class": "cat"},
+                }
+            ]
+        ),
+        splits=False,
+    )
+
+    with pytest.raises(RuntimeError, match="Cannot find splits"):
+        LuxonisLoader(dataset)
+    dataset.delete_dataset(delete_local=True)
+
+
+def test_read_image_gives_a_gray_image_a_channel_axis(tempdir: Path):
+    gray = tempdir / "gray.png"
+    cv2.imwrite(str(gray), np.full((4, 6), 7, dtype=np.uint8))
+
+    assert _read_image(gray, "GRAY").shape == (4, 6, 1)
+
+
+def test_read_image_rejects_rgba_as_gray(tempdir: Path):
+    rgba = tempdir / "rgba.png"
+    cv2.imwrite(str(rgba), np.zeros((4, 6, 4), dtype=np.uint8))
+
+    with pytest.raises(ValueError, match="Unsupported image format"):
+        _read_image(rgba, "GRAY")
+
+
+def test_read_image_needs_the_file(tempdir: Path):
+    with pytest.raises(FileNotFoundError, match="Cannot read image"):
+        _read_image(tempdir / "missing.png", "RGB")

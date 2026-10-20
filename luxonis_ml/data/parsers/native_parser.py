@@ -116,27 +116,7 @@ class NativeParser(BaseParser):
 
         def generator() -> DatasetIterator:
             for record in data:
-                with suppress(KeyError):
-                    if "file" in record:
-                        record["file"] = resolve_manifest_path(
-                            annotation_path.parent, record["file"]
-                        )
-                    elif "files" in record:
-                        for key, value in record["files"].items():
-                            if isinstance(value, PathType):
-                                record["files"][key] = resolve_manifest_path(
-                                    annotation_path.parent, value
-                                )
-                annotation = record.get("annotation")
-                for detection in (
-                    annotation
-                    if isinstance(annotation, list)
-                    else [annotation]
-                ):
-                    if isinstance(detection, dict):
-                        _resolve_annotation_paths(
-                            detection, annotation_path.parent
-                        )
+                _resolve_record_paths(record, annotation_path.parent)
                 yield record
 
         added_images = self._get_added_images(generator())
@@ -168,6 +148,29 @@ class NativeParser(BaseParser):
                     f"'{stamp}' declares LDF {version}, but this luxonis-ml "
                     f"reads LDF {LDF_VERSION}. Upgrade it if parsing fails."
                 )
+
+
+def _resolve_record_paths(record: dict[str, Any], base_dir: Path) -> None:
+    """Rewrite the file paths of one record in place, relative to ``base_dir``.
+
+    The image path or paths come first, then the companion files of each
+    detection.
+    """
+    with suppress(KeyError):
+        if "file" in record:
+            record["file"] = resolve_manifest_path(base_dir, record["file"])
+        elif "files" in record:
+            for key, value in record["files"].items():
+                if isinstance(value, PathType):
+                    record["files"][key] = resolve_manifest_path(
+                        base_dir, value
+                    )
+
+    annotation = record.get("annotation")
+    detections = annotation if isinstance(annotation, list) else [annotation]
+    for detection in detections:
+        if isinstance(detection, dict):
+            _resolve_annotation_paths(detection, base_dir)
 
 
 def _resolve_annotation_paths(

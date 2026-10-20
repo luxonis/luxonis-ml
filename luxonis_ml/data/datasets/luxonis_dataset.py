@@ -10,6 +10,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
+from dataclasses import dataclass, field
 from functools import cached_property
 from os import PathLike
 from pathlib import Path, PurePosixPath
@@ -72,6 +73,7 @@ from luxonis_ml.ldf import (
     Category,
     DatasetRecord,
     Detection,
+    KeypointAnnotation,
     KeypointMetadata,
 )
 from luxonis_ml.typing import PathType
@@ -482,15 +484,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             FileNotFoundError: If either dataset is empty.
 
         """
-        if not (inplace or new_dataset_name):
-            raise ValueError(
-                "You must specify a name for the new dataset "
-                "when `inplace` is `False`"
-            )
-        if not inplace and self._bucket_storage != other._bucket_storage:
-            raise ValueError(
-                "Cannot merge datasets with different bucket storage types."
-            )
+        clone_name = self._merge_clone_name(
+            other, inplace=inplace, new_dataset_name=new_dataset_name
+        )
         # The metadata merge and the reads below can raise. The clone and
         # the writes come after them, so a failed merge changes nothing.
         merged_metadata = self._metadata.merge_with(other._metadata)
@@ -515,6 +511,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         splits_self = self._load_splits(self._metadata_path)
         splits_other = self._load_splits(other._metadata_path)
+        uuids_to_merge: set[str] = set()
         if splits_to_merge is not None:
             uuids_to_merge = {
                 uuid
@@ -540,11 +537,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         }
         self._merge_splits(splits_self, splits_other)
 
-        target_dataset = (
-            self.clone(new_dataset_name, push_to_cloud=False, team_id=team_id)
-            if new_dataset_name and not inplace
-            else self
-        )
+        target_dataset = self._merge_target(clone_name, team_id)
         target_dataset._save_df_offline(df_merged)
         target_dataset._save_splits(splits_self)
 
@@ -554,7 +547,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 target_dataset._media_path,
                 dirs_exist_ok=True,
                 ignore=lambda d, n: self._ignore_files_not_in_uuid_set(
-                    d, n, uuids_to_merge if splits_to_merge else set()
+                    d, n, uuids_to_merge
                 ),
             )
             target_dataset.push_to_cloud(
@@ -562,6 +555,45 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 update_mode=UpdateMode.MISSING,
             )
 
+        target_dataset._copy_media_from(other, df_other)
+        target_dataset._metadata = merged_metadata
+        target_dataset._write_metadata()
+
+        return target_dataset
+
+    def _merge_clone_name(
+        self,
+        other: "LuxonisDataset",
+        *,
+        inplace: bool,
+        new_dataset_name: str | None,
+    ) -> str | None:
+        """Return the name of the clone that receives a merge, if any."""
+        if inplace:
+            return None
+        if not new_dataset_name:
+            raise ValueError(
+                "You must specify a name for the new dataset "
+                "when `inplace` is `False`"
+            )
+        if self._bucket_storage != other._bucket_storage:
+            raise ValueError(
+                "Cannot merge datasets with different bucket storage types."
+            )
+        return new_dataset_name
+
+    def _merge_target(
+        self, clone_name: str | None, team_id: str | None
+    ) -> "LuxonisDataset":
+        """Return the dataset that receives a merge: this one or a clone."""
+        if clone_name is None:
+            return self
+        return self.clone(clone_name, push_to_cloud=False, team_id=team_id)
+
+    def _copy_media_from(
+        self, other: "LuxonisDataset", df_other: pl.DataFrame
+    ) -> None:
+        """Copy the media files of ``df_other`` that this dataset lacks."""
         for entry in (
             df_other.select(["uuid", "file"])
             .unique(subset=["uuid"])
@@ -569,15 +601,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         ):
             uid, rel_file = entry["uuid"], entry["file"]
             src_path = other._media_path / f"{uid}{Path(rel_file).suffix}"
-            dst_path = target_dataset._media_path / src_path.name
+            dst_path = self._media_path / src_path.name
             if src_path.exists() and not dst_path.exists():
                 dst_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(src_path, dst_path)
-
-        target_dataset._metadata = merged_metadata
-        target_dataset._write_metadata()
-
-        return target_dataset
 
     def _load_splits(self, path: Path) -> dict[str, list[str]]:
         splits_path = path / "splits.json"
@@ -852,18 +879,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             metadata_json = json.loads(path.read_text())
 
             # TODO: Remove this LuxonisSource and df migration in the future
-            if "source" in metadata_json:
-                source_data = metadata_json["source"]
-                if isinstance(source_data, dict):
-                    components = source_data.get("components", {})
-                    if isinstance(components, dict) and len(components) == 1:
-                        new_components = {
-                            "image": LuxonisComponent(
-                                **next(iter(components.values()))
-                            )
-                        }
-                        metadata_json["source"]["components"] = new_components
-                        metadata_json["source"]["main_component"] = "image"
+            _migrate_single_component_source(metadata_json)
             version = Version.parse(
                 metadata_json.get("ldf_version", "1.0.0"),
                 optional_minor_and_patch=True,
@@ -1152,24 +1168,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         )
 
         missing_df = index.filter(~pl.col("uuid").is_in(bucket_uuids))
-
-        missing_uuid_dict = {}
-        for original_path, uuid in zip(
-            missing_df["original_filepath"].to_list(),
-            missing_df["uuid"].to_list(),
-            strict=True,
-        ):
-            if not Path(original_path).exists():
-                suffix = Path(original_path).suffix
-                fallback_path = self._local_path / "media" / f"{uuid}{suffix}"
-                if fallback_path.exists():
-                    missing_uuid_dict[str(fallback_path)] = uuid
-                else:
-                    raise FileNotFoundError(
-                        f"File {original_path} and {fallback_path} do not exist!"
-                    )
-            else:
-                missing_uuid_dict[original_path] = uuid
+        missing_uuid_dict = self._local_media_paths(missing_df)
 
         for dir_name in ["annotations", "metadata"]:
             dataset._fs.put_dir(
@@ -1194,6 +1193,30 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             )
         else:
             logger.info("Media already synced")
+
+    def _local_media_paths(self, index: pl.DataFrame) -> dict[str, str]:
+        """Map the local path of each indexed media file to its UUID.
+
+        A file that is gone from its original location is taken from the
+        local media directory instead.
+        """
+        paths = {}
+        for original_path, uuid in zip(
+            index["original_filepath"].to_list(),
+            index["uuid"].to_list(),
+            strict=True,
+        ):
+            if Path(original_path).exists():
+                paths[original_path] = uuid
+                continue
+            suffix = Path(original_path).suffix
+            fallback_path = self._local_path / "media" / f"{uuid}{suffix}"
+            if not fallback_path.exists():
+                raise FileNotFoundError(
+                    f"File {original_path} and {fallback_path} do not exist!"
+                )
+            paths[str(fallback_path)] = uuid
+        return paths
 
     @override
     def delete_dataset(
@@ -1408,16 +1431,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         logger.info(f"Adding data to dataset '{self._dataset_name}'...")
 
         data_batch: list[DatasetRecord] = []
-
-        classes_per_task: dict[str, set[str]] = defaultdict(set)
-        tasks: dict[str, set[str]] = defaultdict(set)
-        categorical_encodings = defaultdict(dict)
-        metadata_types = {}
-        keypoint_metadata = dict(self._metadata.keypoint_metadata)
-        # Most records repeat the keypoint fields of their task, and a
-        # repeat changes nothing, so each distinct one merges once.
-        merged_keypoint_fields: defaultdict[str, set[tuple]] = defaultdict(set)
-        sources: set[str] = set()
+        added = _AddedLabels(
+            keypoint_metadata=dict(self._metadata.keypoint_metadata)
+        )
 
         annotations_path = get_dir(
             self._fs,
@@ -1426,7 +1442,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             default=self._annotations_path,
         )
         if self.is_remote:
-            self._name_keypoint_rows(keypoint_metadata)
+            self._name_keypoint_rows(added.keypoint_metadata)
 
         index = self._get_index()
 
@@ -1436,7 +1452,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             for i, record in enumerate(generator, start=1):
                 if not isinstance(record, DatasetRecord):
                     record = DatasetRecord(**record)
-                sources.update(record.files.keys())
+                added.sources.update(record.files.keys())
                 ann = record.annotation
                 if ann is not None:
                     if not record.task_name:
@@ -1445,58 +1461,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                             ann.class_name,
                             self.get_classes(),
                         )
-
-                    def update_state(task_name: str, ann: Detection) -> None:
-                        if ann.class_name is not None:
-                            classes_per_task[task_name].add(ann.class_name)
-                        elif not classes_per_task[task_name]:
-                            classes_per_task[task_name] = set()
-
-                        tasks[task_name] |= ann.get_task_types()
-
-                        if ann.keypoints is not None:
-                            fields = tuple(
-                                (name, kp.sigma, tuple(kp.connected_to))
-                                for name, kp in ann.keypoints.keypoints.items()
-                            )
-                            if fields not in merged_keypoint_fields[task_name]:
-                                merged_keypoint_fields[task_name].add(fields)
-                                merge_keypoint_metadata(
-                                    keypoint_metadata,
-                                    task_name,
-                                    KeypointMetadata.from_annotation(
-                                        ann.keypoints
-                                    ),
-                                )
-                        for name, value in ann.metadata.items():
-                            task = f"{task_name}/metadata/{name}"
-                            typ = type(value).__name__
-                            if (
-                                task in metadata_types
-                                and metadata_types[task] != typ
-                            ):
-                                if {typ, metadata_types[task]} == {
-                                    "int",
-                                    "float",
-                                }:
-                                    metadata_types[task] = "float"
-                                else:
-                                    raise ValueError(
-                                        f"Metadata type mismatch for {task}: {metadata_types[task]} and {typ}"
-                                    )
-                            else:
-                                metadata_types[task] = typ
-
-                            if not isinstance(value, Category):
-                                continue
-                            if value not in categorical_encodings[task]:
-                                categorical_encodings[task][value] = len(
-                                    categorical_encodings[task]
-                                )
-                        for name, sub_detection in ann.sub_detections.items():
-                            update_state(f"{task_name}/{name}", sub_detection)
-
-                    update_state(record.task_name, ann)
+                    added.update(record.task_name, ann)
 
                 data_batch.append(record)
                 if i % batch_size == 0:
@@ -1508,8 +1473,14 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         with suppress(shutil.SameFileError):
             self._fs.put_dir(annotations_path, "")
 
+        self._register_added_labels(added)
+        self._warn_on_duplicates()
+        return self
+
+    def _register_added_labels(self, added: "_AddedLabels") -> None:
+        """Put what the added records say about the tasks into the metadata."""
         curr_classes = self.get_classes()
-        for task, classes in classes_per_task.items():
+        for task, classes in added.classes_per_task.items():
             old_classes = set(curr_classes.get(task, []))
             new_classes = list(classes - old_classes)
             if new_classes or task not in curr_classes:
@@ -1519,24 +1490,24 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
                 self.set_classes(list(classes | old_classes), task=task)
 
-        self._metadata.keypoint_metadata = keypoint_metadata
-        self._metadata.categorical_encodings = dict(categorical_encodings)
-        self._metadata.metadata_types = metadata_types
-        self.set_tasks(tasks)
-        if sources:
+        self._metadata.keypoint_metadata = added.keypoint_metadata
+        self._metadata.categorical_encodings = dict(
+            added.categorical_encodings
+        )
+        self._metadata.metadata_types = added.metadata_types
+        self.set_tasks(added.tasks)
+        if added.sources:
             components = {
                 source_name: LuxonisComponent(
                     name=source_name,
                 )
-                for source_name in sources
+                for source_name in added.sources
             }
             source = LuxonisSource(
                 components=components,
                 main_component=next(iter(components.keys())),
             )
             self.update_source(source)
-        self._warn_on_duplicates()
-        return self
 
     def _warn_on_duplicates(self) -> None:
         df = self._load_df_offline(lazy=True)
@@ -1750,10 +1721,52 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 f"not '{dataset_type}'."
             )
         target_version = resolve_export_version(ldf_version)
+        spec = self._exporter_specs(target_version).get(dataset_type)
+        if spec is None:
+            raise NotImplementedError(
+                f"Unsupported export format: {dataset_type}"
+            )
 
-        EXPORTER_MAP: dict[DatasetType, ExporterSpec] = {
+        logger.info(
+            f"Exporting '{self.identifier}' to '{dataset_type.name}' format"
+        )
+
+        out_path = Path(output_path)
+        if out_path.exists():
+            raise ValueError(
+                f"Export path '{out_path}' already exists. Please remove it first."
+            )
+        out_path.mkdir(parents=True)
+
+        prepared_ldf = PreparedLDF.from_dataset(self)
+
+        exporter: BaseExporter = spec.cls(
+            self.identifier, out_path, max_partition_size_gb, **spec.kwargs
+        )
+
+        exporter.export(prepared_ldf=prepared_ldf)
+
+        result: Path | list[Path] = out_path
+        if zip_output:
+            result = create_zip_output(
+                max_partition_size=max_partition_size_gb,
+                output_path=out_path,
+                part=_last_part_index(out_path, self.identifier),
+                dataset_identifier=self.identifier,
+            )
+        shown = (
+            [str(p) for p in result] if isinstance(result, list) else result
+        )
+        logger.info(f"Dataset successfully exported to: {shown}")
+        return result
+
+    def _exporter_specs(
+        self, ldf_version: Version
+    ) -> dict[DatasetType, ExporterSpec]:
+        """Map each export format to its exporter and its arguments."""
+        return {
             DatasetType.NATIVE: ExporterSpec(
-                NativeExporter, {"ldf_version": target_version}
+                NativeExporter, {"ldf_version": ldf_version}
             ),
             DatasetType.COCO: ExporterSpec(
                 CocoExporter, {"format": COCOFormat.ROBOFLOW}
@@ -1804,64 +1817,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 },
             ),
         }
-        spec = EXPORTER_MAP.get(dataset_type)
-        if spec is None:
-            raise NotImplementedError(
-                f"Unsupported export format: {dataset_type}"
-            )
-
-        logger.info(
-            f"Exporting '{self.identifier}' to '{dataset_type.name}' format"
-        )
-
-        out_path = Path(output_path)
-        if out_path.exists():
-            raise ValueError(
-                f"Export path '{out_path}' already exists. Please remove it first."
-            )
-        out_path.mkdir(parents=True)
-
-        prepared_ldf = PreparedLDF.from_dataset(self)
-
-        exporter: BaseExporter = spec.cls(
-            self.identifier, out_path, max_partition_size_gb, **spec.kwargs
-        )
-
-        exporter.export(prepared_ldf=prepared_ldf)
-
-        # Detect whether partitioned export was produced and the max part index
-        def _detect_last_part(base: Path, ds_id: str) -> int | None:
-            max_idx: int | None = None
-            prefix = f"{ds_id}_part"
-            for p in base.iterdir():
-                if p.is_dir() and p.name.startswith(prefix):
-                    try:
-                        idx = int(p.name[len(prefix) :])
-                    except ValueError:
-                        continue
-                    max_idx = (
-                        idx if (max_idx is None or idx > max_idx) else max_idx
-                    )
-            return max_idx
-
-        last_part = _detect_last_part(out_path, self.identifier)
-        if zip_output:
-            archives = create_zip_output(
-                max_partition_size=max_partition_size_gb,
-                output_path=out_path,
-                part=last_part,
-                dataset_identifier=self.identifier,
-            )
-            if isinstance(archives, list):
-                logger.info(
-                    f"Dataset successfully exported to: {[str(p) for p in archives]}"
-                )
-                return archives
-            logger.info(f"Dataset successfully exported to: {archives}")
-            return archives
-
-        logger.info(f"Dataset successfully exported to: {out_path}")
-        return out_path
 
     def get_statistics(
         self, sample_size: int | None = None, view: str | None = None
@@ -2131,36 +2086,173 @@ def _resolve_splits(
         ratios = dict(
             zip(["train", "val", "test"], map(float, splits), strict=True)
         )
-    elif not splits:
+        return _checked_ratios(ratios), None
+    if not splits:
         raise ValueError("Splits cannot be empty")
-    else:
-        ratios = {
-            split: float(value)
-            for split, value in splits.items()
-            if isinstance(value, (int, float))
-        }
-        if len(ratios) < len(splits):
-            definitions = {
-                split: value
-                for split, value in splits.items()
-                # A `str` is a Sequence, but one path is not a list.
-                if isinstance(value, Sequence) and not isinstance(value, str)
-            }
-            if len(definitions) < len(splits):
-                raise TypeError(
-                    "Splits must map names to either ratios or filepath "
-                    "lists. A ratio is a number from 0 to 1."
-                )
-            return None, definitions
 
+    ratios = {
+        split: float(value)
+        for split, value in splits.items()
+        if isinstance(value, (int, float))
+    }
+    if len(ratios) == len(splits):
+        return _checked_ratios(ratios), None
+
+    definitions = {
+        split: value
+        for split, value in splits.items()
+        # A `str` is a Sequence, but one path is not a list.
+        if isinstance(value, Sequence) and not isinstance(value, str)
+    }
+    if len(definitions) < len(splits):
+        raise TypeError(
+            "Splits must map names to either ratios or filepath "
+            "lists. A ratio is a number from 0 to 1."
+        )
+    return None, definitions
+
+
+def _checked_ratios(ratios: dict[str, float]) -> dict[str, float]:
+    """Check that the ratios lie between 0 and 1 and sum to 1."""
     # Check the range first; a bad ratio breaks the sum too.
     if any(not 0.0 <= ratio <= 1.0 for ratio in ratios.values()):
         raise ValueError("Ratios must be between 0.0 and 1.0 (inclusive)")
     sum_ = sum(ratios.values())
     if not math.isclose(sum_, 1.0):
         raise ValueError(f"Ratios must sum to 1.0, got {sum_:0.4f}")
+    return ratios
 
-    return ratios, None
+
+def _last_part_index(base: Path, ds_id: str) -> int | None:
+    """Return the highest partition index of an export, if partitioned."""
+    prefix = f"{ds_id}_part"
+    indices = []
+    for p in base.iterdir():
+        if p.is_dir() and p.name.startswith(prefix):
+            with suppress(ValueError):
+                indices.append(int(p.name[len(prefix) :]))
+    return max(indices, default=None)
+
+
+def _migrate_single_component_source(metadata_json: dict[str, Any]) -> None:
+    """Name the only component of an old source ``image`` and make it main.
+
+    Examples:
+        >>> metadata = {"source": {"components": {"cam": {"name": "cam"}}}}
+        >>> _migrate_single_component_source(metadata)
+        >>> source = metadata["source"]
+        >>> source["main_component"], list(source["components"])
+        ('image', ['image'])
+        >>> metadata = {"source": {"components": {"a": {}, "b": {}}}}
+        >>> _migrate_single_component_source(metadata)
+        >>> sorted(metadata["source"]["components"])
+        ['a', 'b']
+        >>> metadata = {"source": None}
+        >>> _migrate_single_component_source(metadata)
+        >>> metadata
+        {'source': None}
+
+    """
+    source_data = metadata_json.get("source")
+    if not isinstance(source_data, dict):
+        return
+    components = source_data.get("components", {})
+    if not isinstance(components, dict) or len(components) != 1:
+        return
+    source_data["components"] = {
+        "image": LuxonisComponent(**next(iter(components.values())))
+    }
+    source_data["main_component"] = "image"
+
+
+@dataclass
+class _AddedLabels:
+    """What the records added to a dataset say about its tasks."""
+
+    classes_per_task: defaultdict[str, set[str]] = field(
+        default_factory=lambda: defaultdict(set)
+    )
+    tasks: defaultdict[str, set[str]] = field(
+        default_factory=lambda: defaultdict(set)
+    )
+    categorical_encodings: defaultdict[str, dict[str, int]] = field(
+        default_factory=lambda: defaultdict(dict)
+    )
+    metadata_types: dict[str, Any] = field(default_factory=dict)
+    keypoint_metadata: dict[str, KeypointMetadata] = field(
+        default_factory=dict
+    )
+    # Most records repeat the keypoint fields of their task, and a repeat
+    # changes nothing, so each distinct one merges once.
+    merged_keypoint_fields: defaultdict[str, set[tuple]] = field(
+        default_factory=lambda: defaultdict(set)
+    )
+    sources: set[str] = field(default_factory=set)
+
+    def update(self, task_name: str, ann: Detection) -> None:
+        """Record one annotation and its sub-detections."""
+        classes = self.classes_per_task[task_name]  # registers the task
+        if ann.class_name is not None:
+            classes.add(ann.class_name)
+
+        self.tasks[task_name] |= ann.get_task_types()
+
+        if ann.keypoints is not None:
+            self._update_keypoints(task_name, ann.keypoints)
+        for name, value in ann.metadata.items():
+            self._update_metadata(f"{task_name}/metadata/{name}", value)
+        for name, sub_detection in ann.sub_detections.items():
+            self.update(f"{task_name}/{name}", sub_detection)
+
+    def _update_keypoints(
+        self, task_name: str, keypoints: KeypointAnnotation
+    ) -> None:
+        """Merge the keypoint fields of one annotation into its task."""
+        fields = tuple(
+            (name, kp.sigma, tuple(kp.connected_to))
+            for name, kp in keypoints.keypoints.items()
+        )
+        if fields in self.merged_keypoint_fields[task_name]:
+            return
+        self.merged_keypoint_fields[task_name].add(fields)
+        merge_keypoint_metadata(
+            self.keypoint_metadata,
+            task_name,
+            KeypointMetadata.from_annotation(keypoints),
+        )
+
+    def _update_metadata(self, task: str, value: object) -> None:
+        """Record the type of a metadata value and encode a category.
+
+        Examples:
+            >>> added = _AddedLabels()
+            >>> added._update_metadata("cars/metadata/score", 1)
+            >>> added._update_metadata("cars/metadata/score", 0.5)
+            >>> added.metadata_types
+            {'cars/metadata/score': 'float'}
+            >>> added._update_metadata("cars/metadata/score", "high")
+            Traceback (most recent call last):
+            ...
+            ValueError: Metadata type mismatch for cars/metadata/score: float and str
+
+        """
+        typ = type(value).__name__
+        known = self.metadata_types.get(task)
+        if known is None or known == typ:
+            self.metadata_types[task] = typ
+        elif {typ, known} == {"int", "float"}:
+            self.metadata_types[task] = "float"
+        else:
+            raise ValueError(
+                f"Metadata type mismatch for {task}: {known} and {typ}"
+            )
+
+        if not isinstance(value, Category):
+            return
+        if value not in self.categorical_encodings[task]:
+            self.categorical_encodings[task][value] = len(
+                self.categorical_encodings[task]
+            )
 
 
 def _write_json(path: Path, data: Mapping[str, list[str]]) -> None:

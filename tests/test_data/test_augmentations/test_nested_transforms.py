@@ -17,7 +17,7 @@ def _make_engine(config: list[Params]) -> AlbumentationsEngine:
         {"/classification": "classification"},
         {"/classification": 2},
         ["image"],
-        config,
+        config=config,
     )
 
 
@@ -217,7 +217,7 @@ def _apply_config(
     labels: Labels,
 ) -> tuple[dict[str, np.ndarray], Labels]:
     engine = AlbumentationsEngine(
-        H, W, targets, n_classes, ["image"], config, seed=SEED
+        H, W, targets, n_classes, ["image"], config=config, seed=SEED
     )
     return engine.apply([({"image": image.copy()}, deepcopy(labels))])
 
@@ -296,6 +296,7 @@ def _assert_results_equal(
     ],
 )
 def test_nested_equivalent_to_direct(
+    *,
     wrapper: str,
     augmentation: Params,
     coco_targets: dict[str, str],

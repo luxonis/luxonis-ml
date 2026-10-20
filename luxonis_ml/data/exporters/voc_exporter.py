@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, cast
 from xml.etree.ElementTree import Element, ElementTree, SubElement
 
+import polars as pl
 from defusedxml import minidom
 from PIL import Image
 
@@ -55,45 +56,7 @@ class VOCExporter(BaseExporter):
                 W, H = im.size
                 C = len(im.getbands()) if hasattr(im, "getbands") else 3
 
-            objects: list[dict[str, Any]] = []
-            for row in group_df.iter_rows(named=True):
-                if row["task_type"] != "boundingbox":
-                    continue
-                ann_str = row["annotation"]
-                cname = row["class_name"]
-                if not ann_str or not cname:
-                    continue
-
-                data = json.loads(ann_str)
-                xn = float(data.get("x", 0.0))
-                yn = float(data.get("y", 0.0))
-                wn = float(data.get("w", 0.0))
-                hn = float(data.get("h", 0.0))
-
-                xmin = round(xn * W)
-                ymin = round(yn * H)
-
-                w_px = max(1, round(wn * W))
-                h_px = max(1, round(hn * H))
-
-                xmax = xmin + w_px  # exclusive right edge
-                ymax = ymin + h_px  # exclusive bottom edge
-
-                # clamp: allow touching the edge (exclusive bound can be == W/H)
-                xmin = max(0, min(xmin, W - 1))
-                ymin = max(0, min(ymin, H - 1))
-                xmax = max(xmin + 1, min(xmax, W))
-                ymax = max(ymin + 1, min(ymax, H))
-
-                objects.append(
-                    {
-                        "name": str(cname),
-                        "bbox": (xmin, ymin, xmax, ymax),
-                        "pose": "Unspecified",
-                        "truncated": 0,
-                        "difficult": 0,
-                    }
-                )
+            objects = _voc_objects(group_df, W, H)
 
             img_size = src_path.stat().st_size
             approx_xml_size = self._estimate_xml_size(objects)
@@ -248,3 +211,49 @@ class VOCExporter(BaseExporter):
             else output_path / self.dataset_identifier
         )
         return base / split_name
+
+
+def _voc_objects(
+    group_df: pl.DataFrame, W: int, H: int
+) -> list[dict[str, Any]]:
+    """Return one VOC object per bounding box of an image, in pixels."""
+    objects = []
+    for row in group_df.iter_rows(named=True):
+        if row["task_type"] != "boundingbox":
+            continue
+        ann_str = row["annotation"]
+        cname = row["class_name"]
+        if not ann_str or not cname:
+            continue
+
+        data = json.loads(ann_str)
+        xn = float(data.get("x", 0.0))
+        yn = float(data.get("y", 0.0))
+        wn = float(data.get("w", 0.0))
+        hn = float(data.get("h", 0.0))
+
+        xmin = round(xn * W)
+        ymin = round(yn * H)
+
+        w_px = max(1, round(wn * W))
+        h_px = max(1, round(hn * H))
+
+        xmax = xmin + w_px  # exclusive right edge
+        ymax = ymin + h_px  # exclusive bottom edge
+
+        # clamp: allow touching the edge (exclusive bound can be == W/H)
+        xmin = max(0, min(xmin, W - 1))
+        ymin = max(0, min(ymin, H - 1))
+        xmax = max(xmin + 1, min(xmax, W))
+        ymax = max(ymin + 1, min(ymax, H))
+
+        objects.append(
+            {
+                "name": str(cname),
+                "bbox": (xmin, ymin, xmax, ymax),
+                "pose": "Unspecified",
+                "truncated": 0,
+                "difficult": 0,
+            }
+        )
+    return objects

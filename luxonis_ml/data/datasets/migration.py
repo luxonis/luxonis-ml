@@ -2,7 +2,7 @@
 
 import json
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any, Final, Literal, cast, overload
 
 import polars as pl
@@ -254,15 +254,9 @@ def _migrate_skeletons(
                 f"keypoints get the names 0 to {n_keypoints - 1}."
             )
             names = [str(i) for i in range(n_keypoints)]
-        connections: dict[str, list[str]] = {name: [] for name in names}
-        for a, b in skeleton.get("edges", []):
-            if not (0 <= a < n_keypoints and 0 <= b < n_keypoints):
-                logger.warning(
-                    f"The skeleton of task '{task}' has the edge ({a}, {b}) "
-                    f"for {n_keypoints} keypoints. The edge is dropped."
-                )
-                continue
-            connections[names[a]].append(names[b])
+        connections = _skeleton_connections(
+            task, names, skeleton.get("edges", [])
+        )
         # A skeleton without names that no keypoint row uses describes no
         # keypoint task. A task with keypoint rows keeps its entry, also
         # when each row is empty.
@@ -274,6 +268,25 @@ def _migrate_skeletons(
                 }
             )
     return migrated
+
+
+def _skeleton_connections(
+    task: str, names: list[str], edges: Iterable[tuple[int, int]]
+) -> dict[str, list[str]]:
+    """Map each keypoint name to the names that its edges reach.
+
+    An edge out of range is dropped with a warning.
+    """
+    connections: dict[str, list[str]] = {name: [] for name in names}
+    for a, b in edges:
+        if not (0 <= a < len(names) and 0 <= b < len(names)):
+            logger.warning(
+                f"The skeleton of task '{task}' has the edge ({a}, {b}) "
+                f"for {len(names)} keypoints. The edge is dropped."
+            )
+            continue
+        connections[names[a]].append(names[b])
+    return connections
 
 
 def _keypoint_row_widths(df: pl.LazyFrame) -> dict[str, int]:

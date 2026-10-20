@@ -70,6 +70,7 @@ batched_config: list[Params] = [
 
 @app.default
 def main(
+    *,
     repeat: Annotated[int, Parameter(alias="-r")] = 1,
     size: Annotated[int, Parameter(alias="-s")] = 10_000,
     no_write: Annotated[bool, Parameter(alias="-nw")] = False,

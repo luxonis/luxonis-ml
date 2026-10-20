@@ -181,6 +181,7 @@ def test_the_migration_repairs_a_2_x_skeleton(
     dataset_name: str,
     tempdir: Path,
     warnings_log: list[str],
+    *,
     skeleton: dict[str, Any],
     labels: list[str],
     warning: str,

@@ -82,6 +82,7 @@ Pre-commit runs:
 | ---------------------- | ----------------------------------------------------------------------------------------- |
 | `ruff` / `ruff-format` | Python linting, import sorting, and formatting.                                           |
 | `typos`                | Common spelling mistakes.                                                                 |
+| `complexipy`           | Cognitive complexity of every function, limit 15.                                         |
 | `mdformat`             | Markdown formatting.                                                                      |
 | `prettier`             | YAML formatting.                                                                          |
 | `taplo-format`         | TOML formatting.                                                                          |
@@ -90,6 +91,23 @@ Pre-commit runs:
 
 **Do not commit directly to `main`.** The pre-commit hook blocks it, and PRs
 are the expected review path.
+
+## Cognitive Complexity
+
+The [`complexipy`](https://github.com/rohaquinlop/complexipy) pre-commit hook
+gates the cognitive complexity of every function. A function must stay at
+complexity 15 or below.
+
+When the hook fails, it prints ranked refactor plans for the failing functions
+(the `--suggest-refactors` flag). Follow one of the plans, or simplify the
+function in another way. The usual levers: guard clauses, merged conditions,
+and extraction of helpers.
+
+To check by hand, run:
+
+```bash
+uv run complexipy luxonis_ml tests
+```
 
 ## Tests
 

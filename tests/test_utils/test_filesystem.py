@@ -175,6 +175,7 @@ def test_file(
 
 
 def test_static_file(
+    *,
     fs: LuxonisFileSystem,
     local_file: Path,
     protocol_tempdir: Path,
@@ -234,6 +235,7 @@ def test_directory(
 
 
 def test_static_directory(
+    *,
     fs: LuxonisFileSystem,
     local_dir: Path,
     protocol_tempdir: Path,

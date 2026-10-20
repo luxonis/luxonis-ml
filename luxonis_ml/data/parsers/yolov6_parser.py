@@ -6,7 +6,7 @@ from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 
-from .base_parser import BaseParser, ParserOutput
+from .base_parser import BaseParser, ParserOutput, yolo_box_to_ldf
 
 
 class YoloV6Parser(BaseParser):
@@ -154,12 +154,9 @@ class YoloV6Parser(BaseParser):
                         "file": str(img_path),
                         "annotation": {
                             "class": class_name,
-                            "boundingbox": {
-                                "x": float(x_center) - float(width) / 2,
-                                "y": float(y_center) - float(height) / 2,
-                                "w": float(width),
-                                "h": float(height),
-                            },
+                            "boundingbox": yolo_box_to_ldf(
+                                x_center, y_center, width, height
+                            ),
                         },
                     }
 

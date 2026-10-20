@@ -50,19 +50,21 @@ def normalized_processor() -> str:
     for value in raw_values:
         if not value:
             continue
-        if any(token in value for token in ("aarch64", "arm64")):
-            return "arm64"
-        if "arm" in value:
-            return "arm"
-        if any(token in value for token in ("x86_64", "amd64")):
-            return "x86_64"
-        if any(token in value for token in ("x86", "i386", "i686")):
-            return "x86"
-        if "ppc" in value or "powerpc" in value:
-            return "powerpc"
-        if "riscv" in value:
-            return "riscv"
+        for family, tokens in _PROCESSOR_FAMILIES:
+            if any(token in value for token in tokens):
+                return family
     return "unknown"
+
+
+# Checked in order: "arm64" must come before "arm", "x86_64" before "x86".
+_PROCESSOR_FAMILIES = (
+    ("arm64", ("aarch64", "arm64")),
+    ("arm", ("arm",)),
+    ("x86_64", ("x86_64", "amd64")),
+    ("x86", ("x86", "i386", "i686")),
+    ("powerpc", ("ppc", "powerpc")),
+    ("riscv", ("riscv",)),
+)
 
 
 def base_context(
