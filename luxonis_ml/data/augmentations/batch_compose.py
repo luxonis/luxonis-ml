@@ -106,8 +106,9 @@ class BatchCompose(A.Compose):
         if not self.transforms:
             return data_batch[0]
 
+        original_image_key = data_batch[0].get("_original_image_key")
         for data in data_batch:
-            original_image_key = data.pop("_original_image_key", None)
+            data.pop("_original_image_key", None)
             self.preprocess(data)
 
         for transform in self.transforms:

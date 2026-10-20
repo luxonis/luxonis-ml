@@ -182,6 +182,9 @@ def deprecated(
     return decorator
 
 
+_logged_messages: set[str] = set()
+
+
 def log_once(logger: Callable[[str], None], message: str) -> None:
     """Log a message only once.
 
@@ -190,14 +193,9 @@ def log_once(logger: Callable[[str], None], message: str) -> None:
         message: The message to log.
 
     """
-    _cache: set[str]
-
-    if not hasattr(log_once, "_cache"):
-        log_once._cache = set()
-
-    if message not in log_once._cache:
+    if message not in _logged_messages:
         logger(message)
-        log_once._cache.add(message)
+        _logged_messages.add(message)
 
 
 def _deprecated_args_used(

@@ -381,7 +381,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         new_dataset_path = Path(new_dataset._local_path)
         new_dataset_path.mkdir(parents=True, exist_ok=True)
 
-        if splits_to_clone is not None:
+        if splits_to_clone is None:
+            shutil.copytree(
+                self._local_path, new_dataset._local_path, dirs_exist_ok=True
+            )
+        else:
             df_self = self._load_df_offline(raise_when_empty=True)
             splits_self = self._load_splits(self._metadata_path)
             uuids_to_clone = {
@@ -389,23 +393,20 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 for split in splits_to_clone
                 for uid in splits_self.get(split, [])
             }
-            df_self = df_self.filter(df_self["uuid"].is_in(uuids_to_clone))
-            splits_self = {
-                k: v for k, v in splits_self.items() if k in splits_to_clone
-            }
-
-        shutil.copytree(
-            self._local_path,
-            new_dataset._local_path,
-            dirs_exist_ok=True,
-            ignore=lambda d, n: self._ignore_files_not_in_uuid_set(
-                d, n, uuids_to_clone if splits_to_clone else set()
-            ),
-        )
-
-        if splits_to_clone is not None:
-            new_dataset._save_df_offline(df_self)
-            new_dataset._save_splits(splits_self)
+            shutil.copytree(
+                self._local_path,
+                new_dataset._local_path,
+                dirs_exist_ok=True,
+                ignore=lambda d, n: self._ignore_files_not_in_uuid_set(
+                    d, n, uuids_to_clone
+                ),
+            )
+            new_dataset._save_df_offline(
+                df_self.filter(df_self["uuid"].is_in(uuids_to_clone))
+            )
+            new_dataset._save_splits(
+                {k: v for k, v in splits_self.items() if k in splits_to_clone}
+            )
 
         new_dataset._init_paths()
         new_dataset._metadata = self._get_metadata()
@@ -610,6 +611,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     @overload
     def _load_df_offline(
         self,
+        *,
         lazy: Literal[False] = ...,
         raise_when_empty: Literal[False] = ...,
         attempt_migration: bool = ...,
@@ -618,15 +620,17 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     @overload
     def _load_df_offline(
         self,
+        *,
         lazy: Literal[False] = ...,
-        raise_when_empty: Literal[True] = ...,
+        raise_when_empty: Literal[True],
         attempt_migration: bool = ...,
     ) -> pl.DataFrame: ...
 
     @overload
     def _load_df_offline(
         self,
-        lazy: Literal[True] = ...,
+        *,
+        lazy: Literal[True],
         raise_when_empty: Literal[False] = ...,
         attempt_migration: bool = ...,
     ) -> pl.LazyFrame | None: ...
@@ -634,13 +638,15 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     @overload
     def _load_df_offline(
         self,
-        lazy: Literal[True] = ...,
-        raise_when_empty: Literal[True] = ...,
+        *,
+        lazy: Literal[True],
+        raise_when_empty: Literal[True],
         attempt_migration: bool = ...,
     ) -> pl.LazyFrame: ...
 
     def _load_df_offline(
         self,
+        *,
         lazy: bool = False,
         raise_when_empty: bool = False,
         attempt_migration: bool = True,
@@ -721,6 +727,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     @overload
     def _get_index(
         self,
+        *,
         lazy: Literal[False] = ...,
         raise_when_empty: Literal[False] = ...,
     ) -> pl.DataFrame | None: ...
@@ -728,26 +735,30 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     @overload
     def _get_index(
         self,
+        *,
         lazy: Literal[False] = ...,
-        raise_when_empty: Literal[True] = ...,
+        raise_when_empty: Literal[True],
     ) -> pl.DataFrame: ...
 
     @overload
     def _get_index(
         self,
-        lazy: Literal[True] = ...,
+        *,
+        lazy: Literal[True],
         raise_when_empty: Literal[False] = ...,
     ) -> pl.LazyFrame | None: ...
 
     @overload
     def _get_index(
         self,
-        lazy: Literal[True] = ...,
-        raise_when_empty: Literal[True] = ...,
+        *,
+        lazy: Literal[True],
+        raise_when_empty: Literal[True],
     ) -> pl.LazyFrame: ...
 
     def _get_index(
         self,
+        *,
         lazy: bool = False,
         raise_when_empty: bool = False,
     ) -> pl.DataFrame | pl.LazyFrame | None:

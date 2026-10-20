@@ -169,13 +169,13 @@ def test_export_edge_cases(
     loader = LuxonisLoader(dataset, view="train")
     original_data = [img for img, _ in loader]
 
+    dataset.export(
+        output_path=tempdir / "exported",
+        max_partition_size_gb=0.003,
+        zip_output=True,
+    )
+    zip_files = sorted((tempdir / "exported").glob("*.zip"))
     with subtests.test("Export with max_zip_size_gb=0.003"):
-        dataset.export(
-            output_path=tempdir / "exported",
-            max_partition_size_gb=0.003,
-            zip_output=True,
-        )
-        zip_files = sorted((tempdir / "exported").glob("*.zip"))
         assert len(zip_files) == 2
 
     with subtests.test(

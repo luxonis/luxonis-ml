@@ -213,7 +213,7 @@ warnings-as-errors = true
 [tool.pyright]
 pythonVersion = "3.10"
 exclude = ["build", "dist", "luxonis_ml/tracker"]
-typeCheckingMode = "basic"
+typeCheckingMode = "standard"
 reportMissingTypeStubs = "none"
 reportPrivateImportUsage = "none"
 reportPrivateUsage = "none"

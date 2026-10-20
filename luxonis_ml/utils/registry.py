@@ -76,7 +76,12 @@ class Registry(Generic[T]):
 
     @overload
     def register_module(
-        self, name: str | None = ..., module: T = ..., force: bool = ...
+        self, name: str | None, module: T, force: bool = ...
+    ) -> T: ...
+
+    @overload
+    def register_module(
+        self, name: str | None = ..., *, module: T, force: bool = ...
     ) -> T: ...
 
     @deprecated("`register_module` is deprecated, use `register` instead.")
@@ -123,7 +128,7 @@ class Registry(Generic[T]):
     @overload
     def register(
         self,
-        module: T = ...,
+        module: T,
         *,
         name: str | None = ...,
         force: bool = ...,
