@@ -91,8 +91,7 @@ class LuxonisLoader(BaseLoader):
         dataset: LuxonisDataset,
         view: str | list[str] = "train",
         *,
-        augmentation_engine: Literal["albumentations"]
-        | str = "albumentations",
+        augmentation_engine: str = "albumentations",
         augmentation_config: list[Params] | PathType | None = None,
         height: int | None = None,
         width: int | None = None,
@@ -721,7 +720,7 @@ class LuxonisLoader(BaseLoader):
 
     def _init_augmentations(
         self,
-        augmentation_engine: Literal["albumentations"] | str,
+        augmentation_engine: str,
         augmentation_config: list[Params] | PathType,
         *,
         height: int | None,
