@@ -69,6 +69,7 @@ dev = [
   { include-group = "lint" },
   { include-group = "docs" },
   "luxonis-ml[all]",
+  "complexipy~=8.0",
   "hypothesis~=6.161",
   "onnx~=1.22",
   "pyright~=1.1",

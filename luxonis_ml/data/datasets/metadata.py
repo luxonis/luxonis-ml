@@ -1,7 +1,7 @@
 """Dataset metadata, as stored in ``metadata.json``."""
 
-from collections.abc import Iterable
-from typing import Literal
+from collections.abc import Callable, Iterable, Mapping
+from typing import Literal, TypeVar
 
 from typing_extensions import TypedDict
 
@@ -9,6 +9,8 @@ from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.typing import BaseModelExtraForbid
 
 from .source import LuxonisSource
+
+T = TypeVar("T")
 
 
 class Skeletons(TypedDict):
@@ -90,75 +92,50 @@ class Metadata(BaseModelExtraForbid):
                 "Cannot merge metadata with different LDF versions"
             )
 
-        merged_classes = {}
-        for key in set(self.classes) | set(other.classes):
-            if key in self.classes and key in other.classes:
-                all_classes = self._sort_classes(
-                    set(self.classes[key]) | set(other.classes[key])
-                )
-                merged_classes[key] = {
-                    class_name: i for i, class_name in enumerate(all_classes)
-                }
-            elif key in self.classes:
-                merged_classes[key] = self.classes[key]
-            else:
-                merged_classes[key] = other.classes[key]
-
-        merged_tasks = {}
-        for key in set(self.tasks) | set(other.tasks):
-            if key in self.tasks and key in other.tasks:
-                merged_tasks[key] = list(
-                    set(self.tasks[key] + other.tasks[key])
-                )
-            elif key in self.tasks:
-                merged_tasks[key] = self.tasks[key]
-            else:
-                merged_tasks[key] = other.tasks[key]
-
-        merged_skeletons = {**self.skeletons, **other.skeletons}
-
-        merged_categorical_encodings = {}
-        for key in set(self.categorical_encodings) | set(
-            other.categorical_encodings
-        ):
-            if (
-                key in self.categorical_encodings
-                and key in other.categorical_encodings
-            ):
-                merged_inner = self.categorical_encodings[key].copy()
-                merged_inner.update(other.categorical_encodings[key])
-                merged_categorical_encodings[key] = merged_inner
-            elif key in self.categorical_encodings:
-                merged_categorical_encodings[key] = self.categorical_encodings[
-                    key
-                ]
-            else:
-                merged_categorical_encodings[key] = (
-                    other.categorical_encodings[key]
-                )
-
-        merged_metadata_types = {**self.metadata_types, **other.metadata_types}
-        if self.source is None and other.source is not None:
+        if self.source is None:
             merged_source = other.source
-        elif self.source is not None and other.source is None:
+        elif other.source is None:
             merged_source = self.source
-        elif self.source is not None and other.source is not None:
-            merged_source = self.source.merge_with(other.source)
         else:
-            merged_source = None
+            merged_source = self.source.merge_with(other.source)
 
         return Metadata(
             ldf_version=self.ldf_version,
             source=merged_source,
-            classes=merged_classes,
-            tasks=merged_tasks,
-            skeletons=merged_skeletons,
-            categorical_encodings=merged_categorical_encodings,
-            metadata_types=merged_metadata_types,  # type: ignore
+            classes=_merge_dicts(
+                self.classes, other.classes, self._merge_class_maps
+            ),
+            tasks=_merge_dicts(
+                self.tasks, other.tasks, lambda a, b: list(set(a + b))
+            ),
+            skeletons={**self.skeletons, **other.skeletons},
+            categorical_encodings=_merge_dicts(
+                self.categorical_encodings,
+                other.categorical_encodings,
+                lambda a, b: {**a, **b},
+            ),
+            metadata_types={**self.metadata_types, **other.metadata_types},  # type: ignore
         )
+
+    def _merge_class_maps(
+        self, a: dict[str, int], b: dict[str, int]
+    ) -> dict[str, int]:
+        """Index the union of two class sets in sorted order."""
+        all_classes = self._sort_classes(set(a) | set(b))
+        return {class_name: i for i, class_name in enumerate(all_classes)}
 
     def _sort_classes(self, classes: Iterable[str]) -> list[str]:
         return sorted(
             classes,
             key=lambda x: (0, "") if x == "background" else (1, x.lower()),
         )
+
+
+def _merge_dicts(
+    a: Mapping[str, T], b: Mapping[str, T], combine: Callable[[T, T], T]
+) -> dict[str, T]:
+    """Union of two mappings; a key in both gets ``combine(a[k], b[k])``."""
+    merged = {**a, **b}
+    for key in a.keys() & b.keys():
+        merged[key] = combine(a[key], b[key])
+    return merged

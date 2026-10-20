@@ -400,22 +400,16 @@ def _nested_unions(
     name_errors_below_members: set[tuple[Any, ...]] = set()
     for error in errors:
         loc = tuple(error["loc"])
-        for length, tag in enumerate(loc):
-            if not isinstance(tag, str):
-                continue
-            annotations, _ = _resolve_location(model, loc[:length])
-            members = _union_members(annotations)
-            if not members or not any(
-                _tag_matches(tag, member) for member in members
-            ):
-                continue
-            parent = loc[:length]
-            tags.setdefault(parent, set()).add(tag)
-            if length == len(loc) - 1:
-                direct_members.add(parent)
-            elif error["type"] in _OWN_NAME_ERRORS:
-                name_errors_below_members.add(parent)
-            break
+        union_tag = _first_union_tag(loc, model)
+        if union_tag is None:
+            continue
+        length, tag = union_tag
+        parent = loc[:length]
+        tags.setdefault(parent, set()).add(tag)
+        if length == len(loc) - 1:
+            direct_members.add(parent)
+        elif error["type"] in _OWN_NAME_ERRORS:
+            name_errors_below_members.add(parent)
     return {
         parent
         for parent, seen in tags.items()
@@ -427,6 +421,23 @@ def _nested_unions(
             parent in direct_members and parent in name_errors_below_members
         )
     }
+
+
+def _first_union_tag(
+    loc: tuple[Any, ...], model: type[BaseModel] | None
+) -> tuple[int, str] | None:
+    """Find the first element of a location that tags a union member.
+
+    Returns the depth of the element and the tag.
+    """
+    for length, tag in enumerate(loc):
+        if not isinstance(tag, str):
+            continue
+        annotations, _ = _resolve_location(model, loc[:length])
+        members = _union_members(annotations)
+        if members and any(_tag_matches(tag, member) for member in members):
+            return length, tag
+    return None
 
 
 def _names_a_field(loc: Sequence[Any], depth: int) -> bool:

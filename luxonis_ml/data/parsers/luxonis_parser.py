@@ -217,11 +217,23 @@ class LuxonisParser(Generic[T]):
         only_entry = visible_entries[0]
         if not only_entry.is_dir():
             return unzip_dir
+        if not LuxonisParser._is_dataset_root(only_entry):
+            return unzip_dir
 
-        # Only unwrap when the inner directory clearly looks like a
-        # dataset root, not an arbitrary folder.
-        # ClassificationDirectoryParser is excluded from parser-based
-        # checks because a single class folder can look like a wrapper.
+        logger.info(
+            f"Detected top-level folder '{only_entry.name}' in extracted zip. "
+            "Using it as dataset root."
+        )
+        return only_entry
+
+    @staticmethod
+    def _is_dataset_root(directory: Path) -> bool:
+        """Tell a dataset root from an arbitrary wrapper folder.
+
+        A marker directory or file is enough. Otherwise a parser other
+        than ClassificationDirectoryParser must recognize the directory:
+        a single class folder can look like a wrapper.
+        """
         marker_dirs = {
             "train",
             "valid",
@@ -241,30 +253,17 @@ class LuxonisParser(Generic[T]):
             "dataset.yaml",
             "dataset.yml",
         }
-        child_dirs = {d.name for d in only_entry.iterdir() if d.is_dir()}
-        child_files = {f.name for f in only_entry.iterdir() if f.is_file()}
-        has_markers = bool(
-            child_dirs & marker_dirs or child_files & marker_files
-        )
-        if not has_markers:
-            recognized_by_non_clsdir = any(
-                (
-                    typ != DatasetType.CLSDIR
-                    and (
-                        parser.validate(only_entry)
-                        or parser.validate_split(only_entry)
-                    )
-                )
-                for typ, parser in LuxonisParser._parsers.items()
+        child_dirs = {d.name for d in directory.iterdir() if d.is_dir()}
+        child_files = {f.name for f in directory.iterdir() if f.is_file()}
+        if child_dirs & marker_dirs or child_files & marker_files:
+            return True
+        return any(
+            typ != DatasetType.CLSDIR
+            and (
+                parser.validate(directory) or parser.validate_split(directory)
             )
-            if not recognized_by_non_clsdir:
-                return unzip_dir
-
-        logger.info(
-            f"Detected top-level folder '{only_entry.name}' in extracted zip. "
-            "Using it as dataset root."
+            for typ, parser in LuxonisParser._parsers.items()
         )
-        return only_entry
 
     @overload
     def parse(self: "LuxonisParser[str]", **kwargs) -> BaseDataset: ...
@@ -473,21 +472,7 @@ class LuxonisParser(Generic[T]):
         }
 
         parsed = urlsplit(dataset_dir)
-        raw_version = parse_qs(parsed.query).get("v", [None])[0]
-        version: int | None = None
-        if raw_version is not None:
-            try:
-                version = int(raw_version)
-            except ValueError as e:
-                raise ValueError(
-                    "Ultralytics dataset export version must be an integer, "
-                    f"got `{raw_version}`."
-                ) from e
-            if version < 1:
-                raise ValueError(
-                    "Ultralytics dataset export version must be >= 1, "
-                    f"got `{version}`."
-                )
+        version = _ultralytics_export_version(parsed.query)
 
         path_parts = [part for part in parsed.path.split("/") if part]
         if not (
@@ -510,17 +495,10 @@ class LuxonisParser(Generic[T]):
             timeout=120.0,
         )
         if not export_response.ok:
-            error = None
-            try:
-                payload = export_response.json()
-                error = payload.get("error")
-            except ValueError:
-                error = export_response.text.strip() or export_response.reason
-
-            detail = f"{export_response.status_code} {export_response.reason}"
-            if error:
-                detail = f"{detail}: {error}"
-            raise RuntimeError(f"Ultralytics API request failed: {detail}")
+            raise RuntimeError(
+                "Ultralytics API request failed: "
+                f"{_response_error_detail(export_response)}"
+            )
 
         download_url = export_response.json()["downloadUrl"]
 
@@ -530,3 +508,35 @@ class LuxonisParser(Generic[T]):
         download_remote_file(download_url, destination, timeout=120.0)
 
         return destination, name
+
+
+def _ultralytics_export_version(query: str) -> int | None:
+    """Read the ``v`` export version of an ``ultralytics://`` URL query."""
+    raw_version = parse_qs(query).get("v", [None])[0]
+    if raw_version is None:
+        return None
+    try:
+        version = int(raw_version)
+    except ValueError as e:
+        raise ValueError(
+            "Ultralytics dataset export version must be an integer, "
+            f"got `{raw_version}`."
+        ) from e
+    if version < 1:
+        raise ValueError(
+            f"Ultralytics dataset export version must be >= 1, got `{version}`."
+        )
+    return version
+
+
+def _response_error_detail(response: requests.Response) -> str:
+    """Describe a failed HTTP response: status, reason and the API error."""
+    try:
+        error = response.json().get("error")
+    except ValueError:
+        error = response.text.strip() or response.reason
+
+    detail = f"{response.status_code} {response.reason}"
+    if error:
+        detail = f"{detail}: {error}"
+    return detail

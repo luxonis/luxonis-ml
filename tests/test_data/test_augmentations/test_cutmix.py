@@ -676,7 +676,7 @@ def test_dropped_bboxes_take_their_instance_labels_with_them(
         targets,
         dict.fromkeys(targets, 1),
         ["image"],
-        [
+        config=[
             {
                 "name": "CutMix",
                 "params": {"p": 1.0, "occluded_bbox_strategy": strategy},
