@@ -16,8 +16,8 @@ from luxonis_ml.telemetry.events import TelemetryEvent
 from luxonis_ml.telemetry.redaction import sanitize_properties
 from luxonis_ml.telemetry.suppression import is_suppressed
 
-ContextProvider = Callable[["Telemetry"], Mapping[str, Any] | None]
-SystemContextProvider = Callable[["Telemetry"], Mapping[str, Any] | None]
+ContextProvider = Callable[["Telemetry"], dict[str, Any]]
+SystemContextProvider = Callable[["Telemetry"], dict[str, Any]]
 
 
 class Telemetry:
@@ -47,10 +47,10 @@ class Telemetry:
             config: Telemetry configuration to use. If omitted, values
                 are read from environment variables.
             context_providers: Callables that return extra context to
-                attach to every event, or ``None`` for no context.
+                attach to every event.
             system_context_providers: Callables that return extra
                 context to attach only when system metadata is
-                requested, or ``None`` for no context.
+                requested.
 
         """
         self._config = config or TelemetryConfig.from_environ()
@@ -291,22 +291,23 @@ class Telemetry:
     ) -> None:
         """Merge context from providers into the event context."""
         for provider in providers:
-            try:
-                extra = provider(self)
-            except Exception as exc:
-                logger.debug("{} ({})", error_message, type(exc).__name__)
-                continue
-            if extra is None:
-                continue
-            if not isinstance(extra, Mapping):
-                logger.debug(
-                    "Telemetry context provider returned a non-mapping; skipping."
-                )
-                continue
+            self._merge_context_provider(context, provider, error_message)
+
+    def _merge_context_provider(
+        self,
+        context: dict[str, Any],
+        provider: ContextProvider | SystemContextProvider,
+        error_message: str,
+    ) -> None:
+        """Merge the context of one provider, or skip it if it fails."""
+        try:
+            extra = provider(self)
             if self._config.allow_reserved_overrides:
                 context.update(extra)
             else:
                 _update_unreserved(context, extra)
+        except Exception as exc:
+            logger.debug("{} ({})", error_message, type(exc).__name__)
 
     def _add_provider(
         self,

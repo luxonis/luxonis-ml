@@ -204,7 +204,7 @@ def get_dir(
     local_dir: PathType,
     mlflow_instance: ModuleType | None = ...,
     *,
-    default: PathType,
+    default: Path,
 ) -> Path: ...
 
 
