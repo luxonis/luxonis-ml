@@ -610,10 +610,7 @@ def compare_directories(
             file_path.read_text()
             == (orig_dir_path / f"file_{i}.txt").read_text()
         )
-    if flat:
-        file_path = "nested_file.txt"
-    else:
-        file_path = "nested/nested_file.txt"
+    file_path = "nested_file.txt" if flat else "nested/nested_file.txt"
     nested_file = dir_path / file_path
 
     assert nested_file.exists()

@@ -1436,10 +1436,7 @@ class LuxonisFileSystem:
 
         dest = Path(dest or ".")
         absolute_path, remote_path = LuxonisFileSystem.split_full_path(url)
-        if dest.suffix:
-            local_path = dest
-        else:
-            local_path = dest / remote_path
+        local_path = dest if dest.suffix else dest / remote_path
         fs = LuxonisFileSystem(absolute_path, tracking_uri=tracking_uri)
 
         # NOTE: Both methods nest the download inside `local_path` when
