@@ -24,6 +24,7 @@ from filelock import FileLock
 from loguru import logger
 from rich.progress import Progress
 from semver.version import Version
+from typeguard import CollectionCheckStrategy, typechecked
 from typing_extensions import Self, override
 
 from luxonis_ml.data.exporters import (
@@ -66,7 +67,6 @@ from luxonis_ml.data.utils import (
     warn_on_duplicates,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
-from luxonis_ml.data.utils.ldf_equivalence import ldf_equivalent
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.ldf import Category, DatasetRecord, Detection
@@ -234,6 +234,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     @override
     def __eq__(self, other: object) -> bool | NotImplementedType:
         """Compare datasets for equivalence."""
+        from luxonis_ml.data.utils.ldf_equivalence import ldf_equivalent
+
         if not isinstance(other, (LuxonisDataset, str)):
             return NotImplemented
         return ldf_equivalent(self, other)
@@ -1501,6 +1503,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             return json.load(file)
 
     @override
+    @typechecked(collection_check_strategy=CollectionCheckStrategy.ALL_ITEMS)
     def make_splits(
         self,
         splits: (
@@ -2006,14 +2009,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         for split, filepaths in definitions.items():
             ids: list[str] = []
             for filepath in filepaths:
-                if not isinstance(filepath, (str, Path)):
-                    logger.warning(
-                        f"Split '{split}' contains {filepath!r}, "
-                        f"which is a {type(filepath).__name__} and "
-                        "not a filepath; skipping."
-                    )
-                    continue
-
                 group_id = find_filepath_group_id(
                     filepath, index, raise_on_missing=False
                 )

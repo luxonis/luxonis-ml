@@ -203,8 +203,10 @@ class BaseDataset(
 
         Raises:
             TypeError: If the mapping values are neither ratios nor
-                filepath lists. The method warns and skips each element
-                of a filepath list that is not a filepath.
+                filepath lists.
+            TypeCheckError: If ``splits`` does not match its type, for
+                example a filepath list with an element that is not a
+                filepath.
             ValueError: If ``splits`` is provided but is empty.
             ValueError: If the ratios are outside the range from 0 to 1 or
                 do not sum to 1.
