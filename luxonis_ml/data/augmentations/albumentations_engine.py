@@ -740,6 +740,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         for compose in self._compositions:
             _reset_params(compose)
 
+        image_key = next(iter(input_batch[0][0]))
         data_batch, n_keypoints, label_specs = self._preprocess_batch(
             input_batch
         )
@@ -760,7 +761,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         for compose in self._compositions:
             self._record_augmentations(compose)
 
-        return self._postprocess(data, n_keypoints, emptied_targets)
+        return self._postprocess(data, n_keypoints, emptied_targets, image_key)
 
     def _drop_empty_targets(
         self, data: Data, label_specs: list[dict[str, LabelSpec]]
@@ -916,6 +917,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         data: Data,
         n_keypoints: dict[str, int],
         emptied_targets: dict[str, LabelSpec],
+        image_key: str,
     ) -> LoaderMultiOutput:
         """Postprocess the augmented data back to LDF format.
 
@@ -930,13 +932,15 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 emptied because all the bounding boxes they belong to were
                 filtered out. They are reported as empty labels rather than
                 omitted.
+            image_key: Source name of the image that the data keys
+                ``"image"``.
 
         Returns:
             Augmented images and labels.
 
         """
         out_labels = {}
-        out_image_dict = self._restore_images(data)
+        out_image_dict = self._restore_images(data, image_key)
         image_size = next(iter(out_image_dict.values())).shape[:2]
 
         bboxes_indices = {}
@@ -981,7 +985,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
         return out_image_dict, out_labels
 
-    def _restore_images(self, data: Data) -> dict[str, np.ndarray]:
+    def _restore_images(
+        self, data: Data, image_key: str
+    ) -> dict[str, np.ndarray]:
         """Pop the images out of ``data``, keyed by their source names."""
         out_image_dict = {}
         image_keys = [k for k in data if k in ["image", *self._source_names]]
@@ -989,10 +995,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             img = data.pop(key)
             if img.ndim == 2:
                 img = np.expand_dims(img, axis=-1)
-            restored_key = (
-                data["_original_image_key"] if key == "image" else key
-            )
-            out_image_dict[restored_key] = img
+            out_image_dict[image_key if key == "image" else key] = img
         return out_image_dict
 
     def _postprocess_label(
@@ -1270,13 +1273,13 @@ def _resolve_target_type(task: str, task_type: str) -> TargetType:
     return target_type
 
 
-def _image_data(image_dict: dict[str, np.ndarray]) -> dict[str, Any]:
-    """Key the first image ``"image"`` and remember its source name."""
+def _image_data(image_dict: dict[str, np.ndarray]) -> Data:
+    """Key the first image ``"image"`` and the others by source name."""
     key = next(iter(image_dict))
-    data: dict[str, Any] = {"_original_image_key": key}
-    for source_name, img in image_dict.items():
-        data["image" if source_name == key else source_name] = img
-    return data
+    return {
+        "image" if source_name == key else source_name: img
+        for source_name, img in image_dict.items()
+    }
 
 
 def _preprocess_label(
@@ -1293,14 +1296,10 @@ def _preprocess_label(
 
 
 def _apply_compose(transform: A.BaseCompose, /, **data: np.ndarray) -> Data:
-    """Apply a composition and keep the source-name marker out of it."""
+    """Apply a composition, or pass the data on if it is empty."""
     if not transform.transforms:
         return data
-    original_key = data.pop("_original_image_key", None)
-    data = transform(**data)
-    if original_key is not None:
-        data["_original_image_key"] = original_key
-    return data
+    return transform(**data)
 
 
 def _apply_pixel_transform(

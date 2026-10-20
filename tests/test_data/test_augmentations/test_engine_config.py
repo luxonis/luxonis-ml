@@ -289,16 +289,6 @@ def test_pixel_replay_skips_sources_without_a_channel_axis() -> None:
     )
 
 
-def test_wrapped_transforms_tolerate_a_missing_image_key() -> None:
-    wrapped = AlbumentationsEngine._wrap_transform(
-        A.Compose([A.HorizontalFlip(p=1.0)])
-    )
-
-    out = wrapped(image=np.zeros((8, 8, 3), dtype=np.uint8))
-
-    assert "_original_image_key" not in out
-
-
 def test_pixel_transform_wrapper_needs_source_names() -> None:
     wrapped = AlbumentationsEngine._wrap_transform(
         A.Compose([A.InvertImg(p=1.0)]), is_pixel=True, source_names=None

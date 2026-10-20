@@ -106,9 +106,7 @@ class BatchCompose(A.Compose):
         if not self.transforms:
             return data_batch[0]
 
-        original_image_key = data_batch[0].get("_original_image_key")
         for data in data_batch:
-            data.pop("_original_image_key", None)
             self.preprocess(data)
 
         for transform in self.transforms:
@@ -148,11 +146,7 @@ class BatchCompose(A.Compose):
 
         data = self._make_contiguous(data)
 
-        data = self.postprocess(data)
-
-        data["_original_image_key"] = original_image_key
-
-        return data
+        return self.postprocess(data)
 
     def _apply_once(
         self,
