@@ -16,8 +16,8 @@ from luxonis_ml.telemetry.events import TelemetryEvent
 from luxonis_ml.telemetry.redaction import sanitize_properties
 from luxonis_ml.telemetry.suppression import is_suppressed
 
-ContextProvider = Callable[["Telemetry"], dict[str, Any]]
-SystemContextProvider = Callable[["Telemetry"], dict[str, Any]]
+ContextProvider = Callable[["Telemetry"], Mapping[str, Any] | None]
+SystemContextProvider = Callable[["Telemetry"], Mapping[str, Any] | None]
 
 
 class Telemetry:
@@ -47,10 +47,10 @@ class Telemetry:
             config: Telemetry configuration to use. If omitted, values
                 are read from environment variables.
             context_providers: Callables that return extra context to
-                attach to every event.
+                attach to every event, or ``None`` for no context.
             system_context_providers: Callables that return extra
                 context to attach only when system metadata is
-                requested.
+                requested, or ``None`` for no context.
 
         """
         self._config = config or TelemetryConfig.from_environ()
