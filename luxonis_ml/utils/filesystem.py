@@ -506,10 +506,9 @@ class LuxonisFileSystem:
                 )
             return None
 
-        if self.is_mlflow or self.is_fsspec:
-            return self._put_files(
-                local_paths, remote_dir, uuid_dict, mlflow_instance
-            )
+        return self._put_files(
+            local_paths, remote_dir, uuid_dict, mlflow_instance
+        )
 
     def put_bytes(
         self,
@@ -658,8 +657,7 @@ class LuxonisFileSystem:
                 remote_paths, local_dir, mlflow_instance
             )
 
-        if self.is_mlflow or self.is_fsspec:
-            self._get_files(remote_paths, local_dir, mlflow_instance)
+        self._get_files(remote_paths, local_dir, mlflow_instance)
 
         return Path(local_dir)
 
