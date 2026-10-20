@@ -211,16 +211,7 @@ warnings-as-errors = true
 
 [tool.pyright]
 pythonVersion = "3.10"
-exclude = [
-  "**/node_modules",
-  "**/__pycache__",
-  "**/.*",
-  "build",
-  "dist",
-  "luxonis_ml/tracker",
-  "examples",
-  "__main__.py",
-]
+exclude = ["build", "dist", "luxonis_ml/tracker"]
 typeCheckingMode = "basic"
 reportMissingTypeStubs = "none"
 reportPrivateImportUsage = "none"
