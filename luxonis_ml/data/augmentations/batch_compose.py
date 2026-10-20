@@ -454,8 +454,7 @@ class BatchCompose(A.Compose):
 
     @staticmethod
     def _make_contiguous(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
-        for key, value in data.items():
-            if isinstance(value, np.ndarray):
-                value = np.ascontiguousarray(value)
-            data[key] = value
-        return data
+        """Return the arrays of ``data`` in C-contiguous memory."""
+        return {
+            key: np.ascontiguousarray(value) for key, value in data.items()
+        }

@@ -611,15 +611,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             transforms.batch.append(transform)
         elif isinstance(transform, (A.DualTransform, A.BaseCompose)):
             transforms.spatial.append(transform)
-        elif isinstance(transform, A.BasicTransform):
-            transforms.custom.append(transform)
         else:
-            raise ValueError(
-                f"Unsupported transformation type: "
-                f"'{type(transform).__name__}'. "
-                f"Only subclasses of `A.BasicTransform` "
-                f"or `A.BaseCompose` are allowed. "
-            )
+            transforms.custom.append(transform)
 
     def _force_image_size(self, cfg: AlbumentationConfigItem) -> None:
         """Set the output size of a resizing transform to the image size."""
@@ -783,7 +776,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         emptied_targets = {}
         for target_name in list(data.keys()):
             value = data[target_name]
-            if not isinstance(value, np.ndarray) or value.size != 0:
+            if value.size != 0:
                 continue
             del data[target_name]
             if (
@@ -1116,9 +1109,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             parent_path: Configured names of the enclosing compositions.
 
         Raises:
-            ValueError: If a batch transform is nested inside another
-                transformation, or if a nested item is not a valid
-                transformation configuration.
+            ValueError: If the configured name does not create an
+                Albumentations transformation, if a batch transform is
+                nested inside another transformation, or if a nested
+                item is not a valid transformation configuration.
 
         """
         params: dict[str, Any] = config.params.copy()
@@ -1140,10 +1134,17 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             constructor = TRANSFORMATIONS.get(config.name)
 
         transform = constructor(**params)
-
-        if not isinstance(transform, A.BaseCompose):
+        if isinstance(transform, A.BaseCompose):
+            return transform
+        if isinstance(transform, A.BasicTransform):
             tracked_paths[id(transform)] = "/".join(current_path)
-        return transform
+            return transform
+        raise ValueError(
+            f"Unsupported transformation type: "
+            f"'{type(transform).__name__}'. "
+            f"Only subclasses of `A.BasicTransform` "
+            f"or `A.BaseCompose` are allowed. "
+        )
 
     @staticmethod
     def _create_nested_transformation(

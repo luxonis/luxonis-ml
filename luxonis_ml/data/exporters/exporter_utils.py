@@ -245,10 +245,7 @@ def get_single_skeleton(
     """
     if not allow_keypoints or skeletons is None:
         return [], []
-    if isinstance(skeletons, dict):
-        sk = next(iter(skeletons.values()))
-    else:  # list
-        sk = skeletons[0]
+    sk = next(iter(skeletons.values()))
     labels = list(sk.get("labels", []))
     edges = sk.get("edges", [])
     # COCO expects 1-based indices in skeleton
