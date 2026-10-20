@@ -1,8 +1,9 @@
 from typing import Any
 
-import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.axes import Axes
 from matplotlib.container import BarContainer
+from matplotlib.figure import Figure
 
 
 def _prepare_class_data(
@@ -14,9 +15,7 @@ def _prepare_class_data(
     return classes, counts
 
 
-def _annotate_bars(
-    ax: plt.Axes, bars: BarContainer
-) -> None:  # pragma: no cover
+def _annotate_bars(ax: Axes, bars: BarContainer) -> None:  # pragma: no cover
     """Add numeric labels above bars."""
     for bar in bars:
         height = bar.get_height()
@@ -32,7 +31,7 @@ def _annotate_bars(
 
 
 def plot_class_distribution(
-    ax: plt.Axes, task_type: str, task_data: list[dict[str, Any]]
+    ax: Axes, task_type: str, task_data: list[dict[str, Any]]
 ) -> None:  # pragma: no cover
     """Plot a class distribution bar chart.
 
@@ -77,8 +76,8 @@ def _prepare_heatmap_data(
 
 
 def plot_heatmap(
-    ax: plt.Axes,
-    fig: plt.Figure,
+    ax: Axes,
+    fig: Figure,
     task_type: str,
     heatmap_data: list[list[float]] | None,
 ) -> None:  # pragma: no cover

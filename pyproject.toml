@@ -215,7 +215,6 @@ pythonVersion = "3.10"
 exclude = ["build", "dist", "luxonis_ml/tracker"]
 typeCheckingMode = "standard"
 reportMissingTypeStubs = "none"
-reportPrivateImportUsage = "none"
 reportPrivateUsage = "none"
 reportIncompatibleVariableOverride = "none"
 reportIncompatibleMethodOverride = "none"

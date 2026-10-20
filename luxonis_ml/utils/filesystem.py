@@ -1342,10 +1342,10 @@ class LuxonisFileSystem:
 
         """
         if self.is_mlflow:
-            from mlflow.exceptions import (
+            from mlflow.exceptions import MlflowException
+            from mlflow.protos.databricks_pb2 import (
                 RESOURCE_DOES_NOT_EXIST,
                 ErrorCode,
-                MlflowException,
             )
 
             artifact_path = self._get_mlflow_artifact_path(remote_path)
