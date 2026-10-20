@@ -262,8 +262,8 @@ def install_excepthook(*, use_rich: bool = True, enabled: bool = True) -> None:
     """Configure summaries for uncaught validation errors.
 
     Wraps ``sys.excepthook`` with one that first lets the previously
-    installed hook run — so the traceback still shows where the error came
-    from, and crash reporters still see it — and then prints a readable
+    installed hook run (so the traceback still shows where the error came
+    from, and crash reporters still see it) and then prints a readable
     summary of the ``ValidationError`` as the last thing the reader sees. An
     existing Luxonis hook is reconfigured, or removed when ``enabled`` is
     False. Calling this more than once is harmless.
@@ -317,7 +317,7 @@ def _validated_model(error: ValidationError) -> type[BaseModel] | None:
     """Recover the model that raised ``error`` from its traceback.
 
     Pydantic enters its Rust validator from a single Python frame, and that
-    frame still holds the model — as ``cls`` for ``BaseModel.model_validate``
+    frame still holds the model: as ``cls`` for ``BaseModel.model_validate``
     and its siblings, as ``self`` for ``Model(**data)``. Only pydantic's own
     frames are searched, so a model that merely happens to be the ``self``
     of a calling method cannot be mistaken for the one being validated, and
@@ -345,7 +345,7 @@ def _default_title(
 ) -> str:
     count = len(problems)
     plural = "problem" if count == 1 else "problems"
-    return f"Invalid {error.title} — {count} {plural} found"
+    return f"Invalid {error.title} - {count} {plural} found"
 
 
 def _group_union_errors(
@@ -603,7 +603,7 @@ def _member_reason(
     message, hint = _describe(error, loc, model)
     inside = _location_below(loc, parent, model)
     if inside:
-        message = f"{inside} — {message}"
+        message = f"{inside} - {message}"
     if hint is not None:
         message = f"{message} ({hint})"
     return f"{name}: {message}"

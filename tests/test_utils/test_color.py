@@ -94,8 +94,8 @@ def test_chrome_for_picks_by_background_lightness():
     assert light.card_text is brand.PURPLE_TEXT
     assert light.card_title is brand.PURPLE_TITLE
     assert light.border is not None
-    # Dark chrome: navy card, light-purple (periwinkle) text — on-brand, not
-    # plain white — and no border (it relies on its shadow instead).
+    # Dark chrome: navy card, on-brand light-purple (periwinkle) text rather
+    # than plain white, and no border (it relies on its shadow instead).
     assert dark.card_text is brand.PERIWINKLE
     assert dark.card_text.b > dark.card_text.r  # blue-purple, not white
     assert dark.border is None

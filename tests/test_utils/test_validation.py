@@ -54,8 +54,8 @@ def catch_anonymous(model: type[BaseModel], **data) -> ValidationError:
     """Catch an error the formatter cannot trace back to its model.
 
     `TypeAdapter` validates from a frame of its own, so nothing in the
-    traceback names the model — the same position the formatter is in when
-    the error is handed to it by third-party code.
+    traceback names the model. The formatter is in the same position when
+    third-party code hands it the error.
     """
     with pytest.raises(ValidationError) as info:
         TypeAdapter(model).validate_python(data)
@@ -79,7 +79,7 @@ def render(error: ValidationError, **kwargs) -> str:
 
 def test_missing_field():
     message = format_validation_error(catch(Cfg), model=Cfg)
-    assert "Invalid Cfg — 1 problem found" in message
+    assert "Invalid Cfg - 1 problem found" in message
     assert "name" in message
     assert "this field is required, but is missing" in message
 
@@ -491,8 +491,8 @@ def test_failures_under_two_union_members_are_collapsed():
     assert problem.message.startswith(
         "does not match any of the allowed types:\n"
     )
-    assert "Point: x — input should be a valid integer" in problem.message
-    assert "Circle: radius — this field is required" in problem.message
+    assert "Point: x - input should be a valid integer" in problem.message
+    assert "Circle: radius - this field is required" in problem.message
 
 
 def test_container_union_members_are_collapsed():
@@ -519,7 +519,7 @@ def test_nested_and_direct_union_member_failures_are_collapsed():
     (problem,) = iter_validation_problems(error, model=Container)
 
     assert problem.location == "value"
-    assert "Nested: count — input should be a valid integer" in problem.message
+    assert "Nested: count - input should be a valid integer" in problem.message
     assert "int: input should be a valid integer" in problem.message
 
 
@@ -528,7 +528,7 @@ def test_collapsed_union_members_keep_their_suggestions():
     message = format_validation_error(
         catch(Shape, shape={wrong: 2}), model=Shape
     )
-    assert f"Circle: {wrong} — unexpected field" in message
+    assert f"Circle: {wrong} - unexpected field" in message
     assert "did you mean 'radius'?" in message
 
 
