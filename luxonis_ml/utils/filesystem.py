@@ -196,6 +196,7 @@ class LuxonisFileSystem:
         self._run_id: str | None = None
         self._artifact_path: str | None = None
         self._tracking_uri: str | None = None
+        self._is_mlflow_active_run = False
 
         if self._protocol == "mlflow":
             self._fs_type = FSType.MLFLOW
@@ -221,13 +222,11 @@ class LuxonisFileSystem:
         Returns the value for ``self._path``: ``path`` itself, or ``""``
         for the active run.
         """
-        self._allow_active_mlflow_run = allow_active_mlflow_run
-        self._is_mlflow_active_run = False
         if path is not None:
             (self._experiment_id, self._run_id, self._artifact_path) = (
                 self._split_mlflow_path(path)
             )
-        elif self._allow_active_mlflow_run:
+        elif allow_active_mlflow_run:
             self._is_mlflow_active_run = True
             path = ""
         else:

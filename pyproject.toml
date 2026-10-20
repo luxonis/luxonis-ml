@@ -222,6 +222,7 @@ reportUnnecessaryTypeIgnoreComment = "error"
 reportUnnecessaryCast = "error"
 reportUnnecessaryComparison = "error"
 reportUnreachable = "error"
+reportUninitializedInstanceVariable = "error"
 
 [tool.pytest]
 doctest_optionflags = [
