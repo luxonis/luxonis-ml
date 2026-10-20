@@ -176,7 +176,7 @@ class BaseModelExtraForbid(BaseModel):
 
     """
 
-    model_config: ConfigDict = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid")
 
 
 class ConfigItem(BaseModelExtraForbid):

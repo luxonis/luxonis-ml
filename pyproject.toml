@@ -216,7 +216,6 @@ exclude = ["build", "dist", "luxonis_ml/tracker"]
 typeCheckingMode = "standard"
 reportMissingTypeStubs = "none"
 reportPrivateUsage = "none"
-reportIncompatibleVariableOverride = "none"
 reportIncompatibleMethodOverride = "none"
 reportUnnecessaryIsInstance = "none"
 reportImplicitOverride = "error"
