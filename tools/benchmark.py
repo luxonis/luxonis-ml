@@ -78,9 +78,7 @@ def main(
     augment: Annotated[bool, Parameter(alias="-a")] = False,
     batched: Annotated[bool, Parameter(alias="-b")] = False,
 ) -> None:
-    """Benchmark the time taken to write and read a dataset with the
-    given parameters.
-    """
+    """Benchmark writing and reading a dataset with the given parameters."""
     if not no_write:
         avg = 0
         for _ in range(repeat):

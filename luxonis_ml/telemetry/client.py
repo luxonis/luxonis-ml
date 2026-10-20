@@ -104,9 +104,7 @@ class Telemetry:
     def add_system_context_provider(
         self, provider: SystemContextProvider
     ) -> None:
-        """Register a context provider used only with system
-        metadata.
-        """
+        """Register a context provider used only with system metadata."""
         self._add_provider(self._system_context_providers, provider)
 
     def extend_context_providers(
@@ -237,9 +235,7 @@ class Telemetry:
             return
 
     def _init_backend(self) -> TelemetryBackend:
-        """Initialize the configured backend or fall back to
-        NoopBackend.
-        """
+        """Initialize the configured backend, or fall back to NoopBackend."""
         if not self.is_enabled:
             return NoopBackend(self._config)
         name = self._config.backend.lower()

@@ -664,8 +664,9 @@ def health(
     ] = None,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
-    """Plot class distributions and heatmaps for every task type and
-    corresponding task name in the dataset.
+    """Plot the class distributions and heatmaps of the dataset.
+
+    The plots cover every task type and task name of the dataset.
 
     Also checks for files with missing annotations, files that share the
     same UUIDs, and files with duplicate annotations.
@@ -1101,8 +1102,7 @@ def sanitize(
     name: str,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
-    """Remove duplicate annotations and duplicate files from the
-    dataset.
+    """Remove duplicate annotations and files from the dataset.
 
     Args:
         name: Name of the dataset to sanitize.

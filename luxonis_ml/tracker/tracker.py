@@ -338,9 +338,7 @@ class LuxonisTracker:
     def experiment(
         self,
     ) -> dict[Literal["tensorboard", "wandb", "mlflow"], Any]:
-        """Creates new experiments or returns active ones if already
-        created.
-        """
+        """Create new experiments, or return the active ones."""
         if self._experiment is None:
             self._experiment = {}
 

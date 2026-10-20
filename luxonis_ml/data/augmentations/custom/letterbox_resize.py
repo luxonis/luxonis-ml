@@ -10,8 +10,7 @@ from luxonis_ml.utils.color import Color, ColorLike
 
 
 class LetterboxResize(A.DualTransform):
-    """Augmentation that resizes an image with padding to
-    maintain the aspect ratio.
+    """Augmentation that resizes with padding to keep the aspect ratio.
 
     Attributes:
         height: The desired height of the output image.
@@ -98,8 +97,7 @@ class LetterboxResize(A.DualTransform):
     def compute_padding(
         orig_height: int, orig_width: int, out_height: int, out_width: int
     ) -> tuple[int, int, int, int]:
-        """Compute the padding required to resize an image to the
-        letterbox format.
+        """Compute the padding of an image resized to the letterbox format.
 
         Args:
             orig_height: Original height of the image.

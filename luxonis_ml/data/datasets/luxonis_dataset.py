@@ -203,9 +203,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
     @cached_property
     def version(self) -> Version:
-        """The version of the underlying LDF that the dataset adheres
-        to.
-        """
+        """The version of the LDF that the dataset adheres to."""
         return Version.parse(
             self._metadata.ldf_version, optional_minor_and_patch=True
         )
@@ -248,9 +246,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         return len(df.select("uuid").unique()) if df is not None else 0
 
     def _get_credential(self, key: str) -> str:
-        """Get secret credentials from the credentials file or
-        environment.
-        """
+        """Get a credential from the credentials file or the environment."""
         if key in self._credentials:
             return self._credentials[key]
         if not hasattr(environ, key):
@@ -879,9 +875,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
     @property
     def is_remote(self) -> bool:
-        """Whether the dataset is stored remotely (in a cloud bucket) or
-        locally.
-        """
+        """Whether the dataset is stored in a cloud bucket."""
         return self._bucket_storage != BucketStorage.LOCAL
 
     @override
@@ -1025,8 +1019,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     def pull_from_cloud(
         self, update_mode: UpdateMode = UpdateMode.MISSING
     ) -> None:
-        """Synchronize the dataset from a remote bucket to a local
-        storage.
+        """Synchronize the dataset from a remote bucket to local storage.
 
         Annotations and metadata are always pulled. Media files are pulled
         either when missing locally or always, depending on ``update_mode``.
@@ -1197,8 +1190,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     def delete_dataset(
         self, *, delete_remote: bool = False, delete_local: bool = False
     ) -> None:
-        """Delete the dataset from local storage and optionally the
-        cloud.
+        """Delete the dataset locally and optionally from the cloud.
 
         Args:
             delete_remote: Whether to delete the remote dataset.
