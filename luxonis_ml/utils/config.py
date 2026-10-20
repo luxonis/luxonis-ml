@@ -148,11 +148,12 @@ class LuxonisConfig(BaseModelExtraForbid):
             ValueError: If the overrides contain an invalid option.
 
         """
-        for dot_name, value in overrides.items():
-            try:
+        dot_name = ""
+        try:
+            for dot_name, value in overrides.items():
                 _merge_override(data, dot_name, value)
-            except Exception as e:
-                raise ValueError(f"Invalid option `{dot_name}`: {e}") from e
+        except Exception as e:
+            raise ValueError(f"Invalid option `{dot_name}`: {e}") from e
 
 
 _MISSING = object()

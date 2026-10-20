@@ -170,12 +170,12 @@ class SOLOParser(BaseParser):
             Annotation type names.
 
         """
-        annotation_types = []
-        for definition in annotation_definitions_dict["annotationDefinitions"]:
-            annotation_types.append(
-                definition["@type"].replace("type.unity.com/unity.solo.", "")
-            )
-        return annotation_types
+        return [
+            definition["@type"].replace("type.unity.com/unity.solo.", "")
+            for definition in annotation_definitions_dict[
+                "annotationDefinitions"
+            ]
+        ]
 
     def _get_solo_bbox_class_names(
         self, annotation_definitions_dict: dict[str, Any]

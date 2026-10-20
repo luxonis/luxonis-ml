@@ -701,10 +701,7 @@ class LuxonisTracker:
             for path in self.save_directory.iterdir()
             if path.is_dir()
         ]
-        runs = []
-        for ld in log_dirs:
-            if ld.split("-")[0].isnumeric():
-                runs.append(ld)
+        runs = [ld for ld in log_dirs if ld.split("-")[0].isnumeric()]
         runs.sort(
             key=lambda x: (self.save_directory / x).stat().st_mtime,
             reverse=True,

@@ -383,13 +383,12 @@ class LDFEquivalence:
         for key, entry in grouped:
             file_path, _gid = cast(tuple[str, str], key)
             hashed_key = (cls.file_sha256(Path(file_path)),)
-            classes = []
-            for row in entry.iter_rows(named=True):
-                if (
-                    row["task_type"] == "classification"
-                    and row["instance_id"] == -1
-                ):
-                    classes.append(row["class_name"])
+            classes = [
+                row["class_name"]
+                for row in entry.iter_rows(named=True)
+                if row["task_type"] == "classification"
+                and row["instance_id"] == -1
+            ]
             if classes:
                 out.setdefault(hashed_key, Counter()).update(classes)
         return out
@@ -406,13 +405,12 @@ class LDFEquivalence:
         for key, entry in grouped:
             file_path, _gid = cast(tuple[str, str], key)
             hashed_key = (cls.file_sha256(Path(file_path)),)
-            classes = []
-            for row in entry.iter_rows(named=True):
-                if (
-                    row["task_type"] == "segmentation"
-                    and row["instance_id"] == -1
-                ):
-                    classes.append(row["class_name"])
+            classes = [
+                row["class_name"]
+                for row in entry.iter_rows(named=True)
+                if row["task_type"] == "segmentation"
+                and row["instance_id"] == -1
+            ]
             if classes:
                 out.setdefault(hashed_key, Counter()).update(classes)
         return out

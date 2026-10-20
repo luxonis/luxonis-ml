@@ -254,9 +254,11 @@ class UltralyticsNDJSONExporter(BaseExporter):
         header = self._dataset_header()
         lines = [json.dumps(header, separators=(",", ":"))]
 
-        for split_name in self.get_split_names().values():
-            for record in annotation_splits.get(split_name, []):
-                lines.append(json.dumps(record, separators=(",", ":")))
+        lines.extend(
+            json.dumps(record, separators=(",", ":"))
+            for split_name in self.get_split_names().values()
+            for record in annotation_splits.get(split_name, [])
+        )
 
         (base / "dataset.ndjson").write_text(
             "\n".join(lines) + "\n", encoding="utf-8"
