@@ -554,7 +554,7 @@ class LuxonisLoader(BaseLoader):
             data["height"], data["width"] = image_shape[:2]
             data["points"] = [tuple(p) for p in data["points"]]
 
-        return task, instance_id, load_annotation(task_type, data)  # type: ignore
+        return task, instance_id, load_annotation(task_type, data)  # pyright: ignore[reportArgumentType]
 
     def _class_id(self, row: tuple) -> int:
         """Return the class index of a row, or 0 for a row without a class."""
@@ -578,7 +578,7 @@ class LuxonisLoader(BaseLoader):
             values.sort(key=lambda x: x[0])
             metadata = [value for _, value in values]
             if not self._keep_categorical_as_strings and task in encodings:
-                metadata = [encodings[task][m] for m in metadata]  # type: ignore
+                metadata = [encodings[task][m] for m in metadata]  # pyright: ignore[reportArgumentType]
             labels[task] = np.array(metadata)
         return labels
 

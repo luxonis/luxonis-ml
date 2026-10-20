@@ -336,7 +336,7 @@ def test_dir_parser_explicit_type(
     parser = LuxonisParser(
         url,
         dataset_name=dataset_name,
-        dataset_type=dataset_type,  # type: ignore
+        dataset_type=dataset_type,  # pyright: ignore[reportArgumentType]
         delete_local=True,
         save_dir=tempdir,
     )
@@ -622,7 +622,7 @@ def test_ultralytics_ndjson_parser_explicit_type(
     dataset = LuxonisParser(
         url,
         dataset_name=dataset_name,
-        dataset_type="ultralytics-ndjson",  # type: ignore[arg-type]
+        dataset_type="ultralytics-ndjson",  # pyright: ignore[reportArgumentType]
         delete_local=True,
         save_dir=tempdir,
     ).parse()
@@ -793,7 +793,7 @@ def test_partial_split_clsdir_explicit_type_uses_dir_mode(
     dataset = LuxonisParser(
         str(dataset_dir),
         dataset_name=dataset_name,
-        dataset_type="clsdir",  # type: ignore[arg-type]
+        dataset_type="clsdir",  # pyright: ignore[reportArgumentType]
         delete_local=True,
         save_dir=tempdir,
     ).parse()
@@ -916,7 +916,7 @@ def test_partial_split_train_only_roboflow_coco_keeps_format_detection(
     dataset = LuxonisParser(
         str(dataset_dir),
         dataset_name=dataset_name,
-        dataset_type="coco",  # type: ignore[arg-type]
+        dataset_type="coco",  # pyright: ignore[reportArgumentType]
         delete_local=True,
         save_dir=tempdir,
     ).parse(use_keypoint_ann=True)

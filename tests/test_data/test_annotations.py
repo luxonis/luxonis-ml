@@ -49,7 +49,7 @@ def test_load_annotation():
         "boundingbox", {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4}
     ) == BBoxAnnotation(x=0.1, y=0.2, w=0.3, h=0.4)
     with pytest.raises(ValueError, match="Unknown label type"):
-        load_annotation("invalid_name", {})  # type: ignore
+        load_annotation("invalid_name", {})  # pyright: ignore[reportArgumentType]
 
 
 def test_dataset_record(tempdir: Path):
@@ -59,7 +59,7 @@ def test_dataset_record(tempdir: Path):
         rows = list(record.to_parquet_rows())
         for row in rows:
             # for compatibility with Windows
-            row["file"] = Path(row["file"])  # type: ignore
+            row["file"] = Path(row["file"])  # pyright: ignore[reportGeneralTypeIssues]
         assert rows == expected_rows
 
     left = (tempdir / "left.jpg").resolve()
@@ -68,14 +68,14 @@ def test_dataset_record(tempdir: Path):
     cv2.imwrite(str(left), np.zeros((100, 100, 3)))
     cv2.imwrite(str(right), np.zeros((100, 100, 3)))
     empty_metadata = {"sample_metadata": DEFAULT_METADATA}
-    record = DatasetRecord(file=left)  # type: ignore
+    record = DatasetRecord(file=left)  # pyright: ignore[reportCallIssue]
     assert record.file == left
 
     compare_parquet_rows(
         record,
         [
             {
-                "file": left,  # type: ignore
+                "file": left,  # pyright: ignore[reportArgumentType]
                 "source_name": "image",
                 "task_name": "",
                 "class_name": None,
@@ -88,14 +88,14 @@ def test_dataset_record(tempdir: Path):
     )
 
     record = DatasetRecord(
-        file=left,  # type: ignore
+        file=left,  # pyright: ignore[reportCallIssue]
         sample_metadata={"source": "camera-a"},
     )
     compare_parquet_rows(
         record,
         [
             {
-                "file": left,  # type: ignore
+                "file": left,  # pyright: ignore[reportArgumentType]
                 "source_name": "image",
                 "task_name": "",
                 "class_name": None,
@@ -108,7 +108,7 @@ def test_dataset_record(tempdir: Path):
     )
 
     record = DatasetRecord(
-        file=left,  # type: ignore
+        file=left,  # pyright: ignore[reportCallIssue]
         annotation={
             "class": "person",
             "boundingbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
@@ -118,7 +118,7 @@ def test_dataset_record(tempdir: Path):
         record,
         [
             {
-                "file": left,  # type: ignore
+                "file": left,  # pyright: ignore[reportArgumentType]
                 "source_name": "image",
                 "task_name": "",
                 "class_name": "person",
@@ -255,7 +255,7 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
         ]
     )
     with subtests.test("mask"):
-        seg = SegmentationAnnotation(mask=mask)  # type: ignore
+        seg = SegmentationAnnotation(mask=mask)  # pyright: ignore[reportCallIssue]
         assert seg.height == 4
         assert seg.width == 4
         assert seg.counts == b"11213ON0"
@@ -265,19 +265,19 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
             "counts": b"11213ON0",
         }
         np.save(tempdir / "mask.npy", mask)
-        seg = SegmentationAnnotation(mask=tempdir / "mask.npy")  # type: ignore
+        seg = SegmentationAnnotation(mask=tempdir / "mask.npy")  # pyright: ignore[reportCallIssue]
         assert seg.height == 4
         assert seg.width == 4
         assert seg.counts == b"11213ON0"
         cv2.imwrite(str(tempdir / "mask.png"), mask)
-        seg = SegmentationAnnotation(mask=tempdir / "mask.png")  # type: ignore
+        seg = SegmentationAnnotation(mask=tempdir / "mask.png")  # pyright: ignore[reportCallIssue]
         assert seg.height == 4
         assert seg.width == 4
         assert seg.counts == b"11213ON0"
 
     with subtests.test("polyline"):
         seg = SegmentationAnnotation(
-            points=[(0, 0), (1, 0), (1, 1), (0, 1)],  # type: ignore
+            points=[(0, 0), (1, 0), (1, 1), (0, 1)],  # pyright: ignore[reportCallIssue]
             height=4,
             width=4,
         )
@@ -285,7 +285,7 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
         assert seg.width == 4
         assert seg.counts == b"0`0"
         seg_clipped = SegmentationAnnotation(
-            points=[(-0.1, 0), (1.1, 0), (1, 1.5), (-0.6, 1)],  # type: ignore
+            points=[(-0.1, 0), (1.1, 0), (1, 1.5), (-0.6, 1)],  # pyright: ignore[reportCallIssue]
             height=4,
             width=4,
         )
@@ -293,13 +293,13 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
 
         with pytest.raises(ValueError, match="must be integers"):
             SegmentationAnnotation(
-                points=[(0, 0), (1, 0), (1, 1)],  # type: ignore
+                points=[(0, 0), (1, 0), (1, 1)],  # pyright: ignore[reportCallIssue]
                 height=4,
                 width="4",
             )
         with pytest.raises(ValueError, match="2D points"):
             SegmentationAnnotation(
-                points=[(0, 0, 0), (1, 0, 4)],  # type: ignore
+                points=[(0, 0, 0), (1, 0, 4)],  # pyright: ignore[reportCallIssue]
                 height=4,
                 width=4,
             )
@@ -314,7 +314,7 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
     with subtests.test("rle_ints"):
         seg = SegmentationAnnotation(
             # counts are computed using FORTRAN order
-            counts=[1, 1, 2, 2, 5, 1, 3, 1],  # type: ignore
+            counts=[1, 1, 2, 2, 5, 1, 3, 1],  # pyright: ignore[reportArgumentType]
             height=4,
             width=4,
         )
@@ -325,9 +325,9 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
 
         with pytest.raises(ValueError, match="must be integers"):
             SegmentationAnnotation(
-                counts=[1, 1, 2, 2, 5, 1, 3],  # type: ignore
+                counts=[1, 1, 2, 2, 5, 1, 3],  # pyright: ignore[reportArgumentType]
                 height=4,
-                width="4",  # type: ignore
+                width="4",  # pyright: ignore[reportArgumentType]
             )
 
     with subtests.test("numpy_simple"):
@@ -349,7 +349,7 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
         )
 
         annotations = [
-            SegmentationAnnotation(mask=masks[i])  # type: ignore
+            SegmentationAnnotation(mask=masks[i])  # pyright: ignore[reportCallIssue]
             for i in range(len(masks))
         ]
 
@@ -377,7 +377,7 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
         )
 
         annotations = [
-            SegmentationAnnotation(mask=masks[i])  # type: ignore
+            SegmentationAnnotation(mask=masks[i])  # pyright: ignore[reportCallIssue]
             for i in range(len(masks))
         ]
 
@@ -423,7 +423,7 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
         )
 
         annotations = [
-            InstanceSegmentationAnnotation(mask=masks[i])  # type: ignore
+            InstanceSegmentationAnnotation(mask=masks[i])  # pyright: ignore[reportCallIssue]
             for i in range(len(masks))
         ]
 
@@ -435,33 +435,33 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
     with subtests.test("invalid"):
         with pytest.raises(ValueError, match="Extra inputs"):
             SegmentationAnnotation(
-                mask=mask,  # type: ignore
-                points=[(1, 0), (2, 1)],  # type: ignore
+                mask=mask,  # pyright: ignore[reportCallIssue]
+                points=[(1, 0), (2, 1)],  # pyright: ignore[reportCallIssue]
             )
 
         with pytest.raises(ValueError, match="Unsupported mask format"):
-            SegmentationAnnotation(mask="file.jpeg")  # type: ignore
+            SegmentationAnnotation(mask="file.jpeg")  # pyright: ignore[reportCallIssue]
 
         with pytest.raises(ValueError, match="Failed to load mask from image"):
-            SegmentationAnnotation(mask="file.png")  # type: ignore
+            SegmentationAnnotation(mask="file.png")  # pyright: ignore[reportCallIssue]
 
         with pytest.raises(TypeError, match="Mask must be either"):
-            SegmentationAnnotation(mask=[1, 2, 3])  # type: ignore
+            SegmentationAnnotation(mask=[1, 2, 3])  # pyright: ignore[reportCallIssue]
 
         np.save(tempdir / "mask.npy", mask[None, None, ...])
         with pytest.raises(ValueError, match="Mask must be a 2D binary array"):
-            SegmentationAnnotation(mask=tempdir / "mask.npy")  # type: ignore
+            SegmentationAnnotation(mask=tempdir / "mask.npy")  # pyright: ignore[reportCallIssue]
 
         with pytest.raises(ValueError, match="at least 3 points"):
             SegmentationAnnotation(
-                points=[(1, 0), (0, 1)],  # type: ignore
+                points=[(1, 0), (0, 1)],  # pyright: ignore[reportCallIssue]
                 height=4,
                 width=4,
             )
 
         with pytest.raises(ValueError, match="outside of automatic clipping"):
             SegmentationAnnotation(
-                points=[  # type: ignore
+                points=[  # pyright: ignore[reportCallIssue]
                     (-2.1, 0),
                     (1.1, 0),
                     (1, 1.5),
@@ -472,13 +472,13 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
             )
 
         with pytest.raises(ValueError, match="Field required"):
-            SegmentationAnnotation(width=4)  # type: ignore
+            SegmentationAnnotation(width=4)  # pyright: ignore[reportCallIssue]
 
         with pytest.raises(
             ValueError, match="RLE counts must be a list of positive integers"
         ):
             SegmentationAnnotation(
-                counts=[-1, 1, 2, 2],  # type: ignore
+                counts=[-1, 1, 2, 2],  # pyright: ignore[reportArgumentType]
                 height=4,
                 width=4,
             )
@@ -619,7 +619,7 @@ def test_record(tempdir: Path):
     filename = str((tempdir / "image.jpg").resolve())
     cv2.imwrite(filename, np.zeros((256, 256, 3), dtype=np.uint8))
     record = DatasetRecord(
-        file=filename,  # type: ignore
+        file=filename,  # pyright: ignore[reportCallIssue]
         annotation=detection,
         task_name="test",
     )

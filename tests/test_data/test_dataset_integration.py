@@ -169,7 +169,7 @@ def _mosaic_records(
     """Tile four vehicles into one image and yield its records."""
     images: list[MatLike] = [
         cv2.imread(str(item["filepath"])) for item in batch
-    ]  # type: ignore
+    ]  # pyright: ignore[reportAssignmentType]
     assert all(img is not None for img in images)
     H_img, W_img, C = images[0].shape
     combined_image = np.empty((2 * H_img, 2 * W_img, C), dtype=images[0].dtype)

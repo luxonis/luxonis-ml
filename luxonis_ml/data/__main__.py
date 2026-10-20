@@ -838,7 +838,7 @@ def _plot_task_health(
             axs[i][1],
             fig,
             task_type,
-            heatmaps_by_type.get(task_type),  # type: ignore
+            heatmaps_by_type.get(task_type),  # pyright: ignore[reportArgumentType]
         )
 
     plt.tight_layout()

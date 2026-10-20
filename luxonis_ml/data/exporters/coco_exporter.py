@@ -300,8 +300,8 @@ class CocoExporter(BaseExporter):
                 "size": [H, W],
                 "counts": counts.encode("utf-8"),
             }
-            area = float(maskUtils.area(rle_runtime))  # type: ignore[arg-type]
-            bbox = maskUtils.toBbox(rle_runtime).tolist()  # type: ignore[arg-type]
+            area = float(maskUtils.area(rle_runtime))  # pyright: ignore[reportArgumentType]
+            bbox = maskUtils.toBbox(rle_runtime).tolist()  # pyright: ignore[reportArgumentType]
             ann["area"] = area
             if not ann.get("bbox"):
                 ann["bbox"] = bbox

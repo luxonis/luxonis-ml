@@ -354,7 +354,7 @@ class BaseParser(ABC):
                 if is_counts:
                     sampled = self._apply_counts_to_pool(
                         added_images,
-                        split_ratios,  # type: ignore[arg-type]
+                        split_ratios,  # pyright: ignore[reportArgumentType]
                     )
                     self._dataset.make_splits(sampled)
                     self._remove_unsplit_records()
@@ -473,7 +473,7 @@ class BaseParser(ABC):
     def _remove_unsplit_records(self) -> None:
         """Remove records that are not assigned to any split."""
         # Cast to LuxonisDataset to access internal methods
-        dataset: LuxonisDataset = self._dataset  # type: ignore[assignment]
+        dataset: LuxonisDataset = self._dataset  # pyright: ignore[reportAssignmentType]
 
         splits = dataset.get_splits()
         if splits is None:

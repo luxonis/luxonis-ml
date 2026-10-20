@@ -140,7 +140,7 @@ def test_resolve_splits_reads_every_spelling_of_one_the_same_way():
 
 def test_resolve_splits_rejects_a_mapping_that_is_neither():
     with pytest.raises(TypeError, match="ratios or filepath lists"):
-        _resolve_splits({"train": 0.5, "val": ["a.jpg"]})  # type: ignore
+        _resolve_splits({"train": 0.5, "val": ["a.jpg"]})  # pyright: ignore[reportArgumentType]
 
 
 @pytest.mark.parametrize(
@@ -364,7 +364,7 @@ def test_definitions_reject_a_non_filepath(
         dataset.make_splits(
             {
                 "train": paths[:2],
-                "val": [paths[2], 1],  # type: ignore
+                "val": [paths[2], 1],  # pyright: ignore[reportArgumentType]
                 "test": paths[3:],
             }
         )

@@ -60,7 +60,7 @@ def plot_class_distribution(
         axis="x", rotation=90 if num_classes > 5 else 45, labelsize=8
     )
     for tick in ax.get_xticklabels():
-        tick.set_ha("center")  # type: ignore
+        tick.set_ha("center")  # pyright: ignore[reportAttributeAccessIssue]
     ax.margins(x=0.01)
 
     _annotate_bars(ax, bars)

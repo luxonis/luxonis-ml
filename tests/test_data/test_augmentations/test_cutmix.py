@@ -613,7 +613,7 @@ def test_invalid_alpha(alpha: float) -> None:
 
 def test_invalid_occluded_bbox_strategy() -> None:
     with pytest.raises(ValueError, match="'keep' or 'clip'"):
-        CutMix(occluded_bbox_strategy="crop")  # type: ignore[arg-type]
+        CutMix(occluded_bbox_strategy="crop")  # pyright: ignore[reportArgumentType]
 
 
 def test_invalid_bbox_min_visibility() -> None:

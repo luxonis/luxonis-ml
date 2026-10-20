@@ -118,7 +118,7 @@ def resolve_color(color: Color) -> RGB:
             raise ValueError(f"Color value {val} is out of range [0, 255]")
 
     if isinstance(color, str):
-        return matplotlib.colors.to_rgb(color)  # type: ignore
+        return matplotlib.colors.to_rgb(color)  # pyright: ignore[reportReturnType]
     if isinstance(color, int):
         _check_range(color)
         return color, color, color

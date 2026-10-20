@@ -192,7 +192,7 @@ class LuxonisParser(Generic[T]):
         dataset_name = dataset_name or name.replace(" ", "_").split(".")[0]
 
         self._dataset = self._dataset_constructor(
-            dataset_name=dataset_name,  # type: ignore
+            dataset_name=dataset_name,  # pyright: ignore[reportCallIssue]
             **kwargs,
         )
         self._parser = self._parsers[self._dataset_type](

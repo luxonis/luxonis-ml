@@ -77,7 +77,7 @@ def test_yolov4_parser_keeps_unlabeled_image_with_duplicate_basename(
     classes_path.write_text("class0\n", encoding="utf-8")
 
     generator, _, _ = YoloV4Parser(
-        dataset=None,  # type: ignore[arg-type]
+        dataset=None,  # pyright: ignore[reportArgumentType]
         dataset_type=DatasetType.YOLOV4,
         task_name=None,
     ).from_split(

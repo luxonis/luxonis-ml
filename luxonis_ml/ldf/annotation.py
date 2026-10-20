@@ -1039,12 +1039,11 @@ class SegmentationAnnotation(Annotation):
                         "RLE counts must be a list of positive integers"
                     )
 
+            # The pycocotools stubs know only the compressed RLE, with
+            # string counts, but frPyObjects also takes the list form.
+            uncompressed = {"counts": counts, "size": [height, width]}
             with warnings.catch_warnings(record=True):
-                rle = pycocotools.mask.frPyObjects(
-                    {"counts": counts, "size": [height, width]},  # type: ignore
-                    height,
-                    width,
-                )
+                rle = pycocotools.mask.frPyObjects(uncompressed, height, width)  # pyright: ignore[reportCallIssue, reportArgumentType]
             values["counts"] = rle["counts"]
             values["height"] = rle["size"][0]
             values["width"] = rle["size"][1]
@@ -1060,7 +1059,7 @@ class SegmentationAnnotation(Annotation):
         return {
             "height": rle["size"][0],
             "width": rle["size"][1],
-            "counts": rle["counts"].decode("utf-8"),  # type: ignore
+            "counts": rle["counts"].decode("utf-8"),  # pyright: ignore[reportAttributeAccessIssue]
         }
 
     @model_validator(mode="before")

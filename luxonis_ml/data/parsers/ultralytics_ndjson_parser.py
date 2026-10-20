@@ -237,7 +237,7 @@ class UltralyticsNDJSONParser(BaseParser):
         elif is_counts:
             sampled = self._apply_counts_to_splits(
                 split_definitions,
-                split_ratios,  # type: ignore[arg-type]
+                split_ratios,  # pyright: ignore[reportArgumentType]
             )
             self._dataset.make_splits(sampled)
             self._remove_unsplit_records()

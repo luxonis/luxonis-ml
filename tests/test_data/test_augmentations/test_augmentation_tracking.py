@@ -57,10 +57,10 @@ class PickSecond(BatchTransform):
     def apply(self, image_batch: list[np.ndarray], **_: Any) -> np.ndarray:
         return image_batch[1]
 
-    apply_to_mask = apply  # type: ignore[assignment]
-    apply_to_bboxes = apply  # type: ignore[assignment]
-    apply_to_keypoints = apply  # type: ignore[assignment]
-    apply_to_instance_mask = apply  # type: ignore[assignment]
+    apply_to_mask = apply  # pyright: ignore[reportAssignmentType]
+    apply_to_bboxes = apply  # pyright: ignore[reportAssignmentType]
+    apply_to_keypoints = apply  # pyright: ignore[reportAssignmentType]
+    apply_to_instance_mask = apply  # pyright: ignore[reportAssignmentType]
 
 
 class MergeEverySecondSubBatch(BatchTransform):
@@ -79,10 +79,10 @@ class MergeEverySecondSubBatch(BatchTransform):
     def apply(self, image_batch: list[np.ndarray], **_: Any) -> np.ndarray:
         return image_batch[1]
 
-    apply_to_mask = apply  # type: ignore[assignment]
-    apply_to_bboxes = apply  # type: ignore[assignment]
-    apply_to_keypoints = apply  # type: ignore[assignment]
-    apply_to_instance_mask = apply  # type: ignore[assignment]
+    apply_to_mask = apply  # pyright: ignore[reportAssignmentType]
+    apply_to_bboxes = apply  # pyright: ignore[reportAssignmentType]
+    apply_to_keypoints = apply  # pyright: ignore[reportAssignmentType]
+    apply_to_instance_mask = apply  # pyright: ignore[reportAssignmentType]
 
 
 class CountedMerge(BatchTransform):
@@ -101,10 +101,10 @@ class CountedMerge(BatchTransform):
     def apply(self, image_batch: list[np.ndarray], **_: Any) -> np.ndarray:
         return image_batch[0]
 
-    apply_to_mask = apply  # type: ignore[assignment]
-    apply_to_bboxes = apply  # type: ignore[assignment]
-    apply_to_keypoints = apply  # type: ignore[assignment]
-    apply_to_instance_mask = apply  # type: ignore[assignment]
+    apply_to_mask = apply  # pyright: ignore[reportAssignmentType]
+    apply_to_bboxes = apply  # pyright: ignore[reportAssignmentType]
+    apply_to_keypoints = apply  # pyright: ignore[reportAssignmentType]
+    apply_to_instance_mask = apply  # pyright: ignore[reportAssignmentType]
 
 
 def _image_batch(count: int) -> list[dict[str, np.ndarray]]:
@@ -298,7 +298,7 @@ def test_reports_a_parameter_sampled_under_a_static_name():
     engine.apply(_make_sample())
 
     params = engine.applied_augmentations["CropAndPad"]
-    assert 0 <= params["fill"] <= 255  # type: ignore[operator]
+    assert 0 <= params["fill"] <= 255  # pyright: ignore[reportOperatorIssue]
     # Configured as a constant, and so still nothing to report.
     assert "fill_mask" not in params
 
@@ -323,8 +323,8 @@ def test_reports_randomly_derived_crop_bounds():
 
     params = engine.applied_augmentations["Rotate"]
     assert {"x_min", "x_max", "y_min", "y_max"} <= set(params)
-    assert params["x_min"] < params["x_max"]  # type: ignore[operator]
-    assert params["y_min"] < params["y_max"]  # type: ignore[operator]
+    assert params["x_min"] < params["x_max"]  # pyright: ignore[reportOperatorIssue]
+    assert params["y_min"] < params["y_max"]  # pyright: ignore[reportOperatorIssue]
 
 
 def test_omits_nested_arrays_and_known_non_random_parameters():
@@ -394,7 +394,7 @@ def test_tracks_applied_batch_augmentations():
     engine.apply(_make_sample() * 2)
 
     params = engine.applied_augmentations["MixUp"]
-    assert 0.3 <= params["alpha"] <= 0.7  # type: ignore[operator]
+    assert 0.3 <= params["alpha"] <= 0.7  # pyright: ignore[reportOperatorIssue]
     assert set(params) == {"alpha"}
 
 
@@ -692,9 +692,9 @@ def test_tracks_cutmix_runtime_parameters():
 
     params = engine.applied_augmentations["CutMix"]
     assert set(params) == {"lambda_value", "x1", "y1", "x2", "y2"}
-    assert 0.0 <= params["lambda_value"] <= 1.0  # type: ignore[operator]
-    assert 0 <= params["x1"] <= params["x2"] <= 64  # type: ignore[operator]
-    assert 0 <= params["y1"] <= params["y2"] <= 64  # type: ignore[operator]
+    assert 0.0 <= params["lambda_value"] <= 1.0  # pyright: ignore[reportOperatorIssue]
+    assert 0 <= params["x1"] <= params["x2"] <= 64  # pyright: ignore[reportOperatorIssue]
+    assert 0 <= params["y1"] <= params["y2"] <= 64  # pyright: ignore[reportOperatorIssue]
     # The patch is what the loader reports, so it has to survive the trip
     # through the sample metadata unchanged.
     assert json.loads(json.dumps(params)) == params

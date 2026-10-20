@@ -122,7 +122,7 @@ class ParquetFileManager:
         """
 
         if "sample_metadata" not in data:
-            data = {**data, "sample_metadata": DEFAULT_METADATA}  # type: ignore
+            data = {**data, "sample_metadata": DEFAULT_METADATA}  # pyright: ignore[reportUnreachable]
 
         if not self.buffer:
             self._initialize_data(data)

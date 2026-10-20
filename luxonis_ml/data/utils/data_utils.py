@@ -510,7 +510,7 @@ def _annotation_points(
         "counts": annotation["counts"],
         "size": [annotation["height"], annotation["width"]],
     }
-    mask = mask_utils.decode(rle)  # type: ignore
+    mask = mask_utils.decode(rle)  # pyright: ignore[reportArgumentType]
     if downsample_factor > 1:
         mask = mask[::downsample_factor, ::downsample_factor]
     rows_idx, cols_idx = np.where(mask)

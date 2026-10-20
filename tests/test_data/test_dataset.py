@@ -189,7 +189,7 @@ def test_loader_iterator(storage_url: str, tempdir: Path):
     def _raise(*_) -> NoReturn:
         raise IndexError
 
-    loader._load_data = _raise  # type: ignore
+    loader._load_data = _raise  # pyright: ignore[reportAttributeAccessIssue]
     with pytest.raises(IndexError):
         _ = loader[0]
 
@@ -1048,7 +1048,7 @@ def test_dataset_push_pull(
             key=lambda item: cast(int, item["record_id"]),
         )
         assert [item["record_id"] for item in metadata] == [0, 1, 2]
-        assert {item["origin"] for item in metadata} == {"push-pull"}  # type: ignore
+        assert {item["origin"] for item in metadata} == {"push-pull"}  # pyright: ignore[reportUnhashable]
 
     original_dataset = create_dataset(
         dataset_name,
@@ -1136,8 +1136,8 @@ def test_dataset_push_pull(
 
         loader = LuxonisLoader(cloud_dataset)
         metadata = sorted(
-            (data.metadata for data in loader),  # type: ignore
-            key=lambda item: item["record_id"],  # type: ignore
+            (data.metadata for data in loader),  # pyright: ignore[reportCallIssue]
+            key=lambda item: item["record_id"],  # pyright: ignore[reportArgumentType]
         )
         assert [item["record_id"] for item in metadata] == [0, 1, 2]
         assert {item["origin"] for item in metadata} == {"push-pull"}

@@ -166,7 +166,7 @@ class BatchCompose(A.Compose):
         first_sample = {key: value[0] for key, value in batch.items()}
         self._pad_absent_instances(batch, keypoints_per_instance)
 
-        data = transform(**batch)  # type: ignore
+        data = transform(**batch)  # pyright: ignore[reportArgumentType]
 
         # A transform that applied collapsed the batched lists
         # `yield_batches` produced into single values. Empty

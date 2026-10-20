@@ -325,7 +325,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 data_dict.pop("uuid", None)
                 data_dict.pop("group_id", None)
 
-                pfm.write(uuid_val, data_dict, group_id_val)  # type: ignore
+                pfm.write(uuid_val, data_dict, group_id_val)  # pyright: ignore[reportArgumentType]
 
         logger.info(
             f"Saved DataFrame to Parquet files in '{annotations_path}'."

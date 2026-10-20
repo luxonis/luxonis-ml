@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import cast
 
 import polars as pl
 import pytest
@@ -142,10 +143,12 @@ def test_native_export_import_preserves_record_metadata(
 
     metadata = sorted(
         (data.metadata for data in LuxonisLoader(imported_dataset)),
-        key=lambda item: item["record_id"],  # type: ignore
+        key=lambda item: cast(int, item["record_id"]),
     )
     assert [item["record_id"] for item in metadata] == [0, 1]
-    assert {item["origin"] for item in metadata} == {"native-roundtrip"}
+    assert {cast(str, item["origin"]) for item in metadata} == {
+        "native-roundtrip"
+    }
 
 
 @pytest.mark.parametrize("url", ["COCO_people_subset.zip"])

@@ -38,7 +38,7 @@ class PutFile(Protocol):
     ) -> str: ...
 
 
-PUT_FILE_REGISTRY: Final[Registry[PutFile]] = Registry(  # type: ignore
+PUT_FILE_REGISTRY: Final[Registry[PutFile]] = Registry(  # pyright: ignore[reportInvalidTypeArguments]
     name="put_file",
 )
 
@@ -539,7 +539,7 @@ class LuxonisFileSystem:
         elif self.is_fsspec:
             full_path = str(self._path / remote_path)
             with self._fs.open(full_path, "wb") as file:
-                file.write(file_bytes)  # type: ignore
+                file.write(file_bytes)  # pyright: ignore[reportArgumentType]
 
     def get_file(
         self,

@@ -354,7 +354,7 @@ class TestCoco2017Keypoints:
         parser = LuxonisParser(
             str(dataset_dir),
             dataset_name=dataset_name,
-            dataset_type="coco",  # type: ignore[arg-type]
+            dataset_type="coco",  # pyright: ignore[reportArgumentType]
             delete_local=True,
         )
         dataset = parser.parse(use_keypoint_ann=True)

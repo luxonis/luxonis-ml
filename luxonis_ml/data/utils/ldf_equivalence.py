@@ -363,7 +363,7 @@ class LDFEquivalence:
                             "counts": d["counts"].encode("utf-8"),
                             "size": [d["height"], d["width"]],
                         }
-                        mask = mask_utils.decode(rle).astype(bool)  # type: ignore
+                        mask = mask_utils.decode(rle).astype(bool)  # pyright: ignore[reportArgumentType]
                         masks.append(mask)
 
             if masks:
@@ -443,7 +443,7 @@ class LDFEquivalence:
                             "counts": d["counts"].encode("utf-8"),
                             "size": [d["height"], d["width"]],
                         }
-                        mask = mask_utils.decode(rle).astype(bool)  # type: ignore
+                        mask = mask_utils.decode(rle).astype(bool)  # pyright: ignore[reportArgumentType]
                         out.setdefault((img_hash, class_name), []).append(mask)
 
         return out
