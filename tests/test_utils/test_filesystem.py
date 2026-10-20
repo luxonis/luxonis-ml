@@ -337,7 +337,6 @@ def test_mlflow_attributes_are_public(tempdir: Path):
     ``__init__``, so the accessors have to be safe (``None``) for every
     other protocol instead of raising.
     """
-
     fs = LuxonisFileSystem(
         "mlflow://experiment/run/nested/config.yaml",
         tracking_uri="http://127.0.0.1:1",

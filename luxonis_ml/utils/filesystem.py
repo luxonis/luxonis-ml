@@ -812,7 +812,6 @@ class LuxonisFileSystem:
                 2.  If using MLflow but the run cannot be resolved.
 
         """
-
         if self.is_mlflow:
             artifact_path = self._get_mlflow_artifact_path(remote_path)
             if artifact_path is None:
@@ -863,7 +862,6 @@ class LuxonisFileSystem:
             whole file in memory before hashing begins.
 
         """
-
         if local:
             with open(path, "rb") as file:
                 return _uuid_from_stream(file)
@@ -893,7 +891,6 @@ class LuxonisFileSystem:
             ``get_file_uuid`` applies once per thread in the pool.
 
         """
-
         result = {}
 
         with ThreadPoolExecutor() as executor:
@@ -1303,7 +1300,6 @@ class LuxonisFileSystem:
                 because it does not exist.
 
         """
-
         if self.is_mlflow:
             artifact_path = self._get_mlflow_artifact_path(remote_path)
             if artifact_path is None:
@@ -1430,7 +1426,6 @@ class LuxonisFileSystem:
             the nested path is returned.
 
         """
-
         if LuxonisFileSystem.get_protocol(url) == "file":
             return Path(url)
 
@@ -1463,7 +1458,6 @@ class LuxonisFileSystem:
             tracking_uri: MLflow tracking URI to use for ``mlflow://`` URLs.
 
         """
-
         absolute_path, remote_path = LuxonisFileSystem.split_full_path(url)
         fs = LuxonisFileSystem(absolute_path, tracking_uri=tracking_uri)
         if Path(local_path).is_dir():
@@ -1519,7 +1513,6 @@ def _get_protocol_and_path(path: str) -> tuple[str, str | None]:
         The path is ``None`` when no path is present.
 
     """
-
     if "://" in path:
         protocol, path = path.split("://", 1)
         if protocol == "gs":

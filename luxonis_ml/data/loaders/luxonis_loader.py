@@ -187,7 +187,6 @@ class LuxonisLoader(BaseLoader):
                 )
 
         """
-
         self.dataset = dataset
 
         if self.dataset.is_remote:

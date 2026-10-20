@@ -120,7 +120,6 @@ class ParquetFileManager:
             group_id: Unique identifier for the sample group.
 
         """
-
         if "sample_metadata" not in data:
             data = {**data, "sample_metadata": DEFAULT_METADATA}  # pyright: ignore[reportUnreachable]
 

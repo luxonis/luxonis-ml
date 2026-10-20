@@ -56,7 +56,6 @@ def inspect(
         buildinfo: Print build info if available.
 
     """
-
     if not any([inputs, metadata, outputs, heads, buildinfo]):
         inputs = metadata = outputs = heads = True
 
@@ -115,7 +114,6 @@ def extract(
             working directory.
 
     """
-
     destination = destination or Path.cwd()
     extract_path = destination / path.name.split(".")[0]
     extract_path.mkdir(exist_ok=True, parents=True)

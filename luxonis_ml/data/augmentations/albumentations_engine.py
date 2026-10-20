@@ -1216,7 +1216,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 provided.
 
         """
-
         if is_pixel:
             return partial(_apply_pixel_transform, transform, source_names)
         return partial(_apply_compose, transform)

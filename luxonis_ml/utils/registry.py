@@ -172,7 +172,6 @@ class Registry(Generic[T]):
                 already exists and ``force`` is ``False``.
 
         """
-
         if module is not None:
             return self._register(module=module, module_name=name, force=force)
 

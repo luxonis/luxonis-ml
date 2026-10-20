@@ -670,7 +670,6 @@ class LuxonisTracker:
 
     def _get_next_run_number(self) -> int:
         """Return the number ID for the next run."""
-
         log_dirs = [
             path.name
             for path in self.save_directory.iterdir()

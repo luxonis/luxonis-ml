@@ -622,7 +622,6 @@ def visualize(
         The visualized image.
 
     """
-
     drawer = _LabelDrawer(image, source_name, classes, blend_all=blend_all)
     metadata_mappings = {
         task: bidict(encoding)

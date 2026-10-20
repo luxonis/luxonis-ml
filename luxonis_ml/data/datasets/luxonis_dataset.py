@@ -127,7 +127,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 bucket storage.
 
         """
-
         self._dataset_name = dataset_name
         self._base_path = environ.LUXONISML_BASE_PATH
         self._base_path.mkdir(exist_ok=True)

@@ -79,7 +79,6 @@ class ArchiveGenerator:
             Path to the generated archive.
 
         """
-
         # create an in-memory file-like config object
         json_data, json_buffer = self._make_json()
 
@@ -104,7 +103,6 @@ class ArchiveGenerator:
             Encoded JSON data and a file-like buffer containing it.
 
         """
-
         # read-in config data as dict
         data = json.loads(self.cfg.model_dump_json())
 
