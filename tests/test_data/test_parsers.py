@@ -523,7 +523,7 @@ class _WarningParser(BaseParser):
         *,
         reason: str = "dummy skipped annotation",
         full_warnings: bool = False,
-    ):
+    ) -> None:
         super().__init__(
             cast(BaseDataset, _DummyDataset()),
             DatasetType.COCO,
@@ -1037,7 +1037,7 @@ class _FailedExportResponse:
     status_code = 403
     reason = "Forbidden"
 
-    def __init__(self, text: str):
+    def __init__(self, text: str) -> None:
         self.text = text
 
     def json(self) -> Any:

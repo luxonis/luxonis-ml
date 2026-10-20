@@ -43,7 +43,7 @@ class CocoExporter(BaseExporter):
         coco_format: COCOFormat = COCOFormat.ROBOFLOW,
         *,
         skeletons: dict[str, Any] | None = None,
-    ):
+    ) -> None:
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )

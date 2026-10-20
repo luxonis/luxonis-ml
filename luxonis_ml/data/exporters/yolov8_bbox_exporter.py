@@ -30,7 +30,7 @@ class YoloV8Exporter(BaseExporter):
         dataset_identifier: str,
         output_path: Path,
         max_partition_size_gb: float | None,
-    ):
+    ) -> None:
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )

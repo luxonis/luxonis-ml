@@ -34,7 +34,7 @@ class MixUp(BatchTransform):
         alpha: float | tuple[float, float] = 0.5,
         keep_aspect_ratio: bool = True,
         p: float = 0.5,
-    ):
+    ) -> None:
         r"""Create a MixUp augmentation.
 
         Args:

@@ -48,7 +48,7 @@ class BaseParser(ABC):
         dataset_type: DatasetType,
         task_name: str | dict[str, str] | None,
         full_warnings: bool = False,
-    ):
+    ) -> None:
         """Create a parser for a target dataset.
 
         Args:

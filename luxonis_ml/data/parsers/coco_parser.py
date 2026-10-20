@@ -497,7 +497,7 @@ class _InstanceIds:
     annotation got.
     """
 
-    def __init__(self, annotations: list[dict[str, Any]]):
+    def __init__(self, annotations: list[dict[str, Any]]) -> None:
         self._taken = {ann["id"] for ann in annotations if "id" in ann}
         self._next = 0
 

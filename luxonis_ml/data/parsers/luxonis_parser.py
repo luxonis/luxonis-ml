@@ -106,7 +106,7 @@ class LuxonisParser(Generic[T]):
         task_name: str | dict[str, str] | None = None,
         full_warnings: bool = False,
         **kwargs,
-    ):
+    ) -> None:
         """High-level abstraction over various parsers.
 
         Automatically recognizes the dataset format and uses the

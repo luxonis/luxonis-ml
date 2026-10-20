@@ -37,7 +37,7 @@ class ArchiveGenerator:
         cfg_dict: dict,
         executables_paths: list[PathType],
         compression: Literal["xz", "gz", "bz2"] = "xz",
-    ):
+    ) -> None:
         """Create a generator for an NN Archive.
 
         Args:

@@ -34,7 +34,7 @@ class BatchCompose(A.Compose):
         *,
         bbox_associations: dict[str, dict[str, str]] | None = None,
         **kwargs,
-    ):
+    ) -> None:
         """Compose batch transforms.
 
         Args:

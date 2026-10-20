@@ -140,7 +140,7 @@ class LuxonisFileSystem:
         cache_storage: str | None = None,
         put_file_plugin: str | None = None,
         tracking_uri: str | None = None,
-    ):
+    ) -> None:
         """Initialize the ``LuxonisFileSystem``.
 
         Args:

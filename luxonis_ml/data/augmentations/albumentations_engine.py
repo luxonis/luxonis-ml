@@ -408,7 +408,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         min_bbox_visibility: float = 0.0,
         seed: int | None = None,
         bbox_area_threshold: float = 0.0004,
-    ):
+    ) -> None:
         """Create an Albumentations-backed augmentation pipeline.
 
         Args:

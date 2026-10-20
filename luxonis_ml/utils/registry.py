@@ -16,7 +16,7 @@ class Registry(Generic[T]):
     their string names.
     """
 
-    def __init__(self, name: str):
+    def __init__(self, name: str) -> None:
         """Create a new empty registry.
 
         Args:
@@ -233,7 +233,7 @@ class AutoRegisterMeta(ABCMeta):
         bases: tuple[type, ...],
         attrs: dict[str, type],
         **_kwargs: Any,
-    ):
+    ) -> "AutoRegisterMeta":
         """Create the class and keep the registry keywords from type."""
         return super().__new__(cls, name, bases, attrs)
 
