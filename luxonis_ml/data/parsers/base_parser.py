@@ -1,3 +1,5 @@
+"""Base class and shared steps of the dataset parsers."""
+
 import inspect
 import random
 from abc import ABC, abstractmethod
@@ -19,6 +21,18 @@ if TYPE_CHECKING:
     from luxonis_ml.data import LuxonisDataset
 
 ParserOutput = tuple[DatasetIterator, dict[str, dict], list[Path]]
+
+
+def yolo_box_to_ldf(
+    x_center: Any, y_center: Any, width: Any, height: Any
+) -> dict[str, float]:
+    """Convert a normalized YOLO center box to an LDF corner box."""
+    return {
+        "x": float(x_center) - float(width) / 2,
+        "y": float(y_center) - float(height) / 2,
+        "w": float(width),
+        "h": float(height),
+    }
 
 
 class BaseParser(ABC):
@@ -44,14 +58,16 @@ class BaseParser(ABC):
                 records. A mapping uses class names as keys and task names
                 as values.
             full_warnings: Whether to log every skipped-annotation warning.
-                When ``False``, only the first 50 warnings are logged and the
+                When ``False``, only the first 10 warnings are logged and the
                 rest are summarized.
 
         """
         self._dataset = dataset
         self._dataset_type = dataset_type
+        self._default_task_name: str | None = None
         if isinstance(task_name, str):
             self._task_name = defaultdict(lambda: task_name)
+            self._default_task_name = task_name
         else:
             self._task_name = task_name
         self._parser_issue_messages: list[ParserIssueMessage] = []
@@ -139,8 +155,15 @@ class BaseParser(ABC):
     def discover_dir_splits(
         cls, dataset_dir: Path
     ) -> dict[str, dict[str, Any]]:
-        """Return present and valid split directories keyed by their
-        canonical split names.
+        """Return the present and valid split directories.
+
+        Args:
+            dataset_dir: Source dataset directory.
+
+        Returns:
+            The keyword arguments for ``from_split``, keyed by canonical
+            split name.
+
         """
         discovered: dict[str, dict[str, Any]] = {}
         for split_name in cls._SPLIT_NAMES:
@@ -352,8 +375,8 @@ class BaseParser(ABC):
             Dataset with parsed images and annotations.
 
         Raises:
-            ValueError: If a parser that expects top-level splits cannot
-                find a ``train`` directory.
+            ValueError: If no split directory has the expected format, or
+                if no split holds a sample.
 
         """
         self._reset_parser_issue_messages()
@@ -642,23 +665,33 @@ class BaseParser(ABC):
             if isinstance(item, dict):
                 item = DatasetRecord(**item)
 
-            if self._task_name is not None:
-                if item.annotation is None:
-                    for task_name in set(self._task_name.values()):
-                        yield item.model_copy(
-                            update={"task_name": task_name}, deep=True
-                        )
-                else:
-                    class_name = item.annotation.class_name
-                    if class_name is not None:
-                        try:
-                            task_name = self._task_name[class_name]
-                        except KeyError:
-                            raise ValueError(
-                                f"Class '{class_name}' not found in task names."
-                            ) from None
-
-                        item.task_name = task_name
-                    yield item
-            else:
+            if self._task_name is None:
                 yield item
+            elif item.annotation is None:
+                # A record without labels belongs to every task.
+                task_names = (
+                    {self._default_task_name}
+                    if self._default_task_name is not None
+                    else set(self._task_name.values())
+                )
+                for task_name in task_names:
+                    yield item.model_copy(
+                        update={"task_name": task_name}, deep=True
+                    )
+            else:
+                self._assign_task_name(item)
+                yield item
+
+    def _assign_task_name(self, item: DatasetRecord) -> None:
+        """Set the task name that the class of a record maps to."""
+        assert self._task_name is not None
+        assert item.annotation is not None
+        class_name = item.annotation.class_name
+        if class_name is None:
+            return
+        try:
+            item.task_name = self._task_name[class_name]
+        except KeyError:
+            raise ValueError(
+                f"Class '{class_name}' not found in task names."
+            ) from None

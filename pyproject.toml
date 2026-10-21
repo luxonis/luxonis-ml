@@ -19,7 +19,7 @@ classifiers = [
 dependencies = [
   "PyYAML~=6.0",
   "cyclopts~=4.16",
-  "fsspec==2024.6.1",
+  "fsspec>=2026.1.0",
   "loguru~=0.7",
   "pydantic-extra-types~=2.10",
   "pydantic-settings~=2.1",
@@ -53,10 +53,10 @@ tracker = ["numpy~=2.2", "unique-names-generator~=1.0"]
 nn_archive = []
 utils = []
 
-gcs = ["gcsfs==2024.6.1"]
+gcs = ["gcsfs>=2026.1.0"]
 mlflow = ["mlflow~=3.1"]
 roboflow = ["roboflow~=1.4"]
-s3 = ["s3fs==2024.6.1"]
+s3 = ["s3fs>=2026.1.0"]
 
 all = [
   "luxonis-ml[data,gcs,ldf,mlflow,nn_archive,roboflow,s3,telemetry,tracker,utils]",
@@ -69,6 +69,7 @@ dev = [
   { include-group = "lint" },
   { include-group = "docs" },
   "luxonis-ml[all]",
+  "complexipy~=8.0",
   "hypothesis~=6.161",
   "onnx~=1.22",
   "pyright~=1.1",

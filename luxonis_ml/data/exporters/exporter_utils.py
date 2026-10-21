@@ -1,7 +1,10 @@
+"""Helpers shared by the dataset exporters."""
+
+import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 import cv2
 import numpy as np
@@ -12,6 +15,8 @@ from pycocotools import mask as maskUtils
 if TYPE_CHECKING:
     from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
     from luxonis_ml.data.exporters.base_exporter import BaseExporter
+
+BBox: TypeAlias = tuple[int, float, float, float, float]
 
 
 class PreparedLDF:
@@ -119,6 +124,15 @@ class ExporterSpec:
 
 
 def check_group_file_correspondence(prepared_ldf: PreparedLDF) -> None:
+    """Check that each group of a prepared dataset uses one file.
+
+    Args:
+        prepared_ldf: Prepared dataset.
+
+    Raises:
+        AssertionError: If a group uses more than one file.
+
+    """
     df = prepared_ldf.processed_df
     group_to_files = df.group_by("group_id").agg(
         pl.col("file").n_unique().alias("file_count")
@@ -134,6 +148,13 @@ def check_group_file_correspondence(prepared_ldf: PreparedLDF) -> None:
 def exporter_specific_annotation_warning(
     prepared_ldf: PreparedLDF, supported_ann_types: list[str]
 ) -> None:
+    """Warn about each task type that the exporter does not support.
+
+    Args:
+        prepared_ldf: Prepared dataset.
+        supported_ann_types: Task types that the exporter supports.
+
+    """
     df = prepared_ldf.processed_df
 
     present_task_types = (
@@ -153,6 +174,19 @@ def exporter_specific_annotation_warning(
 
 
 def split_of_group(prepared_ldf: PreparedLDF, group_id: Any) -> str:
+    """Return the split that holds a group.
+
+    Args:
+        prepared_ldf: Prepared dataset.
+        group_id: ID of the group.
+
+    Returns:
+        Name of the split.
+
+    Raises:
+        AssertionError: If no split holds the group.
+
+    """
     split = next(
         (s for s, ids in prepared_ldf.splits.items() if group_id in ids),
         None,
@@ -167,6 +201,20 @@ def create_zip_output(
     part: int | None,
     dataset_identifier: str,
 ) -> Path | list[Path]:
+    """Zip an export directory, or each of its partitions.
+
+    Args:
+        max_partition_size: Maximum partition size, or ``None`` if the
+            export has no partitions.
+        output_path: Directory that holds the export.
+        part: Index of the last partition, or ``None`` without partitions.
+        dataset_identifier: Name of the export directory.
+
+    Returns:
+        The path of the archive, or a list of paths when there are
+        several archives.
+
+    """
     archives: list[Path] = []
 
     if max_partition_size is not None and part is not None:
@@ -209,6 +257,15 @@ def get_single_skeleton(
 
 
 def decode_rle_with_pycoco(ann: dict[str, Any]) -> np.ndarray:
+    """Decode a COCO run-length encoding into a binary mask.
+
+    Args:
+        ann: Annotation with ``height``, ``width`` and ``counts`` keys.
+
+    Returns:
+        A ``uint8`` mask with the height and the width of the annotation.
+
+    """
     h = int(ann["height"])
     w = int(ann["width"])
     counts = ann["counts"]
@@ -223,34 +280,108 @@ def decode_rle_with_pycoco(ann: dict[str, Any]) -> np.ndarray:
 def annotation_to_polygons(
     ann: dict[str, Any], file_path: Path
 ) -> list[list[tuple[float, float]]]:
-    polygons: list[list[tuple[float, float]]] = []
+    """Convert a run-length encoded mask into normalized polygons.
+
+    Args:
+        ann: Annotation with ``height``, ``width`` and ``counts`` keys.
+        file_path: Path of the annotated image. The function does not
+            read it.
+
+    Returns:
+        One polygon for each outer contour with at least 3 points. An
+        annotation without ``counts``, or one that fails to decode, gives
+        no polygon.
+
+    Examples:
+        >>> from pathlib import Path
+        >>> annotation_to_polygons({"height": 4, "width": 4}, Path("a.png"))
+        []
+
+    """
+    if "counts" not in ann:
+        return []
 
     # COCO RLE -> decode to mask -> contours -> polygons
-    if "counts" in ann:
-        H = int(ann["height"])
-        W = int(ann["width"])
-        rle = {"size": [H, W], "counts": ann["counts"]}
-        try:
-            mask = maskUtils.decode(rle)  # type: ignore
-            if mask.ndim == 3:
-                mask = mask[:, :, 0]
-            mask = (mask > 0).astype(np.uint8)
+    H = int(ann["height"])
+    W = int(ann["width"])
+    rle = {"size": [H, W], "counts": ann["counts"]}
+    try:
+        mask = (maskUtils.decode(rle) > 0).astype(np.uint8)  # type: ignore
+        contours, _ = cv2.findContours(
+            mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        return [
+            [(float(x) / W, float(y) / H) for x, y in cnt.squeeze(1).tolist()]
+            for cnt in contours
+            if len(cnt) >= 3
+        ]
+    except Exception:
+        logger.warning("Failed to decode COCO RLE; skipping this instance.")
+        return []
 
-            contours, _ = cv2.findContours(
-                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-            )
-            for cnt in contours:
-                if len(cnt) < 3:
-                    continue
-                cnt = cnt.squeeze(1)
-                poly = [(float(x) / W, float(y) / H) for x, y in cnt.tolist()]
-                if len(poly) >= 3:
-                    polygons.append(poly)
-        except Exception:
-            logger.warning(
-                "Failed to decode COCO RLE; skipping this instance.",
-                RuntimeWarning,
-            )
-        return polygons
 
-    return polygons
+def whole_image_rows(df: pl.DataFrame, task_type: str) -> pl.DataFrame:
+    """Return the rows of a task type that describe the whole image.
+
+    Such a row has the instance ID -1.
+    """
+    return df.filter(
+        (pl.col("task_type") == task_type) & (pl.col("instance_id") == -1)
+    )
+
+
+def whole_image_classes(df: pl.DataFrame) -> list[str]:
+    """List the whole-image classification class names, in row order."""
+    classes = whole_image_rows(df, "classification")["class_name"].to_list()
+    return [str(cname) for cname in classes if cname]
+
+
+def register_class(
+    cname: str, class_to_id: dict[str, int], class_names: list[str]
+) -> int:
+    """Return the ID of a class; a new class gets the next free ID."""
+    if cname not in class_to_id:
+        class_to_id[cname] = len(class_to_id)
+        class_names.append(cname)
+    return class_to_id[cname]
+
+
+def yolo_bbox_label(
+    row: dict[str, Any], class_to_id: dict[str, int], class_names: list[str]
+) -> BBox | None:
+    """Return the class ID and the top-left ``x, y, w, h`` of a box row.
+
+    A row of another task type, without an annotation or without a
+    class gives ``None``. An unseen class is added to ``class_to_id``
+    and ``class_names``.
+
+    Examples:
+        >>> class_to_id, class_names = {}, []
+        >>> row = {
+        ...     "task_type": "boundingbox",
+        ...     "class_name": "car",
+        ...     "annotation": '{"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4}',
+        ... }
+        >>> yolo_bbox_label(row, class_to_id, class_names)
+        (0, 0.1, 0.2, 0.3, 0.4)
+        >>> yolo_bbox_label(
+        ...     {**row, "class_name": None}, class_to_id, class_names
+        ... )
+        >>> class_names
+        ['car']
+
+    """
+    if row["annotation"] is None or row["task_type"] != "boundingbox":
+        return None
+    cname = row["class_name"]
+    if not cname:
+        return None
+    cid = register_class(cname, class_to_id, class_names)
+    data = json.loads(row["annotation"])
+    return (
+        cid,
+        float(data.get("x", 0.0)),
+        float(data.get("y", 0.0)),
+        float(data.get("w", 0.0)),
+        float(data.get("h", 0.0)),
+    )

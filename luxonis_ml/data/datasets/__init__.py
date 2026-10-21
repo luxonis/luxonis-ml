@@ -94,8 +94,8 @@ that media item.
 
 The `LuxonisDataset.add` ``batch_size`` controls how many annotation records
 are buffered before writing a Parquet shard. For remote datasets, the same
-batch boundary also controls when media and annotation shards are pushed to
-cloud storage.
+batch boundary also controls when media files are pushed to cloud storage.
+The annotation shards are pushed once, after the last batch.
 
 
 Dataset Records

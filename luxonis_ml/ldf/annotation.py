@@ -346,7 +346,7 @@ Important:
 import json
 import warnings
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Annotated, Any, Literal, Optional, TypeAlias, TypedDict
 
@@ -517,7 +517,7 @@ class Detection(BaseModelExtraForbid):
                         "file": ...,
                         "annotation": {
                             "instance_id": 1,
-                            "boundingbox": bbox1
+                            "boundingbox": bbox1,
                             "keypoints": kpts1,
                         },
                     }
@@ -525,7 +525,7 @@ class Detection(BaseModelExtraForbid):
                         "file": ...,
                         "annotation": {
                             "instance_id": 2,
-                            "boundingbox": bbox2
+                            "boundingbox": bbox2,
                             "keypoints": kpts2,
                         },
                     }
@@ -589,6 +589,7 @@ class Detection(BaseModelExtraForbid):
 
     @model_validator(mode="after")
     def _validate_names(self) -> Self:
+        """Check the sub-detection names and the metadata keys."""
         for name in self.sub_detections:
             self._check_valid_identifier(name, label="Sub-detection name")
         for key in self.metadata:
@@ -622,6 +623,10 @@ class Detection(BaseModelExtraForbid):
 
     @staticmethod
     def _check_valid_identifier(name: str, *, label: str) -> None:
+        """Raise a ``ValueError`` if ``name`` is not an identifier.
+
+        Dashes count as underscores, and an empty name passes.
+        """
         name = name.replace("-", "_")
         if name and not name.isidentifier():
             raise ValueError(
@@ -749,6 +754,7 @@ class BBoxAnnotation(Annotation):
     @model_validator(mode="before")
     @classmethod
     def _validate_values(cls, values: Any) -> Any:
+        """Coerce the coordinates to floats and clip them to the image."""
         if not isinstance(values, Mapping):
             return values
 
@@ -782,6 +788,7 @@ class BBoxAnnotation(Annotation):
 
     @staticmethod
     def _clip_sum(values: dict[str, Any]) -> dict[str, Any]:
+        """Shrink the width and the height so the box ends in the image."""
         if values["x"] + values["w"] > 1:
             values["w"] = 1 - values["x"]
             logger.warning(
@@ -1002,11 +1009,13 @@ class SegmentationAnnotation(Annotation):
 
     @field_serializer("counts", when_used="json")
     def _serialize_counts(self, counts: bytes) -> str:
+        """Store the RLE counts as text."""
         return counts.decode("utf-8")
 
     @model_validator(mode="before")
     @classmethod
     def _validate_rle(cls, values: Any) -> Any:
+        """Convert RLE counts given as a string or a list to bytes."""
         if not isinstance(values, Mapping):
             return values
         if {"counts", "width", "height"} - set(values.keys()):
@@ -1044,6 +1053,7 @@ class SegmentationAnnotation(Annotation):
 
     @staticmethod
     def _numpy_to_rle(mask: np.ndarray) -> _SerializedRLE:
+        """Encode a binary mask as COCO RLE fields."""
         mask = np.asfortranarray(mask.astype(np.uint8))
         with warnings.catch_warnings(record=True):
             rle = pycocotools.mask.encode(mask)
@@ -1056,6 +1066,7 @@ class SegmentationAnnotation(Annotation):
     @model_validator(mode="before")
     @classmethod
     def _validate_mask(cls, values: Any) -> Any:
+        """Load a mask from an array or a file, and encode it as RLE."""
         if not isinstance(values, Mapping) or "mask" not in values:
             return values
         values = dict(values)
@@ -1100,6 +1111,7 @@ class SegmentationAnnotation(Annotation):
     @model_validator(mode="before")
     @classmethod
     def _validate_polyline(cls, values: Any) -> Any:
+        """Draw a normalized polygon into a binary mask."""
         if not isinstance(values, Mapping):
             return values
         if {"points", "width", "height"} - set(values.keys()):
@@ -1132,6 +1144,7 @@ class SegmentationAnnotation(Annotation):
 
     @staticmethod
     def _clip_points(points: list[tuple[float, float]]) -> None:
+        """Clip the polygon points to the image, in place."""
         warn = False
         for i in range(len(points)):
             x, y = points[i]
@@ -1213,7 +1226,12 @@ class ArrayAnnotation(Annotation):
     path: FilePath
 
     def to_numpy(self) -> np.ndarray:
-        """Load the array from the file path."""
+        """Load the array from the file path.
+
+        Returns:
+            The loaded array.
+
+        """
         return np.load(self.path)
 
     @staticmethod
@@ -1245,11 +1263,13 @@ class ArrayAnnotation(Annotation):
 
     @field_serializer("path", when_used="json")
     def _serialize_path(self, value: FilePath) -> str:
+        """Store the array path as text."""
         return str(value)
 
     @field_validator("path")
     @classmethod
     def _validate_path(cls, path: FilePath) -> FilePath:
+        """Check that the path is a ``.npy`` file that NumPy can load."""
         if path.suffix != ".npy":
             raise ValueError(
                 f"Array annotation file must be a .npy file. Got {path}"
@@ -1274,8 +1294,8 @@ class DatasetRecord(BaseModelExtraForbid):
 
     A record is the unit of ingestion for `LuxonisDataset.add`. It may point
     to one media source through ``file`` or to multiple synchronized sources
-    through ``files``, but never both -- passing both is an error, where
-    ``files`` used to be silently discarded in favor of ``file``.
+    through ``files``, but never both. A single ``file`` becomes the
+    ``"image"`` source.
 
     ``sample_metadata`` stores **record-level metadata**. It is preserved by
     native import/export and returned by `LuxonisLoader` as
@@ -1348,12 +1368,35 @@ class DatasetRecord(BaseModelExtraForbid):
 
     @model_validator(mode="after")
     def validate_task_name_valid_identifier(self) -> Self:
+        """Check that the task name is a valid identifier.
+
+        Dashes count as underscores.
+
+        Returns:
+            The validated record.
+
+        Raises:
+            ValueError: If the task name is not a valid identifier.
+
+        """
         Detection._check_valid_identifier(self.task_name, label="Task name")
         return self
 
     @model_validator(mode="before")
     @classmethod
     def validate_task_name(cls, values: Any) -> Any:
+        """Accept the deprecated ``task`` key as ``task_name``.
+
+        Args:
+            values: Raw input values.
+
+        Returns:
+            The values with ``task`` renamed to ``task_name``.
+
+        Raises:
+            ValueError: If ``task`` and ``task_name`` differ.
+
+        """
         if not isinstance(values, Mapping) or "task" not in values:
             return values
 
@@ -1375,6 +1418,18 @@ class DatasetRecord(BaseModelExtraForbid):
     @model_validator(mode="before")
     @classmethod
     def validate_files(cls, values: Any) -> Any:
+        """Turn ``file`` into ``files`` and make every path absolute.
+
+        Args:
+            values: Raw input values.
+
+        Returns:
+            The values with ``files`` set.
+
+        Raises:
+            ValueError: If both ``file`` and ``files`` are given.
+
+        """
         if not isinstance(values, Mapping):
             return values
 
@@ -1418,59 +1473,27 @@ class DatasetRecord(BaseModelExtraForbid):
         file_items = sorted(self.files.items(), key=lambda x: str(x[1]))
         for i, (source, file_path) in enumerate(file_items):
             is_main = i == 0
-
             if annotation is None or not is_main:
-                yield {
-                    "file": str(file_path),
-                    "source_name": source,
-                    "task_name": task_name,
-                    "class_name": None,
-                    "instance_id": None,
-                    "task_type": None,
-                    "annotation": None,
-                    "sample_metadata": sample_metadata,
-                }
-            else:
-                for task_type in _LABEL_TASK_TYPES:
-                    label: Annotation | None = getattr(annotation, task_type)
+                yield _parquet_row(
+                    file_path, source, task_name, sample_metadata
+                )
+                continue
 
-                    if label is not None:
-                        yield {
-                            "file": str(file_path),
-                            "source_name": source,
-                            "task_name": task_name,
-                            "class_name": annotation.class_name,
-                            "instance_id": annotation.instance_id,
-                            "task_type": task_type,
-                            "annotation": label.model_dump_json(),
-                            "sample_metadata": sample_metadata,
-                        }
-                for key, data in annotation.metadata.items():
-                    yield {
-                        "file": str(file_path),
-                        "source_name": source,
-                        "task_name": task_name,
-                        "class_name": annotation.class_name,
-                        "instance_id": annotation.instance_id,
-                        "task_type": f"metadata/{key}",
-                        "annotation": json.dumps(data),
-                        "sample_metadata": sample_metadata,
-                    }
-                if annotation.class_name is not None:
-                    yield {
-                        "file": str(file_path),
-                        "source_name": source,
-                        "task_name": task_name,
-                        "class_name": annotation.class_name,
-                        "instance_id": annotation.instance_id,
-                        "task_type": "classification",
-                        "annotation": "{}",
-                        "sample_metadata": sample_metadata,
-                    }
-                for name, detection in annotation.sub_detections.items():
-                    yield from self._to_parquet_rows(
-                        detection, f"{task_name}/{name}", sample_metadata
-                    )
+            for task_type, label in _label_columns(annotation):
+                yield _parquet_row(
+                    file_path,
+                    source,
+                    task_name,
+                    sample_metadata,
+                    class_name=annotation.class_name,
+                    instance_id=annotation.instance_id,
+                    task_type=task_type,
+                    annotation=label,
+                )
+            for name, detection in annotation.sub_detections.items():
+                yield from self._to_parquet_rows(
+                    detection, f"{task_name}/{name}", sample_metadata
+                )
 
     @staticmethod
     def decode_metadata(value: Any) -> Params:
@@ -1483,6 +1506,9 @@ class DatasetRecord(BaseModelExtraForbid):
         Returns:
             Decoded metadata when the value is a dictionary-like JSON object;
             otherwise an empty dictionary.
+
+        Raises:
+            ValueError: If ``value`` is a string that is not valid JSON.
 
         """
         if value in (None, ""):
@@ -1546,3 +1572,43 @@ __all__ = [
     "SegmentationAnnotation",
     "load_annotation",
 ]
+
+
+def _label_columns(annotation: Detection) -> Iterator[tuple[str, str]]:
+    """Yield the ``(task_type, serialized label)`` pairs of a detection.
+
+    The labels come first, then the metadata, then the class as a
+    classification label.
+    """
+    for task_type in _LABEL_TASK_TYPES:
+        label: Annotation | None = getattr(annotation, task_type)
+        if label is not None:
+            yield task_type, label.model_dump_json()
+    for key, data in annotation.metadata.items():
+        yield f"metadata/{key}", json.dumps(data)
+    if annotation.class_name is not None:
+        yield "classification", "{}"
+
+
+def _parquet_row(
+    file_path: Path,
+    source: str,
+    task_name: str,
+    sample_metadata: str,
+    *,
+    class_name: str | None = None,
+    instance_id: int | None = None,
+    task_type: str | None = None,
+    annotation: str | None = None,
+) -> ParquetRecord:
+    """Build one parquet row; the key order is the column order."""
+    return {
+        "file": str(file_path),
+        "source_name": source,
+        "task_name": task_name,
+        "class_name": class_name,
+        "instance_id": instance_id,
+        "task_type": task_type,
+        "annotation": annotation,
+        "sample_metadata": sample_metadata,
+    }

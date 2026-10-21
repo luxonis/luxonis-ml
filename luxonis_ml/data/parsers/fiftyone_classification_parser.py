@@ -135,20 +135,23 @@ class FiftyOneClassificationParser(BaseParser):
                     )
                     continue
 
-                img_path = stem_to_path[image_stem]
-                if target == []:
-                    yield {"file": img_path, "annotation": None}
-                for class_idx in (
-                    target if isinstance(target, list) else [target]
-                ):
-                    yield {
-                        "file": img_path,
-                        "annotation": {"class": classes[class_idx]},
-                    }
+                yield from _image_records(
+                    stem_to_path[image_stem], target, classes
+                )
 
         added_images = self._get_added_images(generator())
 
         return generator(), {}, added_images
+
+
+def _image_records(
+    img_path: Path, target: int | list[int], classes: list[str]
+) -> DatasetIterator:
+    """Yield one record per class, or one without labels for ``[]``."""
+    if target == []:
+        yield {"file": img_path, "annotation": None}
+    for class_idx in target if isinstance(target, list) else [target]:
+        yield {"file": img_path, "annotation": {"class": classes[class_idx]}}
 
 
 def clean_imagenet_annotations(labels_path: Path) -> Path:

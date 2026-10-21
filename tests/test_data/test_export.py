@@ -324,6 +324,7 @@ def test_export_no_partition(
     ],
 )
 def test_ultralytics_ndjson_export_relative_file_paths(
+    *,
     dataset_name: str,
     storage_url: str,
     tempdir: Path,

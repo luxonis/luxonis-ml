@@ -226,6 +226,7 @@ class AutoRegisterMeta(ABCMeta):
         name: str,
         bases: tuple[type, ...],
         attrs: dict[str, type],
+        *,
         register: bool = True,
         register_name: str | None = None,
         registry: Registry | None = None,

@@ -8,6 +8,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
     check_group_file_correspondence,
     exporter_specific_annotation_warning,
     split_of_group,
+    whole_image_classes,
 )
 from luxonis_ml.enums import DatasetType
 
@@ -85,17 +86,9 @@ class FiftyOneClassificationExporter(BaseExporter):
             self.split_labels[split] = {}
             self.split_image_counter[split] = 0
 
-        all_classes: set[str] = set()
-        for row in prepared_ldf.processed_df.iter_rows(named=True):
-            if (
-                row["task_type"] == "classification"
-                and row["instance_id"] == -1
-            ):
-                cname = row["class_name"]
-                if cname:
-                    all_classes.add(str(cname))
-
-        sorted_classes = sorted(all_classes)
+        sorted_classes = sorted(
+            set(whole_image_classes(prepared_ldf.processed_df))
+        )
         self.class_to_idx = {
             cls: idx for idx, cls in enumerate(sorted_classes)
         }
@@ -114,14 +107,10 @@ class FiftyOneClassificationExporter(BaseExporter):
 
             class_ids = sorted(
                 {
-                    self.class_to_idx[str(row["class_name"])]
-                    for row in entry.iter_rows(named=True)
-                    if row["task_type"] == "classification"
-                    and row["instance_id"] == -1
-                    and row["class_name"]
+                    self.class_to_idx[cname]
+                    for cname in whole_image_classes(entry)
                 }
             )
-
             if not class_ids:
                 continue
 
