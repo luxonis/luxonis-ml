@@ -97,8 +97,7 @@ class SOLOParser(BaseParser):
             split_path: Directory with SOLO sequences and annotations.
 
         Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+            Parser output containing annotation records and added images.
 
         Raises:
             FileNotFoundError: If the split directory, annotation
@@ -133,11 +132,6 @@ class SOLOParser(BaseParser):
             annotation_definitions_dict
         )
 
-        skeletons = {
-            class_name: {"labels": keypoint_labels}
-            for class_name in bbox_class_names
-        }
-
         def generator() -> DatasetIterator:
             for sequence_path in split_path.glob("sequence*"):
                 # Separate JSON files can have the same annotations.
@@ -149,10 +143,10 @@ class SOLOParser(BaseParser):
                     )
                     for capture in frame.get("captures", []):
                         yield from _parse_capture(
-                            sequence_path, capture, processed
+                            sequence_path, capture, processed, keypoint_labels
                         )
 
-        return generator(), skeletons, []
+        return generator(), []
 
     def _get_solo_annotation_types(
         self, annotation_definitions_dict: dict[str, Any]
@@ -225,6 +219,10 @@ class SOLOParser(BaseParser):
         return keypoint_labels
 
 
+_Keypoints = (
+    list[tuple[float, float, int]] | dict[str, tuple[float, float, int]]
+)
+
 _ANNOTATION_KINDS = (
     "SemanticSegmentationAnnotation",
     "BoundingBox2DAnnotation",
@@ -234,7 +232,10 @@ _ANNOTATION_KINDS = (
 
 
 def _parse_capture(
-    sequence_path: Path, capture: dict[str, Any], processed: set[str]
+    sequence_path: Path,
+    capture: dict[str, Any],
+    processed: set[str],
+    keypoint_labels: list[str],
 ) -> DatasetIterator:
     """Yield the records of one camera capture.
 
@@ -249,7 +250,7 @@ def _parse_capture(
         raise FileNotFoundError(f"{img_path} not existent.")
 
     bounding_boxes: dict[int, dict[str, Any]] = {}
-    instance_keypoints: dict[int, list[tuple[float, float, int]]] = {}
+    instance_keypoints: dict[int, _Keypoints] = {}
     instance_masks: dict[int, np.ndarray] = {}
     for anno in annotations:
         kind = next(
@@ -270,7 +271,9 @@ def _parse_capture(
         elif kind == "InstanceSegmentationAnnotation":
             instance_masks.update(_instance_masks(sequence_path, anno))
         else:
-            instance_keypoints.update(_instance_keypoints(anno, img_w, img_h))
+            instance_keypoints.update(
+                _instance_keypoints(anno, img_w, img_h, keypoint_labels)
+            )
 
     yield from _instance_records(
         img_path, bounding_boxes, instance_keypoints, instance_masks
@@ -351,24 +354,31 @@ def _instance_masks(
 
 
 def _instance_keypoints(
-    anno: dict[str, Any], img_w: int, img_h: int
-) -> dict[int, list[tuple[float, float, int]]]:
-    """Map each instance ID to its normalized keypoints."""
-    result = {}
+    anno: dict[str, Any], img_w: int, img_h: int, keypoint_labels: list[str]
+) -> dict[int, _Keypoints]:
+    """Map each instance ID to its normalized keypoints.
+
+    The keypoints get the labels of the template, if it has them.
+    """
+    result: dict[int, _Keypoints] = {}
     for value in anno.get("values", []):
-        keypoints = []
+        triplets = []
         for keypoint in value["keypoints"]:
             x, y = keypoint["location"]
             visibility = keypoint["state"]
-            keypoints.append((x / img_w, y / img_h, visibility))
-        result[value["instanceId"]] = keypoints
+            triplets.append((x / img_w, y / img_h, visibility))
+        result[value["instanceId"]] = (
+            dict(zip(keypoint_labels, triplets, strict=True))
+            if keypoint_labels
+            else triplets
+        )
     return result
 
 
 def _instance_records(
     img_path: Path,
     bounding_boxes: dict[int, dict[str, Any]],
-    instance_keypoints: dict[int, list[tuple[float, float, int]]],
+    instance_keypoints: dict[int, _Keypoints],
     instance_masks: dict[int, np.ndarray],
 ) -> DatasetIterator:
     """Yield one record per instance ID that every present kind shares.

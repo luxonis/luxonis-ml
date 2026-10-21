@@ -91,6 +91,7 @@ class UltralyticsNDJSONExporter(BaseExporter):
                 relative_file=relative_file,
                 split=split,
                 group_df=group_df,
+                prepared_ldf=prepared_ldf,
             )
 
             ann_size_estimate = (
@@ -120,6 +121,7 @@ class UltralyticsNDJSONExporter(BaseExporter):
         relative_file: Path,
         split: str,
         group_df: Any,
+        prepared_ldf: PreparedLDF,
     ) -> dict[str, Any]:
         instances: dict[tuple[str, int], dict[str, Any]] = {}
 
@@ -144,7 +146,12 @@ class UltralyticsNDJSONExporter(BaseExporter):
             instance = instances.setdefault(
                 (class_name, int(instance_id)), {"class_id": cid}
             )
-            instance[task_type] = json.loads(annotation)
+            data = json.loads(annotation)
+            if task_type == "keypoints":
+                data["keypoints"] = prepared_ldf.keypoint_row(
+                    row["task_name"], data["keypoints"]
+                )
+            instance[task_type] = data
 
         width, height = self._image_size(file_path)
         record: dict[str, Any] = {

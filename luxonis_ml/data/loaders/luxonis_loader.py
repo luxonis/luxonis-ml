@@ -32,7 +32,7 @@ from luxonis_ml.data.datasets import (
 from luxonis_ml.data.loaders.base_loader import BaseLoader
 from luxonis_ml.data.utils import get_task_type, split_task
 from luxonis_ml.data.utils.task_utils import task_is_metadata
-from luxonis_ml.ldf import DatasetRecord
+from luxonis_ml.ldf import DatasetRecord, KeypointAnnotation
 from luxonis_ml.typing import (
     Labels,
     LoaderOutput,
@@ -208,6 +208,11 @@ class LuxonisLoader(BaseLoader):
 
         self._df = self.dataset._load_df_offline(raise_when_empty=True)
         self._classes = self.dataset.get_classes()
+        self._keypoint_labels = {
+            task: metadata.labels
+            for task, metadata in self.dataset.get_keypoint_metadata().items()
+        }
+
         if self._filter_task_names is not None:
             self._filter_tasks(self._filter_task_names)
 
@@ -427,7 +432,7 @@ class LuxonisLoader(BaseLoader):
         if task_type == "boundingbox":
             return np.zeros((0, 5))
         if task_type == "keypoints":
-            n_keypoints = self.dataset.get_n_keypoints()[task_name]
+            n_keypoints = len(self._keypoint_labels[task_name])
             return np.zeros((0, n_keypoints * 3))
         if task_type == "instance_segmentation":
             return np.zeros((0, image_height, image_width))
@@ -590,12 +595,18 @@ class LuxonisLoader(BaseLoader):
         anns = [ann for _, ann, _ in instances]
         class_ids = [class_id for _, _, class_id in instances]
 
-        task_name, _ = split_task(task)
-        array = anns[0].combine_to_numpy(
-            anns,
-            class_ids,
-            len(self._classes[task_name]),
-        )
+        task_name, task_type = split_task(task)
+        if task_type == "keypoints":
+            array = KeypointAnnotation.combine_to_numpy(
+                cast(list[KeypointAnnotation], anns),
+                labels=self._keypoint_labels[task_name],
+            )
+        else:
+            array = anns[0].combine_to_numpy(
+                anns,
+                class_ids,
+                len(self._classes[task_name]),
+            )
         if task in self._tasks_without_background:
             unassigned_pixels = ~np.any(array, axis=0)
             background_idx = self._classes[task_name]["background"]
