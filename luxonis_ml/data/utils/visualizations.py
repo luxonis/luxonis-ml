@@ -17,6 +17,7 @@ from luxonis_ml.data.utils import (
     get_task_type,
     task_type_iterator,
 )
+from luxonis_ml.ldf import KeypointMetadata
 from luxonis_ml.typing import HSV, RGB, Color, Labels
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
@@ -588,8 +589,7 @@ def visualize(
     *,
     blend_all: bool = False,
     categorical_encodings: dict[str, dict[str, int]] | None = None,
-    skeletons: dict[str, tuple[list[str], list[tuple[int, int]]]]
-    | None = None,
+    keypoint_metadata: dict[str, KeypointMetadata] | None = None,
     draw_skeletons: bool = False,
     keypoint_label_mode: Literal[
         "none", "numbers", "names", "full"
@@ -608,11 +608,15 @@ def visualize(
             tasks. Keys are full task identifiers such as
             ``"task_name/metadata/key"`` and values map string labels to
             encoded integers.
-        skeletons: Optional keypoint skeleton metadata keyed by task name.
-        draw_skeletons: Whether to draw keypoint skeleton edges.
-        keypoint_label_mode: Keypoint label mode. ``"none"`` hides keypoint
-            labels, ``"numbers"`` draws numeric indices, and ``"full"`` draws
-            skeleton keypoint names when available.
+        keypoint_metadata: Optional keypoint definitions keyed by task name.
+        draw_skeletons: Whether to draw the edges that
+            ``keypoint_metadata`` gives. An edge is drawn only between two
+            keypoints with a visibility above 0.
+        keypoint_label_mode: Keypoint label mode. ``"none"`` draws no
+            label. ``"numbers"`` draws the keypoint index. ``"names"``
+            draws the keypoint name. ``"full"`` draws the index and the
+            name. The two name modes draw no label for a keypoint that
+            ``keypoint_metadata`` does not name.
 
     Returns:
         The visualized image.
@@ -636,7 +640,7 @@ def visualize(
         drawer.draw_keypoints(
             task,
             arr,
-            skeletons=skeletons,
+            keypoint_metadata=keypoint_metadata,
             draw_skeletons=draw_skeletons,
             label_mode=keypoint_label_mode,
         )
@@ -766,14 +770,17 @@ class _LabelDrawer:
         task: str,
         arr: np.ndarray,
         *,
-        skeletons: dict[str, tuple[list[str], list[tuple[int, int]]]] | None,
+        keypoint_metadata: dict[str, KeypointMetadata] | None,
         draw_skeletons: bool,
         label_mode: Literal["none", "numbers", "names", "full"],
     ) -> None:
         """Draw the keypoints of a task, colored like their boxes."""
         task_name = get_task_name(task)
         canvas = self._canvas(task_name)
-        keypoint_names, edges = (skeletons or {}).get(task_name, ([], []))
+        task_keypoints = (keypoint_metadata or {}).get(
+            task_name, KeypointMetadata()
+        )
+        keypoint_names, edges = task_keypoints.labels, task_keypoints.edges
 
         for i, kp in enumerate(arr):
             kp = kp.reshape(-1, 3)

@@ -2,6 +2,7 @@ import pytest
 
 from luxonis_ml.data import Metadata
 from luxonis_ml.data.datasets.source import LuxonisSource
+from luxonis_ml.ldf import KeypointMetadata
 
 
 @pytest.fixture
@@ -11,7 +12,16 @@ def basic_metadata() -> Metadata:
         ldf_version="2.0.0",
         classes={"task1": {"class1": 0, "class2": 1}},
         tasks={"task1": ["subtask1", "subtask2"]},
-        skeletons={"task1": {"labels": ["head", "tail"], "edges": [(0, 1)]}},
+        keypoint_metadata={
+            "task1": KeypointMetadata.model_validate(
+                {
+                    "keypoints": {
+                        "head": {"sigma": 0.05},
+                        "tail": {"connected_to": ["head"]},
+                    }
+                }
+            )
+        },
         categorical_encodings={"cat1": {"a": 0, "b": 1}},
         metadata_types={"field1": "str", "field2": "int"},
     )
@@ -26,7 +36,7 @@ def test_merge_with_different_versions():
         source=None,
         classes={},
         tasks={},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={},
         metadata_types={},
     )
@@ -35,7 +45,7 @@ def test_merge_with_different_versions():
         source=None,
         classes={},
         tasks={},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={},
         metadata_types={},
     )
@@ -53,7 +63,7 @@ def test_merge_classes(basic_metadata: Metadata):
         ldf_version="2.0.0",
         classes={"task1": {"class2": 1, "class3": 2}, "task2": {"classA": 0}},
         tasks={},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={},
         metadata_types={},
     )
@@ -76,7 +86,7 @@ def test_merge_tasks(basic_metadata: Metadata):
         ldf_version="2.0.0",
         classes={},
         tasks={"task1": ["subtask2", "subtask3"], "task2": ["other_subtask"]},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={},
         metadata_types={},
     )
@@ -94,7 +104,7 @@ def test_merge_categorical_encodings(basic_metadata: Metadata):
         ldf_version="2.0.0",
         classes={},
         tasks={},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={"cat1": {"b": 1, "c": 2}, "cat2": {"x": 0}},
         metadata_types={},
     )
@@ -117,7 +127,7 @@ def test_merge_sources():
         ldf_version="2.0.0",
         classes={},
         tasks={},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={},
         metadata_types={},
     )
@@ -127,7 +137,7 @@ def test_merge_sources():
         ldf_version="2.0.0",
         classes={},
         tasks={},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={},
         metadata_types={},
     )
@@ -145,7 +155,7 @@ def test_merge_with_none_sources():
         ldf_version="2.0.0",
         classes={},
         tasks={},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={},
         metadata_types={},
     )
@@ -155,7 +165,7 @@ def test_merge_with_none_sources():
         ldf_version="2.0.0",
         classes={},
         tasks={},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={},
         metadata_types={},
     )
@@ -174,7 +184,7 @@ def test_merge_metadata_types(basic_metadata: Metadata):
         ldf_version="2.0.0",
         classes={},
         tasks={},
-        skeletons={},
+        keypoint_metadata={},
         categorical_encodings={},
         metadata_types={"field2": "int", "field3": "float"},
     )
@@ -184,3 +194,47 @@ def test_merge_metadata_types(basic_metadata: Metadata):
     assert merged.metadata_types["field1"] == "str"
     assert merged.metadata_types["field2"] == "int"
     assert merged.metadata_types["field3"] == "float"
+
+
+def test_merge_adds_the_new_keypoint_names_after_the_own(
+    basic_metadata: Metadata,
+):
+    other = Metadata(
+        source=None,
+        ldf_version="2.0.0",
+        keypoint_metadata={
+            "task1": KeypointMetadata.model_validate(
+                {
+                    "keypoints": {
+                        "fin": {},
+                        "tail": {
+                            "sigma": 0.07,
+                            "connected_to": ["fin"],
+                        },
+                    }
+                }
+            )
+        },
+    )
+
+    merged = basic_metadata.merge_with(other).keypoint_metadata["task1"]
+
+    assert merged.labels == ["head", "tail", "fin"]
+    assert merged.edges == [(0, 1), (1, 2)]
+    sigmas = {name: spec.sigma for name, spec in merged.keypoints.items()}
+    assert sigmas == {"head": 0.05, "tail": 0.07, "fin": None}
+
+
+def test_merge_rejects_two_sigmas_for_one_keypoint(basic_metadata: Metadata):
+    other = Metadata(
+        source=None,
+        ldf_version="2.0.0",
+        keypoint_metadata={
+            "task1": KeypointMetadata.model_validate(
+                {"keypoints": {"head": {"sigma": 0.08}}}
+            )
+        },
+    )
+
+    with pytest.raises(ValueError, match=r"Task 'task1'.*'head'"):
+        basic_metadata.merge_with(other)

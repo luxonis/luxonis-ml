@@ -86,8 +86,7 @@ class ClassificationDirectoryParser(BaseParser):
             class_dir: Top-level class directory.
 
         Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+            Parser output containing annotation records and added images.
 
         """
         class_names = [d.name for d in class_dir.iterdir() if d.is_dir()]
@@ -102,4 +101,4 @@ class ClassificationDirectoryParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), {}, added_images
+        return generator(), added_images

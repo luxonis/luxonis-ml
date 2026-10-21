@@ -78,7 +78,7 @@ class YoloV8KeypointsExporter(BaseExporter):
             label_lines: list[str] = []
 
             for row in group_df.iter_rows(named=True):
-                line = self._keypoint_line(row)
+                line = self._keypoint_line(row, prepared_ldf)
                 if line is not None:
                     label_lines.append(line)
 
@@ -101,7 +101,9 @@ class YoloV8KeypointsExporter(BaseExporter):
 
         self._dump_annotations(annotation_splits, self.output_path, self.part)
 
-    def _keypoint_line(self, row: dict[str, Any]) -> str | None:
+    def _keypoint_line(
+        self, row: dict[str, Any], prepared_ldf: PreparedLDF
+    ) -> str | None:
         """Return the YOLO pose line of a keypoint row, or ``None``.
 
         The box of the line encloses the visible keypoints. A class whose
@@ -114,7 +116,9 @@ class YoloV8KeypointsExporter(BaseExporter):
             return None
         cid = register_class(cname, self.class_to_id, self.class_names)
 
-        keypoints = json.loads(row["annotation"]).get("keypoints", None)
+        keypoints = prepared_ldf.keypoint_row(
+            row["task_name"], json.loads(row["annotation"])["keypoints"]
+        )
         if not keypoints:
             return None
         kp_arr = np.array(keypoints, dtype=float)

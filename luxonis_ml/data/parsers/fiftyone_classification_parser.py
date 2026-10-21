@@ -140,7 +140,7 @@ class FiftyOneClassificationParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), {}, added_images
+        return generator(), added_images
 
 
 def clean_imagenet_annotations(labels_path: Path) -> Path:

@@ -124,8 +124,7 @@ class YoloV6Parser(BaseParser):
             classes_path: YAML file with class names.
 
         Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+            Parser output containing annotation records and added images.
 
         """
         with open(classes_path) as f:
@@ -163,4 +162,4 @@ class YoloV6Parser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), {}, added_images
+        return generator(), added_images

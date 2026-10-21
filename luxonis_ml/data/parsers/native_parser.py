@@ -108,8 +108,7 @@ class NativeParser(BaseParser):
             annotation_path: JSON file with annotations.
 
         Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+            Parser output containing annotation records and added images.
 
         """
         self._warn_on_newer_export(annotation_path)
@@ -122,7 +121,7 @@ class NativeParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), {}, added_images
+        return generator(), added_images
 
     def _warn_on_newer_export(self, annotation_path: Path) -> None:
         """Warn when the export was written by a newer LDF version.

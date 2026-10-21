@@ -20,7 +20,7 @@ from luxonis_ml.typing import PathType
 if TYPE_CHECKING:
     from luxonis_ml.data import LuxonisDataset
 
-ParserOutput = tuple[DatasetIterator, dict[str, dict], list[Path]]
+ParserOutput = tuple[DatasetIterator, list[Path]]
 
 
 def yolo_box_to_ldf(
@@ -205,7 +205,7 @@ class BaseParser(ABC):
                     parser.from_split(**split_kwargs)
 
         Returns:
-            LDF generator, skeleton metadata, and added images.
+            LDF generator and added images.
 
         """
         ...
@@ -220,14 +220,8 @@ class BaseParser(ABC):
             Added images.
 
         """
-        generator, skeletons, added_images = self.from_split(**kwargs)
+        generator, added_images = self.from_split(**kwargs)
         self._dataset.add(self._wrap_generator(generator))
-        if skeletons:
-            for skeleton in skeletons.values():
-                self._dataset.set_skeletons(
-                    skeleton.get("labels"),
-                    skeleton.get("edges"),
-                )
         return added_images
 
     @staticmethod

@@ -308,7 +308,9 @@ def inspect(
         classes=dataset.get_classes(),
         blend_all=blend_all,
         categorical_encodings=dataset.get_categorical_encodings(),
-        skeletons=dataset.get_skeletons() if skeletons or draw_names else None,
+        keypoint_metadata=dataset.get_keypoint_metadata()
+        if skeletons or draw_names
+        else None,
         draw_skeletons=skeletons,
         keypoint_label_mode=keypoint_labels,
     )
@@ -528,8 +530,9 @@ def export(
             archive, or into one archive for each partition. If
             ``False``, the dataset will be exported as a directory with
             the specified structure.
-        ldf_version: LDF version to write, such as ``2.0``, so the export
-            can be read by an older luxonis-ml. Only valid with
+        ldf_version: LDF version to write, so an older luxonis-ml can
+            read the export: ``2.1`` for luxonis-ml 0.9 to 0.10 and
+            ``2.0`` for luxonis-ml 0.6 to 0.8. Only valid with
             ``--type native``. Downgrading is lossy and warns about what
             it drops.
         bucket_storage: Storage type of the dataset.

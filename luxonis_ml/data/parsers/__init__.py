@@ -496,7 +496,7 @@ LDF export without `LuxonisParser`::
         └── images/
 
 ``metadata.json`` holds the LDF version of the export, such as
-``{"ldf_version": "2.1.0"}``. It is optional, and the parser reads it only to
+``{"ldf_version": "3.0.0"}``. It is optional, and the parser reads it only to
 warn about an export from a newer version. An export larger than
 ``max_partition_size_gb`` is written as ``<name>_part0``, ``<name>_part1``,
 and so on, and each part repeats this layout.
@@ -542,7 +542,9 @@ payload key is ``boundingbox``, ``keypoints``, ``segmentation``,
 ``instance_segmentation``, or ``metadata``. The export writes at
 most one payload key in each record, but a hand-written detection may hold
 several at once. Boxes and keypoints use
-image-normalized coordinates. Masks are written as COCO RLE, with a
+image-normalized coordinates. The keypoints are keyed by name, and each
+keypoint carries its ``sigma`` and ``connected_to`` -- see `luxonis_ml.ldf`.
+Masks are written as COCO RLE, with a
 ``height``, a ``width``, and a compressed ``counts`` string:
 
 .. code-block:: json
@@ -637,8 +639,10 @@ download one split at a time:
 COCO parsing handles both FiftyOne and Roboflow layouts. Bounding boxes are
 normalized relative to image dimensions; polygon or RLE segmentations are
 stored as RLE; instance segmentation is emitted from the same segmentation
-source; keypoints are normalized and clipped; category identifiers are mapped
-to class names.
+source; keypoints are normalized and clipped, and the ``keypoints`` names of
+their category key them, with the category ``skeleton`` and an optional
+``sigmas`` list on each keypoint; category identifiers are mapped to class
+names.
 
 For FiftyOne COCO exports, the standard ``labels.json`` usually contains
 instance annotations for the 80 COCO categories but not person keypoints. Use

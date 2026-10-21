@@ -9,6 +9,7 @@ from pydantic import SecretStr
 
 from luxonis_ml.data import (
     BaseDataset,
+    LuxonisDataset,
     LuxonisLoader,
     LuxonisParser,
     ParserIssue,
@@ -548,7 +549,7 @@ class _WarningParser(BaseParser):
                 self.reason,
                 annotation_id=annotation_id,
             )
-        return iter(()), {}, []
+        return iter(()), []
 
 
 def test_skipped_annotation_warnings_are_capped():
@@ -1005,6 +1006,84 @@ def test_ultralytics_version_selects_an_export(
 
     assert ultralytics_requests[0]["params"] == {"v": 3}
     assert destination == tempdir / "warehouse.v3.ndjson"
+
+
+def _coco_split(tempdir: Path, category: dict[str, Any]) -> dict[str, Any]:
+    """Write one image with one person and return the split arguments."""
+    image_dir = tempdir / "coco_split"
+    image_dir.mkdir()
+    create_image(0, image_dir)
+    annotation_path = tempdir / "coco_annotations.json"
+    annotation_path.write_text(
+        json.dumps(
+            {
+                "images": [
+                    {
+                        "id": 1,
+                        "file_name": "img_0.jpg",
+                        "height": 512,
+                        "width": 512,
+                    }
+                ],
+                "categories": [{"id": 1, "name": "person", **category}],
+                "annotations": [
+                    {
+                        "id": 1,
+                        "image_id": 1,
+                        "category_id": 1,
+                        "bbox": [64, 64, 256, 256],
+                        "keypoints": [256, 128, 2, 192, 96, 1],
+                        "iscrowd": 0,
+                    }
+                ],
+            }
+        )
+    )
+    return {"image_dir": image_dir, "annotation_path": annotation_path}
+
+
+def test_coco_keypoints_carry_the_category_definition(
+    dataset_name: str, tempdir: Path
+):
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    split = _coco_split(
+        tempdir,
+        {
+            "keypoints": ["nose", "left_eye"],
+            "skeleton": [[1, 2]],
+            "sigmas": [0.026, 0.025],
+        },
+    )
+
+    COCOParser(dataset, DatasetType.COCO, None).parse_split(**split)
+
+    (task_keypoints,) = dataset.get_keypoint_metadata().values()
+    assert task_keypoints.labels == ["nose", "left_eye"]
+    assert task_keypoints.edges == [(0, 1)]
+    assert task_keypoints.sigmas == [0.026, 0.025]
+
+
+@pytest.mark.parametrize(
+    ("category", "match"),
+    [
+        ({"keypoints": ["nose", "nose"]}, "repeats keypoint names"),
+        (
+            {"keypoints": ["nose", "left_eye"], "skeleton": [[1, 3]]},
+            "skeleton edge",
+        ),
+        ({"keypoints": ["nose", "left_eye"], "sigmas": [0.026]}, "sigmas for"),
+        ({"keypoints": ["nose"]}, "but its category names 1"),
+    ],
+)
+def test_coco_rejects_a_keypoint_category_that_does_not_fit(
+    dataset_name: str, tempdir: Path, category: dict[str, Any], match: str
+):
+    dataset = LuxonisDataset(dataset_name, delete_local=True)
+    split = _coco_split(tempdir, category)
+
+    with pytest.raises(ValueError, match=match):
+        COCOParser(dataset, DatasetType.COCO, None).parse_split(**split)
+    assert dataset._load_df_offline() is None
 
 
 @pytest.mark.parametrize(

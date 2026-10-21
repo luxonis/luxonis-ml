@@ -1,3 +1,5 @@
+from typing import Literal
+
 import cv2
 import numpy as np
 import pytest
@@ -20,6 +22,7 @@ from luxonis_ml.data.utils.visualizations import (
     str_to_rgb,
     visualize,
 )
+from luxonis_ml.ldf import KeypointMetadata
 
 
 def _labels_panel(output: np.ndarray, image: np.ndarray) -> np.ndarray:
@@ -269,15 +272,25 @@ def test_visualize():
     assert np.array_equal(expected_image, image)
 
 
-def test_visualize_keypoint_label_modes(monkeypatch: pytest.MonkeyPatch):
-    image = np.zeros((100, 100, 3), dtype=np.uint8)
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        ("none", []),
+        ("numbers", ["0", "1", "2"]),
+        ("names", ["nose", "eye"]),
+        ("full", ["0: nose", "1: eye"]),
+    ],
+)
+def test_visualize_keypoint_label_modes(
+    monkeypatch: pytest.MonkeyPatch,
+    mode: Literal["none", "numbers", "names", "full"],
+    expected: list[str],
+):
     labels = {
         "pose/keypoints": np.array(
             [[0.2, 0.5, 2.0, 0.5, 0.5, 1.0, 0.8, 0.5, 2.0]]
         )
     }
-    classes = {"pose": {"person": 0}}
-    skeletons = {"pose": (["nose", "eye"], [])}
     calls: list[str] = []
 
     def fake_draw_keypoint_label(
@@ -298,35 +311,19 @@ def test_visualize_keypoint_label_modes(monkeypatch: pytest.MonkeyPatch):
     )
 
     visualize(
-        image.copy(),
+        np.zeros((100, 100, 3), dtype=np.uint8),
         "image",
         labels,
-        classes,
-        skeletons=skeletons,
-        keypoint_label_mode="none",
+        {"pose": {"person": 0}},
+        keypoint_metadata={
+            "pose": KeypointMetadata.model_validate(
+                {"keypoints": {"nose": {}, "eye": {}}}
+            )
+        },
+        keypoint_label_mode=mode,
     )
-    assert calls == []
 
-    visualize(
-        image.copy(),
-        "image",
-        labels,
-        classes,
-        skeletons=skeletons,
-        keypoint_label_mode="numbers",
-    )
-    assert calls == ["0", "1", "2"]
-
-    calls.clear()
-    visualize(
-        image.copy(),
-        "image",
-        labels,
-        classes,
-        skeletons=skeletons,
-        keypoint_label_mode="full",
-    )
-    assert calls == ["0: nose", "1: eye"]
+    assert calls == expected
 
 
 def test_visualize_keypoint_skeletons_respect_visibility():
@@ -337,7 +334,17 @@ def test_visualize_keypoint_skeletons_respect_visibility():
         )
     }
     classes = {"pose": {"person": 0}}
-    skeletons = {"pose": ([], [(0, 1), (1, 2)])}
+    keypoint_metadata = {
+        "pose": KeypointMetadata.model_validate(
+            {
+                "keypoints": {
+                    "0": {},
+                    "1": {"connected_to": ["0", "2"]},
+                    "2": {},
+                }
+            }
+        )
+    }
 
     without_skeletons = visualize(
         image.copy(),
@@ -345,7 +352,7 @@ def test_visualize_keypoint_skeletons_respect_visibility():
         labels,
         classes,
         blend_all=True,
-        skeletons=skeletons,
+        keypoint_metadata=keypoint_metadata,
         draw_skeletons=False,
         keypoint_label_mode="none",
     )
@@ -355,7 +362,7 @@ def test_visualize_keypoint_skeletons_respect_visibility():
         labels,
         classes,
         blend_all=True,
-        skeletons=skeletons,
+        keypoint_metadata=keypoint_metadata,
         draw_skeletons=True,
         keypoint_label_mode="none",
     )
@@ -454,16 +461,24 @@ def test_visualize_skips_skeleton_edges_outside_the_keypoints():
     labels = {"pose/keypoints": np.array([[0.2, 0.5, 2.0, 0.8, 0.5, 2.0]])}
     classes = {"pose": {"person": 0}}
 
-    def draw(edges: list[tuple[int, int]]) -> np.ndarray:
+    def draw(keypoints: dict[str, dict]) -> np.ndarray:
         return visualize(
             image.copy(),
             "image",
             labels,
             classes,
             blend_all=True,
-            skeletons={"pose": ([], edges)},
+            keypoint_metadata={
+                "pose": KeypointMetadata.model_validate(
+                    {"keypoints": keypoints}
+                )
+            },
             draw_skeletons=True,
             keypoint_label_mode="none",
         )
 
-    assert np.array_equal(draw([(0, 1)]), draw([(0, 1), (0, 7), (-1, 1)]))
+    pair = {"a": {"connected_to": ["b"]}, "b": {}}
+    # The labels have no column for "c", so its edge is left out.
+    assert np.array_equal(
+        draw(pair), draw({**pair, "c": {"connected_to": ["a"]}})
+    )

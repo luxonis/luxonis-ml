@@ -77,8 +77,7 @@ class CreateMLParser(BaseParser):
             annotation_path: Annotation JSON file.
 
         Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+            Parser output containing annotation records and added images.
 
         """
         with open(annotation_path) as f:
@@ -135,4 +134,4 @@ class CreateMLParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), {}, added_images
+        return generator(), added_images

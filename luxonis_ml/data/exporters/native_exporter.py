@@ -17,7 +17,12 @@ from luxonis_ml.data.exporters.exporter_utils import (
 from luxonis_ml.data.exporters.ldf_downgrade import LDFDowngrader
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.ldf import DatasetRecord
+from luxonis_ml.ldf import (
+    DatasetRecord,
+    Keypoint,
+    KeypointMetadata,
+    KeypointState,
+)
 from luxonis_ml.utils.path import path_to_posix
 
 
@@ -32,12 +37,18 @@ class NativeExporter(BaseExporter):
     ``files``. It is **record-level metadata**, not an annotation label.
 
     The export root also holds a ``metadata.json`` version stamp, such as
-    ``{"ldf_version": "2.1.0"}``. It is not the full `Metadata` model a
+    ``{"ldf_version": "3.0.0"}``. It is not the full `Metadata` model a
     dataset keeps in its own storage.
 
+    A keypoint record holds every keypoint of its task, in the order of the
+    task, with its ``sigma`` and its ``connected_to``. A keypoint that the
+    instance does not name gets the state ``0`` (unlabeled). The import
+    thus builds the same `KeypointMetadata`.
+
     Passing an older ``ldf_version`` strips the fields that version does
-    not know -- exporting LDF 2.0 omits ``sample_metadata``. See
-    `LDFDowngrader`.
+    not know -- exporting LDF 2.1 or 2.0 writes the keypoints as lists
+    without their names and task fields, and LDF 2.0 also omits
+    ``sample_metadata``. See `LDFDowngrader`.
 
     Example:
         .. code-block:: json
@@ -110,7 +121,12 @@ class NativeExporter(BaseExporter):
             group_source_names = matched_df.get_column("source_name").to_list()
 
             records = [
-                self._process_row(row, group_source_names, group_files)
+                self._process_row(
+                    row,
+                    group_source_names,
+                    group_files,
+                    prepared_ldf.keypoint_metadata,
+                )
                 for row in group_df.iter_rows(named=True)
             ]
 
@@ -159,6 +175,7 @@ class NativeExporter(BaseExporter):
         row: dict[str, Any],
         group_source_names: list[str],
         group_files: list[str],
+        keypoint_metadata: dict[str, KeypointMetadata],
     ) -> dict[str, Any]:
         task_name = row["task_name"]
         class_name = row["class_name"]
@@ -193,11 +210,16 @@ class NativeExporter(BaseExporter):
                 "instance_id": instance_id,
                 "class": class_name,
             }
-            if task_type in (
+            if task_type == "keypoints":
+                ann[task_type] = {
+                    "keypoints": _record_keypoints(
+                        keypoint_metadata[task_name], data["keypoints"]
+                    )
+                }
+            elif task_type in (
                 "boundingbox",
                 "segmentation",
                 "instance_segmentation",
-                "keypoints",
             ):
                 ann[task_type] = data
             elif task_type.startswith("metadata/"):
@@ -241,3 +263,16 @@ class NativeExporter(BaseExporter):
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:
         return self._base_path(output_path, part) / split / "images"
+
+
+def _record_keypoints(
+    task_keypoints: KeypointMetadata, stored: dict[str, list[float]]
+) -> dict[str, dict[str, Any]]:
+    """Give a stored row every keypoint and task field of its task."""
+    record = {}
+    for name, spec in task_keypoints.keypoints.items():
+        x, y, state = stored.get(name, (0.0, 0.0, 0))
+        record[name] = Keypoint(
+            **spec.model_dump(), x=x, y=y, state=KeypointState(state)
+        ).model_dump(mode="json", exclude_defaults=True)
+    return record
