@@ -132,6 +132,19 @@ def _write_tree(root: Path, tree: dict[str, Any], images: list[Path]) -> None:
             path.write_text(json.dumps(content))
 
 
+def _parse(
+    source: Path, dataset_type: DatasetType, dataset_name: str
+) -> LuxonisDataset:
+    """Parse the dataset at source in place."""
+    return LuxonisParser(
+        str(source),
+        dataset_type=dataset_type,
+        dataset_name=dataset_name,
+        delete_local=True,
+        save_dir=source.parent,
+    ).parse()
+
+
 def _rows_by_image(
     dataset: LuxonisDataset, images: list[Path]
 ) -> dict[int, Counter]:
@@ -363,15 +376,26 @@ def test_parse_reads_the_format(
     images = _images(tempdir)
     _write_tree(tempdir / "source", tree, images)
 
-    dataset = LuxonisParser(
-        str(tempdir / "source"),
-        dataset_type=dataset_type,
-        dataset_name=dataset_name,
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
+    dataset = _parse(tempdir / "source", dataset_type, dataset_name)
 
     assert _classes_by_image(dataset, images) == expected
+
+
+def test_clsdir_parse_groups_links_by_their_name(
+    dataset_name: str, tempdir: Path
+):
+    # Both links are x.jpg. Their targets have other names and the same
+    # content, so they are one image with two classes.
+    images = _images(tempdir)
+    _write_tree(tempdir / "pool", {"a.jpg": 0, "b.jpg": 0}, images)
+    for link, target in (("cat/x.jpg", "a.jpg"), ("dog/x.jpg", "b.jpg")):
+        path = tempdir / "source" / "train" / link
+        path.parent.mkdir(parents=True)
+        path.symlink_to((tempdir / "pool" / target).absolute())
+
+    dataset = _parse(tempdir / "source", DatasetType.CLSDIR, dataset_name)
+
+    assert _classes_by_image(dataset, images) == {0: {"cat", "dog"}}
 
 
 @pytest.mark.parametrize(
@@ -394,12 +418,10 @@ def test_round_trip_keeps_the_labels(
     dataset = _dataset(dataset_name, records, images)
 
     dataset.export(tempdir / "export", dataset_type=dataset_type)
-    imported = LuxonisParser(
-        str(tempdir / "export" / dataset.identifier),
-        dataset_type=dataset_type,
-        dataset_name=f"{dataset_name}_imported",
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
+    imported = _parse(
+        tempdir / "export" / dataset.identifier,
+        dataset_type,
+        f"{dataset_name}_imported",
+    )
 
     assert _rows_by_image(imported, images) == _rows_by_image(dataset, images)

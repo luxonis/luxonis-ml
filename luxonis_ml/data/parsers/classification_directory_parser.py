@@ -121,7 +121,7 @@ class ClassificationDirectoryParser(BaseParser):
                 continue
             for img_path in self._list_images(class_path):
                 path = img_path.absolute().resolve()
-                same_name = images_by_name[path.name]
+                same_name = images_by_name[img_path.name]
                 image = next(
                     (
                         p
