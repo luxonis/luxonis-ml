@@ -136,25 +136,21 @@ class COCOParser(BaseParser):
     @staticmethod
     @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
-        if not split_path.exists():
-            return None
-        json_path = next(split_path.glob("*.json"), None)
-        if not json_path:
+        json_path = (
+            next(split_path.glob("*.json"), None)
+            if split_path.exists()
+            else None
+        )
+        if json_path is None or not COCOParser._is_coco_json(json_path):
             return None
         if json_path.name == "_annotations.coco.json":
-            if not COCOParser._is_coco_json(json_path):
-                return None
             logger.info("Identified Roboflow format")
-            image_dir = split_path
-            return {"image_dir": image_dir, "annotation_path": json_path}
-        if not COCOParser._is_coco_json(json_path):
-            return None
+            return {"image_dir": split_path, "annotation_path": json_path}
         logger.info("Identified FiftyOne format")
         dirs = [d for d in split_path.iterdir() if d.is_dir()]
         if len(dirs) != 1:
             return None
-        image_dir = dirs[0]
-        return {"image_dir": image_dir, "annotation_path": json_path}
+        return {"image_dir": dirs[0], "annotation_path": json_path}
 
     @classmethod
     @override
