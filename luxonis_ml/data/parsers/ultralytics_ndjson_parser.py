@@ -252,7 +252,7 @@ class UltralyticsNDJSONParser(BaseParser):
         return self._dataset
 
     def _build_record_stream(
-        self, ndjson_path: Path, reuse_cached: bool = True
+        self, ndjson_path: Path, *, reuse_cached: bool = True
     ) -> tuple[DatasetIterator, dict[str, list[Path]], list[Path]]:
         header = self._load_header(ndjson_path)
         if header is None:
@@ -280,7 +280,9 @@ class UltralyticsNDJSONParser(BaseParser):
             remote_image_dir_checked = False
             for record in _image_records(ndjson_path):
                 if record.get("url") and not remote_image_dir_checked:
-                    _check_remote_image_dir(remote_image_dir, reuse_cached)
+                    _check_remote_image_dir(
+                        remote_image_dir, reuse_cached=reuse_cached
+                    )
                     remote_image_dir_checked = True
 
                 image_path = self._resolve_image_path(
@@ -512,7 +514,7 @@ def _image_records(ndjson_path: Path) -> Iterator[dict[str, Any]]:
 
 
 def _check_remote_image_dir(
-    remote_image_dir: Path, reuse_cached: bool
+    remote_image_dir: Path, *, reuse_cached: bool
 ) -> None:
     """Refuse or announce the reuse of a download directory that exists."""
     if not remote_image_dir.exists():

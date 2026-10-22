@@ -489,7 +489,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         transforms = _TransformGroups()
         for cfg in validated_config:
             self._check_augmentation_warnings(cfg, available_target_types)
-            self._add_transform(transforms, cfg, keep_aspect_ratio)
+            self._add_transform(
+                transforms, cfg, keep_aspect_ratio=keep_aspect_ratio
+            )
 
         spatial_transforms: TransformsSeqType = transforms.spatial
         if "keypoints" in targets.values():
@@ -509,7 +511,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             self._tracked_augmentation_paths
         )
 
-        def _get_params(is_custom: bool = False) -> dict[str, Any]:
+        def _get_params(*, is_custom: bool = False) -> dict[str, Any]:
             return {
                 "bbox_params": A.BboxParams(
                     format="albumentations", min_visibility=min_bbox_visibility
@@ -586,6 +588,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         self,
         transforms: _TransformGroups,
         cfg: AlbumentationConfigItem,
+        *,
         keep_aspect_ratio: bool,
     ) -> None:
         """Create a configured transform and sort it into its group."""
@@ -603,7 +606,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     "Only one resizing augmentation can be provided."
                 )
             transforms.resize = self._with_resize_fallback(
-                cfg, transform, keep_aspect_ratio
+                cfg, transform, keep_aspect_ratio=keep_aspect_ratio
             )
         elif isinstance(transform, A.ImageOnlyTransform):
             transforms.pixel.append(transform)
@@ -633,6 +636,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         self,
         cfg: AlbumentationConfigItem,
         transform: A.BasicTransform | A.BaseCompose,
+        *,
         keep_aspect_ratio: bool,
     ) -> A.BasicTransform | A.BaseCompose:
         """Pair a resizing transform with ``p < 1`` with a default resize."""
@@ -1071,6 +1075,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     @staticmethod
     def _resolve_pipeline_stage(
         pipeline_stage: Literal["train", "val", "test"] | None,
+        *,
         is_validation_pipeline: bool | None,
     ) -> Literal["train", "val", "test"]:
         if pipeline_stage is not None:
@@ -1199,6 +1204,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     @staticmethod
     def _wrap_transform(
         transform: A.BaseCompose,
+        *,
         is_pixel: bool = False,
         source_names: list[str] | None = None,
     ) -> Callable[..., Data]:

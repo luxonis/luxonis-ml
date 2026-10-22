@@ -18,6 +18,7 @@ from luxonis_ml.typing import RGB
 def rgb_to_bool_masks(
     segmentation_mask: np.ndarray,
     class_colors: dict[str, RGB],
+    *,
     add_background_class: bool = False,
 ) -> Iterator[tuple[str, np.ndarray]]:
     """Convert an RGB segmentation mask to boolean class masks.

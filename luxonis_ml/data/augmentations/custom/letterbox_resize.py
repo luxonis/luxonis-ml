@@ -363,6 +363,7 @@ class LetterboxResize(A.DualTransform):
 
 
 def create_letterbox_or_resize(
+    *,
     keep_aspect_ratio: bool,
     height: int,
     width: int,

@@ -334,6 +334,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     def clone(
         self,
         new_dataset_name: str,
+        *,
         push_to_cloud: bool = True,
         splits_to_clone: list[str] | None = None,
         team_id: str | None = None,
@@ -428,6 +429,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     def merge_with(
         self,
         other: "LuxonisDataset",
+        *,
         inplace: bool = True,
         new_dataset_name: str | None = None,
         splits_to_merge: list[str] | None = None,
@@ -1650,6 +1652,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         output_path: PathType,
         dataset_type: DatasetType = DatasetType.NATIVE,
         max_partition_size_gb: float | None = None,
+        *,
         zip_output: bool = False,
         ldf_version: str | None = None,
     ) -> Path | list[Path]:

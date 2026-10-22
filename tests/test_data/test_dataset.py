@@ -203,7 +203,7 @@ def test_remove_duplicates_skips_a_clean_dataset(
     """A clean dataset must not pay for a full parquet rewrite."""
     paths = [str(create_image(i, tempdir)) for i in range(3)]
 
-    def generator(duplicate: bool) -> DatasetIterator:
+    def generator(*, duplicate: bool) -> DatasetIterator:
         for path in paths:
             yield {"file": path, "annotation": {"class": "dog"}}
         if duplicate:

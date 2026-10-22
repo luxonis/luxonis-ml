@@ -32,6 +32,7 @@ class MixUp(BatchTransform):
     def __init__(
         self,
         alpha: float | tuple[float, float] = 0.5,
+        *,
         keep_aspect_ratio: bool = True,
         p: float = 0.5,
     ) -> None:
@@ -55,7 +56,7 @@ class MixUp(BatchTransform):
             alpha if isinstance(alpha, list | tuple) else (alpha, alpha)
         )
         self._resize_transform = create_letterbox_or_resize(
-            keep_aspect_ratio, 1, 1
+            keep_aspect_ratio=keep_aspect_ratio, height=1, width=1
         )
 
         if not 0 <= self._alpha[0] <= 1 or not 0 <= self._alpha[1] <= 1:

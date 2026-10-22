@@ -220,7 +220,8 @@ class CocoExporter(BaseExporter):
 
             if self.allow_keypoints:
                 kp_labels, kp_skeleton = get_single_skeleton(
-                    self.allow_keypoints, self.skeletons
+                    allow_keypoints=self.allow_keypoints,
+                    skeletons=self.skeletons,
                 )
                 if kp_labels:
                     cat_entry["keypoints"] = kp_labels

@@ -71,12 +71,12 @@ class Registry(Generic[T]):
 
     @overload
     def register_module(
-        self, name: str | None = ..., module: None = ..., force: bool = ...
+        self, name: str | None = ..., module: None = ..., *, force: bool = ...
     ) -> Callable[[T], T]: ...
 
     @overload
     def register_module(
-        self, name: str | None, module: T, force: bool = ...
+        self, name: str | None, module: T, *, force: bool = ...
     ) -> T: ...
 
     @overload
@@ -89,6 +89,7 @@ class Registry(Generic[T]):
         self,
         name: str | None = None,
         module: T | None = None,
+        *,
         force: bool = False,
     ) -> T | Callable[[T], T]:
         """Register a module. Deprecated, use `register` instead.
@@ -182,7 +183,7 @@ class Registry(Generic[T]):
         return wrapper
 
     def _register(
-        self, module: T, module_name: str | None = None, force: bool = False
+        self, module: T, module_name: str | None = None, *, force: bool = False
     ) -> None:
         if module_name is None:
             module_name = module.__name__

@@ -47,6 +47,7 @@ class BaseParser(ABC):
         dataset: BaseDataset,
         dataset_type: DatasetType,
         task_name: str | dict[str, str] | None,
+        *,
         full_warnings: bool = False,
     ) -> None:
         """Create a parser for a target dataset.
@@ -318,6 +319,7 @@ class BaseParser(ABC):
     def parse_split(
         self,
         split: str | None = None,
+        *,
         random_split: bool = False,
         split_ratios: dict[str, float | int] | None = None,
         **kwargs,
