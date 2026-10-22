@@ -75,6 +75,18 @@ class NativeExporter(BaseExporter):
         *,
         ldf_version: Version | None = None,
     ) -> None:
+        """Create the exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Maximum partition size in GiB, or
+                ``None`` to disable partitioning.
+            ldf_version: LDF version to write. ``None`` selects
+                `LDF_VERSION`. An older version drops the record fields
+                that it does not know.
+
+        """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
@@ -83,6 +95,13 @@ class NativeExporter(BaseExporter):
 
     @staticmethod
     def get_split_names() -> dict[str, str]:
+        """Return the directory name of each split.
+
+        Returns:
+            The ``train``, ``val`` and ``test`` splits, each mapped to
+            its own name.
+
+        """
         return {"train": "train", "val": "val", "test": "test"}
 
     @override

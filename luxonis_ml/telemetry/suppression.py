@@ -1,3 +1,8 @@
+"""Context-local suppression of telemetry capture.
+
+Inside a `suppress_telemetry` block, the client captures no event.
+"""
+
 import contextvars
 from collections.abc import Generator
 from contextlib import contextmanager

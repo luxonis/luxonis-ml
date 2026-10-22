@@ -1,3 +1,5 @@
+"""Parser for classification datasets with one directory per class."""
+
 from pathlib import Path
 from typing import Any
 

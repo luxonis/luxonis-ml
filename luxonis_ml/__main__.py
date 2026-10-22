@@ -1,3 +1,9 @@
+"""Command-line interface of ``luxonis_ml``.
+
+The ``data``, ``fs``, and ``archive`` subcommands are added only when
+their modules can be imported.
+"""
+
 from importlib.metadata import version
 
 import rich

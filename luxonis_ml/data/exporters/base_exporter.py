@@ -1,3 +1,5 @@
+"""Abstract base class for the dataset exporters."""
+
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -28,6 +30,15 @@ class BaseExporter(ABC):
         output_path: Path,
         max_partition_size_gb: float | None,
     ) -> None:
+        """Set up the export paths and the partition state.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Maximum partition size in GiB, or
+                ``None`` to disable partitioning.
+
+        """
         self.dataset_identifier = dataset_identifier
         self.output_path = output_path
         self.image_indices = {}

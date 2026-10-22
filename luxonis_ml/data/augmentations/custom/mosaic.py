@@ -1,3 +1,5 @@
+"""`Mosaic4` augmentation that tiles four images in a two-by-two grid."""
+
 import math
 import random
 from typing import Any

@@ -1,3 +1,5 @@
+"""Parser for datasets in the TensorFlow CSV format."""
+
 from pathlib import Path
 from typing import Any
 

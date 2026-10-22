@@ -1,3 +1,5 @@
+"""Top-level ``config.json`` schema of an NN Archive."""
+
 import re
 
 from pydantic import Field, field_validator

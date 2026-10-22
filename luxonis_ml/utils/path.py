@@ -1,3 +1,5 @@
+"""Helpers that parse, resolve, and serialize dataset manifest paths."""
+
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from luxonis_ml.typing import PathType

@@ -1,3 +1,5 @@
+"""Generator of NN Archive files from a config and model executables."""
+
 import json
 import tarfile
 from io import BytesIO
