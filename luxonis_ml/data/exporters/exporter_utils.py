@@ -322,7 +322,7 @@ def annotation_to_polygons(
             for cnt in contours
             if len(cnt) >= 3
         ]
-    except Exception:
+    except (TypeError, ValueError, IndexError, OverflowError, cv2.error):
         logger.warning("Failed to decode COCO RLE; skipping this instance.")
         return []
 
