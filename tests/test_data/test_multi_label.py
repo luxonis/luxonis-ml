@@ -61,6 +61,21 @@ CLASSES_AND_BOXES = [
     {"file": 1},
 ]
 
+# Two records without a class or an instance ID, on the same image and in
+# the same task. Only the sample metadata tells them apart.
+CLASSLESS_RECORDS = [
+    {
+        "file": 0,
+        "sample_metadata": {"frame": 1},
+        "annotation": {"boundingbox": BOX},
+    },
+    {
+        "file": 0,
+        "sample_metadata": {"frame": 2},
+        "annotation": {"metadata": {"text": "red"}},
+    },
+]
+
 
 def _entry(
     file: str, annotation: dict[str, Any] | None = None
@@ -192,6 +207,41 @@ def _classes_by_image(
                 "test/annotations.json": [],
             },
             id="native",
+        ),
+        pytest.param(
+            DatasetType.NATIVE,
+            CLASSLESS_RECORDS,
+            {
+                "metadata.json": {"ldf_version": str(LDF_VERSION)},
+                "train/annotations.json": [
+                    {
+                        **_entry(
+                            "images/0.jpg",
+                            {
+                                "instance_id": -1,
+                                "class": None,
+                                "boundingbox": BOX,
+                            },
+                        ),
+                        "sample_metadata": {"frame": 1},
+                    },
+                    {
+                        **_entry(
+                            "images/0.jpg",
+                            {
+                                "instance_id": -1,
+                                "class": None,
+                                "metadata": {"text": "red"},
+                            },
+                        ),
+                        "sample_metadata": {"frame": 2},
+                    },
+                ],
+                "train/images/0.jpg": 0,
+                "val/annotations.json": [],
+                "test/annotations.json": [],
+            },
+            id="native-classless-records",
         ),
         pytest.param(
             DatasetType.CLSDIR,

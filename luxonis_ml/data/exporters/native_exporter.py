@@ -256,23 +256,29 @@ def _split_detections(
 
     A record writes the rows of its detection one after the other, and
     the ``classification`` row comes last. So a detection ends after its
-    ``classification`` row. A row of another task, instance or class
-    starts the next detection, and so does a task type that the current
-    detection already has. The key alone is not sufficient, because each
-    detection without an ``instance_id`` has the ID ``-1``.
+    ``classification`` row. A row of another task, instance, class or
+    sample metadata starts the next detection, and so does a task type
+    that the current detection already has. The key alone is not
+    sufficient, because each detection without an ``instance_id`` has the
+    ID ``-1``. All the rows of a record share its sample metadata, so a
+    change in it separates two records that have no class.
 
     Example:
         >>> rows = [
         ...     {
         ...         "task_name": "",
         ...         "instance_id": -1,
-        ...         "class_name": "car",
+        ...         "class_name": None,
         ...         "task_type": task_type,
+        ...         "sample_metadata": metadata,
         ...     }
-        ...     for task_type in ("boundingbox", "classification") * 2
+        ...     for task_type, metadata in (
+        ...         ("boundingbox", '{"frame": 1}'),
+        ...         ("metadata/text", '{"frame": 2}'),
+        ...     )
         ... ]
         >>> [len(detection) for detection in _split_detections(rows)]
-        [2, 2]
+        [1, 1]
 
     """
     detection: list[dict[str, Any]] = []
@@ -281,7 +287,12 @@ def _split_detections(
             detection[-1]["task_type"] == "classification"
             or any(
                 row[key] != detection[-1][key]
-                for key in ("task_name", "instance_id", "class_name")
+                for key in (
+                    "task_name",
+                    "instance_id",
+                    "class_name",
+                    "sample_metadata",
+                )
             )
             or any(row["task_type"] == r["task_type"] for r in detection)
         ):
