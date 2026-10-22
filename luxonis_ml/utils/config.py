@@ -264,6 +264,6 @@ def _merge_into_new(
     # Try to guess type, backtrack if fails
     try:
         _merge_override(container[key], key_tail, value)
-    except Exception:
+    except (ValueError, IndexError):
         container[key] = {}
         _merge_override(container[key], key_tail, value)
