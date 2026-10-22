@@ -44,9 +44,14 @@ class FiftyOneClassificationParser(BaseParser):
             "classes": ["class1", "class2", ...],
             "labels": {
                 "image_stem": class_index,
+                "other_stem": [class_index, class_index],
                 ...
             }
         }
+
+    A list of class indices gives the image each of these classes, as in
+    the multi-label layout of ``FiftyOneImageClassificationDataset``. An
+    empty list adds the image without labels.
 
     This parser supports the FiftyOne image classification export layout.
 
@@ -120,7 +125,7 @@ class FiftyOneClassificationParser(BaseParser):
         stem_to_path = {img.stem: img for img in images}
 
         def generator() -> DatasetIterator:
-            for image_stem, class_idx in labels.items():
+            for image_stem, target in labels.items():
                 if image_stem not in stem_to_path:
                     self._warn_skipped_annotation(
                         ParserIssue.MISSING_IMAGE_STEM,
@@ -130,17 +135,23 @@ class FiftyOneClassificationParser(BaseParser):
                     )
                     continue
 
-                img_path = stem_to_path[image_stem]
-                class_name = classes[class_idx]
-
-                yield {
-                    "file": img_path,
-                    "annotation": {"class": class_name},
-                }
+                yield from _image_records(
+                    stem_to_path[image_stem], target, classes
+                )
 
         added_images = self._get_added_images(generator())
 
         return generator(), {}, added_images
+
+
+def _image_records(
+    img_path: Path, target: int | list[int], classes: list[str]
+) -> DatasetIterator:
+    """Yield one record per class, or one without labels for ``[]``."""
+    if target == []:
+        yield {"file": img_path, "annotation": None}
+    for class_idx in target if isinstance(target, list) else [target]:
+        yield {"file": img_path, "annotation": {"class": classes[class_idx]}}
 
 
 def clean_imagenet_annotations(labels_path: Path) -> Path:
