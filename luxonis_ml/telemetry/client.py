@@ -192,7 +192,9 @@ class Telemetry:
                     self._config.allowlist if allowlist is None else allowlist
                 ),
             )
-            context = self._build_context(include_system_metadata)
+            context = self._build_context(
+                include_system_metadata=include_system_metadata
+            )
             payload = TelemetryEvent.create(
                 name=event,
                 properties=sanitized,
@@ -257,7 +259,7 @@ class Telemetry:
             return NoopBackend(self._config)
 
     def _build_context(
-        self, include_system_metadata: bool | None
+        self, *, include_system_metadata: bool | None
     ) -> dict[str, Any]:
         """Build the merged context for an event."""
         context = (

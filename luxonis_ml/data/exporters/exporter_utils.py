@@ -237,7 +237,7 @@ def create_zip_output(
 
 
 def get_single_skeleton(
-    allow_keypoints: bool, skeletons: dict[str, Any] | None = None
+    *, allow_keypoints: bool, skeletons: dict[str, Any] | None = None
 ) -> tuple[list[str], list[list[int]]]:
     """Return labels and COCO-style edges for the single skeleton.
 

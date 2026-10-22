@@ -90,7 +90,9 @@ def test_the_background_class_ignores_the_split_order(
     """A task keeps its class map, whichever sample the split puts first."""
     class_maps = []
     for unannotated_first in (True, False):
-        _reorder_split(half_covered, unannotated_first, tempdir)
+        _reorder_split(
+            half_covered, unannotated_first=unannotated_first, tempdir=tempdir
+        )
         class_maps.append(
             LuxonisLoader(half_covered, view="train")._classes[""]
         )
@@ -149,7 +151,7 @@ def test_a_polyline_takes_the_size_of_the_mask_beside_it():
 
 
 def _reorder_split(
-    dataset: LuxonisDataset, unannotated_first: bool, tempdir: Path
+    dataset: LuxonisDataset, *, unannotated_first: bool, tempdir: Path
 ) -> None:
     """Put the unannotated sample first or last in the train split."""
     unannotated = create_image(2, tempdir).absolute()

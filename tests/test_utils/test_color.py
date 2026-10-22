@@ -76,7 +76,7 @@ def test_invalid_name_raises():
 
 def test_bool_is_rejected():
     with pytest.raises(ValueError, match="cannot parse color"):
-        Color.parse(True)
+        Color.parse(value=True)
 
 
 def test_chrome_for_picks_by_background_lightness():
