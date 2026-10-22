@@ -1,3 +1,9 @@
+"""Sanitization and redaction of telemetry event properties.
+
+`sanitize_properties` redacts secret-like and identifying keys, and
+replaces paths, URLs, and e-mail addresses with placeholders.
+"""
+
 import re
 from collections.abc import Mapping
 from pathlib import Path

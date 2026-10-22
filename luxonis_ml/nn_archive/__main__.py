@@ -1,3 +1,5 @@
+"""Commands that inspect and extract NN Archive files."""
+
 import json
 import tarfile
 from pathlib import Path

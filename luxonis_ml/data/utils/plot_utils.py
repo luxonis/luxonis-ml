@@ -1,3 +1,5 @@
+"""Class distribution and heatmap plots on ``matplotlib`` axes."""
+
 from typing import Any
 
 import numpy as np

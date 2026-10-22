@@ -407,6 +407,7 @@ class Category(str):
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
+        """Return a schema that accepts only instances of the class."""
         return core_schema.is_instance_schema(cls)
 
 

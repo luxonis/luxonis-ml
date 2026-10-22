@@ -32,6 +32,7 @@ class ColorMap(Mapping[Hashable, RGB]):
     """
 
     def __init__(self) -> None:
+        """Create an empty color map."""
         self._generator = distinct_color_generator()
         self._color_dict: dict[Hashable, RGB] = {}
 

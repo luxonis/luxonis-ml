@@ -1,3 +1,5 @@
+"""Input and preprocessing schemas of an NN Archive model."""
+
 from contextlib import suppress
 from typing import Any, Literal
 

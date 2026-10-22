@@ -1,3 +1,10 @@
+"""Letterbox resize transform that keeps the aspect ratio.
+
+`LetterboxResize` scales the input to fit and pads the remainder.
+`create_letterbox_or_resize` picks between it and a plain
+``albumentations.Resize``.
+"""
+
 from typing import Any
 
 import albumentations as A

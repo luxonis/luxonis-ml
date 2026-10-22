@@ -145,6 +145,15 @@ class ParquetFileManager:
             self.buffer, self.row_count = self._read()
 
     def remove_duplicate_uuids(self, overwrite_uuids: set[str]) -> None:
+        """Remove the rows with the given UUIDs from all parquet files.
+
+        The buffer is flushed first and read again from the current
+        file afterwards.
+
+        Args:
+            overwrite_uuids: UUIDs of the rows to remove.
+
+        """
         self._flush()
 
         for parquet_file in self.dir.glob("*.parquet"):
@@ -165,7 +174,9 @@ class ParquetFileManager:
             df.write_parquet(self.current_file)
 
     def __enter__(self) -> Self:
+        """Return the manager."""
         return self
 
     def __exit__(self, *_) -> None:
+        """Write the buffered rows to the current parquet file."""
         self._flush()

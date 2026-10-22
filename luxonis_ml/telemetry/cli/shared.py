@@ -1,3 +1,8 @@
+"""Command wrapping helpers shared by the Typer and Cyclopts adapters.
+
+A wrapped callback captures one ``cli_command`` event per call.
+"""
+
 import inspect
 import time
 from collections.abc import Callable, Iterable

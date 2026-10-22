@@ -1,3 +1,5 @@
+"""Export to the Ultralytics NDJSON format."""
+
 import json
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -43,6 +45,19 @@ class UltralyticsNDJSONExporter(BaseExporter):
         dataset_type: DatasetType,
         ndjson_task: UltralyticsTask,
     ) -> None:
+        """Create the exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Maximum partition size in GiB, or
+                ``None`` to disable partitioning.
+            dataset_type: Export format. Its annotation formats are the
+                supported types, except for the ``"pose"`` task.
+            ndjson_task: Ultralytics task to write: ``"detect"``,
+                ``"segment"`` or ``"pose"``.
+
+        """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
@@ -54,6 +69,13 @@ class UltralyticsNDJSONExporter(BaseExporter):
         self._image_size_cache: dict[Path, tuple[int, int]] = {}
 
     def get_split_names(self) -> dict[str, str]:
+        """Return the directory name of each split.
+
+        Returns:
+            The ``train``, ``val`` and ``test`` splits, each mapped to
+            its own name.
+
+        """
         return {"train": "train", "val": "val", "test": "test"}
 
     @override

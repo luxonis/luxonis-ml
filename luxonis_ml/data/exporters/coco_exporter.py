@@ -44,6 +44,18 @@ class CocoExporter(BaseExporter):
         *,
         skeletons: dict[str, Any] | None = None,
     ) -> None:
+        """Create the exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Maximum partition size in GiB, or
+                ``None`` to disable partitioning.
+            coco_format: Directory layout of the export.
+            skeletons: Keypoint skeletons keyed by task name. Keypoints
+                are exported only when there is exactly one skeleton.
+
+        """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
@@ -70,6 +82,15 @@ class CocoExporter(BaseExporter):
         }
 
     def get_split_names(self) -> dict[str, str]:
+        """Return the directory name of each split.
+
+        The Roboflow layout names the ``val`` split ``valid``; the
+        FiftyOne layout names it ``validation``.
+
+        Returns:
+            Split names mapped to directory names.
+
+        """
         if self.format == COCOFormat.ROBOFLOW:
             return {"train": "train", "val": "valid", "test": "test"}
         return {"train": "train", "val": "validation", "test": "test"}

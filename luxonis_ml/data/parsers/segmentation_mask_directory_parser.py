@@ -1,3 +1,5 @@
+"""Parser for segmentation datasets stored as mask images."""
+
 from pathlib import Path
 from typing import Any
 

@@ -1,3 +1,5 @@
+"""Logging setup, a deprecation decorator, and a log-once helper."""
+
 import inspect
 import sys
 import warnings

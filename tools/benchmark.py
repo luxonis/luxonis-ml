@@ -1,3 +1,8 @@
+"""Benchmark that writes and reads a synthetic `LuxonisDataset`.
+
+It prints the mean write and read times over the given repeats.
+"""
+
 import time
 from pathlib import Path
 from typing import Annotated
@@ -18,6 +23,19 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def generator(size: int) -> DatasetIterator:
+    """Yield ten benchmark records for each of ``size`` random images.
+
+    Each image is a random 256x256 JPEG written to ``DATA_DIR``. Its
+    records have the class ``"test"``, a bounding box, a segmentation
+    polygon, and three keypoints.
+
+    Args:
+        size: Number of images to generate.
+
+    Yields:
+        Dictionaries with the image path and one annotation.
+
+    """
     for i in range(size):
         img = np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8)
         cv2.imwrite(str(DATA_DIR / f"img_{i}.jpg"), img)

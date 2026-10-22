@@ -1,3 +1,5 @@
+"""Schema of one model in an NN Archive config."""
+
 from pydantic import Field
 
 from luxonis_ml.typing import BaseModelExtraForbid

@@ -1,3 +1,5 @@
+"""Export to a classification directory layout, one folder per class."""
+
 from pathlib import Path
 from typing import Any, cast
 
@@ -15,7 +17,21 @@ from luxonis_ml.enums import DatasetType
 
 
 class ClassificationDirectoryExporter(BaseExporter):
+    """Export whole-image classes as one directory per class.
+
+    Each split directory holds a subdirectory for each class. An
+    image with several classes is copied into each of them. An image
+    without a class is skipped.
+    """
+
     def get_split_names(self) -> dict[str, str]:
+        """Return the directory name of each split.
+
+        Returns:
+            Split names mapped to directory names. The ``val`` split
+            becomes ``valid``.
+
+        """
         return {"train": "train", "val": "valid", "test": "test"}
 
     @override

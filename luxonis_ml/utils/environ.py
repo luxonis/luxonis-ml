@@ -1,3 +1,8 @@
+"""Settings read from the environment and the ``.env`` file.
+
+The ``environ`` object loads the values again on each attribute access.
+"""
+
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, cast

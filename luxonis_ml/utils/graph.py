@@ -1,3 +1,8 @@
+"""Topological traversal and cycle check for predecessor graphs.
+
+A graph maps each node name to the names of its predecessors.
+"""
+
 from collections.abc import Iterator, Mapping
 from copy import deepcopy
 from typing import TypeVar

@@ -1,3 +1,9 @@
+"""Shared telemetry instances, one for each library and component.
+
+`get_or_init` creates an instance once and reuses it later. The
+optional exit handler shuts down every instance at exit.
+"""
+
 import atexit
 import threading
 from contextlib import suppress
@@ -15,6 +21,14 @@ from luxonis_ml.telemetry.config import TelemetryConfig
 
 @dataclass(frozen=True)
 class TelemetryKey:
+    """Lookup key of one shared `Telemetry` instance.
+
+    Attributes:
+        library_name: Name of the library that emits telemetry.
+        source_component: Name of the emitting component.
+
+    """
+
     library_name: str
     source_component: str
 
