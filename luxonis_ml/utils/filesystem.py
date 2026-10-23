@@ -685,12 +685,12 @@ class LuxonisFileSystem:
                 artifact_path or "", download_path, mlflow_instance
             )
             return download_path
-        self._fs.get(
-            str(self._path / remote_dir), str(local_dir), recursive=True
-        )
+        source = str(self._path / remote_dir)
+        self._fs.get(source, str(local_dir), recursive=True)
         if not existed:
             return local_dir
-        return local_dir / PurePosixPath(remote_dir).name
+        # ``Path`` splits the backslashes of a local Windows ``self._path``.
+        return local_dir / Path(source).name
 
     def delete_dir(
         self, remote_dir: PosixPathType = "", allow_delete_parent: bool = False
