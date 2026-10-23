@@ -340,6 +340,13 @@ def test_mosaic_drops_boxes_keeps_masks_aligned(
         Reusing ids across batch members would let the checks below pass
         under a permutation mapping instance *i* of one sample onto
         instance *i* of another - exactly the mispairing they look for.
+
+        Returns:
+            Labels of four instances, one per corner, each with a box,
+            two keypoints and a mask channel filled with its id.
+            ``task/array`` holds the ids, and ``task/metadata/id`` the
+            ids plus 100.
+
         """
         instance_mask = np.zeros((4, 320, 320), dtype=np.uint8)
         boxes_in = []

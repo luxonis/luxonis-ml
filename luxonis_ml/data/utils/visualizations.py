@@ -866,6 +866,12 @@ def _keypoint_label(
 ) -> str | None:
     """Return the text drawn next to a keypoint, or ``None`` for none.
 
+    Returns:
+        ``str(index)`` in ``"numbers"`` mode, the name in ``"names"``
+        mode, and ``"<index>: <name>"`` in ``"full"`` mode. ``None`` in
+        ``"none"`` mode, or if ``keypoint_names`` has no name for
+        ``index``.
+
     Examples:
         >>> names = ["nose", "eye"]
         >>> (

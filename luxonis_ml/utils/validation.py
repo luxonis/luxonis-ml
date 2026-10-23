@@ -323,6 +323,11 @@ def _validated_model(error: ValidationError) -> type[BaseModel] | None:
     of a calling method cannot be mistaken for the one being validated, and
     the innermost match wins. A ``pydantic.TypeAdapter`` yields nothing, since
     what it validates need not be a model at all.
+
+    Returns:
+        The model class held by the innermost pydantic frame, or None
+        if no pydantic frame holds one.
+
     """
     found: type[BaseModel] | None = None
     traceback = error.__traceback__
@@ -394,6 +399,12 @@ def _nested_unions(
     container elements and a member that fails on its own type. Read on
     their own, they contradict each other: each one describes a different
     alternative, but nothing in its location says so.
+
+    Returns:
+        The locations of the unions with failures under two or more
+        member tags. A union is left out when one member fails on its
+        own type and another one has a missing or an unexpected field.
+
     """
     tags: dict[tuple[Any, ...], set[str]] = {}
     direct_members: set[tuple[Any, ...]] = set()
@@ -428,7 +439,10 @@ def _first_union_tag(
 ) -> tuple[int, str] | None:
     """Find the first element of a location that tags a union member.
 
-    Returns the depth of the element and the tag.
+    Returns:
+        The depth of the element in ``loc`` and the tag, or None if no
+        element tags a union member.
+
     """
     for length, tag in enumerate(loc):
         if not isinstance(tag, str):
@@ -575,6 +589,12 @@ def _union_problem(
     A member that failed on its own type is named and nothing more. A
     member that failed deeper down is named together with the reason, so
     that the reader keeps the detail the collapsing would otherwise lose.
+
+    Returns:
+        A problem at the location of the union, with one message for
+        all its failed members. It carries the input value only if a
+        member failed on its own type.
+
     """
     depth = len(parent)
     header = "does not match any of the allowed types"

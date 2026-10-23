@@ -290,6 +290,14 @@ def _infer_yolo_tasks(defined_params: set[str]) -> list[str]:
 
     Every defined field must belong to one of the inferred tasks.
 
+    Returns:
+        The inferred task names, out of ``instance_segmentation``,
+        ``keypoint_detection`` and ``object_detection``, in that order.
+
+    Raises:
+        ValueError: If ``defined_params`` fits no task, or if one of its
+            fields belongs to none of the inferred tasks.
+
     Examples:
         >>> _infer_yolo_tasks(set())
         ['object_detection']
@@ -328,6 +336,10 @@ def _check_yolo_outputs(defined_params: set[str], tasks: list[str]) -> None:
     Every task needs all of its output fields, and every defined output
     field must belong to a task. Object detection may also set
     ``angles_outputs``.
+
+    Raises:
+        ValueError: If a task lacks one of its output fields, or if an
+            output field belongs to none of the tasks.
 
     Examples:
         >>> _check_yolo_outputs(

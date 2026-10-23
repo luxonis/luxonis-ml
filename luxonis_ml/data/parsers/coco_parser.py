@@ -100,6 +100,11 @@ class COCOParser(BaseParser):
         train-only are ambiguous by directory names alone, so the
         annotation filename inside any present split decides: Roboflow
         has ``_annotations.coco.json``, FiftyOne has ``labels.json``.
+
+        Returns:
+            The detected format, or ``None`` if no split in ``splits``
+            holds a valid COCO layout.
+
         """
         if "validation" in existing:
             return COCOFormat.FIFTYONE
@@ -341,6 +346,12 @@ class COCOParser(BaseParser):
 
         An image without annotations yields one record with no
         annotation, unless ``skip_unlabeled`` is set.
+
+        Yields:
+            A dict with the image path under ``file`` and the LDF
+            annotation under ``annotation``. The annotation is ``None``
+            for an image without annotations.
+
         """
         img_dict = {img["id"]: img for img in coco_images}
         ann_dict: dict[int, list[dict[str, Any]]] = defaultdict(list)
@@ -500,6 +511,11 @@ class _InstanceIds:
     def of(self, ann: dict[str, Any]) -> int:
         """Return the instance ID of one annotation.
 
+        Returns:
+            The ``id`` of ``ann`` if it has one. Otherwise the lowest
+            integer that no annotation of the split uses and no earlier
+            call returned.
+
         Examples:
             >>> ids = _InstanceIds([{"id": 0}, {"id": 2}])
             >>> ids.of({"id": 7}), ids.of({}), ids.of({})
@@ -519,6 +535,11 @@ def _coco_bbox(
     bbox: list[Any], img_w: int, img_h: int
 ) -> dict[str, float] | None:
     """Normalize a COCO ``[x, y, w, h]`` box, or ``None`` if not numeric.
+
+    Returns:
+        A dict with ``x``, ``y``, ``w`` and ``h``, where ``x`` and ``w``
+        are divided by ``img_w`` and ``y`` and ``h`` by ``img_h``.
+        ``None`` if ``bbox`` does not hold four finite numbers.
 
     Examples:
         >>> _coco_bbox([10, 20, 30, 40], 100, 200)
@@ -542,6 +563,11 @@ def _coco_segmentation(
     coco_seg: Any, img_w: int, img_h: int
 ) -> dict[str, Any] | None:
     """Convert a COCO polygon list or RLE dict to an LDF RLE dict.
+
+    Returns:
+        A dict with the mask ``height``, ``width`` and RLE ``counts``.
+        Polygons merge into one mask. ``None`` if ``coco_seg`` is an
+        empty list, or is neither a list nor a dict.
 
     Examples:
         >>> _coco_segmentation({"size": [4, 5], "counts": "abc"}, 5, 4)

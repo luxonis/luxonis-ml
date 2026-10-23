@@ -771,6 +771,12 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         transform emptied are returned with their LDF layout, so that
         postprocessing can still report them as empty rather than omit
         the task entirely.
+
+        Returns:
+            LDF layout of each dropped target, keyed by target name. It
+            holds only the targets of a bounding-box task group that a
+            contributing batch member had labels for.
+
         """
         # A batch transform discards the members it did not merge, and a
         # task only those members carried is not part of this sample at all.
@@ -1008,6 +1014,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
         Instance targets keep the instances whose bounding boxes
         survived, in the order of the boxes.
+
+        Returns:
+            Label array of the target in LDF format. A classification
+            target comes back unchanged.
+
         """
         target_type = self._targets[target_name]
         if target_type == "mask":
@@ -1052,6 +1063,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         annotation carried a different number of instances than boxes, which
         `BatchCompose` has already refused to guess at; the excess is dropped
         so that the sample still loads.
+
+        Returns:
+            Indices of the instances to keep, in box order. The array is
+            empty when the bounding boxes of the group are missing from
+            the augmented data, and holds every instance when the group
+            has no bounding-box target.
+
         """
         if task_group not in bboxes_indices:
             if task_group in self._bbox_targets_by_group:
@@ -1111,6 +1129,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             tracked_paths: Collects the configured path of every created
                 leaf transformation, keyed by its identity.
             parent_path: Configured names of the enclosing compositions.
+
+        Returns:
+            The Albumentations or custom transformation that ``config``
+            names, with its nested ``transforms`` items created as well.
 
         Raises:
             ValueError: If a batch transform is nested inside another
@@ -1176,6 +1198,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         ``"/"`` of LDF's default task marks a name that is empty on purpose,
         while a task with no separator at all has no name to group by and is
         only ever grouped with itself.
+
+        Returns:
+            Name of the task group. It is empty when only ``"/"`` precedes
+            the task type, and ``task`` itself when nothing does.
+
         """
         group = task.removesuffix(get_task_type(task)).removesuffix("/")
         if group:
@@ -1312,6 +1339,16 @@ def _apply_pixel_transform(
     """Apply pixel transforms to the image and replay them on the sources.
 
     Only sources with a channel axis are replayed.
+
+    Returns:
+        The same ``data`` dictionary, with the image and the replayed
+        sources transformed in place. Nothing changes when ``transform``
+        holds no transforms.
+
+    Raises:
+        ValueError: If ``transform`` holds transforms and ``source_names``
+            is ``None``.
+
     """
     if not transform.transforms:
         return data
@@ -1345,6 +1382,12 @@ def _normalize_params(
             configured value from a sampled one. Nested parameters have no
             transformation of their own.
 
+    Returns:
+        The kept parameters with string keys. Values become plain Python
+        types, and other objects become strings. Arrays, sequences that
+        hold one, and values that only echo the configuration are left
+        out.
+
     """
     normalized: Params = {}
     for key, value in params.items():
@@ -1363,6 +1406,11 @@ def _is_configured(transform: Any, key: str, value: Any) -> bool:
     ``fill`` from the range it was given, and the drawn value belongs in
     the report. Keys the transformation knows nothing about, such as the
     input ``shape``, are never sampled.
+
+    Returns:
+        Whether ``key`` is in ``_STATIC_PARAMS`` and ``transform`` either
+        lacks it or holds it with the same normalized ``value``.
+
     """
     if key not in _STATIC_PARAMS:
         return False
@@ -1405,6 +1453,12 @@ def _disambiguate_paths(paths: dict[int, str]) -> dict[int, str]:
 
     The same transformation can be configured more than once, and without
     the suffix all occurrences would collapse into a single entry.
+
+    Returns:
+        A new mapping with the keys of ``paths``. Each repeated path gets
+        ``"#1"``, ``"#2"`` and so on, in insertion order. A unique path
+        stays as it is.
+
     """
     duplicated = {
         path for path, count in Counter(paths.values()).items() if count > 1

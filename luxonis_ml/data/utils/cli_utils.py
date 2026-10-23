@@ -22,6 +22,12 @@ def get_tracked_augmentations(
     A record can store its own ``"augmentations"`` metadata, which the
     loader keeps instead. The marker type tells the two apart; the shape
     alone does not.
+
+    Returns:
+        The augmentations that the loader tracked for the sample, or
+        ``None`` if the ``"augmentations"`` value is missing or is
+        record metadata.
+
     """
     augmentations = metadata.get("augmentations")
     if isinstance(augmentations, TrackedAugmentations):
@@ -112,6 +118,16 @@ def _split_from_parts(
 
     Whole numbers that sum above 1 are counts. Otherwise the parts are
     ratios, and the missing ones share the remainder to 1.
+
+    Returns:
+        A mapping of ``"train"``, ``"val"`` and ``"test"`` to their
+        values. Counts are integers, and a missing count is 0. Each
+        missing ratio gets an equal share of the remainder to 1.
+
+    Raises:
+        ValueError: If the parts sum above 1 but are not all whole
+            numbers.
+
     """
     defined = [v for v in (train, val, test) if v is not None]
     sum_ = sum(defined)
@@ -171,7 +187,7 @@ def check_exists(name: str, bucket_storage: BucketStorage) -> None:
         bucket_storage: Storage backend to query.
 
     Raises:
-        typer.Exit: If the dataset does not exist.
+        SystemExit: If the dataset does not exist.
 
     """
     if not LuxonisDataset.exists(name, bucket_storage=bucket_storage):
@@ -224,6 +240,12 @@ def _per_task_table(
     """Build a table with one row per task.
 
     The task name column appears only when some task has a name.
+
+    Returns:
+        A table titled ``title`` with one row per task. Each row holds
+        the task name, when the column is present, and the values of
+        the task joined by commas.
+
     """
     has_names = any(rows)
     table = Table(

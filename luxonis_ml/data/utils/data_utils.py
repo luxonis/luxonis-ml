@@ -59,8 +59,8 @@ def rgb_to_bool_masks(
             pixels that do not belong to any class. The background mask is
             yielded first.
 
-    Returns:
-        Iterator of class names and their boolean masks.
+    Yields:
+        The name and the boolean mask of each class.
 
     """
     color_to_id = {
@@ -205,6 +205,11 @@ def _duplicate_uuids(df: pl.LazyFrame) -> list[dict[str, Any]]:
 def _is_all_zero_keypoints(annotation_str: str) -> bool:
     """Check if a keypoints annotation has all zeros (x, y, visibility).
 
+    Returns:
+        Whether ``annotation_str`` is JSON with a ``"keypoints"`` key
+        whose points all have zero x, y and visibility. ``False`` if
+        the string does not parse or is ``None``.
+
     Examples:
         >>> _is_all_zero_keypoints('{"keypoints": [[0, 0, 0], [0, 0, 0]]}')
         True
@@ -232,6 +237,13 @@ def _duplicate_annotations(df: pl.LazyFrame) -> list[dict[str, Any]]:
     """List each annotation that repeats on one file, with its count.
 
     All-zero keypoints, empty annotations and metadata do not count.
+
+    Returns:
+        One entry for each repeated annotation, with the keys
+        ``"file_name"``, ``"task_type"``, ``"task_name"``,
+        ``"annotation"`` and ``"count"``. A segmentation annotation
+        shows as ``"<binary mask>"``.
+
     """
     filtered_df = df.filter(
         ~(
@@ -486,8 +498,12 @@ def _annotation_points(
     """Return the normalized ``(x, y)`` points of one annotation.
 
     A box gives its center, keypoints give the visible ones, and a mask
-    gives its foreground pixels after downsampling. An annotation with
-    no point gives ``None``.
+    gives its foreground pixels after downsampling.
+
+    Returns:
+        The x coordinates and the y coordinates of the points, as two
+        arrays. ``None`` if the annotation gives no point.
+
     """
     if task_type == "boundingbox":
         w, h = annotation["w"], annotation["h"]

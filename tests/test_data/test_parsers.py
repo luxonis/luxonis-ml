@@ -943,6 +943,11 @@ def ultralytics_requests(
 
     The live parser test skips without an API key, so these mocked
     calls are the only coverage of the URL contract.
+
+    Returns:
+        The list to which each mocked ``requests.get`` call appends a
+        dict with its ``url`` and ``params``.
+
     """
     calls: list[dict[str, Any]] = []
 

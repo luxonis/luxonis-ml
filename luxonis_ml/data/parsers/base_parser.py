@@ -95,6 +95,11 @@ class BaseParser(ABC):
     def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
         """Return parser issue messages collected during the last
         parse.
+
+        Returns:
+            A new list with each distinct message once, in the order
+            the parser first saw them.
+
         """
         return self._get_parser_issue_messages()
 
@@ -146,6 +151,11 @@ class BaseParser(ABC):
         and ``validation``.
 
         This maps ``valid`` -> ``val`` and ``validation`` -> val
+
+        Returns:
+            ``val`` for ``valid`` and ``validation``, else
+            ``split_name`` unchanged.
+
         """
         if split_name in {"valid", "validation"}:
             return "val"
@@ -657,8 +667,8 @@ class BaseParser(ABC):
         Args:
             generator: Dataset record generator.
 
-        Returns:
-            Generator that yields records with task names applied.
+        Yields:
+            The records with the task names applied.
 
         """
         for item in generator:

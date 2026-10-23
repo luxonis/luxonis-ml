@@ -640,6 +640,12 @@ def _instance_labels(first_id: int) -> Labels:
     Sharing the box outline means any box that keeps enough visible area to
     survive keeps a non-empty mask too, so an empty mask is a mispairing
     rather than an artifact of the patch position.
+
+    Returns:
+        Labels of the task ``"task"``: two boxes of class 0, a mask for
+        each box that holds the instance ID inside the box, and the IDs
+        ``first_id`` and ``first_id + 1`` as metadata.
+
     """
     mask = np.zeros((2, 320, 320), dtype=np.uint8)
     mask[0, 48:112, 48:112] = first_id

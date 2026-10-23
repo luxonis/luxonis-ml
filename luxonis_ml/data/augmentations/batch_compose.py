@@ -162,9 +162,17 @@ class BatchCompose(A.Compose):
     ) -> tuple[dict[str, np.ndarray], list[int], bool]:
         """Apply a batch transform to one sub-batch.
 
-        Returns the output sample, the inputs it is made of, and whether
-        the transform applied. A transform that did not apply passes its
-        first input through unchanged.
+        A transform that did not apply passes its first input through
+        unchanged.
+
+        Returns:
+            A tuple of three elements. The first is the output sample,
+            with filtered boxes and their associated labels removed. The
+            second holds the indices of the batch inputs the sample is
+            made of. These are all of them if the transform applied, else
+            those of the first input. The third is whether the transform
+            applied.
+
         """
         # Captured before padding so that a transform which does not
         # fire returns the first sample exactly as it came in.
@@ -200,6 +208,12 @@ class BatchCompose(A.Compose):
         `luxonis_ml.data.augmentations.utils.preprocess_bboxes` appends the
         index as the last column, but the wrapped bbox processor appends one
         more column for every configured label field, pushing the index left.
+
+        Returns:
+            The negative column index. It is ``-1`` without a bbox
+            processor, else ``-1`` minus the number of the processor's
+            label fields.
+
         """
         processor = self.processors.get("bboxes")
         if processor is None:
@@ -283,6 +297,12 @@ class BatchCompose(A.Compose):
         Instance masks are ``(H, W, N)``, so they need the image shape;
         without one there is nothing to fill.
 
+        Returns:
+            ``(*image_shape, count)`` for an instance mask,
+            ``(count * n_keypoints, *trailing)`` for keypoints, and
+            ``(count, *trailing)`` for any other target. ``None`` for an
+            instance mask without ``image_shape``.
+
         Examples:
             >>> shape = BatchCompose._instances_shape
             >>> shape(
@@ -314,6 +334,15 @@ class BatchCompose(A.Compose):
         other bbox field the last column is the class label. The indices are
         positions into the bbox-associated labels, stamped before filtering so
         that the survivors can be used to compact those labels in lockstep.
+
+        Returns:
+            Number of boxes in each field of ``bbox_associations`` that
+            ``data`` holds, keyed by field name.
+
+        Raises:
+            ValueError: If a non-empty field of ``bbox_associations`` has
+                fewer than two dimensions.
+
         """
         bbox_counts = {}
 
@@ -395,6 +424,13 @@ class BatchCompose(A.Compose):
         """Keep the instances of one field whose boxes survived.
 
         A field that cannot be matched to the boxes comes back as it is.
+
+        Returns:
+            The instances of ``value`` at ``indices``, in that order. If
+            ``bbox_count`` is ``0``, an empty slice of ``value``. It is
+            ``value`` unchanged if ``value`` is empty, if no box was
+            filtered, or if the field cannot be matched.
+
         """
         if bbox_count == 0:
             if target_type == "instance_mask" and value.ndim > 1:

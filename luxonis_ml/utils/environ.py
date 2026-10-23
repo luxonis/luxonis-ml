@@ -106,6 +106,12 @@ class Environ(BaseSettings):
 def _load_environ() -> Environ:
     """Return a cached Environ instance, reading .env and os.environ
     once.
+
+    Returns:
+        The settings read from ``.env`` and the process environment.
+        Later calls return the same instance until the cache is
+        cleared.
+
     """
     return Environ()
 

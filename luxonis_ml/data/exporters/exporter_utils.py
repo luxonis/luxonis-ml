@@ -242,6 +242,12 @@ def get_single_skeleton(
     """Return labels and COCO-style edges for the single skeleton.
 
     Edges are converted to 1-based indices per COCO spec.
+
+    Returns:
+        The keypoint labels of the first skeleton, and its edges as
+        pairs of 1-based keypoint indices. Both lists are empty when
+        ``allow_keypoints`` is false or ``skeletons`` is ``None``.
+
     """
     if not allow_keypoints or skeletons is None:
         return [], []
@@ -324,6 +330,11 @@ def whole_image_rows(df: pl.DataFrame, task_type: str) -> pl.DataFrame:
     """Return the rows of a task type that describe the whole image.
 
     Such a row has the instance ID -1.
+
+    Returns:
+        The rows of ``df`` whose task type is ``task_type`` and whose
+        instance ID is -1, in their original order.
+
     """
     return df.filter(
         (pl.col("task_type") == task_type) & (pl.col("instance_id") == -1)
@@ -354,6 +365,11 @@ def yolo_bbox_label(
     A row of another task type, without an annotation or without a
     class gives ``None``. An unseen class is added to ``class_to_id``
     and ``class_names``.
+
+    Returns:
+        The class ID, then the ``x``, ``y``, ``w`` and ``h`` values of the
+        annotation, with ``0.0`` for a missing one. It is ``None`` for a
+        row without a box label.
 
     Examples:
         >>> class_to_id, class_names = {}, []

@@ -22,6 +22,12 @@ def half_covered(dataset_name: str, tempdir: Path) -> LuxonisDataset:
 
     The dataset needs two classes; the loader adds no background to a
     single-channel mask. The third sample carries no mask.
+
+    Returns:
+        The dataset, with its three samples in the ``train`` split.
+        The ``dog`` and ``cat`` samples have a mask over the top half
+        of the image.
+
     """
     mask = np.zeros((SIZE, SIZE), dtype=np.uint8)
     mask[: SIZE // 2] = 1
@@ -46,6 +52,12 @@ def overlapped(dataset_name: str, tempdir: Path) -> LuxonisDataset:
 
     The masks claim 300 rows each, of the 512 an image holds, so their
     areas add up to more than the image. Their union stops at row 400.
+
+    Returns:
+        The dataset, with its one image in the ``train`` split. The
+        ``dog`` mask covers rows 0 to 299 and the ``cat`` mask rows
+        100 to 399.
+
     """
     first = np.zeros((SIZE, SIZE), dtype=np.uint8)
     first[:300] = 1

@@ -96,6 +96,16 @@ class YOLOv8Parser(BaseParser):
         Five elements are a box: ``class_id x_center y_center width
         height``. More elements are the box and keypoints when the dataset
         YAML has a ``kpt_shape``, else a polygon: ``class_id x1 y1 ...``.
+
+        Returns:
+            The LDF annotation with ``class`` and ``boundingbox``. A
+            keypoint line adds ``keypoints``, and a polygon line adds
+            ``instance_segmentation``.
+
+        Raises:
+            ValueError: If ``elements`` holds fewer than five values,
+                or if the image of a polygon line cannot be read.
+
         """
         if len(elements) < 5:
             raise ValueError(
@@ -151,6 +161,14 @@ class YOLOv8Parser(BaseParser):
     ) -> tuple[Format | None, list[str]]:
         """Detect whether a dataset uses Ultralytics or Roboflow
         layout.
+
+        Returns:
+            The detected format and a list of folder names. For
+            Roboflow, the list holds the present ``train``, ``valid``
+            and ``test`` folders. For Ultralytics, it holds all folders
+            in ``dataset_dir``. ``None`` and an empty list if neither
+            layout matches.
+
         """
         roboflow_splits = ("train", "valid", "test")
         ultralytics_folders = ["images", "labels"]
@@ -389,6 +407,11 @@ class YOLOv8Parser(BaseParser):
 def _annotation_lines(ann_path: Path) -> list[str]:
     """Return the non-blank lines of a label file; none for a missing file.
 
+    Returns:
+        The lines of ``ann_path`` that hold more than whitespace, with
+        their line endings kept. An empty list if the file does not
+        exist.
+
     Examples:
         >>> _annotation_lines(Path("no_such_labels.txt"))
         []
@@ -406,6 +429,10 @@ def _keypoints_array(
     """Reshape flat keypoint elements into ``(x, y, visibility)`` rows.
 
     Two-dimensional keypoints get full visibility.
+
+    Returns:
+        A float array with one ``(x, y, visibility)`` row per keypoint.
+        The added visibility of two-dimensional keypoints is 2.
 
     Examples:
         >>> _keypoints_array(["0.1", "0.2", "0.3", "0.4"], (2, 2)).tolist()
