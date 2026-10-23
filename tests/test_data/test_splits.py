@@ -1,4 +1,7 @@
 import math
+import os
+import subprocess
+import sys
 from collections import defaultdict
 from collections.abc import Mapping
 from pathlib import Path
@@ -7,7 +10,7 @@ from typing import NoReturn
 import pytest
 from hypothesis import assume, given
 from hypothesis import strategies as st
-from loguru import logger
+from typeguard import TypeCheckError
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
@@ -140,7 +143,7 @@ def test_resolve_splits_reads_every_spelling_of_one_the_same_way():
 
 def test_resolve_splits_rejects_a_mapping_that_is_neither():
     with pytest.raises(TypeError, match="ratios or filepath lists"):
-        _resolve_splits({"train": 0.5, "val": ["a.jpg"]})  # type: ignore
+        _resolve_splits({"train": 0.5, "val": ["a.jpg"]})  # pyright: ignore[reportArgumentType]
 
 
 @pytest.mark.parametrize(
@@ -340,13 +343,14 @@ def test_make_splits_is_atomic(
     assert not list(dataset._metadata_path.glob("*.tmp"))
 
 
-def test_definitions_skip_a_non_filepath(
+def test_definitions_reject_a_non_filepath(
     bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
 ):
-    """The method does not check the elements of a file list.
+    """The method checks every element of a file list.
 
-    Before the fix, an ``int`` in a definition list reached ``Path()``
-    and raised a TypeError far away from the caller.
+    An ``int`` that is not the first element of a definition list must
+    fail at the call. It must not reach ``Path()`` far away from the
+    caller.
     """
     paths = [str(create_image(i, tempdir)) for i in range(4)]
 
@@ -357,30 +361,44 @@ def test_definitions_skip_a_non_filepath(
     dataset = create_dataset(
         dataset_name, generator(), bucket_storage, splits=False
     )
+    old_splits = dataset.get_splits()
 
-    messages: list[str] = []
-    sink_id = logger.add(
-        lambda message: messages.append(str(message).strip()),
-        format="{message}",
-        level="WARNING",
-    )
-    try:
+    with pytest.raises(TypeCheckError, match="item 1 of value of key 'val'"):
         dataset.make_splits(
             {
                 "train": paths[:2],
-                "val": [1, None],  # type: ignore
-                "test": paths[2:],
+                "val": [paths[2], 1],  # pyright: ignore[reportArgumentType]
+                "test": paths[3:],
             }
         )
-    finally:
-        logger.remove(sink_id)
 
-    splits = dataset.get_splits()
-    assert splits is not None
-    assert len(splits["train"]) == 2
-    assert len(splits["test"]) == 2
-    assert not splits["val"]
-    assert sum("not a filepath; skipping" in m for m in messages) == 2
+    assert dataset.get_splits() == old_splits
+
+
+def test_definitions_reject_a_non_filepath_under_optimization(
+    dataset_name: str, tempdir: Path
+):
+    """Keep the element check under ``python -O``."""
+    path = str(create_image(0, tempdir))
+
+    def generator() -> DatasetIterator:
+        yield {"file": path, "annotation": {"class": "dog"}}
+
+    dataset = create_dataset(dataset_name, generator(), splits=False)
+    code = f"""
+from typeguard import TypeCheckError
+from luxonis_ml.data import LuxonisDataset
+
+dataset = LuxonisDataset({dataset_name!r})
+try:
+    dataset.make_splits({{"train": [{path!r}, 1]}})
+except TypeCheckError:
+    pass
+else:
+    raise RuntimeError("make_splits accepted a non-path element")
+"""
+    env = os.environ | {"LUXONISML_BASE_PATH": str(dataset._base_path)}
+    subprocess.run([sys.executable, "-O", "-c", code], check=True, env=env)
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")

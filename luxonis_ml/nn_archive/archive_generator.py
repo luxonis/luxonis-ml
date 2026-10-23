@@ -8,6 +8,10 @@ from luxonis_ml.typing import PathType
 
 from .config import Config
 
+_WRITE_MODES: dict[
+    Literal["xz", "gz", "bz2"], Literal["w:xz", "w:gz", "w:bz2"]
+] = {"xz": "w:xz", "gz": "w:gz", "bz2": "w:bz2"}
+
 
 class ArchiveGenerator:
     """Build NN Archive files from configuration and model executables.
@@ -56,7 +60,7 @@ class ArchiveGenerator:
             raise ValueError(
                 "Invalid compression type. Must be one of 'xz', 'gz', 'bz2'."
             )
-        self.compression = compression
+        self.compression: Literal["xz", "gz", "bz2"] = compression
 
         self.archive_name = (
             archive_name
@@ -75,16 +79,12 @@ class ArchiveGenerator:
             Path to the generated archive.
 
         """
-
         # create an in-memory file-like config object
         json_data, json_buffer = self._make_json()
 
         # construct .tar archive
         archive_path = self.save_path / self.archive_name
-        with tarfile.open(
-            archive_path,
-            f"w:{self.compression}",  # type: ignore
-        ) as tar:
+        with tarfile.open(archive_path, _WRITE_MODES[self.compression]) as tar:
             # add executables
             for executable_path in map(Path, self.executables_paths):
                 tar.add(executable_path, arcname=executable_path.name)
@@ -103,7 +103,6 @@ class ArchiveGenerator:
             Encoded JSON data and a file-like buffer containing it.
 
         """
-
         # read-in config data as dict
         data = json.loads(self.cfg.model_dump_json())
 

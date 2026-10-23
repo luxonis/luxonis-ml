@@ -4,6 +4,7 @@ from typing import Any
 from uuid import uuid4
 
 from loguru import logger
+from typeguard import check_type
 
 from luxonis_ml.telemetry.backends.base import (
     TELEMETRY_BACKENDS,
@@ -291,22 +292,24 @@ class Telemetry:
     ) -> None:
         """Merge context from providers into the event context."""
         for provider in providers:
-            try:
-                extra = provider(self)
-            except Exception as exc:
-                logger.debug("{} ({})", error_message, type(exc).__name__)
-                continue
-            if extra is None:
-                continue
-            if not isinstance(extra, Mapping):
-                logger.debug(
-                    "Telemetry context provider returned a non-mapping; skipping."
-                )
-                continue
+            self._merge_context_provider(context, provider, error_message)
+
+    def _merge_context_provider(
+        self,
+        context: dict[str, Any],
+        provider: ContextProvider | SystemContextProvider,
+        error_message: str,
+    ) -> None:
+        """Merge the context of one provider, or skip it if it fails."""
+        try:
+            extra = provider(self)
+            check_type(extra, Mapping)
             if self._config.allow_reserved_overrides:
                 context.update(extra)
             else:
                 _update_unreserved(context, extra)
+        except Exception as exc:
+            logger.debug("{} ({})", error_message, type(exc).__name__)
 
     def _add_provider(
         self,

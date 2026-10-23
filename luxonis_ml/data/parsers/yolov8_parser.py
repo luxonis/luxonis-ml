@@ -167,6 +167,7 @@ class YOLOv8Parser(BaseParser):
         return None, []
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -211,6 +212,7 @@ class YOLOv8Parser(BaseParser):
         }
 
     @classmethod
+    @override
     def validate(cls, dataset_dir: Path) -> bool:
         dir_format, splits = cls._detect_dataset_dir_format(dataset_dir)
         if dir_format is None:
@@ -262,6 +264,7 @@ class YOLOv8Parser(BaseParser):
             )
         return discovered
 
+    @override
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -329,6 +332,7 @@ class YOLOv8Parser(BaseParser):
 
         return added_train_imgs, added_val_imgs, added_test_imgs
 
+    @override
     def from_split(
         self, image_dir: Path, annotation_dir: Path, classes_path: Path
     ) -> ParserOutput:
@@ -347,7 +351,7 @@ class YOLOv8Parser(BaseParser):
             and added images.
 
         """
-        with open(classes_path) as f:
+        with classes_path.open() as f:
             classes_data = yaml.safe_load(f)
 
         if isinstance(classes_data["names"], list):
@@ -396,7 +400,7 @@ def _annotation_lines(ann_path: Path) -> list[str]:
     """
     if not ann_path.exists():
         return []
-    with open(ann_path) as f:
+    with ann_path.open() as f:
         return [line for line in f if line.strip()]
 
 

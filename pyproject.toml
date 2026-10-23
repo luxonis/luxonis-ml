@@ -27,6 +27,7 @@ dependencies = [
   "rich~=15.0",
   "semver~=3.0",
   "typeguard~=4.1",
+  "typing-extensions~=4.5",
 ]
 
 [project.optional-dependencies]
@@ -114,24 +115,27 @@ docstring-code-format = true
 [tool.ruff.lint]
 select = [
   "ANN",
+  "ASYNC",
   "B",
   "C4",
   "D",
   "DTZ",
   "E",
   "ERA",
+  "EXE",
   "F",
   "FLY",
   "FURB",
+  "G",
   "I",
   "ICN",
   "INP",
   "INT",
   "ISC",
+  "LOG",
   "NPY",
-  "PERF101",
-  "PERF102",
-  "PERF402",
+  "PERF",
+  "PGH",
   "PIE",
   "PL",
   "PT",
@@ -163,31 +167,20 @@ ignore = [
   "D104",
   "D105",
   "D107",
-  "D202",
   "D203",
   "D205",
-  "D212",
   "D213",
   "E501",
-  "ICN002",
   "NPY002",
   "PLC0415",
   "PLR0911",
-  "PLR0912",
   "PLR0913",
   "PLR0915",
   "PLR2004",
-  "PLW2901",
-  "PTH123",
-  "PYI051",
-  "RET503",
-  "RUF012",
   "S101",
   "S311",
   "S603",
-  "SIM108",
   "TRY003",
-  "W191",
 ]
 unfixable = ["B905"]
 
@@ -211,23 +204,17 @@ warnings-as-errors = true
 
 [tool.pyright]
 pythonVersion = "3.10"
-exclude = [
-  "**/node_modules",
-  "**/__pycache__",
-  "**/.*",
-  "build",
-  "dist",
-  "luxonis_ml/tracker",
-  "examples",
-  "__main__.py",
-]
-typeCheckingMode = "basic"
+exclude = ["build", "dist", "luxonis_ml/tracker"]
+typeCheckingMode = "standard"
 reportMissingTypeStubs = "none"
-reportPrivateImportUsage = "none"
 reportPrivateUsage = "none"
-reportIncompatibleVariableOverride = "none"
 reportIncompatibleMethodOverride = "none"
-reportUnnecessaryIsInstance = "none"
+reportImplicitOverride = "error"
+reportUnnecessaryTypeIgnoreComment = "error"
+reportUnnecessaryCast = "error"
+reportUnnecessaryComparison = "error"
+reportUnreachable = "error"
+reportUninitializedInstanceVariable = "error"
 
 [tool.pytest]
 doctest_optionflags = [

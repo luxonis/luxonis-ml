@@ -245,10 +245,7 @@ def get_single_skeleton(
     """
     if not allow_keypoints or skeletons is None:
         return [], []
-    if isinstance(skeletons, dict):
-        sk = next(iter(skeletons.values()))
-    else:  # list
-        sk = skeletons[0]
+    sk = next(iter(skeletons.values()))
     labels = list(sk.get("labels", []))
     edges = sk.get("edges", [])
     # COCO expects 1-based indices in skeleton
@@ -273,7 +270,7 @@ def decode_rle_with_pycoco(ann: dict[str, Any]) -> np.ndarray:
     # pycocotools expects an RLE object with 'size' and 'counts'
     rle = {"size": [h, w], "counts": counts.encode("utf-8")}
 
-    m = maskUtils.decode(rle)  # type: ignore[arg-type]
+    m = maskUtils.decode(rle)  # pyright: ignore[reportArgumentType]
     return np.array(m, dtype=np.uint8, order="C")
 
 
@@ -306,7 +303,7 @@ def annotation_to_polygons(
     W = int(ann["width"])
     rle = {"size": [H, W], "counts": ann["counts"]}
     try:
-        mask = (maskUtils.decode(rle) > 0).astype(np.uint8)  # type: ignore
+        mask = (maskUtils.decode(rle) > 0).astype(np.uint8)  # pyright: ignore[reportArgumentType]
         contours, _ = cv2.findContours(
             mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )

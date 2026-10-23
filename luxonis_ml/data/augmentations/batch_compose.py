@@ -107,7 +107,6 @@ class BatchCompose(A.Compose):
             return data_batch[0]
 
         for data in data_batch:
-            original_image_key = data.pop("_original_image_key", None)
             self.preprocess(data)
 
         for transform in self.transforms:
@@ -147,11 +146,7 @@ class BatchCompose(A.Compose):
 
         data = self._make_contiguous(data)
 
-        data = self.postprocess(data)
-
-        data["_original_image_key"] = original_image_key
-
-        return data
+        return self.postprocess(data)
 
     def _apply_once(
         self,
@@ -171,7 +166,7 @@ class BatchCompose(A.Compose):
         first_sample = {key: value[0] for key, value in batch.items()}
         self._pad_absent_instances(batch, keypoints_per_instance)
 
-        data = transform(**batch)  # type: ignore
+        data = transform(**batch)  # pyright: ignore[reportArgumentType]
 
         # A transform that applied collapsed the batched lists
         # `yield_batches` produced into single values. Empty
@@ -459,8 +454,7 @@ class BatchCompose(A.Compose):
 
     @staticmethod
     def _make_contiguous(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
-        for key, value in data.items():
-            if isinstance(value, np.ndarray):
-                value = np.ascontiguousarray(value)
-            data[key] = value
-        return data
+        """Return the arrays of ``data`` in C-contiguous memory."""
+        return {
+            key: np.ascontiguousarray(value) for key, value in data.items()
+        }

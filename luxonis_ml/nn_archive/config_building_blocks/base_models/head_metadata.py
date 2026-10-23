@@ -301,10 +301,11 @@ def _infer_yolo_tasks(defined_params: set[str]) -> list[str]:
         ValueError: Invalid combination of parameters. No specific task can be inferred.
 
     """
-    tasks = []
-    for task in ("instance_segmentation", "keypoint_detection"):
-        if all(f in defined_params for f in _YOLO_REQUIRED_FIELDS[task]):
-            tasks.append(task)
+    tasks = [
+        task
+        for task in ("instance_segmentation", "keypoint_detection")
+        if all(f in defined_params for f in _YOLO_REQUIRED_FIELDS[task])
+    ]
     if defined_params.isdisjoint(_YOLO_DETECTION_EXCLUDED_FIELDS):
         tasks.append("object_detection")
 

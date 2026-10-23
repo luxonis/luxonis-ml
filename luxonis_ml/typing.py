@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeGuard, TypeVar
 
 import typeguard
 from pydantic import BaseModel, ConfigDict
+from typing_extensions import override
 
 # When used without installed dependencies
 if TYPE_CHECKING:  # pragma: no cover
@@ -115,6 +116,7 @@ class LoaderOutput(
     labels: dict[str, "np.ndarray"]
     metadata: Params
 
+    @override
     def __iter__(self) -> Iterator["np.ndarray | dict[str, np.ndarray]"]:
         """Yield the legacy ``(image_or_images, labels)`` tuple shape.
 
@@ -125,6 +127,7 @@ class LoaderOutput(
         yield self.images if len(self.images) > 1 else self.image
         yield self.labels
 
+    @override
     def __getitem__(self, index: int) -> "np.ndarray | dict[str, np.ndarray]":
         """Return legacy tuple-style values by index.
 
@@ -173,7 +176,7 @@ class BaseModelExtraForbid(BaseModel):
 
     """
 
-    model_config: ConfigDict = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid")
 
 
 class ConfigItem(BaseModelExtraForbid):

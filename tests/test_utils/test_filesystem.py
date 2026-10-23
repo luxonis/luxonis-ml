@@ -337,7 +337,6 @@ def test_mlflow_attributes_are_public(tempdir: Path):
     ``__init__``, so the accessors have to be safe (``None``) for every
     other protocol instead of raising.
     """
-
     fs = LuxonisFileSystem(
         "mlflow://experiment/run/nested/config.yaml",
         tracking_uri="http://127.0.0.1:1",
@@ -610,10 +609,7 @@ def compare_directories(
             file_path.read_text()
             == (orig_dir_path / f"file_{i}.txt").read_text()
         )
-    if flat:
-        file_path = "nested_file.txt"
-    else:
-        file_path = "nested/nested_file.txt"
+    file_path = "nested_file.txt" if flat else "nested/nested_file.txt"
     nested_file = dir_path / file_path
 
     assert nested_file.exists()

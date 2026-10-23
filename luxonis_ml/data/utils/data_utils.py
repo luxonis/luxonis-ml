@@ -3,7 +3,6 @@
 import hashlib
 import json
 import uuid
-from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from typing import Any
 
@@ -86,6 +85,9 @@ def rgb_to_bool_masks(
         yield class_name, segmentation_ids == class_id
 
 
+_logged_inferred_classes: set[tuple[str | None, str]] = set()
+
+
 def infer_task(
     old_task: str,
     class_name: str | None,
@@ -105,14 +107,12 @@ def infer_task(
         if no task or more than one task holds it.
 
     """
-    if not hasattr(infer_task, "_logged_inferred_classes"):
-        infer_task._logged_inferred_classes = defaultdict(bool)
 
     def _log_once(
         cls_: str | None, task: str, message: str, level: str = "info"
     ) -> None:
-        if not infer_task._logged_inferred_classes[(cls_, task)]:
-            infer_task._logged_inferred_classes[(cls_, task)] = True
+        if (cls_, task) not in _logged_inferred_classes:
+            _logged_inferred_classes.add((cls_, task))
             getattr(logger, level)(message)
 
     inferred_task = None
@@ -265,14 +265,16 @@ def _duplicate_annotations(df: pl.LazyFrame) -> list[dict[str, Any]]:
     ) in duplicate_annotation.iter_rows():
         if task_is_metadata(task_type):
             continue
-        if task_type == "segmentation":
-            annotation = "<binary mask>"
         result.append(
             {
                 "file_name": file_name,
                 "task_type": task_type,
                 "task_name": task_name,
-                "annotation": annotation,
+                "annotation": (
+                    "<binary mask>"
+                    if task_type == "segmentation"
+                    else annotation
+                ),
                 "count": count,
             }
         )
@@ -510,7 +512,7 @@ def _annotation_points(
         "counts": annotation["counts"],
         "size": [annotation["height"], annotation["width"]],
     }
-    mask = mask_utils.decode(rle)  # type: ignore
+    mask = mask_utils.decode(rle)  # pyright: ignore[reportArgumentType]
     if downsample_factor > 1:
         mask = mask[::downsample_factor, ::downsample_factor]
     rows_idx, cols_idx = np.where(mask)

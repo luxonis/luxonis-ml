@@ -8,6 +8,7 @@ from typing import Any, cast
 import pycocotools.mask as maskUtils
 from loguru import logger
 from PIL import Image
+from typing_extensions import override
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
@@ -73,9 +74,11 @@ class CocoExporter(BaseExporter):
             return {"train": "train", "val": "valid", "test": "test"}
         return {"train": "train", "val": "validation", "test": "test"}
 
+    @override
     def supported_ann_types(self) -> list[str]:
         return DatasetType.COCO.supported_annotation_formats
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
         exporter_specific_annotation_warning(
@@ -297,8 +300,8 @@ class CocoExporter(BaseExporter):
                 "size": [H, W],
                 "counts": counts.encode("utf-8"),
             }
-            area = float(maskUtils.area(rle_runtime))  # type: ignore[arg-type]
-            bbox = maskUtils.toBbox(rle_runtime).tolist()  # type: ignore[arg-type]
+            area = float(maskUtils.area(rle_runtime))  # pyright: ignore[reportArgumentType]
+            bbox = maskUtils.toBbox(rle_runtime).tolist()  # pyright: ignore[reportArgumentType]
             ann["area"] = area
             if not ann.get("bbox"):
                 ann["bbox"] = bbox
@@ -357,6 +360,7 @@ class CocoExporter(BaseExporter):
             ann.setdefault("bbox", [0.0, 0.0, 0.0, 0.0])
             ann.setdefault("area", 0.0)
 
+    @override
     def _dump_annotations(
         self,
         annotation_splits: dict[str, dict[str, Any]],
@@ -378,6 +382,7 @@ class CocoExporter(BaseExporter):
                 json.dumps(split_data, indent=2), encoding="utf-8"
             )
 
+    @override
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:

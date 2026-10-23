@@ -26,7 +26,8 @@ def get_file(
     remote_path: PosixPathType,
     local_path: PathType,
     mlflow_instance: ModuleType | None = ...,
-    default: PathType = ...,
+    *,
+    default: PathType,
 ) -> Path: ...
 
 
@@ -59,7 +60,7 @@ def find_filepath_uuid(
     filepath: PathType,
     index: pl.DataFrame | None,
     *,
-    raise_on_missing: Literal[True] = ...,
+    raise_on_missing: Literal[True],
 ) -> str: ...
 
 
@@ -130,7 +131,7 @@ def find_filepath_group_id(
     filepath: PathType,
     index: pl.DataFrame | None,
     *,
-    raise_on_missing: Literal[True] = ...,
+    raise_on_missing: Literal[True],
 ) -> str: ...
 
 
@@ -203,7 +204,7 @@ def get_dir(
     local_dir: PathType,
     mlflow_instance: ModuleType | None = ...,
     *,
-    default: Path = ...,
+    default: Path,
 ) -> Path: ...
 
 

@@ -40,7 +40,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Union, get_args, get_origin
 
-from pydantic import AliasChoices, AliasPath, BaseModel, ValidationError
+from pydantic import AliasChoices, BaseModel, ValidationError
 from pydantic.fields import FieldInfo
 from pydantic_core import ErrorDetails
 from rich.console import Console, Group, RenderableType
@@ -748,7 +748,7 @@ def _validation_aliases(field: FieldInfo) -> list[str]:
     for choice in choices:
         if isinstance(choice, str):
             keys.append(choice)
-        elif isinstance(choice, AliasPath) and choice.path:
+        elif choice.path:
             keys.append(str(choice.path[0]))
     return keys
 

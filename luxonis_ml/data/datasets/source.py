@@ -108,9 +108,6 @@ class LuxonisSource(BaseModelExtraForbid):
     @classmethod
     def _validate_components(cls, components: Any) -> Any:
         if isinstance(components, list):
-            migrated_components = {}
-            for component in components:
-                component = LuxonisComponent(**component)
-                migrated_components[component.name] = component
-            return migrated_components
+            migrated = [LuxonisComponent(**c) for c in components]
+            return {component.name: component for component in migrated}
         return components

@@ -117,7 +117,7 @@ class COCOParser(BaseParser):
     def _is_coco_json(json_path: Path) -> bool:
         """Check if JSON file has required COCO format fields."""
         try:
-            with open(json_path) as f:
+            with json_path.open() as f:
                 data = json.load(f)
             if not isinstance(data, dict):
                 return False
@@ -134,6 +134,7 @@ class COCOParser(BaseParser):
             return False
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -156,6 +157,7 @@ class COCOParser(BaseParser):
         return {"image_dir": image_dir, "annotation_path": json_path}
 
     @classmethod
+    @override
     def validate(cls, dataset_dir: Path) -> bool:
         dir_format, splits = cls._detect_dataset_dir_format(dataset_dir)
         if dir_format is None:
@@ -180,6 +182,7 @@ class COCOParser(BaseParser):
             discovered[cls._canonicalize_split_name(split_name)] = split_kwargs
         return discovered
 
+    @override
     def from_dir(
         self,
         dataset_dir: Path,
@@ -273,6 +276,7 @@ class COCOParser(BaseParser):
             )
         return split_definitions
 
+    @override
     def from_split(
         self, image_dir: Path, annotation_path: Path
     ) -> ParserOutput:
@@ -296,7 +300,7 @@ class COCOParser(BaseParser):
             and added images.
 
         """
-        with open(annotation_path) as f:
+        with annotation_path.open() as f:
             annotation_data = json.load(f)
 
         coco_images = annotation_data["images"]
@@ -601,7 +605,7 @@ def clean_annotations(annotation_path: Path) -> Path:
         "000000578492.jpg",
         "000000531721.jpg",
     ]
-    with open(annotation_path) as f:
+    with annotation_path.open() as f:
         annotation_data = json.load(f)
 
     filtered_images = [
@@ -624,7 +628,7 @@ def clean_annotations(annotation_path: Path) -> Path:
     annotation_data["annotations"] = filtered_annotations
 
     cleaned_annotation_path = annotation_path.with_name("labels_fixed.json")
-    with open(cleaned_annotation_path, "w") as f:
+    with cleaned_annotation_path.open("w") as f:
         json.dump(annotation_data, f)
 
     return cleaned_annotation_path

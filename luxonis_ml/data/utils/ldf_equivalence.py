@@ -3,24 +3,23 @@ import json
 from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Union, cast
+from typing import Any, cast
 
 import numpy as np
 import polars as pl
 from pycocotools import mask as mask_utils
+from typeguard import typechecked
 
+from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
 from luxonis_ml.data.exporters import PreparedLDF
 from luxonis_ml.utils.environ import environ
-
-if TYPE_CHECKING:
-    from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
 
 LDFCollector = Callable[[PreparedLDF], Any]
 
 
 def ldf_equivalent(
-    previous_dataset: Union[str, "LuxonisDataset"],
-    new_dataset: Union[str, "LuxonisDataset"],
+    previous_dataset: str | LuxonisDataset,
+    new_dataset: str | LuxonisDataset,
 ) -> bool:
     """Return whether two datasets are equivalent in Luxonis Data Format.
 
@@ -33,7 +32,7 @@ def ldf_equivalent(
         Whether the datasets are equivalent.
 
     Raises:
-        TypeError: If either argument is neither a dataset name nor a
+        TypeCheckError: If either argument is neither a dataset name nor a
             `LuxonisDataset`.
         ValueError: If a dataset name matches multiple local datasets.
         FileNotFoundError: If a named local dataset, split metadata,
@@ -56,10 +55,11 @@ class LDFEquivalence:
         return hashlib.sha256(path.read_bytes()).hexdigest()
 
     @classmethod
+    @typechecked
     def ldf_equivalent(
         cls,
-        previous_dataset: Union[str, "LuxonisDataset"],
-        new_dataset: Union[str, "LuxonisDataset"],
+        previous_dataset: str | LuxonisDataset,
+        new_dataset: str | LuxonisDataset,
     ) -> bool:
         """Return whether two datasets are equivalent.
 
@@ -72,7 +72,7 @@ class LDFEquivalence:
             Whether the datasets are equivalent.
 
         Raises:
-            TypeError: If either argument is neither a dataset name nor a
+            TypeCheckError: If either argument is neither a dataset name nor a
                 `LuxonisDataset`.
             ValueError: If a dataset name matches multiple local datasets.
             FileNotFoundError: If a named local dataset, split metadata,
@@ -92,8 +92,8 @@ class LDFEquivalence:
     @classmethod
     def equivalent(
         cls,
-        previous_dataset: Union[str, "LuxonisDataset"],
-        new_dataset: Union[str, "LuxonisDataset"],
+        previous_dataset: str | LuxonisDataset,
+        new_dataset: str | LuxonisDataset,
     ) -> bool:
         """Alias for `ldf_equivalent`.
 
@@ -106,7 +106,7 @@ class LDFEquivalence:
             Whether the datasets are equivalent.
 
         Raises:
-            TypeError: If either argument is neither a dataset name nor a
+            TypeCheckError: If either argument is neither a dataset name nor a
                 `LuxonisDataset`.
             ValueError: If a dataset name matches multiple local datasets.
             FileNotFoundError: If a named local dataset, split metadata,
@@ -363,7 +363,7 @@ class LDFEquivalence:
                             "counts": d["counts"].encode("utf-8"),
                             "size": [d["height"], d["width"]],
                         }
-                        mask = mask_utils.decode(rle).astype(bool)  # type: ignore
+                        mask = mask_utils.decode(rle).astype(bool)  # pyright: ignore[reportArgumentType]
                         masks.append(mask)
 
             if masks:
@@ -383,13 +383,12 @@ class LDFEquivalence:
         for key, entry in grouped:
             file_path, _gid = cast(tuple[str, str], key)
             hashed_key = (cls.file_sha256(Path(file_path)),)
-            classes = []
-            for row in entry.iter_rows(named=True):
-                if (
-                    row["task_type"] == "classification"
-                    and row["instance_id"] == -1
-                ):
-                    classes.append(row["class_name"])
+            classes = [
+                row["class_name"]
+                for row in entry.iter_rows(named=True)
+                if row["task_type"] == "classification"
+                and row["instance_id"] == -1
+            ]
             if classes:
                 out.setdefault(hashed_key, Counter()).update(classes)
         return out
@@ -406,13 +405,12 @@ class LDFEquivalence:
         for key, entry in grouped:
             file_path, _gid = cast(tuple[str, str], key)
             hashed_key = (cls.file_sha256(Path(file_path)),)
-            classes = []
-            for row in entry.iter_rows(named=True):
-                if (
-                    row["task_type"] == "segmentation"
-                    and row["instance_id"] == -1
-                ):
-                    classes.append(row["class_name"])
+            classes = [
+                row["class_name"]
+                for row in entry.iter_rows(named=True)
+                if row["task_type"] == "segmentation"
+                and row["instance_id"] == -1
+            ]
             if classes:
                 out.setdefault(hashed_key, Counter()).update(classes)
         return out
@@ -443,7 +441,7 @@ class LDFEquivalence:
                             "counts": d["counts"].encode("utf-8"),
                             "size": [d["height"], d["width"]],
                         }
-                        mask = mask_utils.decode(rle).astype(bool)  # type: ignore
+                        mask = mask_utils.decode(rle).astype(bool)  # pyright: ignore[reportArgumentType]
                         out.setdefault((img_hash, class_name), []).append(mask)
 
         return out
@@ -531,9 +529,6 @@ class LDFEquivalence:
     def _to_prepared_ldf(ldf_like: Any) -> PreparedLDF:
         if isinstance(ldf_like, PreparedLDF):
             return ldf_like
-
-        from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
-
         if isinstance(ldf_like, LuxonisDataset):
             return PreparedLDF.from_dataset(ldf_like)
 
@@ -552,19 +547,11 @@ class LDFEquivalence:
 
     @staticmethod
     def _prepared_ldf_from_public_input(
-        dataset: Union[str, "LuxonisDataset"],
+        dataset: str | LuxonisDataset,
     ) -> PreparedLDF:
         if isinstance(dataset, str):
             return LDFEquivalence._prepared_ldf_from_name(dataset)
-
-        from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
-
-        if isinstance(dataset, LuxonisDataset):
-            return PreparedLDF.from_dataset(dataset)
-
-        raise TypeError(
-            "ldf_equivalent() expects dataset names or LuxonisDataset instances."
-        )
+        return PreparedLDF.from_dataset(dataset)
 
     @staticmethod
     def _local_dataset_path(dataset_name: str) -> Path | None:

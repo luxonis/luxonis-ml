@@ -91,8 +91,7 @@ class LuxonisLoader(BaseLoader):
         dataset: LuxonisDataset,
         view: str | list[str] = "train",
         *,
-        augmentation_engine: Literal["albumentations"]
-        | str = "albumentations",
+        augmentation_engine: str = "albumentations",
         augmentation_config: list[Params] | PathType | None = None,
         height: int | None = None,
         width: int | None = None,
@@ -188,7 +187,6 @@ class LuxonisLoader(BaseLoader):
                 )
 
         """
-
         self.dataset = dataset
 
         if self.dataset.is_remote:
@@ -281,7 +279,7 @@ class LuxonisLoader(BaseLoader):
             raise RuntimeError(
                 "Cannot find splits! Ensure you call dataset.make_splits()"
             )
-        with open(splits_path) as file:
+        with splits_path.open() as file:
             splits = json.load(file)
 
         instances: list[str] = []
@@ -554,7 +552,7 @@ class LuxonisLoader(BaseLoader):
             data["height"], data["width"] = image_shape[:2]
             data["points"] = [tuple(p) for p in data["points"]]
 
-        return task, instance_id, load_annotation(task_type, data)  # type: ignore
+        return task, instance_id, load_annotation(task_type, data)  # pyright: ignore[reportArgumentType]
 
     def _class_id(self, row: tuple) -> int:
         """Return the class index of a row, or 0 for a row without a class."""
@@ -578,7 +576,7 @@ class LuxonisLoader(BaseLoader):
             values.sort(key=lambda x: x[0])
             metadata = [value for _, value in values]
             if not self._keep_categorical_as_strings and task in encodings:
-                metadata = [encodings[task][m] for m in metadata]  # type: ignore
+                metadata = [encodings[task][m] for m in metadata]  # pyright: ignore[reportArgumentType]
             labels[task] = np.array(metadata)
         return labels
 
@@ -710,7 +708,7 @@ class LuxonisLoader(BaseLoader):
 
         metadata = deepcopy(metadata_batch[0])
 
-        metadata["batch_augmentation_metadata"] = [  # type: ignore
+        metadata["batch_augmentation_metadata"] = [
             {
                 "input_index": i,
                 "sample_metadata": deepcopy(m),
@@ -721,7 +719,7 @@ class LuxonisLoader(BaseLoader):
 
     def _init_augmentations(
         self,
-        augmentation_engine: Literal["albumentations"] | str,
+        augmentation_engine: str,
         augmentation_config: list[Params] | PathType,
         *,
         height: int | None,
@@ -732,7 +730,7 @@ class LuxonisLoader(BaseLoader):
         bbox_area_threshold: float = 0.0004,
     ) -> AugmentationEngine | None:
         if isinstance(augmentation_config, PathType):
-            with open(augmentation_config) as file:
+            with Path(augmentation_config).open() as file:
                 augmentation_config = cast(
                     list[Params], yaml.safe_load(file) or []
                 )

@@ -8,6 +8,7 @@ from typing import Any, cast
 import cv2
 import numpy as np
 import pytest
+from typing_extensions import override
 
 from luxonis_ml.data import (
     BucketStorage,
@@ -29,7 +30,7 @@ from luxonis_ml.utils import LuxonisFileSystem
 
 from .utils import create_dataset, create_image
 
-AUGMENTATIONS_CONFIG: list[Params] = [  # type: ignore[reportAssignmentType]
+AUGMENTATIONS_CONFIG: list[Params] = [
     {
         "name": "Mosaic4",
         "params": {"p": 1, "out_width": 512, "out_height": 512},
@@ -161,10 +162,12 @@ class CompatibilityOnlyEngine(
         )
         type(self).last_is_validation_pipeline = is_validation_pipeline
 
+    @override
     def apply(self, data: list[LoaderMultiOutput]) -> LoaderMultiOutput:
         return data[0]
 
     @property
+    @override
     def batch_size(self) -> int:
         return 1
 
@@ -173,6 +176,7 @@ class CompatibilityBatchEngine(
     CompatibilityOnlyEngine, register_name="compatibility_batch_engine"
 ):
     @property
+    @override
     def batch_size(self) -> int:
         return 2
 
@@ -180,10 +184,12 @@ class CompatibilityBatchEngine(
 class SelectiveBatchEngine(
     CompatibilityBatchEngine, register_name="selective_batch_engine"
 ):
+    @override
     def apply(self, data: list[LoaderMultiOutput]) -> LoaderMultiOutput:
         return data[1]
 
     @property
+    @override
     def batch_augmentation_indices(self) -> list[int]:
         return [1]
 
@@ -630,7 +636,7 @@ def test_loader_merges_metadata_only_for_applied_batch_augmentations(
         } == {0, 1}
         assert (
             metadata["record_id"]
-            == cast(Params, batch_metadata[0]["sample_metadata"])["record_id"]
+            == batch_metadata[0]["sample_metadata"]["record_id"]
         )
     else:
         assert metadata in (
@@ -712,7 +718,7 @@ def load_annotations(annotation_name: str) -> list[dict[str, Any]]:
         remote_path = f"gs://luxonis-test-bucket/luxonis-ml-test-data/test-augmentation-data/{annotation_name}"
         local_path = LuxonisFileSystem.download(remote_path, dest=dest_dir)
 
-    with open(local_path) as f:
+    with local_path.open() as f:
         return json.load(f)
 
 

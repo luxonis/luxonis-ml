@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+from typing_extensions import override
+
 from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
     annotation_to_polygons,
@@ -43,11 +45,13 @@ class YoloV8InstanceSegmentationExporter(BaseExporter):
     def _yaml_filename(self) -> str:
         return "dataset.yaml"
 
+    @override
     def supported_ann_types(self) -> list[str]:
         return (
             DatasetType.YOLOV8INSTANCESEGMENTATION.supported_annotation_formats
         )
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
         exporter_specific_annotation_warning(
@@ -140,6 +144,7 @@ class YoloV8InstanceSegmentationExporter(BaseExporter):
             return {k: {} for k in self.get_split_names().values()}
         return annotation_splits
 
+    @override
     def _dump_annotations(
         self,
         annotation_splits: dict[str, dict[str, list[str]]],
@@ -181,6 +186,7 @@ class YoloV8InstanceSegmentationExporter(BaseExporter):
                 self._to_yaml(yaml_obj), encoding="utf-8"
             )
 
+    @override
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:

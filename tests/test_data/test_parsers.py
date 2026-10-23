@@ -6,6 +6,7 @@ from typing import Any, cast
 import pytest
 from loguru import logger
 from pydantic import SecretStr
+from typing_extensions import override
 
 from luxonis_ml.data import (
     BaseDataset,
@@ -335,7 +336,7 @@ def test_dir_parser_explicit_type(
     parser = LuxonisParser(
         url,
         dataset_name=dataset_name,
-        dataset_type=dataset_type,  # type: ignore
+        dataset_type=dataset_type,  # pyright: ignore[reportArgumentType]
         delete_local=True,
         save_dir=tempdir,
     )
@@ -533,14 +534,17 @@ class _WarningParser(BaseParser):
         self.reason = reason
 
     @staticmethod
+    @override
     def validate_split(_split_path: Path) -> dict[str, Any]:
         return {}
 
+    @override
     def from_dir(
         self, dataset_dir: Path, **kwargs: Any
     ) -> tuple[list[Path], list[Path], list[Path]]:
         return [], [], []
 
+    @override
     def from_split(self, **kwargs: Any) -> ParserOutput:
         for annotation_id in range(self.warning_count):
             self._warn_skipped_annotation(
@@ -618,7 +622,7 @@ def test_ultralytics_ndjson_parser_explicit_type(
     dataset = LuxonisParser(
         url,
         dataset_name=dataset_name,
-        dataset_type="ultralytics-ndjson",  # type: ignore[arg-type]
+        dataset_type="ultralytics-ndjson",  # pyright: ignore[reportArgumentType]
         delete_local=True,
         save_dir=tempdir,
     ).parse()
@@ -789,7 +793,7 @@ def test_partial_split_clsdir_explicit_type_uses_dir_mode(
     dataset = LuxonisParser(
         str(dataset_dir),
         dataset_name=dataset_name,
-        dataset_type="clsdir",  # type: ignore[arg-type]
+        dataset_type="clsdir",  # pyright: ignore[reportArgumentType]
         delete_local=True,
         save_dir=tempdir,
     ).parse()
@@ -912,7 +916,7 @@ def test_partial_split_train_only_roboflow_coco_keeps_format_detection(
     dataset = LuxonisParser(
         str(dataset_dir),
         dataset_name=dataset_name,
-        dataset_type="coco",  # type: ignore[arg-type]
+        dataset_type="coco",  # pyright: ignore[reportArgumentType]
         delete_local=True,
         save_dir=tempdir,
     ).parse(use_keypoint_ann=True)

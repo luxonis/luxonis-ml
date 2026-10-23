@@ -44,7 +44,6 @@ class LetterboxResize(A.DualTransform):
             p: The probability of applying the transform. Defaults to ``1.0``.
 
         """
-
         super().__init__(p=p)
 
         self.height = height
