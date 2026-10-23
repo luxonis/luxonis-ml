@@ -1198,7 +1198,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     @staticmethod
     def _task_to_target_name(task: str) -> str:
         target = task.replace("/", "_").replace("-", "_")
-        assert target.isidentifier()
+        if not target.isidentifier():
+            raise ValueError(
+                f"Task '{task}' gives the target name '{target}', "
+                "which is not a valid identifier."
+            )
         return target
 
     @staticmethod

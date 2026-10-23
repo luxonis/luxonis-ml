@@ -349,7 +349,9 @@ class LuxonisLoader(BaseLoader):
         if self._augmentations is None:
             img_dict, labels, metadata = self._load_data(idx)
         else:
-            img_dict, labels, metadata = self._load_with_augmentations(idx)
+            img_dict, labels, metadata = self._load_with_augmentations(
+                idx, self._augmentations
+            )
 
         if not self._exclude_empty_annotations:
             img_dict, labels = self._add_empty_annotations(img_dict, labels)
@@ -601,10 +603,12 @@ class LuxonisLoader(BaseLoader):
         return array
 
     def _load_with_augmentations(
-        self, idx: int
+        self, idx: int, augmentations: AugmentationEngine
     ) -> tuple[dict[str, np.ndarray], Labels, Params]:
-        assert self._augmentations is not None
-        indices = [idx, *self._pick_batch_members(idx)]
+        indices = [
+            idx,
+            *self._pick_batch_members(idx, augmentations.batch_size),
+        ]
 
         loaded_anns: list[tuple[dict[str, np.ndarray], Labels]] = []
         sample_metadata_list: list[Params] = []
@@ -613,8 +617,8 @@ class LuxonisLoader(BaseLoader):
             loaded_anns.append((img_dict, labels))
             sample_metadata_list.append(sample_metadata)
 
-        img_dict, labels = self._augmentations.apply(loaded_anns)
-        metadata_indices = self._augmentations.batch_augmentation_indices
+        img_dict, labels = augmentations.apply(loaded_anns)
+        metadata_indices = augmentations.batch_augmentation_indices
         if len(metadata_indices) > 1:
             sample_metadata = self._merge_sample_metadata(
                 [sample_metadata_list[i] for i in metadata_indices],
@@ -625,24 +629,23 @@ class LuxonisLoader(BaseLoader):
 
         if self._reserve_key(sample_metadata, "augmentations"):
             sample_metadata["augmentations"] = TrackedAugmentations(
-                self._augmentations.applied_augmentations
+                augmentations.applied_augmentations
             )
         return img_dict, labels, sample_metadata
 
-    def _pick_batch_members(self, idx: int) -> list[int]:
+    def _pick_batch_members(self, idx: int, batch_size: int) -> list[int]:
         """Draw the other samples that a batch augmentation of ``idx`` needs.
 
         The samples are distinct from ``idx`` and from each other, unless
         the batch is larger than the dataset.
         """
-        assert self._augmentations is not None
-        n_others = self._augmentations.batch_size - 1
+        n_others = batch_size - 1
         if n_others < 1:
             return []
 
-        if self._augmentations.batch_size > len(self):
+        if batch_size > len(self):
             warnings.warn(
-                f"Augmentations batch_size ({self._augmentations.batch_size}) "
+                f"Augmentations batch_size ({batch_size}) "
                 f"is larger than dataset size ({len(self)}). "
                 "Samples will include repetitions.",
                 stacklevel=3,
