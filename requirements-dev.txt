@@ -15,6 +15,7 @@ async-timeout==5.0.1 ; python_full_version < '3.11'
 attrs==26.1.0
 automat==25.4.16
 backoff==2.2.1
+beautifulsoup4==4.15.0
 bidict==0.23.1 ; python_full_version < '3.11'
 bidict==0.24.1 ; python_full_version >= '3.11'
 blinker==1.9.0
@@ -57,6 +58,7 @@ fonttools==4.66.1 ; python_full_version >= '3.11'
 frozenlist==1.8.0
 fsspec==2026.9.0
 gcsfs==2026.10.0
+gdown==6.4.2
 gitdb==4.0.12
 gitpython==3.2.0
 google-api-core==2.42.0
@@ -147,6 +149,7 @@ pydoctor==25.10.1
 pygments==2.21.0
 pyparsing==3.3.3
 pyright==1.1.414
+pysocks==1.7.1
 pytest==9.1.1
 pytest-clarity==1.0.1
 pytest-cov==7.1.0
@@ -180,6 +183,8 @@ six==1.17.0
 skops==0.16.0
 smmap==5.0.3
 sortedcontainers==2.4.0
+soupsieve==2.10 ; python_full_version < '3.11.5'
+soupsieve==3.0.3 ; python_full_version >= '3.11.5'
 sqlalchemy==2.0.54 ; python_full_version < '3.11'
 sqlalchemy==2.1.4 ; python_full_version >= '3.11'
 sqlparse==0.6.0
