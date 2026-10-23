@@ -72,7 +72,7 @@ class PreparedLDF:
         if splits is None:
             raise ValueError("Cannot export dataset without splits")
 
-        df = dataset._load_df_offline(raise_when_empty=True).with_row_count(
+        df = dataset._load_df_offline(raise_when_empty=True).with_row_index(
             "row_idx"
         )
 
