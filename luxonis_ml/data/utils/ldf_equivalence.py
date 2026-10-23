@@ -707,7 +707,7 @@ class LDFEquivalence:
         if df.is_empty():
             raise FileNotFoundError(f"Dataset '{dataset_path.name}' is empty.")
 
-        df = df.with_row_count("row_idx")
+        df = df.with_row_index("row_idx")
         media_path = dataset_path / "media"
 
         def resolve_path(
