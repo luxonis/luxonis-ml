@@ -1,7 +1,7 @@
 import json
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from loguru import logger
@@ -23,10 +23,12 @@ from luxonis_ml.data.parsers import (
 from luxonis_ml.data.parsers.base_parser import BaseParser, ParserOutput
 from luxonis_ml.data.utils import COCOFormat, get_task_type
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.utils import environ
 
 from .utils import create_image
+
+if TYPE_CHECKING:
+    from luxonis_ml.ldf import DatasetRecord
 
 
 @pytest.mark.parametrize(
@@ -525,7 +527,7 @@ class _WarningParser(BaseParser):
         full_warnings: bool = False,
     ) -> None:
         super().__init__(
-            cast(BaseDataset, _DummyDataset()),
+            cast("BaseDataset", _DummyDataset()),
             DatasetType.COCO,
             None,
             full_warnings=full_warnings,
@@ -1118,12 +1120,16 @@ def test_ndjson_records_skip_blank_lines_and_missing_images(tempdir: Path):
         "\n".join("" if line is None else json.dumps(line) for line in lines)
     )
     parser = UltralyticsNDJSONParser(
-        cast(BaseDataset, _DummyDataset()), DatasetType.ULTRALYTICSNDJSON, None
+        cast("BaseDataset", _DummyDataset()),
+        DatasetType.ULTRALYTICSNDJSON,
+        None,
     )
 
     records, _, added_images = parser._build_record_stream(ndjson_path)
 
-    classes = [cast(dict, record)["annotation"]["class"] for record in records]
+    classes = [
+        cast("dict", record)["annotation"]["class"] for record in records
+    ]
     assert classes == ["fruit"]
     assert added_images == [image.resolve()]
     (issue,) = parser._get_parser_issue_messages()
@@ -1137,7 +1143,7 @@ def test_task_name_map_routes_each_record(tempdir: Path):
     box = {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}
 
     records = [
-        cast(DatasetRecord, record)
+        cast("DatasetRecord", record)
         for record in parser._wrap_generator(
             iter(
                 [
@@ -1163,14 +1169,14 @@ def test_task_name_map_routes_each_record(tempdir: Path):
 
 def test_task_name_string_keeps_unlabeled_records(tempdir: Path):
     parser = YOLOv8Parser(
-        cast(BaseDataset, _DummyDataset()),
+        cast("BaseDataset", _DummyDataset()),
         DatasetType.YOLOV8BOUNDINGBOX,
         "fruits",
     )
     image = create_image(0, tempdir)
 
     records = [
-        cast(DatasetRecord, record)
+        cast("DatasetRecord", record)
         for record in parser._wrap_generator(
             iter(
                 [
@@ -1200,7 +1206,9 @@ def _yolov8_split(tempdir: Path, label: str) -> tuple[Path, Path, Path]:
 def _yolov8_parser() -> YOLOv8Parser:
     """Build a YOLOv8 box parser over a dummy dataset."""
     return YOLOv8Parser(
-        cast(BaseDataset, _DummyDataset()), DatasetType.YOLOV8BOUNDINGBOX, None
+        cast("BaseDataset", _DummyDataset()),
+        DatasetType.YOLOV8BOUNDINGBOX,
+        None,
     )
 
 

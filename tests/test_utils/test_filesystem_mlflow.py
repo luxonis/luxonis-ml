@@ -219,7 +219,7 @@ def test_mlflow_server_timeout_reports_how_long_it_waited(
     with pytest.raises(TimeoutError, match=r"within 0\.01s") as error:
         _wait_for_mlflow_server(
             f"http://127.0.0.1:{_get_free_port()}",
-            cast(subprocess.Popen, _StillStartingProcess()),
+            cast("subprocess.Popen", _StillStartingProcess()),
             log_path,
         )
 

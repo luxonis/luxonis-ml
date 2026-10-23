@@ -263,7 +263,7 @@ class LDFEquivalence:
             ["file", "group_id"], maintain_order=True
         )
         for key, _entry in grouped:
-            file_path, _gid = cast(tuple[str, str], key)
+            file_path, _gid = cast("tuple[str, str]", key)
             out.update((cls.file_sha256(Path(file_path)),))
         return out
 
@@ -290,7 +290,7 @@ class LDFEquivalence:
             ["file", "group_id"], maintain_order=True
         )
         for key, entry in grouped:
-            file_path, _gid = cast(tuple[str, str], key)
+            file_path, _gid = cast("tuple[str, str]", key)
             hashed_key = (cls.file_sha256(Path(file_path)),)
             annotations = []
             for row in entry.iter_rows(named=True):
@@ -329,7 +329,7 @@ class LDFEquivalence:
             ["file", "group_id"], maintain_order=True
         )
         for key, entry in grouped:
-            file_path, _gid = cast(tuple[str, str], key)
+            file_path, _gid = cast("tuple[str, str]", key)
             hashed_key = (cls.file_sha256(Path(file_path)),)
             boxes = []
             for row in entry.iter_rows(named=True):
@@ -368,7 +368,7 @@ class LDFEquivalence:
             ["file", "group_id"], maintain_order=True
         )
         for key, entry in grouped:
-            file_path, _gid = cast(tuple[str, str], key)
+            file_path, _gid = cast("tuple[str, str]", key)
             hashed_key = (cls.file_sha256(Path(file_path)),)
             keypoints = []
             for row in entry.iter_rows(named=True):
@@ -399,7 +399,7 @@ class LDFEquivalence:
             ["file", "group_id"], maintain_order=True
         )
         for key, entry in grouped:
-            file_path, _gid = cast(tuple[str, str], key)
+            file_path, _gid = cast("tuple[str, str]", key)
             hashed_key = (cls.file_sha256(Path(file_path)),)
             counts = []
             for row in entry.iter_rows(named=True):
@@ -433,7 +433,7 @@ class LDFEquivalence:
         )
 
         for key, entry in grouped:
-            file_path, _gid = cast(tuple[str, str], key)
+            file_path, _gid = cast("tuple[str, str]", key)
             hashed_key = (cls.file_sha256(Path(file_path)),)
             masks: list[np.ndarray] = []
 
@@ -475,7 +475,7 @@ class LDFEquivalence:
             ["file", "group_id"], maintain_order=True
         )
         for key, entry in grouped:
-            file_path, _gid = cast(tuple[str, str], key)
+            file_path, _gid = cast("tuple[str, str]", key)
             hashed_key = (cls.file_sha256(Path(file_path)),)
             classes = [
                 row["class_name"]
@@ -509,7 +509,7 @@ class LDFEquivalence:
             ["file", "group_id"], maintain_order=True
         )
         for key, entry in grouped:
-            file_path, _gid = cast(tuple[str, str], key)
+            file_path, _gid = cast("tuple[str, str]", key)
             hashed_key = (cls.file_sha256(Path(file_path)),)
             classes = [
                 row["class_name"]
@@ -544,7 +544,7 @@ class LDFEquivalence:
         )
 
         for key, entry in grouped:
-            file_path, _gid = cast(tuple[str, str], key)
+            file_path, _gid = cast("tuple[str, str]", key)
             img_hash = cls.file_sha256(Path(file_path))
 
             for row in entry.iter_rows(named=True):

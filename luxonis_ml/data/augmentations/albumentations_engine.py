@@ -1164,7 +1164,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             raise ValueError(f"Invalid nested transform configuration: {item}")
         nested_cfg = AlbumentationConfigItem(
             name=str(item["name"]),
-            params=cast(Params, item.get("params", {})),
+            params=cast("Params", item.get("params", {})),
             use_for_resizing=bool(item.get("use_for_resizing", False)),
         )
         transform = AlbumentationsEngine._create_transformation(

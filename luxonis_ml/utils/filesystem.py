@@ -226,7 +226,7 @@ class LuxonisFileSystem:
         else:
             self._fs_type = FSType.FSSPEC
             self._fs = self.init_fsspec_filesystem()
-        self._path = PurePosixPath(cast(str, _path))
+        self._path = PurePosixPath(cast("str", _path))
 
         if put_file_plugin:
             self.put_file = PUT_FILE_REGISTRY.get(put_file_plugin)
@@ -864,7 +864,7 @@ class LuxonisFileSystem:
             else:
                 download_path = str(self._path)
             with self._fs.open(download_path, "rb") as f:
-                buffer = BytesIO(cast(bytes, f.read()))
+                buffer = BytesIO(cast("bytes", f.read()))
 
         return buffer
 
@@ -899,7 +899,7 @@ class LuxonisFileSystem:
             return _uuid_from_stream(self.read_to_byte_buffer(str(path)))
 
         with self._fs.open(str(self._path / path), "rb") as file:
-            return _uuid_from_stream(cast(IO[bytes], file))
+            return _uuid_from_stream(cast("IO[bytes]", file))
 
     def get_file_uuids(
         self, paths: Iterable[PathType], *, local: bool = False

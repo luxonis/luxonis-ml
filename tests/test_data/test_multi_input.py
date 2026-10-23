@@ -51,7 +51,7 @@ def test_multi_input(dataset_name: str, tempdir: Path):
         },
     ]
     color_space = cast(
-        dict[str, Literal["RGB", "BGR", "GRAY"]],
+        "dict[str, Literal['RGB', 'BGR', 'GRAY']]",
         {"image1": "RGB", "image2": "BGR", "image3": "GRAY"},
     )
     # `Mosaic4` combines four images, so the train split must keep all

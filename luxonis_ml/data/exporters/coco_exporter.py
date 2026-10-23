@@ -119,7 +119,9 @@ class CocoExporter(BaseExporter):
         copied_files: set[Path] = set()
 
         for key, entry in grouped:
-            file_name, _instance_id, group_id = cast(tuple[str, int, Any], key)
+            file_name, _instance_id, group_id = cast(
+                "tuple[str, int, Any]", key
+            )
 
             split = split_of_group(prepared_ldf, group_id)
             file_path = Path(str(file_name))

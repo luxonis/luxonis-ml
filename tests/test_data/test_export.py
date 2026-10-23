@@ -143,10 +143,10 @@ def test_native_export_import_preserves_record_metadata(
 
     metadata = sorted(
         (data.metadata for data in LuxonisLoader(imported_dataset)),
-        key=lambda item: cast(int, item["record_id"]),
+        key=lambda item: cast("int", item["record_id"]),
     )
     assert [item["record_id"] for item in metadata] == [0, 1]
-    assert {cast(str, item["origin"]) for item in metadata} == {
+    assert {cast("str", item["origin"]) for item in metadata} == {
         "native-roundtrip"
     }
 

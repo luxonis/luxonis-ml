@@ -969,8 +969,8 @@ def test_context_providers_skip_failures_none_and_non_mappings(
         return {"kept": "value"}
 
     telemetry.add_context_provider(broken_provider)
-    telemetry.add_context_provider(cast(Any, none_provider))
-    telemetry.add_context_provider(cast(Any, non_mapping_provider))
+    telemetry.add_context_provider(cast("Any", none_provider))
+    telemetry.add_context_provider(cast("Any", non_mapping_provider))
     telemetry.add_context_provider(valid_provider)
     telemetry.add_context_provider(valid_provider)
 
@@ -1081,7 +1081,7 @@ def test_posthog_backend_capture_and_flush(
     monkeypatch.setitem(
         sys.modules,
         "posthog",
-        cast(Any, type("FakePosthogModule", (), {"Posthog": FakeClient})()),
+        cast("Any", type("FakePosthogModule", (), {"Posthog": FakeClient})()),
     )
 
     backend = PostHogBackend(
