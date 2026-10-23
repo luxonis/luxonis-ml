@@ -149,9 +149,7 @@ class YOLOv8Parser(BaseParser):
     def _detect_dataset_dir_format(
         dataset_dir: Path,
     ) -> tuple[Format | None, list[str]]:
-        """Detect whether a dataset uses Ultralytics or Roboflow
-        layout.
-        """
+        """Detect whether a dataset uses the Ultralytics or Roboflow layout."""
         roboflow_splits = ("train", "valid", "test")
         ultralytics_folders = ["images", "labels"]
 

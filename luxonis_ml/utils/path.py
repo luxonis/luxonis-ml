@@ -28,8 +28,7 @@ def parse_manifest_path(value: PathType) -> Path:
 
 
 def resolve_manifest_path(base_dir: Path, value: PathType) -> Path:
-    """Resolve a manifest path relative to the directory that contains
-    it.
+    """Resolve a manifest path relative to the directory of the manifest.
 
     Args:
         base_dir: Directory relative paths are resolved against.

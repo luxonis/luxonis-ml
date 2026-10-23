@@ -36,7 +36,7 @@ class PreparedLDF:
         splits: dict[str, Any],
         processed_df: pl.DataFrame,
         grouped_image_sources: pl.DataFrame,
-    ):
+    ) -> None:
         self.splits = splits
         self.processed_df = processed_df
         self.grouped_image_sources = grouped_image_sources
@@ -237,7 +237,7 @@ def create_zip_output(
 
 
 def get_single_skeleton(
-    allow_keypoints: bool, skeletons: dict[str, Any] | None = None
+    *, allow_keypoints: bool, skeletons: dict[str, Any] | None = None
 ) -> tuple[list[str], list[list[int]]]:
     """Return labels and COCO-style edges for the single skeleton.
 

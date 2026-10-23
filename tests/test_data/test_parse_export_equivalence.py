@@ -23,8 +23,9 @@ def _export_and_reimport(
     tempdir: Path,
     initial_parse_kwargs: dict | None = None,
 ) -> tuple[LuxonisDataset, LuxonisDataset]:
-    """Parse -> export -> re-import and return (original_dataset,
-    reimported_dataset) to compare the two.
+    """Parse, export and re-import a dataset.
+
+    Return the original and the re-imported dataset to compare them.
     """
     url = f"{storage_url}/{url}"
     dataset = LuxonisParser(
@@ -148,9 +149,7 @@ DATASETS = [
 
 
 def build_params():
-    """Expand DATASETS x supported annotation types x registry combos
-    into pytest params.
-    """
+    """Expand DATASETS x annotation types x registry combos into params."""
     params = []
     for ds in DATASETS:
         url = ds["url"]

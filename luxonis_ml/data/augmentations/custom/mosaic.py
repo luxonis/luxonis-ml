@@ -70,9 +70,8 @@ class Mosaic4(BatchTransform):
         out_width: int | None = None,
         value: float | list[int] | list[float] | None = None,
         mask_value: float | list[int] | list[float] | None = None,
-    ):
+    ) -> None:
         """Create a Mosaic4 augmentation.
-
 
         Args:
             height: Output image height.
@@ -139,9 +138,7 @@ class Mosaic4(BatchTransform):
         }
 
     def generate_random_crop_center(self) -> tuple[int, int]:
-        """Generate a random crop center within the bounds of the mosaic
-        image size.
-        """
+        """Return a random crop center within the mosaic image bounds."""
         crop_x = random.randint(0, max(0, self._width))
         crop_y = random.randint(0, max(0, self._height))
         return crop_x, crop_y

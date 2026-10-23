@@ -47,8 +47,9 @@ class BaseParser(ABC):
         dataset: BaseDataset,
         dataset_type: DatasetType,
         task_name: str | dict[str, str] | None,
+        *,
         full_warnings: bool = False,
-    ):
+    ) -> None:
         """Create a parser for a target dataset.
 
         Args:
@@ -93,9 +94,7 @@ class BaseParser(ABC):
         self._reset_parser_issue_messages()
 
     def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
-        """Return parser issue messages collected during the last
-        parse.
-        """
+        """Return the parser issue messages of the last parse."""
         return self._get_parser_issue_messages()
 
     def _get_parser_issue_messages(self) -> list[ParserIssueMessage]:
@@ -119,8 +118,7 @@ class BaseParser(ABC):
 
     @classmethod
     def validate(cls, dataset_dir: Path) -> bool:
-        """Validate whether the dataset directory has the expected
-        format.
+        """Validate whether the dataset directory has the expected format.
 
         Args:
             dataset_dir: Source dataset directory.
@@ -141,11 +139,10 @@ class BaseParser(ABC):
 
     @staticmethod
     def _canonicalize_split_name(split_name: str) -> str:
-        """All current parsers use ``train`` and ``test`` split names
-        whereas validation splits can vary in name between ``val`` ``valid``
-        and ``validation``.
+        """Map the split names ``valid`` and ``validation`` to ``val``.
 
-        This maps ``valid`` -> ``val`` and ``validation`` -> val
+        All current parsers name the splits ``train`` and ``test``, but the
+        validation split can be ``val``, ``valid`` or ``validation``.
         """
         if split_name in {"valid", "validation"}:
             return "val"
@@ -322,6 +319,7 @@ class BaseParser(ABC):
     def parse_split(
         self,
         split: str | None = None,
+        *,
         random_split: bool = False,
         split_ratios: dict[str, float | int] | None = None,
         **kwargs,

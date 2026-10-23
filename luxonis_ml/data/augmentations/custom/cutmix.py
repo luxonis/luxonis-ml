@@ -40,11 +40,12 @@ class CutMix(BatchTransform):
     def __init__(
         self,
         alpha: float = 1.0,
+        *,
         keep_aspect_ratio: bool = True,
         bbox_min_visibility: float = 0.5,
         occluded_bbox_strategy: Literal["keep", "clip"] = "keep",
         p: float = 0.5,
-    ):
+    ) -> None:
         r"""Create a CutMix augmentation.
 
         Args:
@@ -105,7 +106,7 @@ class CutMix(BatchTransform):
             occluded_bbox_strategy
         )
         self._resize_transform = create_letterbox_or_resize(
-            keep_aspect_ratio, 1, 1
+            keep_aspect_ratio=keep_aspect_ratio, height=1, width=1
         )
 
     @override

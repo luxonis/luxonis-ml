@@ -27,7 +27,7 @@ class BaseExporter(ABC):
         dataset_identifier: str,
         output_path: Path,
         max_partition_size_gb: float | None,
-    ):
+    ) -> None:
         self.dataset_identifier = dataset_identifier
         self.output_path = output_path
         self.image_indices = {}

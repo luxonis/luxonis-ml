@@ -1614,7 +1614,7 @@ def test_instrument_cyclopts_nested_subapps(
     data_app = App(name="data")
 
     @data_app.command
-    def ls(full: bool = False) -> bool:
+    def ls(*, full: bool = False) -> bool:
         return full
 
     app.command(data_app, name="data")

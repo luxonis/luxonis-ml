@@ -18,6 +18,7 @@ from luxonis_ml.typing import RGB
 def rgb_to_bool_masks(
     segmentation_mask: np.ndarray,
     class_colors: dict[str, RGB],
+    *,
     add_background_class: bool = False,
 ) -> Iterator[tuple[str, np.ndarray]]:
     """Convert an RGB segmentation mask to boolean class masks.
@@ -67,8 +68,8 @@ def rgb_to_bool_masks(
     }
 
     lookup_table = np.zeros((256, 256, 256), dtype=np.uint8)
-    for color, id in color_to_id.items():
-        lookup_table[color[0], color[1], color[2]] = id + 1
+    for color, class_id in color_to_id.items():
+        lookup_table[color[0], color[1], color[2]] = class_id + 1
 
     segmentation_ids = lookup_table[
         segmentation_mask[:, :, 0],
@@ -316,8 +317,7 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
 def get_class_distributions(
     df: pl.LazyFrame,
 ) -> dict[str, dict[str, list[dict[str, Any]]]]:
-    """Return class distribution information for non-classification
-    tasks.
+    """Return the class distribution of the non-classification tasks.
 
     Args:
         df: Dataset information.
@@ -536,8 +536,7 @@ def _grid_counts(
 
 
 def merge_uuids(uuids: Iterable[str]) -> uuid.UUID:
-    """Merge multiple UUIDs into a single deterministic UUID,
-    independent of order.
+    """Merge UUIDs into one deterministic UUID, independent of order.
 
     Args:
         uuids: UUID strings to merge.

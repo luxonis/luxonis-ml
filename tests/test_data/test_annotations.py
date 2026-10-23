@@ -245,8 +245,9 @@ def test_keypoints_annotation(subtests: SubTests):
         )
 
 
-def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
-    mask = np.array(
+@pytest.fixture
+def mask() -> np.ndarray:
+    return np.array(
         [
             [0, 1, 0, 0],
             [1, 1, 0, 0],
@@ -254,6 +255,11 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
             [0, 0, 1, 1],
         ]
     )
+
+
+def test_segmentation_annotation(
+    mask: np.ndarray, subtests: SubTests, tempdir: Path
+):
     with subtests.test("mask"):
         seg = SegmentationAnnotation(mask=mask)  # pyright: ignore[reportCallIssue]
         assert seg.height == 4
@@ -330,6 +336,8 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
                 width="4",  # pyright: ignore[reportArgumentType]
             )
 
+
+def test_segmentation_combine_to_numpy(subtests: SubTests):
     with subtests.test("numpy_simple"):
         masks = np.array(
             [
@@ -432,56 +440,59 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
         )
         assert np.array_equal(combined, masks)
 
-    with subtests.test("invalid"):
-        with pytest.raises(ValueError, match="Extra inputs"):
-            SegmentationAnnotation(
-                mask=mask,  # pyright: ignore[reportCallIssue]
-                points=[(1, 0), (2, 1)],  # pyright: ignore[reportCallIssue]
-            )
 
-        with pytest.raises(ValueError, match="Unsupported mask format"):
-            SegmentationAnnotation(mask="file.jpeg")  # pyright: ignore[reportCallIssue]
+def test_segmentation_annotation_rejects_invalid_input(
+    mask: np.ndarray, tempdir: Path
+):
+    with pytest.raises(ValueError, match="Extra inputs"):
+        SegmentationAnnotation(
+            mask=mask,  # pyright: ignore[reportCallIssue]
+            points=[(1, 0), (2, 1)],  # pyright: ignore[reportCallIssue]
+        )
 
-        with pytest.raises(ValueError, match="Failed to load mask from image"):
-            SegmentationAnnotation(mask="file.png")  # pyright: ignore[reportCallIssue]
+    with pytest.raises(ValueError, match="Unsupported mask format"):
+        SegmentationAnnotation(mask="file.jpeg")  # pyright: ignore[reportCallIssue]
 
-        with pytest.raises(TypeError, match="Mask must be either"):
-            SegmentationAnnotation(mask=[1, 2, 3])  # pyright: ignore[reportCallIssue]
+    with pytest.raises(ValueError, match="Failed to load mask from image"):
+        SegmentationAnnotation(mask="file.png")  # pyright: ignore[reportCallIssue]
 
-        np.save(tempdir / "mask.npy", mask[None, None, ...])
-        with pytest.raises(ValueError, match="Mask must be a 2D binary array"):
-            SegmentationAnnotation(mask=tempdir / "mask.npy")  # pyright: ignore[reportCallIssue]
+    with pytest.raises(TypeError, match="Mask must be either"):
+        SegmentationAnnotation(mask=[1, 2, 3])  # pyright: ignore[reportCallIssue]
 
-        with pytest.raises(ValueError, match="at least 3 points"):
-            SegmentationAnnotation(
-                points=[(1, 0), (0, 1)],  # pyright: ignore[reportCallIssue]
-                height=4,
-                width=4,
-            )
+    np.save(tempdir / "mask.npy", mask[None, None, ...])
+    with pytest.raises(ValueError, match="Mask must be a 2D binary array"):
+        SegmentationAnnotation(mask=tempdir / "mask.npy")  # pyright: ignore[reportCallIssue]
 
-        with pytest.raises(ValueError, match="outside of automatic clipping"):
-            SegmentationAnnotation(
-                points=[  # pyright: ignore[reportCallIssue]
-                    (-2.1, 0),
-                    (1.1, 0),
-                    (1, 1.5),
-                    (-0.6, 1),
-                ],
-                height=4,
-                width=4,
-            )
+    with pytest.raises(ValueError, match="at least 3 points"):
+        SegmentationAnnotation(
+            points=[(1, 0), (0, 1)],  # pyright: ignore[reportCallIssue]
+            height=4,
+            width=4,
+        )
 
-        with pytest.raises(ValueError, match="Field required"):
-            SegmentationAnnotation(width=4)  # pyright: ignore[reportCallIssue]
+    with pytest.raises(ValueError, match="outside of automatic clipping"):
+        SegmentationAnnotation(
+            points=[  # pyright: ignore[reportCallIssue]
+                (-2.1, 0),
+                (1.1, 0),
+                (1, 1.5),
+                (-0.6, 1),
+            ],
+            height=4,
+            width=4,
+        )
 
-        with pytest.raises(
-            ValueError, match="RLE counts must be a list of positive integers"
-        ):
-            SegmentationAnnotation(
-                counts=[-1, 1, 2, 2],  # pyright: ignore[reportArgumentType]
-                height=4,
-                width=4,
-            )
+    with pytest.raises(ValueError, match="Field required"):
+        SegmentationAnnotation(width=4)  # pyright: ignore[reportCallIssue]
+
+    with pytest.raises(
+        ValueError, match="RLE counts must be a list of positive integers"
+    ):
+        SegmentationAnnotation(
+            counts=[-1, 1, 2, 2],  # pyright: ignore[reportArgumentType]
+            height=4,
+            width=4,
+        )
 
 
 def test_array_annotation(subtests: SubTests, tempdir: Path):

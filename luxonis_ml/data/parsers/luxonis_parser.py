@@ -106,7 +106,7 @@ class LuxonisParser(Generic[T]):
         task_name: str | dict[str, str] | None = None,
         full_warnings: bool = False,
         **kwargs,
-    ):
+    ) -> None:
         """High-level abstraction over various parsers.
 
         Automatically recognizes the dataset format and uses the
@@ -311,9 +311,7 @@ class LuxonisParser(Generic[T]):
         return dataset
 
     def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
-        """Return parser issue messages collected during the last
-        parse.
-        """
+        """Return the parser issue messages of the last parse."""
         return self._get_parser_issue_messages()
 
     def _get_parser_issue_messages(self) -> list[ParserIssueMessage]:
@@ -434,9 +432,9 @@ class LuxonisParser(Generic[T]):
                 f"Incorrect Roboflow dataset URL: `{dataset_dir}`. "
                 "Expected format: `roboflow://workspace/project/version/format`."
             )
-        workspace, project, version, format = dataset_dir.split("roboflow://")[
-            1
-        ].split("/")
+        workspace, project, version, export_format = dataset_dir.split(
+            "roboflow://"
+        )[1].split("/")
         try:
             version = int(version)
         except ValueError as e:
@@ -444,12 +442,12 @@ class LuxonisParser(Generic[T]):
                 f"Roboflow version must be an integer, got `{version}`."
             ) from e
 
-        local_path = local_path or Path.cwd() / f"{project}_{format}"
+        local_path = local_path or Path.cwd() / f"{project}_{export_format}"
         dataset = (
             rf.workspace(workspace)
             .project(project)
             .version(int(version))
-            .download(format, str(local_path / project))
+            .download(export_format, str(local_path / project))
         )
         return Path(dataset.location), project
 

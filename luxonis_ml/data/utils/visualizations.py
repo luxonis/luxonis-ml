@@ -31,7 +31,7 @@ class ColorMap(Mapping[Hashable, RGB]):
     `distinct_color_generator`.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._generator = distinct_color_generator()
         self._color_dict: dict[Hashable, RGB] = {}
 
@@ -510,8 +510,7 @@ def draw_bbox_label(
     color: tuple[int, int, int],
     font_scale: float,
 ) -> None:
-    """Draw the class name label at the top-left corner of the bounding
-    box.
+    """Draw the class name label at the top-left corner of a box.
 
     Args:
         image: Image to draw on.
@@ -660,7 +659,7 @@ class _LabelDrawer:
         classes: dict[str, dict[str, int]],
         *,
         blend_all: bool,
-    ):
+    ) -> None:
         self.image = image
         self.h, self.w, _ = image.shape
         self.mappings = {task: bidict(c) for task, c in classes.items()}

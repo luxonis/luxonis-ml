@@ -140,7 +140,7 @@ class LuxonisFileSystem:
         cache_storage: str | None = None,
         put_file_plugin: str | None = None,
         tracking_uri: str | None = None,
-    ):
+    ) -> None:
         """Initialize the ``LuxonisFileSystem``.
 
         Args:
@@ -201,7 +201,9 @@ class LuxonisFileSystem:
         if self._protocol == "mlflow":
             self._fs_type = FSType.MLFLOW
             _path = self._init_mlflow(
-                _path, allow_active_mlflow_run, tracking_uri
+                _path,
+                allow_active_mlflow_run=allow_active_mlflow_run,
+                tracking_uri=tracking_uri,
             )
         else:
             self._fs_type = FSType.FSSPEC
@@ -214,6 +216,7 @@ class LuxonisFileSystem:
     def _init_mlflow(
         self,
         path: str | None,
+        *,
         allow_active_mlflow_run: bool | None,
         tracking_uri: str | None,
     ) -> str:
@@ -328,8 +331,7 @@ class LuxonisFileSystem:
         return f"{self._protocol}://{self._path}"
 
     def init_fsspec_filesystem(self) -> fsspec.AbstractFileSystem:
-        """Initialize an ``fsspec`` filesystem for the configured
-        protocol.
+        """Initialize an ``fsspec`` filesystem for the configured protocol.
 
         Returns:
             Initialized ``fsspec`` filesystem.
@@ -437,6 +439,7 @@ class LuxonisFileSystem:
         remote_dir: PosixPathType,
         uuid_dict: dict[str, str] | None = None,
         mlflow_instance: ModuleType | None = None,
+        *,
         copy_contents: bool = False,
     ) -> dict[str, str]: ...
 
@@ -447,6 +450,7 @@ class LuxonisFileSystem:
         remote_dir: PosixPathType,
         uuid_dict: dict[str, str] | None = None,
         mlflow_instance: ModuleType | None = None,
+        *,
         copy_contents: bool = False,
     ) -> None: ...
 
@@ -456,6 +460,7 @@ class LuxonisFileSystem:
         remote_dir: PosixPathType,
         uuid_dict: dict[str, str] | None = None,
         mlflow_instance: ModuleType | None = None,
+        *,
         copy_contents: bool = False,
     ) -> dict[str, str] | None:
         """Upload files to remote storage.
@@ -493,7 +498,10 @@ class LuxonisFileSystem:
             local_dir = self._require_local_dir(local_paths)
             if self.is_mlflow:
                 self._put_dir_mlflow(
-                    local_dir, remote_dir, mlflow_instance, copy_contents
+                    local_dir,
+                    remote_dir,
+                    mlflow_instance,
+                    copy_contents=copy_contents,
                 )
             elif self.is_fsspec:
                 source_path = (
@@ -690,7 +698,10 @@ class LuxonisFileSystem:
         return local_dir / PurePosixPath(remote_dir).name
 
     def delete_dir(
-        self, remote_dir: PosixPathType = "", allow_delete_parent: bool = False
+        self,
+        remote_dir: PosixPathType = "",
+        *,
+        allow_delete_parent: bool = False,
     ) -> None:
         """Delete a directory and all its contents from remote storage.
 
@@ -720,6 +731,7 @@ class LuxonisFileSystem:
     def walk_dir(
         self,
         remote_dir: PosixPathType,
+        *,
         recursive: bool = True,
         typ: Literal["file", "directory", "all"] = "file",
     ) -> Iterator[str]:
@@ -746,7 +758,7 @@ class LuxonisFileSystem:
             if typ in ("all", file_type):
                 yield name
             if recursive and file_type == "directory":
-                yield from self.walk_dir(name, recursive, typ)
+                yield from self.walk_dir(name, recursive=recursive, typ=typ)
 
     def _mlflow_entries(
         self, remote_dir: PosixPathType
@@ -838,9 +850,8 @@ class LuxonisFileSystem:
 
         return buffer
 
-    def get_file_uuid(self, path: PathType, local: bool = False) -> str:
-        """Read a file and returns the (unique) UUID generated from
-        file bytes.
+    def get_file_uuid(self, path: PathType, *, local: bool = False) -> str:
+        """Read a file and return the UUID generated from its bytes.
 
         Args:
             path: Relative path to the remote file, or a
@@ -873,7 +884,7 @@ class LuxonisFileSystem:
             return _uuid_from_stream(cast(IO[bytes], file))
 
     def get_file_uuids(
-        self, paths: Iterable[PathType], local: bool = False
+        self, paths: Iterable[PathType], *, local: bool = False
     ) -> dict[str, str]:
         """Compute the UUIDs for all files stored in the filesystem.
 
@@ -896,7 +907,7 @@ class LuxonisFileSystem:
         with ThreadPoolExecutor() as executor:
             futures = {
                 str(path): executor.submit(
-                    self.get_file_uuid, str(path), local
+                    self.get_file_uuid, str(path), local=local
                 )
                 for path in paths
             }
@@ -907,8 +918,7 @@ class LuxonisFileSystem:
 
     @staticmethod
     def _split_mlflow_path(path: PathType) -> list[str | None]:
-        """Split an MLflow path into experiment, run, and artifact
-        parts.
+        """Split an MLflow path into experiment, run and artifact parts.
 
         Args:
             path: MLflow path to split.
@@ -948,6 +958,7 @@ class LuxonisFileSystem:
         local_dir: Path,
         remote_dir: PosixPathType,
         mlflow_instance: ModuleType | None,
+        *,
         copy_contents: bool,
     ) -> None:
         """Upload a directory to the MLflow run in one call."""
@@ -956,7 +967,7 @@ class LuxonisFileSystem:
                 run_id=self._require_mlflow_run_id(),
                 local_dir=str(local_dir),
                 artifact_path=self._get_mlflow_upload_dir(
-                    local_dir, remote_dir, copy_contents
+                    local_dir, remote_dir, copy_contents=copy_contents
                 ),
             )
             return
@@ -965,7 +976,7 @@ class LuxonisFileSystem:
         mlflow_instance.log_artifacts(
             str(local_dir),
             artifact_path=self._get_mlflow_upload_dir(
-                local_dir, remote_dir, copy_contents
+                local_dir, remote_dir, copy_contents=copy_contents
             ),
         )
 
@@ -1053,6 +1064,7 @@ class LuxonisFileSystem:
         self,
         local_dir: Path,
         remote_dir: PosixPathType,
+        *,
         copy_contents: bool,
     ) -> str | None:
         """Resolve the artifact path a directory upload writes to.

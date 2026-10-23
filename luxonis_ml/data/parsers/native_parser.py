@@ -77,7 +77,7 @@ class NativeParser(BaseParser):
 
     _SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._checked_stamps: set[Path] = set()
 

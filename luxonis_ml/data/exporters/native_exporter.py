@@ -74,7 +74,7 @@ class NativeExporter(BaseExporter):
         max_partition_size_gb: float | None,
         *,
         ldf_version: Version | None = None,
-    ):
+    ) -> None:
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )

@@ -16,7 +16,7 @@ class Registry(Generic[T]):
     their string names.
     """
 
-    def __init__(self, name: str):
+    def __init__(self, name: str) -> None:
         """Create a new empty registry.
 
         Args:
@@ -71,12 +71,12 @@ class Registry(Generic[T]):
 
     @overload
     def register_module(
-        self, name: str | None = ..., module: None = ..., force: bool = ...
+        self, name: str | None = ..., module: None = ..., *, force: bool = ...
     ) -> Callable[[T], T]: ...
 
     @overload
     def register_module(
-        self, name: str | None, module: T, force: bool = ...
+        self, name: str | None, module: T, *, force: bool = ...
     ) -> T: ...
 
     @overload
@@ -89,6 +89,7 @@ class Registry(Generic[T]):
         self,
         name: str | None = None,
         module: T | None = None,
+        *,
         force: bool = False,
     ) -> T | Callable[[T], T]:
         """Register a module. Deprecated, use `register` instead.
@@ -182,7 +183,7 @@ class Registry(Generic[T]):
         return wrapper
 
     def _register(
-        self, module: T, module_name: str | None = None, force: bool = False
+        self, module: T, module_name: str | None = None, *, force: bool = False
     ) -> None:
         if module_name is None:
             module_name = module.__name__
@@ -233,7 +234,7 @@ class AutoRegisterMeta(ABCMeta):
         bases: tuple[type, ...],
         attrs: dict[str, type],
         **_kwargs: Any,
-    ):
+    ) -> "AutoRegisterMeta":
         """Create the class and keep the registry keywords from type."""
         return super().__new__(cls, name, bases, attrs)
 

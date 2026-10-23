@@ -466,6 +466,46 @@ def test_make_splits(
             f"Split {split} has {len(split_data)} samples"
         )
 
+    dataset.add(generator(10))
+    dataset.make_splits({"custom_split": 1.0})
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert set(splits.keys()) == {"train", "val", "test", "custom_split"}
+    for split, split_data in splits.items():
+        expected_length = 25 if split == "train" else 10
+        assert len(split_data) == expected_length, (
+            f"Split {split} has {len(split_data)} samples"
+        )
+
+    dataset.make_splits(replace_old_splits=True)
+    splits = dataset.get_splits()
+    assert splits is not None
+    for split, split_data in splits.items():
+        expected_length = {"train": 44, "val": 6, "test": 5}
+        assert len(split_data) == expected_length[split], (
+            f"Split {split} has {len(split_data)} samples"
+        )
+
+    # The definitions match no file, but `replace_old_splits=True` still
+    # discards the old splits.
+    dataset.make_splits({"train": ["missing.jpg"]}, replace_old_splits=True)
+    assert dataset.get_splits() == {"train": []}
+
+
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
+def test_make_splits_rejects_invalid_arguments(
+    bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
+):
+    def generator() -> DatasetIterator:
+        for i in range(3):
+            yield {
+                "file": str(create_image(i, tempdir)),
+                "annotation": {"class": "dog"},
+            }
+
+    dataset = create_dataset(dataset_name, generator(), bucket_storage)
+
+    # Every file already belongs to a split.
     with pytest.raises(ValueError, match="No new files"):
         dataset.make_splits()
 
@@ -492,31 +532,6 @@ def test_make_splits(
     # Counts are not ratios; no ratio can exceed 1.
     with pytest.raises(ValueError, match=r"between 0\.0 and 1\.0"):
         dataset.make_splits({"train": 8, "val": 1, "test": 1})
-
-    dataset.add(generator(10))
-    dataset.make_splits({"custom_split": 1.0})
-    splits = dataset.get_splits()
-    assert splits is not None
-    assert set(splits.keys()) == {"train", "val", "test", "custom_split"}
-    for split, split_data in splits.items():
-        expected_length = 25 if split == "train" else 10
-        assert len(split_data) == expected_length, (
-            f"Split {split} has {len(split_data)} samples"
-        )
-
-    dataset.make_splits(replace_old_splits=True)
-    splits = dataset.get_splits()
-    assert splits is not None
-    for split, split_data in splits.items():
-        expected_length = {"train": 44, "val": 6, "test": 5}
-        assert len(split_data) == expected_length[split], (
-            f"Split {split} has {len(split_data)} samples"
-        )
-
-    # The definitions match no file, but `replace_old_splits=True` still
-    # discards the old splits.
-    dataset.make_splits({"train": ["missing.jpg"]}, replace_old_splits=True)
-    assert dataset.get_splits() == {"train": []}
 
 
 def _sizes(dataset: LuxonisDataset) -> dict[str, int]:

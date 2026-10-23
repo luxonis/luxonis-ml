@@ -252,8 +252,8 @@ def test_static_directory(
 
     with subtests.test("download"):
         assert fs.exists(dir_name)
-        dir = LuxonisFileSystem.download(url, protocol_tempdir)
-        compare_directories(dir, local_dir)
+        downloaded_dir = LuxonisFileSystem.download(url, protocol_tempdir)
+        compare_directories(downloaded_dir, local_dir)
 
 
 def test_walk_dir(
@@ -599,7 +599,7 @@ def test_s3_filesystem_initialization(tempdir: Path):
 
 
 def compare_directories(
-    dir_path: Path, orig_dir_path: Path, flat: bool = False
+    dir_path: Path, orig_dir_path: Path, *, flat: bool = False
 ):
     assert dir_path.exists()
     for i in range(5):

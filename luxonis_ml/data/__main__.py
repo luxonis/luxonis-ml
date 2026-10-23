@@ -12,7 +12,7 @@ import numpy as np
 import rich.box
 from cyclopts import App, Parameter, validators
 from loguru import logger
-from rich import print
+from rich import print as rich_print
 from rich.console import Console
 from rich.prompt import Confirm
 from rich.rule import Rule
@@ -102,11 +102,11 @@ def delete(
 
     """
     if not names:
-        print("[red]At least one dataset name must be provided.[/red]")
+        rich_print("[red]At least one dataset name must be provided.[/red]")
         raise SystemExit(1)
 
     if not local and not remote:
-        print(
+        rich_print(
             "[red]No deletion target specified (local or remote). "
             "Nothing to delete.[/red]"
         )
@@ -116,7 +116,7 @@ def delete(
         check_exists(name, bucket_storage)
 
         if bucket_storage is BucketStorage.LOCAL and remote:
-            print(
+            rich_print(
                 "[yellow]Warning: You specified remote deletion, "
                 "but the bucket is local. "
                 "Remote deletion will not be performed.[/yellow]"
@@ -139,7 +139,7 @@ def delete(
             delete_local=local,
             delete_remote=remote,
         )
-        print(f"Dataset '{name}' deleted from {storage} storage.")
+        rich_print(f"Dataset '{name}' deleted from {storage} storage.")
 
 
 def _storage_label(*, local: bool, remote: bool) -> str:
@@ -365,7 +365,7 @@ class _SampleViewer:
         per_instance: bool,
         list_augmentations: bool,
         print_sample_metadata: bool,
-    ):
+    ) -> None:
         self._draw = draw
         self._size_multiplier = size_multiplier
         self._per_instance = per_instance
@@ -404,7 +404,7 @@ class _SampleViewer:
             metadata = {
                 k: v for k, v in metadata.items() if k != "augmentations"
             }
-        print("Sample metadata:", metadata)
+        rich_print("Sample metadata:", metadata)
 
     def _display_image(self, image: np.ndarray) -> np.ndarray:
         """Convert an image to BGR and scale it by the size multiplier."""
@@ -433,7 +433,7 @@ class _SampleViewer:
             return
 
         if self._per_instance:
-            print(
+            rich_print(
                 "[yellow]Warning: Per-instance mode is not supported for this dataset. "
                 f"Showing all labels in one window for '{source_name}'.[/yellow]"
             )
@@ -452,7 +452,7 @@ class _SampleViewer:
         """Show the instances of one source one by one; ``q`` skips the rest."""
         extra_keys = [k for k in labels if k not in instance_keys]
         if extra_keys:
-            print(
+            rich_print(
                 f"[yellow]Warning: Ignoring non-instance keys in labels: {extra_keys}[/yellow]"
             )
         n_instances = len(labels[instance_keys[0]])
@@ -508,7 +508,7 @@ def export(
         float | None,
         Parameter(alias="-m"),
     ] = None,
-    zip: bool = True,
+    zip_output: Annotated[bool, Parameter(name="--zip")] = True,
     ldf_version: str | None = None,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
@@ -524,7 +524,7 @@ def export(
             the save location before exporting.
         max_partition_size_gb: Maximum size of each
             partition in GB. If not provided, no partitioning will be done.
-        zip: If ``True``, the exported dataset will be zipped into one
+        zip_output: If ``True``, the exported dataset will be zipped into one
             archive, or into one archive for each partition. If
             ``False``, the dataset will be exported as a directory with
             the specified structure.
@@ -543,7 +543,7 @@ def export(
         save_dir,
         dataset_type=dataset_type,
         max_partition_size_gb=max_partition_size_gb,
-        zip_output=zip,
+        zip_output=zip_output,
         ldf_version=ldf_version,
     )
 
@@ -636,9 +636,9 @@ def parse(
         bucket_storage=bucket_storage,
     )
 
-    print()
-    print(Rule())
-    print()
+    rich_print()
+    rich_print(Rule())
+    rich_print()
     print_info(
         parser.parse(
             split_ratios=parse_split_ratio(split_ratio, train, val, test)
@@ -664,8 +664,9 @@ def health(
     ] = None,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
-    """Plot class distributions and heatmaps for every task type and
-    corresponding task name in the dataset.
+    """Plot the class distributions and heatmaps of the dataset.
+
+    The plots cover every task type and task name of the dataset.
 
     Also checks for files with missing annotations, files that share the
     same UUIDs, and files with duplicate annotations.
@@ -877,7 +878,7 @@ def push(
     dataset = LuxonisDataset(name, bucket_storage=BucketStorage.LOCAL)
 
     if bucket_storage == BucketStorage.LOCAL:
-        print(
+        rich_print(
             "[red]Cannot push to LOCAL storage. Please specify a cloud target."
         )
         raise SystemExit(1)
@@ -891,14 +892,16 @@ def push(
     ):
         raise SystemExit
 
-    print(f"Pushing dataset '{name}' to {bucket_storage.value} storage...")
+    rich_print(
+        f"Pushing dataset '{name}' to {bucket_storage.value} storage..."
+    )
 
     update_mode = UpdateMode.ALL if force else UpdateMode.MISSING
     dataset.push_to_cloud(
         bucket_storage=bucket_storage, update_mode=update_mode
     )
 
-    print(
+    rich_print(
         f"[green]Dataset '{name}' successfully pushed to {bucket_storage.value}."
     )
 
@@ -924,24 +927,26 @@ def pull(
 
     """
     if bucket_storage == BucketStorage.LOCAL:
-        print(
+        rich_print(
             "[red]Cannot pull from LOCAL storage. Please specify a cloud source."
         )
         raise SystemExit(1)
 
     if not LuxonisDataset.exists(name, bucket_storage=bucket_storage):
-        print(
+        rich_print(
             f"[red]Dataset '{name}' does not exist in {bucket_storage.value} storage."
         )
         raise SystemExit(1)
 
-    print(f"Pulling dataset '{name}' from {bucket_storage.value} storage...")
+    rich_print(
+        f"Pulling dataset '{name}' from {bucket_storage.value} storage..."
+    )
 
     update_mode = UpdateMode.ALL if force else UpdateMode.MISSING
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
     dataset.pull_from_cloud(update_mode=update_mode)
 
-    print(
+    rich_print(
         f"[green]Dataset '{name}' successfully pulled from {bucket_storage.value}."
     )
 
@@ -989,7 +994,7 @@ def clone(
     ):
         raise SystemExit
 
-    print(f"Cloning dataset '{name}' to '{new_name}'...")
+    rich_print(f"Cloning dataset '{name}' to '{new_name}'...")
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
     dataset.clone(
         new_dataset_name=new_name,
@@ -997,7 +1002,7 @@ def clone(
         splits_to_clone=split,
         team_id=team_id,
     )
-    print(f"[green]Dataset '{name}' successfully cloned to '{new_name}'.")
+    rich_print(f"[green]Dataset '{name}' successfully cloned to '{new_name}'.")
 
 
 @app.command
@@ -1068,7 +1073,9 @@ def merge(
     target_dataset = LuxonisDataset(target_name, bucket_storage=bucket_storage)
 
     operation = "in place" if inplace else ""
-    print(f"Merging dataset '{source_name}' with '{target_name}' {operation}")
+    rich_print(
+        f"Merging dataset '{source_name}' with '{target_name}' {operation}"
+    )
 
     _ = target_dataset.merge_with(
         source_dataset,
@@ -1079,12 +1086,12 @@ def merge(
     )
 
     if inplace:
-        print(
+        rich_print(
             f"[green]Dataset '{source_name}' "
             f"successfully merged into '{target_name}'."
         )
     else:
-        print(
+        rich_print(
             f"[green]Datasets merged successfully "
             f"into new dataset '{new_name}'."
         )
@@ -1095,8 +1102,7 @@ def sanitize(
     name: str,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
-    """Remove duplicate annotations and duplicate files from the
-    dataset.
+    """Remove duplicate annotations and files from the dataset.
 
     Args:
         name: Name of the dataset to sanitize.
@@ -1106,7 +1112,7 @@ def sanitize(
     check_exists(name, bucket_storage)
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
     dataset.remove_duplicates()
-    print(f"[green]Duplicates removed from dataset '{name}'.")
+    rich_print(f"[green]Duplicates removed from dataset '{name}'.")
 
 
 if __name__ == "__main__":
