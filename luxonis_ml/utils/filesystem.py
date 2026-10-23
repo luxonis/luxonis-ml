@@ -690,7 +690,8 @@ class LuxonisFileSystem:
         )
         if not existed:
             return local_dir
-        return local_dir / PurePosixPath(remote_dir).name
+        # A local Windows path keeps its backslashes in ``self._path``.
+        return local_dir / Path(str(self._path / remote_dir)).name
 
     def delete_dir(
         self, remote_dir: PosixPathType = "", allow_delete_parent: bool = False
