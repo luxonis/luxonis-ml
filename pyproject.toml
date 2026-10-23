@@ -243,8 +243,8 @@ filterwarnings = [
   "ignore:You are using a non-supported Python version:FutureWarning",
   # typer calls deprecated click stream functions.
   "ignore:'click\\.utils\\.get_\\w+_stream' is deprecated:DeprecationWarning",
-  # gcsfs does not close its SSL connections before garbage collection.
-  "ignore:unclosed transport <asyncio.sslproto:ResourceWarning",
+  # gcsfs does not close its connections before garbage collection.
+  "ignore:unclosed transport <:ResourceWarning",
   # pycocotools' compiled mask decoder predates the NumPy 2 copy rules.
   "ignore:__array__ implementation doesn't accept a copy keyword:DeprecationWarning:pycocotools",
   # The library still builds these deprecated classes itself.
