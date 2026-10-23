@@ -124,7 +124,7 @@ def configure_mlflow_tracking_uri(mlflow_tracking_uri: str) -> Iterator[None]:
 
 
 @pytest.fixture
-def mlflow_run(mlflow_tracking_uri: str, tempdir: Path, randint: int):
+def mlflow_run(mlflow_tracking_uri: str, randint: int):
     experiment_id = mlflow.create_experiment(f"fs-test-{randint}")
     client = mlflow.MlflowClient(tracking_uri=mlflow_tracking_uri)
     run = client.create_run(experiment_id)

@@ -139,7 +139,7 @@ class BatchTransform(ABC, A.DualTransform):
         ...
 
     def apply_to_array(
-        self, array_batch: list[np.ndarray], **kwargs
+        self, array_batch: list[np.ndarray], **_kwargs
     ) -> np.ndarray:
         """Apply the transformation to a batch of generic arrays.
 
@@ -149,7 +149,8 @@ class BatchTransform(ABC, A.DualTransform):
 
         Args:
             array_batch: A batch of arrays to transform.
-            **kwargs: Additional implementation-specific arguments.
+            **_kwargs: Implementation-specific arguments, which the default
+                ignores.
 
         """
         if all(arr.size == 0 for arr in array_batch):
@@ -157,7 +158,7 @@ class BatchTransform(ABC, A.DualTransform):
         return np.concatenate([arr for arr in array_batch if arr.size > 0])
 
     def apply_to_classification(
-        self, classification_batch: list[np.ndarray], **kwargs
+        self, classification_batch: list[np.ndarray], **_kwargs
     ) -> np.ndarray:
         """Apply the transformation to a batch of classification labels.
 
@@ -168,7 +169,8 @@ class BatchTransform(ABC, A.DualTransform):
 
         Args:
             classification_batch: A batch of classification labels to transform.
-            **kwargs: Additional implementation-specific arguments.
+            **_kwargs: Implementation-specific arguments, which the default
+                ignores.
 
         """
         for i in range(len(classification_batch)):
@@ -177,7 +179,7 @@ class BatchTransform(ABC, A.DualTransform):
         return np.clip(sum(classification_batch), 0, 1)
 
     def apply_to_metadata(
-        self, metadata_batch: list[np.ndarray], **kwargs
+        self, metadata_batch: list[np.ndarray], **_kwargs
     ) -> np.ndarray:
         """Apply the transformation to a batch of metadata arrays.
 
@@ -187,7 +189,8 @@ class BatchTransform(ABC, A.DualTransform):
 
         Args:
             metadata_batch: A batch of metadata arrays to transform.
-            **kwargs: Additional implementation-specific arguments.
+            **_kwargs: Implementation-specific arguments, which the default
+                ignores.
 
         """
         if all(arr.size == 0 for arr in metadata_batch):

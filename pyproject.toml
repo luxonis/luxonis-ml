@@ -116,6 +116,7 @@ docstring-code-format = true
 select = [
   "A",
   "ANN",
+  "ARG",
   "ASYNC",
   "B",
   "C4",

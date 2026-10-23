@@ -184,9 +184,9 @@ class LuxonisTracker:
         else:
             return
 
-        self.store_log_locally(log_fn, *args, **kwargs)
+        self.store_log_locally(log_fn, *args)
 
-    def store_log_locally(self, log_fn: Callable, *args, **kwargs) -> None:
+    def store_log_locally(self, log_fn: Callable, *args) -> None:
         """Store log data locally if logging to MLflow fails."""
         # Checking functions without triggering reconnections.
         if log_fn == self.experiment["mlflow"].log_metric:
