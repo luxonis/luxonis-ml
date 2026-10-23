@@ -655,8 +655,8 @@ class BaseParser(ABC):
         Args:
             generator: Dataset record generator.
 
-        Returns:
-            Generator that yields records with task names applied.
+        Yields:
+            The records with the task names applied.
 
         """
         for item in generator:
