@@ -79,6 +79,7 @@ dev = [
   "pytest-split~=0.11",
   "pytest-subtests~=0.15",
   "pytest-xdist~=3.8",
+  "deptry~=0.25",
 ]
 
 [project.scripts]
@@ -198,6 +199,16 @@ unfixable = ["B905"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "__future__".msg = "Do not use imports from __future__."
+
+[tool.deptry.per_rule_ignores]
+# fsspec loads these by the protocol of a URL (gs://, s3://). No module
+# imports them by name.
+DEP002 = ["gcsfs", "s3fs"]
+# Optional integrations, imported only when a user turns them on: the
+# tracker logs to TensorBoard through torch and to Weights & Biases.
+DEP001 = ["torch", "wandb"]
+# The telemetry wraps a Typer application that the user brings.
+DEP003 = ["typer"]
 
 [tool.docformatter]
 black = true
