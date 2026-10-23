@@ -219,7 +219,7 @@ class LuxonisFileSystem:
         """Set up the MLflow run from the path, or use the active run.
 
         Returns:
-            The value for ``self._path``. It is ``path`` itself, or
+            The value for ``self._path``, which is ``path`` itself or
             ``""`` for the active run.
 
         Raises:
@@ -683,10 +683,8 @@ class LuxonisFileSystem:
         new one becomes the directory itself.
 
         Returns:
-            The local path of the directory. It is ``local_dir`` if it
-            did not exist, otherwise its child named after the remote
-            directory. An MLflow download without an artifact path
-            always goes to ``local_dir``.
+            The local path of the directory. An MLflow download without
+            an artifact path always goes to ``local_dir`` itself.
 
         """
         existed = local_dir.exists()

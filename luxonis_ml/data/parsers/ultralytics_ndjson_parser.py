@@ -552,11 +552,10 @@ def _pose_keypoints(
 ) -> np.ndarray:
     """Reshape a flat keypoint list into ``(x, y, visibility)`` rows.
 
-    Without a ``kpt_shape`` the list must hold triples. Pairs get full
-    visibility.
+    Pairs get full visibility.
 
     Returns:
-        Float array with one ``(x, y, visibility)`` row per keypoint.
+        A float array with one ``(x, y, visibility)`` row per keypoint.
         It has ``kpt_shape[0]`` rows, or a third of the list length
         without a ``kpt_shape``.
 

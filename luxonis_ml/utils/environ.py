@@ -108,9 +108,7 @@ def _load_environ() -> Environ:
     once.
 
     Returns:
-        The settings read from ``.env`` and the process environment.
-        Later calls return the same instance until the cache is
-        cleared.
+        The same instance on every call until the cache is cleared.
 
     """
     return Environ()

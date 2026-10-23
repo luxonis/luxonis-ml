@@ -155,8 +155,7 @@ class Color:
         otherwise hex is tried first, then a color name.
 
         Returns:
-            The color of ``text`` read as hex or, if it is not hex, as a
-            color name.
+            The parsed `Color`.
 
         Raises:
             ValueError: If ``text`` starts with ``#`` but is not valid

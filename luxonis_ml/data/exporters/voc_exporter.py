@@ -109,8 +109,6 @@ class VOCExporter(BaseExporter):
 
         Returns:
             The estimated size in bytes of the XML file of one image.
-            That is 300 for the header and 140 for each object. An image
-            with no object counts as one object.
 
         """
         per_object = 140  # ~lines for name/bbox/flags

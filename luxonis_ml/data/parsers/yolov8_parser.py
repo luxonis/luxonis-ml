@@ -408,9 +408,7 @@ def _annotation_lines(ann_path: Path) -> list[str]:
     """Return the non-blank lines of a label file; none for a missing file.
 
     Returns:
-        The lines of ``ann_path`` that hold more than whitespace, with
-        their line endings kept. An empty list if the file does not
-        exist.
+        The non-blank lines, each with its line ending kept.
 
     Examples:
         >>> _annotation_lines(Path("no_such_labels.txt"))
@@ -432,7 +430,6 @@ def _keypoints_array(
 
     Returns:
         A float array with one ``(x, y, visibility)`` row per keypoint.
-        The added visibility of two-dimensional keypoints is 2.
 
     Examples:
         >>> _keypoints_array(["0.1", "0.2", "0.3", "0.4"], (2, 2)).tolist()

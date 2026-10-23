@@ -642,9 +642,9 @@ def _instance_labels(first_id: int) -> Labels:
     rather than an artifact of the patch position.
 
     Returns:
-        Labels of the task ``"task"``: two boxes of class 0, a mask for
-        each box that holds the instance ID inside the box, and the IDs
-        ``first_id`` and ``first_id + 1`` as metadata.
+        Labels of the task ``"task"`` with two boxes of class 0. Each
+        mask holds its instance id, and the metadata holds the ids
+        ``first_id`` and ``first_id + 1``.
 
     """
     mask = np.zeros((2, 320, 320), dtype=np.uint8)

@@ -166,12 +166,11 @@ class BatchCompose(A.Compose):
         unchanged.
 
         Returns:
-            A tuple of three elements. The first is the output sample,
-            with filtered boxes and their associated labels removed. The
-            second holds the indices of the batch inputs the sample is
-            made of. These are all of them if the transform applied, else
-            those of the first input. The third is whether the transform
-            applied.
+            The output sample, the indices of the batch inputs it is made
+            of, and whether the transform applied. The sample has its
+            filtered boxes and their associated labels removed. The
+            indices are those of all the inputs if the transform applied,
+            else those of the first input.
 
         """
         # Captured before padding so that a transform which does not
@@ -210,9 +209,7 @@ class BatchCompose(A.Compose):
         more column for every configured label field, pushing the index left.
 
         Returns:
-            The negative column index. It is ``-1`` without a bbox
-            processor, else ``-1`` minus the number of the processor's
-            label fields.
+            The position as a negative index, ``-1`` for the last column.
 
         """
         processor = self.processors.get("bboxes")
@@ -298,10 +295,8 @@ class BatchCompose(A.Compose):
         without one there is nothing to fill.
 
         Returns:
-            ``(*image_shape, count)`` for an instance mask,
-            ``(count * n_keypoints, *trailing)`` for keypoints, and
-            ``(count, *trailing)`` for any other target. ``None`` for an
-            instance mask without ``image_shape``.
+            The shape, or ``None`` for an instance mask without
+            ``image_shape``.
 
         Examples:
             >>> shape = BatchCompose._instances_shape
@@ -423,13 +418,11 @@ class BatchCompose(A.Compose):
     ) -> np.ndarray:
         """Keep the instances of one field whose boxes survived.
 
-        A field that cannot be matched to the boxes comes back as it is.
-
         Returns:
             The instances of ``value`` at ``indices``, in that order. If
-            ``bbox_count`` is ``0``, an empty slice of ``value``. It is
-            ``value`` unchanged if ``value`` is empty, if no box was
-            filtered, or if the field cannot be matched.
+            ``bbox_count`` is ``0``, an empty slice of ``value``.
+            ``value`` itself if it is empty, if no box was filtered, or
+            if the field cannot be matched.
 
         """
         if bbox_count == 0:

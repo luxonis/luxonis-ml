@@ -118,12 +118,12 @@ class LoaderOutput(
     def __iter__(self) -> Iterator["np.ndarray | dict[str, np.ndarray]"]:
         """Yield the legacy ``(image_or_images, labels)`` tuple shape.
 
-        Single-source samples yield the first image array. Multi-source samples
-        yield the full ``images`` mapping. Metadata is intentionally available
-        only through the `metadata` attribute.
+        Metadata is intentionally available only through the `metadata`
+        attribute.
 
         Yields:
-            The image array or the ``images`` mapping, then ``labels``.
+            The first image array of a single-source sample or the
+            ``images`` mapping of a multi-source one, then ``labels``.
 
         """
         yield self.images if len(self.images) > 1 else self.image

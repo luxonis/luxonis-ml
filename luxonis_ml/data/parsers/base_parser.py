@@ -150,8 +150,6 @@ class BaseParser(ABC):
         whereas validation splits can vary in name between ``val`` ``valid``
         and ``validation``.
 
-        This maps ``valid`` -> ``val`` and ``validation`` -> val
-
         Returns:
             ``val`` for ``valid`` and ``validation``, else
             ``split_name`` unchanged.
@@ -668,7 +666,8 @@ class BaseParser(ABC):
             generator: Dataset record generator.
 
         Yields:
-            The records with the task names applied.
+            Each record as a `DatasetRecord`. A record without an
+            annotation is copied once for each configured task.
 
         """
         for item in generator:

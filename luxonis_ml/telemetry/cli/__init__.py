@@ -60,9 +60,7 @@ def __getattr__(name: str) -> Any:
     optional.
 
     Returns:
-        The ``instrument_typer``, ``instrument_cyclopts`` or
-        ``skip_telemetry`` function that ``name`` names, imported from
-        its submodule.
+        The function called ``name``, imported from its submodule.
 
     Raises:
         AttributeError: If ``name`` is not one of the names in

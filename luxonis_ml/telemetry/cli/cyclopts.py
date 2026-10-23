@@ -117,8 +117,7 @@ def _primary_name(name: tuple[str, ...] | str | None) -> str:
     value.
 
     Returns:
-        The first name of a tuple, or ``name`` itself if it is a string.
-        An empty string if ``name`` is ``None`` or an empty tuple.
+        The first name, or an empty string if ``name`` holds none.
 
     """
     if name is None:

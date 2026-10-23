@@ -343,9 +343,9 @@ def test_mosaic_drops_boxes_keeps_masks_aligned(
 
         Returns:
             Labels of four instances, one per corner, each with a box,
-            two keypoints and a mask channel filled with its id.
-            ``task/array`` holds the ids, and ``task/metadata/id`` the
-            ids plus 100.
+            two keypoints and a mask channel that holds its id inside
+            the box. ``task/array`` holds the ids, and
+            ``task/metadata/id`` the ids plus 100.
 
         """
         instance_mask = np.zeros((4, 320, 320), dtype=np.uint8)

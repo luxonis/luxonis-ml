@@ -344,13 +344,12 @@ class COCOParser(BaseParser):
     ) -> DatasetIterator:
         """Yield one record per COCO annotation of an existing image.
 
-        An image without annotations yields one record with no
+        An image without annotations yields one record with a ``None``
         annotation, unless ``skip_unlabeled`` is set.
 
         Yields:
             A dict with the image path under ``file`` and the LDF
-            annotation under ``annotation``. The annotation is ``None``
-            for an image without annotations.
+            annotation under ``annotation``.
 
         """
         img_dict = {img["id"]: img for img in coco_images}
@@ -537,9 +536,9 @@ def _coco_bbox(
     """Normalize a COCO ``[x, y, w, h]`` box, or ``None`` if not numeric.
 
     Returns:
-        A dict with ``x``, ``y``, ``w`` and ``h``, where ``x`` and ``w``
-        are divided by ``img_w`` and ``y`` and ``h`` by ``img_h``.
-        ``None`` if ``bbox`` does not hold four finite numbers.
+        The box with ``x``, ``y``, ``w`` and ``h`` as fractions of the
+        image size. ``None`` if ``bbox`` does not hold four finite
+        numbers.
 
     Examples:
         >>> _coco_bbox([10, 20, 30, 40], 100, 200)
@@ -565,9 +564,9 @@ def _coco_segmentation(
     """Convert a COCO polygon list or RLE dict to an LDF RLE dict.
 
     Returns:
-        A dict with the mask ``height``, ``width`` and RLE ``counts``.
-        Polygons merge into one mask. ``None`` if ``coco_seg`` is an
-        empty list, or is neither a list nor a dict.
+        The mask ``height``, ``width`` and RLE ``counts``. Polygons
+        merge into one mask. ``None`` if ``coco_seg`` is an empty list,
+        or is neither a list nor a dict.
 
     Examples:
         >>> _coco_segmentation({"size": [4, 5], "counts": "abc"}, 5, 4)

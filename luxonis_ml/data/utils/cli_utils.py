@@ -117,12 +117,11 @@ def _split_from_parts(
     """Build a split mapping from the given parts.
 
     Whole numbers that sum above 1 are counts. Otherwise the parts are
-    ratios, and the missing ones share the remainder to 1.
+    ratios, and the missing ones share the remainder to 1 equally.
 
     Returns:
         A mapping of ``"train"``, ``"val"`` and ``"test"`` to their
-        values. Counts are integers, and a missing count is 0. Each
-        missing ratio gets an equal share of the remainder to 1.
+        values. Counts are integers, and a missing count is 0.
 
     Raises:
         ValueError: If the parts sum above 1 but are not all whole
@@ -242,9 +241,8 @@ def _per_task_table(
     The task name column appears only when some task has a name.
 
     Returns:
-        A table titled ``title`` with one row per task. Each row holds
-        the task name, when the column is present, and the values of
-        the task joined by commas.
+        The table, titled ``title``. Each row holds the values of one
+        task, joined by commas.
 
     """
     has_names = any(rows)

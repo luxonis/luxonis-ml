@@ -773,9 +773,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         the task entirely.
 
         Returns:
-            LDF layout of each dropped target, keyed by target name. It
-            holds only the targets of a bounding-box task group that a
-            contributing batch member had labels for.
+            The dropped targets that belong to a bounding-box task group
+            and that a contributing batch member had labels for, mapped
+            to their LDF layout.
 
         """
         # A batch transform discards the members it did not merge, and a
@@ -1200,8 +1200,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         only ever grouped with itself.
 
         Returns:
-            Name of the task group. It is empty when only ``"/"`` precedes
-            the task type, and ``task`` itself when nothing does.
+            Name of the task group.
 
         """
         group = task.removesuffix(get_task_type(task)).removesuffix("/")
@@ -1341,9 +1340,8 @@ def _apply_pixel_transform(
     Only sources with a channel axis are replayed.
 
     Returns:
-        The same ``data`` dictionary, with the image and the replayed
-        sources transformed in place. Nothing changes when ``transform``
-        holds no transforms.
+        ``data`` with the image and the replayed sources transformed.
+        It comes back unchanged when ``transform`` holds no transforms.
 
     Raises:
         ValueError: If ``transform`` holds transforms and ``source_names``
@@ -1383,10 +1381,10 @@ def _normalize_params(
             transformation of their own.
 
     Returns:
-        The kept parameters with string keys. Values become plain Python
-        types, and other objects become strings. Arrays, sequences that
-        hold one, and values that only echo the configuration are left
-        out.
+        The kept parameters with string keys. NumPy scalars become Python
+        scalars, tuples become lists, and objects of other types become
+        strings. Arrays, sequences that hold one, and values that only
+        echo the configuration are left out.
 
     """
     normalized: Params = {}
@@ -1408,8 +1406,7 @@ def _is_configured(transform: Any, key: str, value: Any) -> bool:
     input ``shape``, are never sampled.
 
     Returns:
-        Whether ``key`` is in ``_STATIC_PARAMS`` and ``transform`` either
-        lacks it or holds it with the same normalized ``value``.
+        Whether to leave the parameter out of the report.
 
     """
     if key not in _STATIC_PARAMS:

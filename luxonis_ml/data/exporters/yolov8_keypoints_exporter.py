@@ -234,8 +234,7 @@ def _keypoints_bbox(kp_arr: np.ndarray) -> tuple[float, float, float, float]:
     box gets a tiny size.
 
     Returns:
-        The center x, the center y, the width and the height of the
-        box, each clipped to the range from 0 to 1.
+        The box, with each value clipped to the range from 0 to 1.
 
     """
     visible_mask = kp_arr[:, 2] > 0

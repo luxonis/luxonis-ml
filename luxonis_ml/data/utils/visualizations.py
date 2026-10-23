@@ -869,8 +869,8 @@ def _keypoint_label(
     Returns:
         ``str(index)`` in ``"numbers"`` mode, the name in ``"names"``
         mode, and ``"<index>: <name>"`` in ``"full"`` mode. ``None`` in
-        ``"none"`` mode, or if ``keypoint_names`` has no name for
-        ``index``.
+        ``"none"`` mode, or if a name is needed but ``keypoint_names``
+        has none for ``index``.
 
     Examples:
         >>> names = ["nose", "eye"]

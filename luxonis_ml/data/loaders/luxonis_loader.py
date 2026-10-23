@@ -375,8 +375,7 @@ class LuxonisLoader(BaseLoader):
         A sample with no mask gives no verdict on its task.
 
         Returns:
-            The names of the segmentation tasks in which at least one
-            sample has masks that leave a pixel unassigned.
+            The names of the uncovered segmentation tasks.
 
         """
         samples = (
@@ -700,10 +699,8 @@ class LuxonisLoader(BaseLoader):
         source sample's position in the original augmentation batch.
 
         Returns:
-            A deep copy of the first sample's metadata with an added
-            ``"batch_augmentation_metadata"`` list, which holds one
-            entry for each sample. An empty dict if ``metadata_batch``
-            is empty.
+            The merged metadata, built from deep copies of the inputs.
+            An empty dict if ``metadata_batch`` is empty.
 
         Example:
             .. python::
@@ -858,8 +855,8 @@ class LuxonisLoader(BaseLoader):
 
         Returns:
             One run-length encoding for each mask and each polyline.
-            All have the size of the first encoded mask, or 1000 by
-            1000 if the sample has polylines only.
+            All have the size of the first encoded mask, or of a fixed
+            grid if the sample has polylines only.
 
         """
         parsed = [json.loads(annotation) for annotation in annotations]

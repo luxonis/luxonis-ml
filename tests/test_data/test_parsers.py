@@ -945,8 +945,8 @@ def ultralytics_requests(
     calls are the only coverage of the URL contract.
 
     Returns:
-        The list to which each mocked ``requests.get`` call appends a
-        dict with its ``url`` and ``params``.
+        The ``url`` and ``params`` of each mocked ``requests.get``
+        call, recorded as the calls happen.
 
     """
     calls: list[dict[str, Any]] = []

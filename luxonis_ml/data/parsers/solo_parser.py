@@ -242,8 +242,8 @@ def _parse_capture(
     kinds that an earlier capture of the same step already read.
 
     Yields:
-        Records with the capture image as ``file``: one segmentation
-        record per class of each semantic mask, then one record per
+        Records with the capture image as ``file``. The records of the
+        semantic masks come first, one per class, then one record per
         instance with its box, plus its keypoints and instance mask if
         the capture has them.
 

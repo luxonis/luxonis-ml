@@ -501,8 +501,8 @@ def _annotation_points(
     gives its foreground pixels after downsampling.
 
     Returns:
-        The x coordinates and the y coordinates of the points, as two
-        arrays. ``None`` if the annotation gives no point.
+        The x coordinates and the y coordinates of the points. ``None``
+        if the annotation gives no point.
 
     """
     if task_type == "boundingbox":

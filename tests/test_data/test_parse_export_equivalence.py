@@ -23,8 +23,7 @@ def _export_and_reimport(
     tempdir: Path,
     initial_parse_kwargs: dict | None = None,
 ) -> tuple[LuxonisDataset, LuxonisDataset]:
-    """Parse -> export -> re-import and return (original_dataset,
-    reimported_dataset) to compare the two.
+    """Parse -> export -> re-import a dataset to compare the two versions.
 
     Returns:
         The dataset parsed from ``url``, and the dataset parsed back

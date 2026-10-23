@@ -625,8 +625,6 @@ class Detection(BaseModelExtraForbid):
     def _check_valid_identifier(name: str, *, label: str) -> None:
         """Raise a ``ValueError`` if ``name`` is not an identifier.
 
-        Dashes count as underscores, and an empty name passes.
-
         Raises:
             ValueError: If ``name`` is not empty and, with dashes read
                 as underscores, is not a valid identifier.

@@ -401,9 +401,9 @@ def _nested_unions(
     alternative, but nothing in its location says so.
 
     Returns:
-        The locations of the unions with failures under two or more
-        member tags. A union is left out when one member fails on its
-        own type and another one has a missing or an unexpected field.
+        The locations of these unions. A union is left out when one
+        member fails on its own type and another one has a missing or
+        an unexpected field.
 
     """
     tags: dict[tuple[Any, ...], set[str]] = {}
