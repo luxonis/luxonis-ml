@@ -997,6 +997,25 @@ def test_context_providers_skip_failures_none_and_non_mappings(
     event = dummy_backend.events[-1]
     assert event.context["kept"] == "value"
 
+    def partly_invalid_provider(
+        _telemetry: Telemetry,
+    ) -> list[tuple[str, ...]]:
+        return [("$session_id", "wrong"), ("invalid",)]
+
+    telemetry = Telemetry(
+        "luxonis_ml",
+        config=TelemetryConfig(
+            enabled=True,
+            backend="dummy",
+            allow_reserved_overrides=True,
+        ),
+    )
+    telemetry.add_context_provider(cast("Any", partly_invalid_provider))
+    telemetry.capture("event_test")
+
+    event = dummy_backend.events[-1]
+    assert event.context["$session_id"] != "wrong"
+
 
 def test_safe_version_returns_none_for_expected_failures(
     monkeypatch: pytest.MonkeyPatch,

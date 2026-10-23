@@ -4,6 +4,7 @@ from typing import Any
 from uuid import uuid4
 
 from loguru import logger
+from typeguard import check_type
 
 from luxonis_ml.telemetry.backends.base import (
     TELEMETRY_BACKENDS,
@@ -302,6 +303,7 @@ class Telemetry:
         """Merge the context of one provider, or skip it if it fails."""
         try:
             extra = provider(self)
+            check_type(extra, Mapping)
             if self._config.allow_reserved_overrides:
                 context.update(extra)
             else:
