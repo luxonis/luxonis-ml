@@ -342,7 +342,7 @@ See:
 
 """
 
-from importlib.metadata import EntryPoint, entry_points
+from importlib.metadata import entry_points
 
 from luxonis_ml.guard_extras import guard_missing_extra
 
@@ -374,21 +374,16 @@ with guard_missing_extra("data"):
 
 def _load_dataset_plugins() -> None:  # pragma: no cover
     """Register external dataset ``BaseDataset`` plugins."""
-    for entry_point in _get_entry_points_subset("dataset_plugins"):
+    for entry_point in entry_points(group="dataset_plugins"):
         plugin_class = entry_point.load()
         DATASETS_REGISTRY.register(module=plugin_class)
 
 
 def _load_loader_plugins() -> None:  # pragma: no cover
     """Register external dataset ``BaseLoader`` plugins."""
-    for entry_point in _get_entry_points_subset("loader_plugins"):
+    for entry_point in entry_points(group="loader_plugins"):
         plugin_class = entry_point.load()
         LOADERS_REGISTRY.register(module=plugin_class)
-
-
-def _get_entry_points_subset(key: str) -> list[EntryPoint]:
-    """Return the installed entry points of the group ``key``."""
-    return list(entry_points(group=key))
 
 
 _load_dataset_plugins()

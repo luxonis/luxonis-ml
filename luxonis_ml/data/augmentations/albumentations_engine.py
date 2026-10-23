@@ -684,11 +684,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         for op in spatial_transforms:
             wrapped.append(op)
             wrapped.append(
-                A.Lambda(
-                    image=_keep_image,
-                    keypoints=self._mark_invisible_keypoints,
-                    p=1.0,
-                )
+                A.Lambda(keypoints=self._mark_invisible_keypoints, p=1.0)
             )
         return wrapped
 
@@ -1273,15 +1269,6 @@ def _resolve_target_type(task: str, task_type: str) -> TargetType:
     if target_type in _TARGET_WARNINGS:
         logger.warning(_TARGET_WARNINGS[target_type])
     return target_type
-
-
-def _keep_image(img: np.ndarray, **_: Any) -> np.ndarray:
-    """Return the image unchanged.
-
-    A named function, unlike a lambda, can be pickled, so a data loader
-    worker process can receive the transformation.
-    """
-    return img
 
 
 def _image_data(image_dict: dict[str, np.ndarray]) -> dict[str, Any]:

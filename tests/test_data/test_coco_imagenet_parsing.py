@@ -60,7 +60,6 @@ def _run_cli_parse(
         cmd,
         check=False,
         capture_output=True,
-        text=True,
         encoding="utf-8",
         timeout=600,
         env=env,
