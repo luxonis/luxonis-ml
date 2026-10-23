@@ -34,6 +34,10 @@ jobs:
           enable-cache: true
 
       - name: Run pre-commit hooks
+        # deptry needs the project dependencies, which this job does not
+        # install. The type-check job runs it.
+        env:
+          SKIP: deptry
         run: >-
           uv run --locked --only-group lint prek run
           --all-files --show-diff-on-failure --color=always
@@ -78,6 +82,9 @@ jobs:
 
       - name: Pyright check
         run: uv run --no-sync pyright --warnings --level warning --project pyproject.toml
+
+      - name: Dependency check
+        run: uv run --no-sync deptry .
 
   semgrep:
     needs: pre-commit

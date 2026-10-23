@@ -38,7 +38,6 @@ pillow==12.3.0
 pillow-heif==1.8.1
 polars==1.44.2
 polars-runtime-32==1.44.2
-pyarrow==23.0.1
 pycocotools==2.0.11
 pydantic==2.14.1
 pydantic-core==2.50.1

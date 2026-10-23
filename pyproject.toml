@@ -21,12 +21,14 @@ dependencies = [
   "cyclopts~=4.16",
   "fsspec>=2026.1.0",
   "loguru~=0.7",
+  "pydantic-core~=2.0",
   "pydantic-extra-types~=2.10",
   "pydantic-settings~=2.1",
   "pydantic~=2.13",
   "rich~=15.0",
   "semver~=3.0",
   "typeguard~=4.1",
+  "typing-extensions~=4.5",
 ]
 
 [project.optional-dependencies]
@@ -43,7 +45,6 @@ data = [
   "opencv-python~=4.10",
   "pillow-heif~=1.5",
   "polars[timezone]~=1.43",
-  "pyarrow~=23.0",
   "pycocotools~=2.0",
   "requests~=2.32",
 ]
@@ -70,6 +71,7 @@ dev = [
   { include-group = "docs" },
   "luxonis-ml[all]",
   "complexipy~=8.0",
+  "deptry~=0.25",
   "hypothesis~=6.161",
   "onnx~=1.22",
   "pyright~=1.1",
@@ -198,6 +200,18 @@ unfixable = ["B905"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "__future__".msg = "Do not use imports from __future__."
+
+[tool.deptry.per_rule_ignores]
+# fsspec loads gcsfs and s3fs by the protocol of a URL (gs://, s3://).
+# No module imports them by name. No module imports gdown either, but
+# the tests of luxonis-train use gdown and luxonis-eval uses its tqdm,
+# and neither declares them.
+DEP002 = ["gcsfs", "gdown", "s3fs"]
+# Optional integrations, imported only when a user turns them on: the
+# tracker logs to TensorBoard through torch and to Weights & Biases.
+DEP001 = ["torch", "wandb"]
+# The telemetry wraps a Typer application that the user brings.
+DEP003 = ["typer"]
 
 [tool.docformatter]
 black = true
