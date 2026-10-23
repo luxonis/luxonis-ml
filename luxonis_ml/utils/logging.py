@@ -5,7 +5,7 @@ import sys
 import warnings
 from collections.abc import Callable
 from functools import wraps
-from typing import Any, Literal
+from typing import Any, Literal, TextIO
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -102,13 +102,16 @@ def setup_logging(
         category: type[Warning],
         filename: str,
         lineno: int,
-        file: str | None = None,
+        file: TextIO | None = None,
         line: str | None = None,
     ) -> None:
         text = warnings.formatwarning(
             message, category, filename, lineno, line
         )
-        logger.warning(text)
+        if file is not None:
+            file.write(text)
+        else:
+            logger.warning(text)
 
     warnings.showwarning = _custom_warning_handler
 

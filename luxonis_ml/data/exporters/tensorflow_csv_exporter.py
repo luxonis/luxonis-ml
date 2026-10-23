@@ -27,25 +27,6 @@ class TensorflowCSVExporter(BaseExporter):
     box corners in pixels.
     """
 
-    def __init__(
-        self,
-        dataset_identifier: str,
-        output_path: Path,
-        max_partition_size_gb: float | None,
-    ) -> None:
-        """Create the exporter.
-
-        Args:
-            dataset_identifier: Name of the export directory.
-            output_path: Directory where the export is written.
-            max_partition_size_gb: Maximum partition size in GiB, or
-                ``None`` to disable partitioning.
-
-        """
-        super().__init__(
-            dataset_identifier, output_path, max_partition_size_gb
-        )
-
     @staticmethod
     def get_split_names() -> dict[str, str]:
         """Return the directory name of each split.
@@ -78,7 +59,7 @@ class TensorflowCSVExporter(BaseExporter):
         copied_files: set[Path] = set()
 
         for key, group_df in grouped:
-            file_name, group_id = cast(tuple[str, Any], key)
+            file_name, group_id = cast("tuple[str, Any]", key)
             logical_split = split_of_group(prepared_ldf, group_id)
             split_name = self.get_split_names()[logical_split]
 

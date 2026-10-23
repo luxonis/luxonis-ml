@@ -113,8 +113,8 @@ def task_type_iterator(
         labels: Labels to iterate over.
         task_type: Label type to yield.
 
-    Returns:
-        Iterator over matching labels.
+    Yields:
+        The task name and the array of each label of the type.
 
     Examples:
         >>> labels = {

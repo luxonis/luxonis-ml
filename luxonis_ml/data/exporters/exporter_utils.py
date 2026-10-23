@@ -72,7 +72,7 @@ class PreparedLDF:
         if splits is None:
             raise ValueError("Cannot export dataset without splits")
 
-        df = dataset._load_df_offline(raise_when_empty=True).with_row_count(
+        df = dataset._load_df_offline(raise_when_empty=True).with_row_index(
             "row_idx"
         )
 
@@ -148,11 +148,12 @@ def check_group_file_correspondence(prepared_ldf: PreparedLDF) -> None:
         pl.col("file").n_unique().alias("file_count")
     )
     invalid_groups = group_to_files.filter(pl.col("file_count") > 1)
-    assert invalid_groups.is_empty(), (
-        "Each annotation instance must correspond to exactly one file. "
-        f"Found groups with multiple files: {invalid_groups['group_id'].to_list()}"
-        f"To export multiple files (e.g. RGB, depth) per instance, export to Native format"
-    )
+    if not invalid_groups.is_empty():
+        raise AssertionError(
+            "Each annotation instance must correspond to exactly one file. "
+            f"Found groups with multiple files: {invalid_groups['group_id'].to_list()}"
+            f"To export multiple files (e.g. RGB, depth) per instance, export to Native format"
+        )
 
 
 def exporter_specific_annotation_warning(
@@ -201,7 +202,8 @@ def split_of_group(prepared_ldf: PreparedLDF, group_id: Any) -> str:
         (s for s, ids in prepared_ldf.splits.items() if group_id in ids),
         None,
     )
-    assert split is not None, "group must belong to a split"
+    if split is None:
+        raise AssertionError("group must belong to a split")
     return split
 
 
@@ -291,8 +293,8 @@ def annotation_to_polygons(
 
     Args:
         ann: Annotation with ``height``, ``width`` and ``counts`` keys.
-        file_path: Path of the annotated image. The function does not
-            read it.
+        file_path: Path of the annotated image. The warning for a mask
+            that fails to decode names it.
 
     Returns:
         One polygon for each outer contour with at least 3 points. An
@@ -322,8 +324,11 @@ def annotation_to_polygons(
             for cnt in contours
             if len(cnt) >= 3
         ]
-    except Exception:
-        logger.warning("Failed to decode COCO RLE; skipping this instance.")
+    except (TypeError, ValueError, IndexError, OverflowError, cv2.error):
+        logger.warning(
+            f"Failed to decode the COCO RLE mask of {file_path}; "
+            "skipping this instance."
+        )
         return []
 
 

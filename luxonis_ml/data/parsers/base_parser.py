@@ -4,7 +4,7 @@ import inspect
 import random
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -655,8 +655,8 @@ class BaseParser(ABC):
         Args:
             generator: Dataset record generator.
 
-        Returns:
-            Generator that yields records with task names applied.
+        Yields:
+            The records with the task names applied.
 
         """
         for item in generator:
@@ -675,18 +675,19 @@ class BaseParser(ABC):
                         update={"task_name": task_name}, deep=True
                     )
             else:
-                self._assign_task_name(record)
+                self._assign_task_name(record, self._task_name)
                 yield record
 
-    def _assign_task_name(self, item: DatasetRecord) -> None:
+    @staticmethod
+    def _assign_task_name(
+        item: DatasetRecord, task_names: Mapping[str, str]
+    ) -> None:
         """Set the task name that the class of a record maps to."""
-        assert self._task_name is not None
-        assert item.annotation is not None
-        class_name = item.annotation.class_name
-        if class_name is None:
+        if item.annotation is None or item.annotation.class_name is None:
             return
+        class_name = item.annotation.class_name
         try:
-            item.task_name = self._task_name[class_name]
+            item.task_name = task_names[class_name]
         except KeyError:
             raise ValueError(
                 f"Class '{class_name}' not found in task names."

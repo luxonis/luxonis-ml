@@ -59,8 +59,8 @@ def rgb_to_bool_masks(
             pixels that do not belong to any class. The background mask is
             yielded first.
 
-    Returns:
-        Iterator of class names and their boolean masks.
+    Yields:
+        The name and the boolean mask of each class.
 
     """
     color_to_id = {
@@ -305,7 +305,8 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
         for item in duplicates_info["duplicate_annotations"]:
             logger.warning(
                 f"File '{item['file_name']}' of task '{item['task_name']}' has the "
-                f"same '{item['task_type']}' annotation '{item['annotation']}' repeated {item['count']} times."
+                f"same '{item['task_type']}' annotation "
+                f"'{item['annotation']}' repeated {item['count']} times."
             )
         logger.warning(
             "Duplicate annotations detected. "

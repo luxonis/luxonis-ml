@@ -126,4 +126,4 @@ class _EnvironProxy:
 
 
 _proxy = _EnvironProxy()
-environ: Environ = cast(Environ, _proxy)
+environ: Environ = cast("Environ", _proxy)

@@ -109,7 +109,7 @@ class LuxonisConfig(BaseModelExtraForbid):
 
         yaml.SafeDumper.add_multi_representer(PurePath, path_representer)
 
-        with Path(path).open("w+") as f:
+        with Path(path).open("w+", encoding="utf-8") as f:
             yaml.safe_dump(self.model_dump(), f, default_flow_style=False)
 
     def get(self, key_merged: str, default: Any = None) -> Any:
@@ -264,6 +264,6 @@ def _merge_into_new(
     # Try to guess type, backtrack if fails
     try:
         _merge_override(container[key], key_tail, value)
-    except Exception:
+    except (ValueError, IndexError):
         container[key] = {}
         _merge_override(container[key], key_tail, value)

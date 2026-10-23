@@ -267,13 +267,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         self._metadata_path = self._local_path / "metadata"
         self._arrays_path = self._local_path / "arrays"
 
-        for path in [
-            self._media_path,
-            self._annotations_path,
-            self._metadata_path,
-        ]:
-            path.mkdir(exist_ok=True, parents=True)
-
         if not self.is_remote:
             self._path = str(self._local_path)
         elif self._bucket is None:
@@ -288,6 +281,13 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 self._team_id,
                 self._dataset_name,
             )
+
+        for path in [
+            self._media_path,
+            self._annotations_path,
+            self._metadata_path,
+        ]:
+            path.mkdir(exist_ok=True, parents=True)
 
     def _save_df_offline(self, pl_df: pl.DataFrame) -> None:
         """Save annotations DataFrame into parquet files.
@@ -419,7 +419,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 )
             else:
                 logger.warning(
-                    f"Cannot push to cloud. The cloned dataset '{new_dataset._dataset_name}' is local. "
+                    "Cannot push to cloud. The cloned dataset "
+                    f"'{new_dataset._dataset_name}' is local. "
                 )
 
         new_dataset._write_metadata()
@@ -1217,9 +1218,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             logger.info(
                 f"Deleting remote dataset '{self._dataset_name}' from cloud storage"
             )
-            assert self._path
-            assert self._dataset_name
-            assert self._local_path
+            if not self._dataset_name:
+                raise ValueError(
+                    "A remote dataset without a name cannot be deleted."
+                )
             self._fs.delete_dir(allow_delete_parent=True)
 
         if self.is_remote and delete_local:
@@ -1263,7 +1265,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         pfm: ParquetFileManager,
         index: pl.DataFrame | None,
     ) -> None:
-        paths = {path for data in data_batch for path in data.all_file_paths}
+        paths = {path for data in data_batch for path in data.files.values()}
         logger.info("Generating UUIDs...")
         uuid_dict = self._fs.get_file_uuids(paths, local=True)
 
@@ -1273,7 +1275,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             if matched_id is not None:
                 overwrite_uuids.add(matched_id)
                 logger.warning(
-                    f"File {file_path} with UUID: {matched_id} already existed in the dataset from previous dataset.add() call. "
+                    f"File {file_path} with UUID: {matched_id} already existed "
+                    "in the dataset from previous dataset.add() call. "
                     "Old data will be overwritten with the new data."
                 )
 
@@ -1289,7 +1292,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         rows: list[tuple[str, ParquetRecord, str]] = []
         with self._progress:
             for record in data_batch:
-                file_paths = record.all_file_paths
+                file_paths = list(record.files.values())
                 uuid_list = [
                     uuid_dict[str(file_path)] for file_path in file_paths
                 ]
@@ -1403,8 +1406,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         index = self._get_index()
 
-        assert annotations_path is not None
-
         with ParquetFileManager(annotations_path, batch_size) as pfm:
             for i, item in enumerate(generator, start=1):
                 record = (
@@ -1514,8 +1515,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             collection_check_strategy=CollectionCheckStrategy.ALL_ITEMS,
         )
         check_type(replace_old_splits, bool)
-        ratios, definitions = _resolve_splits(splits)
-
         splits_path = get_file(
             self._fs,
             "metadata/splits.json",
@@ -1532,24 +1531,24 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             for group_ids in old_splits.values():
                 defined_group_ids.update(group_ids)
 
-        if ratios is not None:
-            new_splits = self._split_by_ratio(ratios, defined_group_ids)
-        else:
-            assert definitions is not None
-            new_splits = self._split_by_definition(
-                definitions, defined_group_ids
-            )
-            if not any(new_splits.values()):
-                if not replace_old_splits:
-                    logger.warning(
-                        "No new files to add to splits. "
-                        "The existing splits are left unchanged."
-                    )
-                    return
-                logger.warning(
-                    "No file from the definitions is in the dataset. "
-                    "The new splits are empty."
+        match _resolve_splits(splits):
+            case (ratios, None):
+                new_splits = self._split_by_ratio(ratios, defined_group_ids)
+            case (None, definitions):
+                new_splits = self._split_by_definition(
+                    definitions, defined_group_ids
                 )
+                if not any(new_splits.values()):
+                    if not replace_old_splits:
+                        logger.warning(
+                            "No new files to add to splits. "
+                            "The existing splits are left unchanged."
+                        )
+                        return
+                    logger.warning(
+                        "No file from the definitions is in the dataset. "
+                        "The new splits are empty."
+                    )
 
         if replace_old_splits:
             old_splits.clear()
@@ -1997,7 +1996,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             logger.warning(
                 "Dataset size is smaller than the total number of files in the definitions. "
                 f"Dataset size: {dataset_size}, Definitions: {n_files}. "
-                "Duplicate files will be filtered out and extra files in definitions will be ignored."
+                "Duplicate files will be filtered out and extra files in "
+                "definitions will be ignored."
             )
             self.remove_duplicates()
 
@@ -2028,7 +2028,10 @@ def _resolve_splits(
     splits: Mapping[str, Sequence[PathType]]
     | Mapping[str, float]
     | tuple[float, float, float],
-) -> tuple[dict[str, float] | None, Mapping[str, Sequence[PathType]] | None]:
+) -> (
+    tuple[dict[str, float], None]
+    | tuple[None, Mapping[str, Sequence[PathType]]]
+):
     """Read the ``splits`` argument as ratios or as filepath lists.
 
     Args:

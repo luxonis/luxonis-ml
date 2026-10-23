@@ -50,7 +50,7 @@ def _wait_for_mlflow_server(
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            raise RuntimeError(log_path.read_text())
+            raise RuntimeError(log_path.read_text(encoding="utf-8"))
         try:
             with urlopen(  # noqa: S310
                 f"{tracking_uri}/health", timeout=0.5
@@ -63,7 +63,7 @@ def _wait_for_mlflow_server(
     raise TimeoutError(
         f"MLflow server did not become healthy within {timeout}s. "
         f"Set `{SERVER_TIMEOUT_ENV}` to wait longer.\n"
-        f"{log_path.read_text()}"
+        f"{log_path.read_text(encoding='utf-8')}"
     )
 
 
@@ -124,7 +124,7 @@ def configure_mlflow_tracking_uri(mlflow_tracking_uri: str) -> Iterator[None]:
 
 
 @pytest.fixture
-def mlflow_run(mlflow_tracking_uri: str, tempdir: Path, randint: int):
+def mlflow_run(mlflow_tracking_uri: str, randint: int):
     experiment_id = mlflow.create_experiment(f"fs-test-{randint}")
     client = mlflow.MlflowClient(tracking_uri=mlflow_tracking_uri)
     run = client.create_run(experiment_id)
@@ -219,7 +219,7 @@ def test_mlflow_server_timeout_reports_how_long_it_waited(
     with pytest.raises(TimeoutError, match=r"within 0\.01s") as error:
         _wait_for_mlflow_server(
             f"http://127.0.0.1:{_get_free_port()}",
-            cast(subprocess.Popen, _StillStartingProcess()),
+            cast("subprocess.Popen", _StillStartingProcess()),
             log_path,
         )
 

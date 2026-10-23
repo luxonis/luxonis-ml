@@ -3,10 +3,10 @@ import json
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
-from cv2.typing import MatLike
 
 from luxonis_ml.data import (
     BucketStorage,
@@ -18,6 +18,9 @@ from luxonis_ml.typing import Params
 from luxonis_ml.utils import LuxonisFileSystem
 
 from .utils import gather_tasks
+
+if TYPE_CHECKING:
+    from cv2.typing import MatLike
 
 
 def get_annotations(sequence_path: Path):
@@ -150,10 +153,11 @@ def _vehicle_keypoints(
     kp_annotations = annotations["KeypointAnnotation"]["values"][0][
         "keypoints"
     ]
-    if vehicle_type == "motorbike":
-        kp_annotations = kp_annotations[:3]
-    else:
-        kp_annotations = kp_annotations[3:]
+    kp_annotations = (
+        kp_annotations[:3]
+        if vehicle_type == "motorbike"
+        else kp_annotations[3:]
+    )
 
     keypoints = []
     for kp in kp_annotations:

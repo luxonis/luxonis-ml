@@ -133,7 +133,8 @@ class LuxonisParser(Generic[T]):
 
                     - ``ultralytics://`` for Ultralytics Platform datasets.
                         - Expected format: ``ultralytics://username/datasets/slug``
-                        - Optional version: append ``?v=<version>`` to export a specific dataset version.
+                        - Optional version: append ``?v=<version>`` to
+                          export a specific dataset version.
 
             dataset_name: Optional output dataset name. If omitted, the
                 name is derived from ``dataset_dir``.

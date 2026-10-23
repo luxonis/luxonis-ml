@@ -502,15 +502,15 @@ def test_loader_preserves_metadata_for_custom_batch_engines(
 
     metadata = loader[0].metadata
     batch_metadata = cast(
-        list[dict[str, Params]], metadata["batch_augmentation_metadata"]
+        "list[dict[str, Params]]", metadata["batch_augmentation_metadata"]
     )
 
-    assert [cast(int, entry["input_index"]) for entry in batch_metadata] == [
+    assert [cast("int", entry["input_index"]) for entry in batch_metadata] == [
         0,
         1,
     ]
     assert {
-        cast(int, entry["sample_metadata"]["record_id"])
+        cast("int", entry["sample_metadata"]["record_id"])
         for entry in batch_metadata
     } == {0, 1}
 
@@ -539,10 +539,10 @@ def test_loader_repeats_the_only_sample_for_a_batch_augmentation(
         metadata = loader[0].metadata
 
     batch_metadata = cast(
-        list[dict[str, Params]], metadata["batch_augmentation_metadata"]
+        "list[dict[str, Params]]", metadata["batch_augmentation_metadata"]
     )
     assert [
-        cast(int, entry["sample_metadata"]["record_id"])
+        cast("int", entry["sample_metadata"]["record_id"])
         for entry in batch_metadata
     ] == [0, 0]
 
@@ -623,16 +623,16 @@ def test_loader_merges_metadata_only_for_applied_batch_augmentations(
     assert ("batch_augmentation_metadata" in metadata) is metadata_is_merged
     if metadata_is_merged:
         batch_metadata = cast(
-            list[dict[str, Params]], metadata["batch_augmentation_metadata"]
+            "list[dict[str, Params]]", metadata["batch_augmentation_metadata"]
         )
         assert {
-            cast(int, entry["input_index"]) for entry in batch_metadata
+            cast("int", entry["input_index"]) for entry in batch_metadata
         } == {
             0,
             1,
         }
         assert {
-            cast(int, entry["sample_metadata"]["record_id"])
+            cast("int", entry["sample_metadata"]["record_id"])
             for entry in batch_metadata
         } == {0, 1}
         assert (
@@ -698,14 +698,14 @@ def test_loader_tracks_metadata_through_multiple_batch_augmentations(
         return
 
     batch_metadata = cast(
-        list[dict[str, Params]], metadata["batch_augmentation_metadata"]
+        "list[dict[str, Params]]", metadata["batch_augmentation_metadata"]
     )
     assert [
-        cast(int, entry["input_index"]) for entry in batch_metadata
+        cast("int", entry["input_index"]) for entry in batch_metadata
     ] == expected_input_indices
     assert len(
         {
-            cast(int, entry["sample_metadata"]["record_id"])
+            cast("int", entry["sample_metadata"]["record_id"])
             for entry in batch_metadata
         }
     ) == len(expected_input_indices)
@@ -1151,20 +1151,20 @@ def test_colorspace(storage_url: str, tempdir: Path):
         },
     ]
     loader = create_loader(storage_url, tempdir, augmentation_config=norm_3d)
-    rgb_img, _ = cast(LoaderSingleOutput, next(iter(loader)))
+    rgb_img, _ = cast("LoaderSingleOutput", next(iter(loader)))
     assert len(rgb_img.shape) == 3
     assert rgb_img.shape[2] == 3
     loader = create_loader(
         storage_url, tempdir, color_space="BGR", augmentation_config=norm_3d
     )
-    bgr_img, _ = cast(LoaderSingleOutput, next(iter(loader)))
+    bgr_img, _ = cast("LoaderSingleOutput", next(iter(loader)))
     assert len(bgr_img.shape) == 3
     assert bgr_img.shape[2] == 3
     assert np.array_equal(rgb_img, bgr_img[:, :, ::-1])
     loader = create_loader(
         storage_url, tempdir, color_space="GRAY", augmentation_config=norm_1d
     )
-    gray_img, _ = cast(LoaderSingleOutput, next(iter(loader)))
+    gray_img, _ = cast("LoaderSingleOutput", next(iter(loader)))
     assert len(gray_img.shape) == 3
     assert gray_img.shape[2] == 1
 

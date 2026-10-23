@@ -1164,7 +1164,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             raise ValueError(f"Invalid nested transform configuration: {item}")
         nested_cfg = AlbumentationConfigItem(
             name=str(item["name"]),
-            params=cast(Params, item.get("params", {})),
+            params=cast("Params", item.get("params", {})),
             use_for_resizing=bool(item.get("use_for_resizing", False)),
         )
         transform = AlbumentationsEngine._create_transformation(
@@ -1198,7 +1198,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     @staticmethod
     def _task_to_target_name(task: str) -> str:
         target = task.replace("/", "_").replace("-", "_")
-        assert target.isidentifier()
+        if not target.isidentifier():
+            raise ValueError(
+                f"Task '{task}' gives the target name '{target}', "
+                "which is not a valid identifier."
+            )
         return target
 
     @staticmethod
@@ -1387,18 +1391,20 @@ def _normalize_value(value: Any) -> Any:
     if isinstance(value, Mapping):
         return _normalize_params(value)
     if isinstance(value, (list, tuple)):
-        normalized = []
-        for raw_item in value:
-            item = _normalize_value(raw_item)
-            # Dropping a single item would reindex the sequence and
-            # misrepresent its length.
-            if item is _OMIT:
-                return _OMIT
-            normalized.append(item)
-        return normalized
+        return _normalize_sequence(value)
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return str(value)
+
+
+def _normalize_sequence(values: list[Any] | tuple[Any, ...]) -> Any:
+    """Normalize each item, or omit the sequence if an item is omitted."""
+    normalized = [_normalize_value(item) for item in values]
+    # Dropping a single item would reindex the sequence and misrepresent
+    # its length.
+    if any(item is _OMIT for item in normalized):
+        return _OMIT
+    return normalized
 
 
 def _reset_params(transform: Any) -> None:

@@ -113,13 +113,17 @@ indent-width = 4
 docstring-code-format = true
 
 [tool.ruff.lint]
+preview = true
+explicit-preview-rules = true
 select = [
   "A",
   "ANN",
+  "ARG",
   "ASYNC",
   "B",
   "C4",
   "D",
+  "DOC202",
   "DTZ",
   "E",
   "ERA",
@@ -140,6 +144,7 @@ select = [
   "PGH",
   "PIE",
   "PL",
+  "PLW1514",
   "PT",
   "PTH",
   "PYI",
@@ -149,8 +154,10 @@ select = [
   "RUF",
   "S",
   "SIM",
+  "SLOT",
   "T10",
   "T20",
+  "TC",
   "TID",
   "TRY",
   "UP",
@@ -163,21 +170,21 @@ ignore = [
   "ANN401",
   "D203",
   "D213",
-  "E501",
   "NPY002",
   "PLC0415",
-  "PLR0911",
   "PLR0913",
   "PLR2004",
-  "S101",
   "S311",
   "S603",
   "TRY003",
 ]
 unfixable = ["B905"]
 
+[tool.ruff.lint.pycodestyle]
+max-line-length = 100
+
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["ANN201", "D1"]
+"tests/*" = ["ANN201", "D1", "S101"]
 "__main__.py" = ["ANN201"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
@@ -204,8 +211,24 @@ reportImplicitOverride = "error"
 reportUnnecessaryTypeIgnoreComment = "error"
 reportUnnecessaryCast = "error"
 reportUnnecessaryComparison = "error"
+reportUnnecessaryIsInstance = "error"
 reportUnreachable = "error"
 reportUninitializedInstanceVariable = "error"
+reportCallInDefaultInitializer = "error"
+reportDuplicateImport = "error"
+reportMatchNotExhaustive = "error"
+reportPropertyTypeMismatch = "error"
+reportTypeCommentUsage = "error"
+reportUnnecessaryContains = "error"
+reportUntypedBaseClass = "error"
+reportUntypedFunctionDecorator = "error"
+reportUntypedNamedTuple = "error"
+reportUnusedClass = "error"
+reportUnusedFunction = "error"
+reportUnusedImport = "error"
+reportUnusedVariable = "error"
+reportInconsistentConstructor = "error"
+reportUntypedClassDecorator = "error"
 
 [tool.pytest]
 doctest_optionflags = [

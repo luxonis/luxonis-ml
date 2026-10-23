@@ -828,7 +828,9 @@ def test_classes_per_task(dataset_name: str, tempdir: Path):
                 "instance_id": 0,
             },
         }
-        # Yield a second annotation with only an `instance_id` to check that we don't encounter the issue: "Detected new classes for task group '': []".
+        # Yield a second annotation with only an `instance_id` to check that
+        # we don't encounter the issue:
+        # "Detected new classes for task group '': []".
         yield {
             "file": img,
             "annotation": {
@@ -995,7 +997,7 @@ def test_dataset_push_pull(
     def assert_loader_metadata(dataset: LuxonisDataset) -> None:
         metadata = sorted(
             (data.metadata for data in LuxonisLoader(dataset)),
-            key=lambda item: cast(int, item["record_id"]),
+            key=lambda item: cast("int", item["record_id"]),
         )
         assert [item["record_id"] for item in metadata] == [0, 1, 2]
         assert {item["origin"] for item in metadata} == {"push-pull"}  # pyright: ignore[reportUnhashable]
@@ -1276,7 +1278,8 @@ def test_class_order_per_task_invalid_task_name(tempdir: Path):
 
     with pytest.raises(
         ValueError,
-        match=r"Task invalid_task not found in dataset tasks\. Available tasks: \['classification'\]",
+        match=r"Task invalid_task not found in dataset tasks\. "
+        r"Available tasks: \['classification'\]",
     ):
         dataset.set_class_order_per_task(class_order_per_task)
 

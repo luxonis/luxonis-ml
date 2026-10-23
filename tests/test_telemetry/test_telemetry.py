@@ -73,16 +73,7 @@ class DummyBackend(TelemetryBackend):
 
 
 @pytest.fixture
-def reset_backend_registry() -> Generator[None, None, None]:
-    original = dict(TELEMETRY_BACKENDS._module_dict)
-    yield
-    TELEMETRY_BACKENDS._module_dict = original
-
-
-@pytest.fixture
-def dummy_backend(
-    reset_backend_registry: Generator[None, None, None],
-) -> DummyBackend:
+def dummy_backend() -> DummyBackend:
     backend = DummyBackend()
 
     class RegisteredDummyBackend(TelemetryBackend):
@@ -107,11 +98,13 @@ def dummy_backend(
 
 @pytest.fixture(autouse=True)
 def reset_singletons() -> Generator[None, None, None]:
+    backends = dict(TELEMETRY_BACKENDS._module_dict)
     _telemetry_by_key.clear()
     _singleton_state["exit_handler_registered"] = False
     yield
     _telemetry_by_key.clear()
     _singleton_state["exit_handler_registered"] = False
+    TELEMETRY_BACKENDS._module_dict = backends
 
 
 def _make_typer_app() -> Any:
@@ -523,9 +516,7 @@ def test_sanitize_properties_redacts_paths_urls_and_free_text() -> None:
     assert out["command"] == "data ls"
 
 
-def test_default_telemetry_uses_ephemeral_session_id(
-    reset_backend_registry: Generator[None, None, None],
-) -> None:
+def test_default_telemetry_uses_ephemeral_session_id() -> None:
     config = TelemetryConfig(
         enabled=True,
         backend="noop",
@@ -546,9 +537,7 @@ def test_telemetry_event_payload_includes_distinct_id_field() -> None:
     assert payload["distinct_id"] == "distinct-1"
 
 
-def test_source_component_can_be_overridden(
-    reset_backend_registry: Generator[None, None, None],
-) -> None:
+def test_source_component_can_be_overridden() -> None:
     config = TelemetryConfig(
         enabled=True,
         backend="noop",
@@ -626,7 +615,8 @@ def test_base_context_uses_library_name_when_component_missing() -> None:
     assert context["source_component"] == "luxonis_ml"
 
 
-def test_singleton_registry_multiple(dummy_backend: DummyBackend) -> None:
+@pytest.mark.usefixtures("dummy_backend")
+def test_singleton_registry_multiple() -> None:
     config = TelemetryConfig(enabled=True, backend="dummy")
     t1 = initialize_telemetry(
         library_name="lib_a",
@@ -644,9 +634,8 @@ def test_singleton_registry_multiple(dummy_backend: DummyBackend) -> None:
     assert get_telemetry() is None
 
 
-def test_singleton_registry_multiple_components_same_library(
-    dummy_backend: DummyBackend,
-) -> None:
+@pytest.mark.usefixtures("dummy_backend")
+def test_singleton_registry_multiple_components_same_library() -> None:
     config = TelemetryConfig(enabled=True, backend="dummy")
     cli = initialize_telemetry(
         library_name="lib_a",
@@ -667,7 +656,8 @@ def test_singleton_registry_multiple_components_same_library(
     assert get_telemetry("lib_a") is None
 
 
-def test_singleton_registry_single(dummy_backend: DummyBackend) -> None:
+@pytest.mark.usefixtures("dummy_backend")
+def test_singleton_registry_single() -> None:
     config = TelemetryConfig(enabled=True, backend="dummy")
     t1 = initialize_telemetry(
         library_name="only_lib",
@@ -677,9 +667,8 @@ def test_singleton_registry_single(dummy_backend: DummyBackend) -> None:
     assert get_telemetry() is t1
 
 
-def test_get_or_init_reuses_existing_instance(
-    dummy_backend: DummyBackend,
-) -> None:
+@pytest.mark.usefixtures("dummy_backend")
+def test_get_or_init_reuses_existing_instance() -> None:
     config = TelemetryConfig(enabled=True, backend="dummy")
     t1 = initialize_telemetry(
         library_name="lib_a",
@@ -695,9 +684,8 @@ def test_get_or_init_reuses_existing_instance(
     assert t2.config.backend == "dummy"
 
 
-def test_get_or_init_reuses_existing_component_instance(
-    dummy_backend: DummyBackend,
-) -> None:
+@pytest.mark.usefixtures("dummy_backend")
+def test_get_or_init_reuses_existing_component_instance() -> None:
     config = TelemetryConfig(enabled=True, backend="dummy")
     t1 = initialize_telemetry(
         library_name="lib_a",
@@ -717,8 +705,8 @@ def test_get_or_init_reuses_existing_component_instance(
     assert t2.config.backend == "dummy"
 
 
+@pytest.mark.usefixtures("dummy_backend")
 def test_initialize_telemetry_can_register_exit_handler_later(
-    dummy_backend: DummyBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = TelemetryConfig(enabled=True, backend="dummy")
@@ -819,9 +807,7 @@ def test_get_or_init_merges_new_context_providers(
     assert event.context["second"] == "value"
 
 
-def test_registering_custom_backend_keeps_builtin_backends(
-    reset_backend_registry: Generator[None, None, None],
-) -> None:
+def test_registering_custom_backend_keeps_builtin_backends() -> None:
     class RegisteredDummyBackend(TelemetryBackend):
         @override
         def capture(self, event: Any) -> None:
@@ -837,9 +823,7 @@ def test_registering_custom_backend_keeps_builtin_backends(
     assert telemetry._backend.__class__.__name__ == "NoopBackend"
 
 
-def test_register_backend_is_case_insensitive(
-    reset_backend_registry: Generator[None, None, None],
-) -> None:
+def test_register_backend_is_case_insensitive() -> None:
     backend = DummyBackend()
 
     class RegisteredDummyBackend(TelemetryBackend):
@@ -901,7 +885,7 @@ def test_capture_handles_backend_exceptions(
     monkeypatch.setattr(
         backend,
         "capture",
-        lambda event: (_ for _ in ()).throw(RuntimeError("boom")),
+        lambda _event: (_ for _ in ()).throw(RuntimeError("boom")),
     )
 
     telemetry.capture("event_test")
@@ -944,9 +928,7 @@ def test_init_backend_falls_back_to_noop_for_unknown_backend() -> None:
     assert isinstance(telemetry._backend, NoopBackend)
 
 
-def test_init_backend_falls_back_to_noop_when_backend_init_fails(
-    reset_backend_registry: Generator[None, None, None],
-) -> None:
+def test_init_backend_falls_back_to_noop_when_backend_init_fails() -> None:
     class BrokenBackend(TelemetryBackend):
         def __init__(self, config: TelemetryConfig) -> None:
             super().__init__(config)
@@ -987,8 +969,8 @@ def test_context_providers_skip_failures_none_and_non_mappings(
         return {"kept": "value"}
 
     telemetry.add_context_provider(broken_provider)
-    telemetry.add_context_provider(cast(Any, none_provider))
-    telemetry.add_context_provider(cast(Any, non_mapping_provider))
+    telemetry.add_context_provider(cast("Any", none_provider))
+    telemetry.add_context_provider(cast("Any", non_mapping_provider))
     telemetry.add_context_provider(valid_provider)
     telemetry.add_context_provider(valid_provider)
 
@@ -1099,7 +1081,7 @@ def test_posthog_backend_capture_and_flush(
     monkeypatch.setitem(
         sys.modules,
         "posthog",
-        cast(Any, type("FakePosthogModule", (), {"Posthog": FakeClient})()),
+        cast("Any", type("FakePosthogModule", (), {"Posthog": FakeClient})()),
     )
 
     backend = PostHogBackend(
@@ -1213,7 +1195,7 @@ def test_wrap_command_callback_records_failures(
     )
 
     def failing(epochs: int) -> None:
-        raise RuntimeError("boom")
+        raise RuntimeError(f"boom after {epochs} epochs")
 
     wrapped = wrap_command_callback(
         failing,
@@ -1242,7 +1224,7 @@ def test_wrap_command_callback_records_async_failures(
 
     async def failing(epochs: int) -> None:
         await asyncio.sleep(0)
-        raise RuntimeError("boom")
+        raise RuntimeError(f"boom after {epochs} epochs")
 
     wrapped = wrap_command_callback(
         failing,
@@ -1262,8 +1244,7 @@ def test_wrap_command_callback_records_async_failures(
 
 
 def test_extract_params_type_error_and_click_context() -> None:
-    def command(ctx: Any, epochs: int, ignored: int) -> None:
-        return
+    def command(ctx: Any, epochs: int, ignored: int) -> None: ...
 
     signature = inspect.signature(command)
     fake_ctx = type(
@@ -1350,8 +1331,7 @@ def test_instrument_typer_allowlist_keeps_core_fields(
     app = _make_typer_app()
 
     @app.command()
-    def train(epochs: int = 10, dataset_name: str = "private") -> int:
-        return epochs
+    def train(epochs: int = 10, dataset_name: str = "private") -> None: ...
 
     from luxonis_ml.telemetry.cli import instrument_typer
 
@@ -1525,8 +1505,7 @@ def test_instrument_cyclopts_allowlist_keeps_core_fields(
     app = App(name="demo")
 
     @app.command
-    def train(epochs: int = 10, dataset_name: str = "private") -> int:
-        return epochs
+    def train(epochs: int = 10, dataset_name: str = "private") -> None: ...
 
     from luxonis_ml.telemetry.cli import instrument_cyclopts
 
