@@ -54,7 +54,7 @@ class ClassificationDirectoryExporter(BaseExporter):
         )  # (src, dest_abs_str) to avoid duplicate write in same pass
 
         for key, entry in grouped:
-            file_name, group_id = cast(tuple[str, Any], key)
+            file_name, group_id = cast("tuple[str, Any]", key)
             file_path = Path(str(file_name))
 
             split = split_of_group(prepared_ldf, group_id)

@@ -732,7 +732,7 @@ class LuxonisLoader(BaseLoader):
         if isinstance(augmentation_config, PathType):
             with Path(augmentation_config).open() as file:
                 augmentation_config = cast(
-                    list[Params], yaml.safe_load(file) or []
+                    "list[Params]", yaml.safe_load(file) or []
                 )
         if augmentation_config and (width is None or height is None):
             raise ValueError(

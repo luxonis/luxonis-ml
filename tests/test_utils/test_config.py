@@ -1,13 +1,16 @@
 import tempfile
 from copy import deepcopy
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 import yaml
 from pydantic import BaseModel, Field
 
-from luxonis_ml.typing import Params
 from luxonis_ml.utils.config import LuxonisConfig
+
+if TYPE_CHECKING:
+    from luxonis_ml.typing import Params
 
 CONFIG_DATA = {
     "sub_config": {

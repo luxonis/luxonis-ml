@@ -37,7 +37,7 @@ def test_merge_into_a_new_dataset_needs_a_name(dataset: LuxonisDataset):
 
 def test_merge_into_a_new_dataset_needs_one_storage(dataset: LuxonisDataset):
     remote = cast(
-        LuxonisDataset, SimpleNamespace(_bucket_storage=BucketStorage.GCS)
+        "LuxonisDataset", SimpleNamespace(_bucket_storage=BucketStorage.GCS)
     )
 
     with pytest.raises(ValueError, match="different bucket storage"):

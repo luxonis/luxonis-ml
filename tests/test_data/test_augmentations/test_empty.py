@@ -1,10 +1,13 @@
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from luxonis_ml.data import DatasetIterator, LuxonisLoader
-from luxonis_ml.typing import Params
 from tests.test_data.utils import create_dataset, create_image
+
+if TYPE_CHECKING:
+    from luxonis_ml.typing import Params
 
 
 @pytest.mark.parametrize("n_samples", range(20))

@@ -4,7 +4,7 @@ import hashlib
 import json
 from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 import numpy as np
@@ -14,13 +14,15 @@ from typing_extensions import override
 from luxonis_ml.data import BaseDataset, DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
 from luxonis_ml.data.utils.remote_file_downloader import RemoteFileDownloader
-from luxonis_ml.typing import PathType
 from luxonis_ml.utils.path import (
     parse_manifest_path,
     resolve_manifest_path,
 )
 
 from .base_parser import BaseParser, ParserOutput, yolo_box_to_ldf
+
+if TYPE_CHECKING:
+    from luxonis_ml.typing import PathType
 
 
 class UltralyticsNDJSONParser(BaseParser):

@@ -995,7 +995,7 @@ def test_dataset_push_pull(
     def assert_loader_metadata(dataset: LuxonisDataset) -> None:
         metadata = sorted(
             (data.metadata for data in LuxonisLoader(dataset)),
-            key=lambda item: cast(int, item["record_id"]),
+            key=lambda item: cast("int", item["record_id"]),
         )
         assert [item["record_id"] for item in metadata] == [0, 1, 2]
         assert {item["origin"] for item in metadata} == {"push-pull"}  # pyright: ignore[reportUnhashable]

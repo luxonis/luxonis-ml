@@ -76,7 +76,7 @@ class CreateMLExporter(BaseExporter):
         copied_files: set[Path] = set()
 
         for key, group_df in grouped:
-            file_name, group_id = cast(tuple[str, Any], key)
+            file_name, group_id = cast("tuple[str, Any]", key)
             logical_split = split_of_group(prepared_ldf, group_id)
             split_name = self.get_split_names()[logical_split]
 
