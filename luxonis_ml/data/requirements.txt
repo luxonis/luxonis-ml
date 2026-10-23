@@ -4,7 +4,6 @@ albucore==0.0.24
 albumentations==2.0.8
 annotated-types==0.8.0
 attrs==26.1.0
-beautifulsoup4==4.15.0
 bidict==0.23.1 ; python_full_version < '3.11'
 bidict==0.24.1 ; python_full_version >= '3.11'
 certifi==2026.7.22
@@ -21,7 +20,6 @@ filelock==3.32.7
 fonttools==4.65.0 ; python_full_version < '3.11'
 fonttools==4.66.1 ; python_full_version >= '3.11'
 fsspec==2026.9.0
-gdown==6.4.2
 idna==3.20
 kiwisolver==1.5.1
 loguru==0.7.3
@@ -38,7 +36,6 @@ pillow==12.3.0
 pillow-heif==1.8.1
 polars==1.44.2
 polars-runtime-32==1.44.2
-pyarrow==23.0.1
 pycocotools==2.0.11
 pydantic==2.14.1
 pydantic-core==2.50.1
@@ -46,7 +43,6 @@ pydantic-extra-types==2.11.1
 pydantic-settings==2.15.0
 pygments==2.21.0
 pyparsing==3.3.3
-pysocks==1.7.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.4
 pyyaml==6.0.3
@@ -59,11 +55,8 @@ scipy==1.18.1 ; python_full_version >= '3.12'
 semver==3.1.0
 simsimd==6.5.16
 six==1.17.0
-soupsieve==2.10 ; python_full_version < '3.11.5'
-soupsieve==3.0.3 ; python_full_version >= '3.11.5'
 stringzilla==5.2.0
 tomli==2.5.0 ; python_full_version < '3.11'
-tqdm==4.70.1
 typeguard==4.6.0
 typing-extensions==4.16.0
 typing-inspection==0.4.4
