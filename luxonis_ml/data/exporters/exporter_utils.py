@@ -148,11 +148,12 @@ def check_group_file_correspondence(prepared_ldf: PreparedLDF) -> None:
         pl.col("file").n_unique().alias("file_count")
     )
     invalid_groups = group_to_files.filter(pl.col("file_count") > 1)
-    assert invalid_groups.is_empty(), (
-        "Each annotation instance must correspond to exactly one file. "
-        f"Found groups with multiple files: {invalid_groups['group_id'].to_list()}"
-        f"To export multiple files (e.g. RGB, depth) per instance, export to Native format"
-    )
+    if not invalid_groups.is_empty():
+        raise AssertionError(
+            "Each annotation instance must correspond to exactly one file. "
+            f"Found groups with multiple files: {invalid_groups['group_id'].to_list()}"
+            f"To export multiple files (e.g. RGB, depth) per instance, export to Native format"
+        )
 
 
 def exporter_specific_annotation_warning(
@@ -201,7 +202,8 @@ def split_of_group(prepared_ldf: PreparedLDF, group_id: Any) -> str:
         (s for s, ids in prepared_ldf.splits.items() if group_id in ids),
         None,
     )
-    assert split is not None, "group must belong to a split"
+    if split is None:
+        raise AssertionError("group must belong to a split")
     return split
 
 

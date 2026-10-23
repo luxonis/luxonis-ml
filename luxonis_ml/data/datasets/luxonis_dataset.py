@@ -1218,9 +1218,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             logger.info(
                 f"Deleting remote dataset '{self._dataset_name}' from cloud storage"
             )
-            assert self._path
-            assert self._dataset_name
-            assert self._local_path
+            if not self._dataset_name:
+                raise ValueError(
+                    "A remote dataset without a name cannot be deleted."
+                )
             self._fs.delete_dir(allow_delete_parent=True)
 
         if self.is_remote and delete_local:
@@ -1405,8 +1406,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         index = self._get_index()
 
-        assert annotations_path is not None
-
         with ParquetFileManager(annotations_path, batch_size) as pfm:
             for i, item in enumerate(generator, start=1):
                 record = (
@@ -1516,8 +1515,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             collection_check_strategy=CollectionCheckStrategy.ALL_ITEMS,
         )
         check_type(replace_old_splits, bool)
-        ratios, definitions = _resolve_splits(splits)
-
         splits_path = get_file(
             self._fs,
             "metadata/splits.json",
@@ -1534,24 +1531,24 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             for group_ids in old_splits.values():
                 defined_group_ids.update(group_ids)
 
-        if ratios is not None:
-            new_splits = self._split_by_ratio(ratios, defined_group_ids)
-        else:
-            assert definitions is not None
-            new_splits = self._split_by_definition(
-                definitions, defined_group_ids
-            )
-            if not any(new_splits.values()):
-                if not replace_old_splits:
-                    logger.warning(
-                        "No new files to add to splits. "
-                        "The existing splits are left unchanged."
-                    )
-                    return
-                logger.warning(
-                    "No file from the definitions is in the dataset. "
-                    "The new splits are empty."
+        match _resolve_splits(splits):
+            case (ratios, None):
+                new_splits = self._split_by_ratio(ratios, defined_group_ids)
+            case (None, definitions):
+                new_splits = self._split_by_definition(
+                    definitions, defined_group_ids
                 )
+                if not any(new_splits.values()):
+                    if not replace_old_splits:
+                        logger.warning(
+                            "No new files to add to splits. "
+                            "The existing splits are left unchanged."
+                        )
+                        return
+                    logger.warning(
+                        "No file from the definitions is in the dataset. "
+                        "The new splits are empty."
+                    )
 
         if replace_old_splits:
             old_splits.clear()
@@ -2031,7 +2028,10 @@ def _resolve_splits(
     splits: Mapping[str, Sequence[PathType]]
     | Mapping[str, float]
     | tuple[float, float, float],
-) -> tuple[dict[str, float] | None, Mapping[str, Sequence[PathType]] | None]:
+) -> (
+    tuple[dict[str, float], None]
+    | tuple[None, Mapping[str, Sequence[PathType]]]
+):
     """Read the ``splits`` argument as ratios or as filepath lists.
 
     Args:
