@@ -3,9 +3,9 @@
 import warnings
 from abc import ABCMeta
 from collections.abc import Callable
-from typing import Any, Generic, TypeVar, overload
+from typing import Generic, TypedDict, TypeVar, overload
 
-from typing_extensions import deprecated, override
+from typing_extensions import Unpack, deprecated, override
 
 T = TypeVar("T", bound=type)
 
@@ -204,6 +204,14 @@ class Registry(Generic[T]):
         self._module_dict[module_name] = module
 
 
+class _RegisterKeywords(TypedDict, total=False):
+    """Class keywords that `AutoRegisterMeta` takes."""
+
+    register: bool
+    register_name: str | None
+    registry: Registry | None
+
+
 class AutoRegisterMeta(ABCMeta):
     """Metaclass for automatically registering modules.
 
@@ -239,7 +247,7 @@ class AutoRegisterMeta(ABCMeta):
         name: str,
         bases: tuple[type, ...],
         attrs: dict[str, type],
-        **_kwargs: Any,
+        **_kwargs: Unpack[_RegisterKeywords],
     ) -> "AutoRegisterMeta":
         """Create the class and keep the registry keywords from type."""
         return super().__new__(cls, name, bases, attrs)
@@ -249,10 +257,7 @@ class AutoRegisterMeta(ABCMeta):
         name: str,
         bases: tuple[type, ...],
         attrs: dict[str, type],
-        *,
-        register: bool = True,
-        register_name: str | None = None,
-        registry: Registry | None = None,
+        **kwargs: Unpack[_RegisterKeywords],
     ) -> None:
         """Automatically register the class.
 
@@ -260,13 +265,13 @@ class AutoRegisterMeta(ABCMeta):
             name: The name of the class being created.
             bases: The base classes of the class being created.
             attrs: The attributes of the class being created.
-            register: Whether to register this class.
-                Typically should be set to ``False`` for abstract base classes.
-            register_name: The name to register the class under. If ``None``, then use
-                the class name.
-            registry: The registry to use for registration.
-                Will be saved as the `REGISTRY` attribute
-                of the class if not already set.
+            **kwargs: The class keywords. ``register`` tells whether to
+                register the class. It defaults to ``True`` and is
+                typically ``False`` for an abstract base class.
+                ``register_name`` is the name to register the class
+                under, the class name if not given. ``registry`` is the
+                registry to use. It becomes the `REGISTRY` attribute of
+                the class if the class has none yet.
 
         Raises:
             ValueError: If registration is requested but no registry is
@@ -275,6 +280,8 @@ class AutoRegisterMeta(ABCMeta):
 
         """
         super().__init__(name, bases, attrs)
+        register = kwargs.get("register", True)
+        registry = kwargs.get("registry")
         if not hasattr(cls, "REGISTRY"):
             if registry is not None:
                 cls.REGISTRY = registry
@@ -284,6 +291,6 @@ class AutoRegisterMeta(ABCMeta):
                 )
         if register:
             registry = registry if registry is not None else cls.REGISTRY
-            key = register_name or name
+            key = kwargs.get("register_name") or name
             if key not in registry or not issubclass(cls, registry.get(key)):
                 registry.register(name=key, module=cls, force=True)
