@@ -9,6 +9,7 @@ import pytest
 from luxonis_ml.data import LuxonisDataset
 from luxonis_ml.data.__main__ import delete
 from luxonis_ml.data.utils.enums import BucketStorage
+from luxonis_ml.utils import environ
 
 from .utils import create_dataset, create_image
 
@@ -72,3 +73,20 @@ def test_remote_delete_of_a_local_dataset_deletes_nothing(
 
     assert exit_info.value.code == 2
     assert LuxonisDataset.exists(dataset.identifier)
+
+
+@pytest.mark.parametrize(
+    "credentials",
+    [{}, {"LUXONISML_BUCKET": None}],
+    ids=["environment", "credentials file"],
+)
+def test_unset_credential_is_an_error(
+    dataset: LuxonisDataset,
+    monkeypatch: pytest.MonkeyPatch,
+    credentials: dict[str, None],
+):
+    monkeypatch.setattr(dataset, "_credentials", credentials)
+    monkeypatch.setattr(environ, "LUXONISML_BUCKET", None)
+
+    with pytest.raises(ValueError, match="LUXONISML_BUCKET"):
+        dataset._get_credential("LUXONISML_BUCKET")

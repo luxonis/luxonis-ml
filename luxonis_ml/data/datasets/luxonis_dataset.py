@@ -143,13 +143,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         if self._bucket_storage == BucketStorage.AZURE_BLOB:
             raise NotImplementedError("Azure Blob Storage not yet supported")
 
-        self._bucket = self._get_credential("LUXONISML_BUCKET")
-
-        if self.is_remote and self._bucket is None:
-            raise ValueError(
-                "The `LUXONISML_BUCKET` environment variable "
-                "must be set for remote datasets"
-            )
+        self._bucket: str | None = None
+        if self.is_remote:
+            self._bucket = self._get_credential("LUXONISML_BUCKET")
 
         self._team_id = team_id or self._get_credential("LUXONISML_TEAM_ID")
 
@@ -255,10 +251,17 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         environment.
         """
         if key in self._credentials:
-            return self._credentials[key]
-        if not hasattr(environ, key):
+            value = self._credentials[key]
+        elif hasattr(environ, key):
+            value = getattr(environ, key)
+        else:
             raise RuntimeError(f"'{key}' must be set in ENV variables")
-        return getattr(environ, key)
+        if value is None:
+            raise ValueError(
+                f"The `{key}` environment variable must be set "
+                "for remote datasets"
+            )
+        return value
 
     def _init_paths(self) -> None:
         """Configure local paths or a bucket directory."""
@@ -281,7 +284,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         ]:
             path.mkdir(exist_ok=True, parents=True)
 
-        if not self.is_remote:
+        if self._bucket is None:
             self._path = str(self._local_path)
         else:
             self._path = self._construct_url(
