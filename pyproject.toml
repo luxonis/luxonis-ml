@@ -219,6 +219,7 @@ reportUnusedFunction = "error"
 reportUnusedImport = "error"
 reportUnusedVariable = "error"
 reportInconsistentConstructor = "error"
+reportUntypedClassDecorator = "error"
 
 [tool.pytest]
 doctest_optionflags = [
