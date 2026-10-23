@@ -279,7 +279,7 @@ class LuxonisLoader(BaseLoader):
             raise RuntimeError(
                 "Cannot find splits! Ensure you call dataset.make_splits()"
             )
-        with splits_path.open() as file:
+        with splits_path.open(encoding="utf-8") as file:
             splits = json.load(file)
 
         instances: list[str] = []
