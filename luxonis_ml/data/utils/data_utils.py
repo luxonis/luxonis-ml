@@ -59,8 +59,8 @@ def rgb_to_bool_masks(
             pixels that do not belong to any class. The background mask is
             yielded first.
 
-    Returns:
-        Iterator of class names and their boolean masks.
+    Yields:
+        The name and the boolean mask of each class.
 
     """
     color_to_id = {
