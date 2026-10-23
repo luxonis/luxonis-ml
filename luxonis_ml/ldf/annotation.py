@@ -1278,9 +1278,10 @@ class ArrayAnnotation(Annotation):
         try:
             # Memory mapping keeps the check from reading the whole array.
             np.load(path, mmap_mode="r")
-        except (OSError, ValueError, EOFError):
-            # Not every filesystem supports mmap, so a plain read decides
-            # whether the file is really unusable.
+        except (OSError, ValueError, EOFError, OverflowError, TypeError):
+            # mmap fails on some filesystems and for some corrupt
+            # headers, so a plain read decides whether the file is
+            # really unusable.
             try:
                 np.load(path)
             except Exception as e:

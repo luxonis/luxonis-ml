@@ -531,6 +531,24 @@ def test_array_annotation(subtests: SubTests, tempdir: Path):
             ArrayAnnotation(path=tempdir / "image.png")
 
 
+def test_array_annotation_rejects_a_corrupt_header(tempdir: Path):
+    # A list is not a valid dict key, so numpy fails with a TypeError
+    # when it parses this header.
+    header = (
+        b"{'descr': '<f8', 'fortran_order': False, 'shape': (1,), [1]: 2}\n"
+    )
+    path = tempdir / "corrupt.npy"
+    path.write_bytes(
+        np.lib.format.magic(1, 0)
+        + len(header).to_bytes(2, "little")
+        + header
+        + np.zeros(1).tobytes()
+    )
+
+    with pytest.raises(ValueError, match="Failed to load array annotation"):
+        ArrayAnnotation(path=path)
+
+
 def test_classification_annotation():
     arr = ClassificationAnnotation.combine_to_numpy(
         [ClassificationAnnotation() for _ in range(5)], [0, 1, 2, 2, 1], 6
