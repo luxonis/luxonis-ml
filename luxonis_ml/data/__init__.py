@@ -342,7 +342,7 @@ See:
 
 """
 
-from importlib.metadata import entry_points
+from importlib.metadata import EntryPoint, entry_points
 
 from luxonis_ml.guard_extras import guard_missing_extra
 
@@ -386,14 +386,9 @@ def _load_loader_plugins() -> None:  # pragma: no cover
         LOADERS_REGISTRY.register(module=plugin_class)
 
 
-def _get_entry_points_subset(key: str) -> list:
-    entry_points_obj = entry_points()
-    if isinstance(entry_points_obj, dict):
-        # py3.8 specific
-        selected_entry_points = entry_points_obj.get(key, [])
-    else:
-        selected_entry_points = entry_points_obj.select(group=key)
-    return selected_entry_points
+def _get_entry_points_subset(key: str) -> list[EntryPoint]:
+    """Return the installed entry points of the group ``key``."""
+    return list(entry_points(group=key))
 
 
 _load_dataset_plugins()
