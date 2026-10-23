@@ -267,13 +267,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         self._metadata_path = self._local_path / "metadata"
         self._arrays_path = self._local_path / "arrays"
 
-        for path in [
-            self._media_path,
-            self._annotations_path,
-            self._metadata_path,
-        ]:
-            path.mkdir(exist_ok=True, parents=True)
-
         if not self.is_remote:
             self._path = str(self._local_path)
         elif self._bucket is None:
@@ -288,6 +281,13 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 self._team_id,
                 self._dataset_name,
             )
+
+        for path in [
+            self._media_path,
+            self._annotations_path,
+            self._metadata_path,
+        ]:
+            path.mkdir(exist_ok=True, parents=True)
 
     def _save_df_offline(self, pl_df: pl.DataFrame) -> None:
         """Save annotations DataFrame into parquet files.
