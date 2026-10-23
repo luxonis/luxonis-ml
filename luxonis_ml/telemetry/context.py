@@ -1,3 +1,9 @@
+"""Context fields that the telemetry client attaches to events.
+
+`base_context` builds the shared fields. `host_context` and
+`system_context` build the optional host and runtime fields.
+"""
+
 import os
 import platform
 from pathlib import Path

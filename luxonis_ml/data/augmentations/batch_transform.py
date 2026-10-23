@@ -1,3 +1,5 @@
+"""Base class for transforms that combine several samples into one."""
+
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any

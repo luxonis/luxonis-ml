@@ -1,3 +1,5 @@
+"""Equivalence checks for datasets in the Luxonis Data Format."""
+
 import hashlib
 import json
 from collections import Counter
@@ -186,6 +188,21 @@ class LDFEquivalence:
         new_map: dict[tuple[str], Counter],
         tol: float,
     ) -> None:
+        """Assert that two box multisets match within a tolerance.
+
+        The boxes of each image must pair one to one, with each
+        coordinate of a pair within ``tol``.
+
+        Args:
+            prev_map: Reference box counters, keyed by image hash.
+            new_map: Box counters to compare, keyed by image hash.
+            tol: Largest allowed difference of one coordinate.
+
+        Raises:
+            AssertionError: If the image keys or the box counts differ,
+                or if a box has no match within ``tol``.
+
+        """
         assert prev_map.keys() == new_map.keys(), (
             f"Different image sets:\nprev-only={set(prev_map) - set(new_map)}\n"
             f"new-only={set(new_map) - set(prev_map)}"
@@ -232,6 +249,15 @@ class LDFEquivalence:
 
     @classmethod
     def collect_image_multiset(cls, prepared_ldf: PreparedLDF) -> Counter[str]:
+        """Count the SHA-256 hashes of the image files.
+
+        Args:
+            prepared_ldf: Prepared dataset to read.
+
+        Returns:
+            Image hashes, counted once for each file and group pair.
+
+        """
         out: Counter[str] = Counter()
         grouped = prepared_ldf.processed_df.group_by(
             ["file", "group_id"], maintain_order=True
@@ -247,6 +273,18 @@ class LDFEquivalence:
         prepared_ldf: PreparedLDF,
         task_type: str,
     ) -> dict[tuple[str], Counter]:
+        """Collect the annotations of one task type for each image.
+
+        Args:
+            prepared_ldf: Prepared dataset to read.
+            task_type: Task type of the annotations to collect.
+
+        Returns:
+            A counter for each image hash. It counts tuples of task
+            name, class name, instance ID, and annotation JSON with
+            sorted keys. Images without such annotations are left out.
+
+        """
         out: dict[tuple[str], Counter] = {}
         grouped = prepared_ldf.processed_df.group_by(
             ["file", "group_id"], maintain_order=True
@@ -275,6 +313,17 @@ class LDFEquivalence:
         cls,
         prepared_ldf: PreparedLDF,
     ) -> dict[tuple[str], Counter]:
+        """Collect the bounding boxes of each image.
+
+        Args:
+            prepared_ldf: Prepared dataset to read.
+
+        Returns:
+            A counter of ``(x, y, w, h)`` tuples for each image hash,
+            with values rounded to 2 decimals. Images without boxes are
+            left out.
+
+        """
         out: dict[tuple[str], Counter] = {}
         grouped = prepared_ldf.processed_df.group_by(
             ["file", "group_id"], maintain_order=True
@@ -303,6 +352,17 @@ class LDFEquivalence:
         cls,
         prepared_ldf: PreparedLDF,
     ) -> dict[tuple[str], Counter]:
+        """Collect the keypoints of each image.
+
+        Args:
+            prepared_ldf: Prepared dataset to read.
+
+        Returns:
+            A counter of keypoint tuples for each image hash. The
+            coordinates are rounded to 3 decimals. Images without
+            keypoints are left out.
+
+        """
         out: dict[tuple[str], Counter] = {}
         grouped = prepared_ldf.processed_df.group_by(
             ["file", "group_id"], maintain_order=True
@@ -324,6 +384,16 @@ class LDFEquivalence:
         cls,
         prepared_ldf: PreparedLDF,
     ) -> dict[tuple[str], Counter]:
+        """Collect the RLE counts of the instance masks of each image.
+
+        Args:
+            prepared_ldf: Prepared dataset to read.
+
+        Returns:
+            A counter of the elements of the ``counts`` fields for each
+            image hash. Images without instance masks are left out.
+
+        """
         out: dict[tuple[str], Counter] = {}
         grouped = prepared_ldf.processed_df.group_by(
             ["file", "group_id"], maintain_order=True
@@ -345,6 +415,18 @@ class LDFEquivalence:
         cls,
         prepared_ldf: PreparedLDF,
     ) -> dict[tuple[str], list[np.ndarray]]:
+        """Decode the instance masks of each image.
+
+        Only masks whose RLE ``counts`` is a string are decoded.
+
+        Args:
+            prepared_ldf: Prepared dataset to read.
+
+        Returns:
+            Boolean masks for each image hash. Images without decoded
+            masks are left out.
+
+        """
         out: dict[tuple[str], list[np.ndarray]] = {}
         grouped = prepared_ldf.processed_df.group_by(
             ["file", "group_id"], maintain_order=True
@@ -376,6 +458,18 @@ class LDFEquivalence:
         cls,
         prepared_ldf: PreparedLDF,
     ) -> dict[tuple[str], Counter]:
+        """Collect the classification class names of each image.
+
+        Only rows with an ``instance_id`` of ``-1`` count.
+
+        Args:
+            prepared_ldf: Prepared dataset to read.
+
+        Returns:
+            A counter of class names for each image hash. Images
+            without such rows are left out.
+
+        """
         out: dict[tuple[str], Counter] = {}
         grouped = prepared_ldf.processed_df.group_by(
             ["file", "group_id"], maintain_order=True
@@ -398,6 +492,18 @@ class LDFEquivalence:
         cls,
         prepared_ldf: PreparedLDF,
     ) -> dict[tuple[str], Counter]:
+        """Collect the semantic segmentation class names of each image.
+
+        Only rows with an ``instance_id`` of ``-1`` count.
+
+        Args:
+            prepared_ldf: Prepared dataset to read.
+
+        Returns:
+            A counter of class names for each image hash. Images
+            without such rows are left out.
+
+        """
         out: dict[tuple[str], Counter] = {}
         grouped = prepared_ldf.processed_df.group_by(
             ["file", "group_id"], maintain_order=True
@@ -420,6 +526,18 @@ class LDFEquivalence:
         cls,
         prepared_ldf: PreparedLDF,
     ) -> dict[tuple[str, str], list[np.ndarray]]:
+        """Decode the semantic masks of each image and class.
+
+        Only rows with an ``instance_id`` of ``-1`` and an RLE
+        ``counts`` string are decoded.
+
+        Args:
+            prepared_ldf: Prepared dataset to read.
+
+        Returns:
+            Boolean masks, keyed by image hash and class name.
+
+        """
         out: dict[tuple[str, str], list[np.ndarray]] = {}
         grouped = prepared_ldf.processed_df.group_by(
             ["file", "group_id"], maintain_order=True

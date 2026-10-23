@@ -1,3 +1,5 @@
+"""Telemetry backend that logs each event as JSON through ``loguru``."""
+
 import json
 
 from loguru import logger

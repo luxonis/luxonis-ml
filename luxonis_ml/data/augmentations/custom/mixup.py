@@ -1,3 +1,5 @@
+"""`MixUp` augmentation that blends two images and merges their labels."""
+
 import random
 from typing import Any, Literal
 

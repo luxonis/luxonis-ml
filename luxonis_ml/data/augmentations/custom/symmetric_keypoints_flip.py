@@ -1,3 +1,9 @@
+"""Flip and transpose transforms that swap symmetric keypoint pairs.
+
+After the flip or transpose, the two keypoints of each pair in
+``keypoint_pairs`` swap places in every instance.
+"""
+
 from itertools import chain
 from typing import Any
 

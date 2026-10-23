@@ -1,3 +1,5 @@
+"""Export bounding boxes to the Darknet format."""
+
 from pathlib import Path
 from typing import Any, cast
 
@@ -29,6 +31,15 @@ class DarknetExporter(BaseExporter):
         output_path: Path,
         max_partition_size_gb: float | None,
     ) -> None:
+        """Create the exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Maximum partition size in GiB, or
+                ``None`` to disable partitioning.
+
+        """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
@@ -37,6 +48,13 @@ class DarknetExporter(BaseExporter):
 
     @staticmethod
     def get_split_names() -> dict[str, str]:
+        """Return the directory name of each split.
+
+        Returns:
+            Split names mapped to directory names. The ``val`` split
+            becomes ``valid``.
+
+        """
         return {"train": "train", "val": "valid", "test": "test"}
 
     @override

@@ -1,3 +1,5 @@
+"""`CutMix` augmentation that pastes a patch of one image into another."""
+
 import math
 from typing import Any, Literal
 

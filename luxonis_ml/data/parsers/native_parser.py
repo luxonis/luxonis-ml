@@ -1,3 +1,5 @@
+"""Parser for datasets in the native LDF format."""
+
 import json
 from contextlib import suppress
 from pathlib import Path
@@ -78,6 +80,13 @@ class NativeParser(BaseParser):
     _SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
 
     def __init__(self, *args, **kwargs) -> None:
+        """Create the parser.
+
+        Args:
+            *args: Positional arguments passed to `BaseParser`.
+            **kwargs: Keyword arguments passed to `BaseParser`.
+
+        """
         super().__init__(*args, **kwargs)
         self._checked_stamps: set[Path] = set()
 

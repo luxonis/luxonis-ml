@@ -1,3 +1,5 @@
+"""Abstract loader interface and the registry of loader classes."""
+
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 

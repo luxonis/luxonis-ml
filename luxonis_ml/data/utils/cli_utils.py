@@ -1,3 +1,5 @@
+"""Helpers for the commands of ``luxonis_ml data``."""
+
 import ast
 from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
@@ -180,6 +182,16 @@ def check_exists(name: str, bucket_storage: BucketStorage) -> None:
 
 
 def get_dataset_info(dataset: LuxonisDataset) -> tuple[set[str], list[str]]:
+    """Return the class names and the task names of a dataset.
+
+    Args:
+        dataset: Dataset to read.
+
+    Returns:
+        The set of class names over all tasks, and the list of task
+        names.
+
+    """
     all_classes = {
         c for classes in dataset.get_classes().values() for c in classes
     }
@@ -187,6 +199,16 @@ def get_dataset_info(dataset: LuxonisDataset) -> tuple[set[str], list[str]]:
 
 
 def print_info(dataset: LuxonisDataset) -> None:
+    """Print a summary of a dataset to the console.
+
+    The summary shows the name, version, bucket storage, team ID, the
+    size and share of each split, and tables of the classes and the
+    task types.
+
+    Args:
+        dataset: Dataset to summarize.
+
+    """
     class_table = _per_task_table(
         "Classes", "Class Names", dataset.get_classes()
     )
@@ -259,5 +281,14 @@ def _sizes_panel(
 
 
 def complete_dataset_name(incomplete: str) -> list[str]:
+    """Return the local dataset names that start with a prefix.
+
+    Args:
+        incomplete: Prefix of the dataset name.
+
+    Returns:
+        Names of the local datasets that start with ``incomplete``.
+
+    """
     datasets = LuxonisDataset.list_datasets()
     return [d for d in datasets if d.startswith(incomplete)]
