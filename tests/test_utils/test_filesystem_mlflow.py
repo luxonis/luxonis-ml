@@ -50,7 +50,7 @@ def _wait_for_mlflow_server(
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            raise RuntimeError(log_path.read_text())
+            raise RuntimeError(log_path.read_text(encoding="utf-8"))
         try:
             with urlopen(  # noqa: S310
                 f"{tracking_uri}/health", timeout=0.5
@@ -63,7 +63,7 @@ def _wait_for_mlflow_server(
     raise TimeoutError(
         f"MLflow server did not become healthy within {timeout}s. "
         f"Set `{SERVER_TIMEOUT_ENV}` to wait longer.\n"
-        f"{log_path.read_text()}"
+        f"{log_path.read_text(encoding='utf-8')}"
     )
 
 

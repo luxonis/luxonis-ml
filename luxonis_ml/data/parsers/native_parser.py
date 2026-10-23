@@ -126,7 +126,7 @@ class NativeParser(BaseParser):
 
         """
         self._warn_on_newer_export(annotation_path)
-        data = json.loads(annotation_path.read_text())
+        data = json.loads(annotation_path.read_text(encoding="utf-8"))
 
         def generator() -> DatasetIterator:
             for record in data:

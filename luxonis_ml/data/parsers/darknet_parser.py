@@ -74,7 +74,7 @@ class DarknetParser(BaseParser):
             and added images.
 
         """
-        with classes_path.open() as f:
+        with classes_path.open(encoding="utf-8") as f:
             class_names = {
                 i: line.rstrip() for i, line in enumerate(f.readlines())
             }

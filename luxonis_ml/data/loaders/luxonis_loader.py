@@ -730,7 +730,7 @@ class LuxonisLoader(BaseLoader):
         bbox_area_threshold: float = 0.0004,
     ) -> AugmentationEngine | None:
         if isinstance(augmentation_config, PathType):
-            with Path(augmentation_config).open() as file:
+            with Path(augmentation_config).open(encoding="utf-8") as file:
                 augmentation_config = cast(
                     "list[Params]", yaml.safe_load(file) or []
                 )
