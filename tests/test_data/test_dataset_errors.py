@@ -7,6 +7,7 @@ import polars as pl
 import pytest
 
 from luxonis_ml.data import LuxonisDataset
+from luxonis_ml.data.__main__ import delete
 from luxonis_ml.data.utils.enums import BucketStorage
 
 from .utils import create_dataset, create_image
@@ -61,3 +62,13 @@ def test_push_needs_each_media_file(dataset: LuxonisDataset, tempdir: Path):
 
     with pytest.raises(FileNotFoundError, match="do not exist"):
         dataset._local_media_paths(index)
+
+
+def test_remote_delete_of_a_local_dataset_deletes_nothing(
+    dataset: LuxonisDataset,
+):
+    with pytest.raises(SystemExit) as exit_info:
+        delete(dataset.identifier, remote=True, yes=True)
+
+    assert exit_info.value.code == 2
+    assert LuxonisDataset.exists(dataset.identifier)
