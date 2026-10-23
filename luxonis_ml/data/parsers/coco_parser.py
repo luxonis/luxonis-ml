@@ -102,8 +102,8 @@ class COCOParser(BaseParser):
         has ``_annotations.coco.json``, FiftyOne has ``labels.json``.
 
         Returns:
-            The detected format, or ``None`` if no split in ``splits``
-            holds a valid COCO layout.
+            The detected format. ``None`` if there is no ``validation``
+            folder and no split in ``splits`` holds a valid COCO layout.
 
         """
         if "validation" in existing:

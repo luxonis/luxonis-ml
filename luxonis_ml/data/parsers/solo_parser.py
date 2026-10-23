@@ -243,13 +243,14 @@ def _parse_capture(
 
     Yields:
         Records with the capture image as ``file``. The records of the
-        semantic masks come first, one per class, then one record per
-        instance with its box, plus its keypoints and instance mask if
-        the capture has them.
+        semantic masks come first, one per class. Then comes one record
+        for each instance that all the read kinds share, with its box,
+        plus its keypoints and instance mask if those were read.
 
     Raises:
         FileNotFoundError: If the capture image, or a mask that an
             annotation references, does not exist.
+        ValueError: If a mask image cannot be read.
 
     """
     img_fname = capture["filename"]

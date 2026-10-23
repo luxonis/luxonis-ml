@@ -842,8 +842,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         Returns:
             The dataset metadata, migrated first if its major LDF version
-            differs from the current one. Empty metadata with the current
-            LDF version if the dataset has no metadata file.
+            differs from the current one. New metadata with the current
+            LDF version, a default source and no classes or tasks if the
+            dataset has no metadata file.
 
         """
         if self._fs.exists("metadata/metadata.json"):

@@ -103,7 +103,7 @@ class YOLOv8Parser(BaseParser):
             ``instance_segmentation``.
 
         Raises:
-            ValueError: If ``elements`` holds fewer than five values,
+            ValueError: If ``elements`` matches none of these layouts,
                 or if the image of a polygon line cannot be read.
 
         """

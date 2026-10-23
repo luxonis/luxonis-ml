@@ -666,8 +666,12 @@ class BaseParser(ABC):
             generator: Dataset record generator.
 
         Yields:
-            Each record as a `DatasetRecord`. A record without an
-            annotation is copied once for each configured task.
+            Each record as a `DatasetRecord`. If task names are set, a
+            record without an annotation is copied once for each task.
+
+        Raises:
+            ValueError: If a dict record is not a valid `DatasetRecord`,
+                or if the class of a record has no task name.
 
         """
         for item in generator:

@@ -458,7 +458,9 @@ class LuxonisLoader(BaseLoader):
             Images, labels, and sample metadata present for the sample.
 
         Raises:
-            ValueError: If the selected views contain no records.
+            ValueError: If the selected views contain no records or a
+                grayscale source has an unsupported image shape.
+            FileNotFoundError: If an image path cannot be found or read.
 
         """
         if not self._idx_to_df_row:

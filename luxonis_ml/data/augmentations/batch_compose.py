@@ -335,8 +335,8 @@ class BatchCompose(A.Compose):
             ``data`` holds, keyed by field name.
 
         Raises:
-            ValueError: If a non-empty field of ``bbox_associations`` has
-                fewer than two dimensions.
+            ValueError: If a non-empty field of ``bbox_associations`` is
+                one-dimensional.
 
         """
         bbox_counts = {}

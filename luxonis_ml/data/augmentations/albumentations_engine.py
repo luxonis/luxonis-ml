@@ -773,9 +773,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         the task entirely.
 
         Returns:
-            The dropped targets that belong to a bounding-box task group
-            and that a contributing batch member had labels for, mapped
-            to their LDF layout.
+            The dropped targets that a contributing batch member had
+            labels for, mapped to their LDF layout. Only the bounding-box
+            targets and the targets tied to them are included.
 
         """
         # A batch transform discards the members it did not merge, and a
@@ -1382,9 +1382,10 @@ def _normalize_params(
 
     Returns:
         The kept parameters with string keys. NumPy scalars become Python
-        scalars, tuples become lists, and objects of other types become
-        strings. Arrays, sequences that hold one, and values that only
-        echo the configuration are left out.
+        scalars, tuples become lists, mappings are normalized in turn, and
+        objects of unknown types become strings. Arrays, sequences that
+        hold one, and values that only echo the configuration are left
+        out.
 
     """
     normalized: Params = {}

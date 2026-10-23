@@ -281,6 +281,7 @@ def inspect(
         bucket_storage: Storage type of the dataset.
 
     Raises:
+        SystemExit: If the dataset does not exist.
         ValueError: If the dataset has no samples.
 
     """

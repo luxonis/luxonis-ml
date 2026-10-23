@@ -560,8 +560,9 @@ def _pose_keypoints(
         without a ``kpt_shape``.
 
     Raises:
-        ValueError: If ``kpt_shape`` is ``None`` and the length of
-            ``keypoints`` is not a multiple of 3.
+        ValueError: If the length of ``keypoints`` does not fit
+            ``kpt_shape`` or, without a ``kpt_shape``, is not a multiple
+            of 3.
 
     Examples:
         >>> _pose_keypoints([0.1, 0.2, 2, 0.3, 0.4, 0], None).tolist()
