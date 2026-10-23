@@ -533,10 +533,15 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             self._bbox_targets_by_group.values()
         ).union(*bbox_associations.values())
 
-        # Warning issued when "bbox_params" or "keypoint_params"
-        # are provided to a compose with transformations that
-        # do not use them. We don't care about these warnings.
-        with warnings.catch_warnings(record=True):
+        # Albumentations warns when a compose gets "bbox_params" or
+        # "keypoint_params" but none of its transformations uses them.
+        # Each compose gets both, so the warning is expected here.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Got processor for .*, but no transform to process it",
+                category=UserWarning,
+            )
             self._batch_transform = BatchCompose(
                 transforms.batch,
                 bbox_associations=bbox_associations,
@@ -680,7 +685,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             wrapped.append(op)
             wrapped.append(
                 A.Lambda(
-                    image=lambda img, **_: img,
+                    image=_keep_image,
                     keypoints=self._mark_invisible_keypoints,
                     p=1.0,
                 )
@@ -1268,6 +1273,15 @@ def _resolve_target_type(task: str, task_type: str) -> TargetType:
     if target_type in _TARGET_WARNINGS:
         logger.warning(_TARGET_WARNINGS[target_type])
     return target_type
+
+
+def _keep_image(img: np.ndarray, **_: Any) -> np.ndarray:
+    """Return the image unchanged.
+
+    A named function, unlike a lambda, can be pickled, so a data loader
+    worker process can receive the transformation.
+    """
+    return img
 
 
 def _image_data(image_dict: dict[str, np.ndarray]) -> dict[str, Any]:
