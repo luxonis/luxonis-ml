@@ -305,7 +305,7 @@ def test_ldf_equivalent_by_name_is_free_of_deprecations(
         # polars emits its deprecations from Rust and swallows the
         # exception of an `error` filter, so only a record shows them.
         with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
+            warnings.simplefilter("always", category=DeprecationWarning)
             assert ldf_equivalent(
                 f"{dataset_name}_first", f"{dataset_name}_second"
             )
