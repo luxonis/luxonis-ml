@@ -1,3 +1,5 @@
+import types
+
 import pytest
 
 from luxonis_ml.utils.registry import AutoRegisterMeta, Registry
@@ -140,3 +142,12 @@ def test_autoregistry_replaces_redefined_class(registry: Registry):
 
     assert first is not second
     assert registry.get("Node") is second
+
+
+def test_autoregistry_rejects_unknown_class_keywords(registry: Registry):
+    class Base(metaclass=AutoRegisterMeta, registry=registry, register=False):
+        pass
+
+    with pytest.raises(TypeError, match="alias"):
+        types.new_class("Node", (Base,), {"alias": "Other"})
+    assert len(registry) == 0
