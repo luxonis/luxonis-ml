@@ -274,11 +274,18 @@ class AutoRegisterMeta(ABCMeta):
                 the class if the class has none yet.
 
         Raises:
+            TypeError: If a class keyword is not one of the three
+                above.
             ValueError: If registration is requested but no registry is
                 available from the class hierarchy or the ``registry``
                 argument.
 
         """
+        if unknown := kwargs.keys() - _RegisterKeywords.__optional_keys__:
+            raise TypeError(
+                f"Class '{name}' got unexpected class keywords: "
+                f"{sorted(unknown)}"
+            )
         super().__init__(name, bases, attrs)
         register = kwargs.get("register", True)
         registry = kwargs.get("registry")
