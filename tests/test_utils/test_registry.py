@@ -4,7 +4,7 @@ from luxonis_ml.utils.registry import AutoRegisterMeta, Registry
 
 
 @pytest.fixture
-def registry() -> Registry:
+def registry() -> Registry[type]:
     return Registry("test")
 
 
@@ -17,7 +17,7 @@ def test_creation():
     assert repr(registry) == "Registry('test')"
 
 
-def test_registry(registry: Registry):
+def test_registry(registry: Registry[type]):
     assert not registry._module_dict
     assert len(registry) == 0
 
