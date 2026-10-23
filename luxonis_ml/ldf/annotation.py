@@ -403,6 +403,8 @@ class Category(str):
     free-form string values.
     """
 
+    __slots__ = ()
+
     @classmethod
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: GetCoreSchemaHandler

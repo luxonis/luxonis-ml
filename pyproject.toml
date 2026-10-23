@@ -150,6 +150,7 @@ select = [
   "RUF",
   "S",
   "SIM",
+  "SLOT",
   "T10",
   "T20",
   "TC",
