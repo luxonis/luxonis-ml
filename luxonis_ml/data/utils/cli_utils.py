@@ -87,10 +87,11 @@ def parse_split_ratio(
     if not any(v is not None for v in (value, train, val, test)):
         return None
 
-    if value is not None:
-        parsed = _parse_split_list(value)
-    else:
-        parsed = _split_from_parts(train, val, test)
+    parsed = (
+        _parse_split_list(value)
+        if value is not None
+        else _split_from_parts(train, val, test)
+    )
     return _checked_split_values(parsed)
 
 

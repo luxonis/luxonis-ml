@@ -166,7 +166,6 @@ ignore = [
   "ANN401",
   "D203",
   "D213",
-  "E501",
   "NPY002",
   "PLC0415",
   "PLR0913",
@@ -177,6 +176,9 @@ ignore = [
   "TRY003",
 ]
 unfixable = ["B905"]
+
+[tool.ruff.lint.pycodestyle]
+max-line-length = 100
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ANN201", "D1"]
