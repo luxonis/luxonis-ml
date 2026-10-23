@@ -86,7 +86,8 @@ def test_unset_credential_is_an_error(
     credentials: dict[str, None],
 ):
     monkeypatch.setattr(dataset, "_credentials", credentials)
-    monkeypatch.setattr(environ, "LUXONISML_BUCKET", None)
+    # On the proxy instance, undo would pin the old value for the session.
+    monkeypatch.setattr(type(environ), "LUXONISML_BUCKET", None, raising=False)
 
     with pytest.raises(ValueError, match="LUXONISML_BUCKET"):
         dataset._get_credential("LUXONISML_BUCKET")

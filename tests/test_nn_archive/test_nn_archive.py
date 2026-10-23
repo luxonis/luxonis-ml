@@ -1,4 +1,3 @@
-import io
 import json
 import tarfile
 from functools import lru_cache
@@ -343,12 +342,9 @@ def test_layout():
         )  # type: ignore
 
 
-def test_inspect_reports_a_missing_config(tmp_path: Path):
-    archive = tmp_path / "archive.tar"
-    with tarfile.open(archive, "w") as tar:
-        info = tarfile.TarInfo("model.onnx")
-        info.size = 1
-        tar.addfile(info, io.BytesIO(b"0"))
+def test_inspect_reports_a_missing_config(tempdir: Path):
+    archive = tempdir / "archive.tar"
+    tarfile.open(archive, "w").close()
 
     with pytest.raises(RuntimeError, match="Config JSON not found"):
         inspect(archive, buildinfo=True)

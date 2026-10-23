@@ -258,8 +258,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             raise RuntimeError(f"'{key}' must be set in ENV variables")
         if value is None:
             raise ValueError(
-                f"The `{key}` environment variable must be set "
-                "for remote datasets"
+                f"'{key}' must be set in ENV variables "
+                "or in the credentials file"
             )
         return value
 
