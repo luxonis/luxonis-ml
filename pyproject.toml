@@ -21,12 +21,14 @@ dependencies = [
   "cyclopts~=4.16",
   "fsspec>=2026.1.0",
   "loguru~=0.7",
+  "pydantic-core~=2.0",
   "pydantic-extra-types~=2.10",
   "pydantic-settings~=2.1",
   "pydantic~=2.13",
   "rich~=15.0",
   "semver~=3.0",
   "typeguard~=4.1",
+  "typing-extensions~=4.5",
 ]
 
 [project.optional-dependencies]

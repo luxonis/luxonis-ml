@@ -2761,12 +2761,14 @@ dependencies = [
     { name = "fsspec" },
     { name = "loguru" },
     { name = "pydantic" },
+    { name = "pydantic-core" },
     { name = "pydantic-extra-types" },
     { name = "pydantic-settings" },
     { name = "pyyaml" },
     { name = "rich" },
     { name = "semver" },
     { name = "typeguard" },
+    { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
@@ -2896,6 +2898,7 @@ requires-dist = [
     { name = "pycocotools", marker = "extra == 'data'", specifier = "~=2.0" },
     { name = "pycocotools", marker = "extra == 'ldf'", specifier = "~=2.0" },
     { name = "pydantic", specifier = "~=2.13" },
+    { name = "pydantic-core", specifier = "~=2.0" },
     { name = "pydantic-extra-types", specifier = "~=2.10" },
     { name = "pydantic-settings", specifier = "~=2.1" },
     { name = "pyyaml", specifier = "~=6.0" },
@@ -2905,6 +2908,7 @@ requires-dist = [
     { name = "s3fs", marker = "extra == 's3'", specifier = ">=2026.1.0" },
     { name = "semver", specifier = "~=3.0" },
     { name = "typeguard", specifier = "~=4.1" },
+    { name = "typing-extensions", specifier = "~=4.5" },
     { name = "unique-names-generator", marker = "extra == 'tracker'", specifier = "~=1.0" },
 ]
 provides-extras = ["ldf", "data", "telemetry", "tracker", "nn-archive", "utils", "gcs", "mlflow", "roboflow", "s3", "all"]
