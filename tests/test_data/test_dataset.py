@@ -917,8 +917,10 @@ def test_keypoints_solo(dataset_name: str, tempdir: Path):
     loader = LuxonisLoader(
         dataset, height=512, width=512, augmentation_config=augs
     )
-    for _ in loader:
-        pass
+    # Mosaic4 needs four samples, and the dataset has fewer.
+    with pytest.warns(UserWarning, match="larger than dataset size"):
+        for _ in loader:
+            pass
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
