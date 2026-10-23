@@ -62,7 +62,7 @@ class PreparedLDF:
         if splits is None:
             raise ValueError("Cannot export dataset without splits")
 
-        df = dataset._load_df_offline(raise_when_empty=True).with_row_count(
+        df = dataset._load_df_offline(raise_when_empty=True).with_row_index(
             "row_idx"
         )
 
@@ -95,7 +95,7 @@ class PreparedLDF:
         annotated = df.filter(pl.col("annotation").is_not_null())
         annotated_groups = annotated.select("group_id").unique()["group_id"]
         noann_first = df.filter(
-            ~pl.col("group_id").is_in(annotated_groups)
+            ~pl.col("group_id").is_in(annotated_groups.implode())
         ).unique(subset=["group_id"], keep="first")
 
         processed_df = (

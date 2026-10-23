@@ -184,7 +184,8 @@ class CocoExporter(BaseExporter):
                 new_name,
             )
 
-        width, height = Image.open(path).size
+        with Image.open(path) as image:
+            width, height = image.size
         image_id = len(annotation_splits[split]["images"]) + 1
         img_entry = {
             "id": image_id,

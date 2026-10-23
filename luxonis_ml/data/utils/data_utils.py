@@ -327,7 +327,7 @@ def get_class_distributions(
     class_distribution_raw = (
         df.filter(pl.col("task_type") != "classification")
         .group_by(["task_name", "task_type", "class_name"])
-        .agg(pl.count().alias("count"))
+        .agg(pl.len().alias("count"))
         .sort(["task_name", "task_type", "count"], descending=True)
         .collect()
         .to_dicts()

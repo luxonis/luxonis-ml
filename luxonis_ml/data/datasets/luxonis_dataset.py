@@ -1256,7 +1256,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         pfm: ParquetFileManager,
         index: pl.DataFrame | None,
     ) -> None:
-        paths = {path for data in data_batch for path in data.all_file_paths}
+        paths = {path for data in data_batch for path in data.files.values()}
         logger.info("Generating UUIDs...")
         uuid_dict = self._fs.get_file_uuids(paths, local=True)
 
@@ -1282,7 +1282,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         rows: list[tuple[str, ParquetRecord, str]] = []
         with self._progress:
             for record in data_batch:
-                file_paths = record.all_file_paths
+                file_paths = list(record.files.values())
                 uuid_list = [
                     uuid_dict[str(file_path)] for file_path in file_paths
                 ]
