@@ -84,7 +84,7 @@ class DarknetParser(BaseParser):
                 ann_path = img_path.with_suffix(".txt")
                 file = str(img_path)
                 if ann_path.exists():
-                    with ann_path.open() as f:
+                    with ann_path.open(encoding="utf-8") as f:
                         annotation_data = f.readlines()
                 else:
                     annotation_data = []

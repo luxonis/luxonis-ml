@@ -144,7 +144,7 @@ class YoloV6Parser(BaseParser):
 
                 annotation_data = []
                 if ann_path.exists():
-                    with ann_path.open() as f:
+                    with ann_path.open(encoding="utf-8") as f:
                         annotation_data = f.readlines()
 
                 if not annotation_data:

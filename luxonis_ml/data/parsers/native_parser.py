@@ -154,7 +154,7 @@ class NativeParser(BaseParser):
         self._checked_stamps.add(stamp)
         with suppress(OSError, ValueError, TypeError, KeyError):
             version = Version.parse(
-                json.loads(stamp.read_text())["ldf_version"],
+                json.loads(stamp.read_text(encoding="utf-8"))["ldf_version"],
                 optional_minor_and_patch=True,
             )
             if version > LDF_VERSION:

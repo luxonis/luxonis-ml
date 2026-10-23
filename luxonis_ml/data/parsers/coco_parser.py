@@ -626,7 +626,7 @@ def clean_annotations(annotation_path: Path) -> Path:
     annotation_data["annotations"] = filtered_annotations
 
     cleaned_annotation_path = annotation_path.with_name("labels_fixed.json")
-    with cleaned_annotation_path.open("w") as f:
+    with cleaned_annotation_path.open("w", encoding="utf-8") as f:
         json.dump(annotation_data, f)
 
     return cleaned_annotation_path
