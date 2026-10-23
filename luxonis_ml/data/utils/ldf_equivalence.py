@@ -5,7 +5,7 @@ import json
 from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 import polars as pl
@@ -444,22 +444,7 @@ class LDFEquivalence:
             without such rows are left out.
 
         """
-        out: dict[tuple[str], Counter] = {}
-        grouped = prepared_ldf.processed_df.group_by(
-            ["file", "group_id"], maintain_order=True
-        )
-        for key, entry in grouped:
-            file_path, _gid = cast("tuple[str, str]", key)
-            hashed_key = (cls.file_sha256(Path(file_path)),)
-            classes = [
-                row["class_name"]
-                for row in entry.iter_rows(named=True)
-                if row["task_type"] == "classification"
-                and row["instance_id"] == -1
-            ]
-            if classes:
-                out.setdefault(hashed_key, Counter()).update(classes)
-        return out
+        return cls._collect_class_names(prepared_ldf, "classification")
 
     @classmethod
     def collect_segmentation_multiset(
@@ -478,6 +463,15 @@ class LDFEquivalence:
             without such rows are left out.
 
         """
+        return cls._collect_class_names(prepared_ldf, "segmentation")
+
+    @classmethod
+    def _collect_class_names(
+        cls,
+        prepared_ldf: PreparedLDF,
+        task_type: Literal["classification", "segmentation"],
+    ) -> dict[tuple[str], Counter]:
+        """Count the whole-image class names of one task type."""
         out: dict[tuple[str], Counter] = {}
         grouped = prepared_ldf.processed_df.group_by(
             ["file", "group_id"], maintain_order=True
@@ -488,8 +482,7 @@ class LDFEquivalence:
             classes = [
                 row["class_name"]
                 for row in entry.iter_rows(named=True)
-                if row["task_type"] == "segmentation"
-                and row["instance_id"] == -1
+                if row["task_type"] == task_type and row["instance_id"] == -1
             ]
             if classes:
                 out.setdefault(hashed_key, Counter()).update(classes)
