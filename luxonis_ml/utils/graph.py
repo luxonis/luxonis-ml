@@ -104,8 +104,7 @@ def is_acyclic(graph: dict[str, list[str]]) -> bool:
     visited: set[str] = set()
     recursion_stack: set[str] = set()
 
-    for node in graph:
-        if node not in visited and dfs(node, visited, recursion_stack):
-            return False
-
-    return True
+    return not any(
+        node not in visited and dfs(node, visited, recursion_stack)
+        for node in graph
+    )

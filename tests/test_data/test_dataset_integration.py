@@ -153,10 +153,11 @@ def _vehicle_keypoints(
     kp_annotations = annotations["KeypointAnnotation"]["values"][0][
         "keypoints"
     ]
-    if vehicle_type == "motorbike":
-        kp_annotations = kp_annotations[:3]
-    else:
-        kp_annotations = kp_annotations[3:]
+    kp_annotations = (
+        kp_annotations[:3]
+        if vehicle_type == "motorbike"
+        else kp_annotations[3:]
+    )
 
     keypoints = []
     for kp in kp_annotations:

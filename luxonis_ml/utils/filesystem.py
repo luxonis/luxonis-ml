@@ -361,7 +361,8 @@ class LuxonisFileSystem:
 
         """
         if self._protocol == "s3":
-            # NOTE: In theory boto3 should look in environment variables automatically but it doesn't seem to work
+            # NOTE: In theory boto3 should look in environment variables
+            # automatically but it doesn't seem to work
             fs = fsspec.filesystem(
                 self._protocol,
                 key=environ.AWS_ACCESS_KEY_ID.get_secret_value()

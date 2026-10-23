@@ -68,8 +68,9 @@ class CocoExporter(BaseExporter):
         else:
             self.allow_keypoints = False
             logger.warning(
-                "Skipping keypoint annotations because COCO only supports a single keypoint export class."
-                "To export multiple keypoint classes please use the Luxonis native export format"
+                "Skipping keypoint annotations because COCO only supports a "
+                "single keypoint export class. To export multiple keypoint "
+                "classes please use the Luxonis native export format"
             )
 
         splits = self.get_split_names()

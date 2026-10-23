@@ -828,7 +828,9 @@ def test_classes_per_task(dataset_name: str, tempdir: Path):
                 "instance_id": 0,
             },
         }
-        # Yield a second annotation with only an `instance_id` to check that we don't encounter the issue: "Detected new classes for task group '': []".
+        # Yield a second annotation with only an `instance_id` to check that
+        # we don't encounter the issue:
+        # "Detected new classes for task group '': []".
         yield {
             "file": img,
             "annotation": {
@@ -1276,7 +1278,8 @@ def test_class_order_per_task_invalid_task_name(tempdir: Path):
 
     with pytest.raises(
         ValueError,
-        match=r"Task invalid_task not found in dataset tasks\. Available tasks: \['classification'\]",
+        match=r"Task invalid_task not found in dataset tasks\. "
+        r"Available tasks: \['classification'\]",
     ):
         dataset.set_class_order_per_task(class_order_per_task)
 

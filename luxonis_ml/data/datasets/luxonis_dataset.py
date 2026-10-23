@@ -419,7 +419,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 )
             else:
                 logger.warning(
-                    f"Cannot push to cloud. The cloned dataset '{new_dataset._dataset_name}' is local. "
+                    "Cannot push to cloud. The cloned dataset "
+                    f"'{new_dataset._dataset_name}' is local. "
                 )
 
         new_dataset._write_metadata()
@@ -1273,7 +1274,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             if matched_id is not None:
                 overwrite_uuids.add(matched_id)
                 logger.warning(
-                    f"File {file_path} with UUID: {matched_id} already existed in the dataset from previous dataset.add() call. "
+                    f"File {file_path} with UUID: {matched_id} already existed "
+                    "in the dataset from previous dataset.add() call. "
                     "Old data will be overwritten with the new data."
                 )
 
@@ -1997,7 +1999,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             logger.warning(
                 "Dataset size is smaller than the total number of files in the definitions. "
                 f"Dataset size: {dataset_size}, Definitions: {n_files}. "
-                "Duplicate files will be filtered out and extra files in definitions will be ignored."
+                "Duplicate files will be filtered out and extra files in "
+                "definitions will be ignored."
             )
             self.remove_duplicates()
 
