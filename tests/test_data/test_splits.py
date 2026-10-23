@@ -1,4 +1,7 @@
 import math
+import os
+import subprocess
+import sys
 from collections import defaultdict
 from collections.abc import Mapping
 from pathlib import Path
@@ -370,6 +373,32 @@ def test_definitions_reject_a_non_filepath(
         )
 
     assert dataset.get_splits() == old_splits
+
+
+def test_definitions_reject_a_non_filepath_under_optimization(
+    dataset_name: str, tempdir: Path
+):
+    """Keep the element check under ``python -O``."""
+    path = str(create_image(0, tempdir))
+
+    def generator() -> DatasetIterator:
+        yield {"file": path, "annotation": {"class": "dog"}}
+
+    dataset = create_dataset(dataset_name, generator(), splits=False)
+    code = f"""
+from typeguard import TypeCheckError
+from luxonis_ml.data import LuxonisDataset
+
+dataset = LuxonisDataset({dataset_name!r})
+try:
+    dataset.make_splits({{"train": [{path!r}, 1]}})
+except TypeCheckError:
+    pass
+else:
+    raise RuntimeError("make_splits accepted a non-path element")
+"""
+    env = os.environ | {"LUXONISML_BASE_PATH": str(dataset._base_path)}
+    subprocess.run([sys.executable, "-O", "-c", code], check=True, env=env)
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")

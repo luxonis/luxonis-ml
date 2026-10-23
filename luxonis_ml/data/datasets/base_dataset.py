@@ -15,6 +15,11 @@ DATASETS_REGISTRY: Registry[type["BaseDataset"]] = Registry(name="datasets")
 
 
 DatasetIterator: TypeAlias = Iterator[dict | DatasetRecord]
+SplitDefinition: TypeAlias = (
+    Mapping[str, Sequence[PathType]]
+    | Mapping[str, float]
+    | tuple[float, float, float]
+)
 
 
 class BaseDataset(
@@ -170,10 +175,7 @@ class BaseDataset(
     @abstractmethod
     def make_splits(
         self,
-        splits: Mapping[str, Sequence[PathType]]
-        | Mapping[str, float]
-        | tuple[float, float, float]
-        | None = None,
+        splits: SplitDefinition | None = None,
         *,
         replace_old_splits: bool = False,
     ) -> None:

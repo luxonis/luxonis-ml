@@ -24,7 +24,7 @@ from filelock import FileLock
 from loguru import logger
 from rich.progress import Progress
 from semver.version import Version
-from typeguard import CollectionCheckStrategy, typechecked
+from typeguard import CollectionCheckStrategy, check_type
 from typing_extensions import Self, override
 
 from luxonis_ml.data.exporters import (
@@ -73,7 +73,7 @@ from luxonis_ml.ldf import Category, DatasetRecord, Detection
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import LuxonisFileSystem, environ
 
-from .base_dataset import BaseDataset, DatasetIterator
+from .base_dataset import BaseDataset, DatasetIterator, SplitDefinition
 from .metadata import Metadata
 from .migration import migrate_dataframe, migrate_metadata
 from .source import LuxonisComponent, LuxonisSource
@@ -1505,21 +1505,21 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             return json.load(file)
 
     @override
-    @typechecked(collection_check_strategy=CollectionCheckStrategy.ALL_ITEMS)
     def make_splits(
         self,
-        splits: (
-            Mapping[str, Sequence[PathType]]
-            | Mapping[str, float]
-            | tuple[float, float, float]
-            | None
-        ) = None,
+        splits: SplitDefinition | None = None,
         *,
         replace_old_splits: bool = False,
     ) -> None:
         if splits is None:
             splits = {"train": 0.8, "val": 0.1, "test": 0.1}
 
+        check_type(
+            splits,
+            SplitDefinition,
+            collection_check_strategy=CollectionCheckStrategy.ALL_ITEMS,
+        )
+        check_type(replace_old_splits, bool)
         ratios, definitions = _resolve_splits(splits)
 
         splits_path = get_file(
