@@ -40,7 +40,11 @@ jobs:
         run: |
           # SARIF also lists the findings that a `nosemgrep` comment
           # suppresses, and marks them with `suppressions`. Skip them.
-          findings='.runs[0].results[] | select(.suppressions | length == 0)'
+          # Skip the rules for Python 3.6 and 3.7 too: each Luxonis project
+          # needs Python 3.8 or later.
+          findings='.runs[0].results[]
+            | select(.suppressions | length == 0)
+            | select(.ruleId | startswith("python.lang.compatibility.") | not)'
           total_issues=$(jq "[$findings] | length" formatted-semgrep-results.sarif)
           if [[ "$total_issues" -eq 0 ]]; then
             echo "✅ No Semgrep issues found!"
