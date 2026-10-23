@@ -42,8 +42,8 @@ class BaseLoader(
     def __iter__(self) -> Iterator[LoaderOutput]:
         """Iterate over the dataset.
 
-        Returns:
-            Iterator over loader outputs.
+        Yields:
+            The loader output of each sample, in index order.
 
         """
         for i in range(len(self)):

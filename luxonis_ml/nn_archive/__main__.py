@@ -55,6 +55,10 @@ def inspect(
         heads: Print heads info.
         buildinfo: Print build info if available.
 
+    Raises:
+        RuntimeError: If ``config.json`` in the archive is not a file,
+            for example a directory.
+
     """
 
     if not any([inputs, metadata, outputs, heads, buildinfo]):

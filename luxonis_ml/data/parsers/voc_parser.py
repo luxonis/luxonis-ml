@@ -105,7 +105,11 @@ class VOCParser(BaseParser):
     def _image_boxes(root: ET.Element) -> list[tuple[str, list[float]]]:
         """Return the ``(class, [x, y, w, h])`` normalized boxes of an image.
 
-        An object without a ``bndbox`` has no box.
+        Returns:
+            One ``(class, [x, y, w, h])`` pair per object with a
+            ``bndbox``, in document order. ``x`` and ``y`` locate the
+            top-left corner. ``x`` and ``w`` are fractions of the image
+            width, ``y`` and ``h`` of its height.
 
         Examples:
             >>> import xml.etree.ElementTree as ET

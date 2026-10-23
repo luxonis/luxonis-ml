@@ -112,11 +112,16 @@ indent-width = 4
 docstring-code-format = true
 
 [tool.ruff.lint]
+preview = true
+explicit-preview-rules = true
 select = [
   "ANN",
   "B",
   "C4",
   "D",
+  "DOC201",
+  "DOC402",
+  "DOC501",
   "DTZ",
   "E",
   "ERA",
@@ -190,6 +195,9 @@ ignore = [
   "W191",
 ]
 unfixable = ["B905"]
+
+[tool.ruff.lint.pydoclint]
+ignore-one-line-docstrings = true
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ANN201"]

@@ -253,6 +253,15 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     def _get_credential(self, key: str) -> str:
         """Get secret credentials from the credentials file or
         environment.
+
+        Returns:
+            The value of ``key`` from the credentials file, or else the
+            ``environ`` setting of that name.
+
+        Raises:
+            RuntimeError: If ``key`` is neither in the credentials file
+                nor a setting of ``environ``.
+
         """
         if key in self._credentials:
             return self._credentials[key]
@@ -830,6 +839,13 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         """Load metadata from local storage or cloud.
 
         Cloud metadata is always downloaded before loading.
+
+        Returns:
+            The dataset metadata, migrated first if its major LDF version
+            differs from the current one. New metadata with the current
+            LDF version, a default source and no classes or tasks if the
+            dataset has no metadata file.
+
         """
         if self._fs.exists("metadata/metadata.json"):
             path = get_file(
@@ -1161,6 +1177,14 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         A file that is gone from its original location is taken from the
         local media directory instead.
+
+        Returns:
+            The UUID of each media file, keyed by its local path.
+
+        Raises:
+            FileNotFoundError: If a file exists neither at its original
+                path nor in the local media directory.
+
         """
         paths = {}
         for original_path, uuid in zip(
@@ -1376,6 +1400,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             batch_size: The number of records to process in a batch before writing
                 to storage. Larger batch sizes may be more efficient but will
                 use more memory.
+
+        Returns:
+            The same dataset, so that calls can be chained.
 
         Raises:
             ValueError: If the records yielded by the generator are not in the expected format.
@@ -2158,6 +2185,11 @@ class _AddedLabels:
 
     def _update_metadata(self, task: str, value: object) -> None:
         """Record the type of a metadata value and encode a category.
+
+        Raises:
+            ValueError: If the type of ``value`` differs from the type
+                already recorded for ``task``. An ``int`` and a
+                ``float`` do not conflict.
 
         Examples:
             >>> added = _AddedLabels()
