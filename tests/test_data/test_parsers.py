@@ -941,7 +941,7 @@ class _FakeExportResponse:
 
 @pytest.fixture
 def ultralytics_requests(
-    monkeypatch: pytest.MonkeyPatch, tempdir: Path
+    monkeypatch: pytest.MonkeyPatch,
 ) -> list[dict[str, Any]]:
     """Capture the requests that `_download_ultralytics_dataset` makes.
 
@@ -961,7 +961,7 @@ def ultralytics_requests(
     monkeypatch.setattr(
         luxonis_parser,
         "download_remote_file",
-        lambda url, destination, **_: destination.write_text("{}"),
+        lambda _url, destination, **_: destination.write_text("{}"),
     )
     return calls
 
@@ -1060,7 +1060,7 @@ def test_ultralytics_api_error_names_the_status(
     monkeypatch.setattr(
         luxonis_parser.requests,
         "get",
-        lambda url, **_: _FailedExportResponse(body),
+        lambda _url, **_: _FailedExportResponse(body),
     )
 
     with pytest.raises(RuntimeError) as excinfo:

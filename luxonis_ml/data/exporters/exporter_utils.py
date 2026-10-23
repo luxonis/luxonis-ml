@@ -291,8 +291,8 @@ def annotation_to_polygons(
 
     Args:
         ann: Annotation with ``height``, ``width`` and ``counts`` keys.
-        file_path: Path of the annotated image. The function does not
-            read it.
+        file_path: Path of the annotated image. The warning for a mask
+            that fails to decode names it.
 
     Returns:
         One polygon for each outer contour with at least 3 points. An
@@ -323,7 +323,10 @@ def annotation_to_polygons(
             if len(cnt) >= 3
         ]
     except (TypeError, ValueError, IndexError, OverflowError, cv2.error):
-        logger.warning("Failed to decode COCO RLE; skipping this instance.")
+        logger.warning(
+            f"Failed to decode the COCO RLE mask of {file_path}; "
+            "skipping this instance."
+        )
         return []
 
 
