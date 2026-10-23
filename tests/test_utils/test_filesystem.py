@@ -167,7 +167,9 @@ def test_file(
             uploaded_file, protocol_tempdir / f"copy_{uploaded_file}"
         )
         assert file_path.exists()
-        assert file_path.read_text() == local_file.read_text()
+        assert file_path.read_text(encoding="utf-8") == local_file.read_text(
+            encoding="utf-8"
+        )
 
     with subtests.test("delete"):
         fs.delete_file(uploaded_file)
@@ -194,7 +196,9 @@ def test_static_file(
         assert fs.exists(file_name)
         file = LuxonisFileSystem.download(url, protocol_tempdir)
         assert file.exists()
-        assert file.read_text() == local_file.read_text()
+        assert file.read_text(encoding="utf-8") == local_file.read_text(
+            encoding="utf-8"
+        )
 
 
 def test_directory(

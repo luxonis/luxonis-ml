@@ -86,7 +86,7 @@ class YoloV4Parser(BaseParser):
             and added images.
 
         """
-        with classes_path.open() as f:
+        with classes_path.open(encoding="utf-8") as f:
             class_names = {
                 i: line.rstrip() for i, line in enumerate(f.readlines())
             }
@@ -105,7 +105,7 @@ class YoloV4Parser(BaseParser):
         class_names: dict[int, str],
     ) -> DatasetIterator:
         """Yield the records of the annotation file, then the unlisted images."""
-        with annotation_path.open() as f:
+        with annotation_path.open(encoding="utf-8") as f:
             annotation_data = [line.rstrip() for line in f]
 
         annotated_images: set[Path] = set()

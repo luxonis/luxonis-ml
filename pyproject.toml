@@ -113,6 +113,8 @@ indent-width = 4
 docstring-code-format = true
 
 [tool.ruff.lint]
+preview = true
+explicit-preview-rules = true
 select = [
   "A",
   "ANN",
@@ -141,6 +143,7 @@ select = [
   "PGH",
   "PIE",
   "PL",
+  "PLW1514",
   "PT",
   "PTH",
   "PYI",

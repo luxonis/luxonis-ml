@@ -182,7 +182,7 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
         Path to the cleaned labels file.
 
     """
-    with labels_path.open() as f:
+    with labels_path.open(encoding="utf-8") as f:
         labels_data = json.load(f)
 
     classes = labels_data["classes"]
