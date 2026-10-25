@@ -415,6 +415,25 @@ def test_loader_records_augmentations_in_sample_metadata(
     }
 
 
+def test_loader_reads_augmentation_config_from_a_file(
+    dataset_name: str, tempdir: Path
+):
+    def generator() -> DatasetIterator:
+        img = create_image(0, tempdir)
+        yield {"file": img, "annotation": {"class": "person"}}
+
+    config_path = tempdir / "augmentations.yaml"
+    config_path.write_text(
+        "- name: HorizontalFlip\n  params:\n    p: 1.0\n", encoding="utf-8"
+    )
+    dataset = create_dataset(dataset_name, generator())
+    loader = LuxonisLoader(
+        dataset, height=512, width=512, augmentation_config=config_path
+    )
+
+    assert loader[0].metadata["augmentations"] == {"HorizontalFlip": {}}
+
+
 def test_loader_keeps_stored_metadata_over_the_reserved_augmentations_key(
     dataset_name: str, tempdir: Path
 ):

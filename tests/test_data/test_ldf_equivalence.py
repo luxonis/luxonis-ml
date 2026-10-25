@@ -7,8 +7,11 @@ from pathlib import Path
 import pytest
 
 from luxonis_ml.data import LuxonisDataset, LuxonisParser, ldf_equivalent
+from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.parsers.coco_parser import COCOParser
 from luxonis_ml.utils import LuxonisFileSystem
+
+from .utils import create_dataset, create_image
 
 
 def _parse_dataset(
@@ -301,3 +304,20 @@ else:
     raise RuntimeError("ldf_equivalent accepted a non-dataset")
 """
     subprocess.run([sys.executable, "-O", "-c", code], check=True)
+
+
+def test_ldf_equivalent_compares_metadata_tasks(
+    dataset_name: str, tempdir: Path
+):
+    """Metadata has no dedicated collector and uses the generic one."""
+    image = create_image(0, tempdir)
+
+    def generator(color: str) -> DatasetIterator:
+        yield {"file": image, "annotation": {"metadata": {"color": color}}}
+
+    red = create_dataset(f"{dataset_name}_red", generator("red"))
+    same = create_dataset(f"{dataset_name}_same", generator("red"))
+    blue = create_dataset(f"{dataset_name}_blue", generator("blue"))
+
+    assert ldf_equivalent(red, same)
+    assert not ldf_equivalent(red, blue)

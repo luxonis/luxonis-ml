@@ -49,7 +49,7 @@ def _wait_for_mlflow_server(
     timeout = _mlflow_server_timeout()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if process.poll() is not None:
+        if process.poll() is not None:  # pragma: no cover
             raise RuntimeError(log_path.read_text(encoding="utf-8"))
         try:
             with urlopen(  # noqa: S310
