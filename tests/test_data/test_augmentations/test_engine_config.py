@@ -71,6 +71,11 @@ def test_unsupported_task_type_is_rejected() -> None:
         build({"task/depth": "depth"}, [])
 
 
+def test_task_target_name_must_be_an_identifier() -> None:
+    with pytest.raises(ValueError, match="not a valid identifier"):
+        build({"123/boundingbox": "boundingbox"}, [])
+
+
 def test_only_one_resizing_augmentation_is_allowed() -> None:
     config = [
         {

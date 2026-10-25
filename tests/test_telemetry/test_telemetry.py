@@ -506,6 +506,8 @@ def test_sanitize_properties_redacts_paths_urls_and_free_text() -> None:
         "homepage": "https://example.com/model",
         "note": "this is arbitrary user text",
         "command": "data ls",
+        "artifact": Path("model.onnx"),
+        "payload": b"binary",
     }
 
     out = sanitize_properties(props)
@@ -514,6 +516,8 @@ def test_sanitize_properties_redacts_paths_urls_and_free_text() -> None:
     assert out["homepage"] == "<redacted>"
     assert out["note"] == "<string>"
     assert out["command"] == "data ls"
+    assert out["artifact"] == "<redacted>"
+    assert out["payload"] == "<bytes>"
 
 
 def test_default_telemetry_uses_ephemeral_session_id() -> None:

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from defusedxml.ElementTree import fromstring
 from loguru import logger
 from pydantic import SecretStr
 from typing_extensions import override
@@ -17,6 +18,7 @@ from luxonis_ml.data import (
 from luxonis_ml.data.parsers import (
     COCOParser,
     UltralyticsNDJSONParser,
+    VOCParser,
     YOLOv8Parser,
     luxonis_parser,
 )
@@ -29,6 +31,13 @@ from .utils import create_image
 
 if TYPE_CHECKING:
     from luxonis_ml.ldf import DatasetRecord
+
+
+def test_voc_parser_requires_image_size() -> None:
+    root = fromstring("<annotation />")
+
+    with pytest.raises(ValueError, match="Could not find size"):
+        VOCParser._image_boxes(root)
 
 
 @pytest.mark.parametrize(
