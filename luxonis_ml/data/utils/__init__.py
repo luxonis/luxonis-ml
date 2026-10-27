@@ -62,6 +62,7 @@ from .remote_file_downloader import (
     RemoteFileDownloader,
     download_remote_file,
 )
+from .sample_weights import SourceDatasetWeighting
 from .task_utils import (
     get_task_name,
     get_task_type,
@@ -90,6 +91,7 @@ __all__ = [
     "ParserIssue",
     "ParserIssueMessage",
     "RemoteFileDownloader",
+    "SourceDatasetWeighting",
     "UpdateMode",
     "add_augmentation_footer",
     "concat_images",

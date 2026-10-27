@@ -162,6 +162,21 @@ Pass ``autopopulate_metadata=False`` to return only stored metadata:
     loader = LuxonisLoader(dataset, autopopulate_metadata=False)
     metadata = loader[0].metadata
 
+`SourceDatasetWeighting` resolves a loss multiplier from the record's
+``source_dataset`` field. Missing and unlisted sources use 1.0. For batch
+augmentations it uses the mean of contributing record weights in
+``batch_augmentation_metadata``, without modifying the stored metadata:
+
+.. python::
+
+    from luxonis_ml.data.utils import SourceDatasetWeighting
+
+    weighting = SourceDatasetWeighting({"real_v1": 2.0, "synth_v2": 0.5})
+    sample_weight = weighting(loader[0].metadata)
+
+This utility supplies the multiplier; the training framework must apply it
+to loss terms before reduction.
+
 Augmented outputs additionally carry an ``"augmentations"`` mapping from
 configured augmentation paths to the runtime parameters the engine selected.
 Unlike ``"filenames"``, it is added regardless of ``autopopulate_metadata``,
