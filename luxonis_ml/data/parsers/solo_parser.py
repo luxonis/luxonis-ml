@@ -243,6 +243,18 @@ def _parse_capture(
 
     Each annotation kind is read once per step. ``processed`` holds the
     kinds that an earlier capture of the same step already read.
+
+    Yields:
+        Records with the capture image as ``file``. The records of the
+        semantic masks come first, one per class. Then comes one record
+        for each instance that all the read kinds share, with its box,
+        plus its keypoints and instance mask if those were read.
+
+    Raises:
+        FileNotFoundError: If the capture image, or a mask that an
+            annotation references, does not exist.
+        ValueError: If a mask image cannot be read.
+
     """
     img_fname = capture["filename"]
     img_w, img_h = capture["dimension"]
@@ -379,13 +391,19 @@ def _instance_records(
     Bounding boxes, keypoints and instance masks of one instance belong
     together, so an instance that one of the present kinds lacks is
     dropped.
+
+    Yields:
+        Records with ``img_path`` as ``file``. Each annotation holds the
+        class, the instance ID and the bounding box, plus the keypoints
+        and the instance mask if those kinds are present. Nothing is
+        yielded if no kind is present.
+
     """
     present = [
         d for d in (bounding_boxes, instance_keypoints, instance_masks) if d
     ]
-    if not present:
-        return
-    for instance_id in set.intersection(*(set(d) for d in present)):
+    shared = set.intersection(*(set(d) for d in present)) if present else set()
+    for instance_id in shared:
         annotation = {
             "class": bounding_boxes[instance_id]["class"],
             "instance_id": instance_id,

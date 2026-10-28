@@ -1,7 +1,7 @@
 import json
 import tarfile
 from pathlib import Path
-from typing import Annotated
+from typing import IO, Annotated
 
 from cyclopts import App, Parameter, validators
 from rich import print as rich_print
@@ -11,6 +11,14 @@ from rich.pretty import Pretty
 from luxonis_ml.nn_archive import Config
 
 app = App(help="NN Archive utilities.", help_flags="--help")
+
+
+def _open_member(tar: tarfile.TarFile, name: str) -> IO[bytes] | None:
+    """Open a member of the archive, or give ``None`` if it is missing."""
+    try:
+        return tar.extractfile(name)
+    except KeyError:
+        return None
 
 
 @app.command
@@ -55,14 +63,18 @@ def inspect(
         heads: Print heads info.
         buildinfo: Print build info if available.
 
+    Raises:
+        RuntimeError: If the archive has no ``config.json``, or if
+            ``config.json`` is not a file, for example a directory.
+
     """
     if not any([inputs, metadata, outputs, heads, buildinfo]):
         inputs = metadata = outputs = heads = True
 
     with tarfile.open(path) as tar:
-        extracted_cfg = tar.extractfile("config.json")
+        extracted_cfg = _open_member(tar, "config.json")
         if buildinfo:
-            extracted_buildinfo = tar.extractfile("buildinfo.json")
+            extracted_buildinfo = _open_member(tar, "buildinfo.json")
             if extracted_buildinfo is not None:
                 rich_print(
                     Panel.fit(

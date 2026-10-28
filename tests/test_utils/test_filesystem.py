@@ -93,6 +93,11 @@ def remote(fs: LuxonisFileSystem) -> Iterator[Callable[[str], str]]:
     from leftovers and concurrent runs. Repeated reservations of the
     same logical name return the same remote name and clear it before
     use, protecting retries within the test as well.
+
+    Yields:
+        A function that takes a logical name and returns its remote
+        name, after it deletes whatever is stored under that name.
+
     """
     reserved: list[str] = []
     names: dict[str, str] = {}
@@ -551,6 +556,20 @@ def test_local_filesystem_edge_cases(tempdir: Path):
     downloaded_dir = fs.get_dir("uuid-dir", existing_dir)
     assert downloaded_dir == existing_dir / "uuid-dir"
     assert (downloaded_dir / "fixed-uuid.txt").read_text() == "uuid"
+
+
+def test_root_download_returns_where_the_data_landed(tempdir: Path):
+    remote_root = tempdir / "remote-root"
+    remote_root.mkdir()
+    (remote_root / "data.txt").write_text("data")
+    fs = LuxonisFileSystem(str(remote_root))
+    local_dir = tempdir / "existing-download-root"
+    local_dir.mkdir()
+
+    downloaded_dir = fs.get_dir("", local_dir)
+
+    assert downloaded_dir == local_dir / "remote-root"
+    assert (downloaded_dir / "data.txt").read_text() == "data"
 
 
 def test_download_returns_where_the_data_landed(

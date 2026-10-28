@@ -16,7 +16,7 @@ def test_empty(dataset_name: str, tempdir: Path, n_samples: int):
         },
         {
             "name": "Mosaic4",
-            "params": {"p": 1.0, "out_width": 640, "out_height": 640},
+            "params": {"p": 1.0, "width": 640, "height": 640},
         },
     ]
 

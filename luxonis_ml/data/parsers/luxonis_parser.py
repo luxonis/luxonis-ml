@@ -230,9 +230,14 @@ class LuxonisParser(Generic[T]):
     def _is_dataset_root(directory: Path) -> bool:
         """Tell a dataset root from an arbitrary wrapper folder.
 
-        A marker directory or file is enough. Otherwise a parser other
-        than ClassificationDirectoryParser must recognize the directory:
-        a single class folder can look like a wrapper.
+        `ClassificationDirectoryParser` is left out of the parser check,
+        because a single class folder can look like a wrapper.
+
+        Returns:
+            Whether ``directory`` holds a marker directory or file, or a
+            parser other than `ClassificationDirectoryParser` accepts it
+            as a dataset or a split.
+
         """
         marker_dirs = {
             "train",
@@ -311,7 +316,13 @@ class LuxonisParser(Generic[T]):
         return dataset
 
     def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
-        """Return the parser issue messages of the last parse."""
+        """Return the parser issue messages of the last parse.
+
+        Returns:
+            A new list with each distinct message once, in the order
+            the parser first saw them.
+
+        """
         return self._get_parser_issue_messages()
 
     def _get_parser_issue_messages(self) -> list[ParserIssueMessage]:
@@ -323,6 +334,11 @@ class LuxonisParser(Generic[T]):
 
         Returns:
             Dataset type and parser type.
+
+        Raises:
+            ValueError: If more than one parser matches a dataset that has
+                only some of its splits, or if no parser recognizes the
+                dataset.
 
         """
         for dataset_type, parser in self._parsers.items():

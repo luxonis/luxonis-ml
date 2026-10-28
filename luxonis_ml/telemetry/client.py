@@ -237,7 +237,15 @@ class Telemetry:
             return
 
     def _init_backend(self) -> TelemetryBackend:
-        """Initialize the configured backend, or fall back to NoopBackend."""
+        """Initialize the configured backend, or fall back to NoopBackend.
+
+        Returns:
+            An instance of the backend class that is registered under
+            the configured ``backend`` name. A ``NoopBackend`` if
+            telemetry is disabled, the name is not registered, or the
+            backend fails to initialize.
+
+        """
         if not self.is_enabled:
             return NoopBackend(self._config)
         name = self._config.backend.lower()

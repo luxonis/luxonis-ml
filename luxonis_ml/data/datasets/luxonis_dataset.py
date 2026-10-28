@@ -142,9 +142,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         if self._bucket_storage == BucketStorage.AZURE_BLOB:
             raise NotImplementedError("Azure Blob Storage not yet supported")
 
-        self._bucket: str | None = self._credentials.get(
-            "LUXONISML_BUCKET", environ.LUXONISML_BUCKET
-        )
+        self._bucket: str | None = None
+        if self.is_remote:
+            self._bucket = self._get_credential("LUXONISML_BUCKET")
+
         self._team_id = team_id or self._get_credential("LUXONISML_TEAM_ID")
 
         self._init_paths()
@@ -246,12 +247,31 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         return len(df.select("uuid").unique()) if df is not None else 0
 
     def _get_credential(self, key: str) -> str:
-        """Get a credential from the credentials file or the environment."""
+        """Get a credential from the credentials file or the environment.
+
+        Returns:
+            The value of ``key`` from the credentials file, or else the
+            ``environ`` setting of that name.
+
+        Raises:
+            RuntimeError: If ``key`` is neither in the credentials file
+                nor a setting of ``environ``.
+            ValueError: If the value is ``None``, as for an unset
+                ``LUXONISML_BUCKET``.
+
+        """
         if key in self._credentials:
-            return self._credentials[key]
-        if not hasattr(environ, key):
+            value = self._credentials[key]
+        elif hasattr(environ, key):
+            value = getattr(environ, key)
+        else:
             raise RuntimeError(f"'{key}' must be set in ENV variables")
-        return getattr(environ, key)
+        if value is None:
+            raise ValueError(
+                f"'{key}' must be set in ENV variables "
+                "or in the credentials file"
+            )
+        return value
 
     def _init_paths(self) -> None:
         """Configure local paths or a bucket directory."""
@@ -274,13 +294,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         ]:
             path.mkdir(exist_ok=True, parents=True)
 
-        if not self.is_remote:
+        if self._bucket is None:
             self._path = str(self._local_path)
-        elif self._bucket is None:
-            raise ValueError(
-                "The `LUXONISML_BUCKET` environment variable "
-                "must be set for remote datasets"
-            )
         else:
             self._path = self._construct_url(
                 self._bucket_storage,
@@ -841,6 +856,13 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         """Load metadata from local storage or cloud.
 
         Cloud metadata is always downloaded before loading.
+
+        Returns:
+            The dataset metadata, migrated first if its major LDF version
+            differs from the current one. New metadata with the current
+            LDF version, a default source and no classes or tasks if the
+            dataset has no metadata file.
+
         """
         if self._fs.exists("metadata/metadata.json"):
             path = get_file(
@@ -1169,6 +1191,14 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         A file that is gone from its original location is taken from the
         local media directory instead.
+
+        Returns:
+            The UUID of each media file, keyed by its local path.
+
+        Raises:
+            FileNotFoundError: If a file exists neither at its original
+                path nor in the local media directory.
+
         """
         paths = {}
         for original_path, uuid in zip(
@@ -1263,7 +1293,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         pfm: ParquetFileManager,
         index: pl.DataFrame | None,
     ) -> None:
-        paths = {path for data in data_batch for path in data.all_file_paths}
+        paths = {path for data in data_batch for path in data.files.values()}
         logger.info("Generating UUIDs...")
         uuid_dict = self._fs.get_file_uuids(paths, local=True)
 
@@ -1289,7 +1319,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         rows: list[tuple[str, ParquetRecord, str]] = []
         with self._progress:
             for record in data_batch:
-                file_paths = record.all_file_paths
+                file_paths = list(record.files.values())
                 uuid_list = [
                     uuid_dict[str(file_path)] for file_path in file_paths
                 ]
@@ -1383,6 +1413,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             batch_size: The number of records to process in a batch before writing
                 to storage. Larger batch sizes may be more efficient but will
                 use more memory.
+
+        Returns:
+            The same dataset, so that calls can be chained.
 
         Raises:
             ValueError: If the records yielded by the generator are not in the expected format.
@@ -2162,6 +2195,11 @@ class _AddedLabels:
 
     def _update_metadata(self, task: str, value: object) -> None:
         """Record the type of a metadata value and encode a category.
+
+        Raises:
+            ValueError: If the type of ``value`` differs from the type
+                already recorded for ``task``. An ``int`` and a
+                ``float`` do not conflict.
 
         Examples:
             >>> added = _AddedLabels()

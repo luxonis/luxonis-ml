@@ -592,6 +592,13 @@ class LuxonisTracker:
             path: Path to the artifact.
             name: Artifact name. If ``None``, uses the file name.
 
+        Raises:
+            KeyError: If the tracker does not use MLflow, or if MLflow
+                fails to load before the run starts.
+            ValueError: If the MLflow experiment ID or run ID is still
+                unset after the experiment is accessed, for example
+                because the MLflow run failed to start.
+
         """
         _ = self.experiment["mlflow"]
         if self.project_id is None or self.run_id is None:

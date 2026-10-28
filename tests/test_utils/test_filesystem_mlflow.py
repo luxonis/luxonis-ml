@@ -39,6 +39,12 @@ def _mlflow_server_timeout() -> float:
     import and alembic creating the schema of a fresh SQLite database,
     once per ``xdist`` worker in parallel. The environment variable lets
     a slow runner raise it without a code change.
+
+    Returns:
+        The value of ``LUXONISML_TEST_MLFLOW_SERVER_TIMEOUT`` in
+        seconds, or ``DEFAULT_SERVER_TIMEOUT`` if the variable is not
+        set.
+
     """
     return float(os.environ.get(SERVER_TIMEOUT_ENV, DEFAULT_SERVER_TIMEOUT))
 
@@ -140,6 +146,11 @@ def _listing(fs: LuxonisFileSystem, remote_dir: str) -> set[str]:
     The ``fsspec`` backend yields native paths, MLflow always yields
     POSIX ones, so listings from the two are only comparable once
     normalized.
+
+    Returns:
+        The path of each file under ``remote_dir`` and its
+        subdirectories, with ``/`` separators.
+
     """
     return {
         Path(path).as_posix()

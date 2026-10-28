@@ -153,6 +153,14 @@ class Color:
 
         A leading ``#`` forces hex parsing (so a bad hex reports as such);
         otherwise hex is tried first, then a color name.
+
+        Returns:
+            The parsed `Color`.
+
+        Raises:
+            ValueError: If ``text`` starts with ``#`` but is not valid
+                hex, or if it is neither hex nor a known color name.
+
         """
         try:
             return cls._from_hex(text)

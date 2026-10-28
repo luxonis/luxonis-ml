@@ -324,6 +324,12 @@ class UltralyticsNDJSONParser(BaseParser):
 
         Boxes come first, then segments, then poses. The instance IDs
         count up across the three kinds.
+
+        Yields:
+            One annotation per box, segment or pose, with the class name,
+            the instance ID and a bounding box. A segment also holds its
+            polygon and the image size, and a pose its keypoints.
+
         """
         annotations = record.get("annotations") or {}
         instance_id = 0
@@ -553,8 +559,17 @@ def _pose_keypoints(
 ) -> np.ndarray:
     """Reshape a flat keypoint list into ``(x, y, visibility)`` rows.
 
-    Without a ``kpt_shape`` the list must hold triples. Pairs get full
-    visibility.
+    Pairs get full visibility.
+
+    Returns:
+        A float array with one ``(x, y, visibility)`` row per keypoint.
+        It has ``kpt_shape[0]`` rows, or a third of the list length
+        without a ``kpt_shape``.
+
+    Raises:
+        ValueError: If the length of ``keypoints`` does not fit
+            ``kpt_shape`` or, without a ``kpt_shape``, is not a multiple
+            of 3.
 
     Examples:
         >>> _pose_keypoints([0.1, 0.2, 2, 0.3, 0.4, 0], None).tolist()

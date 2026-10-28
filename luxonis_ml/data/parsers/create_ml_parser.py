@@ -102,8 +102,8 @@ class CreateMLParser(BaseParser):
                 )
                 continue
             file = str(path)
-            img = Image.open(file)
-            width, height = img.size
+            with Image.open(file) as img:
+                width, height = img.size
 
             curr_annotations = {"path": str(path), "classes": [], "bboxes": []}
             for curr_ann in annotations["annotations"]:

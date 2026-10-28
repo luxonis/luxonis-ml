@@ -157,9 +157,16 @@ class BatchCompose(A.Compose):
     ) -> tuple[dict[str, np.ndarray], list[int], bool]:
         """Apply a batch transform to one sub-batch.
 
-        Returns the output sample, the inputs it is made of, and whether
-        the transform applied. A transform that did not apply passes its
-        first input through unchanged.
+        A transform that did not apply passes its first input through
+        unchanged.
+
+        Returns:
+            The output sample, the indices of the batch inputs it is made
+            of, and whether the transform applied. The sample has its
+            filtered boxes and their associated labels removed. The
+            indices are those of all the inputs if the transform applied,
+            else those of the first input.
+
         """
         # Captured before padding so that a transform which does not
         # fire returns the first sample exactly as it came in.
@@ -195,6 +202,10 @@ class BatchCompose(A.Compose):
         `luxonis_ml.data.augmentations.utils.preprocess_bboxes` appends the
         index as the last column, but the wrapped bbox processor appends one
         more column for every configured label field, pushing the index left.
+
+        Returns:
+            The position as a negative index, ``-1`` for the last column.
+
         """
         processor = self.processors.get("bboxes")
         if processor is None:
@@ -278,6 +289,10 @@ class BatchCompose(A.Compose):
         Instance masks are ``(H, W, N)``, so they need the image shape;
         without one there is nothing to fill.
 
+        Returns:
+            The shape, or ``None`` for an instance mask without
+            ``image_shape``.
+
         Examples:
             >>> shape = BatchCompose._instances_shape
             >>> shape(
@@ -309,6 +324,15 @@ class BatchCompose(A.Compose):
         other bbox field the last column is the class label. The indices are
         positions into the bbox-associated labels, stamped before filtering so
         that the survivors can be used to compact those labels in lockstep.
+
+        Returns:
+            Number of boxes in each field of ``bbox_associations`` that
+            ``data`` holds, keyed by field name.
+
+        Raises:
+            ValueError: If a non-empty field of ``bbox_associations`` is
+                one-dimensional.
+
         """
         bbox_counts = {}
 
@@ -389,7 +413,12 @@ class BatchCompose(A.Compose):
     ) -> np.ndarray:
         """Keep the instances of one field whose boxes survived.
 
-        A field that cannot be matched to the boxes comes back as it is.
+        Returns:
+            The instances of ``value`` at ``indices``, in that order. If
+            ``bbox_count`` is ``0``, an empty slice of ``value``.
+            ``value`` itself if it is empty, if no box was filtered, or
+            if the field cannot be matched.
+
         """
         if bbox_count == 0:
             if target_type == "instance_mask" and value.ndim > 1:
