@@ -36,7 +36,7 @@ class AugmentationEngine(
         min_bbox_visibility: float = 0.0,
         seed: int | None = None,
         bbox_area_threshold: float = 0.0004,
-    ):
+    ) -> None:
         """Initialize augmentation pipeline from configuration.
 
         Args:

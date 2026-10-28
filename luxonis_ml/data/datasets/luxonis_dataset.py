@@ -204,9 +204,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
     @cached_property
     def version(self) -> Version:
-        """The version of the underlying LDF that the dataset adheres
-        to.
-        """
+        """The version of the LDF that the dataset adheres to."""
         return Version.parse(
             self._metadata.ldf_version, optional_minor_and_patch=True
         )
@@ -249,8 +247,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         return len(df.select("uuid").unique()) if df is not None else 0
 
     def _get_credential(self, key: str) -> str:
-        """Get secret credentials from the credentials file or
-        environment.
+        """Get a credential from the credentials file or the environment.
 
         Returns:
             The value of ``key`` from the credentials file, or else the
@@ -352,6 +349,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     def clone(
         self,
         new_dataset_name: str,
+        *,
         push_to_cloud: bool = True,
         splits_to_clone: list[str] | None = None,
         team_id: str | None = None,
@@ -446,6 +444,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     def merge_with(
         self,
         other: "LuxonisDataset",
+        *,
         inplace: bool = True,
         new_dataset_name: str | None = None,
         splits_to_merge: list[str] | None = None,
@@ -900,9 +899,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
     @property
     def is_remote(self) -> bool:
-        """Whether the dataset is stored remotely (in a cloud bucket) or
-        locally.
-        """
+        """Whether the dataset is stored in a cloud bucket."""
         return self._bucket_storage != BucketStorage.LOCAL
 
     @override
@@ -1046,8 +1043,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     def pull_from_cloud(
         self, update_mode: UpdateMode = UpdateMode.MISSING
     ) -> None:
-        """Synchronize the dataset from a remote bucket to a local
-        storage.
+        """Synchronize the dataset from a remote bucket to local storage.
 
         Annotations and metadata are always pulled. Media files are pulled
         either when missing locally or always, depending on ``update_mode``.
@@ -1226,8 +1222,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     def delete_dataset(
         self, *, delete_remote: bool = False, delete_local: bool = False
     ) -> None:
-        """Delete the dataset from local storage and optionally the
-        cloud.
+        """Delete the dataset locally and optionally from the cloud.
 
         Args:
             delete_remote: Whether to delete the remote dataset.
@@ -1690,6 +1685,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         output_path: PathType,
         dataset_type: DatasetType = DatasetType.NATIVE,
         max_partition_size_gb: float | None = None,
+        *,
         zip_output: bool = False,
         ldf_version: str | None = None,
     ) -> Path | list[Path]:
@@ -1775,7 +1771,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             DatasetType.COCO: ExporterSpec(
                 CocoExporter,
                 {
-                    "format": COCOFormat.ROBOFLOW,
+                    "coco_format": COCOFormat.ROBOFLOW,
                     "skeletons": getattr(self.metadata, "skeletons", None),
                 },
             ),

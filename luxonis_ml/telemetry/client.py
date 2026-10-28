@@ -104,9 +104,7 @@ class Telemetry:
     def add_system_context_provider(
         self, provider: SystemContextProvider
     ) -> None:
-        """Register a context provider used only with system
-        metadata.
-        """
+        """Register a context provider used only with system metadata."""
         self._add_provider(self._system_context_providers, provider)
 
     def extend_context_providers(
@@ -194,7 +192,9 @@ class Telemetry:
                     self._config.allowlist if allowlist is None else allowlist
                 ),
             )
-            context = self._build_context(include_system_metadata)
+            context = self._build_context(
+                include_system_metadata=include_system_metadata
+            )
             payload = TelemetryEvent.create(
                 name=event,
                 properties=sanitized,
@@ -237,8 +237,7 @@ class Telemetry:
             return
 
     def _init_backend(self) -> TelemetryBackend:
-        """Initialize the configured backend or fall back to
-        NoopBackend.
+        """Initialize the configured backend, or fall back to NoopBackend.
 
         Returns:
             An instance of the backend class that is registered under
@@ -268,7 +267,7 @@ class Telemetry:
             return NoopBackend(self._config)
 
     def _build_context(
-        self, include_system_metadata: bool | None
+        self, *, include_system_metadata: bool | None
     ) -> dict[str, Any]:
         """Build the merged context for an event."""
         context = (

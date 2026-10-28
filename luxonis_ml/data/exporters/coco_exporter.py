@@ -40,14 +40,14 @@ class CocoExporter(BaseExporter):
         dataset_identifier: str,
         output_path: Path,
         max_partition_size_gb: float | None,
-        format: COCOFormat = COCOFormat.ROBOFLOW,
+        coco_format: COCOFormat = COCOFormat.ROBOFLOW,
         *,
         skeletons: dict[str, Any] | None = None,
-    ):
+    ) -> None:
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
-        self.format = format
+        self.format = coco_format
         self.skeletons = skeletons
         if self.skeletons is None:
             self.allow_keypoints = False
@@ -221,7 +221,8 @@ class CocoExporter(BaseExporter):
 
             if self.allow_keypoints:
                 kp_labels, kp_skeleton = get_single_skeleton(
-                    self.allow_keypoints, self.skeletons
+                    allow_keypoints=self.allow_keypoints,
+                    skeletons=self.skeletons,
                 )
                 if kp_labels:
                     cat_entry["keypoints"] = kp_labels

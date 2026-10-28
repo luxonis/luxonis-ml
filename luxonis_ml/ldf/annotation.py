@@ -421,8 +421,7 @@ _LABEL_TASK_TYPES = (
 
 
 class Detection(BaseModelExtraForbid):
-    """Detection record containing annotations and metadata for one
-    object.
+    """Detection record with the annotations and metadata of one object.
 
     It describes a single detected object in an image and can contain various
     types of annotations and metadata as well as nested sub-detections for
@@ -681,8 +680,7 @@ class ClassificationAnnotation(Annotation):
         classes: list[int],
         n_classes: int,
     ) -> np.ndarray:
-        r"""Combine classification annotations into a multi-hot label
-        vector.
+        r"""Combine classification annotations into a multi-hot vector.
 
         Args:
             annotations: Classification annotations to combine.
@@ -1194,8 +1192,7 @@ class InstanceSegmentationAnnotation(SegmentationAnnotation):
         classes: list[int] | None = None,
         n_classes: int | None = None,
     ) -> np.ndarray:
-        r"""Combine instance segmentation annotations into instance
-        masks.
+        r"""Combine instance segmentation annotations into instance masks.
 
         Args:
             annotations: Instance segmentation annotations to combine.
@@ -1457,8 +1454,9 @@ class DatasetRecord(BaseModelExtraForbid):
         return values
 
     def to_parquet_rows(self) -> Iterable[ParquetRecord]:
-        """Recursively convert the dataset record and all its
-        annotations and sub-annotations to parquet rows.
+        """Convert the record and its annotations to parquet rows.
+
+        The conversion recurses into the sub-annotations.
 
         Yields:
             Annotation data rows.

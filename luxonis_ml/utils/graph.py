@@ -8,8 +8,9 @@ T = TypeVar("T")
 def traverse_graph(
     graph: dict[str, list[str]], nodes: Mapping[str, T]
 ) -> Iterator[tuple[str, T, list[str], list[str]]]:
-    """Traverse the graph in topological order, starting from the nodes
-    with no predecessors.
+    """Traverse the graph in topological order.
+
+    The traversal starts from the nodes with no predecessors.
 
     Example:
         >>> graph = {"a": ["b"], "b": []}

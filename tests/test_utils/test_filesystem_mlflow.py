@@ -789,7 +789,7 @@ def test_mlflow_exists_only_swallows_missing_resources(
     class BrokenClient:
         """Client whose every call fails the way an outage would."""
 
-        def __init__(self, error: Exception):
+        def __init__(self, error: Exception) -> None:
             self.error = error
 
         def get_run(self, *_args, **_kwargs) -> NoReturn:

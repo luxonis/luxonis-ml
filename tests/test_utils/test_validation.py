@@ -160,8 +160,9 @@ def test_model_is_recovered_from_the_traceback():
 
 
 def test_model_is_recovered_through_intervening_frames():
-    """The pydantic frame is the innermost one, however deep in the call
-    stack the validation happened.
+    """The pydantic frame is the innermost one.
+
+    This holds however deep in the call stack the validation happened.
     """
 
     def build(**data: Any) -> Cfg:
@@ -177,9 +178,11 @@ def test_model_is_recovered_through_intervening_frames():
 
 
 def test_an_unrelated_model_in_the_caller_is_not_recovered():
-    """Only pydantic's own frames are searched. A caller that happens to be
-    a model would otherwise be mistaken for the one that failed, and would
-    answer the misspelling with a field name of its own.
+    """Only the own frames of pydantic are searched.
+
+    A caller that happens to be a model would otherwise be mistaken for
+    the one that failed, and would answer the misspelling with a field
+    name of its own.
     """
 
     class Bystander(BaseModel):

@@ -84,7 +84,7 @@ class LDFDowngrader:
 
     """
 
-    def __init__(self, target_version: Version):
+    def __init__(self, target_version: Version) -> None:
         self.target_version = target_version
         self._to_drop = [
             field

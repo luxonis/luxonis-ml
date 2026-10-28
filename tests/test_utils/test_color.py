@@ -76,7 +76,7 @@ def test_invalid_name_raises():
 
 def test_bool_is_rejected():
     with pytest.raises(ValueError, match="cannot parse color"):
-        Color.parse(True)
+        Color.parse(value=True)
 
 
 def test_chrome_for_picks_by_background_lightness():
@@ -121,8 +121,10 @@ def test_dark_title_is_lighter_than_body_on_dark():
 
 
 def test_each_family_reads_as_dark_text_on_its_own_soft_tint():
-    """A swapped soft/text pair is still two valid brand colors, so only the
-    contrast relationship between them catches a bad transcription.
+    """A swapped soft/text pair is still two valid brand colors.
+
+    Thus only the contrast relationship between them catches a bad
+    transcription.
     """
     from luxonis_ml.utils.color import brand
 

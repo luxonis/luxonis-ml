@@ -171,7 +171,7 @@ def test_non_transform_classes_are_rejected(
 ) -> None:
     @register_transform
     class NotATransform:
-        def __init__(self, **_): ...
+        def __init__(self, **_) -> None: ...
 
     with pytest.raises(
         ValueError, match="Unsupported transformation type: 'NotATransform'"

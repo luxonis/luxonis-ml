@@ -232,6 +232,7 @@ class COCOParser(BaseParser):
     def _resolve_dir_format_and_keypoint_paths(
         self,
         dataset_dir: Path,
+        *,
         use_keypoint_ann: bool,
         keypoint_ann_paths: dict[str, str] | None,
     ) -> tuple[COCOFormat, list[str], dict[str, str] | None]:
@@ -260,6 +261,7 @@ class COCOParser(BaseParser):
     def _finalize_split_definitions(
         self,
         split_definitions: dict[str, list[Path]],
+        *,
         split_val_to_test: bool,
     ) -> dict[str, list[Path]]:
         added_test_imgs = split_definitions.get("test", [])
@@ -495,7 +497,7 @@ class COCOParser(BaseParser):
             )
 
         return self._finalize_split_definitions(
-            split_definitions, split_val_to_test
+            split_definitions, split_val_to_test=split_val_to_test
         )
 
 
@@ -507,7 +509,7 @@ class _InstanceIds:
     annotation got.
     """
 
-    def __init__(self, annotations: list[dict[str, Any]]):
+    def __init__(self, annotations: list[dict[str, Any]]) -> None:
         self._taken = {ann["id"] for ann in annotations if "id" in ann}
         self._next = 0
 

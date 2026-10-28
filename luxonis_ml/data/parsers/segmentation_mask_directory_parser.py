@@ -121,11 +121,11 @@ class SegmentationMaskDirectoryParser(BaseParser):
                     raise ValueError(f"Failed to read mask image: {mask_path}")
 
                 ids = np.unique(mask)
-                for id in ids:
-                    class_name = class_names[id]
+                for class_id in ids:
+                    class_name = class_names[class_id]
 
                     curr_seg_mask = np.zeros_like(mask)
-                    curr_seg_mask[mask == id] = 1
+                    curr_seg_mask[mask == class_id] = 1
                     yield {
                         "file": file,
                         "annotation": {

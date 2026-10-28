@@ -189,8 +189,9 @@ class BaseModelExtraForbid(BaseModel):
 
 
 class ConfigItem(BaseModelExtraForbid):
-    """Configuration schema for dynamic object instantiation. Typically
-    used to instantiate objects stored in registries.
+    """Configuration schema for dynamic object instantiation.
+
+    Typically used to instantiate objects stored in registries.
 
     A dictionary with a name and a dictionary of parameters.
 

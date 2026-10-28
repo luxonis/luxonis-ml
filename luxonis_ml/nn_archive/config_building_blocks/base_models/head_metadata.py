@@ -127,7 +127,7 @@ class HeadSegmentationMetadata(HeadMetadata):
         description="Whether the output already contains softmax probabilities."
     )
     background_class: bool = Field(
-        False,
+        default=False,
         description="Whether the pixels classified as index 0 should be treated as background.",
     )
 

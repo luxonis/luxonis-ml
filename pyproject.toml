@@ -117,6 +117,7 @@ docstring-code-format = true
 preview = true
 explicit-preview-rules = true
 select = [
+  "A",
   "ANN",
   "ASYNC",
   "B",
@@ -130,6 +131,7 @@ select = [
   "ERA",
   "EXE",
   "F",
+  "FBT",
   "FLY",
   "FURB",
   "G",
@@ -164,7 +166,6 @@ select = [
 ignore = [
   "ANN002",
   "ANN003",
-  "ANN204",
   "ANN401",
   "D100",
   "D101",
@@ -174,14 +175,12 @@ ignore = [
   "D105",
   "D107",
   "D203",
-  "D205",
   "D213",
   "E501",
   "NPY002",
   "PLC0415",
   "PLR0911",
   "PLR0913",
-  "PLR0915",
   "PLR2004",
   "S101",
   "S311",
@@ -196,7 +195,6 @@ ignore-one-line-docstrings = true
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ANN201"]
 "__main__.py" = ["ANN201"]
-"tools/benchmark.py" = ["T201"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "__future__".msg = "Do not use imports from __future__."

@@ -596,6 +596,7 @@ def test_loader_merges_metadata_only_for_applied_batch_augmentations(
     dataset_name: str,
     tempdir: Path,
     probability: float,
+    *,
     metadata_is_merged: bool,
 ) -> None:
     def generator() -> DatasetIterator:

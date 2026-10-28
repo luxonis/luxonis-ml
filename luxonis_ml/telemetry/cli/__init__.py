@@ -56,8 +56,7 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
-    """Lazily import optional CLI adapters so their deps stay
-    optional.
+    """Import the optional CLI adapters lazily, so their deps stay optional.
 
     Returns:
         The function called ``name``, imported from its submodule.
