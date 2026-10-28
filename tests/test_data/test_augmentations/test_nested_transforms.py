@@ -104,8 +104,8 @@ def test_batch_transform_inside_composition():
                             {
                                 "name": "Mosaic4",
                                 "params": {
-                                    "out_height": 64,
-                                    "out_width": 64,
+                                    "height": 64,
+                                    "width": 64,
                                     "p": 1,
                                 },
                             },

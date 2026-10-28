@@ -57,7 +57,12 @@ def _run_cli_parse(
         "LUXONISML_BASE_PATH": str(environ.LUXONISML_BASE_PATH),
     }
     return subprocess.run(
-        cmd, check=False, capture_output=True, text=True, timeout=600, env=env
+        cmd,
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+        timeout=600,
+        env=env,
     )
 
 
