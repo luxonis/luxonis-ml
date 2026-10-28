@@ -1,3 +1,9 @@
+"""Telemetry client that builds events and passes them to a backend.
+
+`Telemetry` sanitizes the event properties, adds the context, and
+logs its own failures at the debug level instead of raising them.
+"""
+
 from collections.abc import Callable, Mapping
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
@@ -79,22 +85,30 @@ class Telemetry:
 
     @property
     def config(self) -> TelemetryConfig:
+        """Telemetry configuration of the client."""
         return self._config
 
     @property
     def library_name(self) -> str:
+        """Name of the library that emits the events."""
         return self._library_name
 
     @property
     def library_version(self) -> str | None:
+        """Version of the library, or ``None`` when it is unknown."""
         return self._library_version
 
     @property
     def source_component(self) -> str:
+        """Name of the emitting component.
+
+        The library name is the default.
+        """
         return self._source_component
 
     @property
     def is_enabled(self) -> bool:
+        """Whether the configuration enables telemetry."""
         return self._config.enabled
 
     def add_context_provider(self, provider: ContextProvider) -> None:

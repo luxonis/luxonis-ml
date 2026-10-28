@@ -1,3 +1,5 @@
+"""Export bounding boxes to the Pascal VOC XML format."""
+
 import json
 from pathlib import Path
 from typing import Any, cast
@@ -19,8 +21,21 @@ from luxonis_ml.enums import DatasetType
 
 
 class VOCExporter(BaseExporter):
+    """Export bounding boxes in the Pascal VOC XML format.
+
+    Each split directory holds the images and one XML file per image.
+    The XML file gives the image size and the box corners in pixels.
+    """
+
     @staticmethod
     def get_split_names() -> dict[str, str]:
+        """Return the directory name of each split.
+
+        Returns:
+            Split names mapped to directory names. The ``val`` split
+            becomes ``valid``.
+
+        """
         return {"train": "train", "val": "valid", "test": "test"}
 
     @override

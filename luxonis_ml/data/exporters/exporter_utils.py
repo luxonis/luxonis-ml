@@ -37,6 +37,16 @@ class PreparedLDF:
         processed_df: pl.DataFrame,
         grouped_image_sources: pl.DataFrame,
     ) -> None:
+        """Create the container.
+
+        Args:
+            splits: Split names mapped to group IDs.
+            processed_df: Annotation dataframe with paths resolved to
+                readable files.
+            grouped_image_sources: Unique rows of group ID, source name
+                and file path.
+
+        """
         self.splits = splits
         self.processed_df = processed_df
         self.grouped_image_sources = grouped_image_sources

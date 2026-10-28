@@ -1,3 +1,5 @@
+"""Base model for configs loaded from YAML with dotted-key overrides."""
+
 import ast
 from pathlib import Path, PurePath
 from typing import Any, TypeVar

@@ -1,3 +1,5 @@
+"""Parser for YOLOv8 datasets in the Roboflow or Ultralytics layout."""
+
 from enum import Enum
 from pathlib import Path
 from typing import Any

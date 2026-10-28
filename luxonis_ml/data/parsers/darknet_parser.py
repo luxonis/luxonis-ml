@@ -1,3 +1,5 @@
+"""Parser for datasets in the Darknet format."""
+
 from pathlib import Path
 from typing import Any
 

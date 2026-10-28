@@ -1,3 +1,9 @@
+"""Telemetry backend that sends events to PostHog.
+
+`PostHogBackend` needs an API key and the ``posthog`` package,
+which the ``luxonis-ml[telemetry]`` extra installs.
+"""
+
 from typing import Any
 
 from typing_extensions import override

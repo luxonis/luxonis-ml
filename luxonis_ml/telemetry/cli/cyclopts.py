@@ -1,3 +1,5 @@
+"""Telemetry instrumentation for the commands of a ``cyclopts.App``."""
+
 from collections.abc import Iterable
 
 import cyclopts

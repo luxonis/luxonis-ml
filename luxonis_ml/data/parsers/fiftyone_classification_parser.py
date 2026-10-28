@@ -1,3 +1,9 @@
+"""Parser for FiftyOne image classification datasets.
+
+Also holds `clean_imagenet_annotations`, which fixes known label
+errors of ImageNet exports.
+"""
+
 import json
 from pathlib import Path
 from typing import Any

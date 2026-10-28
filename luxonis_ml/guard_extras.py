@@ -1,3 +1,8 @@
+"""Import guard for the optional extras of ``luxonis-ml``.
+
+A failed import is raised again with the install command of the extra.
+"""
+
 from collections.abc import Generator
 from contextlib import contextmanager
 

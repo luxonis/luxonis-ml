@@ -1,3 +1,5 @@
+"""Parser for datasets in the VOC format."""
+
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any

@@ -1,3 +1,5 @@
+"""Parser for datasets in the Unity SOLO format."""
+
 import json
 from pathlib import Path
 from typing import Any

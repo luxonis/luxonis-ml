@@ -1,3 +1,9 @@
+"""Parser that detects the dataset format and runs the matching parser.
+
+It downloads remote, Roboflow, and Ultralytics datasets and extracts
+ZIP archives before it parses them.
+"""
+
 import subprocess
 import sys
 import zipfile

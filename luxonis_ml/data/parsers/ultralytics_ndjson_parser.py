@@ -1,3 +1,5 @@
+"""Parser for datasets in the Ultralytics NDJSON format."""
+
 import hashlib
 import json
 from collections.abc import Iterator, Sequence

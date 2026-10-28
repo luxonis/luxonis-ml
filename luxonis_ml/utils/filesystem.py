@@ -1,3 +1,8 @@
+"""Common file interface for local, S3, GCS, and MLflow storage.
+
+The ``PUT_FILE_REGISTRY`` holds custom upload functions.
+"""
+
 import binascii
 import hashlib
 import os.path as osp
@@ -35,7 +40,20 @@ class PutFile(Protocol):
         local_path: PathType,
         remote_path: PosixPathType,
         mlflow_instance: ModuleType | None = None,
-    ) -> str: ...
+    ) -> str:
+        """Upload one local file and return its remote path.
+
+        Args:
+            local_path: Path to the local file.
+            remote_path: Relative path to the remote file.
+            mlflow_instance: MLflow instance to use when uploading to
+                an active run.
+
+        Returns:
+            Full remote path of the uploaded file.
+
+        """
+        ...
 
 
 PUT_FILE_REGISTRY: Final[Registry[PutFile]] = Registry(  # pyright: ignore[reportInvalidTypeArguments]

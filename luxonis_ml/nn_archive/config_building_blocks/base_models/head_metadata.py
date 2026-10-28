@@ -1,3 +1,8 @@
+"""Metadata schemas for the parser heads of an NN Archive model.
+
+The YOLO schema also checks its fields against the supported tasks.
+"""
+
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator

@@ -1,3 +1,5 @@
+"""Parser for datasets in the YOLOv4 format."""
+
 from functools import partial
 from pathlib import Path
 from typing import Any

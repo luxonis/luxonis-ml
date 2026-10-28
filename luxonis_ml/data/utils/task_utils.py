@@ -1,3 +1,5 @@
+"""Parsing of task strings and iteration over labels by task type."""
+
 from collections.abc import Iterator
 from functools import lru_cache
 

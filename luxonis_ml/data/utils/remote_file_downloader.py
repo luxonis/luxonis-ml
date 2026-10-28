@@ -1,3 +1,5 @@
+"""Downloader for remote files with optional image validation."""
+
 import shutil
 from pathlib import Path
 from typing import Protocol
@@ -44,13 +46,38 @@ ALLOWED_REMOTE_URL_SCHEMES = frozenset(
 
 
 class RemoteFileAPIClient(Protocol):
-    def download(
-        self, url: str, destination: Path, *, timeout: float
-    ) -> None: ...
+    """Protocol for clients that download HTTP and HTTPS URLs."""
+
+    def download(self, url: str, destination: Path, *, timeout: float) -> None:
+        """Download ``url`` into the file ``destination``.
+
+        Args:
+            url: URL to download.
+            destination: Local file to write.
+            timeout: Request timeout in seconds.
+
+        """
+        ...
 
 
 class RequestsRemoteFileAPIClient:
+    """Download client for HTTP and HTTPS built on ``requests``.
+
+    `RemoteFileDownloader` uses it when no other client is given.
+    """
+
     def download(self, url: str, destination: Path, *, timeout: float) -> None:
+        """Stream the response for ``url`` into ``destination``.
+
+        The request sends a ``luxonis-ml`` user agent and fails on an
+        HTTP error status.
+
+        Args:
+            url: URL to download.
+            destination: Local file to write.
+            timeout: Request timeout in seconds.
+
+        """
         with (
             requests.get(
                 url,

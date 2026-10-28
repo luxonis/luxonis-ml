@@ -1,3 +1,5 @@
+"""Filesystem commands that download, upload, delete, and list files."""
+
 from pathlib import Path
 from typing import Annotated, Literal
 

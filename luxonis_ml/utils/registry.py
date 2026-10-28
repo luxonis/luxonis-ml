@@ -1,3 +1,5 @@
+"""Registry of named modules and a metaclass that registers subclasses."""
+
 import warnings
 from abc import ABCMeta
 from collections.abc import Callable
@@ -35,15 +37,19 @@ class Registry(Generic[T]):
         return self.__str__()
 
     def __len__(self) -> int:
+        """Return the number of registered modules."""
         return len(self._module_dict)
 
     def __getitem__(self, key: str) -> T:
+        """Return the module registered under ``key``."""
         return self.get(key)
 
     def __setitem__(self, key: str, value: T) -> None:
+        """Register ``value`` under ``key``, replacing any old entry."""
         self._register(module=value, module_name=key, force=True)
 
     def __contains__(self, key: str) -> bool:
+        """Return whether a module is registered under ``key``."""
         return key in self._module_dict
 
     @property

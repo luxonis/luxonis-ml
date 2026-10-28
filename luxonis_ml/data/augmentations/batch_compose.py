@@ -1,3 +1,9 @@
+"""Composition that runs `BatchTransform` steps on a batch of samples.
+
+`BatchCompose` merges the batch into one sample and drops the labels
+of bounding boxes filtered out after each transform.
+"""
+
 import random
 from typing import Any
 

@@ -167,13 +167,6 @@ ignore = [
   "ANN002",
   "ANN003",
   "ANN401",
-  "D100",
-  "D101",
-  "D102",
-  "D103",
-  "D104",
-  "D105",
-  "D107",
   "D203",
   "D213",
   "E501",
@@ -193,7 +186,7 @@ unfixable = ["B905"]
 ignore-one-line-docstrings = true
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["ANN201"]
+"tests/*" = ["ANN201", "D1"]
 "__main__.py" = ["ANN201"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
