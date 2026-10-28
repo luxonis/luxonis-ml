@@ -64,8 +64,8 @@ def inspect(
         buildinfo: Print build info if available.
 
     Raises:
-        RuntimeError: If ``config.json`` in the archive is not a file,
-            for example a directory.
+        RuntimeError: If the archive has no ``config.json``, or if
+            ``config.json`` is not a file, for example a directory.
 
     """
 

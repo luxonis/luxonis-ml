@@ -101,8 +101,9 @@ def delete(
         yes: If True, skip confirmation prompt and delete immediately.
 
     Raises:
-        SystemExit: If no dataset name is given, if neither ``local``
-            nor ``remote`` is set, or if a dataset does not exist.
+        SystemExit: If no dataset name is given, if a dataset does not
+            exist, or if ``local`` is not set and ``remote`` is either
+            not set or set for a local bucket.
 
     """
     if not names:

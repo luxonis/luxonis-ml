@@ -257,6 +257,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         Raises:
             RuntimeError: If ``key`` is neither in the credentials file
                 nor a setting of ``environ``.
+            ValueError: If the value is ``None``, as for an unset
+                ``LUXONISML_BUCKET``.
 
         """
         if key in self._credentials:
