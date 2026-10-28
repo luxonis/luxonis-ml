@@ -267,6 +267,9 @@ def _split_detections(
     of its own. Such a record writes no ``classification`` row, so the
     rows do not show where it ends.
 
+    Yields:
+        The rows of each detection, in the order of the group.
+
     Example:
         >>> def row(instance_id, task_type, metadata="{}"):
         ...     return {

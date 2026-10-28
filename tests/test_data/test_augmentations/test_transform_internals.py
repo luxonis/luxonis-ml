@@ -147,7 +147,7 @@ def test_classification_defaults_to_a_single_absent_class() -> None:
 @pytest.mark.parametrize(
     ("transform", "params"),
     [
-        (Mosaic4(out_height=16, out_width=16, p=1.0), {}),
+        (Mosaic4(height=16, width=16, p=1.0), {}),
         (MixUp(p=1.0), {}),
         (CutMix(p=1.0), {"x1": 0, "y1": 0, "x2": 8, "y2": 8}),
     ],
