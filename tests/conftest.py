@@ -239,6 +239,10 @@ def _make_coco_variant(
 
     Always copies the raw/ folder (needed for keypoint annotations) and
     info.json.
+
+    Returns:
+        The path of the new ``coco-2017`` directory in ``dest_dir``.
+
     """
     dest = dest_dir / "coco-2017"
     shutil.copytree(source, dest)
@@ -292,6 +296,11 @@ def coco_2017(
 
     Use with ``@pytest.mark.parametrize("coco_2017", [...], indirect=True)``
     where the parameter values are `CocoSplitConfig` members.
+
+    Returns:
+        The path of a fresh ``coco-2017`` copy in ``tempdir`` that
+        holds only the splits of the ``request.param`` member.
+
     """
     config: CocoSplitConfig = request.param
     return _make_coco_variant(coco_2017_source, tempdir, config)

@@ -173,6 +173,12 @@ def test_config_override_list(config_file: str):
     assert cfg.nested_list_param[0][2] == 50
 
 
+def test_config_override_appends_to_an_empty_list(config_file: str):
+    cfg = Config.get_config(config_file, {"list_config.+.int_list_param": 30})
+    assert len(cfg.list_config) == 1
+    assert cfg.list_config[0].int_list_param == 30
+
+
 def test_config_list_override_json(config_file: str):
     overrides = {
         "list_config": '[{"int_list_param": 10, "float_list_param": 2.5, '

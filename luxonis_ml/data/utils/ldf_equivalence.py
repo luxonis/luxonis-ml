@@ -52,6 +52,10 @@ class LDFEquivalence:
 
         Hashes are used to order annotations robustly when files are
         renamed.
+
+        Returns:
+            The hexadecimal SHA-256 digest of the file content.
+
         """
         return hashlib.sha256(path.read_bytes()).hexdigest()
 

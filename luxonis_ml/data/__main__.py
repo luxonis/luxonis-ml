@@ -100,10 +100,23 @@ def delete(
         remote: If True, delete the dataset from remote storage.
         yes: If True, skip confirmation prompt and delete immediately.
 
+    Raises:
+        SystemExit: If no dataset name is given, if a dataset does not
+            exist, or if ``local`` is not set and ``remote`` is either
+            not set or set for a local bucket.
+
     """
     if not names:
         print("[red]At least one dataset name must be provided.[/red]")
         raise SystemExit(1)
+
+    if bucket_storage is BucketStorage.LOCAL and remote:
+        print(
+            "[yellow]Warning: You specified remote deletion, "
+            "but the bucket is local. "
+            "Remote deletion will not be performed.[/yellow]"
+        )
+        remote = False
 
     if not local and not remote:
         print(
@@ -114,14 +127,6 @@ def delete(
 
     for name in names:
         check_exists(name, bucket_storage)
-
-        if bucket_storage is BucketStorage.LOCAL and remote:
-            print(
-                "[yellow]Warning: You specified remote deletion, "
-                "but the bucket is local. "
-                "Remote deletion will not be performed.[/yellow]"
-            )
-            remote = False
 
         storage = _storage_label(local=local, remote=remote)
         if not yes and not Confirm.ask(
@@ -275,6 +280,10 @@ def inspect(
             ``names`` draws the name, and ``full`` draws the index and
             the name.
         bucket_storage: Storage type of the dataset.
+
+    Raises:
+        SystemExit: If the dataset does not exist.
+        ValueError: If the dataset has no samples.
 
     """
     check_exists(name, bucket_storage)
@@ -872,6 +881,12 @@ def push(
         force: If True, push all media files even
             if they already exist in the target cloud storage.
 
+    Raises:
+        SystemExit: If the dataset does not exist locally, if
+            ``bucket_storage`` is ``LOCAL``, or if the dataset exists
+            in ``bucket_storage`` and the user does not confirm the
+            overwrite.
+
     """
     check_exists(name, BucketStorage.LOCAL)
     dataset = LuxonisDataset(name, bucket_storage=BucketStorage.LOCAL)
@@ -921,6 +936,10 @@ def pull(
             if they already exist locally.
         bucket_storage: Cloud storage type to pull from.
             Cannot be LOCAL.
+
+    Raises:
+        SystemExit: If ``bucket_storage`` is ``LOCAL``, or if the
+            dataset does not exist in ``bucket_storage``.
 
     """
     if bucket_storage == BucketStorage.LOCAL:
@@ -979,6 +998,11 @@ def clone(
             Example: ``--split train --split val`` to clone only the "train" and "val" splits.
         team_id: Team ID to use for the new dataset.
 
+    Raises:
+        SystemExit: If the source dataset does not exist, or if
+            ``new_name`` exists locally and the user does not confirm
+            the overwrite.
+
     """
     check_exists(name, bucket_storage)
 
@@ -1035,6 +1059,11 @@ def merge(
         bucket_storage: Storage type for both datasets.
         team_id: Team ID to use for the new dataset.
             If not provided, the team ID of the target dataset will be used.
+
+    Raises:
+        SystemExit: If either dataset does not exist, or if the user
+            does not confirm the in-place merge or the overwrite of
+            an existing ``new_name`` dataset.
 
     """
     check_exists(source_name, bucket_storage)

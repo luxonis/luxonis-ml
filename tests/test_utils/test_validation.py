@@ -56,6 +56,11 @@ def catch_anonymous(model: type[BaseModel], **data) -> ValidationError:
     `TypeAdapter` validates from a frame of its own, so nothing in the
     traceback names the model. The formatter is in the same position when
     third-party code hands it the error.
+
+    Returns:
+        The error that ``TypeAdapter`` raises for ``data`` validated
+        against ``model``.
+
     """
     with pytest.raises(ValidationError) as info:
         TypeAdapter(model).validate_python(data)
