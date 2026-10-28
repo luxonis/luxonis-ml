@@ -87,7 +87,7 @@ class CreateMLParser(BaseParser):
             and added images.
 
         """
-        with annotation_path.open() as f:
+        with annotation_path.open(encoding="utf-8") as f:
             annotations_data = json.load(f)
 
         images_annotations = []

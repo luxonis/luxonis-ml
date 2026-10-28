@@ -184,9 +184,9 @@ class LuxonisTracker:
         else:
             return
 
-        self.store_log_locally(log_fn, *args, **kwargs)
+        self.store_log_locally(log_fn, *args)
 
-    def store_log_locally(self, log_fn: Callable, *args, **kwargs) -> None:
+    def store_log_locally(self, log_fn: Callable, *args) -> None:
         """Store log data locally if logging to MLflow fails."""
         # Checking functions without triggering reconnections.
         if log_fn == self.experiment["mlflow"].log_metric:
@@ -348,11 +348,11 @@ class LuxonisTracker:
             self._experiment["tensorboard"] = self._tensorboard_writer()
 
         if self.is_wandb and "wandb" not in self._experiment:
-            self._start_wandb_run()
+            self._start_wandb_run(self._experiment)
 
         if self.is_mlflow and self.mlflow_initialized is False:
             try:
-                self._start_mlflow_run()
+                self._start_mlflow_run(self._experiment)
                 self.mlflow_initialized = True
             except Exception as e:
                 logger.warning(f"Failed to initialize MLflow: {e}")
@@ -382,7 +382,9 @@ class LuxonisTracker:
             log_dir = log_dir / f"trial_{trial_id}"
         return SummaryWriter(log_dir=log_dir)
 
-    def _start_wandb_run(self) -> None:
+    def _start_wandb_run(
+        self, experiments: dict[Literal["tensorboard", "wandb", "mlflow"], Any]
+    ) -> None:
         """Start the Weights & Biases run.
 
         The module is stored before the run starts, so a failed start is
@@ -390,8 +392,7 @@ class LuxonisTracker:
         """
         import wandb
 
-        assert self._experiment is not None
-        self._experiment["wandb"] = wandb
+        experiments["wandb"] = wandb
 
         log_dir = self.save_directory / "wandb_logs"
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -405,7 +406,9 @@ class LuxonisTracker:
             name=self.run_name,
         )
 
-    def _start_mlflow_run(self) -> None:
+    def _start_mlflow_run(
+        self, experiments: dict[Literal["tensorboard", "wandb", "mlflow"], Any]
+    ) -> None:
         """Start the MLflow run.
 
         The module is stored before the run starts, so a failed start still
@@ -426,8 +429,7 @@ class LuxonisTracker:
                 "install it using 'pip install psutil'"
             )
 
-        assert self._experiment is not None
-        self._experiment["mlflow"] = mlflow
+        experiments["mlflow"] = mlflow
 
         self.artifacts_dir = self.run_directory / "artifacts"
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)

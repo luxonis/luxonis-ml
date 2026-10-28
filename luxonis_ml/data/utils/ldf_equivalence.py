@@ -5,7 +5,7 @@ import json
 from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 import polars as pl
@@ -149,9 +149,10 @@ class LDFEquivalence:
             cls._assert_collected_equivalence(previous_ldf, new_ldf, collector)
             return
 
-        assert cls.collect_image_multiset(
+        if cls.collect_image_multiset(
             previous_ldf
-        ) == cls.collect_image_multiset(new_ldf), "Different image sets"
+        ) != cls.collect_image_multiset(new_ldf):
+            raise AssertionError("Different image sets")
 
         for task_type in sorted(
             cls._task_types(previous_ldf) | cls._task_types(new_ldf)
@@ -180,10 +181,10 @@ class LDFEquivalence:
                     new_ldf,
                     cls.collect_segmentation_mask_overlap_multiset,
                 )
-            else:
-                assert cls.collect_annotation_multiset(
-                    previous_ldf, task_type
-                ) == cls.collect_annotation_multiset(new_ldf, task_type), (
+            elif cls.collect_annotation_multiset(
+                previous_ldf, task_type
+            ) != cls.collect_annotation_multiset(new_ldf, task_type):
+                raise AssertionError(
                     f"Different annotations for task type '{task_type}'"
                 )
 
@@ -208,49 +209,21 @@ class LDFEquivalence:
                 or if a box has no match within ``tol``.
 
         """
-        assert prev_map.keys() == new_map.keys(), (
-            f"Different image sets:\nprev-only={set(prev_map) - set(new_map)}\n"
-            f"new-only={set(new_map) - set(prev_map)}"
-        )
+        if prev_map.keys() != new_map.keys():
+            raise AssertionError(
+                f"Different image sets:\nprev-only={set(prev_map) - set(new_map)}\n"
+                f"new-only={set(new_map) - set(prev_map)}"
+            )
 
         for key, prev_counter in prev_map.items():
             new_counter = new_map[key]
-
-            if prev_counter == new_counter:
-                continue
-
-            prev_list = list(prev_counter.elements())
-            new_list = list(new_counter.elements())
-
-            assert len(prev_list) == len(new_list), (
-                f"Different number of boxes for {key}: "
-                f"{len(prev_list)} vs {len(new_list)}"
-            )
-
-            used = [False] * len(new_list)
-
-            def within_tol(a: tuple[float, ...], b: tuple[float, ...]) -> bool:
-                return all(
-                    abs(aa - bb) <= tol for aa, bb in zip(a, b, strict=True)
+            if prev_counter != new_counter:
+                _assert_boxes_match(
+                    key,
+                    list(prev_counter.elements()),
+                    list(new_counter.elements()),
+                    tol,
                 )
-
-            for box in prev_list:
-                found = False
-                for j, cand in enumerate(new_list):
-                    if not used[j] and within_tol(box, cand):
-                        used[j] = True
-                        found = True
-                        break
-                assert found, (
-                    f"No match within tol={tol} for box {box} in image {key}. "
-                    f"Unmatched candidates: "
-                    f"{[c for u, c in zip(used, new_list, strict=True) if not u]}"
-                )
-
-            assert all(used), (
-                f"Extra unmatched boxes in new for {key}: "
-                f"{[c for u, c in zip(used, new_list, strict=True) if not u]}"
-            )
 
     @classmethod
     def collect_image_multiset(cls, prepared_ldf: PreparedLDF) -> Counter[str]:
@@ -268,7 +241,7 @@ class LDFEquivalence:
             ["file", "group_id"], maintain_order=True
         )
         for key, _entry in grouped:
-            file_path, _gid = cast(tuple[str, str], key)
+            file_path, _gid = cast("tuple[str, str]", key)
             out.update((cls.file_sha256(Path(file_path)),))
         return out
 
@@ -295,7 +268,7 @@ class LDFEquivalence:
             ["file", "group_id"], maintain_order=True
         )
         for key, entry in grouped:
-            file_path, _gid = cast(tuple[str, str], key)
+            file_path, _gid = cast("tuple[str, str]", key)
             hashed_key = (cls.file_sha256(Path(file_path)),)
             annotations = []
             for row in entry.iter_rows(named=True):
@@ -334,7 +307,7 @@ class LDFEquivalence:
             ["file", "group_id"], maintain_order=True
         )
         for key, entry in grouped:
-            file_path, _gid = cast(tuple[str, str], key)
+            file_path, _gid = cast("tuple[str, str]", key)
             hashed_key = (cls.file_sha256(Path(file_path)),)
             boxes = []
             for row in entry.iter_rows(named=True):
@@ -373,7 +346,7 @@ class LDFEquivalence:
             ["file", "group_id"], maintain_order=True
         )
         for key, entry in grouped:
-            file_path, _gid = cast(tuple[str, str], key)
+            file_path, _gid = cast("tuple[str, str]", key)
             hashed_key = (cls.file_sha256(Path(file_path)),)
             keypoints = []
             for row in entry.iter_rows(named=True):
@@ -404,7 +377,7 @@ class LDFEquivalence:
             ["file", "group_id"], maintain_order=True
         )
         for key, entry in grouped:
-            file_path, _gid = cast(tuple[str, str], key)
+            file_path, _gid = cast("tuple[str, str]", key)
             hashed_key = (cls.file_sha256(Path(file_path)),)
             counts = []
             for row in entry.iter_rows(named=True):
@@ -438,7 +411,7 @@ class LDFEquivalence:
         )
 
         for key, entry in grouped:
-            file_path, _gid = cast(tuple[str, str], key)
+            file_path, _gid = cast("tuple[str, str]", key)
             hashed_key = (cls.file_sha256(Path(file_path)),)
             masks: list[np.ndarray] = []
 
@@ -475,22 +448,7 @@ class LDFEquivalence:
             without such rows are left out.
 
         """
-        out: dict[tuple[str], Counter] = {}
-        grouped = prepared_ldf.processed_df.group_by(
-            ["file", "group_id"], maintain_order=True
-        )
-        for key, entry in grouped:
-            file_path, _gid = cast(tuple[str, str], key)
-            hashed_key = (cls.file_sha256(Path(file_path)),)
-            classes = [
-                row["class_name"]
-                for row in entry.iter_rows(named=True)
-                if row["task_type"] == "classification"
-                and row["instance_id"] == -1
-            ]
-            if classes:
-                out.setdefault(hashed_key, Counter()).update(classes)
-        return out
+        return cls._collect_class_names(prepared_ldf, "classification")
 
     @classmethod
     def collect_segmentation_multiset(
@@ -509,18 +467,26 @@ class LDFEquivalence:
             without such rows are left out.
 
         """
+        return cls._collect_class_names(prepared_ldf, "segmentation")
+
+    @classmethod
+    def _collect_class_names(
+        cls,
+        prepared_ldf: PreparedLDF,
+        task_type: Literal["classification", "segmentation"],
+    ) -> dict[tuple[str], Counter]:
+        """Count the whole-image class names of one task type."""
         out: dict[tuple[str], Counter] = {}
         grouped = prepared_ldf.processed_df.group_by(
             ["file", "group_id"], maintain_order=True
         )
         for key, entry in grouped:
-            file_path, _gid = cast(tuple[str, str], key)
+            file_path, _gid = cast("tuple[str, str]", key)
             hashed_key = (cls.file_sha256(Path(file_path)),)
             classes = [
                 row["class_name"]
                 for row in entry.iter_rows(named=True)
-                if row["task_type"] == "segmentation"
-                and row["instance_id"] == -1
+                if row["task_type"] == task_type and row["instance_id"] == -1
             ]
             if classes:
                 out.setdefault(hashed_key, Counter()).update(classes)
@@ -549,7 +515,7 @@ class LDFEquivalence:
         )
 
         for key, entry in grouped:
-            file_path, _gid = cast(tuple[str, str], key)
+            file_path, _gid = cast("tuple[str, str]", key)
             img_hash = cls.file_sha256(Path(file_path))
 
             for row in entry.iter_rows(named=True):
@@ -608,36 +574,40 @@ class LDFEquivalence:
             "collect_instance_segmentation_mask_overlap_multiset",
             "collect_segmentation_mask_overlap_multiset",
         ):
-            assert prev.keys() == new.keys(), (
+            cls._assert_masks_overlap(prev, new)
+        elif prev != new:
+            raise AssertionError(f"Different {collector.__name__} results")
+
+    @classmethod
+    def _assert_masks_overlap(
+        cls,
+        prev: dict[Any, list[np.ndarray]],
+        new: dict[Any, list[np.ndarray]],
+    ) -> None:
+        """Check that the combined masks of each image overlap enough."""
+        if prev.keys() != new.keys():
+            raise AssertionError(
                 "Different image sets:\n"
                 f"prev-only={set(prev) - set(new)}\n"
                 f"new-only={set(new) - set(prev)}"
             )
 
-            for key in prev:
-                comb_prev = cls._combine_masks(prev[key])
-                comb_new = cls._combine_masks(new[key])
+        for key, prev_masks in prev.items():
+            comb_prev = cls._combine_masks(prev_masks)
+            comb_new = cls._combine_masks(new[key])
 
-                if comb_prev.size == 0 or comb_new.size == 0:
-                    assert comb_prev.size == comb_new.size, (
-                        f"Mask presence differs for {key}"
-                    )
-                    continue
+            if comb_prev.size == 0 or comb_new.size == 0:
+                if comb_prev.size != comb_new.size:
+                    raise AssertionError(f"Mask presence differs for {key}")
+                continue
 
-                assert comb_prev.shape == comb_new.shape, (
-                    f"Combined mask shape differs for {key}"
-                )
+            if comb_prev.shape != comb_new.shape:
+                raise AssertionError(f"Combined mask shape differs for {key}")
 
-                intersection = np.logical_and(comb_prev, comb_new).sum()
-                union = np.logical_or(comb_prev, comb_new).sum()
-                if union == 0:
-                    continue
-
-                iou = intersection / union
-
-                assert iou > 0.75, f"Low IoU in combined masks for {key}"
-        else:
-            assert prev == new
+            intersection = np.logical_and(comb_prev, comb_new).sum()
+            union = np.logical_or(comb_prev, comb_new).sum()
+            if union > 0 and intersection / union <= 0.75:
+                raise AssertionError(f"Low IoU in combined masks for {key}")
 
     @staticmethod
     def _task_types(prepared_ldf: PreparedLDF) -> set[str]:
@@ -754,6 +724,47 @@ class LDFEquivalence:
             processed_df=processed_df,
             grouped_image_sources=grouped_image_sources,
         )
+
+
+def _assert_boxes_match(
+    key: tuple[str],
+    prev_boxes: list[tuple[float, ...]],
+    new_boxes: list[tuple[float, ...]],
+    tol: float,
+) -> None:
+    """Pair each box of an image with a distinct new box within ``tol``."""
+    if len(prev_boxes) != len(new_boxes):
+        raise AssertionError(
+            f"Different number of boxes for {key}: "
+            f"{len(prev_boxes)} vs {len(new_boxes)}"
+        )
+
+    used = [False] * len(new_boxes)
+    for box in prev_boxes:
+        match = next(
+            (
+                j
+                for j, cand in enumerate(new_boxes)
+                if not used[j] and _within_tol(box, cand, tol)
+            ),
+            None,
+        )
+        if match is None:
+            unmatched = [
+                c for u, c in zip(used, new_boxes, strict=True) if not u
+            ]
+            raise AssertionError(
+                f"No match within tol={tol} for box {box} in image {key}. "
+                f"Unmatched candidates: {unmatched}"
+            )
+        used[match] = True
+
+
+def _within_tol(
+    a: tuple[float, ...], b: tuple[float, ...], tol: float
+) -> bool:
+    """Return whether each coordinate of two boxes differs by at most ``tol``."""
+    return all(abs(x - y) <= tol for x, y in zip(a, b, strict=True))
 
 
 def _rounded_keypoints(keypoints: list[list[float]]) -> list[tuple]:

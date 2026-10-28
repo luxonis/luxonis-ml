@@ -117,6 +117,11 @@ class VOCParser(BaseParser):
             top-left corner. ``x`` and ``w`` are fractions of the image
             width, ``y`` and ``h`` of its height.
 
+        Raises:
+            ValueError: If the annotation has no ``size`` element, if the
+                size, a class name or a box coordinate is missing, or if a
+                size or a coordinate is not a number.
+
         Examples:
             >>> import xml.etree.ElementTree as ET
             >>> root = ET.fromstring(
@@ -130,7 +135,8 @@ class VOCParser(BaseParser):
 
         """
         size_item = root.find("size")
-        assert size_item is not None
+        if size_item is None:
+            raise ValueError(f"Could not find size in {root}")
         height = float(VOCParser._xml_find(size_item, "height"))
         width = float(VOCParser._xml_find(size_item, "width"))
 

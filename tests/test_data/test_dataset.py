@@ -174,6 +174,16 @@ def test_dataset_fail(dataset_name: str, tempdir: Path):
         dataset.delete_dataset()
 
 
+def test_remote_delete_needs_a_dataset_name() -> None:
+    """Without a name, the remote path is the parent of every dataset."""
+    dataset = LuxonisDataset.__new__(LuxonisDataset)
+    dataset._dataset_name = ""
+    dataset._bucket_storage = BucketStorage.GCS
+
+    with pytest.raises(ValueError, match="without a name"):
+        dataset.delete_dataset(delete_remote=True)
+
+
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_loader_iterator(storage_url: str, tempdir: Path):
     dataset = LuxonisParser(
@@ -828,7 +838,9 @@ def test_classes_per_task(dataset_name: str, tempdir: Path):
                 "instance_id": 0,
             },
         }
-        # Yield a second annotation with only an `instance_id` to check that we don't encounter the issue: "Detected new classes for task group '': []".
+        # Yield a second annotation with only an `instance_id` to check that
+        # we don't encounter the issue:
+        # "Detected new classes for task group '': []".
         yield {
             "file": img,
             "annotation": {
@@ -995,7 +1007,7 @@ def test_dataset_push_pull(
     def assert_loader_metadata(dataset: LuxonisDataset) -> None:
         metadata = sorted(
             (data.metadata for data in LuxonisLoader(dataset)),
-            key=lambda item: cast(int, item["record_id"]),
+            key=lambda item: cast("int", item["record_id"]),
         )
         assert [item["record_id"] for item in metadata] == [0, 1, 2]
         assert {item["origin"] for item in metadata} == {"push-pull"}  # pyright: ignore[reportUnhashable]
@@ -1276,7 +1288,8 @@ def test_class_order_per_task_invalid_task_name(tempdir: Path):
 
     with pytest.raises(
         ValueError,
-        match=r"Task invalid_task not found in dataset tasks\. Available tasks: \['classification'\]",
+        match=r"Task invalid_task not found in dataset tasks\. "
+        r"Available tasks: \['classification'\]",
     ):
         dataset.set_class_order_per_task(class_order_per_task)
 

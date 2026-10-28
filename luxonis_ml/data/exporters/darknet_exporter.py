@@ -78,7 +78,7 @@ class DarknetExporter(BaseExporter):
         copied_files: set[Path] = set()
 
         for key, group_df in grouped:
-            file_name, group_id = cast(tuple[str, Any], key)
+            file_name, group_id = cast("tuple[str, Any]", key)
             split_key = split_of_group(prepared_ldf, group_id)
             split_name = self.get_split_names()[split_key]
 

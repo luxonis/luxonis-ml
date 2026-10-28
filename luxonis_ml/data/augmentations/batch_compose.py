@@ -136,8 +136,9 @@ class BatchCompose(A.Compose):
             data_batch = new_batch
             input_indices = new_indices
 
-        assert len(data_batch) == 1
-        self.batch_augmentation_indices = input_indices[0]
+        # The batch size is the product of the transform batch sizes, so
+        # exactly one sample is left.
+        [self.batch_augmentation_indices] = input_indices
 
         # A sub-batch a transform applied to can still be dropped by a later
         # one that did not apply and passed its first input through instead.

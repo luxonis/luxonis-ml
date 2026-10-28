@@ -186,13 +186,14 @@ class NativeExporter(BaseExporter):
         task_type = row["task_type"]
         ann_str = row["annotation"]
 
-        source_to_file = {
-            name: path_to_posix(
-                Path("images")
-                / f"{self.image_indices.setdefault(Path(f), len(self.image_indices))}{Path(f).suffix}"
+        source_to_file: dict[str, str] = {}
+        for name, f in zip(group_source_names, group_files, strict=True):
+            index = self.image_indices.setdefault(
+                Path(f), len(self.image_indices)
             )
-            for name, f in zip(group_source_names, group_files, strict=True)
-        }
+            source_to_file[name] = path_to_posix(
+                Path("images") / f"{index}{Path(f).suffix}"
+            )
 
         multi_source = len(source_to_file) > 1
         record: dict[str, Any] = {

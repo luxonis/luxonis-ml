@@ -81,7 +81,7 @@ annotations as L{Labels}."""
 
 @dataclass(slots=True)
 class LoaderOutput(
-    tuple[np.ndarray | dict[str, "np.ndarray"], Labels]
+    tuple["np.ndarray | dict[str, np.ndarray]", Labels]
     if TYPE_CHECKING
     else object
 ):

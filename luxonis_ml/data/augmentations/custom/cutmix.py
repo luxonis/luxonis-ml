@@ -214,10 +214,11 @@ class CutMix(BatchTransform):
             mask = np.zeros_like(mask2)
         else:
             mask = mask1.copy()
-            if mask2.size == 0:
-                mask2 = np.zeros_like(mask)
-            else:
-                mask2 = self._match_dimensions(mask2, mask)
+            mask2 = (
+                np.zeros_like(mask)
+                if mask2.size == 0
+                else self._match_dimensions(mask2, mask)
+            )
 
         mask[y1:y2, x1:x2] = mask2[y1:y2, x1:x2]
         return mask

@@ -68,8 +68,9 @@ class CocoExporter(BaseExporter):
         else:
             self.allow_keypoints = False
             logger.warning(
-                "Skipping keypoint annotations because COCO only supports a single keypoint export class."
-                "To export multiple keypoint classes please use the Luxonis native export format"
+                "Skipping keypoint annotations because COCO only supports a "
+                "single keypoint export class. To export multiple keypoint "
+                "classes please use the Luxonis native export format"
             )
 
         splits = self.get_split_names()
@@ -119,7 +120,9 @@ class CocoExporter(BaseExporter):
         copied_files: set[Path] = set()
 
         for key, entry in grouped:
-            file_name, _instance_id, group_id = cast(tuple[str, int, Any], key)
+            file_name, _instance_id, group_id = cast(
+                "tuple[str, int, Any]", key
+            )
 
             split = split_of_group(prepared_ldf, group_id)
             file_path = Path(str(file_name))

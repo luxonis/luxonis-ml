@@ -1,10 +1,12 @@
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from luxonis_ml.data import LuxonisDataset
 from luxonis_ml.data.utils.cli_utils import print_info
 from luxonis_ml.data.utils.enums import BucketStorage
+
+if TYPE_CHECKING:
+    from luxonis_ml.data import LuxonisDataset
 
 
 class _InfoDataset:
@@ -50,7 +52,7 @@ def test_print_info_shows_named_tasks_and_split_sizes(
         {"train": ["a", "b", "c"], "val": ["d"]},
     )
 
-    print_info(cast(LuxonisDataset, dataset))
+    print_info(cast("LuxonisDataset", dataset))
 
     out = capsys.readouterr().out
     assert "Task Name" in out
@@ -67,7 +69,7 @@ def test_print_info_without_task_names_or_splits(
         {"": {"apple": 0}}, {"": ["classification"]}, splits=None
     )
 
-    print_info(cast(LuxonisDataset, dataset))
+    print_info(cast("LuxonisDataset", dataset))
 
     out = capsys.readouterr().out
     assert "Task Name" not in out

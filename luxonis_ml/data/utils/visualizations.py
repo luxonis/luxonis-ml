@@ -781,10 +781,11 @@ class _LabelDrawer:
         for i, flat_kp in enumerate(arr):
             kp = flat_kp.reshape(-1, 3)
             class_color = self._box_class_color(task_name, i)
-            if class_color is None:
-                color = (255, 0, 0)
-            else:
-                color = get_contrast_color(class_color)
+            color = (
+                (255, 0, 0)
+                if class_color is None
+                else get_contrast_color(class_color)
+            )
 
             if draw_skeletons:
                 self._draw_edges(canvas, kp, edges, color)

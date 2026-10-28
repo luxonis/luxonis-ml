@@ -107,14 +107,6 @@ def _should_redact(key: str, redact_keys: set[str]) -> bool:
 
 def _safe_serialize(value: Any, *, redact_keys: set[str]) -> Any:
     """Convert values into a safe, JSON-friendly representation."""
-    if value is None or isinstance(value, (str, int, float, bool)):
-        if isinstance(value, str):
-            return _safe_string(value)
-        return value
-    if isinstance(value, Path):
-        return "<redacted>"
-    if isinstance(value, bytes):
-        return "<bytes>"
     if isinstance(value, (list, tuple, set)):
         return [
             _safe_serialize(item, redact_keys=redact_keys)
@@ -122,6 +114,19 @@ def _safe_serialize(value: Any, *, redact_keys: set[str]) -> Any:
         ]
     if isinstance(value, Mapping):
         return _safe_mapping(value, redact_keys=redact_keys)
+    return _safe_scalar(value, redact_keys=redact_keys)
+
+
+def _safe_scalar(value: Any, *, redact_keys: set[str]) -> Any:
+    """Convert a value that is not a sequence or a mapping."""
+    if isinstance(value, str):
+        return _safe_string(value)
+    if value is None or isinstance(value, (int, float, bool)):
+        return value
+    if isinstance(value, Path):
+        return "<redacted>"
+    if isinstance(value, bytes):
+        return "<bytes>"
     if hasattr(value, "value"):
         return _safe_serialize(value.value, redact_keys=redact_keys)
     return f"<{type(value).__name__}>"
@@ -158,16 +163,25 @@ def _safe_string(value: str) -> str:
     stripped = value.strip()
     if not stripped:
         return ""
-    if _URL_PATTERN.match(stripped):
+    if _looks_like_location(stripped):
         return "<redacted>"
-    if _EMAIL_PATTERN.match(stripped):
-        return "<redacted>"
-    if _PATH_PATTERN.match(stripped):
-        return "<redacted>"
-    if "\\" in stripped or "/" in stripped:
-        return "<redacted>"
-    if "\n" in stripped or "\r" in stripped or "\t" in stripped:
-        return "<string>"
-    if len(stripped.split()) > 3:
+    if _looks_like_free_text(stripped):
         return "<string>"
     return _truncate(stripped)
+
+
+def _looks_like_location(value: str) -> bool:
+    """Return whether a string looks like a URL, an email or a path."""
+    return (
+        any(
+            pattern.match(value)
+            for pattern in (_URL_PATTERN, _EMAIL_PATTERN, _PATH_PATTERN)
+        )
+        or "\\" in value
+        or "/" in value
+    )
+
+
+def _looks_like_free_text(value: str) -> bool:
+    """Return whether a string has line breaks, tabs or many words."""
+    return any(c in value for c in "\n\r\t") or len(value.split()) > 3

@@ -307,6 +307,23 @@ else:
     subprocess.run([sys.executable, "-O", "-c", code], check=True)
 
 
+def test_ldf_equivalent_compares_metadata_tasks(
+    dataset_name: str, tempdir: Path
+):
+    """Metadata has no dedicated collector and uses the generic one."""
+    image = create_image(0, tempdir)
+
+    def generator(color: str) -> DatasetIterator:
+        yield {"file": image, "annotation": {"metadata": {"color": color}}}
+
+    red = create_dataset(f"{dataset_name}_red", generator("red"))
+    same = create_dataset(f"{dataset_name}_same", generator("red"))
+    blue = create_dataset(f"{dataset_name}_blue", generator("blue"))
+
+    assert ldf_equivalent(red, same)
+    assert not ldf_equivalent(red, blue)
+
+
 def test_ldf_equivalent_by_name_is_free_of_deprecations(
     dataset_name: str, tempdir: Path
 ):
