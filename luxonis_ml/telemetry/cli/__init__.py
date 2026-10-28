@@ -58,6 +58,14 @@ __all__ = [
 def __getattr__(name: str) -> Any:
     """Lazily import optional CLI adapters so their deps stay
     optional.
+
+    Returns:
+        The function called ``name``, imported from its submodule.
+
+    Raises:
+        AttributeError: If ``name`` is not one of the names in
+            ``__all__``.
+
     """
     if name == "instrument_typer":
         return import_module("luxonis_ml.telemetry.cli.typer").instrument_typer

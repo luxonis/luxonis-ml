@@ -52,6 +52,10 @@ class LDFEquivalence:
 
         Hashes are used to order annotations robustly when files are
         renamed.
+
+        Returns:
+            The hexadecimal SHA-256 digest of the file content.
+
         """
         return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -602,7 +606,7 @@ class LDFEquivalence:
         if df.is_empty():
             raise FileNotFoundError(f"Dataset '{dataset_path.name}' is empty.")
 
-        df = df.with_row_count("row_idx")
+        df = df.with_row_index("row_idx")
         media_path = dataset_path / "media"
 
         def resolve_path(
@@ -632,7 +636,7 @@ class LDFEquivalence:
         annotated = df.filter(pl.col("annotation").is_not_null())
         annotated_groups = annotated.select("group_id").unique()["group_id"]
         noann_first = df.filter(
-            ~pl.col("group_id").is_in(annotated_groups)
+            ~pl.col("group_id").is_in(annotated_groups.implode())
         ).unique(subset=["group_id"], keep="first")
 
         processed_df = (

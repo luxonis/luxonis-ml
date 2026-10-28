@@ -139,7 +139,7 @@ def test_mosaic4(
     config = [
         {
             "name": "Mosaic4",
-            "params": {"p": 1.0, "out_width": 640, "out_height": 640},
+            "params": {"p": 1.0, "width": 640, "height": 640},
         }
     ]
     source_names = list(images_dict.keys())
@@ -229,7 +229,7 @@ def test_batched_p_0(
     config = [
         {
             "name": "Mosaic4",
-            "params": {"p": 0, "out_width": 640, "out_height": 640},
+            "params": {"p": 0, "width": 640, "height": 640},
         },
         {"name": "MixUp", "params": {"p": 0}},
         {"name": "CutMix", "params": {"p": 0}},
@@ -281,7 +281,7 @@ def test_skipped_mosaic_before_mixup_reindexes_instance_masks(
     config = [
         {
             "name": "Mosaic4",
-            "params": {"p": 0, "out_width": 640, "out_height": 640},
+            "params": {"p": 0, "width": 640, "height": 640},
         },
         {"name": "MixUp", "params": {"p": mixup_probability}},
     ]
@@ -340,6 +340,13 @@ def test_mosaic_drops_boxes_keeps_masks_aligned(
         Reusing ids across batch members would let the checks below pass
         under a permutation mapping instance *i* of one sample onto
         instance *i* of another - exactly the mispairing they look for.
+
+        Returns:
+            Labels of four instances, one per corner, each with a box,
+            two keypoints and a mask channel that holds its id inside
+            the box. ``task/array`` holds the ids, and
+            ``task/metadata/id`` the ids plus 100.
+
         """
         instance_mask = np.zeros((4, 320, 320), dtype=np.uint8)
         boxes_in = []
@@ -383,7 +390,7 @@ def test_mosaic_drops_boxes_keeps_masks_aligned(
     config = [
         {
             "name": "Mosaic4",
-            "params": {"p": 1.0, "out_width": 640, "out_height": 640},
+            "params": {"p": 1.0, "width": 640, "height": 640},
         }
     ]
     batch_size = 4

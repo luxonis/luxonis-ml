@@ -62,7 +62,7 @@ class PreparedLDF:
         if splits is None:
             raise ValueError("Cannot export dataset without splits")
 
-        df = dataset._load_df_offline(raise_when_empty=True).with_row_count(
+        df = dataset._load_df_offline(raise_when_empty=True).with_row_index(
             "row_idx"
         )
 
@@ -95,7 +95,7 @@ class PreparedLDF:
         annotated = df.filter(pl.col("annotation").is_not_null())
         annotated_groups = annotated.select("group_id").unique()["group_id"]
         noann_first = df.filter(
-            ~pl.col("group_id").is_in(annotated_groups)
+            ~pl.col("group_id").is_in(annotated_groups.implode())
         ).unique(subset=["group_id"], keep="first")
 
         processed_df = (
@@ -241,7 +241,11 @@ def get_single_skeleton(
 ) -> tuple[list[str], list[list[int]]]:
     """Return labels and COCO-style edges for the single skeleton.
 
-    Edges are converted to 1-based indices per COCO spec.
+    Returns:
+        The keypoint labels of the first skeleton, and its edges as
+        pairs of 1-based keypoint indices. Both lists are empty when
+        ``allow_keypoints`` is ``False`` or ``skeletons`` is ``None``.
+
     """
     if not allow_keypoints or skeletons is None:
         return [], []
@@ -324,6 +328,10 @@ def whole_image_rows(df: pl.DataFrame, task_type: str) -> pl.DataFrame:
     """Return the rows of a task type that describe the whole image.
 
     Such a row has the instance ID -1.
+
+    Returns:
+        The matching rows of ``df``, in their original order.
+
     """
     return df.filter(
         (pl.col("task_type") == task_type) & (pl.col("instance_id") == -1)
@@ -351,9 +359,12 @@ def yolo_bbox_label(
 ) -> BBox | None:
     """Return the class ID and the top-left ``x, y, w, h`` of a box row.
 
-    A row of another task type, without an annotation or without a
-    class gives ``None``. An unseen class is added to ``class_to_id``
-    and ``class_names``.
+    An unseen class is added to ``class_to_id`` and ``class_names``.
+
+    Returns:
+        The class ID and the box, with ``0.0`` for a missing value.
+        ``None`` for a row of another task type, without an annotation
+        or without a class.
 
     Examples:
         >>> class_to_id, class_names = {}, []
