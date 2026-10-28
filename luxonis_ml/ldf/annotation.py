@@ -345,7 +345,6 @@ Important:
 
 import json
 import warnings
-import zipfile
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
@@ -1280,18 +1279,21 @@ class ArrayAnnotation(Annotation):
                 f"Array annotation file must be a .npy file. Got {path}"
             )
         try:
+            # np.load opens a ZIP archive as .npz, and it leaves the file
+            # open when the archive is corrupt. So only a file with the
+            # .npy signature goes on to np.load.
+            with path.open("rb") as file:
+                np.lib.format.read_magic(file)
+        except (OSError, ValueError) as e:
+            raise ValueError(
+                f"Failed to load array annotation from {path}."
+            ) from e
+        try:
             # Memory mapping keeps the check from reading the whole array.
             np.load(path, mmap_mode="r")
-        except (
-            OSError,
-            ValueError,
-            EOFError,
-            OverflowError,
-            TypeError,
-            zipfile.BadZipFile,
-        ):
+        except (OSError, ValueError, EOFError, OverflowError, TypeError):
             # mmap fails on some filesystems and for some corrupt
-            # files, so a plain read decides whether the file is
+            # headers, so a plain read decides whether the file is
             # really unusable.
             try:
                 np.load(path)

@@ -1,3 +1,4 @@
+import io
 import json
 from pathlib import Path
 
@@ -536,6 +537,12 @@ _CORRUPT_HEADER = (
 )
 
 
+def _npz_bytes() -> bytes:
+    buffer = io.BytesIO()
+    np.savez(buffer, array=np.zeros(1))
+    return buffer.getvalue()
+
+
 @pytest.mark.parametrize(
     "contents",
     [
@@ -550,6 +557,7 @@ _CORRUPT_HEADER = (
         ),
         # numpy opens a file with the ZIP magic as an .npz archive.
         pytest.param(b"PK\x03\x04garbage", id="zip-magic"),
+        pytest.param(_npz_bytes(), id="npz-archive"),
     ],
 )
 def test_array_annotation_rejects_a_corrupt_file(
