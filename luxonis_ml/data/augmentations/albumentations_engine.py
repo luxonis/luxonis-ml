@@ -533,10 +533,15 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             self._bbox_targets_by_group.values()
         ).union(*bbox_associations.values())
 
-        # Warning issued when "bbox_params" or "keypoint_params"
-        # are provided to a compose with transformations that
-        # do not use them. We don't care about these warnings.
-        with warnings.catch_warnings(record=True):
+        # Albumentations warns when a compose gets "bbox_params" or
+        # "keypoint_params" but none of its transformations uses them.
+        # Each compose gets both, so the warning is expected here.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Got processor for .*, but no transform to process it",
+                category=UserWarning,
+            )
             self._batch_transform = BatchCompose(
                 transforms.batch,
                 bbox_associations=bbox_associations,
@@ -679,11 +684,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         for op in spatial_transforms:
             wrapped.append(op)
             wrapped.append(
-                A.Lambda(
-                    image=lambda img, **_: img,
-                    keypoints=self._mark_invisible_keypoints,
-                    p=1.0,
-                )
+                A.Lambda(keypoints=self._mark_invisible_keypoints, p=1.0)
             )
         return wrapped
 

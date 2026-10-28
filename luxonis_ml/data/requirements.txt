@@ -17,7 +17,8 @@ cycler==0.12.1
 cyclopts==4.25.3
 defusedxml==0.7.1
 docstring-parser==0.18.0
-filelock==3.32.7
+filelock==4.1.0 ; python_full_version < '3.11'
+filelock==4.2.0 ; python_full_version >= '3.11'
 fonttools==4.65.0 ; python_full_version < '3.11'
 fonttools==4.66.1 ; python_full_version >= '3.11'
 fsspec==2026.9.0

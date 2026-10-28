@@ -38,7 +38,7 @@ def test_multi_input(dataset_name: str, tempdir: Path):
         {"name": "Defocus", "params": {"p": 1}},
         {
             "name": "Mosaic4",
-            "params": {"out_width": 512, "out_height": 512, "p": 1},
+            "params": {"width": 512, "height": 512, "p": 1},
         },
         {
             "name": "Affine",
@@ -46,7 +46,7 @@ def test_multi_input(dataset_name: str, tempdir: Path):
                 "p": 1,
                 "scale": [0.8, 1.2],
                 "rotate": [-10, 10],
-                "translate": [0.1, 0.1],
+                "translate_percent": [0.1, 0.1],
             },
         },
     ]

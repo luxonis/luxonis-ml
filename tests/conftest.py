@@ -124,7 +124,7 @@ def augmentation_config() -> list[Params]:
     return [
         {
             "name": "Mosaic4",
-            "params": {"out_width": 416, "out_height": 416, "p": 1.0},
+            "params": {"width": 416, "height": 416, "p": 1.0},
         },
         {"name": "MixUp", "params": {"p": 1.0}},
         {"name": "Defocus", "params": {"p": 1.0}},
