@@ -203,7 +203,8 @@ unfixable = ["B905"]
 
 [tool.deptry.per_rule_ignores]
 # The tracker imports these only when a user turns on TensorBoard
-# (through torch) or Weights & Biases.
+# (through torch) or Weights & Biases. deptry reports them as DEP001
+# when they are not installed and as DEP003 when they are.
 DEP001 = ["torch", "wandb"]
 DEP002 = [
   # fsspec loads these by the protocol of a URL (gs://, s3://).
@@ -213,8 +214,13 @@ DEP002 = [
   # luxonis-eval imports its tqdm, and neither declares them.
   "gdown",
 ]
-# The telemetry wraps a Typer application that the user brings.
-DEP003 = ["typer"]
+DEP003 = [
+  # The tracker integrations, as for DEP001.
+  "torch",
+  "wandb",
+  # The telemetry wraps a Typer application that the user brings.
+  "typer",
+]
 
 [tool.docformatter]
 black = true
