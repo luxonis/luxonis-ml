@@ -1236,22 +1236,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         logger.info("Checking arrays...")
         # Checked before anything starts, so a rejected batch leaves the
         # progress display and the caller's records as they were.
-        arrays_by_record: list[list[tuple[ArrayAnnotation, Path]]] = []
-        for record in data_batch:
-            arrays = []
-            for detections in record.annotation.values():
-                for detection in _walk_detections(detections):
-                    ann = detection.array
-                    if ann is None:
-                        continue
-                    if isinstance(ann.path, np.ndarray):
-                        raise NotImplementedError(
-                            "An array annotation holds its data in memory, "
-                            "which a dataset cannot store. Save it as a "
-                            "'.npy' file and pass that path instead."
-                        )
-                    arrays.append((ann, ann.path))
-            arrays_by_record.append(arrays)
+        arrays_by_record = [_record_arrays(record) for record in data_batch]
         task = self._progress.add_task(
             "[magenta]Processing arrays...", total=len(data_batch)
         )
@@ -2305,6 +2290,31 @@ def _split_sizes(n_groups: int, ratios: Mapping[str, float]) -> dict[str, int]:
     for split in by_remainder[:leftover]:
         sizes[split] += 1
     return sizes
+
+
+def _record_arrays(
+    record: DatasetRecord,
+) -> list[tuple[ArrayAnnotation, Path]]:
+    """List the array annotations of a record, each with its file.
+
+    Raises:
+        NotImplementedError: If an array holds its data in memory.
+
+    """
+    arrays = []
+    for detections in record.annotation.values():
+        for detection in _walk_detections(detections):
+            ann = detection.array
+            if ann is None:
+                continue
+            if isinstance(ann.path, np.ndarray):
+                raise NotImplementedError(
+                    "An array annotation holds its data in memory, "
+                    "which a dataset cannot store. Save it as a "
+                    "'.npy' file and pass that path instead."
+                )
+            arrays.append((ann, ann.path))
+    return arrays
 
 
 def _walk_detections(detections: Iterable[Detection]) -> Iterator[Detection]:

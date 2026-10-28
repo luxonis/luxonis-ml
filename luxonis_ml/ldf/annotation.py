@@ -1807,52 +1807,9 @@ class DatasetRecord(BaseModelExtraForbid):
             return values
 
         values = dict(values)
-        task = values.pop("task", None)
-        task_name = values.pop("task_name", None)
-        if task is not None and task_name is not None and task != task_name:
-            raise ValueError(
-                "Conflicting values for 'task' and 'task_name'. "
-                "Group the detections by task name in 'annotation' instead."
-            )
-        if task is not None or task_name is not None:
-            log_once(
-                logger.warning,
-                "The 'task' and 'task_name' fields are deprecated. Group "
-                "the detections by task name in 'annotation' instead.",
-            )
-        if task_name is None:
-            task_name = task
-
-        annotation = values.get("annotation")
-        if annotation is None or _is_task_mapping(annotation):
-            grouped = {
-                name: list(detections)
-                if isinstance(detections, (list, tuple))
-                else [detections]
-                for name, detections in (annotation or {}).items()
-            }
-            if task_name is not None and set(grouped) - {task_name}:
-                raise ValueError(
-                    f"The task name '{task_name}' does not match the tasks "
-                    f"of the annotation mapping: {sorted(grouped)}."
-                )
-            # A task name on its own declares a task that has no positives.
-            # An empty name names no task.
-            if not grouped and task_name:
-                grouped = {task_name: []}
-            values["annotation"] = grouped
-            return values
-
-        detections = (
-            list(annotation)
-            if isinstance(annotation, (list, tuple))
-            else [annotation]
+        values["annotation"] = _group_by_task(
+            values.get("annotation"), _pop_task_name(values)
         )
-        # An empty list with no task name names no task either.
-        if detections or task_name:
-            values["annotation"] = {task_name or "": detections}
-        else:
-            values["annotation"] = {}
         return values
 
     @model_validator(mode="before")
@@ -1889,24 +1846,7 @@ class DatasetRecord(BaseModelExtraForbid):
                 "which takes one path or a mapping of source names to paths.",
             )
 
-        media = values.pop(provided[0])
-        # 'file' always named one source. 'media' names one only when it is
-        # a file itself, so that it can also take the mapping 'files' took.
-        if provided[0] == "file" or (
-            provided[0] == "media"
-            and isinstance(media, (PathType, np.ndarray))
-        ):
-            media = {"image": media}
-        # Anything else is left untouched for pydantic to report against
-        # `files` instead of failing on the paths below.
-        if isinstance(media, Mapping):
-            media = {
-                source: Path(file).absolute()
-                if isinstance(file, PathType)
-                else file
-                for source, file in media.items()
-            }
-        values["files"] = media
+        values["files"] = _media_to_files(provided[0], values.pop(provided[0]))
         return values
 
     def to_loader_output(
@@ -2102,6 +2042,78 @@ def load_annotation(
         data = dict(data)
         data["data"] = data.pop("path")
     return classes[task_type].model_validate(data)
+
+
+def _pop_task_name(values: dict[str, Any]) -> str | None:
+    """Remove the deprecated ``task`` and ``task_name``, return the name."""
+    task = values.pop("task", None)
+    task_name = values.pop("task_name", None)
+    if task is not None and task_name is not None and task != task_name:
+        raise ValueError(
+            "Conflicting values for 'task' and 'task_name'. "
+            "Group the detections by task name in 'annotation' instead."
+        )
+    if task is not None or task_name is not None:
+        log_once(
+            logger.warning,
+            "The 'task' and 'task_name' fields are deprecated. Group "
+            "the detections by task name in 'annotation' instead.",
+        )
+    return task if task_name is None else task_name
+
+
+def _group_by_task(
+    annotation: Any, task_name: str | None
+) -> dict[str, list[Any]]:
+    """Group an annotation payload by task name, from any accepted form."""
+    if annotation is None or _is_task_mapping(annotation):
+        grouped = {
+            name: _as_list(detections)
+            for name, detections in (annotation or {}).items()
+        }
+        if task_name is not None and set(grouped) - {task_name}:
+            raise ValueError(
+                f"The task name '{task_name}' does not match the tasks "
+                f"of the annotation mapping: {sorted(grouped)}."
+            )
+        # A task name on its own declares a task that has no positives.
+        # An empty name names no task.
+        if not grouped and task_name:
+            return {task_name: []}
+        return grouped
+
+    detections = _as_list(annotation)
+    # An empty list with no task name names no task either.
+    if detections or task_name:
+        return {task_name or "": detections}
+    return {}
+
+
+def _as_list(detections: Any) -> list[Any]:
+    """Copy a list or tuple of detections, or wrap a single one."""
+    if isinstance(detections, (list, tuple)):
+        return list(detections)
+    return [detections]
+
+
+def _media_to_files(key: str, media: Any) -> Any:
+    """Turn the value of ``media``, ``file`` or ``files`` into ``files``.
+
+    ``file`` always named one source. ``media`` names one only when it
+    is a file itself, so that it can also take the mapping ``files``
+    took. Anything else is left untouched for pydantic to report against
+    ``files`` instead of failing on the paths.
+    """
+    if key == "file" or (
+        key == "media" and isinstance(media, (PathType, np.ndarray))
+    ):
+        media = {"image": media}
+    if not isinstance(media, Mapping):
+        return media
+    return {
+        source: Path(file).absolute() if isinstance(file, PathType) else file
+        for source, file in media.items()
+    }
 
 
 def _is_task_mapping(annotation: Any) -> bool:

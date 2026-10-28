@@ -35,6 +35,21 @@ def yolo_box_to_ldf(
     }
 
 
+def _record_media(item: dict | DatasetRecord) -> list[Path]:
+    """Return the media paths of one generated record."""
+    if isinstance(item, DatasetRecord):
+        return [Path(file) for file in item.file_paths.values()]
+    media = next(
+        (item[key] for key in ("media", "file", "files") if key in item),
+        None,
+    )
+    if media is None:
+        return []
+    if isinstance(media, Mapping):
+        return [Path(file) for file in media.values()]
+    return [Path(media)]
+
+
 class BaseParser(ABC):
     """Base class for dataset-format parsers."""
 
@@ -506,26 +521,9 @@ class BaseParser(ABC):
             Unique added image paths.
 
         """
-        paths: set[Path] = set()
-        for item in generator:
-            if isinstance(item, DatasetRecord):
-                paths.update(Path(file) for file in item.file_paths.values())
-                continue
-            media = next(
-                (
-                    item[key]
-                    for key in ("media", "file", "files")
-                    if key in item
-                ),
-                None,
-            )
-            if media is None:
-                continue
-            if isinstance(media, Mapping):
-                paths.update(Path(file) for file in media.values())
-            else:
-                paths.add(Path(media))
-        return list(paths)
+        return list(
+            {path for item in generator for path in _record_media(item)}
+        )
 
     def _warn_skipped_annotation(
         self,

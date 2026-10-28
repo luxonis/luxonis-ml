@@ -536,25 +536,35 @@ def _split_metadata(
             if encoding is not None
             else None
         )
-        # An object array holds the values themselves, a numeric one holds
-        # numpy scalars, and a row with no value of this kind holds None.
         for index, value in enumerate(np.asarray(array)):
-            item = value.item() if isinstance(value, np.generic) else value
-            if item is None:
-                continue
-            if decoding is not None:
-                # A loader that keeps the categorical strings gives the
-                # value itself, and any other loader gives its code.
-                per_instance[index][name] = Category(
-                    decoding.get(int(item), str(item))
-                    if isinstance(item, (int, float))
-                    else item
-                )
-            elif isinstance(item, (str, int, float)):
+            item = _metadata_value(value, decoding)
+            if item is not None:
                 per_instance[index][name] = item
-            else:
-                per_instance[index][name] = str(item)
     return dict(per_instance)
+
+
+def _metadata_value(
+    value: object, decoding: dict[int, str] | None
+) -> int | float | str | Category | None:
+    """Turn one stored metadata value back into its record value.
+
+    An object array holds the values themselves, a numeric one holds
+    numpy scalars, and a row with no value of this kind holds ``None``.
+    """
+    item = value.item() if isinstance(value, np.generic) else value
+    if item is None:
+        return None
+    if decoding is not None:
+        # A loader that keeps the categorical strings gives the value
+        # itself, and any other loader gives its code.
+        return Category(
+            decoding.get(int(item), str(item))
+            if isinstance(item, (int, float))
+            else item
+        )
+    if isinstance(item, (str, int, float)):
+        return item
+    return str(item)
 
 
 def _class_name(
