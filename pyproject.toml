@@ -21,6 +21,7 @@ dependencies = [
   "cyclopts~=4.16",
   "fsspec>=2026.1.0",
   "loguru~=0.7",
+  "pydantic-core~=2.0",
   "pydantic-extra-types~=2.10",
   "pydantic-settings~=2.1",
   "pydantic~=2.13",
@@ -44,7 +45,6 @@ data = [
   "opencv-python~=4.10",
   "pillow-heif~=1.5",
   "polars[timezone]~=1.43",
-  "pyarrow~=23.0",
   "pycocotools~=2.0",
   "requests~=2.32",
 ]
@@ -71,6 +71,7 @@ dev = [
   { include-group = "docs" },
   "luxonis-ml[all]",
   "complexipy~=8.0",
+  "deptry~=0.25",
   "hypothesis~=6.161",
   "onnx~=1.22",
   "pyright~=1.1",
@@ -199,6 +200,27 @@ ignore-one-line-docstrings = true
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "__future__".msg = "Do not use imports from __future__."
+
+[tool.deptry.per_rule_ignores]
+# The tracker imports these only when a user turns on TensorBoard
+# (through torch) or Weights & Biases. deptry reports them as DEP001
+# when they are not installed and as DEP003 when they are.
+DEP001 = ["torch", "wandb"]
+DEP002 = [
+  # fsspec loads these by the protocol of a URL (gs://, s3://).
+  "gcsfs",
+  "s3fs",
+  # Not used here, but the tests of luxonis-train import gdown and
+  # luxonis-eval imports its tqdm, and neither declares them.
+  "gdown",
+]
+DEP003 = [
+  # The tracker integrations, as for DEP001.
+  "torch",
+  "wandb",
+  # The telemetry wraps a Typer application that the user brings.
+  "typer",
+]
 
 [tool.docformatter]
 black = true
