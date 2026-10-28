@@ -345,6 +345,7 @@ Important:
 
 import json
 import warnings
+import zipfile
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
@@ -1278,9 +1279,16 @@ class ArrayAnnotation(Annotation):
         try:
             # Memory mapping keeps the check from reading the whole array.
             np.load(path, mmap_mode="r")
-        except (OSError, ValueError, EOFError, OverflowError, TypeError):
+        except (
+            OSError,
+            ValueError,
+            EOFError,
+            OverflowError,
+            TypeError,
+            zipfile.BadZipFile,
+        ):
             # mmap fails on some filesystems and for some corrupt
-            # headers, so a plain read decides whether the file is
+            # files, so a plain read decides whether the file is
             # really unusable.
             try:
                 np.load(path)

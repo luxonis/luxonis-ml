@@ -531,19 +531,32 @@ def test_array_annotation(subtests: SubTests, tempdir: Path):
             ArrayAnnotation(path=tempdir / "image.png")
 
 
-def test_array_annotation_rejects_a_corrupt_header(tempdir: Path):
-    # A list is not a valid dict key, so numpy fails with a TypeError
-    # when it parses this header.
-    header = (
-        b"{'descr': '<f8', 'fortran_order': False, 'shape': (1,), [1]: 2}\n"
-    )
+_CORRUPT_HEADER = (
+    b"{'descr': '<f8', 'fortran_order': False, 'shape': (1,), [1]: 2}\n"
+)
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        # A list is not a valid dict key, so numpy fails with a TypeError
+        # when it parses this header.
+        pytest.param(
+            np.lib.format.magic(1, 0)
+            + len(_CORRUPT_HEADER).to_bytes(2, "little")
+            + _CORRUPT_HEADER
+            + np.zeros(1).tobytes(),
+            id="header-type-error",
+        ),
+        # numpy opens a file with the ZIP magic as an .npz archive.
+        pytest.param(b"PK\x03\x04garbage", id="zip-magic"),
+    ],
+)
+def test_array_annotation_rejects_a_corrupt_file(
+    tempdir: Path, contents: bytes
+):
     path = tempdir / "corrupt.npy"
-    path.write_bytes(
-        np.lib.format.magic(1, 0)
-        + len(header).to_bytes(2, "little")
-        + header
-        + np.zeros(1).tobytes()
-    )
+    path.write_bytes(contents)
 
     with pytest.raises(ValueError, match="Failed to load array annotation"):
         ArrayAnnotation(path=path)
