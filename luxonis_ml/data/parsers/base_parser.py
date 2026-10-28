@@ -94,7 +94,13 @@ class BaseParser(ABC):
         self._reset_parser_issue_messages()
 
     def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
-        """Return the parser issue messages of the last parse."""
+        """Return the parser issue messages of the last parse.
+
+        Returns:
+            A new list with each distinct message once, in the order
+            the parser first saw them.
+
+        """
         return self._get_parser_issue_messages()
 
     def _get_parser_issue_messages(self) -> list[ParserIssueMessage]:
@@ -143,6 +149,11 @@ class BaseParser(ABC):
 
         All current parsers name the splits ``train`` and ``test``, but the
         validation split can be ``val``, ``valid`` or ``validation``.
+
+        Returns:
+            ``val`` for ``valid`` and ``validation``, else
+            ``split_name`` unchanged.
+
         """
         if split_name in {"valid", "validation"}:
             return "val"
@@ -655,8 +666,13 @@ class BaseParser(ABC):
         Args:
             generator: Dataset record generator.
 
-        Returns:
-            Generator that yields records with task names applied.
+        Yields:
+            Each record as a `DatasetRecord`. If task names are set, a
+            record without an annotation is copied once for each task.
+
+        Raises:
+            ValueError: If a dict record is not a valid `DatasetRecord`,
+                or if the class of a record has no task name.
 
         """
         for item in generator:

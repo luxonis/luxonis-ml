@@ -151,6 +151,10 @@ class BatchTransform(ABC, A.DualTransform):
             array_batch: A batch of arrays to transform.
             **kwargs: Additional implementation-specific arguments.
 
+        Returns:
+            The non-empty arrays concatenated along the first axis, or an
+            empty array if all arrays are empty.
+
         """
         if all(arr.size == 0 for arr in array_batch):
             return np.array([])
@@ -170,6 +174,11 @@ class BatchTransform(ABC, A.DualTransform):
             classification_batch: A batch of classification labels to transform.
             **kwargs: Additional implementation-specific arguments.
 
+        Returns:
+            The sum of the labels clipped to the range 0 to 1, which is
+            their element-wise logical OR for binary labels. An empty
+            label counts as zero.
+
         """
         for i in range(len(classification_batch)):
             if classification_batch[i].size == 0:
@@ -188,6 +197,10 @@ class BatchTransform(ABC, A.DualTransform):
         Args:
             metadata_batch: A batch of metadata arrays to transform.
             **kwargs: Additional implementation-specific arguments.
+
+        Returns:
+            The non-empty metadata arrays concatenated along the first
+            axis, or an empty array if all arrays are empty.
 
         """
         if all(arr.size == 0 for arr in metadata_batch):

@@ -110,7 +110,12 @@ class Environ(BaseSettings):
 
 @lru_cache(maxsize=1)
 def _load_environ() -> Environ:
-    """Return a cached Environ instance that reads .env and os.environ once."""
+    """Return a cached Environ instance that reads .env and os.environ once.
+
+    Returns:
+        The same instance on every call until the cache is cleared.
+
+    """
     return Environ()
 
 

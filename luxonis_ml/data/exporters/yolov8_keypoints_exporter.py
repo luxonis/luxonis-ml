@@ -127,6 +127,14 @@ class YoloV8KeypointsExporter(BaseExporter):
 
         The box of the line encloses the visible keypoints. A class whose
         keypoints are all rejected still gets an ID.
+
+        Returns:
+            The class ID, the ``x_center y_center w h`` box and an
+            ``x y visibility`` triple for each keypoint, separated by
+            spaces. ``None`` if the row is not a keypoint annotation,
+            has no class name, or has no keypoint rows of 2 or 3
+            values.
+
         """
         if row["annotation"] is None or row["task_type"] != "keypoints":
             return None
@@ -247,6 +255,10 @@ def _keypoints_bbox(kp_arr: np.ndarray) -> tuple[float, float, float, float]:
 
     Only the visible keypoints count, unless none is visible. A collapsed
     box gets a tiny size.
+
+    Returns:
+        The box, with each value clipped to the range from 0 to 1.
+
     """
     visible_mask = kp_arr[:, 2] > 0
     pts = kp_arr[visible_mask][:, :2] if visible_mask.any() else kp_arr[:, :2]

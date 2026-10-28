@@ -559,6 +559,13 @@ class CutMix(BatchTransform):
         Boxes the patch hides past ``min_visibility`` are zeroed out. Under
         the ``"clip"`` strategy the survivors are also shrunk to the part
         of themselves the patch does not reach.
+
+        Returns:
+            A new array with a row for each box in ``bboxes``, in
+            normalized coordinates. A hidden box has its four coordinates
+            set to zero, and its other columns are kept. ``bboxes`` itself
+            comes back when it is empty or the patch has no area.
+
         """
         if bboxes.size == 0 or x1 == x2 or y1 == y2:
             return bboxes
@@ -613,6 +620,12 @@ class CutMix(BatchTransform):
         box that avoids the patch altogether, and a box the patch never
         reaches comes back unchanged because one of its strips is the box
         itself.
+
+        Returns:
+            ``bboxes``, changed in place. Its first four columns hold the
+            largest uncovered part of each box. A box the patch covers
+            whole collapses to zero area.
+
         """
         left, top, right, bottom = (bboxes[:, i] for i in range(4))
         candidates = np.stack(

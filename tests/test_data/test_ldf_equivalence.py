@@ -1,14 +1,18 @@
 import json
 import subprocess
 import sys
+import warnings
 import zipfile
 from pathlib import Path
 
 import pytest
 
 from luxonis_ml.data import LuxonisDataset, LuxonisParser, ldf_equivalent
+from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.parsers.coco_parser import COCOParser
 from luxonis_ml.utils import LuxonisFileSystem
+
+from .utils import create_dataset, create_image
 
 
 def _parse_dataset(
@@ -301,3 +305,34 @@ else:
     raise RuntimeError("ldf_equivalent accepted a non-dataset")
 """
     subprocess.run([sys.executable, "-O", "-c", code], check=True)
+
+
+def test_ldf_equivalent_by_name_is_free_of_deprecations(
+    dataset_name: str, tempdir: Path
+):
+    def generator() -> DatasetIterator:
+        for i in range(2):
+            yield {
+                "file": create_image(i, tempdir),
+                "annotation": {"class": "person"},
+            }
+
+    first = create_dataset(f"{dataset_name}_first", generator())
+    second = create_dataset(f"{dataset_name}_second", generator())
+    try:
+        # polars emits its deprecations from Rust and swallows the
+        # exception of an `error` filter, so only a record shows them.
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", category=DeprecationWarning)
+            assert ldf_equivalent(
+                f"{dataset_name}_first", f"{dataset_name}_second"
+            )
+        deprecations = [
+            str(w.message)
+            for w in caught
+            if issubclass(w.category, DeprecationWarning)
+        ]
+        assert deprecations == []
+    finally:
+        first.delete_dataset(delete_local=True)
+        second.delete_dataset(delete_local=True)

@@ -173,6 +173,12 @@ def test_config_override_list(config_file: str):
     assert cfg.nested_list_param[0][2] == 50
 
 
+def test_config_override_appends_to_an_empty_list(config_file: str):
+    cfg = Config.get_config(config_file, {"list_config.+.int_list_param": 30})
+    assert len(cfg.list_config) == 1
+    assert cfg.list_config[0].int_list_param == 30
+
+
 def test_config_list_override_json(config_file: str):
     overrides = {
         "list_config": '[{"int_list_param": 10, "float_list_param": 2.5, '
@@ -246,7 +252,8 @@ def test_save(config_file: str):
         cfg.save_data(f.name)
     cfg2 = Config.get_config(f.name)
     assert cfg.__repr__() == cfg2.__repr__()
-    assert cfg.get_json_schema() == cfg2.get_json_schema()
+    with pytest.deprecated_call():
+        assert cfg.get_json_schema() == cfg2.get_json_schema()
 
 
 def test_get(config_file: str):
