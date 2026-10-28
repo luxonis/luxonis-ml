@@ -208,6 +208,51 @@ def test_generator_rejects_missing_local_file(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("registration", "implementation", "executable_name"),
+    [
+        ("runtime/libReg.so", "runtime/libImpl.so", "runtime"),
+        ("runtime", "runtime/libImpl.so", "model.dlc"),
+        ("config.json/libReg.so", "runtime/libImpl.so", "model.dlc"),
+    ],
+)
+def test_generator_rejects_file_path_prefixes(
+    tmp_path: Path,
+    registration: str,
+    implementation: str,
+    executable_name: str,
+) -> None:
+    config = _config()
+    config["model"]["runtime_dependencies"] = {
+        "snpe_udo": [
+            {
+                "registration": registration,
+                "implementations": [
+                    {"runtime": "dsp", "path": implementation}
+                ],
+            }
+        ]
+    }
+    model_path = tmp_path / executable_name
+    model_path.write_bytes(b"model")
+    registration_path = tmp_path / "reg.so"
+    registration_path.write_bytes(b"registration")
+    implementation_path = tmp_path / "impl.so"
+    implementation_path.write_bytes(b"implementation")
+
+    with pytest.raises(ValueError, match="prefixes"):
+        ArchiveGenerator(
+            archive_name="colliding-members",
+            save_path=tmp_path,
+            cfg_dict=config,
+            executables_paths=[model_path],
+            runtime_dependency_paths={
+                registration: registration_path,
+                implementation: implementation_path,
+            },
+        )
+
+
 def test_generator_bundles_symlinked_library_bytes(tmp_path: Path) -> None:
     config = _config()
     config["model"]["runtime_dependencies"] = {

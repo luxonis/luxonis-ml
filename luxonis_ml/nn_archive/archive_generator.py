@@ -143,11 +143,16 @@ class ArchiveGenerator:
 
         archive_paths = [Path(path).name for path in self.executables_paths]
         archive_paths.extend(self.runtime_dependency_paths)
-        if (
-            len(archive_paths) != len(set(archive_paths))
-            or "config.json" in archive_paths
+        archive_paths.append("config.json")
+        if len(archive_paths) != len(set(archive_paths)) or any(
+            member.startswith(f"{parent}/")
+            for parent in archive_paths
+            for member in archive_paths
         ):
-            raise ValueError("Archive member paths must be unique.")
+            raise ValueError(
+                "Archive member paths must be unique and cannot be prefixes "
+                "of other member paths."
+            )
         for local_path in self.runtime_dependency_paths.values():
             dependency_path = Path(local_path)
             if not dependency_path.is_file():
