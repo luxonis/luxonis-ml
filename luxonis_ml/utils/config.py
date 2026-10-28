@@ -188,6 +188,14 @@ def _merge_override(data: dict | list, dot_name: str, value: Any) -> None:
 
     A decimal key indexes a list, ``+`` appends to one, and any other
     key names a dict entry. Missing containers on the way are created.
+
+    Raises:
+        ValueError: If a key does not fit the value it indexes, such as
+            a decimal key for a dict, or a key other than a decimal or
+            ``+`` for a list.
+        TypeError: If the last key is not a decimal and indexes a value
+            that is neither a dict nor a list.
+
     """
     key, *tail = dot_name.split(".")
     if not tail:

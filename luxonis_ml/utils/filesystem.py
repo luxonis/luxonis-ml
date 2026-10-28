@@ -218,8 +218,15 @@ class LuxonisFileSystem:
     ) -> str:
         """Set up the MLflow run from the path, or use the active run.
 
-        Returns the value for ``self._path``: ``path`` itself, or ``""``
-        for the active run.
+        Returns:
+            The value for ``self._path``, which is ``path`` itself or
+            ``""`` for the active run.
+
+        Raises:
+            ValueError: If ``path`` is ``None`` and the active run is
+                not allowed, or if no ``tracking_uri`` is given and
+                ``MLFLOW_TRACKING_URI`` is not set.
+
         """
         self._allow_active_mlflow_run = allow_active_mlflow_run
         self._is_mlflow_active_run = False
@@ -674,6 +681,11 @@ class LuxonisFileSystem:
 
         An existing ``local_dir`` receives the directory as a child; a
         new one becomes the directory itself.
+
+        Returns:
+            The local path of the directory. An MLflow download without
+            an artifact path always goes to ``local_dir`` itself.
+
         """
         existed = local_dir.exists()
         if self.is_mlflow:

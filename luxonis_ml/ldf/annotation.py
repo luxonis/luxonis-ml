@@ -625,7 +625,10 @@ class Detection(BaseModelExtraForbid):
     def _check_valid_identifier(name: str, *, label: str) -> None:
         """Raise a ``ValueError`` if ``name`` is not an identifier.
 
-        Dashes count as underscores, and an empty name passes.
+        Raises:
+            ValueError: If ``name`` is not empty and, with dashes read
+                as underscores, is not a valid identifier.
+
         """
         name = name.replace("-", "_")
         if name and not name.isidentifier():
@@ -1579,6 +1582,12 @@ def _label_columns(annotation: Detection) -> Iterator[tuple[str, str]]:
 
     The labels come first, then the metadata, then the class as a
     classification label.
+
+    Yields:
+        The task type and the label as a JSON string. A metadata
+        entry has the task type ``metadata/<key>``, and the class has
+        ``classification`` with the label ``{}``.
+
     """
     for task_type in _LABEL_TASK_TYPES:
         label: Annotation | None = getattr(annotation, task_type)
