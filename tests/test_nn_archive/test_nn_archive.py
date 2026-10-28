@@ -11,6 +11,7 @@ from onnx.onnx_pb import TensorProto
 from pydantic import ValidationError
 
 from luxonis_ml.nn_archive import ArchiveGenerator, is_nn_archive
+from luxonis_ml.nn_archive.__main__ import inspect
 from luxonis_ml.nn_archive.config_building_blocks import HeadMetadata
 from luxonis_ml.nn_archive.config_building_blocks.base_models.head_metadata import (
     HeadSegmentationMetadata,
@@ -339,3 +340,11 @@ def test_layout():
             dtype=DataType.FLOAT32,
             layout=list("nc"),
         )  # type: ignore
+
+
+def test_inspect_reports_a_missing_config(tempdir: Path):
+    archive = tempdir / "archive.tar"
+    tarfile.open(archive, "w").close()
+
+    with pytest.raises(RuntimeError, match="Config JSON not found"):
+        inspect(archive, buildinfo=True)
