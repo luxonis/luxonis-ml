@@ -38,7 +38,8 @@ class NativeExporter(BaseExporter):
 
     Each entry holds one detection: its class and all of its labels. An
     image with more than one class, such as a multi-label classification
-    sample, gets one entry for each class.
+    sample, gets one entry for each class. A label without a class and
+    without an ``instance_id`` gets an entry of its own.
 
     ``sample_metadata`` is exported as a JSON object next to ``file`` or
     ``files``. It is **record-level metadata**, not an annotation label.
@@ -260,31 +261,38 @@ def _split_detections(
     sample metadata starts the next detection, and so does a task type
     that the current detection already has. The key alone is not
     sufficient, because each detection without an ``instance_id`` has the
-    ID ``-1``. All the rows of a record share its sample metadata, so a
-    change in it separates two records that have no class.
+    ID ``-1``. All the rows of a record share its sample metadata.
+
+    A row without a class and without an ``instance_id`` is a detection
+    of its own. Such a record writes no ``classification`` row, so the
+    rows do not show where it ends.
 
     Example:
-        >>> rows = [
-        ...     {
+        >>> def row(instance_id, task_type, metadata="{}"):
+        ...     return {
         ...         "task_name": "",
-        ...         "instance_id": -1,
+        ...         "instance_id": instance_id,
         ...         "class_name": None,
         ...         "task_type": task_type,
         ...         "sample_metadata": metadata,
         ...     }
-        ...     for task_type, metadata in (
-        ...         ("boundingbox", '{"frame": 1}'),
-        ...         ("metadata/text", '{"frame": 2}'),
-        ...     )
+        >>> rows = [
+        ...     row(-1, "boundingbox"),
+        ...     row(-1, "metadata/text"),
+        ...     row(0, "boundingbox"),
+        ...     row(0, "metadata/text"),
+        ...     row(1, "boundingbox", '{"frame": 1}'),
+        ...     row(1, "metadata/text", '{"frame": 2}'),
         ... ]
         >>> [len(detection) for detection in _split_detections(rows)]
-        [1, 1]
+        [1, 1, 2, 1, 1]
 
     """
     detection: list[dict[str, Any]] = []
     for row in rows:
         if detection and (
             detection[-1]["task_type"] == "classification"
+            or (row["class_name"] is None and row["instance_id"] == -1)
             or any(
                 row[key] != detection[-1][key]
                 for key in (

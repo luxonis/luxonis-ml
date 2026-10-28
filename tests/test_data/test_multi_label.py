@@ -24,9 +24,8 @@ from luxonis_ml.enums import DatasetType
 from .utils import create_dataset, create_image
 
 BOX = {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}
+OTHER_BOX = {"x": 0.5, "y": 0.5, "w": 0.2, "h": 0.2}
 
-# Image 0 is a cat and a dog, image 1 is a cat, and image 2 is a bird, a
-# cat and a dog.
 MULTI_LABEL = [
     {"file": 0, "annotation": {"class": "cat"}},
     {"file": 0, "annotation": {"class": "dog"}},
@@ -44,7 +43,6 @@ TWO_TASKS = [
 ]
 
 # The box without an instance ID gets the ID -1, as the image classes do.
-# Image 1 has no labels.
 CLASSES_AND_BOXES = [
     {"file": 0, "annotation": {"class": "car"}},
     {"file": 0, "annotation": {"class": "cat"}},
@@ -61,30 +59,34 @@ CLASSES_AND_BOXES = [
     {"file": 1},
 ]
 
-# Two records without a class or an instance ID, on the same image and in
-# the same task. Only the sample metadata tells them apart.
+# The export must keep each record apart: the first two have no key that
+# separates them, the last two differ only in the sample metadata.
 CLASSLESS_RECORDS = [
+    {"file": 0, "annotation": {"boundingbox": BOX}},
+    {"file": 0, "annotation": {"metadata": {"text": "red"}}},
     {
         "file": 0,
         "sample_metadata": {"frame": 1},
-        "annotation": {"boundingbox": BOX},
+        "annotation": {"instance_id": 0, "boundingbox": OTHER_BOX},
     },
     {
         "file": 0,
         "sample_metadata": {"frame": 2},
-        "annotation": {"metadata": {"text": "red"}},
+        "annotation": {"instance_id": 0, "metadata": {"text": "red"}},
     },
 ]
 
 
 def _entry(
-    file: str, annotation: dict[str, Any] | None = None
+    file: str,
+    annotation: dict[str, Any] | None = None,
+    sample_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return an entry of a native ``annotations.json``."""
     entry: dict[str, Any] = {
         "file": file,
         "task_name": "",
-        "sample_metadata": {},
+        "sample_metadata": sample_metadata or {},
     }
     if annotation is not None:
         entry["annotation"] = annotation
@@ -227,28 +229,40 @@ def _classes_by_image(
             {
                 "metadata.json": {"ldf_version": str(LDF_VERSION)},
                 "train/annotations.json": [
-                    {
-                        **_entry(
-                            "images/0.jpg",
-                            {
-                                "instance_id": -1,
-                                "class": None,
-                                "boundingbox": BOX,
-                            },
-                        ),
-                        "sample_metadata": {"frame": 1},
-                    },
-                    {
-                        **_entry(
-                            "images/0.jpg",
-                            {
-                                "instance_id": -1,
-                                "class": None,
-                                "metadata": {"text": "red"},
-                            },
-                        ),
-                        "sample_metadata": {"frame": 2},
-                    },
+                    _entry(
+                        "images/0.jpg",
+                        {
+                            "instance_id": -1,
+                            "class": None,
+                            "boundingbox": BOX,
+                        },
+                    ),
+                    _entry(
+                        "images/0.jpg",
+                        {
+                            "instance_id": -1,
+                            "class": None,
+                            "metadata": {"text": "red"},
+                        },
+                    ),
+                    _entry(
+                        "images/0.jpg",
+                        {
+                            "instance_id": 0,
+                            "class": None,
+                            "boundingbox": OTHER_BOX,
+                        },
+                        {"frame": 1},
+                    ),
+                    _entry(
+                        "images/0.jpg",
+                        {
+                            "instance_id": 0,
+                            "class": None,
+                            "metadata": {"text": "red"},
+                        },
+                        {"frame": 2},
+                    ),
                 ],
                 "train/images/0.jpg": 0,
                 "val/annotations.json": [],
@@ -384,8 +398,6 @@ def test_parse_reads_the_format(
 def test_clsdir_parse_groups_links_by_their_name(
     dataset_name: str, tempdir: Path
 ):
-    # Both links are x.jpg. Their targets have other names and the same
-    # content, so they are one image with two classes.
     images = _images(tempdir)
     _write_tree(tempdir / "pool", {"a.jpg": 0, "b.jpg": 0}, images)
     for link, target in (("cat/x.jpg", "a.jpg"), ("dog/x.jpg", "b.jpg")):
