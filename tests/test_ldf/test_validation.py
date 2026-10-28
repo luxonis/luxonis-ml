@@ -25,13 +25,13 @@ from luxonis_ml.ldf import (
 def test_bbox_missing_field_is_a_validation_error():
     """Indexing the raw input used to raise a bare ``KeyError: 'h'``."""
     with pytest.raises(pydantic.ValidationError) as info:
-        BBoxAnnotation(x=0.1, y=0.1, w=0.1)  # type: ignore[call-arg]
+        BBoxAnnotation(x=0.1, y=0.1, w=0.1)  # pyright: ignore[reportCallIssue]
     assert [(e["loc"], e["type"]) for e in info.value.errors()] == [
         (("h",), "missing")
     ]
 
     with pytest.raises(pydantic.ValidationError) as info:
-        Detection(class_name="car", boundingbox={"x": 0.1, "y": 0.1, "w": 0.1})  # type: ignore[arg-type]
+        Detection(class_name="car", boundingbox={"x": 0.1, "y": 0.1, "w": 0.1})  # pyright: ignore[reportArgumentType]
     assert [(e["loc"], e["type"]) for e in info.value.errors()] == [
         (("boundingbox", "h"), "missing")
     ]
@@ -40,7 +40,7 @@ def test_bbox_missing_field_is_a_validation_error():
 def test_bbox_non_numeric_field_is_a_validation_error():
     """Comparing the raw input used to raise a bare ``TypeError``."""
     with pytest.raises(pydantic.ValidationError):
-        BBoxAnnotation(x="a", y=0.1, w=0.1, h=0.1)  # type: ignore[arg-type]
+        BBoxAnnotation(x="a", y=0.1, w=0.1, h=0.1)  # pyright: ignore[reportArgumentType]
 
 
 def test_bbox_non_mapping_input_is_a_validation_error():
@@ -143,7 +143,7 @@ def test_load_annotation_does_not_mutate_the_input(
     """The mapping is validated directly, so nothing must leak back."""
     original = json.dumps(data)
 
-    load_annotation(task_type, data)  # type: ignore[arg-type]
+    load_annotation(task_type, data)  # pyright: ignore[reportArgumentType]
 
     assert json.dumps(data) == original
 
@@ -160,7 +160,7 @@ def test_load_annotation_accepts_a_read_only_mapping(
     task_type: str, data: dict[str, Any]
 ):
     """`load_annotation` is typed to take any `Mapping`."""
-    load_annotation(task_type, MappingProxyType(data))  # type: ignore[arg-type]
+    load_annotation(task_type, MappingProxyType(data))  # pyright: ignore[reportArgumentType]
 
 
 def test_mask_size_wins_over_supplied_height_and_width():
@@ -169,7 +169,7 @@ def test_mask_size_wins_over_supplied_height_and_width():
     mask[1:3, 2:5] = 1
 
     annotation = SegmentationAnnotation(
-        mask=mask,  # type: ignore[call-arg]
+        mask=mask,  # pyright: ignore[reportCallIssue]
         height=999,
         width=999,
     )
@@ -182,7 +182,7 @@ def test_record_rejects_both_file_and_files(tempdir: Path):
     """`files` used to be silently replaced by the single `file`."""
     with pytest.raises(pydantic.ValidationError, match="not both"):
         DatasetRecord(
-            file=tempdir / "image.png",  # type: ignore[call-arg]
+            file=tempdir / "image.png",  # pyright: ignore[reportCallIssue]
             files={
                 "left": tempdir / "left.png",
                 "right": tempdir / "right.png",
@@ -213,8 +213,8 @@ def test_record_rejects_conflicting_task_and_task_name(tempdir: Path):
     (tempdir / "image.png").touch()
     with pytest.raises(pydantic.ValidationError, match="Conflicting values"):
         DatasetRecord(
-            file=tempdir / "image.png",  # type: ignore[call-arg]
-            task="detection",  # type: ignore[call-arg]
+            file=tempdir / "image.png",  # pyright: ignore[reportCallIssue]
+            task="detection",  # pyright: ignore[reportCallIssue]
             task_name="segmentation",
         )
 
@@ -222,8 +222,8 @@ def test_record_rejects_conflicting_task_and_task_name(tempdir: Path):
 def test_record_accepts_matching_task_and_task_name(tempdir: Path):
     (tempdir / "image.png").touch()
     record = DatasetRecord(
-        file=tempdir / "image.png",  # type: ignore[call-arg]
-        task="detection",  # type: ignore[call-arg]
+        file=tempdir / "image.png",  # pyright: ignore[reportCallIssue]
+        task="detection",  # pyright: ignore[reportCallIssue]
         task_name="detection",
     )
 
@@ -235,7 +235,7 @@ def test_scale_to_boxes_error_names_the_actual_field():
         Detection(
             class_name="car",
             scale_to_boxes=True,
-            keypoints={"keypoints": [(0.5, 0.5, 2)]},  # type: ignore[arg-type]
+            keypoints={"keypoints": [(0.5, 0.5, 2)]},  # pyright: ignore[reportArgumentType]
         )
 
 
@@ -245,7 +245,7 @@ def test_png_mask_is_read_without_opencv(tempdir: Path):
     mask[1:3, 2:5] = 1
     Image.fromarray(mask * 255).save(tempdir / "mask.png")
 
-    annotation = SegmentationAnnotation(mask=tempdir / "mask.png")  # type: ignore[call-arg]
+    annotation = SegmentationAnnotation(mask=tempdir / "mask.png")  # pyright: ignore[reportCallIssue]
 
     np.testing.assert_array_equal(annotation.to_numpy(), mask)
 
@@ -271,7 +271,7 @@ def test_sub_detections_inherit_the_record_metadata(tempdir: Path):
     """The serialized metadata is now threaded through the recursion."""
     (tempdir / "image.png").touch()
     record = DatasetRecord(
-        file=tempdir / "image.png",  # type: ignore[call-arg]
+        file=tempdir / "image.png",  # pyright: ignore[reportCallIssue]
         sample_metadata={"camera": "left"},
         annotation=Detection(
             class_name="person",

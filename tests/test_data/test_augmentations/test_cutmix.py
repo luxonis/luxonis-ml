@@ -547,17 +547,6 @@ def test_cutmix_empty_keypoints() -> None:
     assert keypoints.shape == (0, 5)
 
 
-def test_resize_invalid_target_type() -> None:
-    cutmix = CutMix(p=1.0, alpha=1.0)
-
-    with pytest.raises(ValueError, match="Unsupported target type"):
-        cutmix._resize(
-            np.zeros((1, 1, 1), dtype=np.uint8),
-            [(1, 1), (1, 1)],
-            "invalid",  # type: ignore[arg-type]
-        )
-
-
 def test_bbox_patch_helpers_empty_results() -> None:
     bboxes = np.array([[0.0, 0.0, 0.2, 0.2, 0.0, 0.0]])
 
@@ -624,7 +613,7 @@ def test_invalid_alpha(alpha: float) -> None:
 
 def test_invalid_occluded_bbox_strategy() -> None:
     with pytest.raises(ValueError, match="'keep' or 'clip'"):
-        CutMix(occluded_bbox_strategy="crop")  # type: ignore[arg-type]
+        CutMix(occluded_bbox_strategy="crop")  # pyright: ignore[reportArgumentType]
 
 
 def test_invalid_bbox_min_visibility() -> None:

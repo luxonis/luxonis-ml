@@ -4,7 +4,7 @@ import zipfile
 from enum import Enum
 from importlib.util import find_spec
 from pathlib import Path
-from typing import Generic, TypeVar, overload
+from typing import ClassVar, Generic, TypeVar, overload
 from urllib.parse import parse_qs, quote, urlsplit
 
 import requests
@@ -72,7 +72,7 @@ class LuxonisParser(Generic[T]):
 
     """
 
-    _parsers: dict[DatasetType, type[BaseParser]] = {
+    _parsers: ClassVar[dict[DatasetType, type[BaseParser]]] = {
         DatasetType.ULTRALYTICSNDJSON: UltralyticsNDJSONParser,
         DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION: (
             UltralyticsNDJSONParser
@@ -192,7 +192,7 @@ class LuxonisParser(Generic[T]):
         dataset_name = dataset_name or name.replace(" ", "_").split(".")[0]
 
         self._dataset = self._dataset_constructor(
-            dataset_name=dataset_name,  # type: ignore
+            dataset_name=dataset_name,  # pyright: ignore[reportCallIssue]
             **kwargs,
         )
         self._parser = self._parsers[self._dataset_type](

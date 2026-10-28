@@ -547,7 +547,9 @@ class Detection(BaseModelExtraForbid):
     )
     instance_id: int = -1
 
-    metadata: dict[str, int | float | str | Category] = {}
+    metadata: dict[str, int | float | str | Category] = Field(
+        default_factory=dict
+    )
 
     boundingbox: Optional["BBoxAnnotation"] = None
     keypoints: Optional["KeypointAnnotation"] = None
@@ -557,7 +559,7 @@ class Detection(BaseModelExtraForbid):
 
     scale_to_boxes: bool = False
 
-    sub_detections: dict[str, "Detection"] = {}
+    sub_detections: dict[str, "Detection"] = Field(default_factory=dict)
 
     def get_task_types(self) -> set[str]:
         """Get all the task type associated with this detection.
@@ -842,7 +844,7 @@ class KeypointAnnotation(Annotation):
     @override
     def combine_to_numpy(
         annotations: list["KeypointAnnotation"],
-        classes: list[int] | None = None,  # pyright: ignore[reportUnusedParameter]
+        classes: list[int] | None = None,
         n_classes: int | None = None,
     ) -> np.ndarray:
         r"""Combine keypoint annotations into flattened keypoint rows.
@@ -1042,12 +1044,11 @@ class SegmentationAnnotation(Annotation):
                         "RLE counts must be a list of positive integers"
                     )
 
+            # The pycocotools stubs know only the compressed RLE, with
+            # string counts, but frPyObjects also takes the list form.
+            uncompressed = {"counts": counts, "size": [height, width]}
             with warnings.catch_warnings(record=True):
-                rle = pycocotools.mask.frPyObjects(
-                    {"counts": counts, "size": [height, width]},  # type: ignore
-                    height,
-                    width,
-                )
+                rle = pycocotools.mask.frPyObjects(uncompressed, height, width)  # pyright: ignore[reportCallIssue, reportArgumentType]
             values["counts"] = rle["counts"]
             values["height"] = rle["size"][0]
             values["width"] = rle["size"][1]
@@ -1063,7 +1064,7 @@ class SegmentationAnnotation(Annotation):
         return {
             "height": rle["size"][0],
             "width": rle["size"][1],
-            "counts": rle["counts"].decode("utf-8"),  # type: ignore
+            "counts": rle["counts"].decode("utf-8"),  # pyright: ignore[reportAttributeAccessIssue]
         }
 
     @model_validator(mode="before")

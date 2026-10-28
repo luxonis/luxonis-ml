@@ -58,7 +58,7 @@ class RequestsRemoteFileAPIClient:
                 stream=True,
                 timeout=timeout,
             ) as response,
-            open(destination, "wb") as output_file,
+            destination.open("wb") as output_file,
         ):
             response.raise_for_status()
             shutil.copyfileobj(response.raw, output_file)

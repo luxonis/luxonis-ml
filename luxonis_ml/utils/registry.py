@@ -1,9 +1,9 @@
 import warnings
 from abc import ABCMeta
 from collections.abc import Callable
-from typing import Generic, TypeVar, overload
+from typing import Any, Generic, TypeVar, overload
 
-from typing_extensions import deprecated
+from typing_extensions import deprecated, override
 
 T = TypeVar("T", bound=type)
 
@@ -26,9 +26,11 @@ class Registry(Generic[T]):
         self._module_dict: dict[str, T] = {}
         self._name = name
 
+    @override
     def __str__(self) -> str:
         return f"Registry('{self.name}')"
 
+    @override
     def __repr__(self) -> str:
         return self.__str__()
 
@@ -74,7 +76,12 @@ class Registry(Generic[T]):
 
     @overload
     def register_module(
-        self, name: str | None = ..., module: T = ..., force: bool = ...
+        self, name: str | None, module: T, force: bool = ...
+    ) -> T: ...
+
+    @overload
+    def register_module(
+        self, name: str | None = ..., *, module: T, force: bool = ...
     ) -> T: ...
 
     @deprecated("`register_module` is deprecated, use `register` instead.")
@@ -121,7 +128,7 @@ class Registry(Generic[T]):
     @overload
     def register(
         self,
-        module: T = ...,
+        module: T,
         *,
         name: str | None = ...,
         force: bool = ...,
@@ -165,7 +172,6 @@ class Registry(Generic[T]):
                 already exists and ``force`` is ``False``.
 
         """
-
         if module is not None:
             return self._register(module=module, module_name=name, force=force)
 
@@ -226,11 +232,21 @@ class AutoRegisterMeta(ABCMeta):
         name: str,
         bases: tuple[type, ...],
         attrs: dict[str, type],
+        **_kwargs: Any,
+    ):
+        """Create the class and keep the registry keywords from type."""
+        return super().__new__(cls, name, bases, attrs)
+
+    def __init__(
+        cls,
+        name: str,
+        bases: tuple[type, ...],
+        attrs: dict[str, type],
         *,
         register: bool = True,
         register_name: str | None = None,
         registry: Registry | None = None,
-    ):
+    ) -> None:
         """Automatically register the class.
 
         Args:
@@ -245,28 +261,22 @@ class AutoRegisterMeta(ABCMeta):
                 Will be saved as the `REGISTRY` attribute
                 of the class if not already set.
 
-        Returns:
-            The newly created class.
-
         Raises:
             ValueError: If registration is requested but no registry is
                 available from the class hierarchy or the ``registry``
                 argument.
 
         """
-        new_class = super().__new__(cls, name, bases, attrs)
-        if not hasattr(new_class, "REGISTRY"):
+        super().__init__(name, bases, attrs)
+        if not hasattr(cls, "REGISTRY"):
             if registry is not None:
-                new_class.REGISTRY = registry
+                cls.REGISTRY = registry
             elif register:
                 raise ValueError(
                     "Registry has to be set in the base class or passed as an argument."
                 )
         if register:
-            registry = registry if registry is not None else new_class.REGISTRY
+            registry = registry if registry is not None else cls.REGISTRY
             key = register_name or name
-            if key not in registry or not issubclass(
-                new_class, registry.get(key)
-            ):
-                registry.register(name=key, module=new_class, force=True)
-        return new_class
+            if key not in registry or not issubclass(cls, registry.get(key)):
+                registry.register(name=key, module=cls, force=True)

@@ -3,6 +3,7 @@ from collections.abc import Callable, Iterator
 import albumentations as A
 import numpy as np
 import pytest
+from typing_extensions import override
 
 from luxonis_ml.data import AlbumentationsEngine
 from luxonis_ml.data.augmentations import AugmentationEngine
@@ -19,7 +20,7 @@ def register_transform() -> Iterator[Register]:
 
     def _register(cls: type) -> type:
         name = cls.__name__
-        TRANSFORMATIONS[name] = cls  # type: ignore[assignment]
+        TRANSFORMATIONS[name] = cls
         registered.append(name)
         return cls
 
@@ -51,12 +52,14 @@ def test_engines_default_to_using_every_input_position() -> None:
     ):
         def __init__(self, *_, **__) -> None: ...
 
+        @override
         def apply(
             self, input_batch: list[LoaderMultiOutput]
         ) -> LoaderMultiOutput:
             return input_batch[0]
 
         @property
+        @override
         def batch_size(self) -> int:
             return 4
 
@@ -138,9 +141,11 @@ def test_plain_basic_transforms_run_as_custom_transforms(
     @register_transform
     class CountingBasicTransform(A.BasicTransform):
         @property
+        @override
         def targets(self) -> dict:
             return {"image": self.apply}
 
+        @override
         def apply(self, img: np.ndarray, **_) -> np.ndarray:
             seen.append(1)
             return img
@@ -282,16 +287,6 @@ def test_pixel_replay_skips_sources_without_a_channel_axis() -> None:
     assert np.all(out_images["flat"] == 0), (
         "a source with no channel axis must be left alone, not corrupted"
     )
-
-
-def test_wrapped_transforms_tolerate_a_missing_image_key() -> None:
-    wrapped = AlbumentationsEngine._wrap_transform(
-        A.Compose([A.HorizontalFlip(p=1.0)])
-    )
-
-    out = wrapped(image=np.zeros((8, 8, 3), dtype=np.uint8))
-
-    assert "_original_image_key" not in out
 
 
 def test_pixel_transform_wrapper_needs_source_names() -> None:

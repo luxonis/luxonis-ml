@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+from typing_extensions import override
+
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
@@ -69,9 +71,11 @@ class FiftyOneClassificationExporter(BaseExporter):
     def get_split_names(self) -> dict[str, str]:
         return {"train": "train", "val": "validation", "test": "test"}
 
+    @override
     def supported_ann_types(self) -> list[str]:
         return DatasetType.FIFTYONECLS.supported_annotation_formats
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
         exporter_specific_annotation_warning(
@@ -134,6 +138,7 @@ class FiftyOneClassificationExporter(BaseExporter):
             self.part,
         )
 
+    @override
     def _dump_annotations(
         self,
         annotation_data: dict[str, Any],
@@ -166,6 +171,7 @@ class FiftyOneClassificationExporter(BaseExporter):
                 json.dumps(labels_data), encoding="utf-8"
             )
 
+    @override
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:

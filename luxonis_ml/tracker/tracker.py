@@ -292,7 +292,7 @@ class LuxonisTracker:
                 artifact["path"] = str(local_path)
 
         log_dir = self.run_directory / "local_logs.json"
-        with open(log_dir, "w") as f:
+        with log_dir.open("w") as f:
             json.dump(
                 {
                     k: self.local_logs[k]
@@ -677,7 +677,6 @@ class LuxonisTracker:
 
     def _get_next_run_number(self) -> int:
         """Return the number ID for the next run."""
-
         log_dirs = [
             path.name
             for path in self.save_directory.iterdir()
@@ -709,10 +708,7 @@ class LuxonisTracker:
             for path in self.save_directory.iterdir()
             if path.is_dir()
         ]
-        runs = []
-        for ld in log_dirs:
-            if ld.split("-")[0].isnumeric():
-                runs.append(ld)
+        runs = [ld for ld in log_dirs if ld.split("-")[0].isnumeric()]
         runs.sort(
             key=lambda x: (self.save_directory / x).stat().st_mtime,
             reverse=True,

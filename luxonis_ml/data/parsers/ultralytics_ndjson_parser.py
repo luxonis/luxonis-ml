@@ -45,6 +45,7 @@ class UltralyticsNDJSONParser(BaseParser):
     _remote_file_downloader = RemoteFileDownloader()
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         ndjson_path = UltralyticsNDJSONParser._resolve_ndjson_path(split_path)
         if ndjson_path is None:
@@ -54,9 +55,11 @@ class UltralyticsNDJSONParser(BaseParser):
         return {"ndjson_path": ndjson_path}
 
     @classmethod
+    @override
     def validate(cls, dataset_dir: Path) -> bool:
         return cls._load_header(dataset_dir) is not None
 
+    @override
     def from_dir(
         self, dataset_dir: Path, reuse_cached: bool = True, **kwargs
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -94,6 +97,7 @@ class UltralyticsNDJSONParser(BaseParser):
             added_by_split["test"],
         )
 
+    @override
     def parse_dir(
         self,
         dataset_dir: Path,
@@ -139,7 +143,7 @@ class UltralyticsNDJSONParser(BaseParser):
         elif is_counts:
             sampled = self._apply_counts_to_splits(
                 original_splits,
-                split_ratios,  # type: ignore[arg-type]
+                split_ratios,
             )
             self._dataset.make_splits(sampled)
             self._remove_unsplit_records()
@@ -153,6 +157,7 @@ class UltralyticsNDJSONParser(BaseParser):
 
         return self._dataset
 
+    @override
     def from_split(
         self,
         ndjson_path: Path,
@@ -232,7 +237,7 @@ class UltralyticsNDJSONParser(BaseParser):
         elif is_counts:
             sampled = self._apply_counts_to_splits(
                 split_definitions,
-                split_ratios,  # type: ignore[arg-type]
+                split_ratios,  # pyright: ignore[reportArgumentType]
             )
             self._dataset.make_splits(sampled)
             self._remove_unsplit_records()
@@ -391,7 +396,7 @@ class UltralyticsNDJSONParser(BaseParser):
         dataset_record = None
         has_image_record = False
         try:
-            with open(ndjson_path, encoding="utf-8-sig") as file:
+            with ndjson_path.open(encoding="utf-8-sig") as file:
                 for raw_line in file:
                     line = raw_line.strip()
                     if not line:
@@ -502,7 +507,7 @@ class UltralyticsNDJSONParser(BaseParser):
 
 def _image_records(ndjson_path: Path) -> Iterator[dict[str, Any]]:
     """Yield the image records of an NDJSON file, other lines skipped."""
-    with open(ndjson_path, encoding="utf-8-sig") as file:
+    with ndjson_path.open(encoding="utf-8-sig") as file:
         for raw_line in file:
             line = raw_line.strip()
             if not line:

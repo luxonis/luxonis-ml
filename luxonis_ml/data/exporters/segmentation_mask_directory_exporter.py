@@ -6,6 +6,7 @@ from typing import Any, cast
 
 import numpy as np
 from PIL import Image
+from typing_extensions import override
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
@@ -50,6 +51,7 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
     def get_split_names(self) -> dict[str, str]:
         return {"train": "train", "val": "valid", "test": "test"}
 
+    @override
     def supported_ann_types(self) -> list[str]:
         return DatasetType.SEGMASK.supported_annotation_formats
 
@@ -84,6 +86,7 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
             for name, cid in items_by_id:
                 w.writerow([cid, name])
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         """Export semantic segmentation masks and class CSV files.
 
@@ -184,6 +187,7 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
             combined[m != 0] = self._class_id_for(split, cname)
         return combined
 
+    @override
     def _dump_annotations(
         self,
         annotation_splits: dict[str, dict[str, Any]],
@@ -192,6 +196,7 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
     ) -> None:
         return
 
+    @override
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:

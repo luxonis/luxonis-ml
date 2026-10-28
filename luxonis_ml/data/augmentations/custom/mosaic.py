@@ -497,7 +497,8 @@ class Mosaic4(BatchTransform):
             dtype=image_batch[0].dtype,
         )
 
-        for quadrant, img in enumerate(image_batch):
+        for quadrant, source in enumerate(image_batch):
+            img = source
             h, w = img.shape[:2]
             imgsz = max(out_height, out_width)
             r = imgsz / max(h, w)

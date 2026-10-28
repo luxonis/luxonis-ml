@@ -5,6 +5,7 @@ from typing import Any
 import cv2
 import numpy as np
 from loguru import logger
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.utils.path import resolve_manifest_path
@@ -34,6 +35,7 @@ class SOLOParser(BaseParser):
     """
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         """Validate whether a split directory has the expected SOLO
         format.
@@ -58,7 +60,7 @@ class SOLOParser(BaseParser):
             json_path = next(split_path.glob(json_fname), None)
             if not json_path:
                 return None
-        with open(split_path / "metadata.json") as json_file:
+        with (split_path / "metadata.json").open() as json_file:
             metadata_dict = json.load(json_file)
         # check if all sequences are present
         total_sequences_expected = metadata_dict["totalSequences"]
@@ -72,6 +74,7 @@ class SOLOParser(BaseParser):
             )
         return {"split_path": split_path}
 
+    @override
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -90,6 +93,7 @@ class SOLOParser(BaseParser):
 
         return added_train_imgs, added_valid_imgs, added_test_imgs
 
+    @override
     def from_split(self, split_path: Path) -> ParserOutput:
         """Parse one SOLO split into LDF records.
 
@@ -115,7 +119,7 @@ class SOLOParser(BaseParser):
             split_path / "annotation_definitions.json"
         )
         if annotation_definitions_path.exists():
-            with open(annotation_definitions_path) as json_file:
+            with annotation_definitions_path.open() as json_file:
                 annotation_definitions_dict = json.load(json_file)
         else:
             raise FileNotFoundError(
@@ -166,12 +170,12 @@ class SOLOParser(BaseParser):
             Annotation type names.
 
         """
-        annotation_types = []
-        for definition in annotation_definitions_dict["annotationDefinitions"]:
-            annotation_types.append(
-                definition["@type"].replace("type.unity.com/unity.solo.", "")
-            )
-        return annotation_types
+        return [
+            definition["@type"].replace("type.unity.com/unity.solo.", "")
+            for definition in annotation_definitions_dict[
+                "annotationDefinitions"
+            ]
+        ]
 
     def _get_solo_bbox_class_names(
         self, annotation_definitions_dict: dict[str, Any]

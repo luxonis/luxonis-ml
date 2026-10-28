@@ -4,6 +4,7 @@ from typing import Any, Literal, cast
 
 import numpy as np
 from PIL import Image
+from typing_extensions import override
 
 from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
@@ -55,11 +56,13 @@ class UltralyticsNDJSONExporter(BaseExporter):
     def get_split_names(self) -> dict[str, str]:
         return {"train": "train", "val": "val", "test": "test"}
 
+    @override
     def supported_ann_types(self) -> list[str]:
         if self.ndjson_task == "pose":
             return ["keypoints", "boundingbox"]
         return self.dataset_type.supported_annotation_formats
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
         exporter_specific_annotation_warning(
@@ -229,6 +232,7 @@ class UltralyticsNDJSONExporter(BaseExporter):
             return {split: [] for split in self.get_split_names().values()}
         return annotation_splits
 
+    @override
     def _dump_annotations(
         self,
         annotation_splits: dict[str, list[dict[str, Any]]],
@@ -250,14 +254,17 @@ class UltralyticsNDJSONExporter(BaseExporter):
         header = self._dataset_header()
         lines = [json.dumps(header, separators=(",", ":"))]
 
-        for split_name in self.get_split_names().values():
-            for record in annotation_splits.get(split_name, []):
-                lines.append(json.dumps(record, separators=(",", ":")))
+        lines.extend(
+            json.dumps(record, separators=(",", ":"))
+            for split_name in self.get_split_names().values()
+            for record in annotation_splits.get(split_name, [])
+        )
 
         (base / "dataset.ndjson").write_text(
             "\n".join(lines) + "\n", encoding="utf-8"
         )
 
+    @override
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:

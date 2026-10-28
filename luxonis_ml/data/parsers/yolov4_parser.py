@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
@@ -30,6 +31,7 @@ class YoloV4Parser(BaseParser):
     """
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -43,6 +45,7 @@ class YoloV4Parser(BaseParser):
             "classes_path": classes,
         }
 
+    @override
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -63,6 +66,7 @@ class YoloV4Parser(BaseParser):
         )
         return added_train_imgs, added_val_imgs, added_test_imgs
 
+    @override
     def from_split(
         self, image_dir: Path, annotation_path: Path, classes_path: Path
     ) -> ParserOutput:
@@ -80,7 +84,7 @@ class YoloV4Parser(BaseParser):
             and added images.
 
         """
-        with open(classes_path) as f:
+        with classes_path.open() as f:
             class_names = {
                 i: line.rstrip() for i, line in enumerate(f.readlines())
             }
@@ -99,7 +103,7 @@ class YoloV4Parser(BaseParser):
         class_names: dict[int, str],
     ) -> DatasetIterator:
         """Yield the records of the annotation file, then the unlisted images."""
-        with open(annotation_path) as f:
+        with annotation_path.open() as f:
             annotation_data = [line.rstrip() for line in f]
 
         annotated_images: set[Path] = set()

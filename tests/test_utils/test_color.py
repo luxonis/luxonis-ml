@@ -141,7 +141,7 @@ def test_each_family_reads_as_dark_text_on_its_own_soft_tint():
 
 def test_parse_rejects_a_tuple_that_is_not_rgb_or_rgba():
     with pytest.raises(ValueError, match="3 or 4 elements"):
-        Color.parse((1, 2))  # type: ignore[arg-type]
+        Color.parse((1, 2))
 
 
 def test_saturate_moves_toward_and_away_from_gray():

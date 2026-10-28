@@ -24,6 +24,7 @@ from filelock import FileLock
 from loguru import logger
 from rich.progress import Progress
 from semver.version import Version
+from typeguard import CollectionCheckStrategy, check_type
 from typing_extensions import Self, override
 
 from luxonis_ml.data.exporters import (
@@ -66,14 +67,13 @@ from luxonis_ml.data.utils import (
     warn_on_duplicates,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
-from luxonis_ml.data.utils.ldf_equivalence import ldf_equivalent
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.ldf import Category, DatasetRecord, Detection
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import LuxonisFileSystem, environ
 
-from .base_dataset import BaseDataset, DatasetIterator
+from .base_dataset import BaseDataset, DatasetIterator, SplitDefinition
 from .metadata import Metadata
 from .migration import migrate_dataframe, migrate_metadata
 from .source import LuxonisComponent, LuxonisSource
@@ -127,7 +127,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 bucket storage.
 
         """
-
         self._dataset_name = dataset_name
         self._base_path = environ.LUXONISML_BASE_PATH
         self._base_path.mkdir(exist_ok=True)
@@ -232,8 +231,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     def identifier(self) -> str:
         return self._dataset_name
 
+    @override
     def __eq__(self, other: object) -> bool | NotImplementedType:
         """Compare datasets for equivalence."""
+        from luxonis_ml.data.utils.ldf_equivalence import ldf_equivalent
+
         if not isinstance(other, (LuxonisDataset, str)):
             return NotImplemented
         return ldf_equivalent(self, other)
@@ -336,7 +338,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 data_dict.pop("uuid", None)
                 data_dict.pop("group_id", None)
 
-                pfm.write(uuid_val, data_dict, group_id_val)  # type: ignore
+                pfm.write(uuid_val, data_dict, group_id_val)  # pyright: ignore[reportArgumentType]
 
         logger.info(
             f"Saved DataFrame to Parquet files in '{annotations_path}'."
@@ -394,7 +396,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         new_dataset_path = Path(new_dataset._local_path)
         new_dataset_path.mkdir(parents=True, exist_ok=True)
 
-        if splits_to_clone is not None:
+        if splits_to_clone is None:
+            shutil.copytree(
+                self._local_path, new_dataset._local_path, dirs_exist_ok=True
+            )
+        else:
             df_self = self._load_df_offline(raise_when_empty=True)
             splits_self = self._load_splits(self._metadata_path)
             uuids_to_clone = {
@@ -402,23 +408,20 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 for split in splits_to_clone
                 for uid in splits_self.get(split, [])
             }
-            df_self = df_self.filter(df_self["uuid"].is_in(uuids_to_clone))
-            splits_self = {
-                k: v for k, v in splits_self.items() if k in splits_to_clone
-            }
-
-        shutil.copytree(
-            self._local_path,
-            new_dataset._local_path,
-            dirs_exist_ok=True,
-            ignore=lambda d, n: self._ignore_files_not_in_uuid_set(
-                d, n, uuids_to_clone if splits_to_clone else set()
-            ),
-        )
-
-        if splits_to_clone is not None:
-            new_dataset._save_df_offline(df_self)
-            new_dataset._save_splits(splits_self)
+            shutil.copytree(
+                self._local_path,
+                new_dataset._local_path,
+                dirs_exist_ok=True,
+                ignore=lambda d, n: self._ignore_files_not_in_uuid_set(
+                    d, n, uuids_to_clone
+                ),
+            )
+            new_dataset._save_df_offline(
+                df_self.filter(df_self["uuid"].is_in(uuids_to_clone))
+            )
+            new_dataset._save_splits(
+                {k: v for k, v in splits_self.items() if k in splits_to_clone}
+            )
 
         new_dataset._init_paths()
         new_dataset._metadata = self._get_metadata()
@@ -584,7 +587,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
     def _load_splits(self, path: Path) -> dict[str, list[str]]:
         splits_path = path / "splits.json"
-        with open(splits_path) as f:
+        with splits_path.open() as f:
             return json.load(f)
 
     def _ignore_files_not_in_uuid_set(
@@ -617,12 +620,13 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
     def _save_splits(self, splits: dict[str, list[str]]) -> None:
         splits_path_self = self._metadata_path / "splits.json"
-        with open(splits_path_self, "w") as f:
+        with splits_path_self.open("w") as f:
             json.dump(splits, f, indent=4)
 
     @overload
     def _load_df_offline(
         self,
+        *,
         lazy: Literal[False] = ...,
         raise_when_empty: Literal[False] = ...,
         attempt_migration: bool = ...,
@@ -631,15 +635,17 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     @overload
     def _load_df_offline(
         self,
+        *,
         lazy: Literal[False] = ...,
-        raise_when_empty: Literal[True] = ...,
+        raise_when_empty: Literal[True],
         attempt_migration: bool = ...,
     ) -> pl.DataFrame: ...
 
     @overload
     def _load_df_offline(
         self,
-        lazy: Literal[True] = ...,
+        *,
+        lazy: Literal[True],
         raise_when_empty: Literal[False] = ...,
         attempt_migration: bool = ...,
     ) -> pl.LazyFrame | None: ...
@@ -647,13 +653,15 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     @overload
     def _load_df_offline(
         self,
-        lazy: Literal[True] = ...,
-        raise_when_empty: Literal[True] = ...,
+        *,
+        lazy: Literal[True],
+        raise_when_empty: Literal[True],
         attempt_migration: bool = ...,
     ) -> pl.LazyFrame: ...
 
     def _load_df_offline(
         self,
+        *,
         lazy: bool = False,
         raise_when_empty: bool = False,
         attempt_migration: bool = True,
@@ -734,6 +742,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     @overload
     def _get_index(
         self,
+        *,
         lazy: Literal[False] = ...,
         raise_when_empty: Literal[False] = ...,
     ) -> pl.DataFrame | None: ...
@@ -741,26 +750,30 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     @overload
     def _get_index(
         self,
+        *,
         lazy: Literal[False] = ...,
-        raise_when_empty: Literal[True] = ...,
+        raise_when_empty: Literal[True],
     ) -> pl.DataFrame: ...
 
     @overload
     def _get_index(
         self,
-        lazy: Literal[True] = ...,
+        *,
+        lazy: Literal[True],
         raise_when_empty: Literal[False] = ...,
     ) -> pl.LazyFrame | None: ...
 
     @overload
     def _get_index(
         self,
-        lazy: Literal[True] = ...,
-        raise_when_empty: Literal[True] = ...,
+        *,
+        lazy: Literal[True],
+        raise_when_empty: Literal[True],
     ) -> pl.LazyFrame: ...
 
     def _get_index(
         self,
+        *,
         lazy: bool = False,
         raise_when_empty: bool = False,
     ) -> pl.DataFrame | pl.LazyFrame | None:
@@ -1431,9 +1444,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         assert annotations_path is not None
 
         with ParquetFileManager(annotations_path, batch_size) as pfm:
-            for i, record in enumerate(generator, start=1):
-                if not isinstance(record, DatasetRecord):
-                    record = DatasetRecord(**record)
+            for i, item in enumerate(generator, start=1):
+                record = (
+                    item
+                    if isinstance(item, DatasetRecord)
+                    else DatasetRecord(**item)
+                )
                 added.sources.update(record.files.keys())
                 ann = record.annotation
                 if ann is not None:
@@ -1517,24 +1533,25 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         if splits_path is None:
             return None
 
-        with open(splits_path) as file:
+        with splits_path.open() as file:
             return json.load(file)
 
     @override
     def make_splits(
         self,
-        splits: (
-            Mapping[str, Sequence[PathType]]
-            | Mapping[str, float]
-            | tuple[float, float, float]
-            | None
-        ) = None,
+        splits: SplitDefinition | None = None,
         *,
         replace_old_splits: bool = False,
     ) -> None:
         if splits is None:
             splits = {"train": 0.8, "val": 0.1, "test": 0.1}
 
+        check_type(
+            splits,
+            SplitDefinition,
+            collection_check_strategy=CollectionCheckStrategy.ALL_ITEMS,
+        )
+        check_type(replace_old_splits, bool)
         ratios, definitions = _resolve_splits(splits)
 
         splits_path = get_file(
@@ -1545,7 +1562,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         )
         old_splits: dict[str, list[str]] = defaultdict(list)
         if splits_path.exists():
-            with open(splits_path) as file:
+            with splits_path.open() as file:
                 old_splits = defaultdict(list, json.load(file))
 
         defined_group_ids: set[str] = set()
@@ -1846,7 +1863,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         splits = self.get_splits()
         if splits is not None and view and view in splits:
-            df = df.filter(pl.col("uuid").is_in(splits[view]))  # type: ignore
+            df = df.filter(pl.col("uuid").is_in(splits[view]))
 
         stats["duplicates"] = get_duplicates_info(df)
 
@@ -2026,14 +2043,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         for split, filepaths in definitions.items():
             ids: list[str] = []
             for filepath in filepaths:
-                if not isinstance(filepath, (str, Path)):
-                    logger.warning(
-                        f"Split '{split}' contains {filepath!r}, "
-                        f"which is a {type(filepath).__name__} and "
-                        "not a filepath; skipping."
-                    )
-                    continue
-
                 group_id = find_filepath_group_id(
                     filepath, index, raise_on_missing=False
                 )

@@ -20,7 +20,6 @@ def parse_manifest_path(value: PathType) -> Path:
         'images/cat.jpg'
 
     """
-
     raw = str(value)
     path = Path(raw)
     if path.is_absolute():
@@ -40,7 +39,6 @@ def resolve_manifest_path(base_dir: Path, value: PathType) -> Path:
         Absolute resolved path.
 
     """
-
     raw = str(value)
     windows_path = PureWindowsPath(raw)
     if windows_path.is_absolute() and not Path(raw).is_absolute():
@@ -68,7 +66,6 @@ def path_to_posix(value: PathType) -> str:
         'images/cat.jpg'
 
     """
-
     raw = str(value)
     if "\\" in raw:
         return PureWindowsPath(raw).as_posix()

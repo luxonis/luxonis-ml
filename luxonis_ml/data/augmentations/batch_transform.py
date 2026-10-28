@@ -47,6 +47,7 @@ class BatchTransform(ABC, A.DualTransform):
         return targets
 
     @abstractmethod
+    @override
     def apply(self, image_batch: list[np.ndarray], **kwargs) -> np.ndarray:
         r"""Apply the transformation to a batch of images.
 
@@ -63,6 +64,7 @@ class BatchTransform(ABC, A.DualTransform):
         ...
 
     @abstractmethod
+    @override
     def apply_to_mask(
         self, masks_batch: list[np.ndarray], **kwargs
     ) -> np.ndarray:
@@ -80,6 +82,7 @@ class BatchTransform(ABC, A.DualTransform):
         """
 
     @abstractmethod
+    @override
     def apply_to_bboxes(
         self, bboxes_batch: list[np.ndarray], **kwargs
     ) -> np.ndarray:
@@ -97,6 +100,7 @@ class BatchTransform(ABC, A.DualTransform):
         ...
 
     @abstractmethod
+    @override
     def apply_to_keypoints(
         self, keypoints_batch: list[np.ndarray], **kwargs
     ) -> np.ndarray:

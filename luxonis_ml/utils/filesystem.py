@@ -38,7 +38,7 @@ class PutFile(Protocol):
     ) -> str: ...
 
 
-PUT_FILE_REGISTRY: Final[Registry[PutFile]] = Registry(  # type: ignore
+PUT_FILE_REGISTRY: Final[Registry[PutFile]] = Registry(  # pyright: ignore[reportInvalidTypeArguments]
     name="put_file",
 )
 
@@ -196,6 +196,7 @@ class LuxonisFileSystem:
         self._run_id: str | None = None
         self._artifact_path: str | None = None
         self._tracking_uri: str | None = None
+        self._is_mlflow_active_run = False
 
         if self._protocol == "mlflow":
             self._fs_type = FSType.MLFLOW
@@ -228,13 +229,11 @@ class LuxonisFileSystem:
                 ``MLFLOW_TRACKING_URI`` is not set.
 
         """
-        self._allow_active_mlflow_run = allow_active_mlflow_run
-        self._is_mlflow_active_run = False
         if path is not None:
             (self._experiment_id, self._run_id, self._artifact_path) = (
                 self._split_mlflow_path(path)
             )
-        elif self._allow_active_mlflow_run:
+        elif allow_active_mlflow_run:
             self._is_mlflow_active_run = True
             path = ""
         else:
@@ -514,10 +513,9 @@ class LuxonisFileSystem:
                 )
             return None
 
-        if self.is_mlflow or self.is_fsspec:
-            return self._put_files(
-                local_paths, remote_dir, uuid_dict, mlflow_instance
-            )
+        return self._put_files(
+            local_paths, remote_dir, uuid_dict, mlflow_instance
+        )
 
     def put_bytes(
         self,
@@ -547,7 +545,7 @@ class LuxonisFileSystem:
         elif self.is_fsspec:
             full_path = str(self._path / remote_path)
             with self._fs.open(full_path, "wb") as file:
-                file.write(file_bytes)  # type: ignore
+                file.write(file_bytes)  # pyright: ignore[reportArgumentType]
 
     def get_file(
         self,
@@ -666,8 +664,7 @@ class LuxonisFileSystem:
                 remote_paths, local_dir, mlflow_instance
             )
 
-        if self.is_mlflow or self.is_fsspec:
-            self._get_files(remote_paths, local_dir, mlflow_instance)
+        self._get_files(remote_paths, local_dir, mlflow_instance)
 
         return Path(local_dir)
 
@@ -827,7 +824,6 @@ class LuxonisFileSystem:
                 2.  If using MLflow but the run cannot be resolved.
 
         """
-
         if self.is_mlflow:
             artifact_path = self._get_mlflow_artifact_path(remote_path)
             if artifact_path is None:
@@ -841,7 +837,7 @@ class LuxonisFileSystem:
                         dst_path=temp_dir,
                     )
                 )
-                with open(download_path, "rb") as f:
+                with download_path.open("rb") as f:
                     buffer = BytesIO(f.read())
 
         else:
@@ -878,9 +874,8 @@ class LuxonisFileSystem:
             whole file in memory before hashing begins.
 
         """
-
         if local:
-            with open(path, "rb") as file:
+            with Path(path).open("rb") as file:
                 return _uuid_from_stream(file)
 
         if self.is_mlflow:
@@ -908,7 +903,6 @@ class LuxonisFileSystem:
             ``get_file_uuid`` applies once per thread in the pool.
 
         """
-
         result = {}
 
         with ThreadPoolExecutor() as executor:
@@ -996,8 +990,8 @@ class LuxonisFileSystem:
     ) -> dict[str, str]:
         upload_dict = {}
         if self.is_mlflow and self._is_mlflow_active_run:
-            for local_path in local_paths:
-                local_path = Path(local_path)
+            for path in local_paths:
+                local_path = Path(path)
                 basename = self._get_upload_basename(local_path, uuid_dict)
                 remote_path = str(PurePosixPath(remote_dir) / basename)
                 upload_dict[str(local_path)] = remote_path
@@ -1006,8 +1000,8 @@ class LuxonisFileSystem:
 
         futures = []
         with ThreadPoolExecutor() as executor:
-            for local_path in local_paths:
-                local_path = Path(local_path)
+            for path in local_paths:
+                local_path = Path(path)
                 basename = self._get_upload_basename(local_path, uuid_dict)
                 remote_path = str(PurePosixPath(remote_dir) / basename)
                 upload_dict[str(local_path)] = remote_path
@@ -1318,7 +1312,6 @@ class LuxonisFileSystem:
                 because it does not exist.
 
         """
-
         if self.is_mlflow:
             artifact_path = self._get_mlflow_artifact_path(remote_path)
             if artifact_path is None:
@@ -1354,10 +1347,10 @@ class LuxonisFileSystem:
 
         """
         if self.is_mlflow:
-            from mlflow.exceptions import (
+            from mlflow.exceptions import MlflowException
+            from mlflow.protos.databricks_pb2 import (
                 RESOURCE_DOES_NOT_EXIST,
                 ErrorCode,
-                MlflowException,
             )
 
             artifact_path = self._get_mlflow_artifact_path(remote_path)
@@ -1445,16 +1438,12 @@ class LuxonisFileSystem:
             the nested path is returned.
 
         """
-
         if LuxonisFileSystem.get_protocol(url) == "file":
             return Path(url)
 
         dest = Path(dest or ".")
         absolute_path, remote_path = LuxonisFileSystem.split_full_path(url)
-        if dest.suffix:
-            local_path = dest
-        else:
-            local_path = dest / remote_path
+        local_path = dest if dest.suffix else dest / remote_path
         fs = LuxonisFileSystem(absolute_path, tracking_uri=tracking_uri)
 
         # NOTE: Both methods nest the download inside `local_path` when
@@ -1481,7 +1470,6 @@ class LuxonisFileSystem:
             tracking_uri: MLflow tracking URI to use for ``mlflow://`` URLs.
 
         """
-
         absolute_path, remote_path = LuxonisFileSystem.split_full_path(url)
         fs = LuxonisFileSystem(absolute_path, tracking_uri=tracking_uri)
         if Path(local_path).is_dir():
@@ -1537,7 +1525,6 @@ def _get_protocol_and_path(path: str) -> tuple[str, str | None]:
         The path is ``None`` when no path is present.
 
     """
-
     if "://" in path:
         protocol, path = path.split("://", 1)
         if protocol == "gs":
