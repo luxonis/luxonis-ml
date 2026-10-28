@@ -8,7 +8,7 @@ from typing import Any, cast
 import numpy as np
 import polars as pl
 from pycocotools import mask as mask_utils
-from typeguard import typechecked
+from typeguard import check_type
 
 from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
 from luxonis_ml.data.exporters import PreparedLDF
@@ -55,7 +55,6 @@ class LDFEquivalence:
         return hashlib.sha256(path.read_bytes()).hexdigest()
 
     @classmethod
-    @typechecked
     def ldf_equivalent(
         cls,
         previous_dataset: str | LuxonisDataset,
@@ -79,6 +78,8 @@ class LDFEquivalence:
                 annotation parquet file, or referenced image is missing.
 
         """
+        check_type(previous_dataset, str | LuxonisDataset)
+        check_type(new_dataset, str | LuxonisDataset)
         try:
             previous_ldf = cls._prepared_ldf_from_public_input(
                 previous_dataset
