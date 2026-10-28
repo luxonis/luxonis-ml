@@ -93,6 +93,11 @@ def remote(fs: LuxonisFileSystem) -> Iterator[Callable[[str], str]]:
     from leftovers and concurrent runs. Repeated reservations of the
     same logical name return the same remote name and clear it before
     use, protecting retries within the test as well.
+
+    Yields:
+        A function that takes a logical name and returns its remote
+        name, after it deletes whatever is stored under that name.
+
     """
     reserved: list[str] = []
     names: dict[str, str] = {}

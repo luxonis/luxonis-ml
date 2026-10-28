@@ -374,6 +374,9 @@ class LuxonisLoader(BaseLoader):
 
         A sample with no mask gives no verdict on its task.
 
+        Returns:
+            The names of the uncovered segmentation tasks.
+
         """
         samples = (
             self._df.filter(
@@ -454,6 +457,11 @@ class LuxonisLoader(BaseLoader):
         Returns:
             Images, labels, and sample metadata present for the sample.
 
+        Raises:
+            ValueError: If the selected views contain no records or a
+                grayscale source has an unsupported image shape.
+            FileNotFoundError: If an image path cannot be found or read.
+
         """
         if not self._idx_to_df_row:
             raise ValueError(
@@ -530,7 +538,11 @@ class LuxonisLoader(BaseLoader):
         """Parse one dataframe row into its task, instance ID and value.
 
         A metadata row gives its raw value, any other row an `Annotation`.
-        A row without an annotation gives ``None``.
+
+        Returns:
+            The ``"task_name/task_type"`` key of the row, its instance
+            ID and its value. ``None`` if the row has no annotation.
+
         """
         col = self._df_col_indices
         ann_str: str | None = row[col["annotation"]]
@@ -636,6 +648,11 @@ class LuxonisLoader(BaseLoader):
 
         The samples are distinct from ``idx`` and from each other, unless
         the batch is larger than the dataset.
+
+        Returns:
+            The indices of the ``batch_size - 1`` other samples. An
+            empty list if the batch has one sample only.
+
         """
         assert self._augmentations is not None
         n_others = self._augmentations.batch_size - 1
@@ -682,6 +699,10 @@ class LuxonisLoader(BaseLoader):
         ``"batch_augmentation_metadata"`` so consumers can inspect which
         records contributed to the augmented output. ``input_index`` is the
         source sample's position in the original augmentation batch.
+
+        Returns:
+            The merged metadata, built from deep copies of the inputs.
+            An empty dict if ``metadata_batch`` is empty.
 
         Example:
             .. python::
@@ -833,6 +854,11 @@ class LuxonisLoader(BaseLoader):
 
         An LDF 1.0 polyline stores normalized points and no size, so it
         is rasterized on a grid and no image is read.
+
+        Returns:
+            One run-length encoding for each mask and each polyline.
+            All have the size of the first encoded mask, or of a fixed
+            grid if the sample has polylines only.
 
         """
         parsed = [json.loads(annotation) for annotation in annotations]
