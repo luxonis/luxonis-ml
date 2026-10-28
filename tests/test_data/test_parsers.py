@@ -40,6 +40,26 @@ def test_voc_parser_requires_image_size() -> None:
         VOCParser._image_boxes(root)
 
 
+def test_coco_split_prefers_the_roboflow_annotation_file(
+    tempdir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Directory order must not decide which JSON file is used."""
+    split = tempdir / "roboflow_split"
+    split.mkdir(exist_ok=True)
+    annotation = split / "_annotations.coco.json"
+    annotation.write_text(
+        json.dumps({"images": [], "categories": []}), encoding="utf-8"
+    )
+    extra = split / "extra.json"
+    extra.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(Path, "glob", lambda *_: iter([extra, annotation]))
+
+    assert COCOParser.validate_split(split) == {
+        "image_dir": split,
+        "annotation_path": annotation,
+    }
+
+
 @pytest.mark.parametrize(
     ("url", "expected_task_types"),
     [

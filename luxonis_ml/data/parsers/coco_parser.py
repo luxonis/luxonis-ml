@@ -136,11 +136,11 @@ class COCOParser(BaseParser):
     @staticmethod
     @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
-        json_path = (
-            next(split_path.glob("*.json"), None)
-            if split_path.exists()
-            else None
-        )
+        if not split_path.exists():
+            return None
+        json_path = split_path / "_annotations.coco.json"
+        if not json_path.exists():
+            json_path = next(split_path.glob("*.json"), None)
         if json_path is None or not COCOParser._is_coco_json(json_path):
             return None
         if json_path.name == "_annotations.coco.json":
