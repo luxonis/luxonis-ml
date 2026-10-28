@@ -26,7 +26,9 @@ def _make_sample(size: int = 64) -> list[LoaderMultiOutput]:
 def _engine(
     config: list[Params], seed: int | None = None
 ) -> AlbumentationsEngine:
-    return AlbumentationsEngine(64, 64, {}, {}, ["image"], config, seed=seed)
+    return AlbumentationsEngine(
+        64, 64, {}, {}, ["image"], config=config, seed=seed
+    )
 
 
 @contextmanager
@@ -743,7 +745,7 @@ def test_tracks_cutmix_alongside_its_labels():
         targets,
         dict.fromkeys(targets, 1),
         ["image"],
-        [{"name": "CutMix", "params": {"p": 1.0}}],
+        config=[{"name": "CutMix", "params": {"p": 1.0}}],
         seed=3,
     )
     image = np.zeros((320, 320, 3), dtype=np.uint8)

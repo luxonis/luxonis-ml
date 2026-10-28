@@ -3,7 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from luxonis_ml.data.parsers.native_parser import NativeParser
+from luxonis_ml.data.parsers.native_parser import (
+    NativeParser,
+    _resolve_record_paths,
+)
 from luxonis_ml.data.parsers.yolov4_parser import YoloV4Parser
 from luxonis_ml.enums import DatasetType
 
@@ -300,3 +303,17 @@ def test_native_parser_resolves_paths_inside_sub_detections(tempdir: Path):
     assert isinstance(record, dict)
     nested = record["annotation"]["sub_detections"]["head"]
     assert nested["instance_segmentation"]["mask"] == mask_path.resolve()
+
+
+def test_native_parser_resolves_each_source_path(tempdir: Path):
+    record = {"files": {"left": "left.png", "right": "right.png", "depth": 3}}
+
+    _resolve_record_paths(record, tempdir)
+
+    assert record == {
+        "media": {
+            "left": (tempdir / "left.png").resolve(),
+            "right": (tempdir / "right.png").resolve(),
+            "depth": 3,
+        }
+    }

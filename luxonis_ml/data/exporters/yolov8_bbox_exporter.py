@@ -1,19 +1,17 @@
-import json
 from pathlib import Path
-from typing import Any, TypeAlias, cast
+from typing import Any, cast
 
 from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
     check_group_file_correspondence,
     exporter_specific_annotation_warning,
     split_of_group,
+    yolo_bbox_label,
 )
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils.path import path_to_posix
 
 from .base_exporter import BaseExporter
-
-BBox: TypeAlias = tuple[int, float, float, float, float]
 
 
 class YoloV8Exporter(BaseExporter):
@@ -74,28 +72,11 @@ class YoloV8Exporter(BaseExporter):
             label_lines: list[tuple] = []
 
             for row in group_df.iter_rows(named=True):
-                ttype = row["task_type"]
-                ann_str = row["annotation"]
-                cname = row["class_name"]
-
-                if ann_str is None:
-                    continue
-
-                if ttype == "boundingbox":
-                    if cname and cname not in self.class_to_id:
-                        self.class_to_id[cname] = len(self.class_to_id)
-                        self.class_names.append(cname)
-
-                    if not cname or cname not in self.class_to_id:
-                        continue
-
-                    data = json.loads(ann_str)
-                    x = float(data.get("x", 0.0))
-                    y = float(data.get("y", 0.0))
-                    w = float(data.get("w", 0.0))
-                    h = float(data.get("h", 0.0))
-                    cid = self.class_to_id[cname]
-                    label_lines.append((cid, x, y, w, h))
+                label = yolo_bbox_label(
+                    row, self.class_to_id, self.class_names
+                )
+                if label is not None:
+                    label_lines.append(label)
 
             ann_size_estimate = len(label_lines) * 32
             img_size = file_path.stat().st_size

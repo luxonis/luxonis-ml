@@ -23,6 +23,18 @@ if TYPE_CHECKING:
 ParserOutput = tuple[DatasetIterator, dict[str, dict], list[Path]]
 
 
+def yolo_box_to_ldf(
+    x_center: Any, y_center: Any, width: Any, height: Any
+) -> dict[str, float]:
+    """Convert a normalized YOLO center box to an LDF corner box."""
+    return {
+        "x": float(x_center) - float(width) / 2,
+        "y": float(y_center) - float(height) / 2,
+        "w": float(width),
+        "h": float(height),
+    }
+
+
 class BaseParser(ABC):
     """Base class for dataset-format parsers."""
 
@@ -662,31 +674,35 @@ class BaseParser(ABC):
 
             if self._task_name is None:
                 yield item
-                continue
-
-            if not any(item.annotation.values()):
+            elif not any(item.annotation.values()):
+                # A record without labels belongs to every task.
                 for task_name in self._all_task_names:
                     yield item.model_copy(
                         update={"annotation": {task_name: []}}, deep=True
                     )
-                continue
+            else:
+                self._assign_task_names(item)
+                yield item
 
-            grouped: dict[str, list[Detection]] = defaultdict(list)
-            for task_name, detections in item.annotation.items():
-                for detection in detections:
-                    class_name = detection.class_name
-                    # A detection with no class has nothing to resolve, so
-                    # it stays under the task it came with.
-                    if class_name is None:
-                        grouped[task_name].append(detection)
-                        continue
-                    try:
-                        resolved = self._task_name[class_name]
-                    except KeyError:
-                        raise ValueError(
-                            f"Class '{class_name}' not found in task names."
-                        ) from None
-                    grouped[resolved].append(detection)
+    def _assign_task_names(self, item: DatasetRecord) -> None:
+        """File each detection under the task its class maps to.
 
-            item.annotation = dict(grouped)
-            yield item
+        A detection with no class has nothing to resolve, so it stays
+        under the task it came with.
+        """
+        assert self._task_name is not None
+        grouped: dict[str, list[Detection]] = defaultdict(list)
+        for task_name, detections in item.annotation.items():
+            for detection in detections:
+                class_name = detection.class_name
+                if class_name is None:
+                    grouped[task_name].append(detection)
+                    continue
+                try:
+                    resolved = self._task_name[class_name]
+                except KeyError:
+                    raise ValueError(
+                        f"Class '{class_name}' not found in task names."
+                    ) from None
+                grouped[resolved].append(detection)
+        item.annotation = dict(grouped)

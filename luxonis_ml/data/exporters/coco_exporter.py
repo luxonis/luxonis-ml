@@ -121,7 +121,12 @@ class CocoExporter(BaseExporter):
 
             for row in entry.iter_rows(named=True):
                 ann, row_has_ann = self._process_row(
-                    row, split, annotation_splits, ann, width, height
+                    row,
+                    split=split,
+                    annotation_splits=annotation_splits,
+                    ann=ann,
+                    w=width,
+                    h=height,
                 )
                 has_valid_ann = has_valid_ann or row_has_ann
 
@@ -199,6 +204,7 @@ class CocoExporter(BaseExporter):
     def _process_row(
         self,
         row: dict[str, Any],
+        *,
         split: str,
         annotation_splits: dict[str, dict[str, Any]],
         ann: dict[str, Any],
@@ -235,7 +241,7 @@ class CocoExporter(BaseExporter):
 
         if ttype == "boundingbox":
             data = json.loads(ann_str)
-            self._fill_bbox(ann, data, w, h, split, cname)
+            self._fill_bbox(ann, data, w=w, h=h, split=split, cname=cname)
             return ann, True
 
         if ttype == "instance_segmentation":
@@ -245,7 +251,7 @@ class CocoExporter(BaseExporter):
 
         if ttype == "keypoints" and self.allow_keypoints:
             data = json.loads(ann_str)
-            self._fill_keypoints(ann, data, w, h, split, cname)
+            self._fill_keypoints(ann, data, w=w, h=h, split=split, cname=cname)
             return ann, True
 
         return ann, False
@@ -254,6 +260,7 @@ class CocoExporter(BaseExporter):
         self,
         ann: dict[str, Any],
         data: dict[str, Any],
+        *,
         w: int,
         h: int,
         split: str,
@@ -309,6 +316,7 @@ class CocoExporter(BaseExporter):
         self,
         ann: dict[str, Any],
         data: dict[str, Any],
+        *,
         w: int,
         h: int,
         split: str,

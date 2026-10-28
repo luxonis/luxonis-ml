@@ -104,6 +104,7 @@ class LuxonisLoader(BaseLoader):
         self,
         dataset: LuxonisDataset,
         view: str | list[str] = "train",
+        *,
         augmentation_engine: Literal["albumentations"]
         | str = "albumentations",
         augmentation_config: list[Params] | PathType | None = None,
@@ -117,7 +118,6 @@ class LuxonisLoader(BaseLoader):
         seed: int | None = None,
         min_bbox_visibility: float = 0.0,
         bbox_area_threshold: float = 0.0004,
-        *,
         keep_categorical_as_strings: bool = False,
         update_mode: UpdateMode | Literal["all", "missing"] = UpdateMode.ALL,
         filter_task_names: list[str] | None = None,
@@ -218,110 +218,35 @@ class LuxonisLoader(BaseLoader):
         self._filter_task_names = filter_task_names
 
         self._source_names = self.dataset.get_source_names()
-        if isinstance(color_space, dict):
-            self._color_space = {
-                source_name: color_space.get(source_name, "RGB")
-                for source_name in self._source_names
-            }
-        else:
-            self._color_space = dict.fromkeys(
-                self._source_names, color_space or "RGB"
-            )
+        self._color_space = self._resolve_color_space(color_space)
 
         self._df = self.dataset._load_df_offline(raise_when_empty=True)
         self._classes = self.dataset.get_classes()
-
         if self._filter_task_names is not None:
-            if self.dataset.metadata.tasks:
-                df_task_names = set(self.dataset.metadata.tasks)
-            else:
-                df_task_names = set(self._df["task_name"].to_list())
-            if extras := set(self._filter_task_names) - df_task_names:
-                raise ValueError(
-                    f"`filter_task_names` contains task names that "
-                    f"are not in the dataset: {extras}"
-                )
-            # A row with no annotation belongs to one of two kinds, and only
-            # the first may survive a filter on its own. A record with no
-            # annotation at all is a negative for every task. A secondary
-            # source of an annotated record also writes such a row, and that
-            # one belongs to whichever task the record's annotated rows name.
-            group_is_annotated = (
-                pl.col("annotation").is_not_null().any().over("group_id")
-            )
-            group_is_asked_for = (
-                pl.col("task_name")
-                .is_in(self._filter_task_names)
-                .any()
-                .over("group_id")
-            )
-            self._df = self._df.filter(
-                pl.col("task_name").is_in(self._filter_task_names)
-                | (
-                    pl.col("annotation").is_null()
-                    & (group_is_asked_for | ~group_is_annotated)
-                )
-            )
-            self._classes = {
-                task_name: self._classes[task_name]
-                for task_name in self._filter_task_names
-                if task_name in self._classes
-            }
+            self._filter_tasks(self._filter_task_names)
 
         self._df_col_indices = {
             column: i for i, column in enumerate(self._df.columns)
         }
 
-        self._instances: list[str] = []
-        splits_path = self.dataset._metadata_path / "splits.json"
-        if not splits_path.exists():
-            raise RuntimeError(
-                "Cannot find splits! Ensure you call dataset.make_splits()"
-            )
-
-        with open(splits_path) as file:
-            splits = json.load(file)
-
-        for v in self._view:
-            self._instances.extend(splits[v])
-
-        group_id_list = self._df["group_id"].to_list()
-        group_id_set = set(group_id_list)
-        self._instances = [
-            group_id
-            for group_id in self._instances
-            if group_id in group_id_set
-        ]
+        view_instances = self._view_instances()
+        group_ids = self._df["group_id"].to_list()
+        group_id_set = set(group_ids)
+        self._instances = [g for g in view_instances if g in group_id_set]
 
         idx_map: dict[str, list[int]] = defaultdict(list)
-        for i, group_id in enumerate(group_id_list):
+        for i, group_id in enumerate(group_ids):
             idx_map[group_id].append(i)
-
         self._idx_to_df_row = [idx_map[uuid] for uuid in self._instances]
 
         self._idx_to_img_paths = self._precompute_image_paths()
 
-        self._tasks_without_background = set()
+        self._tasks_without_background: set[str] = set()
         # Rebuilding a record drops only the background this loader made
         # up. One the dataset declares was annotated, so it stays.
         self._synthesized_background: set[str] = set()
         for task_name in self._uncovered_tasks():
-            classes = self._classes[task_name]
-            if len(classes) <= 1 or classes.get("background") == 0:
-                continue
-            logger.warning(
-                "Found unassigned pixels in the segmentation masks of task "
-                f"'{task_name}'. Assigning them to `background` class (class "
-                "index 0). If this is not desired then make sure all pixels "
-                "are assigned to one class or rename your background class."
-            )
-            self._tasks_without_background.add(task_name)
-            if "background" not in classes:
-                self._synthesized_background.add(task_name)
-                self._classes[task_name] = {
-                    "background": 0,
-                    **{name: i + 1 for name, i in classes.items()},
-                }
+            self._add_background_class(task_name)
 
         # The background class shifts the class IDs, so the schema is built
         # once they have settled.
@@ -330,13 +255,99 @@ class LuxonisLoader(BaseLoader):
         self._augmentations = self._init_augmentations(
             augmentation_engine,
             augmentation_config or [],
-            height,
-            width,
-            keep_aspect_ratio,
-            seed,
-            min_bbox_visibility,
-            bbox_area_threshold,
+            height=height,
+            width=width,
+            keep_aspect_ratio=keep_aspect_ratio,
+            seed=seed,
+            min_bbox_visibility=min_bbox_visibility,
+            bbox_area_threshold=bbox_area_threshold,
         )
+
+    def _resolve_color_space(
+        self,
+        color_space: dict[str, Literal["RGB", "BGR", "GRAY"]]
+        | Literal["RGB", "BGR", "GRAY"]
+        | None,
+    ) -> dict[str, str]:
+        """Return the color space of each source; ``"RGB"`` by default."""
+        if isinstance(color_space, dict):
+            return {
+                source_name: color_space.get(source_name, "RGB")
+                for source_name in self._source_names
+            }
+        return dict.fromkeys(self._source_names, color_space or "RGB")
+
+    def _filter_tasks(self, task_names: list[str]) -> None:
+        """Keep only the rows and the classes of the given task names."""
+        if self.dataset.metadata.tasks:
+            df_task_names = set(self.dataset.metadata.tasks)
+        else:
+            df_task_names = set(self._df["task_name"].to_list())
+        if extras := set(task_names) - df_task_names:
+            raise ValueError(
+                f"`filter_task_names` contains task names that "
+                f"are not in the dataset: {extras}"
+            )
+        # A row with no annotation belongs to one of two kinds, and only
+        # the first may survive a filter on its own. A record with no
+        # annotation at all is a negative for every task. A secondary
+        # source of an annotated record also writes such a row, and that
+        # one belongs to whichever task the record's annotated rows name.
+        group_is_annotated = (
+            pl.col("annotation").is_not_null().any().over("group_id")
+        )
+        group_is_asked_for = (
+            pl.col("task_name").is_in(task_names).any().over("group_id")
+        )
+        self._df = self._df.filter(
+            pl.col("task_name").is_in(task_names)
+            | (
+                pl.col("annotation").is_null()
+                & (group_is_asked_for | ~group_is_annotated)
+            )
+        )
+        self._classes = {
+            task_name: self._classes[task_name]
+            for task_name in task_names
+            if task_name in self._classes
+        }
+
+    def _view_instances(self) -> list[str]:
+        """List the group IDs of the splits in the view."""
+        splits_path = self.dataset._metadata_path / "splits.json"
+        if not splits_path.exists():
+            raise RuntimeError(
+                "Cannot find splits! Ensure you call dataset.make_splits()"
+            )
+        with open(splits_path) as file:
+            splits = json.load(file)
+
+        instances: list[str] = []
+        for v in self._view:
+            instances.extend(splits[v])
+        return instances
+
+    def _add_background_class(self, task_name: str) -> None:
+        """Give a segmentation task with unassigned pixels a background class.
+
+        The class gets index 0; the other classes move up by one.
+        """
+        classes = self._classes[task_name]
+        if len(classes) <= 1 or classes.get("background") == 0:
+            return
+        logger.warning(
+            "Found unassigned pixels in the segmentation masks of task "
+            f"'{task_name}'. Assigning them to `background` class (class "
+            "index 0). If this is not desired then make sure all pixels "
+            "are assigned to one class or rename your background class."
+        )
+        self._tasks_without_background.add(task_name)
+        if "background" not in classes:
+            self._synthesized_background.add(task_name)
+            self._classes[task_name] = {
+                "background": 0,
+                **{name: i + 1 for name, i in classes.items()},
+            }
 
     @override
     def __len__(self) -> int:
@@ -438,134 +449,21 @@ class LuxonisLoader(BaseLoader):
                 f"for {self._view} views"
             )
 
-        ann_indices = self._idx_to_df_row[idx]
-        ann_rows = [self._df.row(row) for row in ann_indices]
-        col = self._df_col_indices
-
-        sample_metadata: Params = {}
-        metadata_idx = col.get("sample_metadata")
-        if metadata_idx is not None:
-            # Every row of a group repeats the metadata of the record it came
-            # from, so the last one decides, as it always has.
-            sample_metadata = DatasetRecord.decode_metadata(
-                ann_rows[-1][metadata_idx]
-            )
-
+        ann_rows = [self._df.row(row) for row in self._idx_to_df_row[idx]]
         source_to_path = self._idx_to_img_paths[idx]
+        sample_metadata = self._sample_metadata(ann_rows, source_to_path)
 
-        if self._autopopulate_metadata and self._reserve_key(
-            sample_metadata, "filenames"
-        ):
-            sample_metadata = {
-                "filenames": {
-                    source_name: path.name
-                    for source_name, path in source_to_path.items()
-                },
-                **sample_metadata,
-            }
-
-        img_dict: dict[str, np.ndarray] = {}
-
-        for source_name, path in source_to_path.items():
-            color_space = self._color_space.get(source_name, "RGB")
-            if color_space == "GRAY":
-                img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
-            else:
-                img = cv2.imread(str(path), cv2.IMREAD_COLOR)
-            if img is None:
-                raise FileNotFoundError(f"Cannot read image at path: {path}")
-            if color_space == "GRAY":
-                if img.ndim == 2:
-                    img_gray = img[..., np.newaxis]
-                elif img.ndim == 3 and img.shape[2] == 3:
-                    img_gray = img[..., 0:1]
-                else:
-                    raise ValueError(
-                        f"Unsupported image format: shape {img.shape}"
-                    )
-
-                img_dict[source_name] = img_gray
-            else:
-                img_dict[source_name] = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-        # The dataframe holds one row per task type of an instance, so the
-        # rows of one instance are put back together here. A detection then
-        # carries its own class, geometry and metadata, which is the shape
-        # every other producer of a record builds, and the shape the
-        # conversion needs to pair the two by row.
-        instance_order: dict[str, list[tuple[str, int]]] = defaultdict(list)
-        fields_by_instance: dict[tuple[str, int], dict[str, Any]] = {}
-        metadata_by_instance: dict[
-            tuple[str, int], dict[str, int | float | str]
-        ] = defaultdict(dict)
-
-        for row_index, annotation_data in enumerate(ann_rows):
-            task_name: str = annotation_data[col["task_name"]]
-            class_name: str | None = annotation_data[col["class_name"]]
-            instance_id: int = annotation_data[col["instance_id"]]
-            task_type: str = annotation_data[col["task_type"]]
-            ann_str: str | None = annotation_data[col["annotation"]]
-
-            if ann_str is None:
-                continue
-
-            data = json.loads(ann_str)
-            if task_type == "array" and self.dataset.is_remote:
-                data["path"] = self.dataset._arrays_path / data["path"]
-
-            # LDF 2.x stored -1 for a detection without an ID, and nothing
-            # tells which of its rows belong together. Such a row stays a
-            # detection of its own, with its own class, as it was read
-            # before. A negative key keeps it apart from every stored ID.
-            key = (
-                task_name,
-                instance_id if instance_id >= 0 else -1 - row_index,
+        img_dict = {
+            source_name: _read_image(
+                path, self._color_space.get(source_name, "RGB")
             )
-
-            fields = fields_by_instance.get(key)
-            if fields is None:
-                fields = {
-                    "class_name": class_name,
-                    "instance_id": instance_id,
-                }
-                fields_by_instance[key] = fields
-                instance_order[task_name].append(key)
-            elif fields["class_name"] is None:
-                fields["class_name"] = class_name
-
-            if task_type.startswith("metadata/"):
-                metadata_by_instance[key][task_type[len("metadata/") :]] = data
-            elif task_type != "classification":
-                if (
-                    "points" in data and "width" not in data
-                ):  # pragma: no cover
-                    # Conversion from LDF v1.0
-                    sample_img = next(iter(img_dict.values()))
-                    data["width"] = sample_img.shape[1]
-                    data["height"] = sample_img.shape[0]
-                    data["points"] = [tuple(p) for p in data["points"]]
-
-                fields[task_type] = load_annotation(
-                    task_type,  # type: ignore[arg-type]
-                    data,
-                )
-
-        # `load_annotation` validated every label, and the write path the
-        # names, so neither the detections nor the record is validated again.
-        detections_by_task: dict[str, list[Detection]] = {
-            task_name: [
-                Detection.model_construct(
-                    **fields_by_instance[key],
-                    metadata=metadata_by_instance[key],
-                )
-                for key in keys
-            ]
-            for task_name, keys in instance_order.items()
+            for source_name, path in source_to_path.items()
         }
+        image_shape = next(iter(img_dict.values())).shape
 
         record = DatasetRecord.model_construct(
             files=source_to_path,
-            annotation=detections_by_task,
+            annotation=self._row_detections(ann_rows, image_shape),
             sample_metadata=sample_metadata,
         )
         output = record.to_loader_output(
@@ -587,33 +485,113 @@ class LuxonisLoader(BaseLoader):
 
         return output.images, output.labels, output.metadata
 
+    def _sample_metadata(
+        self, ann_rows: list[tuple], source_to_path: dict[str, Path]
+    ) -> Params:
+        """Decode the sample metadata of the rows, plus the filenames."""
+        col = self._df_col_indices
+        sample_metadata: Params = {}
+        metadata_idx = col.get("sample_metadata")
+        if metadata_idx is not None:
+            # Every row of a group repeats the metadata of the record it came
+            # from, so the last one decides, as it always has.
+            sample_metadata = DatasetRecord.decode_metadata(
+                ann_rows[-1][metadata_idx]
+            )
+
+        if self._autopopulate_metadata and self._reserve_key(
+            sample_metadata, "filenames"
+        ):
+            sample_metadata = {
+                "filenames": {
+                    source_name: path.name
+                    for source_name, path in source_to_path.items()
+                },
+                **sample_metadata,
+            }
+        return sample_metadata
+
+    def _row_detections(
+        self, ann_rows: list[tuple], image_shape: tuple[int, ...]
+    ) -> dict[str, list[Detection]]:
+        """Put the rows of each instance back together as one detection.
+
+        The dataframe holds one row per task type of an instance. A
+        detection carries its own class, geometry and metadata, which is
+        the shape every other producer of a record builds, and the shape
+        the conversion needs to pair the two by row.
+        """
+        col = self._df_col_indices
+        fields_by_instance: dict[tuple[str, int], dict[str, Any]] = {}
+        for row_index, row in enumerate(ann_rows):
+            ann_str: str | None = row[col["annotation"]]
+            if ann_str is None:
+                continue
+            task_name: str = row[col["task_name"]]
+            class_name: str | None = row[col["class_name"]]
+            instance_id: int = row[col["instance_id"]]
+            task_type: str = row[col["task_type"]]
+
+            # LDF 2.x stored -1 for a detection without an ID, and nothing
+            # tells which of its rows belong together. Such a row stays a
+            # detection of its own, with its own class, as it was read
+            # before. A negative key keeps it apart from every stored ID.
+            key = (
+                task_name,
+                instance_id if instance_id >= 0 else -1 - row_index,
+            )
+            fields = fields_by_instance.setdefault(
+                key,
+                {
+                    "class_name": class_name,
+                    "instance_id": instance_id,
+                    "metadata": {},
+                },
+            )
+            if fields["class_name"] is None:
+                fields["class_name"] = class_name
+
+            if task_type == "classification":
+                continue
+            value = self._annotation_value(task_type, ann_str, image_shape)
+            if task_type.startswith("metadata/"):
+                fields["metadata"][task_type.removeprefix("metadata/")] = value
+            else:
+                fields[task_type] = value
+
+        # `load_annotation` validated every label, and the write path the
+        # names, so neither the detections nor the record is validated again.
+        detections: dict[str, list[Detection]] = defaultdict(list)
+        for (task_name, _), fields in fields_by_instance.items():
+            detections[task_name].append(Detection.model_construct(**fields))
+        return dict(detections)
+
+    def _annotation_value(
+        self, task_type: str, ann_str: str, image_shape: tuple[int, ...]
+    ) -> Any:
+        """Decode the annotation of one row.
+
+        A metadata row gives its raw value, any other row an `Annotation`.
+        """
+        data = json.loads(ann_str)
+        if task_type == "array" and self.dataset.is_remote:
+            data["path"] = self.dataset._arrays_path / data["path"]
+
+        if task_type.startswith("metadata/"):
+            return data
+
+        # Conversion from LDF v1.0
+        if "points" in data and "width" not in data:  # pragma: no cover
+            data["height"], data["width"] = image_shape[:2]
+            data["points"] = [tuple(p) for p in data["points"]]
+
+        return load_annotation(task_type, data)  # type: ignore[arg-type]
+
     def _load_with_augmentations(
         self, idx: int
     ) -> tuple[dict[str, np.ndarray], Labels, Params]:
-        indices = [idx]
         assert self._augmentations is not None
-        if self._augmentations.batch_size > 1:
-            if self._augmentations.batch_size > len(self):
-                warnings.warn(
-                    f"Augmentations batch_size ({self._augmentations.batch_size}) "
-                    f"is larger than dataset size ({len(self)}). "
-                    "Samples will include repetitions.",
-                    stacklevel=2,
-                )
-                other_indices = [i for i in range(len(self)) if i != idx]
-                picked_indices = random.choices(
-                    other_indices, k=self._augmentations.batch_size - 1
-                )
-            else:
-                picked_indices = set()
-                max_val = len(self)
-                while len(picked_indices) < self._augmentations.batch_size - 1:
-                    rand_idx = random.randint(0, max_val - 1)
-                    if rand_idx != idx and rand_idx not in picked_indices:
-                        picked_indices.add(rand_idx)
-                picked_indices = list(picked_indices)
-
-            indices.extend(picked_indices)
+        indices = [idx, *self._pick_batch_members(idx)]
 
         loaded_anns: list[tuple[dict[str, np.ndarray], Labels]] = []
         sample_metadata_list: list[Params] = []
@@ -654,6 +632,34 @@ class LuxonisLoader(BaseLoader):
                 self._augmentations.applied_augmentations
             )
         return img_dict, labels, sample_metadata
+
+    def _pick_batch_members(self, idx: int) -> list[int]:
+        """Draw the other samples that a batch augmentation of ``idx`` needs.
+
+        The samples are distinct from ``idx`` and from each other, unless
+        the batch is larger than the dataset.
+        """
+        assert self._augmentations is not None
+        n_others = self._augmentations.batch_size - 1
+        if n_others < 1:
+            return []
+
+        if self._augmentations.batch_size > len(self):
+            warnings.warn(
+                f"Augmentations batch_size ({self._augmentations.batch_size}) "
+                f"is larger than dataset size ({len(self)}). "
+                "Samples will include repetitions.",
+                stacklevel=3,
+            )
+            other_indices = [i for i in range(len(self)) if i != idx] or [idx]
+            return random.choices(other_indices, k=n_others)
+
+        picked: set[int] = set()
+        while len(picked) < n_others:
+            rand_idx = random.randint(0, len(self) - 1)
+            if rand_idx != idx and rand_idx not in picked:
+                picked.add(rand_idx)
+        return list(picked)
 
     @staticmethod
     def _reserve_key(metadata: Params, key: str) -> bool:
@@ -732,6 +738,7 @@ class LuxonisLoader(BaseLoader):
         self,
         augmentation_engine: Literal["albumentations"] | str,
         augmentation_config: list[Params] | PathType,
+        *,
         height: int | None,
         width: int | None,
         keep_aspect_ratio: bool,
@@ -886,3 +893,20 @@ class LuxonisLoader(BaseLoader):
                 polygon += [round(x * width), round(y * height)]
             masks += pycocotools.mask.frPyObjects([polygon], height, width)
         return masks
+
+
+def _read_image(path: Path, color_space: str) -> np.ndarray:
+    """Read an image in the given color space, with a channel axis."""
+    if color_space == "GRAY":
+        img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    else:
+        img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if img is None:
+        raise FileNotFoundError(f"Cannot read image at path: {path}")
+    if color_space != "GRAY":
+        return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    if img.ndim == 2:
+        return img[..., np.newaxis]
+    if img.ndim == 3 and img.shape[2] == 3:
+        return img[..., 0:1]
+    raise ValueError(f"Unsupported image format: shape {img.shape}")

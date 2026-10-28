@@ -1,3 +1,4 @@
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -84,61 +85,76 @@ class YoloV4Parser(BaseParser):
                 i: line.rstrip() for i, line in enumerate(f.readlines())
             }
 
-        def generator() -> DatasetIterator:
-            with open(annotation_path) as f:
-                annotation_data = [line.rstrip() for line in f]
+        records = partial(
+            self._records, image_dir, annotation_path, class_names
+        )
+        added_images = self._get_added_images(records())
 
-            annotated_images: set[Path] = set()
+        return records(), {}, added_images
 
-            for ann_line in annotation_data:
-                data = ann_line.split(" ")
-                img_path = data[0]
-                path = resolve_manifest_path(
-                    image_dir.absolute().resolve(), img_path
+    def _records(
+        self,
+        image_dir: Path,
+        annotation_path: Path,
+        class_names: dict[int, str],
+    ) -> DatasetIterator:
+        """Yield the records of the annotation file, then the unlisted images."""
+        with open(annotation_path) as f:
+            annotation_data = [line.rstrip() for line in f]
+
+        annotated_images: set[Path] = set()
+
+        for ann_line in annotation_data:
+            data = ann_line.split(" ")
+            img_path = data[0]
+            path = resolve_manifest_path(
+                image_dir.absolute().resolve(), img_path
+            )
+            annotated_images.add(path.resolve())
+            if not path.exists():
+                self._warn_skipped_annotation(
+                    ParserIssue.MISSING_IMAGE,
+                    "referenced image file does not exist",
+                    source=annotation_path,
+                    image=path,
                 )
-                annotated_images.add(path.resolve())
-                if not path.exists():
-                    self._warn_skipped_annotation(
-                        ParserIssue.MISSING_IMAGE,
-                        "referenced image file does not exist",
-                        source=annotation_path,
-                        image=path,
-                    )
-                    continue
+                continue
 
-                file = str(path)
+            file = str(path)
 
-                # Handle image names listed with no following annotation in the line
-                if len(data) == 1:
-                    yield {"media": file, "annotation": None}
-                    continue
+            # Handle image names listed with no following annotation in the line
+            if len(data) == 1:
+                yield {"media": file, "annotation": None}
+                continue
 
-                img = Image.open(file)
-                width, height = img.size
+            width, height = Image.open(file).size
+            for ann_data in data[1:]:
+                yield {
+                    "media": file,
+                    "annotation": _box_annotation(
+                        ann_data, class_names, width, height
+                    ),
+                }
 
-                for ann_data in data[1:]:
-                    curr_ann_data = ann_data.split(",")
-                    class_name = class_names[int(curr_ann_data[4])]
+        # Images in the directory not listed in annotations file
+        for img_path in self._list_images(image_dir):
+            if img_path.resolve() not in annotated_images:
+                yield {"media": str(img_path), "annotation": None}
 
-                    bbox_xyxy = [float(i) for i in curr_ann_data[:4]]
-                    yield {
-                        "media": file,
-                        "annotation": {
-                            "class": class_name,
-                            "boundingbox": {
-                                "x": bbox_xyxy[0] / width,
-                                "y": bbox_xyxy[1] / height,
-                                "w": (bbox_xyxy[2] - bbox_xyxy[0]) / width,
-                                "h": (bbox_xyxy[3] - bbox_xyxy[1]) / height,
-                            },
-                        },
-                    }
 
-            # Images in the directory not listed in annotations file
-            for img_path in self._list_images(image_dir):
-                if img_path.resolve() not in annotated_images:
-                    yield {"media": str(img_path), "annotation": None}
-
-        added_images = self._get_added_images(generator())
-
-        return generator(), {}, added_images
+def _box_annotation(
+    ann_data: str, class_names: dict[int, str], width: int, height: int
+) -> dict[str, Any]:
+    """Convert one ``x1,y1,x2,y2,class_id`` pixel box to a normalized LDF box."""
+    curr_ann_data = ann_data.split(",")
+    class_name = class_names[int(curr_ann_data[4])]
+    x1, y1, x2, y2 = (float(i) for i in curr_ann_data[:4])
+    return {
+        "class": class_name,
+        "boundingbox": {
+            "x": x1 / width,
+            "y": y1 / height,
+            "w": (x2 - x1) / width,
+            "h": (y2 - y1) / height,
+        },
+    }

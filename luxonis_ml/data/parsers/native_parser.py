@@ -131,18 +131,7 @@ class NativeParser(BaseParser):
 
         def generator() -> DatasetIterator:
             for record in data:
-                # An older manifest names the media with the keys a record
-                # now accepts only as deprecated ones.
-                for key in ("media", "file", "files"):
-                    if key in record:
-                        record["media"] = _resolve_media(
-                            record.pop(key), annotation_path.parent
-                        )
-                        break
-                for detection in _walk_detections(record.get("annotation")):
-                    _resolve_annotation_paths(
-                        detection, annotation_path.parent
-                    )
+                _resolve_record_paths(record, annotation_path.parent)
                 yield record
 
         added_images = self._get_added_images(generator())
@@ -174,6 +163,22 @@ class NativeParser(BaseParser):
                     f"'{stamp}' declares LDF {version}, but this luxonis-ml "
                     f"reads LDF {LDF_VERSION}. Upgrade it if parsing fails."
                 )
+
+
+def _resolve_record_paths(record: dict[str, Any], base_dir: Path) -> None:
+    """Rewrite the file paths of one record in place, relative to ``base_dir``.
+
+    The media path or paths come first, then the companion files of each
+    detection.
+    """
+    # An older manifest names the media with the keys a record now
+    # accepts only as deprecated ones.
+    for key in ("media", "file", "files"):
+        if key in record:
+            record["media"] = _resolve_media(record.pop(key), base_dir)
+            break
+    for detection in _walk_detections(record.get("annotation")):
+        _resolve_annotation_paths(detection, base_dir)
 
 
 def _resolve_media(media: ManifestValue, base_dir: Path) -> ManifestValue:

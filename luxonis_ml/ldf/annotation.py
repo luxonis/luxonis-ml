@@ -372,7 +372,7 @@ import json
 import warnings
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -1978,15 +1978,15 @@ class DatasetRecord(BaseModelExtraForbid):
         file_items = sorted(self.file_paths.items(), key=lambda x: str(x[1]))
         for i, (source, file_path) in enumerate(file_items):
             if i > 0:
-                yield self._empty_row(
-                    source, file_path, secondary_task, sample_metadata
+                yield _parquet_row(
+                    file_path, source, secondary_task, sample_metadata
                 )
                 continue
 
             for task_name, annotations in annotations_by_task.items():
                 if not annotations:
-                    yield self._empty_row(
-                        source, file_path, task_name, sample_metadata
+                    yield _parquet_row(
+                        file_path, source, task_name, sample_metadata
                     )
                 for annotation in annotations:
                     yield from self._detection_rows(
@@ -2046,26 +2046,17 @@ class DatasetRecord(BaseModelExtraForbid):
                 task_name, instance_id, inherited=inherited
             )
 
-        def row(task_type: str, payload: str) -> ParquetRecord:
-            return {
-                "file": str(file_path),
-                "source_name": source,
-                "task_name": task_name,
-                "class_name": annotation.class_name,
-                "instance_id": instance_id,
-                "task_type": task_type,
-                "annotation": payload,
-                "sample_metadata": sample_metadata,
-            }
-
-        for task_type in _LABEL_TASK_TYPES:
-            label: Annotation | None = getattr(annotation, task_type)
-            if label is not None:
-                yield row(task_type, label.model_dump_json())
-        for key, data in annotation.metadata.items():
-            yield row(f"metadata/{key}", json.dumps(data))
-        if annotation.class_name is not None:
-            yield row("classification", "{}")
+        for task_type, label in _label_columns(annotation):
+            yield _parquet_row(
+                file_path,
+                source,
+                task_name,
+                sample_metadata,
+                class_name=annotation.class_name,
+                instance_id=instance_id,
+                task_type=task_type,
+                annotation=label,
+            )
         for name, detection in annotation.sub_detections.items():
             yield from self._detection_rows(
                 detection,
@@ -2076,25 +2067,6 @@ class DatasetRecord(BaseModelExtraForbid):
                 instance_counter=instance_counter,
                 parent_number=instance_id,
             )
-
-    @staticmethod
-    def _empty_row(
-        source: str,
-        file_path: FilePath,
-        task_name: str,
-        sample_metadata: str,
-    ) -> ParquetRecord:
-        """Return the row of a source that carries no annotation."""
-        return {
-            "file": str(file_path),
-            "source_name": source,
-            "task_name": task_name,
-            "class_name": None,
-            "instance_id": None,
-            "task_type": None,
-            "annotation": None,
-            "sample_metadata": sample_metadata,
-        }
 
 
 def load_annotation(
@@ -2170,3 +2142,43 @@ __all__ = [
     "SegmentationAnnotation",
     "load_annotation",
 ]
+
+
+def _label_columns(annotation: Detection) -> Iterator[tuple[str, str]]:
+    """Yield the ``(task_type, serialized label)`` pairs of a detection.
+
+    The labels come first, then the metadata, then the class as a
+    classification label.
+    """
+    for task_type in _LABEL_TASK_TYPES:
+        label: Annotation | None = getattr(annotation, task_type)
+        if label is not None:
+            yield task_type, label.model_dump_json()
+    for key, data in annotation.metadata.items():
+        yield f"metadata/{key}", json.dumps(data)
+    if annotation.class_name is not None:
+        yield "classification", "{}"
+
+
+def _parquet_row(
+    file_path: Path,
+    source: str,
+    task_name: str,
+    sample_metadata: str,
+    *,
+    class_name: str | None = None,
+    instance_id: int | None = None,
+    task_type: str | None = None,
+    annotation: str | None = None,
+) -> ParquetRecord:
+    """Build one parquet row; the key order is the column order."""
+    return {
+        "file": str(file_path),
+        "source_name": source,
+        "task_name": task_name,
+        "class_name": class_name,
+        "instance_id": instance_id,
+        "task_type": task_type,
+        "annotation": annotation,
+        "sample_metadata": sample_metadata,
+    }

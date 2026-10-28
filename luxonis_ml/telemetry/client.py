@@ -303,20 +303,10 @@ class Telemetry:
                     "Telemetry context provider returned a non-mapping; skipping."
                 )
                 continue
-            if not extra:
-                continue
             if self._config.allow_reserved_overrides:
                 context.update(extra)
-                continue
-            for key, value in extra.items():
-                if key in RESERVED_METADATA_KEYS and key in context:
-                    logger.debug(
-                        "Telemetry context provider attempted to override "
-                        "protected key '{}'; skipping.",
-                        key,
-                    )
-                    continue
-                context[key] = value
+            else:
+                _update_unreserved(context, extra)
 
     def _add_provider(
         self,
@@ -326,6 +316,21 @@ class Telemetry:
         """Register a provider once while preserving call order."""
         if provider not in providers:
             providers.append(provider)
+
+
+def _update_unreserved(
+    context: dict[str, Any], extra: Mapping[str, Any]
+) -> None:
+    """Merge ``extra`` into ``context``; a reserved key already set stays."""
+    for key, value in extra.items():
+        if key in RESERVED_METADATA_KEYS and key in context:
+            logger.debug(
+                "Telemetry context provider attempted to override "
+                "protected key '{}'; skipping.",
+                key,
+            )
+            continue
+        context[key] = value
 
 
 def _safe_version(dist_name: str) -> str | None:
