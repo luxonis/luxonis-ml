@@ -559,6 +559,20 @@ def test_local_filesystem_edge_cases(tempdir: Path):
     assert (downloaded_dir / "fixed-uuid.txt").read_text() == "uuid"
 
 
+def test_root_download_returns_where_the_data_landed(tempdir: Path):
+    remote_root = tempdir / "remote-root"
+    remote_root.mkdir()
+    (remote_root / "data.txt").write_text("data")
+    fs = LuxonisFileSystem(str(remote_root))
+    local_dir = tempdir / "existing-download-root"
+    local_dir.mkdir()
+
+    downloaded_dir = fs.get_dir("", local_dir)
+
+    assert downloaded_dir == local_dir / "remote-root"
+    assert (downloaded_dir / "data.txt").read_text() == "data"
+
+
 def test_download_returns_where_the_data_landed(
     tempdir: Path, monkeypatch: pytest.MonkeyPatch
 ):

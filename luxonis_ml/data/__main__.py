@@ -109,6 +109,14 @@ def delete(
         print("[red]At least one dataset name must be provided.[/red]")
         raise SystemExit(1)
 
+    if bucket_storage is BucketStorage.LOCAL and remote:
+        print(
+            "[yellow]Warning: You specified remote deletion, "
+            "but the bucket is local. "
+            "Remote deletion will not be performed.[/yellow]"
+        )
+        remote = False
+
     if not local and not remote:
         print(
             "[red]No deletion target specified (local or remote). "
@@ -118,14 +126,6 @@ def delete(
 
     for name in names:
         check_exists(name, bucket_storage)
-
-        if bucket_storage is BucketStorage.LOCAL and remote:
-            print(
-                "[yellow]Warning: You specified remote deletion, "
-                "but the bucket is local. "
-                "Remote deletion will not be performed.[/yellow]"
-            )
-            remote = False
 
         storage = _storage_label(local=local, remote=remote)
         if not yes and not Confirm.ask(

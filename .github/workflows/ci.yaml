@@ -137,13 +137,16 @@ jobs:
 
       - name: Run pytest
         shell: bash
+        env:
+          MATRIX_OS: ${{ matrix.os }}
+          MATRIX_GROUP: ${{ matrix.group }}
         run: |
-          junit_xml="junit-${{ matrix.os }}-${{ matrix.group }}.xml"
+          junit_xml="junit-$MATRIX_OS-$MATRIX_GROUP.xml"
           mkdir -p .pytest-durations
-          durations_path=".pytest-durations/.test_durations.${{ matrix.os }}"
+          durations_path=".pytest-durations/.test_durations.$MATRIX_OS"
           pytest_args=(
             --splits 6
-            --group "${{ matrix.group }}"
+            --group "$MATRIX_GROUP"
             --durations-path "$durations_path"
             --splitting-algorithm duration_based_chunks
             --junitxml "$junit_xml"
@@ -153,8 +156,8 @@ jobs:
             -x
           )
 
-          if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
-            coverage_xml="coverage-${{ matrix.os }}-${{ matrix.group }}.xml"
+          if [[ "$MATRIX_OS" == "ubuntu-latest" ]]; then
+            coverage_xml="coverage-$MATRIX_OS-$MATRIX_GROUP.xml"
             uv run --no-sync pytest --cov --cov-report term-missing --cov-report "xml:$coverage_xml" "${pytest_args[@]}"
           else
             uv run --no-sync pytest "${pytest_args[@]}"

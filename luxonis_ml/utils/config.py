@@ -234,14 +234,9 @@ def _set_leaf(data: dict | list, key: str, value: Any) -> None:
 def _merge_into_list(data: list, key: str, key_tail: str, value: Any) -> None:
     """Descend into the list item at ``key``.
 
-    The key ``+`` appends an empty item of the type of the first one.
+    The key ``+`` appends a new item, as an index past the end does.
     """
-    if key == "+":
-        data.append(type(data[0])())
-        _merge_override(data[-1], key_tail, value)
-        return
-
-    index = int(key)
+    index = len(data) if key == "+" else int(key)
     if index < len(data):
         _merge_override(data[index], key_tail, value)
     elif data:
