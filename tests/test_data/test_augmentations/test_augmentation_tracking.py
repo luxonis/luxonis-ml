@@ -403,7 +403,7 @@ def test_tracks_mosaic_runtime_parameters():
         [
             {
                 "name": "Mosaic4",
-                "params": {"p": 1.0, "out_width": 64, "out_height": 64},
+                "params": {"p": 1.0, "width": 64, "height": 64},
             }
         ],
         seed=42,
@@ -662,7 +662,7 @@ def test_tracks_batch_transforms_applied_in_any_sub_batch():
         [
             {
                 "name": "Mosaic4",
-                "params": {"p": 0.5, "out_width": 64, "out_height": 64},
+                "params": {"p": 0.5, "width": 64, "height": 64},
             },
             {"name": "MixUp", "params": {"p": 1.0}},
         ],

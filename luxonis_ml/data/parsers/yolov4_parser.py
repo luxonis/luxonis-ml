@@ -131,7 +131,8 @@ class YoloV4Parser(BaseParser):
                 yield {"file": file, "annotation": None}
                 continue
 
-            width, height = Image.open(file).size
+            with Image.open(file) as image:
+                width, height = image.size
             for ann_data in data[1:]:
                 yield {
                     "file": file,

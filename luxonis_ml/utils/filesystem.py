@@ -219,8 +219,15 @@ class LuxonisFileSystem:
     ) -> str:
         """Set up the MLflow run from the path, or use the active run.
 
-        Returns the value for ``self._path``: ``path`` itself, or ``""``
-        for the active run.
+        Returns:
+            The value for ``self._path``, which is ``path`` itself or
+            ``""`` for the active run.
+
+        Raises:
+            ValueError: If ``path`` is ``None`` and the active run is
+                not allowed, or if no ``tracking_uri`` is given and
+                ``MLFLOW_TRACKING_URI`` is not set.
+
         """
         if path is not None:
             (self._experiment_id, self._run_id, self._artifact_path) = (
@@ -671,6 +678,11 @@ class LuxonisFileSystem:
 
         An existing ``local_dir`` receives the directory as a child; a
         new one becomes the directory itself.
+
+        Returns:
+            The local path of the directory. An MLflow download without
+            an artifact path always goes to ``local_dir`` itself.
+
         """
         existed = local_dir.exists()
         if self.is_mlflow:
@@ -682,12 +694,12 @@ class LuxonisFileSystem:
                 artifact_path or "", download_path, mlflow_instance
             )
             return download_path
-        self._fs.get(
-            str(self._path / remote_dir), str(local_dir), recursive=True
-        )
+        source = str(self._path / remote_dir)
+        self._fs.get(source, str(local_dir), recursive=True)
         if not existed:
             return local_dir
-        return local_dir / PurePosixPath(remote_dir).name
+        # ``Path`` splits the backslashes of a local Windows ``self._path``.
+        return local_dir / Path(source).name
 
     def delete_dir(
         self, remote_dir: PosixPathType = "", allow_delete_parent: bool = False
@@ -1547,10 +1559,10 @@ def _uuid_from_stream(stream: IO[bytes]) -> str:
         UUID generated from the file bytes.
 
     """
-    # NOTE: Not a security hash -- this reproduces `uuid.uuid5`, whose
+    # NOTE: Not a security hash. This reproduces `uuid.uuid5`, whose
     # algorithm is fixed by RFC 4122. The flag keeps it working where
     # SHA-1 is disabled for security use, such as FIPS mode.
-    digest = hashlib.sha1(  # nosemgrep
+    digest = hashlib.sha1(  # nosemgrep: insecure-hash-algorithm-sha1
         uuid.NAMESPACE_URL.bytes, usedforsecurity=False
     )
     while chunk := stream.read(_UUID_CHUNK_SIZE):

@@ -60,10 +60,12 @@ jobs:
 
       - name: Generate pytest durations
         shell: bash
+        env:
+          MATRIX_OS: ${{ matrix.os }}
         run: |
           mkdir -p .pytest-durations
-          durations_path=".pytest-durations/.test_durations.${{ matrix.os }}"
-          junit_xml="junit-durations-${{ matrix.os }}.xml"
+          durations_path=".pytest-durations/.test_durations.$MATRIX_OS"
+          junit_xml="junit-durations-$MATRIX_OS.xml"
           pytest_args=(
             --store-durations
             --clean-durations
@@ -73,8 +75,8 @@ jobs:
             -vv
           )
 
-          if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
-            uv run --no-sync pytest --cov --cov-report "xml:coverage-durations-${{ matrix.os }}.xml" "${pytest_args[@]}"
+          if [[ "$MATRIX_OS" == "ubuntu-latest" ]]; then
+            uv run --no-sync pytest --cov --cov-report "xml:coverage-durations-$MATRIX_OS.xml" "${pytest_args[@]}"
           else
             uv run --no-sync pytest "${pytest_args[@]}"
           fi
