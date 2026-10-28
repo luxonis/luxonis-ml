@@ -192,6 +192,14 @@ def _merge_override(data: dict | list, dot_name: str, value: Any) -> None:
 
     A decimal key indexes a list, ``+`` appends to one, and any other
     key names a dict entry. Missing containers on the way are created.
+
+    Raises:
+        ValueError: If a key does not fit the value it indexes, such as
+            a decimal key for a dict, or a key other than a decimal or
+            ``+`` for a list.
+        TypeError: If the last key is not a decimal and indexes a value
+            that is neither a dict nor a list.
+
     """
     key, *tail = dot_name.split(".")
     if not tail:
@@ -230,14 +238,9 @@ def _set_leaf(data: dict | list, key: str, value: Any) -> None:
 def _merge_into_list(data: list, key: str, key_tail: str, value: Any) -> None:
     """Descend into the list item at ``key``.
 
-    The key ``+`` appends an empty item of the type of the first one.
+    The key ``+`` appends a new item, as an index past the end does.
     """
-    if key == "+":
-        data.append(type(data[0])())
-        _merge_override(data[-1], key_tail, value)
-        return
-
-    index = int(key)
+    index = len(data) if key == "+" else int(key)
     if index < len(data):
         _merge_override(data[index], key_tail, value)
     elif data:

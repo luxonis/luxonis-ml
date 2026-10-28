@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import warnings
 import zipfile
 from pathlib import Path
 
@@ -321,3 +322,34 @@ def test_ldf_equivalent_compares_metadata_tasks(
 
     assert ldf_equivalent(red, same)
     assert not ldf_equivalent(red, blue)
+
+
+def test_ldf_equivalent_by_name_is_free_of_deprecations(
+    dataset_name: str, tempdir: Path
+):
+    def generator() -> DatasetIterator:
+        for i in range(2):
+            yield {
+                "file": create_image(i, tempdir),
+                "annotation": {"class": "person"},
+            }
+
+    first = create_dataset(f"{dataset_name}_first", generator())
+    second = create_dataset(f"{dataset_name}_second", generator())
+    try:
+        # polars emits its deprecations from Rust and swallows the
+        # exception of an `error` filter, so only a record shows them.
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", category=DeprecationWarning)
+            assert ldf_equivalent(
+                f"{dataset_name}_first", f"{dataset_name}_second"
+            )
+        deprecations = [
+            str(w.message)
+            for w in caught
+            if issubclass(w.category, DeprecationWarning)
+        ]
+        assert deprecations == []
+    finally:
+        first.delete_dataset(delete_local=True)
+        second.delete_dataset(delete_local=True)

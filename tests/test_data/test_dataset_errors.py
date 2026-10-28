@@ -7,6 +7,7 @@ import polars as pl
 import pytest
 
 from luxonis_ml.data import LuxonisDataset
+from luxonis_ml.data.__main__ import delete
 from luxonis_ml.data.utils.enums import BucketStorage
 from luxonis_ml.utils import environ
 
@@ -69,8 +70,37 @@ def test_remote_dataset_without_a_bucket_creates_nothing(
 ):
     name = f"test_remote_dataset_without_a_bucket_{randint}"
     monkeypatch.setattr(LuxonisDataset, "_init_credentials", lambda _: {})
-    monkeypatch.setattr(environ, "LUXONISML_BUCKET", None)
+    # On the proxy instance, undo would pin the old value for the session.
+    monkeypatch.setattr(type(environ), "LUXONISML_BUCKET", None, raising=False)
 
     with pytest.raises(ValueError, match="LUXONISML_BUCKET"):
         LuxonisDataset(name, bucket_storage=BucketStorage.GCS)
     assert not LuxonisDataset.exists(name)
+
+
+def test_remote_delete_of_a_local_dataset_deletes_nothing(
+    dataset: LuxonisDataset,
+):
+    with pytest.raises(SystemExit) as exit_info:
+        delete(dataset.identifier, remote=True, yes=True)
+
+    assert exit_info.value.code == 2
+    assert LuxonisDataset.exists(dataset.identifier)
+
+
+@pytest.mark.parametrize(
+    "credentials",
+    [{}, {"LUXONISML_BUCKET": None}],
+    ids=["environment", "credentials file"],
+)
+def test_unset_credential_is_an_error(
+    dataset: LuxonisDataset,
+    monkeypatch: pytest.MonkeyPatch,
+    credentials: dict[str, None],
+):
+    monkeypatch.setattr(dataset, "_credentials", credentials)
+    # On the proxy instance, undo would pin the old value for the session.
+    monkeypatch.setattr(type(environ), "LUXONISML_BUCKET", None, raising=False)
+
+    with pytest.raises(ValueError, match="LUXONISML_BUCKET"):
+        dataset._get_credential("LUXONISML_BUCKET")

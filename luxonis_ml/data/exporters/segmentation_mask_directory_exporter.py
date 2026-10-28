@@ -186,7 +186,12 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
     ) -> np.ndarray | None:
         """Paint the class ID of each segmentation row onto one mask.
 
-        Returns ``None`` when no row names a class.
+        Returns:
+            A ``uint16`` mask with the shape of the first decoded mask.
+            Each pixel holds the per-split class ID of the last row that
+            covers it, or ``0`` for background. ``None`` if no row names
+            a class.
+
         """
         combined = None
         for row in seg_rows:

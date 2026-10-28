@@ -872,10 +872,10 @@ def test_keypoints_solo(dataset_name: str, tempdir: Path):
         {"name": "Defocus", "params": {"p": 1}},
         {
             "name": "Mosaic4",
-            "params": {"out_width": 512, "out_height": 512, "p": 1},
+            "params": {"width": 512, "height": 512, "p": 1},
         },
     ]
-    dataset = create_dataset(dataset_name, generator())
+    dataset = create_dataset(dataset_name, generator(), splits=(1, 0, 0))
     loader = LuxonisLoader(
         dataset, height=512, width=512, augmentation_config=augs
     )

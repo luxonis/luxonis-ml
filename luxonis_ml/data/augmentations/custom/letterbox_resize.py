@@ -359,6 +359,16 @@ class LetterboxResize(A.DualTransform):
 
         `Color.parse` clamps rather than raising, which for a fill value would
         silently pad with a color the config never asked for.
+
+        Returns:
+            The red, green and blue channels of ``value``. A grayscale
+            integer gives three equal channels, and an alpha channel is
+            dropped.
+
+        Raises:
+            ValueError: If an integer channel of ``value`` is outside 0
+                to 255, or if ``value`` is not a valid color.
+
         """
         channels = value if isinstance(value, tuple) else (value,)
         for channel in channels:
