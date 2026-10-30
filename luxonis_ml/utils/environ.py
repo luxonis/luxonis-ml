@@ -1,9 +1,15 @@
+"""Settings read from the environment and the ``.env`` file.
+
+The ``environ`` object loads the values again on each attribute access.
+"""
+
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, cast
 
 from pydantic import NonNegativeInt, SecretStr, model_serializer
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing_extensions import override
 
 from luxonis_ml.typing import Params
 
@@ -104,8 +110,7 @@ class Environ(BaseSettings):
 
 @lru_cache(maxsize=1)
 def _load_environ() -> Environ:
-    """Return a cached Environ instance, reading .env and os.environ
-    once.
+    """Return a cached Environ instance that reads .env and os.environ once.
 
     Returns:
         The same instance on every call until the cache is cleared.
@@ -120,9 +125,10 @@ class _EnvironProxy:
         real = _load_environ()
         return getattr(real, name)
 
+    @override
     def __repr__(self) -> str:
         return "<EnvironProxy loading from .env>"
 
 
 _proxy = _EnvironProxy()
-environ: Environ = cast(Environ, _proxy)
+environ: Environ = cast("Environ", _proxy)

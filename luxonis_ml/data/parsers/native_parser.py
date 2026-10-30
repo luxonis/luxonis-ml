@@ -1,3 +1,5 @@
+"""Parser for datasets in the native LDF format."""
+
 import json
 from contextlib import suppress
 from pathlib import Path
@@ -5,6 +7,7 @@ from typing import Any
 
 from loguru import logger
 from semver.version import Version
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.constants import LDF_VERSION
@@ -76,17 +79,26 @@ class NativeParser(BaseParser):
 
     _SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
+        """Create the parser.
+
+        Args:
+            *args: Positional arguments passed to `BaseParser`.
+            **kwargs: Keyword arguments passed to `BaseParser`.
+
+        """
         super().__init__(*args, **kwargs)
         self._checked_stamps: set[Path] = set()
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         annotation_path = split_path / "annotations.json"
         if not annotation_path.exists():
             return None
         return {"annotation_path": annotation_path}
 
+    @override
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -101,6 +113,7 @@ class NativeParser(BaseParser):
         )
         return added_train_imgs, added_val_imgs, added_test_imgs
 
+    @override
     def from_split(self, annotation_path: Path) -> ParserOutput:
         """Parse native LDF annotations.
 
@@ -113,7 +126,7 @@ class NativeParser(BaseParser):
 
         """
         self._warn_on_newer_export(annotation_path)
-        data = json.loads(annotation_path.read_text())
+        data = json.loads(annotation_path.read_text(encoding="utf-8"))
 
         def generator() -> DatasetIterator:
             for record in data:
@@ -141,7 +154,7 @@ class NativeParser(BaseParser):
         self._checked_stamps.add(stamp)
         with suppress(OSError, ValueError, TypeError, KeyError):
             version = Version.parse(
-                json.loads(stamp.read_text())["ldf_version"],
+                json.loads(stamp.read_text(encoding="utf-8"))["ldf_version"],
                 optional_minor_and_patch=True,
             )
             if version > LDF_VERSION:

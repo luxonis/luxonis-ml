@@ -122,7 +122,7 @@ class COCOParser(BaseParser):
     def _is_coco_json(json_path: Path) -> bool:
         """Check if JSON file has required COCO format fields."""
         try:
-            with open(json_path) as f:
+            with json_path.open(encoding="utf-8") as f:
                 data = json.load(f)
             if not isinstance(data, dict):
                 return False
@@ -139,28 +139,26 @@ class COCOParser(BaseParser):
             return False
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
-        json_path = next(split_path.glob("*.json"), None)
-        if not json_path:
+        json_path = split_path / "_annotations.coco.json"
+        if not json_path.exists():
+            json_path = next(split_path.glob("*.json"), None)
+        if json_path is None or not COCOParser._is_coco_json(json_path):
             return None
         if json_path.name == "_annotations.coco.json":
-            if not COCOParser._is_coco_json(json_path):
-                return None
             logger.info("Identified Roboflow format")
-            image_dir = split_path
-            return {"image_dir": image_dir, "annotation_path": json_path}
-        if not COCOParser._is_coco_json(json_path):
-            return None
+            return {"image_dir": split_path, "annotation_path": json_path}
         logger.info("Identified FiftyOne format")
         dirs = [d for d in split_path.iterdir() if d.is_dir()]
         if len(dirs) != 1:
             return None
-        image_dir = dirs[0]
-        return {"image_dir": image_dir, "annotation_path": json_path}
+        return {"image_dir": dirs[0], "annotation_path": json_path}
 
     @classmethod
+    @override
     def validate(cls, dataset_dir: Path) -> bool:
         dir_format, splits = cls._detect_dataset_dir_format(dataset_dir)
         if dir_format is None:
@@ -185,6 +183,7 @@ class COCOParser(BaseParser):
             discovered[cls._canonicalize_split_name(split_name)] = split_kwargs
         return discovered
 
+    @override
     def from_dir(
         self,
         dataset_dir: Path,
@@ -229,6 +228,7 @@ class COCOParser(BaseParser):
     def _resolve_dir_format_and_keypoint_paths(
         self,
         dataset_dir: Path,
+        *,
         use_keypoint_ann: bool,
         keypoint_ann_paths: dict[str, str] | None,
     ) -> tuple[COCOFormat, list[str], dict[str, str] | None]:
@@ -257,6 +257,7 @@ class COCOParser(BaseParser):
     def _finalize_split_definitions(
         self,
         split_definitions: dict[str, list[Path]],
+        *,
         split_val_to_test: bool,
     ) -> dict[str, list[Path]]:
         added_test_imgs = split_definitions.get("test", [])
@@ -278,6 +279,7 @@ class COCOParser(BaseParser):
             )
         return split_definitions
 
+    @override
     def from_split(
         self, image_dir: Path, annotation_path: Path
     ) -> ParserOutput:
@@ -301,7 +303,7 @@ class COCOParser(BaseParser):
             and added images.
 
         """
-        with open(annotation_path) as f:
+        with annotation_path.open(encoding="utf-8") as f:
             annotation_data = json.load(f)
 
         coco_images = annotation_data["images"]
@@ -491,7 +493,7 @@ class COCOParser(BaseParser):
             )
 
         return self._finalize_split_definitions(
-            split_definitions, split_val_to_test
+            split_definitions, split_val_to_test=split_val_to_test
         )
 
 
@@ -503,7 +505,7 @@ class _InstanceIds:
     annotation got.
     """
 
-    def __init__(self, annotations: list[dict[str, Any]]):
+    def __init__(self, annotations: list[dict[str, Any]]) -> None:
         self._taken = {ann["id"] for ann in annotations if "id" in ann}
         self._next = 0
 
@@ -626,7 +628,7 @@ def clean_annotations(annotation_path: Path) -> Path:
         "000000578492.jpg",
         "000000531721.jpg",
     ]
-    with open(annotation_path) as f:
+    with annotation_path.open(encoding="utf-8") as f:
         annotation_data = json.load(f)
 
     filtered_images = [
@@ -649,7 +651,7 @@ def clean_annotations(annotation_path: Path) -> Path:
     annotation_data["annotations"] = filtered_annotations
 
     cleaned_annotation_path = annotation_path.with_name("labels_fixed.json")
-    with open(cleaned_annotation_path, "w") as f:
+    with cleaned_annotation_path.open("w", encoding="utf-8") as f:
         json.dump(annotation_data, f)
 
     return cleaned_annotation_path

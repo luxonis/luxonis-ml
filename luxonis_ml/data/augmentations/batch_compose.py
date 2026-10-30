@@ -1,3 +1,9 @@
+"""Composition that runs `BatchTransform` steps on a batch of samples.
+
+`BatchCompose` merges the batch into one sample and drops the labels
+of bounding boxes filtered out after each transform.
+"""
+
 import random
 from typing import Any
 
@@ -34,7 +40,7 @@ class BatchCompose(A.Compose):
         *,
         bbox_associations: dict[str, dict[str, str]] | None = None,
         **kwargs,
-    ):
+    ) -> None:
         """Compose batch transforms.
 
         Args:
@@ -107,7 +113,6 @@ class BatchCompose(A.Compose):
             return data_batch[0]
 
         for data in data_batch:
-            original_image_key = data.pop("_original_image_key", None)
             self.preprocess(data)
 
         for transform in self.transforms:
@@ -131,8 +136,9 @@ class BatchCompose(A.Compose):
             data_batch = new_batch
             input_indices = new_indices
 
-        assert len(data_batch) == 1
-        self.batch_augmentation_indices = input_indices[0]
+        # The batch size is the product of the transform batch sizes, so
+        # exactly one sample is left.
+        [self.batch_augmentation_indices] = input_indices
 
         # A sub-batch a transform applied to can still be dropped by a later
         # one that did not apply and passed its first input through instead.
@@ -147,11 +153,7 @@ class BatchCompose(A.Compose):
 
         data = self._make_contiguous(data)
 
-        data = self.postprocess(data)
-
-        data["_original_image_key"] = original_image_key
-
-        return data
+        return self.postprocess(data)
 
     def _apply_once(
         self,
@@ -178,7 +180,7 @@ class BatchCompose(A.Compose):
         first_sample = {key: value[0] for key, value in batch.items()}
         self._pad_absent_instances(batch, keypoints_per_instance)
 
-        data = transform(**batch)  # type: ignore
+        data = transform(**batch)  # pyright: ignore[reportArgumentType]
 
         # A transform that applied collapsed the batched lists
         # `yield_batches` produced into single values. Empty
@@ -488,8 +490,7 @@ class BatchCompose(A.Compose):
 
     @staticmethod
     def _make_contiguous(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
-        for key, value in data.items():
-            if isinstance(value, np.ndarray):
-                value = np.ascontiguousarray(value)
-            data[key] = value
-        return data
+        """Return the arrays of ``data`` in C-contiguous memory."""
+        return {
+            key: np.ascontiguousarray(value) for key, value in data.items()
+        }

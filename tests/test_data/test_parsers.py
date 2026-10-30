@@ -1,11 +1,13 @@
 import json
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from defusedxml.ElementTree import fromstring
 from loguru import logger
 from pydantic import SecretStr
+from typing_extensions import override
 
 from luxonis_ml.data import (
     BaseDataset,
@@ -16,16 +18,46 @@ from luxonis_ml.data import (
 from luxonis_ml.data.parsers import (
     COCOParser,
     UltralyticsNDJSONParser,
+    VOCParser,
     YOLOv8Parser,
     luxonis_parser,
 )
 from luxonis_ml.data.parsers.base_parser import BaseParser, ParserOutput
 from luxonis_ml.data.utils import COCOFormat, get_task_type
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.utils import environ
 
 from .utils import create_image
+
+if TYPE_CHECKING:
+    from luxonis_ml.ldf import DatasetRecord
+
+
+def test_voc_parser_requires_image_size() -> None:
+    root = fromstring("<annotation />")
+
+    with pytest.raises(ValueError, match="Could not find size"):
+        VOCParser._image_boxes(root)
+
+
+def test_coco_split_prefers_the_roboflow_annotation_file(
+    tempdir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Directory order must not decide which JSON file is used."""
+    split = tempdir / "roboflow_split"
+    split.mkdir(exist_ok=True)
+    annotation = split / "_annotations.coco.json"
+    annotation.write_text(
+        json.dumps({"images": [], "categories": []}), encoding="utf-8"
+    )
+    extra = split / "extra.json"
+    extra.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(Path, "glob", lambda *_: iter([extra, annotation]))
+
+    assert COCOParser.validate_split(split) == {
+        "image_dir": split,
+        "annotation_path": annotation,
+    }
 
 
 @pytest.mark.parametrize(
@@ -335,7 +367,7 @@ def test_dir_parser_explicit_type(
     parser = LuxonisParser(
         url,
         dataset_name=dataset_name,
-        dataset_type=dataset_type,  # type: ignore
+        dataset_type=dataset_type,  # pyright: ignore[reportArgumentType]
         delete_local=True,
         save_dir=tempdir,
     )
@@ -522,9 +554,9 @@ class _WarningParser(BaseParser):
         *,
         reason: str = "dummy skipped annotation",
         full_warnings: bool = False,
-    ):
+    ) -> None:
         super().__init__(
-            cast(BaseDataset, _DummyDataset()),
+            cast("BaseDataset", _DummyDataset()),
             DatasetType.COCO,
             None,
             full_warnings=full_warnings,
@@ -533,14 +565,17 @@ class _WarningParser(BaseParser):
         self.reason = reason
 
     @staticmethod
+    @override
     def validate_split(_split_path: Path) -> dict[str, Any]:
         return {}
 
+    @override
     def from_dir(
         self, dataset_dir: Path, **kwargs: Any
     ) -> tuple[list[Path], list[Path], list[Path]]:
         return [], [], []
 
+    @override
     def from_split(self, **kwargs: Any) -> ParserOutput:
         for annotation_id in range(self.warning_count):
             self._warn_skipped_annotation(
@@ -618,7 +653,7 @@ def test_ultralytics_ndjson_parser_explicit_type(
     dataset = LuxonisParser(
         url,
         dataset_name=dataset_name,
-        dataset_type="ultralytics-ndjson",  # type: ignore[arg-type]
+        dataset_type="ultralytics-ndjson",  # pyright: ignore[reportArgumentType]
         delete_local=True,
         save_dir=tempdir,
     ).parse()
@@ -789,7 +824,7 @@ def test_partial_split_clsdir_explicit_type_uses_dir_mode(
     dataset = LuxonisParser(
         str(dataset_dir),
         dataset_name=dataset_name,
-        dataset_type="clsdir",  # type: ignore[arg-type]
+        dataset_type="clsdir",  # pyright: ignore[reportArgumentType]
         delete_local=True,
         save_dir=tempdir,
     ).parse()
@@ -912,7 +947,7 @@ def test_partial_split_train_only_roboflow_coco_keeps_format_detection(
     dataset = LuxonisParser(
         str(dataset_dir),
         dataset_name=dataset_name,
-        dataset_type="coco",  # type: ignore[arg-type]
+        dataset_type="coco",  # pyright: ignore[reportArgumentType]
         delete_local=True,
         save_dir=tempdir,
     ).parse(use_keypoint_ann=True)
@@ -937,7 +972,7 @@ class _FakeExportResponse:
 
 @pytest.fixture
 def ultralytics_requests(
-    monkeypatch: pytest.MonkeyPatch, tempdir: Path
+    monkeypatch: pytest.MonkeyPatch,
 ) -> list[dict[str, Any]]:
     """Capture the requests that `_download_ultralytics_dataset` makes.
 
@@ -962,7 +997,7 @@ def ultralytics_requests(
     monkeypatch.setattr(
         luxonis_parser,
         "download_remote_file",
-        lambda url, destination, **_: destination.write_text("{}"),
+        lambda _url, destination, **_: destination.write_text("{}"),
     )
     return calls
 
@@ -1038,7 +1073,7 @@ class _FailedExportResponse:
     status_code = 403
     reason = "Forbidden"
 
-    def __init__(self, text: str):
+    def __init__(self, text: str) -> None:
         self.text = text
 
     def json(self) -> Any:
@@ -1061,7 +1096,7 @@ def test_ultralytics_api_error_names_the_status(
     monkeypatch.setattr(
         luxonis_parser.requests,
         "get",
-        lambda url, **_: _FailedExportResponse(body),
+        lambda _url, **_: _FailedExportResponse(body),
     )
 
     with pytest.raises(RuntimeError) as excinfo:
@@ -1119,12 +1154,16 @@ def test_ndjson_records_skip_blank_lines_and_missing_images(tempdir: Path):
         "\n".join("" if line is None else json.dumps(line) for line in lines)
     )
     parser = UltralyticsNDJSONParser(
-        cast(BaseDataset, _DummyDataset()), DatasetType.ULTRALYTICSNDJSON, None
+        cast("BaseDataset", _DummyDataset()),
+        DatasetType.ULTRALYTICSNDJSON,
+        None,
     )
 
     records, _, added_images = parser._build_record_stream(ndjson_path)
 
-    classes = [cast(dict, record)["annotation"]["class"] for record in records]
+    classes = [
+        cast("dict", record)["annotation"]["class"] for record in records
+    ]
     assert classes == ["fruit"]
     assert added_images == [image.resolve()]
     (issue,) = parser._get_parser_issue_messages()
@@ -1138,7 +1177,7 @@ def test_task_name_map_routes_each_record(tempdir: Path):
     box = {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}
 
     records = [
-        cast(DatasetRecord, record)
+        cast("DatasetRecord", record)
         for record in parser._wrap_generator(
             iter(
                 [
@@ -1164,14 +1203,14 @@ def test_task_name_map_routes_each_record(tempdir: Path):
 
 def test_task_name_string_keeps_unlabeled_records(tempdir: Path):
     parser = YOLOv8Parser(
-        cast(BaseDataset, _DummyDataset()),
+        cast("BaseDataset", _DummyDataset()),
         DatasetType.YOLOV8BOUNDINGBOX,
         "fruits",
     )
     image = create_image(0, tempdir)
 
     records = [
-        cast(DatasetRecord, record)
+        cast("DatasetRecord", record)
         for record in parser._wrap_generator(
             iter(
                 [
@@ -1201,7 +1240,9 @@ def _yolov8_split(tempdir: Path, label: str) -> tuple[Path, Path, Path]:
 def _yolov8_parser() -> YOLOv8Parser:
     """Build a YOLOv8 box parser over a dummy dataset."""
     return YOLOv8Parser(
-        cast(BaseDataset, _DummyDataset()), DatasetType.YOLOV8BOUNDINGBOX, None
+        cast("BaseDataset", _DummyDataset()),
+        DatasetType.YOLOV8BOUNDINGBOX,
+        None,
     )
 
 

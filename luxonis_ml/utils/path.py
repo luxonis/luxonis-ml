@@ -1,3 +1,5 @@
+"""Helpers that parse, resolve, and serialize dataset manifest paths."""
+
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from luxonis_ml.typing import PathType
@@ -20,7 +22,6 @@ def parse_manifest_path(value: PathType) -> Path:
         'images/cat.jpg'
 
     """
-
     raw = str(value)
     path = Path(raw)
     if path.is_absolute():
@@ -29,8 +30,7 @@ def parse_manifest_path(value: PathType) -> Path:
 
 
 def resolve_manifest_path(base_dir: Path, value: PathType) -> Path:
-    """Resolve a manifest path relative to the directory that contains
-    it.
+    """Resolve a manifest path relative to the directory of the manifest.
 
     Args:
         base_dir: Directory relative paths are resolved against.
@@ -40,7 +40,6 @@ def resolve_manifest_path(base_dir: Path, value: PathType) -> Path:
         Absolute resolved path.
 
     """
-
     raw = str(value)
     windows_path = PureWindowsPath(raw)
     if windows_path.is_absolute() and not Path(raw).is_absolute():
@@ -68,7 +67,6 @@ def path_to_posix(value: PathType) -> str:
         'images/cat.jpg'
 
     """
-
     raw = str(value)
     if "\\" in raw:
         return PureWindowsPath(raw).as_posix()

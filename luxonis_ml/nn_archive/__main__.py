@@ -1,10 +1,12 @@
+"""Commands that inspect and extract NN Archive files."""
+
 import json
 import tarfile
 from pathlib import Path
 from typing import IO, Annotated
 
 from cyclopts import App, Parameter, validators
-from rich import print
+from rich import print as rich_print
 from rich.panel import Panel
 from rich.pretty import Pretty
 
@@ -68,7 +70,6 @@ def inspect(
             ``config.json`` is not a file, for example a directory.
 
     """
-
     if not any([inputs, metadata, outputs, heads, buildinfo]):
         inputs = metadata = outputs = heads = True
 
@@ -77,7 +78,7 @@ def inspect(
         if buildinfo:
             extracted_buildinfo = _open_member(tar, "buildinfo.json")
             if extracted_buildinfo is not None:
-                print(
+                rich_print(
                     Panel.fit(
                         Pretty(json.loads(extracted_buildinfo.read())),
                         title="Build Info",
@@ -90,13 +91,13 @@ def inspect(
         cfg = Config.model_validate_json(extracted_cfg.read())
 
     if metadata:
-        print(Panel.fit(Pretty(cfg.model.metadata), title="Metadata"))
+        rich_print(Panel.fit(Pretty(cfg.model.metadata), title="Metadata"))
     if heads:
-        print(Panel.fit(Pretty(cfg.model.heads), title="Heads"))
+        rich_print(Panel.fit(Pretty(cfg.model.heads), title="Heads"))
     if inputs:
-        print(Panel.fit(Pretty(cfg.model.inputs), title="Inputs"))
+        rich_print(Panel.fit(Pretty(cfg.model.inputs), title="Inputs"))
     if outputs:
-        print(Panel.fit(Pretty(cfg.model.outputs), title="Outputs"))
+        rich_print(Panel.fit(Pretty(cfg.model.outputs), title="Outputs"))
 
 
 @app.command
@@ -127,7 +128,6 @@ def extract(
             working directory.
 
     """
-
     destination = destination or Path.cwd()
     extract_path = destination / path.name.split(".")[0]
     extract_path.mkdir(exist_ok=True, parents=True)
@@ -139,18 +139,18 @@ def extract(
         for member in tar.getmembers():
             # Normalize path and ensure it's within the extraction folder
             if member.issym() or member.islnk():
-                print(f"Skipping unsafe link: {member.name}")
+                rich_print(f"Skipping unsafe link: {member.name}")
                 continue
 
             target = (root / member.name).resolve()
             if target == root or root in target.parents:
                 safe_files.append(member)
             else:
-                print(f"Skipping unsafe file: {member.name}")
+                rich_print(f"Skipping unsafe file: {member.name}")
         return safe_files
 
     with tarfile.open(path) as tf:
         for member in safe_members(tf):
             tf.extract(member, extract_path)
 
-    print(f"Archive extracted to: {extract_path}")
+    rich_print(f"Archive extracted to: {extract_path}")

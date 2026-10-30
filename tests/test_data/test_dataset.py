@@ -35,6 +35,7 @@ def test_dataset(
     storage_url: str,
     tempdir: Path,
 ):
+    dataset: LuxonisDataset | None = None
     with subtests.test("test_create"):
         dataset = LuxonisParser(
             f"{storage_url}/COCO_people_subset.zip",
@@ -102,7 +103,7 @@ def test_dataset(
 
         assert dataset.identifier == dataset_name
 
-    if "dataset" not in locals():
+    if dataset is None:
         pytest.exit("Dataset creation failed")
 
     with subtests.test("test_source"):
@@ -173,6 +174,16 @@ def test_dataset_fail(dataset_name: str, tempdir: Path):
         dataset.delete_dataset()
 
 
+def test_remote_delete_needs_a_dataset_name() -> None:
+    """Without a name, the remote path is the parent of every dataset."""
+    dataset = LuxonisDataset.__new__(LuxonisDataset)
+    dataset._dataset_name = ""
+    dataset._bucket_storage = BucketStorage.GCS
+
+    with pytest.raises(ValueError, match="without a name"):
+        dataset.delete_dataset(delete_remote=True)
+
+
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_loader_iterator(storage_url: str, tempdir: Path):
     dataset = LuxonisParser(
@@ -188,7 +199,7 @@ def test_loader_iterator(storage_url: str, tempdir: Path):
     def _raise(*_) -> NoReturn:
         raise IndexError
 
-    loader._load_data = _raise  # type: ignore
+    loader._load_data = _raise  # pyright: ignore[reportAttributeAccessIssue]
     with pytest.raises(IndexError):
         _ = loader[0]
 
@@ -202,7 +213,7 @@ def test_remove_duplicates_skips_a_clean_dataset(
     """A clean dataset must not pay for a full parquet rewrite."""
     paths = [str(create_image(i, tempdir)) for i in range(3)]
 
-    def generator(duplicate: bool) -> DatasetIterator:
+    def generator(*, duplicate: bool) -> DatasetIterator:
         for path in paths:
             yield {"file": path, "annotation": {"class": "dog"}}
         if duplicate:
@@ -256,8 +267,8 @@ def test_metadata(
 
     dataset = create_dataset(dataset_name, generator(), bucket_storage)
     loader = LuxonisLoader(dataset)
-    for _, labels in loader:
-        labels = {get_task_type(k): v for k, v in labels.items()}
+    for _, task_labels in loader:
+        labels = {get_task_type(k): v for k, v in task_labels.items()}
         assert {
             "metadata/color",
             "metadata/distance",
@@ -272,8 +283,8 @@ def test_metadata(
         assert labels["metadata/license_plate"].tolist() == ["xyz"] * 10
 
     loader = LuxonisLoader(dataset, keep_categorical_as_strings=True)
-    for _, labels in loader:
-        labels = {get_task_type(k): v for k, v in labels.items()}
+    for _, task_labels in loader:
+        labels = {get_task_type(k): v for k, v in task_labels.items()}
         assert labels["metadata/color"].tolist() == ["red", "blue"] * 5
 
     assert dataset.get_categorical_encodings() == {
@@ -333,23 +344,23 @@ def _assert_loader_tasks(
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_no_labels(dataset_name: str, tempdir: Path, subtests: SubTests):
     for total in [True, False]:
-        with subtests.test(f"test_{'total' if total else 'almost'}_empty"):
-            dataset = create_dataset(
-                dataset_name, _single_record(tempdir, annotated=not total)
-            )
+        dataset = create_dataset(
+            dataset_name, _single_record(tempdir, annotated=not total)
+        )
+        if total:
+            expected_tasks = set()
+        else:
+            expected_tasks = {
+                "/classification",
+                "/boundingbox",
+                "/keypoints",
+                "/segmentation",
+                "/instance_segmentation",
+                "/metadata/color",
+                "/head/boundingbox",
+            }
 
-            if total:
-                expected_tasks = set()
-            else:
-                expected_tasks = {
-                    "/classification",
-                    "/boundingbox",
-                    "/keypoints",
-                    "/segmentation",
-                    "/instance_segmentation",
-                    "/metadata/color",
-                    "/head/boundingbox",
-                }
+        with subtests.test(f"test_{'total' if total else 'almost'}_empty"):
             _assert_loader_tasks(dataset, expected_tasks)
 
         if total is False:
@@ -558,6 +569,49 @@ def test_clone_dataset(
     cloned_dataset.delete_dataset(delete_local=True, delete_remote=True)
 
 
+def _boxes(
+    tempdir: Path, indices: range, class_name: str, size: float
+) -> DatasetIterator:
+    """Yield one square box of ``class_name`` for each image index."""
+    for i in indices:
+        yield {
+            "file": create_image(i, tempdir),
+            "annotation": {
+                "class": class_name,
+                "boundingbox": {"x": size, "y": size, "w": size, "h": size},
+            },
+        }
+
+
+def _box_counts(dataset: LuxonisDataset) -> set[tuple[int, str]]:
+    """Return the box count of each class of ``dataset``."""
+    stats = dataset.get_statistics()
+    return {
+        (item["count"], item["class_name"])
+        for item in stats["class_distributions"][""]["boundingbox"]
+    }
+
+
+def _pulled_from_cloud(dataset: LuxonisDataset) -> LuxonisDataset:
+    """Pull a GCS dataset again and check that its statistics stay."""
+    local_stats = dataset.get_statistics()
+    synced = LuxonisDataset(
+        dataset._dataset_name,
+        bucket_storage=BucketStorage.GCS,
+        delete_local=True,
+        delete_remote=False,
+    )
+    synced.pull_from_cloud(update_mode=UpdateMode.MISSING)
+    synced_stats = synced.get_statistics()
+    for stats in (local_stats, synced_stats):
+        stats["class_distributions"][""]["boundingbox"] = sorted(
+            stats["class_distributions"][""]["boundingbox"],
+            key=lambda x: x["class_name"],
+        )
+    assert local_stats == synced_stats
+    return synced
+
+
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_merge_datasets(
     bucket_storage: BucketStorage,
@@ -569,129 +623,57 @@ def test_merge_datasets(
     dataset1_name = f"{dataset_name}_1"
     dataset2_name = f"{dataset_name}_2"
 
-    def generator1() -> DatasetIterator:
-        for i in range(3):
-            img = create_image(i, tempdir)
-            yield {
-                "file": img,
-                "annotation": {
-                    "class": "person",
-                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
-                },
-            }
-
-    def generator2() -> DatasetIterator:
-        for i in range(3, 6):
-            img = create_image(i, tempdir)
-            yield {
-                "file": img,
-                "annotation": {
-                    "class": "dog",
-                    "boundingbox": {"x": 0.2, "y": 0.2, "w": 0.2, "h": 0.2},
-                },
-            }
-
     dataset1 = create_dataset(
         dataset1_name,
-        generator1(),
+        _boxes(tempdir, range(3), "person", 0.1),
         bucket_storage,
         splits={"train": 0.6, "val": 0.4},
     )
 
     dataset2 = create_dataset(
         dataset2_name,
-        generator2(),
+        _boxes(tempdir, range(3, 6), "dog", 0.2),
         bucket_storage,
         splits={"train": 0.6, "val": 0.4},
     )
 
+    cloned_dataset1 = dataset1.clone(
+        new_dataset_name=f"{dataset1_name}_cloned"
+    )
     with subtests.test("test_inplace"):
-        cloned_dataset1 = dataset1.clone(
-            new_dataset_name=f"{dataset1_name}_cloned"
-        )
         cloned_dataset1_merged_with_dataset2 = cloned_dataset1.merge_with(
             dataset2, inplace=True
         )
 
-        if bucket_storage == BucketStorage.GCS:  # test GCS push/pull
-            local_stats = cloned_dataset1_merged_with_dataset2.get_statistics()
-            cloned_dataset1_merged_with_dataset2 = LuxonisDataset(
-                cloned_dataset1_merged_with_dataset2._dataset_name,
-                bucket_storage=bucket_storage,
-                delete_local=True,
-                delete_remote=False,
+        if bucket_storage == BucketStorage.GCS:
+            cloned_dataset1_merged_with_dataset2 = _pulled_from_cloud(
+                cloned_dataset1_merged_with_dataset2
             )
-            cloned_dataset1_merged_with_dataset2.pull_from_cloud(
-                update_mode=UpdateMode.MISSING
-            )
-            synced_stats = (
-                cloned_dataset1_merged_with_dataset2.get_statistics()
-            )
-            synced_stats["class_distributions"][""]["boundingbox"] = sorted(
-                synced_stats["class_distributions"][""]["boundingbox"],
-                key=lambda x: x["class_name"],
-            )
-            local_stats["class_distributions"][""]["boundingbox"] = sorted(
-                local_stats["class_distributions"][""]["boundingbox"],
-                key=lambda x: x["class_name"],
-            )
-            assert local_stats == synced_stats
-
-        cloned_dataset1_merged_with_dataset2_stats = (
-            cloned_dataset1_merged_with_dataset2.get_statistics()
-        )
-        found = {
-            (item["count"], item["class_name"])
-            for item in cloned_dataset1_merged_with_dataset2_stats[
-                "class_distributions"
-            ][""]["boundingbox"]
+        assert _box_counts(cloned_dataset1_merged_with_dataset2) == {
+            (3, "person"),
+            (3, "dog"),
         }
-        assert found == {(3, "person"), (3, "dog")}
 
         classes = cloned_dataset1_merged_with_dataset2.get_classes()
         assert set(classes[""]) == {"person", "dog"}
 
+    dataset1_merged_with_dataset2 = dataset1.merge_with(
+        dataset2,
+        inplace=False,
+        new_dataset_name=f"{dataset1_name}_{dataset2_name}_merged",
+    )
     with subtests.test("test_out_of_place"):
-        dataset1_merged_with_dataset2 = dataset1.merge_with(
-            dataset2,
-            inplace=False,
-            new_dataset_name=f"{dataset1_name}_{dataset2_name}_merged",
-        )
-
-        if bucket_storage == BucketStorage.GCS:  # test GCS push/pull
-            local_stats = dataset1_merged_with_dataset2.get_statistics()
-            dataset1_merged_with_dataset2 = LuxonisDataset(
-                dataset1_merged_with_dataset2._dataset_name,
-                bucket_storage=bucket_storage,
-                delete_local=True,
-                delete_remote=False,
+        if bucket_storage == BucketStorage.GCS:
+            dataset1_merged_with_dataset2 = _pulled_from_cloud(
+                dataset1_merged_with_dataset2
             )
-            dataset1_merged_with_dataset2.pull_from_cloud(
-                update_mode=UpdateMode.MISSING
-            )
-            synced_stats = dataset1_merged_with_dataset2.get_statistics()
-            synced_stats["class_distributions"][""]["boundingbox"] = sorted(
-                synced_stats["class_distributions"][""]["boundingbox"],
-                key=lambda x: x["class_name"],
-            )
-            local_stats["class_distributions"][""]["boundingbox"] = sorted(
-                local_stats["class_distributions"][""]["boundingbox"],
-                key=lambda x: x["class_name"],
-            )
-            assert local_stats == synced_stats
 
     classes = dataset1_merged_with_dataset2.get_classes()
     assert set(classes[""]) == {"person", "dog"}
-    dataset1_merged_with_dataset2_stats = (
-        dataset1_merged_with_dataset2.get_statistics()
-    )
-    found = {
-        (item["count"], item["class_name"])
-        for item in dataset1_merged_with_dataset2_stats["class_distributions"][
-            ""
-        ]["boundingbox"]
+    assert _box_counts(dataset1_merged_with_dataset2) == {
+        (3, "person"),
+        (3, "dog"),
     }
-    assert found == {(3, "person"), (3, "dog")}
 
     df_merged = dataset1_merged_with_dataset2._load_df_offline()
     df_cloned_merged = dataset1.merge_with(
@@ -719,38 +701,16 @@ def test_merge_datasets_specific_split(
     dataset1_name = f"{dataset_name}_1"
     dataset2_name = f"{dataset_name}_2"
 
-    def generator1() -> DatasetIterator:
-        for i in range(3):
-            img = create_image(i, tempdir)
-            yield {
-                "file": img,
-                "annotation": {
-                    "class": "person",
-                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
-                },
-            }
-
-    def generator2() -> DatasetIterator:
-        for i in range(3, 6):
-            img = create_image(i, tempdir)
-            yield {
-                "file": img,
-                "annotation": {
-                    "class": "dog",
-                    "boundingbox": {"x": 0.2, "y": 0.2, "w": 0.2, "h": 0.2},
-                },
-            }
-
     dataset1 = create_dataset(
         dataset1_name,
-        generator1(),
+        _boxes(tempdir, range(3), "person", 0.1),
         bucket_storage,
         splits={"train": 0.6, "val": 0.4},
     )
 
     dataset2 = create_dataset(
         dataset2_name,
-        generator2(),
+        _boxes(tempdir, range(3, 6), "dog", 0.2),
         bucket_storage,
         splits={"train": 0.6, "val": 0.4},
     )
@@ -878,7 +838,9 @@ def test_classes_per_task(dataset_name: str, tempdir: Path):
                 "instance_id": 0,
             },
         }
-        # Yield a second annotation with only an `instance_id` to check that we don't encounter the issue: "Detected new classes for task group '': []".
+        # Yield a second annotation with only an `instance_id` to check that
+        # we don't encounter the issue:
+        # "Detected new classes for task group '': []".
         yield {
             "file": img,
             "annotation": {
@@ -1045,31 +1007,30 @@ def test_dataset_push_pull(
     def assert_loader_metadata(dataset: LuxonisDataset) -> None:
         metadata = sorted(
             (data.metadata for data in LuxonisLoader(dataset)),
-            key=lambda item: cast(int, item["record_id"]),
+            key=lambda item: cast("int", item["record_id"]),
         )
         assert [item["record_id"] for item in metadata] == [0, 1, 2]
-        assert {item["origin"] for item in metadata} == {"push-pull"}  # type: ignore
+        assert {item["origin"] for item in metadata} == {"push-pull"}  # pyright: ignore[reportUnhashable]
 
-    with subtests.test("create_initial_dataset"):
-        original_dataset = create_dataset(
-            dataset_name,
-            generator(0, 3),
-            bucket_storage=BucketStorage.LOCAL,
-            delete_local=True,
-            delete_remote=True,
-            splits=(1, 0, 0),
-        )
-        original_stats = original_dataset.get_statistics()
+    original_dataset = create_dataset(
+        dataset_name,
+        generator(0, 3),
+        bucket_storage=BucketStorage.LOCAL,
+        delete_local=True,
+        delete_remote=True,
+        splits=(1, 0, 0),
+    )
+    original_stats = original_dataset.get_statistics()
 
+    overwritten_dataset = create_dataset(
+        dataset_name,
+        generator(0, 3),
+        bucket_storage=BucketStorage.LOCAL,
+        delete_local=False,
+        delete_remote=False,
+        splits=False,
+    )
     with subtests.test("verify_dataset_overwrite"):
-        overwritten_dataset = create_dataset(
-            dataset_name,
-            generator(0, 3),
-            bucket_storage=BucketStorage.LOCAL,
-            delete_local=False,
-            delete_remote=False,
-            splits=False,
-        )
         assert overwritten_dataset.get_statistics() == original_stats
 
     with subtests.test("push_to_cloud"):
@@ -1087,31 +1048,29 @@ def test_dataset_push_pull(
             dataset_name, bucket_storage=BucketStorage.GCS
         )
 
+    cloud_dataset = LuxonisDataset(
+        dataset_name,
+        bucket_storage=BucketStorage.GCS,
+        delete_local=True,
+        delete_remote=False,
+    )
     with subtests.test("pull_from_cloud_local_media_empty"):
-        cloud_dataset = LuxonisDataset(
-            dataset_name,
-            bucket_storage=BucketStorage.GCS,
-            delete_local=True,
-            delete_remote=False,
-        )
-
         cloud_dataset.pull_from_cloud(update_mode=UpdateMode.MISSING)
 
         assert cloud_dataset.get_statistics() == original_stats
         assert_loader_metadata(cloud_dataset)
 
+    cloud_dataset.delete_dataset(delete_local=True, delete_remote=False)
+    shutil.rmtree(tempdir)
+    del cloud_dataset
+
+    cloud_dataset_again = LuxonisDataset(
+        dataset_name,
+        bucket_storage=BucketStorage.GCS,
+        delete_local=True,
+        delete_remote=False,
+    )
     with subtests.test("pull_from_cloud_local_media_full"):
-        cloud_dataset.delete_dataset(delete_local=True, delete_remote=False)
-        shutil.rmtree(tempdir)
-        del cloud_dataset
-
-        cloud_dataset_again = LuxonisDataset(
-            dataset_name,
-            bucket_storage=BucketStorage.GCS,
-            delete_local=True,
-            delete_remote=False,
-        )
-
         cloud_dataset_again.pull_from_cloud(update_mode=UpdateMode.MISSING)
 
         assert cloud_dataset_again.get_statistics() == original_stats
@@ -1139,8 +1098,8 @@ def test_dataset_push_pull(
 
         loader = LuxonisLoader(cloud_dataset)
         metadata = sorted(
-            (data.metadata for data in loader),  # type: ignore
-            key=lambda item: item["record_id"],  # type: ignore
+            (data.metadata for data in loader),  # pyright: ignore[reportCallIssue]
+            key=lambda item: item["record_id"],  # pyright: ignore[reportArgumentType]
         )
         assert [item["record_id"] for item in metadata] == [0, 1, 2]
         assert {item["origin"] for item in metadata} == {"push-pull"}
@@ -1329,7 +1288,8 @@ def test_class_order_per_task_invalid_task_name(tempdir: Path):
 
     with pytest.raises(
         ValueError,
-        match=r"Task invalid_task not found in dataset tasks\. Available tasks: \['classification'\]",
+        match=r"Task invalid_task not found in dataset tasks\. "
+        r"Available tasks: \['classification'\]",
     ):
         dataset.set_class_order_per_task(class_order_per_task)
 

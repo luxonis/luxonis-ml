@@ -17,8 +17,8 @@ def gather_tasks(dataset: LuxonisDataset) -> set[str]:
     }
 
 
-def create_image(i: int, dir: Path) -> Path:
-    path = dir / f"img_{i}.jpg"
+def create_image(i: int, directory: Path) -> Path:
+    path = directory / f"img_{i}.jpg"
     if not path.exists():
         img = np.zeros((512, 512, 3), dtype=np.uint8)
         img[0:10, 0:10] = np.random.randint(

@@ -1,3 +1,8 @@
+"""Benchmark that writes and reads a synthetic `LuxonisDataset`.
+
+It prints the mean write and read times over the given repeats.
+"""
+
 import time
 from pathlib import Path
 from typing import Annotated
@@ -5,7 +10,7 @@ from typing import Annotated
 import cv2
 import numpy as np
 from cyclopts import App, Parameter
-from rich import print
+from rich import print as rich_print
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
@@ -18,6 +23,19 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def generator(size: int) -> DatasetIterator:
+    """Yield ten benchmark records for each of ``size`` random images.
+
+    Each image is a random 256x256 JPEG written to ``DATA_DIR``. Its
+    records have the class ``"test"``, a bounding box, a segmentation
+    polygon, and three keypoints.
+
+    Args:
+        size: Number of images to generate.
+
+    Yields:
+        Dictionaries with the image path and one annotation.
+
+    """
     for i in range(size):
         img = np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8)
         cv2.imwrite(str(DATA_DIR / f"img_{i}.jpg"), img)
@@ -78,9 +96,7 @@ def main(
     augment: Annotated[bool, Parameter(alias="-a")] = False,
     batched: Annotated[bool, Parameter(alias="-b")] = False,
 ) -> None:
-    """Benchmark the time taken to write and read a dataset with the
-    given parameters.
-    """
+    """Benchmark writing and reading a dataset with the given parameters."""
     if not no_write:
         avg = 0
         for _ in range(repeat):
@@ -91,7 +107,7 @@ def main(
             dataset.add(generator(size))
             dataset.make_splits()
             avg += time.time() - t
-        print(f"Time to write: {avg / repeat:.2f}s")
+        rich_print(f"Time to write: {avg / repeat:.2f}s")
 
     if not no_read:
         avg = 0
@@ -111,7 +127,7 @@ def main(
                 pass
 
             avg += time.time() - t
-        print(f"Time to read: {avg / repeat:.2f}s")
+        rich_print(f"Time to read: {avg / repeat:.2f}s")
 
 
 if __name__ == "__main__":

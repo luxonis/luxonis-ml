@@ -1,3 +1,5 @@
+"""Enums of the data package and the `ParserIssueMessage` record."""
+
 from dataclasses import dataclass
 from enum import Enum
 

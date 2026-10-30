@@ -117,30 +117,38 @@ docstring-code-format = true
 preview = true
 explicit-preview-rules = true
 select = [
+  "A",
   "ANN",
+  "ARG",
+  "ASYNC",
   "B",
   "C4",
   "D",
   "DOC201",
+  "DOC202",
   "DOC402",
   "DOC501",
   "DTZ",
   "E",
   "ERA",
+  "EXE",
   "F",
+  "FBT",
   "FLY",
   "FURB",
+  "G",
   "I",
   "ICN",
   "INP",
   "INT",
   "ISC",
+  "LOG",
   "NPY",
-  "PERF101",
-  "PERF102",
-  "PERF402",
+  "PERF",
+  "PGH",
   "PIE",
   "PL",
+  "PLW1514",
   "PT",
   "PTH",
   "PYI",
@@ -150,8 +158,10 @@ select = [
   "RUF",
   "S",
   "SIM",
+  "SLOT",
   "T10",
   "T20",
+  "TC",
   "TID",
   "TRY",
   "UP",
@@ -161,50 +171,28 @@ select = [
 ignore = [
   "ANN002",
   "ANN003",
-  "ANN204",
   "ANN401",
-  "D100",
-  "D101",
-  "D102",
-  "D103",
-  "D104",
-  "D105",
-  "D107",
-  "D202",
   "D203",
-  "D205",
-  "D212",
   "D213",
-  "E501",
-  "ICN002",
   "NPY002",
   "PLC0415",
-  "PLR0911",
-  "PLR0912",
   "PLR0913",
-  "PLR0915",
   "PLR2004",
-  "PLW2901",
-  "PTH123",
-  "PYI051",
-  "RET503",
-  "RUF012",
-  "S101",
   "S311",
   "S603",
-  "SIM108",
   "TRY003",
-  "W191",
 ]
 unfixable = ["B905"]
+
+[tool.ruff.lint.pycodestyle]
+max-line-length = 100
 
 [tool.ruff.lint.pydoclint]
 ignore-one-line-docstrings = true
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["ANN201"]
+"tests/*" = ["ANN201", "D1", "S101"]
 "__main__.py" = ["ANN201"]
-"tools/benchmark.py" = ["T201"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "__future__".msg = "Do not use imports from __future__."
@@ -242,23 +230,33 @@ warnings-as-errors = true
 
 [tool.pyright]
 pythonVersion = "3.10"
-exclude = [
-  "**/node_modules",
-  "**/__pycache__",
-  "**/.*",
-  "build",
-  "dist",
-  "luxonis_ml/tracker",
-  "examples",
-  "__main__.py",
-]
-typeCheckingMode = "basic"
+exclude = ["build", "dist", "luxonis_ml/tracker"]
+typeCheckingMode = "standard"
 reportMissingTypeStubs = "none"
-reportPrivateImportUsage = "none"
 reportPrivateUsage = "none"
-reportIncompatibleVariableOverride = "none"
 reportIncompatibleMethodOverride = "none"
-reportUnnecessaryIsInstance = "none"
+reportImplicitOverride = "error"
+reportUnnecessaryTypeIgnoreComment = "error"
+reportUnnecessaryCast = "error"
+reportUnnecessaryComparison = "error"
+reportUnnecessaryIsInstance = "error"
+reportUnreachable = "error"
+reportUninitializedInstanceVariable = "error"
+reportCallInDefaultInitializer = "error"
+reportDuplicateImport = "error"
+reportMatchNotExhaustive = "error"
+reportPropertyTypeMismatch = "error"
+reportTypeCommentUsage = "error"
+reportUnnecessaryContains = "error"
+reportUntypedBaseClass = "error"
+reportUntypedFunctionDecorator = "error"
+reportUntypedNamedTuple = "error"
+reportUnusedClass = "error"
+reportUnusedFunction = "error"
+reportUnusedImport = "error"
+reportUnusedVariable = "error"
+reportInconsistentConstructor = "error"
+reportUntypedClassDecorator = "error"
 
 [tool.pytest]
 doctest_optionflags = [

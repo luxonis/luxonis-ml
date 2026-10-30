@@ -4,7 +4,7 @@ import inspect
 import random
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -47,8 +47,9 @@ class BaseParser(ABC):
         dataset: BaseDataset,
         dataset_type: DatasetType,
         task_name: str | dict[str, str] | None,
+        *,
         full_warnings: bool = False,
-    ):
+    ) -> None:
         """Create a parser for a target dataset.
 
         Args:
@@ -93,8 +94,7 @@ class BaseParser(ABC):
         self._reset_parser_issue_messages()
 
     def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
-        """Return parser issue messages collected during the last
-        parse.
+        """Return the parser issue messages of the last parse.
 
         Returns:
             A new list with each distinct message once, in the order
@@ -124,8 +124,7 @@ class BaseParser(ABC):
 
     @classmethod
     def validate(cls, dataset_dir: Path) -> bool:
-        """Validate whether the dataset directory has the expected
-        format.
+        """Validate whether the dataset directory has the expected format.
 
         Args:
             dataset_dir: Source dataset directory.
@@ -146,9 +145,10 @@ class BaseParser(ABC):
 
     @staticmethod
     def _canonicalize_split_name(split_name: str) -> str:
-        """All current parsers use ``train`` and ``test`` split names
-        whereas validation splits can vary in name between ``val`` ``valid``
-        and ``validation``.
+        """Map the split names ``valid`` and ``validation`` to ``val``.
+
+        All current parsers name the splits ``train`` and ``test``, but the
+        validation split can be ``val``, ``valid`` or ``validation``.
 
         Returns:
             ``val`` for ``valid`` and ``validation``, else
@@ -330,6 +330,7 @@ class BaseParser(ABC):
     def parse_split(
         self,
         split: str | None = None,
+        *,
         random_split: bool = False,
         split_ratios: dict[str, float | int] | None = None,
         **kwargs,
@@ -362,7 +363,7 @@ class BaseParser(ABC):
                 if is_counts:
                     sampled = self._apply_counts_to_pool(
                         added_images,
-                        split_ratios,  # type: ignore[arg-type]
+                        split_ratios,  # pyright: ignore[reportArgumentType]
                     )
                     self._dataset.make_splits(sampled)
                     self._remove_unsplit_records()
@@ -429,7 +430,7 @@ class BaseParser(ABC):
             elif is_counts:
                 sampled = self._apply_counts_to_splits(
                     original_splits,
-                    split_ratios,  # type: ignore[arg-type]
+                    split_ratios,
                 )
                 self._dataset.make_splits(sampled)
                 self._remove_unsplit_records()
@@ -481,7 +482,7 @@ class BaseParser(ABC):
     def _remove_unsplit_records(self) -> None:
         """Remove records that are not assigned to any split."""
         # Cast to LuxonisDataset to access internal methods
-        dataset: LuxonisDataset = self._dataset  # type: ignore[assignment]
+        dataset: LuxonisDataset = self._dataset  # pyright: ignore[reportAssignmentType]
 
         splits = dataset.get_splits()
         if splits is None:
@@ -675,12 +676,10 @@ class BaseParser(ABC):
 
         """
         for item in generator:
-            if isinstance(item, dict):
-                item = DatasetRecord(**item)
-
+            record = DatasetRecord(**item) if isinstance(item, dict) else item
             if self._task_name is None:
-                yield item
-            elif item.annotation is None:
+                yield record
+            elif record.annotation is None:
                 # A record without labels belongs to every task.
                 task_names = (
                     {self._default_task_name}
@@ -688,22 +687,23 @@ class BaseParser(ABC):
                     else set(self._task_name.values())
                 )
                 for task_name in task_names:
-                    yield item.model_copy(
+                    yield record.model_copy(
                         update={"task_name": task_name}, deep=True
                     )
             else:
-                self._assign_task_name(item)
-                yield item
+                self._assign_task_name(record, self._task_name)
+                yield record
 
-    def _assign_task_name(self, item: DatasetRecord) -> None:
+    @staticmethod
+    def _assign_task_name(
+        item: DatasetRecord, task_names: Mapping[str, str]
+    ) -> None:
         """Set the task name that the class of a record maps to."""
-        assert self._task_name is not None
-        assert item.annotation is not None
-        class_name = item.annotation.class_name
-        if class_name is None:
+        if item.annotation is None or item.annotation.class_name is None:
             return
+        class_name = item.annotation.class_name
         try:
-            item.task_name = self._task_name[class_name]
+            item.task_name = task_names[class_name]
         except KeyError:
             raise ValueError(
                 f"Class '{class_name}' not found in task names."

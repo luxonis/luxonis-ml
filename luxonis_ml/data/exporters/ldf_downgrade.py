@@ -84,7 +84,14 @@ class LDFDowngrader:
 
     """
 
-    def __init__(self, target_version: Version):
+    def __init__(self, target_version: Version) -> None:
+        """Create a downgrader for one target version.
+
+        Args:
+            target_version: LDF version to write. Fields that a newer
+                version added are dropped from each record.
+
+        """
         self.target_version = target_version
         self._to_drop = [
             field

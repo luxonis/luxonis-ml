@@ -146,7 +146,7 @@ def test_archive_generator(
     with tarfile.open(archive_path) as tar:
         assert "test_model.onnx" in tar.getnames()
         assert "config.json" in tar.getnames()
-        config = json.load(tar.extractfile("config.json"))  # type: ignore[arg-type]
+        config = json.load(tar.extractfile("config.json"))  # pyright: ignore[reportArgumentType]
 
     metadata = config["model"]["heads"][0]["metadata"]
     if archive_name == "custom_segmentation":
@@ -210,14 +210,14 @@ def test_optional_head_name():
     # without head name
     HeadType(
         parser="Parser",
-        metadata=HeadMetadata(),  # type: ignore
+        metadata=HeadMetadata(),  # pyright: ignore[reportCallIssue]
         outputs=["output"],
     )
     # with head name
     HeadType(
         parser="Parser",
         name="HeadName",
-        metadata=HeadMetadata(),  # type: ignore
+        metadata=HeadMetadata(),  # pyright: ignore[reportCallIssue]
         outputs=["output"],
     )
 
@@ -234,10 +234,10 @@ def test_head_metadata_defaults_and_overrides_serialize():
             max_det=100,
             subtype="yolov6",
             yolo_outputs=["feats"],
-        ),  # type: ignore
+        ),  # pyright: ignore[reportCallIssue]
         outputs=["output"],
     )
-    assert yolo_default.metadata.strides is None  # type: ignore
+    assert yolo_default.metadata.strides is None  # pyright: ignore[reportAttributeAccessIssue]
     assert yolo_default.model_dump()["metadata"]["strides"] is None
 
     yolo_override = HeadType(
@@ -252,7 +252,7 @@ def test_head_metadata_defaults_and_overrides_serialize():
             subtype="yolov6",
             yolo_outputs=["out1", "out2", "out3"],
             strides=[8, 16, 32],
-        ),  # type: ignore
+        ),  # pyright: ignore[reportCallIssue]
         outputs=["output"],
     )
     assert yolo_override.model_dump()["metadata"]["strides"] == [8, 16, 32]
@@ -265,7 +265,7 @@ def test_head_metadata_defaults_and_overrides_serialize():
             n_classes=1,
             is_softmax=False,
             background_class=True,
-        ),  # type: ignore
+        ),  # pyright: ignore[reportCallIssue]
         outputs=["output"],
     )
     assert segmentation.model_dump()["metadata"]["background_class"] is True
@@ -339,7 +339,7 @@ def test_layout():
             name="output",
             dtype=DataType.FLOAT32,
             layout=list("nc"),
-        )  # type: ignore
+        )  # pyright: ignore[reportCallIssue]
 
 
 def test_inspect_reports_a_missing_config(tempdir: Path):

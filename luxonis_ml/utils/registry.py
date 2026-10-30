@@ -1,9 +1,11 @@
+"""Registry of named modules and a metaclass that registers subclasses."""
+
 import warnings
 from abc import ABCMeta
 from collections.abc import Callable
-from typing import Generic, TypeVar, overload
+from typing import Generic, TypedDict, TypeVar, overload
 
-from typing_extensions import deprecated
+from typing_extensions import Unpack, deprecated, override
 
 T = TypeVar("T", bound=type)
 
@@ -16,7 +18,7 @@ class Registry(Generic[T]):
     their string names.
     """
 
-    def __init__(self, name: str):
+    def __init__(self, name: str) -> None:
         """Create a new empty registry.
 
         Args:
@@ -26,22 +28,28 @@ class Registry(Generic[T]):
         self._module_dict: dict[str, T] = {}
         self._name = name
 
+    @override
     def __str__(self) -> str:
         return f"Registry('{self.name}')"
 
+    @override
     def __repr__(self) -> str:
         return self.__str__()
 
     def __len__(self) -> int:
+        """Return the number of registered modules."""
         return len(self._module_dict)
 
     def __getitem__(self, key: str) -> T:
+        """Return the module registered under ``key``."""
         return self.get(key)
 
     def __setitem__(self, key: str, value: T) -> None:
+        """Register ``value`` under ``key``, replacing any old entry."""
         self._register(module=value, module_name=key, force=True)
 
     def __contains__(self, key: str) -> bool:
+        """Return whether a module is registered under ``key``."""
         return key in self._module_dict
 
     @property
@@ -69,12 +77,17 @@ class Registry(Generic[T]):
 
     @overload
     def register_module(
-        self, name: str | None = ..., module: None = ..., force: bool = ...
+        self, name: str | None = ..., module: None = ..., *, force: bool = ...
     ) -> Callable[[T], T]: ...
 
     @overload
     def register_module(
-        self, name: str | None = ..., module: T = ..., force: bool = ...
+        self, name: str | None, module: T, *, force: bool = ...
+    ) -> T: ...
+
+    @overload
+    def register_module(
+        self, name: str | None = ..., *, module: T, force: bool = ...
     ) -> T: ...
 
     @deprecated("`register_module` is deprecated, use `register` instead.")
@@ -82,6 +95,7 @@ class Registry(Generic[T]):
         self,
         name: str | None = None,
         module: T | None = None,
+        *,
         force: bool = False,
     ) -> T | Callable[[T], T]:
         """Register a module. Deprecated, use `register` instead.
@@ -121,7 +135,7 @@ class Registry(Generic[T]):
     @overload
     def register(
         self,
-        module: T = ...,
+        module: T,
         *,
         name: str | None = ...,
         force: bool = ...,
@@ -165,7 +179,6 @@ class Registry(Generic[T]):
                 already exists and ``force`` is ``False``.
 
         """
-
         if module is not None:
             return self._register(module=module, module_name=name, force=force)
 
@@ -176,7 +189,7 @@ class Registry(Generic[T]):
         return wrapper
 
     def _register(
-        self, module: T, module_name: str | None = None, force: bool = False
+        self, module: T, module_name: str | None = None, *, force: bool = False
     ) -> None:
         if module_name is None:
             module_name = module.__name__
@@ -189,6 +202,14 @@ class Registry(Generic[T]):
             )
 
         self._module_dict[module_name] = module
+
+
+class _RegisterKeywords(TypedDict, total=False):
+    """Class keywords that `AutoRegisterMeta` takes."""
+
+    register: bool
+    register_name: str | None
+    registry: Registry | None
 
 
 class AutoRegisterMeta(ABCMeta):
@@ -226,47 +247,57 @@ class AutoRegisterMeta(ABCMeta):
         name: str,
         bases: tuple[type, ...],
         attrs: dict[str, type],
-        *,
-        register: bool = True,
-        register_name: str | None = None,
-        registry: Registry | None = None,
-    ):
+        **_kwargs: Unpack[_RegisterKeywords],
+    ) -> "AutoRegisterMeta":
+        """Create the class and keep the registry keywords from type."""
+        return super().__new__(cls, name, bases, attrs)
+
+    def __init__(
+        cls,
+        name: str,
+        bases: tuple[type, ...],
+        attrs: dict[str, type],
+        **kwargs: Unpack[_RegisterKeywords],
+    ) -> None:
         """Automatically register the class.
 
         Args:
             name: The name of the class being created.
             bases: The base classes of the class being created.
             attrs: The attributes of the class being created.
-            register: Whether to register this class.
-                Typically should be set to ``False`` for abstract base classes.
-            register_name: The name to register the class under. If ``None``, then use
-                the class name.
-            registry: The registry to use for registration.
-                Will be saved as the `REGISTRY` attribute
-                of the class if not already set.
-
-        Returns:
-            The newly created class.
+            **kwargs: The class keywords. ``register`` tells whether to
+                register the class. It defaults to ``True`` and is
+                typically ``False`` for an abstract base class.
+                ``register_name`` is the name to register the class
+                under, the class name if not given. ``registry`` is the
+                registry to use. It becomes the `REGISTRY` attribute of
+                the class if the class has none yet.
 
         Raises:
+            TypeError: If a class keyword is not one of the three
+                above.
             ValueError: If registration is requested but no registry is
                 available from the class hierarchy or the ``registry``
                 argument.
 
         """
-        new_class = super().__new__(cls, name, bases, attrs)
-        if not hasattr(new_class, "REGISTRY"):
+        if unknown := kwargs.keys() - _RegisterKeywords.__optional_keys__:
+            raise TypeError(
+                f"Class '{name}' got unexpected class keywords: "
+                f"{sorted(unknown)}"
+            )
+        super().__init__(name, bases, attrs)
+        register = kwargs.get("register", True)
+        registry = kwargs.get("registry")
+        if not hasattr(cls, "REGISTRY"):
             if registry is not None:
-                new_class.REGISTRY = registry
+                cls.REGISTRY = registry
             elif register:
                 raise ValueError(
                     "Registry has to be set in the base class or passed as an argument."
                 )
         if register:
-            registry = registry if registry is not None else new_class.REGISTRY
-            key = register_name or name
-            if key not in registry or not issubclass(
-                new_class, registry.get(key)
-            ):
-                registry.register(name=key, module=new_class, force=True)
-        return new_class
+            registry = registry if registry is not None else cls.REGISTRY
+            key = kwargs.get("register_name") or name
+            if key not in registry or not issubclass(cls, registry.get(key)):
+                registry.register(name=key, module=cls, force=True)

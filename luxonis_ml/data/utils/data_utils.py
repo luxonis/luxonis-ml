@@ -3,7 +3,6 @@
 import hashlib
 import json
 import uuid
-from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from typing import Any
 
@@ -19,6 +18,7 @@ from luxonis_ml.typing import RGB
 def rgb_to_bool_masks(
     segmentation_mask: np.ndarray,
     class_colors: dict[str, RGB],
+    *,
     add_background_class: bool = False,
 ) -> Iterator[tuple[str, np.ndarray]]:
     """Convert an RGB segmentation mask to boolean class masks.
@@ -68,8 +68,8 @@ def rgb_to_bool_masks(
     }
 
     lookup_table = np.zeros((256, 256, 256), dtype=np.uint8)
-    for color, id in color_to_id.items():
-        lookup_table[color[0], color[1], color[2]] = id + 1
+    for color, class_id in color_to_id.items():
+        lookup_table[color[0], color[1], color[2]] = class_id + 1
 
     segmentation_ids = lookup_table[
         segmentation_mask[:, :, 0],
@@ -84,6 +84,9 @@ def rgb_to_bool_masks(
     for class_name, color in class_colors.items():
         class_id = color_to_id[tuple(color)] + 1
         yield class_name, segmentation_ids == class_id
+
+
+_logged_inferred_classes: set[tuple[str | None, str]] = set()
 
 
 def infer_task(
@@ -105,14 +108,12 @@ def infer_task(
         if no task or more than one task holds it.
 
     """
-    if not hasattr(infer_task, "_logged_inferred_classes"):
-        infer_task._logged_inferred_classes = defaultdict(bool)
 
     def _log_once(
         cls_: str | None, task: str, message: str, level: str = "info"
     ) -> None:
-        if not infer_task._logged_inferred_classes[(cls_, task)]:
-            infer_task._logged_inferred_classes[(cls_, task)] = True
+        if (cls_, task) not in _logged_inferred_classes:
+            _logged_inferred_classes.add((cls_, task))
             getattr(logger, level)(message)
 
     inferred_task = None
@@ -277,14 +278,16 @@ def _duplicate_annotations(df: pl.LazyFrame) -> list[dict[str, Any]]:
     ) in duplicate_annotation.iter_rows():
         if task_is_metadata(task_type):
             continue
-        if task_type == "segmentation":
-            annotation = "<binary mask>"
         result.append(
             {
                 "file_name": file_name,
                 "task_type": task_type,
                 "task_name": task_name,
-                "annotation": annotation,
+                "annotation": (
+                    "<binary mask>"
+                    if task_type == "segmentation"
+                    else annotation
+                ),
                 "count": count,
             }
         )
@@ -314,7 +317,8 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
         for item in duplicates_info["duplicate_annotations"]:
             logger.warning(
                 f"File '{item['file_name']}' of task '{item['task_name']}' has the "
-                f"same '{item['task_type']}' annotation '{item['annotation']}' repeated {item['count']} times."
+                f"same '{item['task_type']}' annotation "
+                f"'{item['annotation']}' repeated {item['count']} times."
             )
         logger.warning(
             "Duplicate annotations detected. "
@@ -326,8 +330,7 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
 def get_class_distributions(
     df: pl.LazyFrame,
 ) -> dict[str, dict[str, list[dict[str, Any]]]]:
-    """Return class distribution information for non-classification
-    tasks.
+    """Return the class distribution of the non-classification tasks.
 
     Args:
         df: Dataset information.
@@ -526,7 +529,7 @@ def _annotation_points(
         "counts": annotation["counts"],
         "size": [annotation["height"], annotation["width"]],
     }
-    mask = mask_utils.decode(rle)  # type: ignore
+    mask = mask_utils.decode(rle)  # pyright: ignore[reportArgumentType]
     if downsample_factor > 1:
         mask = mask[::downsample_factor, ::downsample_factor]
     rows_idx, cols_idx = np.where(mask)
@@ -550,8 +553,7 @@ def _grid_counts(
 
 
 def merge_uuids(uuids: Iterable[str]) -> uuid.UUID:
-    """Merge multiple UUIDs into a single deterministic UUID,
-    independent of order.
+    """Merge UUIDs into one deterministic UUID, independent of order.
 
     Args:
         uuids: UUID strings to merge.

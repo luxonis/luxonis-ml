@@ -1,3 +1,5 @@
+"""Parsing of task strings and iteration over labels by task type."""
+
 from collections.abc import Iterator
 from functools import lru_cache
 
@@ -112,7 +114,7 @@ def task_type_iterator(
         task_type: Label type to yield.
 
     Yields:
-        The task and the array of each matching label.
+        The task name and the array of each label of the type.
 
     Examples:
         >>> labels = {

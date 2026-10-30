@@ -39,7 +39,7 @@ def test_merge_into_a_new_dataset_needs_a_name(dataset: LuxonisDataset):
 
 def test_merge_into_a_new_dataset_needs_one_storage(dataset: LuxonisDataset):
     remote = cast(
-        LuxonisDataset, SimpleNamespace(_bucket_storage=BucketStorage.GCS)
+        "LuxonisDataset", SimpleNamespace(_bucket_storage=BucketStorage.GCS)
     )
 
     with pytest.raises(ValueError, match="different bucket storage"):
@@ -63,6 +63,19 @@ def test_push_needs_each_media_file(dataset: LuxonisDataset, tempdir: Path):
 
     with pytest.raises(FileNotFoundError, match="do not exist"):
         dataset._local_media_paths(index)
+
+
+def test_remote_dataset_without_a_bucket_creates_nothing(
+    randint: int, monkeypatch: pytest.MonkeyPatch
+):
+    name = f"test_remote_dataset_without_a_bucket_{randint}"
+    monkeypatch.setattr(LuxonisDataset, "_init_credentials", lambda _: {})
+    # On the proxy instance, undo would pin the old value for the session.
+    monkeypatch.setattr(type(environ), "LUXONISML_BUCKET", None, raising=False)
+
+    with pytest.raises(ValueError, match="LUXONISML_BUCKET"):
+        LuxonisDataset(name, bucket_storage=BucketStorage.GCS)
+    assert not LuxonisDataset.exists(name)
 
 
 def test_remote_delete_of_a_local_dataset_deletes_nothing(

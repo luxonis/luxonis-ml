@@ -1,6 +1,9 @@
+"""Top-level ``config.json`` schema of an NN Archive."""
+
 import re
 
 from pydantic import Field, field_validator
+from typing_extensions import override
 
 from luxonis_ml.typing import BaseModelExtraForbid
 
@@ -29,8 +32,7 @@ class Config(BaseModelExtraForbid):
     @field_validator("config_version")
     @classmethod
     def validate_config_version_format(cls, v: str) -> str:
-        """Validate that the schema version uses ``major.minor``
-        format.
+        """Validate that the schema version has the ``major.minor`` format.
 
         Args:
             v: Schema version string.
@@ -58,8 +60,10 @@ class Config(BaseModelExtraForbid):
             )
         return v
 
+    @override
     def __str__(self) -> str:  # pragma: no cover
         return self.model_dump_json(indent=4)
 
+    @override
     def __repr__(self) -> str:  # pragma: no cover
         return self.__str__()

@@ -9,6 +9,7 @@ from typing import Any
 
 import polars as pl
 from semver.version import Version
+from typing_extensions import override
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
@@ -86,7 +87,19 @@ class NativeExporter(BaseExporter):
         max_partition_size_gb: float | None,
         *,
         ldf_version: Version | None = None,
-    ):
+    ) -> None:
+        """Create the exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Maximum partition size in GiB, or
+                ``None`` to disable partitioning.
+            ldf_version: LDF version to write. ``None`` selects
+                `LDF_VERSION`. An older version drops the record fields
+                that it does not know.
+
+        """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
@@ -95,11 +108,20 @@ class NativeExporter(BaseExporter):
 
     @staticmethod
     def get_split_names() -> dict[str, str]:
+        """Return the directory name of each split.
+
+        Returns:
+            The ``train``, ``val`` and ``test`` splits, each mapped to
+            its own name.
+
+        """
         return {"train": "train", "val": "val", "test": "test"}
 
+    @override
     def supported_ann_types(self) -> list[str]:
         return DatasetType.NATIVE.supported_annotation_formats
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         annotation_splits: dict[str, list[dict[str, Any]]] = {
             k: [] for k in self.get_split_names()
@@ -111,9 +133,7 @@ class NativeExporter(BaseExporter):
         copied_files: set[Path] = set()
 
         for group_key, group_df in grouped_df:
-            group_id = (
-                group_key[0] if isinstance(group_key, tuple) else group_key
-            )
+            group_id = group_key[0]
             split = split_of_group(prepared_ldf, group_id)
 
             matched_df = grouped_image_sources.filter(
@@ -176,13 +196,14 @@ class NativeExporter(BaseExporter):
         """Build one native record from the rows of one detection."""
         first = rows[0]
 
-        source_to_file = {
-            name: path_to_posix(
-                Path("images")
-                / f"{self.image_indices.setdefault(Path(f), len(self.image_indices))}{Path(f).suffix}"
+        source_to_file: dict[str, str] = {}
+        for name, f in zip(group_source_names, group_files, strict=True):
+            index = self.image_indices.setdefault(
+                Path(f), len(self.image_indices)
             )
-            for name, f in zip(group_source_names, group_files, strict=True)
-        }
+            source_to_file[name] = path_to_posix(
+                Path("images") / f"{index}{Path(f).suffix}"
+            )
 
         multi_source = len(source_to_file) > 1
         record: dict[str, Any] = {
@@ -213,6 +234,7 @@ class NativeExporter(BaseExporter):
 
         return self._downgrade(record)
 
+    @override
     def _dump_annotations(
         self,
         annotation_splits: dict[str, list[dict[str, Any]]],
@@ -244,6 +266,7 @@ class NativeExporter(BaseExporter):
         )
         return output_path / name
 
+    @override
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:

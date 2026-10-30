@@ -403,10 +403,13 @@ class Category(str):
     free-form string values.
     """
 
+    __slots__ = ()
+
     @classmethod
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
+        """Return a schema that accepts only instances of the class."""
         return core_schema.is_instance_schema(cls)
 
 
@@ -421,8 +424,7 @@ _LABEL_TASK_TYPES = (
 
 
 class Detection(BaseModelExtraForbid):
-    """Detection record containing annotations and metadata for one
-    object.
+    """Detection record with the annotations and metadata of one object.
 
     It describes a single detected object in an image and can contain various
     types of annotations and metadata as well as nested sub-detections for
@@ -547,7 +549,9 @@ class Detection(BaseModelExtraForbid):
     )
     instance_id: int = -1
 
-    metadata: dict[str, int | float | str | Category] = {}
+    metadata: dict[str, int | float | str | Category] = Field(
+        default_factory=dict
+    )
 
     boundingbox: Optional["BBoxAnnotation"] = None
     keypoints: Optional["KeypointAnnotation"] = None
@@ -557,7 +561,7 @@ class Detection(BaseModelExtraForbid):
 
     scale_to_boxes: bool = False
 
-    sub_detections: dict[str, "Detection"] = {}
+    sub_detections: dict[str, "Detection"] = Field(default_factory=dict)
 
     def get_task_types(self) -> set[str]:
         """Get all the task type associated with this detection.
@@ -679,8 +683,7 @@ class ClassificationAnnotation(Annotation):
         classes: list[int],
         n_classes: int,
     ) -> np.ndarray:
-        r"""Combine classification annotations into a multi-hot label
-        vector.
+        r"""Combine classification annotations into a multi-hot vector.
 
         Args:
             annotations: Classification annotations to combine.
@@ -842,7 +845,7 @@ class KeypointAnnotation(Annotation):
     @override
     def combine_to_numpy(
         annotations: list["KeypointAnnotation"],
-        classes: list[int] | None = None,  # pyright: ignore[reportUnusedParameter]
+        classes: list[int] | None = None,
         n_classes: int | None = None,
     ) -> np.ndarray:
         r"""Combine keypoint annotations into flattened keypoint rows.
@@ -1042,12 +1045,11 @@ class SegmentationAnnotation(Annotation):
                         "RLE counts must be a list of positive integers"
                     )
 
+            # The pycocotools stubs know only the compressed RLE, with
+            # string counts, but frPyObjects also takes the list form.
+            uncompressed = {"counts": counts, "size": [height, width]}
             with warnings.catch_warnings(record=True):
-                rle = pycocotools.mask.frPyObjects(
-                    {"counts": counts, "size": [height, width]},  # type: ignore
-                    height,
-                    width,
-                )
+                rle = pycocotools.mask.frPyObjects(uncompressed, height, width)  # pyright: ignore[reportCallIssue, reportArgumentType]
             values["counts"] = rle["counts"]
             values["height"] = rle["size"][0]
             values["width"] = rle["size"][1]
@@ -1063,7 +1065,7 @@ class SegmentationAnnotation(Annotation):
         return {
             "height": rle["size"][0],
             "width": rle["size"][1],
-            "counts": rle["counts"].decode("utf-8"),  # type: ignore
+            "counts": rle["counts"].decode("utf-8"),  # pyright: ignore[reportAttributeAccessIssue]
         }
 
     @model_validator(mode="before")
@@ -1193,8 +1195,7 @@ class InstanceSegmentationAnnotation(SegmentationAnnotation):
         classes: list[int] | None = None,
         n_classes: int | None = None,
     ) -> np.ndarray:
-        r"""Combine instance segmentation annotations into instance
-        masks.
+        r"""Combine instance segmentation annotations into instance masks.
 
         Args:
             annotations: Instance segmentation annotations to combine.
@@ -1278,11 +1279,22 @@ class ArrayAnnotation(Annotation):
                 f"Array annotation file must be a .npy file. Got {path}"
             )
         try:
+            # np.load opens a ZIP archive as .npz, and it leaves the file
+            # open when the archive is corrupt. So only a file with the
+            # .npy signature goes on to np.load.
+            with path.open("rb") as file:
+                np.lib.format.read_magic(file)
+        except (OSError, ValueError) as e:
+            raise ValueError(
+                f"Failed to load array annotation from {path}."
+            ) from e
+        try:
             # Memory mapping keeps the check from reading the whole array.
             np.load(path, mmap_mode="r")
-        except Exception:
-            # Not every filesystem supports mmap, so a plain read decides
-            # whether the file is really unusable.
+        except (OSError, ValueError, EOFError, OverflowError, TypeError):
+            # mmap fails on some filesystems and for some corrupt
+            # headers, so a plain read decides whether the file is
+            # really unusable.
             try:
                 np.load(path)
             except Exception as e:
@@ -1456,8 +1468,9 @@ class DatasetRecord(BaseModelExtraForbid):
         return values
 
     def to_parquet_rows(self) -> Iterable[ParquetRecord]:
-        """Recursively convert the dataset record and all its
-        annotations and sub-annotations to parquet rows.
+        """Convert the record and its annotations to parquet rows.
+
+        The conversion recurses into the sub-annotations.
 
         Yields:
             Annotation data rows.

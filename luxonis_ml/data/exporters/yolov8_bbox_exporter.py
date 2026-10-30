@@ -1,5 +1,9 @@
+"""Export bounding boxes to the YOLOv8 format."""
+
 from pathlib import Path
 from typing import Any, cast
+
+from typing_extensions import override
 
 from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
@@ -28,7 +32,16 @@ class YoloV8Exporter(BaseExporter):
         dataset_identifier: str,
         output_path: Path,
         max_partition_size_gb: float | None,
-    ):
+    ) -> None:
+        """Create the exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Maximum partition size in GiB, or
+                ``None`` to disable partitioning.
+
+        """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
@@ -36,14 +49,23 @@ class YoloV8Exporter(BaseExporter):
         self.class_names: list[str] = []
 
     def get_split_names(self) -> dict[str, str]:
+        """Return the directory name of each split.
+
+        Returns:
+            The ``train``, ``val`` and ``test`` splits, each mapped to
+            its own name.
+
+        """
         return {"train": "train", "val": "val", "test": "test"}
 
     def _yaml_filename(self) -> str:
         return "dataset.yaml"
 
+    @override
     def supported_ann_types(self) -> list[str]:
         return DatasetType.YOLOV8BOUNDINGBOX.supported_annotation_formats
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
         exporter_specific_annotation_warning(
@@ -59,7 +81,7 @@ class YoloV8Exporter(BaseExporter):
         copied_files: set[Path] = set()
 
         for key, group_df in grouped:
-            file_name, group_id = cast(tuple[str, Any], key)
+            file_name, group_id = cast("tuple[str, Any]", key)
             logical_split = split_of_group(prepared_ldf, group_id)
             split = self.get_split_names()[logical_split]
 
@@ -118,6 +140,7 @@ class YoloV8Exporter(BaseExporter):
             return {k: {} for k in self.get_split_names().values()}
         return annotation_splits
 
+    @override
     def _dump_annotations(
         self,
         annotation_splits: dict[str, dict[str, list[tuple]]],
@@ -171,6 +194,7 @@ class YoloV8Exporter(BaseExporter):
                 self._to_yaml(yaml_obj), encoding="utf-8"
             )
 
+    @override
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:

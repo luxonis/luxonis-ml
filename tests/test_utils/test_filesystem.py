@@ -172,7 +172,9 @@ def test_file(
             uploaded_file, protocol_tempdir / f"copy_{uploaded_file}"
         )
         assert file_path.exists()
-        assert file_path.read_text() == local_file.read_text()
+        assert file_path.read_text(encoding="utf-8") == local_file.read_text(
+            encoding="utf-8"
+        )
 
     with subtests.test("delete"):
         fs.delete_file(uploaded_file)
@@ -199,7 +201,9 @@ def test_static_file(
         assert fs.exists(file_name)
         file = LuxonisFileSystem.download(url, protocol_tempdir)
         assert file.exists()
-        assert file.read_text() == local_file.read_text()
+        assert file.read_text(encoding="utf-8") == local_file.read_text(
+            encoding="utf-8"
+        )
 
 
 def test_directory(
@@ -257,8 +261,8 @@ def test_static_directory(
 
     with subtests.test("download"):
         assert fs.exists(dir_name)
-        dir = LuxonisFileSystem.download(url, protocol_tempdir)
-        compare_directories(dir, local_dir)
+        downloaded_dir = LuxonisFileSystem.download(url, protocol_tempdir)
+        compare_directories(downloaded_dir, local_dir)
 
 
 def test_walk_dir(
@@ -342,7 +346,6 @@ def test_mlflow_attributes_are_public(tempdir: Path):
     ``__init__``, so the accessors have to be safe (``None``) for every
     other protocol instead of raising.
     """
-
     fs = LuxonisFileSystem(
         "mlflow://experiment/run/nested/config.yaml",
         tracking_uri="http://127.0.0.1:1",
@@ -619,7 +622,7 @@ def test_s3_filesystem_initialization(tempdir: Path):
 
 
 def compare_directories(
-    dir_path: Path, orig_dir_path: Path, flat: bool = False
+    dir_path: Path, orig_dir_path: Path, *, flat: bool = False
 ):
     assert dir_path.exists()
     for i in range(5):
@@ -629,10 +632,7 @@ def compare_directories(
             file_path.read_text()
             == (orig_dir_path / f"file_{i}.txt").read_text()
         )
-    if flat:
-        file_path = "nested_file.txt"
-    else:
-        file_path = "nested/nested_file.txt"
+    file_path = "nested_file.txt" if flat else "nested/nested_file.txt"
     nested_file = dir_path / file_path
 
     assert nested_file.exists()

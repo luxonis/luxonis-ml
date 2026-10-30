@@ -1,3 +1,5 @@
+"""`CutMix` augmentation that pastes a patch of one image into another."""
+
 import math
 from typing import Any, Literal
 
@@ -40,11 +42,12 @@ class CutMix(BatchTransform):
     def __init__(
         self,
         alpha: float = 1.0,
+        *,
         keep_aspect_ratio: bool = True,
         bbox_min_visibility: float = 0.5,
         occluded_bbox_strategy: Literal["keep", "clip"] = "keep",
         p: float = 0.5,
-    ):
+    ) -> None:
         r"""Create a CutMix augmentation.
 
         Args:
@@ -105,7 +108,7 @@ class CutMix(BatchTransform):
             occluded_bbox_strategy
         )
         self._resize_transform = create_letterbox_or_resize(
-            keep_aspect_ratio, 1, 1
+            keep_aspect_ratio=keep_aspect_ratio, height=1, width=1
         )
 
     @override
@@ -211,10 +214,11 @@ class CutMix(BatchTransform):
             mask = np.zeros_like(mask2)
         else:
             mask = mask1.copy()
-            if mask2.size == 0:
-                mask2 = np.zeros_like(mask)
-            else:
-                mask2 = self._match_dimensions(mask2, mask)
+            mask2 = (
+                np.zeros_like(mask)
+                if mask2.size == 0
+                else self._match_dimensions(mask2, mask)
+            )
 
         mask[y1:y2, x1:x2] = mask2[y1:y2, x1:x2]
         return mask
@@ -490,11 +494,9 @@ class CutMix(BatchTransform):
             return self._resize_transform.apply_to_bboxes(
                 data, *padding, **kwargs
             )
-        if target_type == "keypoints":
-            return self._resize_transform.apply_to_keypoints(
-                data, *padding, **kwargs
-            )
-        raise ValueError(f"Unsupported target type: {target_type}")
+        return self._resize_transform.apply_to_keypoints(
+            data, *padding, **kwargs
+        )
 
     @staticmethod
     def _compute_patch(

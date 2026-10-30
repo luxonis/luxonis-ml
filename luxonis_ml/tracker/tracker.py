@@ -1,3 +1,5 @@
+"""Experiment tracker that logs to TensorBoard, WandB, and MLflow."""
+
 import json
 import os
 import time
@@ -67,7 +69,7 @@ class LuxonisTracker:
         wandb_entity: str | None = None,
         mlflow_tracking_uri: str | None = None,
         rank: int = 0,
-    ):
+    ) -> None:
         """Create a tracker for one or more logging integrations.
 
         Args:
@@ -182,9 +184,9 @@ class LuxonisTracker:
         else:
             return
 
-        self.store_log_locally(log_fn, *args, **kwargs)
+        self.store_log_locally(log_fn, *args)
 
-    def store_log_locally(self, log_fn: Callable, *args, **kwargs) -> None:
+    def store_log_locally(self, log_fn: Callable, *args) -> None:
         """Store log data locally if logging to MLflow fails."""
         # Checking functions without triggering reconnections.
         if log_fn == self.experiment["mlflow"].log_metric:
@@ -292,7 +294,7 @@ class LuxonisTracker:
                 artifact["path"] = str(local_path)
 
         log_dir = self.run_directory / "local_logs.json"
-        with open(log_dir, "w") as f:
+        with log_dir.open("w") as f:
             json.dump(
                 {
                     k: self.local_logs[k]
@@ -338,9 +340,7 @@ class LuxonisTracker:
     def experiment(
         self,
     ) -> dict[Literal["tensorboard", "wandb", "mlflow"], Any]:
-        """Creates new experiments or returns active ones if already
-        created.
-        """
+        """Create new experiments, or return the active ones."""
         if self._experiment is None:
             self._experiment = {}
 
@@ -348,11 +348,11 @@ class LuxonisTracker:
             self._experiment["tensorboard"] = self._tensorboard_writer()
 
         if self.is_wandb and "wandb" not in self._experiment:
-            self._start_wandb_run()
+            self._start_wandb_run(self._experiment)
 
         if self.is_mlflow and self.mlflow_initialized is False:
             try:
-                self._start_mlflow_run()
+                self._start_mlflow_run(self._experiment)
                 self.mlflow_initialized = True
             except Exception as e:
                 logger.warning(f"Failed to initialize MLflow: {e}")
@@ -382,7 +382,9 @@ class LuxonisTracker:
             log_dir = log_dir / f"trial_{trial_id}"
         return SummaryWriter(log_dir=log_dir)
 
-    def _start_wandb_run(self) -> None:
+    def _start_wandb_run(
+        self, experiments: dict[Literal["tensorboard", "wandb", "mlflow"], Any]
+    ) -> None:
         """Start the Weights & Biases run.
 
         The module is stored before the run starts, so a failed start is
@@ -390,8 +392,7 @@ class LuxonisTracker:
         """
         import wandb
 
-        assert self._experiment is not None
-        self._experiment["wandb"] = wandb
+        experiments["wandb"] = wandb
 
         log_dir = self.save_directory / "wandb_logs"
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -405,7 +406,9 @@ class LuxonisTracker:
             name=self.run_name,
         )
 
-    def _start_mlflow_run(self) -> None:
+    def _start_mlflow_run(
+        self, experiments: dict[Literal["tensorboard", "wandb", "mlflow"], Any]
+    ) -> None:
         """Start the MLflow run.
 
         The module is stored before the run starts, so a failed start still
@@ -426,8 +429,7 @@ class LuxonisTracker:
                 "install it using 'pip install psutil'"
             )
 
-        assert self._experiment is not None
-        self._experiment["mlflow"] = mlflow
+        experiments["mlflow"] = mlflow
 
         self.artifacts_dir = self.run_directory / "artifacts"
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -677,7 +679,6 @@ class LuxonisTracker:
 
     def _get_next_run_number(self) -> int:
         """Return the number ID for the next run."""
-
         log_dirs = [
             path.name
             for path in self.save_directory.iterdir()
@@ -709,10 +710,7 @@ class LuxonisTracker:
             for path in self.save_directory.iterdir()
             if path.is_dir()
         ]
-        runs = []
-        for ld in log_dirs:
-            if ld.split("-")[0].isnumeric():
-                runs.append(ld)
+        runs = [ld for ld in log_dirs if ld.split("-")[0].isnumeric()]
         runs.sort(
             key=lambda x: (self.save_directory / x).stat().st_mtime,
             reverse=True,

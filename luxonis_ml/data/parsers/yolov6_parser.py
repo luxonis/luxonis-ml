@@ -1,3 +1,5 @@
+"""Parser for datasets in the YOLOv6 format."""
+
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +40,7 @@ class YoloV6Parser(BaseParser):
     """
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         label_split = split_path.parent.parent / "labels" / split_path.name
         if not split_path.exists():
@@ -58,6 +61,7 @@ class YoloV6Parser(BaseParser):
         }
 
     @classmethod
+    @override
     def validate(cls, dataset_dir: Path) -> bool:
         img_root = dataset_dir / "images"
         if not img_root.exists():
@@ -89,6 +93,7 @@ class YoloV6Parser(BaseParser):
             discovered[cls._canonicalize_split_name(split_name)] = split_kwargs
         return discovered
 
+    @override
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -111,6 +116,7 @@ class YoloV6Parser(BaseParser):
 
         return added_train_imgs, added_val_imgs, added_test_imgs
 
+    @override
     def from_split(
         self, image_dir: Path, annotation_dir: Path, classes_path: Path
     ) -> ParserOutput:
@@ -128,7 +134,7 @@ class YoloV6Parser(BaseParser):
             and added images.
 
         """
-        with open(classes_path) as f:
+        with classes_path.open(encoding="utf-8") as f:
             classes_data = yaml.safe_load(f)
         class_names = dict(enumerate(classes_data["names"]))
 
@@ -138,7 +144,7 @@ class YoloV6Parser(BaseParser):
 
                 annotation_data = []
                 if ann_path.exists():
-                    with open(ann_path) as f:
+                    with ann_path.open(encoding="utf-8") as f:
                         annotation_data = f.readlines()
 
                 if not annotation_data:

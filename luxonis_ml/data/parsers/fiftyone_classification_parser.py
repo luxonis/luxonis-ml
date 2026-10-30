@@ -1,8 +1,15 @@
+"""Parser for FiftyOne image classification datasets.
+
+Also holds `clean_imagenet_annotations`, which fixes known label
+errors of ImageNet exports.
+"""
+
 import json
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
@@ -60,6 +67,7 @@ class FiftyOneClassificationParser(BaseParser):
     _SPLIT_NAMES: tuple[str, ...] = ("train", "validation", "test")
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -74,7 +82,7 @@ class FiftyOneClassificationParser(BaseParser):
             return None
 
         try:
-            with open(labels_path) as f:
+            with labels_path.open(encoding="utf-8") as f:
                 labels_data = json.load(f)
             if "classes" not in labels_data or "labels" not in labels_data:
                 return None
@@ -83,6 +91,7 @@ class FiftyOneClassificationParser(BaseParser):
 
         return {"split_path": split_path}
 
+    @override
     def from_dir(
         self, dataset_dir: Path, **kwargs
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -107,6 +116,7 @@ class FiftyOneClassificationParser(BaseParser):
 
         return added_train_imgs, added_val_imgs, added_test_imgs
 
+    @override
     def from_split(self, split_path: Path) -> ParserOutput:
         labels_path = split_path / "labels.json"
         data_path = split_path / "data"
@@ -115,7 +125,7 @@ class FiftyOneClassificationParser(BaseParser):
         if is_flat_structure:
             labels_path = clean_imagenet_annotations(labels_path)
 
-        with open(labels_path) as f:
+        with labels_path.open(encoding="utf-8") as f:
             labels_data = json.load(f)
 
         classes = labels_data["classes"]
@@ -183,7 +193,7 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
         Path to the cleaned labels file.
 
     """
-    with open(labels_path) as f:
+    with labels_path.open(encoding="utf-8") as f:
         labels_data = json.load(f)
 
     classes = labels_data["classes"]
@@ -233,7 +243,7 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
     labels_data["labels"] = labels
 
     cleaned_labels_path = labels_path.with_name("labels_fixed.json")
-    with open(cleaned_labels_path, "w") as f:
+    with cleaned_labels_path.open("w", encoding="utf-8") as f:
         json.dump(labels_data, f)
 
     logger.info(f"Cleaned annotations saved to {cleaned_labels_path}")

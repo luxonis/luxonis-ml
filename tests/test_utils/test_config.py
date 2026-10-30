@@ -1,13 +1,16 @@
 import tempfile
 from copy import deepcopy
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from luxonis_ml.typing import Params
 from luxonis_ml.utils.config import LuxonisConfig
+
+if TYPE_CHECKING:
+    from luxonis_ml.typing import Params
 
 CONFIG_DATA = {
     "sub_config": {
@@ -64,9 +67,9 @@ class Config(LuxonisConfig):
     sub_config_default: SubConfigDefault = SubConfigDefault()
 
     optional_int: int | None = None
-    list_config: list[ListConfig] = []
-    nested_list_param: list[list[int]] = []
-    nested_dict_param: dict[str, dict[str, int]] = {}
+    list_config: list[ListConfig] = Field(default_factory=list)
+    nested_list_param: list[list[int]] = Field(default_factory=list)
+    nested_dict_param: dict[str, dict[str, int]] = Field(default_factory=dict)
     unsafe_config: UnsafeConfig = UnsafeConfig()
 
 

@@ -36,7 +36,17 @@ class PreparedLDF:
         splits: dict[str, Any],
         processed_df: pl.DataFrame,
         grouped_image_sources: pl.DataFrame,
-    ):
+    ) -> None:
+        """Create the container.
+
+        Args:
+            splits: Split names mapped to group IDs.
+            processed_df: Annotation dataframe with paths resolved to
+                readable files.
+            grouped_image_sources: Unique rows of group ID, source name
+                and file path.
+
+        """
         self.splits = splits
         self.processed_df = processed_df
         self.grouped_image_sources = grouped_image_sources
@@ -138,11 +148,12 @@ def check_group_file_correspondence(prepared_ldf: PreparedLDF) -> None:
         pl.col("file").n_unique().alias("file_count")
     )
     invalid_groups = group_to_files.filter(pl.col("file_count") > 1)
-    assert invalid_groups.is_empty(), (
-        "Each annotation instance must correspond to exactly one file. "
-        f"Found groups with multiple files: {invalid_groups['group_id'].to_list()}"
-        f"To export multiple files (e.g. RGB, depth) per instance, export to Native format"
-    )
+    if not invalid_groups.is_empty():
+        raise AssertionError(
+            "Each annotation instance must correspond to exactly one file. "
+            f"Found groups with multiple files: {invalid_groups['group_id'].to_list()}"
+            f"To export multiple files (e.g. RGB, depth) per instance, export to Native format"
+        )
 
 
 def exporter_specific_annotation_warning(
@@ -191,7 +202,8 @@ def split_of_group(prepared_ldf: PreparedLDF, group_id: Any) -> str:
         (s for s, ids in prepared_ldf.splits.items() if group_id in ids),
         None,
     )
-    assert split is not None, "group must belong to a split"
+    if split is None:
+        raise AssertionError("group must belong to a split")
     return split
 
 
@@ -237,7 +249,7 @@ def create_zip_output(
 
 
 def get_single_skeleton(
-    allow_keypoints: bool, skeletons: dict[str, Any] | None = None
+    *, allow_keypoints: bool, skeletons: dict[str, Any] | None = None
 ) -> tuple[list[str], list[list[int]]]:
     """Return labels and COCO-style edges for the single skeleton.
 
@@ -249,10 +261,7 @@ def get_single_skeleton(
     """
     if not allow_keypoints or skeletons is None:
         return [], []
-    if isinstance(skeletons, dict):
-        sk = next(iter(skeletons.values()))
-    else:  # list
-        sk = skeletons[0]
+    sk = next(iter(skeletons.values()))
     labels = list(sk.get("labels", []))
     edges = sk.get("edges", [])
     # COCO expects 1-based indices in skeleton
@@ -277,7 +286,7 @@ def decode_rle_with_pycoco(ann: dict[str, Any]) -> np.ndarray:
     # pycocotools expects an RLE object with 'size' and 'counts'
     rle = {"size": [h, w], "counts": counts.encode("utf-8")}
 
-    m = maskUtils.decode(rle)  # type: ignore[arg-type]
+    m = maskUtils.decode(rle)  # pyright: ignore[reportArgumentType]
     return np.array(m, dtype=np.uint8, order="C")
 
 
@@ -288,8 +297,8 @@ def annotation_to_polygons(
 
     Args:
         ann: Annotation with ``height``, ``width`` and ``counts`` keys.
-        file_path: Path of the annotated image. The function does not
-            read it.
+        file_path: Path of the annotated image. The warning for a mask
+            that fails to decode names it.
 
     Returns:
         One polygon for each outer contour with at least 3 points. An
@@ -310,7 +319,7 @@ def annotation_to_polygons(
     W = int(ann["width"])
     rle = {"size": [H, W], "counts": ann["counts"]}
     try:
-        mask = (maskUtils.decode(rle) > 0).astype(np.uint8)  # type: ignore
+        mask = (maskUtils.decode(rle) > 0).astype(np.uint8)  # pyright: ignore[reportArgumentType]
         contours, _ = cv2.findContours(
             mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
@@ -319,8 +328,11 @@ def annotation_to_polygons(
             for cnt in contours
             if len(cnt) >= 3
         ]
-    except Exception:
-        logger.warning("Failed to decode COCO RLE; skipping this instance.")
+    except (TypeError, ValueError, IndexError, OverflowError, cv2.error):
+        logger.warning(
+            f"Failed to decode the COCO RLE mask of {file_path}; "
+            "skipping this instance."
+        )
         return []
 
 

@@ -11,6 +11,7 @@ import cv2
 import matplotlib.colors
 import numpy as np
 from bidict import bidict
+from typing_extensions import override
 
 from luxonis_ml.data.utils import (
     get_task_name,
@@ -30,18 +31,22 @@ class ColorMap(Mapping[Hashable, RGB]):
     `distinct_color_generator`.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """Create an empty color map."""
         self._generator = distinct_color_generator()
         self._color_dict: dict[Hashable, RGB] = {}
 
+    @override
     def __getitem__(self, label: Hashable) -> RGB:
         if label not in self._color_dict:
             self._color_dict[label] = next(self._generator)
         return self._color_dict[label]
 
+    @override
     def __iter__(self) -> Iterator[Hashable]:
         return iter(self._color_dict)
 
+    @override
     def __len__(self) -> int:
         return len(self._color_dict)
 
@@ -114,7 +119,7 @@ def resolve_color(color: Color) -> RGB:
             raise ValueError(f"Color value {val} is out of range [0, 255]")
 
     if isinstance(color, str):
-        return matplotlib.colors.to_rgb(color)  # type: ignore
+        return matplotlib.colors.to_rgb(color)  # pyright: ignore[reportReturnType]
     if isinstance(color, int):
         _check_range(color)
         return color, color, color
@@ -239,8 +244,8 @@ def draw_dashed_rectangle(
             (i, i + dash_length)
             for i in range(0, line_length, 2 * dash_length)
         ]
-        for start, end in dashes:
-            end = min(end, line_length)
+        for start, dash_end in dashes:
+            end = min(dash_end, line_length)
             start_point = (
                 int(p1[0] + (p2[0] - p1[0]) * start / line_length),
                 int(p1[1] + (p2[1] - p1[1]) * start / line_length),
@@ -506,8 +511,7 @@ def draw_bbox_label(
     color: tuple[int, int, int],
     font_scale: float,
 ) -> None:
-    """Draw the class name label at the top-left corner of the bounding
-    box.
+    """Draw the class name label at the top-left corner of a box.
 
     Args:
         image: Image to draw on.
@@ -618,7 +622,6 @@ def visualize(
         The visualized image.
 
     """
-
     drawer = _LabelDrawer(image, source_name, classes, blend_all=blend_all)
     metadata_mappings = {
         task: bidict(encoding)
@@ -657,7 +660,7 @@ class _LabelDrawer:
         classes: dict[str, dict[str, int]],
         *,
         blend_all: bool,
-    ):
+    ) -> None:
         self.image = image
         self.h, self.w, _ = image.shape
         self.mappings = {task: bidict(c) for task, c in classes.items()}
@@ -697,9 +700,9 @@ class _LabelDrawer:
     ) -> np.ndarray:
         """Blend the colored masks of one task into an image."""
         mask_viz = np.zeros((self.h, self.w, 3)).astype(np.uint8)
-        for i, mask in enumerate(arr):
+        for i, task_mask in enumerate(arr):
             mask = cv2.resize(
-                mask, (self.w, self.h), interpolation=cv2.INTER_NEAREST
+                task_mask, (self.w, self.h), interpolation=cv2.INTER_NEAREST
             )
             if is_instance:
                 color = self._box_class_color(task_name, i)
@@ -775,13 +778,14 @@ class _LabelDrawer:
         canvas = self._canvas(task_name)
         keypoint_names, edges = (skeletons or {}).get(task_name, ([], []))
 
-        for i, kp in enumerate(arr):
-            kp = kp.reshape(-1, 3)
+        for i, flat_kp in enumerate(arr):
+            kp = flat_kp.reshape(-1, 3)
             class_color = self._box_class_color(task_name, i)
-            if class_color is None:
-                color = (255, 0, 0)
-            else:
-                color = get_contrast_color(class_color)
+            color = (
+                (255, 0, 0)
+                if class_color is None
+                else get_contrast_color(class_color)
+            )
 
             if draw_skeletons:
                 self._draw_edges(canvas, kp, edges, color)

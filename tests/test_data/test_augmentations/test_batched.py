@@ -647,21 +647,20 @@ def test_standalone_labels_survive_bboxes_from_another_task_group() -> None:
         config=[{"name": "MixUp", "params": {"p": 1.0}}],
     )
     image = np.zeros((64, 64, 3), dtype=np.uint8)
-    batch = []
-    for i in range(2):
-        batch.append(
-            (
-                {"image": image},
-                {
-                    "detection/boundingbox": np.array(
-                        [[0.0, 0.1 + i * 0.5, 0.1, 0.2, 0.2]]
-                    ),
-                    "pose/keypoints": np.array([[0.2 + i * 0.5, 0.2, 2.0]]),
-                    "pose/array": np.array([[i, i + 1]]),
-                    "pose/metadata/id": np.array([10 + i]),
-                },
-            )
+    batch = [
+        (
+            {"image": image},
+            {
+                "detection/boundingbox": np.array(
+                    [[0.0, 0.1 + i * 0.5, 0.1, 0.2, 0.2]]
+                ),
+                "pose/keypoints": np.array([[0.2 + i * 0.5, 0.2, 2.0]]),
+                "pose/array": np.array([[i, i + 1]]),
+                "pose/metadata/id": np.array([10 + i]),
+            },
         )
+        for i in range(2)
+    ]
 
     _, output = augmentations.apply(batch)
 

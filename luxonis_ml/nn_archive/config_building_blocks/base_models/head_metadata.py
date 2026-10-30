@@ -1,3 +1,8 @@
+"""Metadata schemas for the parser heads of an NN Archive model.
+
+The YOLO schema also checks its fields against the supported tasks.
+"""
+
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -127,7 +132,7 @@ class HeadSegmentationMetadata(HeadMetadata):
         description="Whether the output already contains softmax probabilities."
     )
     background_class: bool = Field(
-        False,
+        default=False,
         description="Whether the pixels classified as index 0 should be treated as background.",
     )
 
@@ -307,10 +312,11 @@ def _infer_yolo_tasks(defined_params: set[str]) -> list[str]:
         ValueError: Invalid combination of parameters. No specific task can be inferred.
 
     """
-    tasks = []
-    for task in ("instance_segmentation", "keypoint_detection"):
-        if all(f in defined_params for f in _YOLO_REQUIRED_FIELDS[task]):
-            tasks.append(task)
+    tasks = [
+        task
+        for task in ("instance_segmentation", "keypoint_detection")
+        if all(f in defined_params for f in _YOLO_REQUIRED_FIELDS[task])
+    ]
     if defined_params.isdisjoint(_YOLO_DETECTION_EXCLUDED_FIELDS):
         tasks.append("object_detection")
 

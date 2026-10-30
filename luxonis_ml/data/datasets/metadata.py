@@ -3,6 +3,7 @@
 from collections.abc import Callable, Iterable, Mapping
 from typing import Literal, TypeVar
 
+from pydantic import Field
 from typing_extensions import TypedDict
 
 from luxonis_ml.data.utils.constants import LDF_VERSION
@@ -44,11 +45,15 @@ class Metadata(BaseModelExtraForbid):
 
     source: LuxonisSource | None
     ldf_version: str = str(LDF_VERSION)
-    classes: dict[str, dict[str, int]] = {}
-    tasks: dict[str, list[str]] = {}
-    skeletons: dict[str, Skeletons] = {}
-    categorical_encodings: dict[str, dict[str, int]] = {}
-    metadata_types: dict[str, Literal["float", "int", "str", "Category"]] = {}
+    classes: dict[str, dict[str, int]] = Field(default_factory=dict)
+    tasks: dict[str, list[str]] = Field(default_factory=dict)
+    skeletons: dict[str, Skeletons] = Field(default_factory=dict)
+    categorical_encodings: dict[str, dict[str, int]] = Field(
+        default_factory=dict
+    )
+    metadata_types: dict[str, Literal["float", "int", "str", "Category"]] = (
+        Field(default_factory=dict)
+    )
     parent_dataset: str | None = None
 
     def set_classes(
@@ -114,7 +119,7 @@ class Metadata(BaseModelExtraForbid):
                 other.categorical_encodings,
                 lambda a, b: {**a, **b},
             ),
-            metadata_types={**self.metadata_types, **other.metadata_types},  # type: ignore
+            metadata_types={**self.metadata_types, **other.metadata_types},
         )
 
     def _merge_class_maps(

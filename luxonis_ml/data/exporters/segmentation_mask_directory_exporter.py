@@ -1,3 +1,5 @@
+"""Export to the segmentation mask directory format."""
+
 import csv
 import json
 from collections import OrderedDict, defaultdict
@@ -6,6 +8,7 @@ from typing import Any, cast
 
 import numpy as np
 from PIL import Image
+from typing_extensions import override
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
@@ -36,7 +39,16 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
         dataset_identifier: str,
         output_path: Path,
         max_partition_size_gb: float | None,
-    ):
+    ) -> None:
+        """Create the exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Maximum partition size in GiB, or
+                ``None`` to disable partitioning.
+
+        """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
@@ -48,8 +60,16 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
         self.ID_COL = "id"
 
     def get_split_names(self) -> dict[str, str]:
+        """Return the directory name of each split.
+
+        Returns:
+            Split names mapped to directory names. The ``val`` split
+            becomes ``valid``.
+
+        """
         return {"train": "train", "val": "valid", "test": "test"}
 
+    @override
     def supported_ann_types(self) -> list[str]:
         return DatasetType.SEGMASK.supported_annotation_formats
 
@@ -84,6 +104,7 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
             for name, cid in items_by_id:
                 w.writerow([cid, name])
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         """Export semantic segmentation masks and class CSV files.
 
@@ -111,7 +132,7 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
             split_dir.mkdir(parents=True, exist_ok=True)
 
         for key, entry in grouped:
-            file_name, group_id = cast(tuple[str, Any], key)
+            file_name, group_id = cast("tuple[str, Any]", key)
             file_path = Path(str(file_name))
             split = split_of_group(prepared_ldf, group_id)
 
@@ -184,6 +205,7 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
             combined[m != 0] = self._class_id_for(split, cname)
         return combined
 
+    @override
     def _dump_annotations(
         self,
         annotation_splits: dict[str, dict[str, Any]],
@@ -192,6 +214,7 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
     ) -> None:
         return
 
+    @override
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:

@@ -1,3 +1,10 @@
+"""Letterbox resize transform that keeps the aspect ratio.
+
+`LetterboxResize` scales the input to fit and pads the remainder.
+`create_letterbox_or_resize` picks between it and a plain
+``albumentations.Resize``.
+"""
+
 from typing import Any
 
 import albumentations as A
@@ -10,8 +17,7 @@ from luxonis_ml.utils.color import Color, ColorLike
 
 
 class LetterboxResize(A.DualTransform):
-    """Augmentation that resizes an image with padding to
-    maintain the aspect ratio.
+    """Augmentation that resizes with padding to keep the aspect ratio.
 
     Attributes:
         height: The desired height of the output image.
@@ -28,7 +34,7 @@ class LetterboxResize(A.DualTransform):
         image_fill_value: ColorLike = "black",
         mask_fill_value: int = 0,
         p: float = 1.0,
-    ):
+    ) -> None:
         """Create a ``LetterboxResize`` augmentation.
 
         Args:
@@ -44,7 +50,6 @@ class LetterboxResize(A.DualTransform):
             p: The probability of applying the transform. Defaults to ``1.0``.
 
         """
-
         super().__init__(p=p)
 
         self.height = height
@@ -99,8 +104,7 @@ class LetterboxResize(A.DualTransform):
     def compute_padding(
         orig_height: int, orig_width: int, out_height: int, out_width: int
     ) -> tuple[int, int, int, int]:
-        """Compute the padding required to resize an image to the
-        letterbox format.
+        """Compute the padding of an image resized to the letterbox format.
 
         Args:
             orig_height: Original height of the image.
@@ -376,6 +380,7 @@ class LetterboxResize(A.DualTransform):
 
 
 def create_letterbox_or_resize(
+    *,
     keep_aspect_ratio: bool,
     height: int,
     width: int,
