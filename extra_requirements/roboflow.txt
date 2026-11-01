@@ -3,7 +3,7 @@
 annotated-doc==0.0.5
 annotated-types==0.8.0
 attrs==26.1.0
-certifi==2026.7.22
+certifi==2026.10.23
 charset-normalizer==3.5.2
 click==8.5.0
 colorama==0.4.6 ; sys_platform == 'win32'
@@ -15,7 +15,7 @@ cyclopts==4.25.3
 docstring-parser==0.18.0
 filetype==1.2.0
 fonttools==4.65.0 ; python_full_version < '3.11'
-fonttools==4.66.1 ; python_full_version >= '3.11'
+fonttools==4.67.0 ; python_full_version >= '3.11'
 fsspec==2026.9.0
 idna==3.20
 kiwisolver==1.5.1
@@ -28,12 +28,14 @@ numpy==2.2.6 ; python_full_version < '3.11'
 numpy==2.4.6 ; python_full_version == '3.11.*'
 numpy==2.5.4 ; python_full_version >= '3.12'
 packaging==26.3
-pillow==12.3.0
+pillow==12.3.0 ; python_full_version < '3.11'
+pillow==13.0.0 ; python_full_version >= '3.11'
 pillow-avif-plugin==1.6.0
 pydantic==2.14.1
 pydantic-core==2.50.1
 pydantic-extra-types==2.11.1
-pydantic-settings==2.15.0
+pydantic-settings==2.15.0 ; python_full_version < '3.11'
+pydantic-settings==2.16.1 ; python_full_version >= '3.11'
 pygments==2.21.0
 pyparsing==3.3.3
 python-dateutil==2.9.0.post0
@@ -43,7 +45,7 @@ requests==2.34.2
 requests-toolbelt==1.0.0
 rich==15.0.0
 rich-rst==2.2.0
-roboflow==1.7.1
+roboflow==1.7.2
 semver==3.1.0
 shellingham==1.5.4
 six==1.17.0
