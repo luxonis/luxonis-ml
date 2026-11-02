@@ -240,26 +240,16 @@ class AutoRegisterMeta(ABCMeta):
 
     """
 
-    REGISTRY: Registry
+    REGISTRY: Registry  # pyright: ignore[reportUninitializedInstanceVariable]
 
     def __new__(
         cls,
         name: str,
         bases: tuple[type, ...],
         attrs: dict[str, type],
-        **_kwargs: Unpack[_RegisterKeywords],
-    ) -> "AutoRegisterMeta":
-        """Create the class and keep the registry keywords from type."""
-        return super().__new__(cls, name, bases, attrs)
-
-    def __init__(
-        cls,
-        name: str,
-        bases: tuple[type, ...],
-        attrs: dict[str, type],
         **kwargs: Unpack[_RegisterKeywords],
-    ) -> None:
-        """Automatically register the class.
+    ) -> "AutoRegisterMeta":
+        """Create the class and register it when requested.
 
         Args:
             name: The name of the class being created.
@@ -286,18 +276,21 @@ class AutoRegisterMeta(ABCMeta):
                 f"Class '{name}' got unexpected class keywords: "
                 f"{sorted(unknown)}"
             )
-        super().__init__(name, bases, attrs)
+        new_class = super().__new__(cls, name, bases, attrs)
         register = kwargs.get("register", True)
         registry = kwargs.get("registry")
-        if not hasattr(cls, "REGISTRY"):
+        if not hasattr(new_class, "REGISTRY"):
             if registry is not None:
-                cls.REGISTRY = registry
+                new_class.REGISTRY = registry
             elif register:
                 raise ValueError(
                     "Registry has to be set in the base class or passed as an argument."
                 )
         if register:
-            registry = registry if registry is not None else cls.REGISTRY
+            registry = registry if registry is not None else new_class.REGISTRY
             key = kwargs.get("register_name") or name
-            if key not in registry or not issubclass(cls, registry.get(key)):
-                registry.register(name=key, module=cls, force=True)
+            if key not in registry or not issubclass(
+                new_class, registry.get(key)
+            ):
+                registry.register(name=key, module=new_class, force=True)
+        return new_class
