@@ -534,6 +534,34 @@ def test_mlflow_transfers_are_staged_beside_their_endpoint(
     assert downloaded.read_text() == "staging payload"
 
 
+def test_mlflow_renamed_upload_copies_when_hardlinks_are_unavailable(
+    tmp_path: Path,
+    mlflow_tracking_uri: str,
+    mlflow_run: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    experiment_id, run_id = mlflow_run
+    local_file = tmp_path / "source.txt"
+    local_file.write_text("copied payload")
+    fs = LuxonisFileSystem(
+        f"mlflow://{experiment_id}/{run_id}",
+        tracking_uri=mlflow_tracking_uri,
+    )
+
+    original_hardlink_to = Path.hardlink_to
+
+    def fail_staged_hardlink(path: Path, target: Path) -> None:
+        if target == local_file and path.name == "renamed.txt":
+            raise OSError("hardlinks unavailable")
+        original_hardlink_to(path, target)
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(Path, "hardlink_to", fail_staged_hardlink)
+        fs.put_file(local_file, "copied/renamed.txt")
+
+    assert fs.read_text("copied/renamed.txt") == "copied payload"
+
+
 @pytest.mark.skipif(
     sys.platform == "win32" or getattr(os, "geteuid", lambda: 0)() == 0,
     reason="read-only directories are not enforced for Windows or root",
