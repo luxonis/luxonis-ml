@@ -548,15 +548,11 @@ def test_mlflow_renamed_upload_copies_when_hardlinks_are_unavailable(
         tracking_uri=mlflow_tracking_uri,
     )
 
-    original_hardlink_to = Path.hardlink_to
-
-    def fail_staged_hardlink(path: Path, target: Path) -> None:
-        if target == local_file and path.name == "renamed.txt":
-            raise OSError("hardlinks unavailable")
-        original_hardlink_to(path, target)
+    def fail_hardlink(_path: Path, _target: Path) -> NoReturn:
+        raise OSError("hardlinks unavailable")
 
     with monkeypatch.context() as patcher:
-        patcher.setattr(Path, "hardlink_to", fail_staged_hardlink)
+        patcher.setattr(Path, "hardlink_to", fail_hardlink)
         fs.put_file(local_file, "copied/renamed.txt")
 
     assert fs.read_text("copied/renamed.txt") == "copied payload"
