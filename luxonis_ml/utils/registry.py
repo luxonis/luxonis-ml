@@ -240,7 +240,8 @@ class AutoRegisterMeta(ABCMeta):
 
     """
 
-    REGISTRY: Registry
+    # Each generated class receives its registry in __new__.
+    REGISTRY: Registry  # pyright: ignore[reportUninitializedInstanceVariable]
 
     def __new__(
         cls,
