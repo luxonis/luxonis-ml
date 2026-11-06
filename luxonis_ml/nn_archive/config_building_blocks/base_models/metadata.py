@@ -1,3 +1,5 @@
+"""Schema of the model metadata stored in an NN Archive."""
+
 from pydantic import BaseModel, Field
 
 from luxonis_ml.nn_archive.config_building_blocks.enums import DataType

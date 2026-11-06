@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
+from typing_extensions import override
 
 from luxonis_ml.guard_extras import guard_missing_extra
 from luxonis_ml.typing import ParamValue
@@ -61,8 +62,9 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
 
     @property
     def writer(self) -> "SummaryWriter":
-        """The ``SummaryWriter`` of the run, for the calls that the
-        tracker does not make, such as ``add_histogram``.
+        """Return the ``SummaryWriter`` of the run.
+
+        Use it for calls that the tracker does not make, such as ``add_histogram``.
 
         Raises:
             RuntimeError: If the backend is not started.
@@ -82,6 +84,7 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
         """
         return Path(self.writer.logdir)
 
+    @override
     def start(self) -> None:
         """Open the event file of the run.
 
@@ -101,6 +104,7 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
             log_dir /= f"trial_{_next_trial(log_dir)}"
         self._writer = SummaryWriter(logdir=str(log_dir))
 
+    @override
     def log_hyperparams(self, params: Mapping[str, ParamValue]) -> None:
         """Collect the hyperparameters for the HParams dashboard.
 
@@ -114,6 +118,7 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
         """
         self._hparams.update(params)
 
+    @override
     def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
         """Write each metric as a scalar.
 
@@ -129,6 +134,7 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
         for name, value in metrics.items():
             self.writer.add_scalar(name, value, step)
 
+    @override
     def log_image(self, name: str, image: npt.NDArray[Any], step: int) -> None:
         r"""Write the image.
 
@@ -149,6 +155,7 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
             image = (image * 255).clip(0, 255).astype(np.uint8)
         self.writer.add_image(name, image, step, dataformats="HWC")
 
+    @override
     def log_matrix(
         self,
         matrix: npt.NDArray[Any],
@@ -170,9 +177,11 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
             RuntimeError: If the backend has not started.
 
         """
+        del extra_data
         text = np.array2string(matrix, separator=", ", threshold=matrix.size)
         self.writer.add_text(name, text, step)
 
+    @override
     def flush(self) -> None:
         """Write the pending events to disk.
 
@@ -197,6 +206,7 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
         # The writer reads this suffix when it opens the next file.
         self.writer._filename_suffix = f".{self._flushes}"  # pyright: ignore[reportPrivateUsage]
 
+    @override
     def close(self, status: RunStatus) -> None:
         """Write the hyperparameters, and close the event file.
 
@@ -207,6 +217,7 @@ class TensorBoardBackend(TrackerBackend, register_name="tensorboard"):
             RuntimeError: If the backend has not started.
 
         """
+        del status
         if self._hparams:
             self._write_hparams()
         self.writer.close()

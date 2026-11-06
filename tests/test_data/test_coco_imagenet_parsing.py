@@ -57,7 +57,12 @@ def _run_cli_parse(
         "LUXONISML_BASE_PATH": str(environ.LUXONISML_BASE_PATH),
     }
     return subprocess.run(
-        cmd, check=False, capture_output=True, text=True, timeout=600, env=env
+        cmd,
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+        timeout=600,
+        env=env,
     )
 
 
@@ -172,8 +177,7 @@ class TestCoco2017Keypoints:
     def test_keypoints_all_splits_ratio(
         self, coco_2017_all_splits: Path, dataset_name: str
     ):
-        """All three split folders present, but only train and val have
-        keypoint JSONs.
+        """Three split folders, but only train and val have keypoint JSONs.
 
         The test split keypoint JSON does not exist, so the parser
         skips it entirely. With ``split_ratios`` as percentages, all
@@ -354,7 +358,7 @@ class TestCoco2017Keypoints:
         parser = LuxonisParser(
             str(dataset_dir),
             dataset_name=dataset_name,
-            dataset_type="coco",  # type: ignore[arg-type]
+            dataset_type="coco",  # pyright: ignore[reportArgumentType]
             delete_local=True,
         )
         dataset = parser.parse(use_keypoint_ann=True)

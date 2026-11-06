@@ -1,3 +1,5 @@
+"""Enum of the data types used in NN Archive configs."""
+
 from enum import Enum
 
 

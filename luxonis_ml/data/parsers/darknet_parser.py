@@ -1,9 +1,13 @@
+"""Parser for datasets in the Darknet format."""
+
 from pathlib import Path
 from typing import Any
 
+from typing_extensions import override
+
 from luxonis_ml.data import DatasetIterator
 
-from .base_parser import BaseParser, ParserOutput
+from .base_parser import BaseParser, ParserOutput, yolo_box_to_ldf
 
 
 class DarknetParser(BaseParser):
@@ -24,6 +28,7 @@ class DarknetParser(BaseParser):
     """
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -36,6 +41,7 @@ class DarknetParser(BaseParser):
             "classes_path": split_path / "_darknet.labels",
         }
 
+    @override
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -53,6 +59,7 @@ class DarknetParser(BaseParser):
         )
         return added_train_imgs, added_val_imgs, added_test_imgs
 
+    @override
     def from_split(self, image_dir: Path, classes_path: Path) -> ParserOutput:
         """Parse Darknet annotations into LDF records.
 
@@ -67,7 +74,7 @@ class DarknetParser(BaseParser):
             and added images.
 
         """
-        with open(classes_path) as f:
+        with classes_path.open(encoding="utf-8") as f:
             class_names = {
                 i: line.rstrip() for i, line in enumerate(f.readlines())
             }
@@ -77,7 +84,7 @@ class DarknetParser(BaseParser):
                 ann_path = img_path.with_suffix(".txt")
                 file = str(img_path)
                 if ann_path.exists():
-                    with open(ann_path) as f:
+                    with ann_path.open(encoding="utf-8") as f:
                         annotation_data = f.readlines()
                 else:
                     annotation_data = []
@@ -96,12 +103,9 @@ class DarknetParser(BaseParser):
                         "file": file,
                         "annotation": {
                             "class": class_name,
-                            "boundingbox": {
-                                "x": float(x_center) - float(width) / 2,
-                                "y": float(y_center) - float(height) / 2,
-                                "w": float(width),
-                                "h": float(height),
-                            },
+                            "boundingbox": yolo_box_to_ldf(
+                                x_center, y_center, width, height
+                            ),
                         },
                     }
 

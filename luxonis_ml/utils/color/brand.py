@@ -3,9 +3,9 @@
 These are the company colors, transcribed from the shared Luxonis design tokens
 that the frontend renders from, so a chart or overlay produced here matches the
 web UI rather than drifting from it. They are the
-single home for every non-label color in the stack: visualization *chrome* —
-composite backgrounds, card fills, panel keys and titles, dividers, chart tracks,
-and verdict marks — is colored from here so the framing reads as on-brand out of
+single home for every non-label color in the stack: visualization *chrome*
+(composite backgrounds, card fills, panel keys and titles, dividers, chart tracks,
+and verdict marks) is colored from here so the framing reads as on-brand out of
 the box. Per-class *label* colors deliberately do **not** come from here: they
 stay maximally distinct via the golden-ratio generator (see
 `luxonis_ml.utils.color.palette`), because a fixed brand set can't keep many
@@ -30,17 +30,17 @@ from .base import Color
 # -- Core brand colors ------------------------------------------------------
 # The saturated fill of each semantic family, for filled surfaces rather than
 # for text (the `*_TEXT` ramp below is what labels and icons should use).
-PURPLE = Color(76, 79, 241)  # #4C4FF1 — the primary "Luxonis Purple"
+PURPLE = Color(76, 79, 241)  # #4C4FF1, the primary "Luxonis Purple"
 GREEN = Color(18, 183, 106)  # #12B76A
 ORANGE = Color(220, 104, 3)  # #DC6803
 RED = Color(240, 68, 56)  # #F04438
 
 # The lighter "decoration" variant of each family, which the design system also
 # uses as that family's outline/border color.
-PERIWINKLE = Color(141, 164, 244)  # #8DA4F4 — light purple
-MINT = Color(108, 233, 166)  # #6CE9A6 — light green
-AMBER = Color(254, 200, 75)  # #FEC84B — light orange
-SALMON = Color(253, 162, 155)  # #FDA29B — light red
+PERIWINKLE = Color(141, 164, 244)  # #8DA4F4, light purple
+MINT = Color(108, 233, 166)  # #6CE9A6, light green
+AMBER = Color(254, 200, 75)  # #FEC84B, light orange
+SALMON = Color(253, 162, 155)  # #FDA29B, light red
 
 #: A deep-indigo shade of :data:`PURPLE` (same hue) for light-mode titles and
 #: headings: a stronger, higher-contrast purple that outranks :data:`PURPLE_TEXT`
@@ -50,10 +50,10 @@ PURPLE_TITLE = Color(22, 24, 112)  # #161870
 
 # Neutral "ink" ramp (brand grays), dark to light: body text, labels, and the
 # muted/disabled end of the scale.
-INK = Color(29, 41, 57)  # #1D2939 — darkest neutral
-SLATE = Color(71, 84, 103)  # #475467 — muted mid neutral
-STEEL = Color(102, 112, 133)  # #667085 — light neutral
-FAINT = Color(211, 211, 211)  # #D3D3D3 — disabled text and placeholders
+INK = Color(29, 41, 57)  # #1D2939, darkest neutral
+SLATE = Color(71, 84, 103)  # #475467, muted mid neutral
+STEEL = Color(102, 112, 133)  # #667085, light neutral
+FAINT = Color(211, 211, 211)  # #D3D3D3, disabled text and placeholders
 
 # -- Soft tints -------------------------------------------------------------
 # Pale fills for chips, badges, and callouts, one per family. The active tint is
@@ -85,17 +85,17 @@ HOVER_ALPHA = 0xD9
 # -- Chrome palette (semantic; used across the annotations) -----------------
 #: Deep navy composite background painted behind stacks, grids, and pad gaps.
 BACKGROUND = INK.darken(0.28)
-#: Light-mode composite background — a soft, cool lavender-gray (a hair of brand
+#: Light-mode composite background: a soft, cool lavender-gray (a hair of brand
 #: purple mixed into white). Deliberately *not* pure white so white cards and
 #: panels read as distinct surfaces on top of it.
 LIGHT_BACKGROUND = Color(237, 239, 248)  # #edeff8
 
-#: Card fill — a translucent navy sitting a touch lighter than ``BACKGROUND`` so
+#: Card fill: a translucent navy sitting a touch lighter than ``BACKGROUND`` so
 #: stacked cards (legend, info card, distribution panel) read as one family.
 CARD_BG = INK.with_alpha(150)
 #: Caption chips use the same navy, more opaque for a single short line.
 CAPTION_BG = INK.with_alpha(235)
-#: Light-purple (periwinkle) body text — the dark-mode counterpart to the
+#: Light-purple (periwinkle) body text: the dark-mode counterpart to the
 #: regular-purple body text on light surfaces, so both themes read as on-brand
 #: rather than plain white on dark.
 CARD_TEXT = PERIWINKLE
@@ -128,9 +128,9 @@ ERROR = RED  # an incorrect ✗ verdict
 class Chrome:
     """Resolved card/panel chrome for a given composite background.
 
-    Bundles the handful of non-label colors a stacked card or side panel needs —
-    fill, body/heading text, accent key, divider, and an optional hairline
-    border — so the framing adapts to a dark or light background as one set.
+    Bundles the handful of non-label colors a stacked card or side panel needs
+    (fill, body/heading text, accent key, divider, and an optional hairline
+    border), so the framing adapts to a dark or light background as one set.
     Resolve it with `chrome_for`; the dark and light presets are `DARK_CHROME`
     and `LIGHT_CHROME`.
 

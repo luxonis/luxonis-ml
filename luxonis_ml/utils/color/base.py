@@ -1,13 +1,13 @@
 """Color parsing and manipulation.
 
-The `Color` class is the single color primitive shared across ``luxonis-ml`` —
-the visualization layer re-exports it, and other submodules (e.g. augmentation
+The `Color` class is the single color primitive shared across ``luxonis-ml``.
+The visualization layer re-exports it, and other submodules (e.g. augmentation
 fill values) parse colors through it too, so no module reimplements color
 handling.
 
 Colors are normalized to an ``(r, g, b, a)`` tuple of 8-bit integers. `Color.parse`
-accepts the shapes users actually have on hand — hex strings, CSS color names, a
-single grayscale integer, RGB/RGBA tuples, or another `Color` — and exposes the
+accepts the shapes users actually have on hand (hex strings, CSS color names, a
+single grayscale integer, RGB/RGBA tuples, or another `Color`) and exposes the
 HSL-space operations the palette and style derivation rely on.
 """
 
@@ -153,6 +153,14 @@ class Color:
 
         A leading ``#`` forces hex parsing (so a bad hex reports as such);
         otherwise hex is tried first, then a color name.
+
+        Returns:
+            The parsed `Color`.
+
+        Raises:
+            ValueError: If ``text`` starts with ``#`` but is not valid
+                hex, or if it is neither hex nor a known color name.
+
         """
         try:
             return cls._from_hex(text)
@@ -334,8 +342,9 @@ class Color:
         """Whether this color is bright enough to need dark text on top.
 
         Weights the channels the way WCAG relative luminance does, but leaves
-        them gamma-encoded rather than linearizing first — an approximation of
-        perceived brightness, which is all a light/dark decision needs.
+        them gamma-encoded rather than linearizing first. The result
+        approximates perceived brightness, which is all a light/dark decision
+        needs.
         """
         r, g, b = self.r / 255, self.g / 255, self.b / 255
         return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55

@@ -3,10 +3,10 @@
 This package is the single home for color handling across the stack, so no other
 module reimplements it:
 
-- `Color` — the immutable RGBA primitive with hex/name/HSL parsing and helpers.
-- `brand` — the Luxonis brand colors and the UI-chrome palette built from them,
+- `Color`: the immutable RGBA primitive with hex/name/HSL parsing and helpers.
+- `brand`: the Luxonis brand colors and the UI-chrome palette built from them,
   for every non-label color (backgrounds, cards, dividers, verdict marks).
-- `Palette` / `GoldenRatioColors` / `SequenceColors` — distinct per-class label
+- `Palette` / `GoldenRatioColors` / `SequenceColors`: distinct per-class label
   colors from a pluggable index-based generator.
 """
 

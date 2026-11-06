@@ -1,3 +1,5 @@
+"""Output schema of an NN Archive model."""
+
 from contextlib import suppress
 
 from pydantic import Field, model_validator

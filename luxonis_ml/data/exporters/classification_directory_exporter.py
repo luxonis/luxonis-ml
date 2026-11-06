@@ -1,5 +1,9 @@
+"""Export to a classification directory layout, one folder per class."""
+
 from pathlib import Path
 from typing import Any, cast
+
+from typing_extensions import override
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
@@ -7,17 +11,34 @@ from luxonis_ml.data.exporters.exporter_utils import (
     check_group_file_correspondence,
     exporter_specific_annotation_warning,
     split_of_group,
+    whole_image_classes,
 )
 from luxonis_ml.enums import DatasetType
 
 
 class ClassificationDirectoryExporter(BaseExporter):
+    """Export whole-image classes as one directory per class.
+
+    Each split directory holds a subdirectory for each class. An
+    image with several classes is copied into each of them. An image
+    without a class is skipped.
+    """
+
     def get_split_names(self) -> dict[str, str]:
+        """Return the directory name of each split.
+
+        Returns:
+            Split names mapped to directory names. The ``val`` split
+            becomes ``valid``.
+
+        """
         return {"train": "train", "val": "valid", "test": "test"}
 
+    @override
     def supported_ann_types(self) -> list[str]:
         return DatasetType.CLSDIR.supported_annotation_formats
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
         exporter_specific_annotation_warning(
@@ -33,21 +54,12 @@ class ClassificationDirectoryExporter(BaseExporter):
         )  # (src, dest_abs_str) to avoid duplicate write in same pass
 
         for key, entry in grouped:
-            file_name, group_id = cast(tuple[str, Any], key)
+            file_name, group_id = cast("tuple[str, Any]", key)
             file_path = Path(str(file_name))
 
             split = split_of_group(prepared_ldf, group_id)
 
-            class_names: set[str] = set()
-            for row in entry.iter_rows(named=True):
-                if (
-                    row["task_type"] == "classification"
-                    and row["instance_id"] == -1
-                ):
-                    cname = row["class_name"]
-                    if cname:
-                        class_names.add(str(cname))
-
+            class_names = set(whole_image_classes(entry))
             if not class_names:
                 continue
 
@@ -73,6 +85,7 @@ class ClassificationDirectoryExporter(BaseExporter):
                 if dest != file_path:
                     dest.write_bytes(file_path.read_bytes())
 
+    @override
     def _dump_annotations(
         self,
         annotation_splits: dict[str, dict[str, Any]],
@@ -81,6 +94,7 @@ class ClassificationDirectoryExporter(BaseExporter):
     ) -> None:
         return
 
+    @override
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:

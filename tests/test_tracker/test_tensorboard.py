@@ -24,6 +24,10 @@ def read_summaries(log_dir: Path) -> list[tuple[int, Summary.Value]]:
 
     An event file is a sequence of records: a length of 8 bytes, a CRC
     of 4 bytes, the event, and a CRC of 4 bytes.
+
+    Returns:
+        The event step and value for each summary.
+
     """
     values: list[tuple[int, Summary.Value]] = []
     for path in sorted(log_dir.glob("events.out.tfevents.*")):
@@ -107,7 +111,9 @@ def test_the_logged_values_reach_the_event_file(
 def test_the_hyperparameters_stay_in_the_run(
     backend: TensorBoardBackend, run: RunContext
 ):
-    """`add_hparams` would write them into a new run directory, which
+    """Keep all hyperparameters in one TensorBoard run.
+
+    ``add_hparams`` would write them into a new run directory, which
     TensorBoard shows as a second run. TensorBoard reads only the first
     set in a run, so the backend writes all sets at once on close.
     """

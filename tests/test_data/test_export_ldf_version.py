@@ -28,7 +28,9 @@ from .utils import create_dataset, create_image
 LDF_2_0_RECORD_FIELDS = {"file", "files", "task_name", "annotation"}
 
 
-def _generator(tempdir: Path, with_metadata: bool = True) -> DatasetIterator:
+def _generator(
+    tempdir: Path, *, with_metadata: bool = True
+) -> DatasetIterator:
     for i in range(2):
         record = {
             "file": create_image(i, tempdir),
