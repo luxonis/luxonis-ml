@@ -18,7 +18,7 @@ def test_metadata_no_boxes():
         },
         {
             "name": "Mosaic4",
-            "params": {"p": 1.0, "out_width": 640, "out_height": 640},
+            "params": {"p": 1.0, "width": 640, "height": 640},
         },
     ]
     augmentations = AlbumentationsEngine(
@@ -57,7 +57,7 @@ def test_skip_augmentations():
         },
         {
             "name": "Mosaic4",
-            "params": {"out_width": 640, "out_height": 640},
+            "params": {"width": 640, "height": 640},
         },
     ]
     targets = {

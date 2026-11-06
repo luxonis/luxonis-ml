@@ -91,8 +91,7 @@ class LuxonisLoader(BaseLoader):
         dataset: LuxonisDataset,
         view: str | list[str] = "train",
         *,
-        augmentation_engine: Literal["albumentations"]
-        | str = "albumentations",
+        augmentation_engine: str = "albumentations",
         augmentation_config: list[Params] | PathType | None = None,
         height: int | None = None,
         width: int | None = None,
@@ -188,7 +187,6 @@ class LuxonisLoader(BaseLoader):
                 )
 
         """
-
         self.dataset = dataset
 
         if self.dataset.is_remote:
@@ -286,7 +284,7 @@ class LuxonisLoader(BaseLoader):
             raise RuntimeError(
                 "Cannot find splits! Ensure you call dataset.make_splits()"
             )
-        with open(splits_path) as file:
+        with splits_path.open(encoding="utf-8") as file:
             splits = json.load(file)
 
         instances: list[str] = []
@@ -356,7 +354,9 @@ class LuxonisLoader(BaseLoader):
         if self._augmentations is None:
             img_dict, labels, metadata = self._load_data(idx)
         else:
-            img_dict, labels, metadata = self._load_with_augmentations(idx)
+            img_dict, labels, metadata = self._load_with_augmentations(
+                idx, self._augmentations
+            )
 
         if not self._exclude_empty_annotations:
             img_dict, labels = self._add_empty_annotations(img_dict, labels)
@@ -378,6 +378,9 @@ class LuxonisLoader(BaseLoader):
         ``pycocotools`` measures it without a decode.
 
         A sample with no mask gives no verdict on its task.
+
+        Returns:
+            The names of the uncovered segmentation tasks.
 
         """
         samples = (
@@ -459,6 +462,11 @@ class LuxonisLoader(BaseLoader):
         Returns:
             Images, labels, and sample metadata present for the sample.
 
+        Raises:
+            ValueError: If the selected views contain no records or a
+                grayscale source has an unsupported image shape.
+            FileNotFoundError: If an image path cannot be found or read.
+
         """
         if not self._idx_to_df_row:
             raise ValueError(
@@ -535,7 +543,11 @@ class LuxonisLoader(BaseLoader):
         """Parse one dataframe row into its task, instance ID and value.
 
         A metadata row gives its raw value, any other row an `Annotation`.
-        A row without an annotation gives ``None``.
+
+        Returns:
+            The ``"task_name/task_type"`` key of the row, its instance
+            ID and its value. ``None`` if the row has no annotation.
+
         """
         col = self._df_col_indices
         ann_str: str | None = row[col["annotation"]]
@@ -559,7 +571,7 @@ class LuxonisLoader(BaseLoader):
             data["height"], data["width"] = image_shape[:2]
             data["points"] = [tuple(p) for p in data["points"]]
 
-        return task, instance_id, load_annotation(task_type, data)  # type: ignore
+        return task, instance_id, load_annotation(task_type, data)  # pyright: ignore[reportArgumentType]
 
     def _class_id(self, row: tuple) -> int:
         """Return the class index of a row, or 0 for a row without a class."""
@@ -583,7 +595,7 @@ class LuxonisLoader(BaseLoader):
             values.sort(key=lambda x: x[0])
             metadata = [value for _, value in values]
             if not self._keep_categorical_as_strings and task in encodings:
-                metadata = [encodings[task][m] for m in metadata]  # type: ignore
+                metadata = [encodings[task][m] for m in metadata]  # pyright: ignore[reportArgumentType]
             labels[task] = np.array(metadata)
         return labels
 
@@ -598,7 +610,7 @@ class LuxonisLoader(BaseLoader):
         task_name, task_type = split_task(task)
         if task_type == "keypoints":
             array = KeypointAnnotation.combine_to_numpy(
-                cast(list[KeypointAnnotation], anns),
+                cast("list[KeypointAnnotation]", anns),
                 labels=self._keypoint_labels[task_name],
             )
         else:
@@ -614,10 +626,12 @@ class LuxonisLoader(BaseLoader):
         return array
 
     def _load_with_augmentations(
-        self, idx: int
+        self, idx: int, augmentations: AugmentationEngine
     ) -> tuple[dict[str, np.ndarray], Labels, Params]:
-        assert self._augmentations is not None
-        indices = [idx, *self._pick_batch_members(idx)]
+        indices = [
+            idx,
+            *self._pick_batch_members(idx, augmentations.batch_size),
+        ]
 
         loaded_anns: list[tuple[dict[str, np.ndarray], Labels]] = []
         sample_metadata_list: list[Params] = []
@@ -626,8 +640,8 @@ class LuxonisLoader(BaseLoader):
             loaded_anns.append((img_dict, labels))
             sample_metadata_list.append(sample_metadata)
 
-        img_dict, labels = self._augmentations.apply(loaded_anns)
-        metadata_indices = self._augmentations.batch_augmentation_indices
+        img_dict, labels = augmentations.apply(loaded_anns)
+        metadata_indices = augmentations.batch_augmentation_indices
         if len(metadata_indices) > 1:
             sample_metadata = self._merge_sample_metadata(
                 [sample_metadata_list[i] for i in metadata_indices],
@@ -638,24 +652,28 @@ class LuxonisLoader(BaseLoader):
 
         if self._reserve_key(sample_metadata, "augmentations"):
             sample_metadata["augmentations"] = TrackedAugmentations(
-                self._augmentations.applied_augmentations
+                augmentations.applied_augmentations
             )
         return img_dict, labels, sample_metadata
 
-    def _pick_batch_members(self, idx: int) -> list[int]:
+    def _pick_batch_members(self, idx: int, batch_size: int) -> list[int]:
         """Draw the other samples that a batch augmentation of ``idx`` needs.
 
         The samples are distinct from ``idx`` and from each other, unless
         the batch is larger than the dataset.
+
+        Returns:
+            The indices of the ``batch_size - 1`` other samples. An
+            empty list if the batch has one sample only.
+
         """
-        assert self._augmentations is not None
-        n_others = self._augmentations.batch_size - 1
+        n_others = batch_size - 1
         if n_others < 1:
             return []
 
-        if self._augmentations.batch_size > len(self):
+        if batch_size > len(self):
             warnings.warn(
-                f"Augmentations batch_size ({self._augmentations.batch_size}) "
+                f"Augmentations batch_size ({batch_size}) "
                 f"is larger than dataset size ({len(self)}). "
                 "Samples will include repetitions.",
                 stacklevel=3,
@@ -694,6 +712,10 @@ class LuxonisLoader(BaseLoader):
         records contributed to the augmented output. ``input_index`` is the
         source sample's position in the original augmentation batch.
 
+        Returns:
+            The merged metadata, built from deep copies of the inputs.
+            An empty dict if ``metadata_batch`` is empty.
+
         Example:
             .. python::
 
@@ -721,7 +743,7 @@ class LuxonisLoader(BaseLoader):
 
         metadata = deepcopy(metadata_batch[0])
 
-        metadata["batch_augmentation_metadata"] = [  # type: ignore
+        metadata["batch_augmentation_metadata"] = [
             {
                 "input_index": i,
                 "sample_metadata": deepcopy(m),
@@ -732,7 +754,7 @@ class LuxonisLoader(BaseLoader):
 
     def _init_augmentations(
         self,
-        augmentation_engine: Literal["albumentations"] | str,
+        augmentation_engine: str,
         augmentation_config: list[Params] | PathType,
         *,
         height: int | None,
@@ -743,9 +765,9 @@ class LuxonisLoader(BaseLoader):
         bbox_area_threshold: float = 0.0004,
     ) -> AugmentationEngine | None:
         if isinstance(augmentation_config, PathType):
-            with open(augmentation_config) as file:
+            with Path(augmentation_config).open(encoding="utf-8") as file:
                 augmentation_config = cast(
-                    list[Params], yaml.safe_load(file) or []
+                    "list[Params]", yaml.safe_load(file) or []
                 )
         if augmentation_config and (width is None or height is None):
             raise ValueError(
@@ -844,6 +866,11 @@ class LuxonisLoader(BaseLoader):
 
         An LDF 1.0 polyline stores normalized points and no size, so it
         is rasterized on a grid and no image is read.
+
+        Returns:
+            One run-length encoding for each mask and each polyline.
+            All have the size of the first encoded mask, or of a fixed
+            grid if the sample has polylines only.
 
         """
         parsed = [json.loads(annotation) for annotation in annotations]

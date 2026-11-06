@@ -8,6 +8,7 @@ from typing import Any, cast
 import pycocotools.mask as maskUtils
 from loguru import logger
 from PIL import Image
+from typing_extensions import override
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
@@ -40,12 +41,22 @@ class CocoExporter(BaseExporter):
         dataset_identifier: str,
         output_path: Path,
         max_partition_size_gb: float | None,
-        format: COCOFormat = COCOFormat.ROBOFLOW,
-    ):
+        coco_format: COCOFormat = COCOFormat.ROBOFLOW,
+    ) -> None:
+        """Create the exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Maximum partition size in GiB, or
+                ``None`` to disable partitioning.
+            coco_format: Directory layout of the export.
+
+        """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
-        self.format = format
+        self.format = coco_format
         self.allow_keypoints = False
         self._keypoint_labels: list[str] = []
         self._category_keypoints: dict[str, Any] = {}
@@ -60,10 +71,20 @@ class CocoExporter(BaseExporter):
         }
 
     def get_split_names(self) -> dict[str, str]:
+        """Return the directory name of each split.
+
+        The Roboflow layout names the ``val`` split ``valid``; the
+        FiftyOne layout names it ``validation``.
+
+        Returns:
+            Split names mapped to directory names.
+
+        """
         if self.format == COCOFormat.ROBOFLOW:
             return {"train": "train", "val": "valid", "test": "test"}
         return {"train": "train", "val": "validation", "test": "test"}
 
+    @override
     def supported_ann_types(self) -> list[str]:
         return DatasetType.COCO.supported_annotation_formats
 
@@ -93,6 +114,7 @@ class CocoExporter(BaseExporter):
         if task_keypoints.sigmas:
             self._category_keypoints["sigmas"] = task_keypoints.sigmas
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
         exporter_specific_annotation_warning(
@@ -113,7 +135,9 @@ class CocoExporter(BaseExporter):
         copied_files: set[Path] = set()
 
         for key, entry in grouped:
-            file_name, _instance_id, group_id = cast(tuple[str, int, Any], key)
+            file_name, _instance_id, group_id = cast(
+                "tuple[str, int, Any]", key
+            )
 
             split = split_of_group(prepared_ldf, group_id)
             file_path = Path(str(file_name))
@@ -202,7 +226,8 @@ class CocoExporter(BaseExporter):
                 new_name,
             )
 
-        width, height = Image.open(path).size
+        with Image.open(path) as image:
+            width, height = image.size
         image_id = len(annotation_splits[split]["images"]) + 1
         img_entry = {
             "id": image_id,
@@ -307,8 +332,8 @@ class CocoExporter(BaseExporter):
                 "size": [H, W],
                 "counts": counts.encode("utf-8"),
             }
-            area = float(maskUtils.area(rle_runtime))  # type: ignore[arg-type]
-            bbox = maskUtils.toBbox(rle_runtime).tolist()  # type: ignore[arg-type]
+            area = float(maskUtils.area(rle_runtime))  # pyright: ignore[reportArgumentType]
+            bbox = maskUtils.toBbox(rle_runtime).tolist()  # pyright: ignore[reportArgumentType]
             ann["area"] = area
             if not ann.get("bbox"):
                 ann["bbox"] = bbox
@@ -370,6 +395,7 @@ class CocoExporter(BaseExporter):
             ann.setdefault("bbox", [0.0, 0.0, 0.0, 0.0])
             ann.setdefault("area", 0.0)
 
+    @override
     def _dump_annotations(
         self,
         annotation_splits: dict[str, dict[str, Any]],
@@ -391,6 +417,7 @@ class CocoExporter(BaseExporter):
                 json.dumps(split_data, indent=2), encoding="utf-8"
             )
 
+    @override
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:

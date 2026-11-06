@@ -1,3 +1,8 @@
+"""Metadata schemas for the parser heads of an NN Archive model.
+
+The YOLO schema also checks its fields against the supported tasks.
+"""
+
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -127,7 +132,7 @@ class HeadSegmentationMetadata(HeadMetadata):
         description="Whether the output already contains softmax probabilities."
     )
     background_class: bool = Field(
-        False,
+        default=False,
         description="Whether the pixels classified as index 0 should be treated as background.",
     )
 
@@ -288,7 +293,13 @@ _YOLO_OUTPUT_FIELDS = {
 def _infer_yolo_tasks(defined_params: set[str]) -> list[str]:
     """Infer the YOLO tasks that the task-specific fields describe.
 
-    Every defined field must belong to one of the inferred tasks.
+    Returns:
+        The inferred task names, out of ``instance_segmentation``,
+        ``keypoint_detection`` and ``object_detection``, in that order.
+
+    Raises:
+        ValueError: If ``defined_params`` fits no task, or if one of its
+            fields belongs to none of the inferred tasks.
 
     Examples:
         >>> _infer_yolo_tasks(set())
@@ -301,10 +312,11 @@ def _infer_yolo_tasks(defined_params: set[str]) -> list[str]:
         ValueError: Invalid combination of parameters. No specific task can be inferred.
 
     """
-    tasks = []
-    for task in ("instance_segmentation", "keypoint_detection"):
-        if all(f in defined_params for f in _YOLO_REQUIRED_FIELDS[task]):
-            tasks.append(task)
+    tasks = [
+        task
+        for task in ("instance_segmentation", "keypoint_detection")
+        if all(f in defined_params for f in _YOLO_REQUIRED_FIELDS[task])
+    ]
     if defined_params.isdisjoint(_YOLO_DETECTION_EXCLUDED_FIELDS):
         tasks.append("object_detection")
 
@@ -325,9 +337,11 @@ def _infer_yolo_tasks(defined_params: set[str]) -> list[str]:
 def _check_yolo_outputs(defined_params: set[str], tasks: list[str]) -> None:
     """Check that the output fields are the ones of the tasks.
 
-    Every task needs all of its output fields, and every defined output
-    field must belong to a task. Object detection may also set
-    ``angles_outputs``.
+    Object detection may also set ``angles_outputs``.
+
+    Raises:
+        ValueError: If a task lacks one of its output fields, or if an
+            output field belongs to none of the tasks.
 
     Examples:
         >>> _check_yolo_outputs(

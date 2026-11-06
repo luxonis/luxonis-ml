@@ -1,9 +1,11 @@
+"""Base model for configs loaded from YAML with dotted-key overrides."""
+
 import ast
 from pathlib import Path, PurePath
 from typing import Any, TypeVar
 
 import yaml
-from typing_extensions import Self, deprecated
+from typing_extensions import Self, deprecated, override
 
 from luxonis_ml.typing import BaseModelExtraForbid, Params, PathType
 
@@ -69,11 +71,13 @@ class LuxonisConfig(BaseModelExtraForbid):
             data = cfg
 
         cls._merge_overrides(data, overrides)
-        return cls(**data)  # type: ignore
+        return cls(**data)
 
+    @override
     def __str__(self) -> str:
         return self.model_dump_json(indent=4)
 
+    @override
     def __repr__(self) -> str:
         return self.__str__()
 
@@ -105,7 +109,7 @@ class LuxonisConfig(BaseModelExtraForbid):
 
         yaml.SafeDumper.add_multi_representer(PurePath, path_representer)
 
-        with open(path, "w+") as f:
+        with Path(path).open("w+", encoding="utf-8") as f:
             yaml.safe_dump(self.model_dump(), f, default_flow_style=False)
 
     def get(self, key_merged: str, default: Any = None) -> Any:
@@ -146,12 +150,12 @@ class LuxonisConfig(BaseModelExtraForbid):
             ValueError: If the overrides contain an invalid option.
 
         """
-
-        for dot_name, value in overrides.items():
-            try:
+        dot_name = ""
+        try:
+            for dot_name, value in overrides.items():
                 _merge_override(data, dot_name, value)
-            except Exception as e:
-                raise ValueError(f"Invalid option `{dot_name}`: {e}") from e
+        except Exception as e:
+            raise ValueError(f"Invalid option `{dot_name}`: {e}") from e
 
 
 _MISSING = object()
@@ -188,6 +192,14 @@ def _merge_override(data: dict | list, dot_name: str, value: Any) -> None:
 
     A decimal key indexes a list, ``+`` appends to one, and any other
     key names a dict entry. Missing containers on the way are created.
+
+    Raises:
+        ValueError: If a key does not fit the value it indexes, such as
+            a decimal key for a dict, or a key other than a decimal or
+            ``+`` for a list.
+        TypeError: If the last key is not a decimal and indexes a value
+            that is neither a dict nor a list.
+
     """
     key, *tail = dot_name.split(".")
     if not tail:
@@ -226,14 +238,9 @@ def _set_leaf(data: dict | list, key: str, value: Any) -> None:
 def _merge_into_list(data: list, key: str, key_tail: str, value: Any) -> None:
     """Descend into the list item at ``key``.
 
-    The key ``+`` appends an empty item of the type of the first one.
+    The key ``+`` appends a new item, as an index past the end does.
     """
-    if key == "+":
-        data.append(type(data[0])())
-        _merge_override(data[-1], key_tail, value)
-        return
-
-    index = int(key)
+    index = len(data) if key == "+" else int(key)
     if index < len(data):
         _merge_override(data[index], key_tail, value)
     elif data:
@@ -260,6 +267,6 @@ def _merge_into_new(
     # Try to guess type, backtrack if fails
     try:
         _merge_override(container[key], key_tail, value)
-    except Exception:
+    except (ValueError, IndexError):
         container[key] = {}
         _merge_override(container[key], key_tail, value)

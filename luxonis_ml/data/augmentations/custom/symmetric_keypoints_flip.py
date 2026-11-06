@@ -1,3 +1,9 @@
+"""Flip and transpose transforms that swap symmetric keypoint pairs.
+
+After the flip or transpose, the two keypoints of each pair in
+``keypoint_pairs`` swap places in every instance.
+"""
+
 from itertools import chain
 from typing import Any
 
@@ -17,7 +23,9 @@ class HorizontalSymmetricKeypointsFlip(A.DualTransform):
 
     """
 
-    def __init__(self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5):
+    def __init__(
+        self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5
+    ) -> None:
         """Flip an image and symmetric keypoints horizontally.
 
         Bounding boxes and segmentation masks are flipped as well.
@@ -136,7 +144,8 @@ class HorizontalSymmetricKeypointsFlip(A.DualTransform):
         total_keypoints = keypoints.shape[0]
         if total_keypoints % self.n_keypoints != 0:
             raise ValueError(
-                "Total number of keypoints is not a multiple of n_keypoints defined by keypoint_pairs."
+                "Total number of keypoints is not a multiple of n_keypoints "
+                "defined by keypoint_pairs."
             )
         num_instances = total_keypoints // self.n_keypoints
 
@@ -161,7 +170,9 @@ class VerticalSymmetricKeypointsFlip(A.DualTransform):
 
     """
 
-    def __init__(self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5):
+    def __init__(
+        self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5
+    ) -> None:
         """Flip an image and symmetric keypoints vertically.
 
         Bounding boxes and segmentation masks are flipped as well.
@@ -279,7 +290,8 @@ class VerticalSymmetricKeypointsFlip(A.DualTransform):
         total_keypoints = keypoints.shape[0]
         if total_keypoints % self.n_keypoints != 0:
             raise ValueError(
-                "Total number of keypoints is not a multiple of n_keypoints defined by keypoint_pairs."
+                "Total number of keypoints is not a multiple of n_keypoints "
+                "defined by keypoint_pairs."
             )
         num_instances = total_keypoints // self.n_keypoints
 
@@ -309,7 +321,7 @@ class TransposeSymmetricKeypoints(A.DualTransform):
         self,
         keypoint_pairs: list[tuple[int, int]],
         p: float = 0.5,
-    ):
+    ) -> None:
         """Transpose an image and symmetric keypoints.
 
         Equivalent to 90 degree rotation followed by horizontal flip.
@@ -422,7 +434,8 @@ class TransposeSymmetricKeypoints(A.DualTransform):
         total_keypoints = keypoints.shape[0]
         if total_keypoints % self.n_keypoints != 0:
             raise ValueError(
-                "Total number of keypoints is not a multiple of n_keypoints defined by keypoint_pairs."
+                "Total number of keypoints is not a multiple of n_keypoints "
+                "defined by keypoint_pairs."
             )
         num_instances = total_keypoints // self.n_keypoints
 

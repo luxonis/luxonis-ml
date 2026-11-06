@@ -1,5 +1,9 @@
+"""Parser for classification datasets with one directory per class."""
+
 from pathlib import Path
 from typing import Any
+
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 
@@ -39,6 +43,7 @@ class ClassificationDirectoryParser(BaseParser):
     """
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -69,6 +74,7 @@ class ClassificationDirectoryParser(BaseParser):
             return None
         return {"class_dir": split_path}
 
+    @override
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -77,6 +83,7 @@ class ClassificationDirectoryParser(BaseParser):
         added_test_imgs = self._parse_split(class_dir=dataset_dir / "test")
         return added_train_imgs, added_val_imgs, added_test_imgs
 
+    @override
     def from_split(self, class_dir: Path) -> ParserOutput:
         """Parse classification-directory annotations into LDF records.
 

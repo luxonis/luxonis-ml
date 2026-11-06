@@ -1,10 +1,16 @@
+"""Parser that detects the dataset format and runs the matching parser.
+
+It downloads remote, Roboflow, and Ultralytics datasets and extracts
+ZIP archives before it parses them.
+"""
+
 import subprocess
 import sys
 import zipfile
 from enum import Enum
 from importlib.util import find_spec
 from pathlib import Path
-from typing import Generic, TypeVar, overload
+from typing import ClassVar, Generic, TypeVar, overload
 from urllib.parse import parse_qs, quote, urlsplit
 
 import requests
@@ -72,7 +78,7 @@ class LuxonisParser(Generic[T]):
 
     """
 
-    _parsers: dict[DatasetType, type[BaseParser]] = {
+    _parsers: ClassVar[dict[DatasetType, type[BaseParser]]] = {
         DatasetType.ULTRALYTICSNDJSON: UltralyticsNDJSONParser,
         DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION: (
             UltralyticsNDJSONParser
@@ -106,7 +112,7 @@ class LuxonisParser(Generic[T]):
         task_name: str | dict[str, str] | None = None,
         full_warnings: bool = False,
         **kwargs,
-    ):
+    ) -> None:
         """High-level abstraction over various parsers.
 
         Automatically recognizes the dataset format and uses the
@@ -127,7 +133,8 @@ class LuxonisParser(Generic[T]):
 
                     - ``ultralytics://`` for Ultralytics Platform datasets.
                         - Expected format: ``ultralytics://username/datasets/slug``
-                        - Optional version: append ``?v=<version>`` to export a specific dataset version.
+                        - Optional version: append ``?v=<version>`` to
+                          export a specific dataset version.
 
             dataset_name: Optional output dataset name. If omitted, the
                 name is derived from ``dataset_dir``.
@@ -192,7 +199,7 @@ class LuxonisParser(Generic[T]):
         dataset_name = dataset_name or name.replace(" ", "_").split(".")[0]
 
         self._dataset = self._dataset_constructor(
-            dataset_name=dataset_name,  # type: ignore
+            dataset_name=dataset_name,  # pyright: ignore[reportCallIssue]
             **kwargs,
         )
         self._parser = self._parsers[self._dataset_type](
@@ -230,9 +237,14 @@ class LuxonisParser(Generic[T]):
     def _is_dataset_root(directory: Path) -> bool:
         """Tell a dataset root from an arbitrary wrapper folder.
 
-        A marker directory or file is enough. Otherwise a parser other
-        than ClassificationDirectoryParser must recognize the directory:
-        a single class folder can look like a wrapper.
+        `ClassificationDirectoryParser` is left out of the parser check,
+        because a single class folder can look like a wrapper.
+
+        Returns:
+            Whether ``directory`` holds a marker directory or file, or a
+            parser other than `ClassificationDirectoryParser` accepts it
+            as a dataset or a split.
+
         """
         marker_dirs = {
             "train",
@@ -311,8 +323,12 @@ class LuxonisParser(Generic[T]):
         return dataset
 
     def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
-        """Return parser issue messages collected during the last
-        parse.
+        """Return the parser issue messages of the last parse.
+
+        Returns:
+            A new list with each distinct message once, in the order
+            the parser first saw them.
+
         """
         return self._get_parser_issue_messages()
 
@@ -325,6 +341,11 @@ class LuxonisParser(Generic[T]):
 
         Returns:
             Dataset type and parser type.
+
+        Raises:
+            ValueError: If more than one parser matches a dataset that has
+                only some of its splits, or if no parser recognizes the
+                dataset.
 
         """
         for dataset_type, parser in self._parsers.items():
@@ -434,9 +455,9 @@ class LuxonisParser(Generic[T]):
                 f"Incorrect Roboflow dataset URL: `{dataset_dir}`. "
                 "Expected format: `roboflow://workspace/project/version/format`."
             )
-        workspace, project, version, format = dataset_dir.split("roboflow://")[
-            1
-        ].split("/")
+        workspace, project, version, export_format = dataset_dir.split(
+            "roboflow://"
+        )[1].split("/")
         try:
             version = int(version)
         except ValueError as e:
@@ -444,12 +465,12 @@ class LuxonisParser(Generic[T]):
                 f"Roboflow version must be an integer, got `{version}`."
             ) from e
 
-        local_path = local_path or Path.cwd() / f"{project}_{format}"
+        local_path = local_path or Path.cwd() / f"{project}_{export_format}"
         dataset = (
             rf.workspace(workspace)
             .project(project)
             .version(int(version))
-            .download(format, str(local_path / project))
+            .download(export_format, str(local_path / project))
         )
         return Path(dataset.location), project
 

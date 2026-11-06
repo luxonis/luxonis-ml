@@ -1,8 +1,10 @@
+"""Parser for datasets in the Ultralytics NDJSON format."""
+
 import hashlib
 import json
 from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 import numpy as np
@@ -12,13 +14,15 @@ from typing_extensions import override
 from luxonis_ml.data import BaseDataset, DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
 from luxonis_ml.data.utils.remote_file_downloader import RemoteFileDownloader
-from luxonis_ml.typing import PathType
 from luxonis_ml.utils.path import (
     parse_manifest_path,
     resolve_manifest_path,
 )
 
 from .base_parser import BaseParser, ParserOutput, yolo_box_to_ldf
+
+if TYPE_CHECKING:
+    from luxonis_ml.typing import PathType
 
 
 class UltralyticsNDJSONParser(BaseParser):
@@ -45,6 +49,7 @@ class UltralyticsNDJSONParser(BaseParser):
     _remote_file_downloader = RemoteFileDownloader()
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         ndjson_path = UltralyticsNDJSONParser._resolve_ndjson_path(split_path)
         if ndjson_path is None:
@@ -54,9 +59,11 @@ class UltralyticsNDJSONParser(BaseParser):
         return {"ndjson_path": ndjson_path}
 
     @classmethod
+    @override
     def validate(cls, dataset_dir: Path) -> bool:
         return cls._load_header(dataset_dir) is not None
 
+    @override
     def from_dir(
         self, dataset_dir: Path, reuse_cached: bool = True, **kwargs
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -94,6 +101,7 @@ class UltralyticsNDJSONParser(BaseParser):
             added_by_split["test"],
         )
 
+    @override
     def parse_dir(
         self,
         dataset_dir: Path,
@@ -139,7 +147,7 @@ class UltralyticsNDJSONParser(BaseParser):
         elif is_counts:
             sampled = self._apply_counts_to_splits(
                 original_splits,
-                split_ratios,  # type: ignore[arg-type]
+                split_ratios,
             )
             self._dataset.make_splits(sampled)
             self._remove_unsplit_records()
@@ -153,6 +161,7 @@ class UltralyticsNDJSONParser(BaseParser):
 
         return self._dataset
 
+    @override
     def from_split(
         self,
         ndjson_path: Path,
@@ -231,7 +240,7 @@ class UltralyticsNDJSONParser(BaseParser):
         elif is_counts:
             sampled = self._apply_counts_to_splits(
                 split_definitions,
-                split_ratios,  # type: ignore[arg-type]
+                split_ratios,  # pyright: ignore[reportArgumentType]
             )
             self._dataset.make_splits(sampled)
             self._remove_unsplit_records()
@@ -246,7 +255,7 @@ class UltralyticsNDJSONParser(BaseParser):
         return self._dataset
 
     def _build_record_stream(
-        self, ndjson_path: Path, reuse_cached: bool = True
+        self, ndjson_path: Path, *, reuse_cached: bool = True
     ) -> tuple[DatasetIterator, dict[str, list[Path]], list[Path]]:
         header = self._load_header(ndjson_path)
         if header is None:
@@ -274,7 +283,9 @@ class UltralyticsNDJSONParser(BaseParser):
             remote_image_dir_checked = False
             for record in _image_records(ndjson_path):
                 if record.get("url") and not remote_image_dir_checked:
-                    _check_remote_image_dir(remote_image_dir, reuse_cached)
+                    _check_remote_image_dir(
+                        remote_image_dir, reuse_cached=reuse_cached
+                    )
                     remote_image_dir_checked = True
 
                 image_path = self._resolve_image_path(
@@ -316,6 +327,12 @@ class UltralyticsNDJSONParser(BaseParser):
 
         Boxes come first, then segments, then poses. The instance IDs
         count up across the three kinds.
+
+        Yields:
+            One annotation per box, segment or pose, with the class name,
+            the instance ID and a bounding box. A segment also holds its
+            polygon and the image size, and a pose its keypoints.
+
         """
         annotations = record.get("annotations") or {}
         instance_id = 0
@@ -384,7 +401,7 @@ class UltralyticsNDJSONParser(BaseParser):
         dataset_record = None
         has_image_record = False
         try:
-            with open(ndjson_path, encoding="utf-8-sig") as file:
+            with ndjson_path.open(encoding="utf-8-sig") as file:
                 for raw_line in file:
                     line = raw_line.strip()
                     if not line:
@@ -495,7 +512,7 @@ class UltralyticsNDJSONParser(BaseParser):
 
 def _image_records(ndjson_path: Path) -> Iterator[dict[str, Any]]:
     """Yield the image records of an NDJSON file, other lines skipped."""
-    with open(ndjson_path, encoding="utf-8-sig") as file:
+    with ndjson_path.open(encoding="utf-8-sig") as file:
         for raw_line in file:
             line = raw_line.strip()
             if not line:
@@ -506,7 +523,7 @@ def _image_records(ndjson_path: Path) -> Iterator[dict[str, Any]]:
 
 
 def _check_remote_image_dir(
-    remote_image_dir: Path, reuse_cached: bool
+    remote_image_dir: Path, *, reuse_cached: bool
 ) -> None:
     """Refuse or announce the reuse of a download directory that exists."""
     if not remote_image_dir.exists():
@@ -545,8 +562,17 @@ def _pose_keypoints(
 ) -> np.ndarray:
     """Reshape a flat keypoint list into ``(x, y, visibility)`` rows.
 
-    Without a ``kpt_shape`` the list must hold triples. Pairs get full
-    visibility.
+    Pairs get full visibility.
+
+    Returns:
+        A float array with one ``(x, y, visibility)`` row per keypoint.
+        It has ``kpt_shape[0]`` rows, or a third of the list length
+        without a ``kpt_shape``.
+
+    Raises:
+        ValueError: If the length of ``keypoints`` does not fit
+            ``kpt_shape`` or, without a ``kpt_shape``, is not a multiple
+            of 3.
 
     Examples:
         >>> _pose_keypoints([0.1, 0.2, 2, 0.3, 0.4, 0], None).tolist()

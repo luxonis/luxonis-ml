@@ -25,7 +25,7 @@ def test_heatmaps_count_only_the_sampled_rows():
 
 def test_heatmaps_skip_a_mask_without_foreground():
     rle = mask_utils.encode(np.asfortranarray(np.zeros((8, 8), np.uint8)))
-    counts = cast(bytes, rle["counts"]).decode()
+    counts = cast("bytes", rle["counts"]).decode()
     mask = json.dumps({"height": 8, "width": 8, "counts": counts})
     df = pl.LazyFrame(
         {

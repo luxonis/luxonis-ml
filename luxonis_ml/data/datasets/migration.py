@@ -8,7 +8,7 @@ from typing import Any, Final, Literal, cast, overload
 import polars as pl
 from loguru import logger
 from semver.version import Version
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
@@ -69,7 +69,7 @@ class LDF_1_0_0_MetadataDict(TypedDict):
     ldf_version: str
     classes: dict[str, list[str]]
     tasks: dict[str, list[str]]
-    skeletons: dict[str, LDF_1_0_0_Skeleton]
+    skeletons: NotRequired[dict[str, LDF_1_0_0_Skeleton]]
     categorical_encodings: dict[str, dict[str, int]]
     metadata_types: dict[str, Literal["float", "int", "str", "Category"]]
 
@@ -184,7 +184,7 @@ def migrate_metadata(
                 "keypoint_metadata": _migrate_skeletons(skeletons, widths),
             }
         )
-    migrated = _migrate_ldf_1_0_0(cast(LDF_1_0_0_MetadataDict, metadata), df)
+    migrated = _migrate_ldf_1_0_0(cast("LDF_1_0_0_MetadataDict", metadata), df)
     return migrated.model_copy(
         update={"keypoint_metadata": _migrate_skeletons(skeletons, {})}
     )
@@ -241,6 +241,10 @@ def _migrate_skeletons(
     A row with more keypoints than the labels names the others by
     position. Repeated names give every keypoint of the task its position
     as its name, and an edge out of range is dropped. Both log a warning.
+
+    Returns:
+        Keypoint metadata keyed by task.
+
     """
     migrated = {}
     for task in dict.fromkeys([*skeletons, *widths]):
@@ -276,6 +280,10 @@ def _skeleton_connections(
     """Map each keypoint name to the names that its edges reach.
 
     An edge out of range is dropped with a warning.
+
+    Returns:
+        Connected keypoint names keyed by source name.
+
     """
     connections: dict[str, list[str]] = {name: [] for name in names}
     for a, b in edges:
@@ -309,33 +317,42 @@ def _migrate_ldf_1_0_0(
     metadata: LDF_1_0_0_MetadataDict, df: pl.LazyFrame | None
 ) -> Metadata:  # pragma: no cover
     """Migrate LDF ``1.0.0`` metadata to the current schema."""
-    new_metadata = {}
     old_classes = metadata["classes"]
     if set(old_classes.keys()) <= LDF_1_0_0_TASKS:
         old_class_names = next(iter(old_classes.values()))
-        new_metadata["classes"] = {
+        classes = {
             "detection": {
                 class_name: i for i, class_name in enumerate(old_class_names)
             }
         }
-        new_metadata["tasks"] = {"detection": list(old_classes.keys())}
+        tasks = {"detection": list(old_classes.keys())}
     else:
         if df is None:
             raise ValueError("Cannot migrate when the dataset is empty")
         tasks_df = df.select(["task", "type"]).unique().collect()
-        new_classes = defaultdict(dict)
-        tasks = defaultdict(list)
+        migrated_classes = defaultdict(dict)
+        migrated_tasks = defaultdict(list)
         for task_name, task_type in tasks_df.iter_rows():
             new_task_name = task_name
             if task_name in LDF_1_0_0_TASKS:
                 new_task_name = "detection"
-            tasks[new_task_name].append(LDF_1_0_0_TASK_TYPES[task_type])
+            migrated_tasks[new_task_name].append(
+                LDF_1_0_0_TASK_TYPES[task_type]
+            )
             old_class_names = old_classes.get(task_name, [])
-            new_classes[new_task_name].update(
+            migrated_classes[new_task_name].update(
                 {class_name: i for i, class_name in enumerate(old_class_names)}
             )
-        new_metadata["classes"] = dict(new_classes)
-        new_metadata["tasks"] = dict(tasks)
+        classes = dict(migrated_classes)
+        tasks = dict(migrated_tasks)
 
-    metadata.update(new_metadata)
-    return Metadata(**metadata)  # type: ignore
+    return Metadata.model_validate(
+        {
+            "source": metadata["source"],
+            "ldf_version": metadata["ldf_version"],
+            "classes": classes,
+            "tasks": tasks,
+            "categorical_encodings": metadata["categorical_encodings"],
+            "metadata_types": metadata["metadata_types"],
+        }
+    )

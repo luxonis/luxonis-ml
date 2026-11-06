@@ -1,3 +1,5 @@
+"""Dataset formats and the annotation types that each one supports."""
+
 from enum import Enum
 
 
@@ -50,6 +52,7 @@ class DatasetType(str, Enum):
 
     @property
     def supported_annotation_formats(self) -> list[str]:
+        """Annotation types that this dataset format supports."""
         return _SUPPORTED_ANNOTATION_FORMATS[self]
 
 

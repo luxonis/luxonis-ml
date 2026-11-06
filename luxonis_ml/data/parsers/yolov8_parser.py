@@ -1,3 +1,5 @@
+"""Parser for YOLOv8 datasets in the Roboflow or Ultralytics layout."""
+
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -96,6 +98,16 @@ class YOLOv8Parser(BaseParser):
         Five elements are a box: ``class_id x_center y_center width
         height``. More elements are the box and keypoints when the dataset
         YAML has a ``kpt_shape``, else a polygon: ``class_id x1 y1 ...``.
+
+        Returns:
+            The LDF annotation with ``class`` and ``boundingbox``. A
+            keypoint line adds ``keypoints``, and a polygon line adds
+            ``instance_segmentation``.
+
+        Raises:
+            ValueError: If ``elements`` matches none of these layouts,
+                or if the image of a polygon line cannot be read.
+
         """
         if len(elements) < 5:
             raise ValueError(
@@ -149,8 +161,15 @@ class YOLOv8Parser(BaseParser):
     def _detect_dataset_dir_format(
         dataset_dir: Path,
     ) -> tuple[Format | None, list[str]]:
-        """Detect whether a dataset uses Ultralytics or Roboflow
-        layout.
+        """Detect whether a dataset uses the Ultralytics or Roboflow layout.
+
+        Returns:
+            The detected format and a list of folder names. For
+            Roboflow, the list holds the present ``train``, ``valid``
+            and ``test`` folders. For Ultralytics, it holds all folders
+            in ``dataset_dir``. ``None`` and an empty list if neither
+            layout matches.
+
         """
         roboflow_splits = ("train", "valid", "test")
         ultralytics_folders = ["images", "labels"]
@@ -167,6 +186,7 @@ class YOLOv8Parser(BaseParser):
         return None, []
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -211,6 +231,7 @@ class YOLOv8Parser(BaseParser):
         }
 
     @classmethod
+    @override
     def validate(cls, dataset_dir: Path) -> bool:
         dir_format, splits = cls._detect_dataset_dir_format(dataset_dir)
         if dir_format is None:
@@ -262,6 +283,7 @@ class YOLOv8Parser(BaseParser):
             )
         return discovered
 
+    @override
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -329,6 +351,7 @@ class YOLOv8Parser(BaseParser):
 
         return added_train_imgs, added_val_imgs, added_test_imgs
 
+    @override
     def from_split(
         self, image_dir: Path, annotation_dir: Path, classes_path: Path
     ) -> ParserOutput:
@@ -346,7 +369,7 @@ class YOLOv8Parser(BaseParser):
             Parser output containing annotation records and added images.
 
         """
-        with open(classes_path) as f:
+        with classes_path.open(encoding="utf-8") as f:
             classes_data = yaml.safe_load(f)
 
         if isinstance(classes_data["names"], list):
@@ -388,6 +411,9 @@ class YOLOv8Parser(BaseParser):
 def _annotation_lines(ann_path: Path) -> list[str]:
     """Return the non-blank lines of a label file; none for a missing file.
 
+    Returns:
+        The non-blank lines, each with its line ending kept.
+
     Examples:
         >>> _annotation_lines(Path("no_such_labels.txt"))
         []
@@ -395,7 +421,7 @@ def _annotation_lines(ann_path: Path) -> list[str]:
     """
     if not ann_path.exists():
         return []
-    with open(ann_path) as f:
+    with ann_path.open(encoding="utf-8") as f:
         return [line for line in f if line.strip()]
 
 
@@ -405,6 +431,9 @@ def _keypoints_array(
     """Reshape flat keypoint elements into ``(x, y, visibility)`` rows.
 
     Two-dimensional keypoints get full visibility.
+
+    Returns:
+        A float array with one ``(x, y, visibility)`` row per keypoint.
 
     Examples:
         >>> _keypoints_array(["0.1", "0.2", "0.3", "0.4"], (2, 2)).tolist()

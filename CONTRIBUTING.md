@@ -88,6 +88,7 @@ Pre-commit runs:
 | `taplo-format`         | TOML formatting.                                                                          |
 | `pre-commit-hooks`     | File endings, JSON/YAML/TOML validity, private key detection, and main branch protection. |
 | `export-requirements`  | Keeps `uv.lock` and the pip requirements exports in sync with `pyproject.toml`.           |
+| `deptry`               | Dependencies match the imports. It reads `.venv`: run `uv sync` after you change them.    |
 
 **Do not commit directly to `main`.** The pre-commit hook blocks it, and PRs
 are the expected review path.

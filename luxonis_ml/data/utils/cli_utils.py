@@ -1,3 +1,5 @@
+"""Helpers for the commands of ``luxonis_ml data``."""
+
 import ast
 from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
@@ -22,6 +24,12 @@ def get_tracked_augmentations(
     A record can store its own ``"augmentations"`` metadata, which the
     loader keeps instead. The marker type tells the two apart; the shape
     alone does not.
+
+    Returns:
+        The augmentations that the loader tracked for the sample, or
+        ``None`` if the ``"augmentations"`` value is missing or is
+        record metadata.
+
     """
     augmentations = metadata.get("augmentations")
     if isinstance(augmentations, TrackedAugmentations):
@@ -85,10 +93,11 @@ def parse_split_ratio(
     if not any(v is not None for v in (value, train, val, test)):
         return None
 
-    if value is not None:
-        parsed = _parse_split_list(value)
-    else:
-        parsed = _split_from_parts(train, val, test)
+    parsed = (
+        _parse_split_list(value)
+        if value is not None
+        else _split_from_parts(train, val, test)
+    )
     return _checked_split_values(parsed)
 
 
@@ -111,7 +120,16 @@ def _split_from_parts(
     """Build a split mapping from the given parts.
 
     Whole numbers that sum above 1 are counts. Otherwise the parts are
-    ratios, and the missing ones share the remainder to 1.
+    ratios, and the missing ones share the remainder to 1 equally.
+
+    Returns:
+        A mapping of ``"train"``, ``"val"`` and ``"test"`` to their
+        values. Counts are integers, and a missing count is 0.
+
+    Raises:
+        ValueError: If the parts sum above 1 but are not all whole
+            numbers.
+
     """
     defined = [v for v in (train, val, test) if v is not None]
     sum_ = sum(defined)
@@ -171,7 +189,7 @@ def check_exists(name: str, bucket_storage: BucketStorage) -> None:
         bucket_storage: Storage backend to query.
 
     Raises:
-        typer.Exit: If the dataset does not exist.
+        SystemExit: If the dataset does not exist.
 
     """
     if not LuxonisDataset.exists(name, bucket_storage=bucket_storage):
@@ -180,6 +198,16 @@ def check_exists(name: str, bucket_storage: BucketStorage) -> None:
 
 
 def get_dataset_info(dataset: LuxonisDataset) -> tuple[set[str], list[str]]:
+    """Return the class names and the task names of a dataset.
+
+    Args:
+        dataset: Dataset to read.
+
+    Returns:
+        The set of class names over all tasks, and the list of task
+        names.
+
+    """
     all_classes = {
         c for classes in dataset.get_classes().values() for c in classes
     }
@@ -187,6 +215,16 @@ def get_dataset_info(dataset: LuxonisDataset) -> tuple[set[str], list[str]]:
 
 
 def print_info(dataset: LuxonisDataset) -> None:
+    """Print a summary of a dataset to the console.
+
+    The summary shows the name, version, bucket storage, team ID, the
+    size and share of each split, and tables of the classes and the
+    task types.
+
+    Args:
+        dataset: Dataset to summarize.
+
+    """
     class_table = _per_task_table(
         "Classes", "Class Names", dataset.get_classes()
     )
@@ -224,6 +262,11 @@ def _per_task_table(
     """Build a table with one row per task.
 
     The task name column appears only when some task has a name.
+
+    Returns:
+        The table, titled ``title``. Each row holds the values of one
+        task, joined by commas.
+
     """
     has_names = any(rows)
     table = Table(
@@ -259,5 +302,14 @@ def _sizes_panel(
 
 
 def complete_dataset_name(incomplete: str) -> list[str]:
+    """Return the local dataset names that start with a prefix.
+
+    Args:
+        incomplete: Prefix of the dataset name.
+
+    Returns:
+        Names of the local datasets that start with ``incomplete``.
+
+    """
     datasets = LuxonisDataset.list_datasets()
     return [d for d in datasets if d.startswith(incomplete)]

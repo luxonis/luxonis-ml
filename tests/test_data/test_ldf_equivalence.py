@@ -1,12 +1,18 @@
 import json
+import subprocess
+import sys
+import warnings
 import zipfile
 from pathlib import Path
 
 import pytest
 
 from luxonis_ml.data import LuxonisDataset, LuxonisParser, ldf_equivalent
+from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.parsers.coco_parser import COCOParser
 from luxonis_ml.utils import LuxonisFileSystem
+
+from .utils import create_dataset, create_image
 
 
 def _parse_dataset(
@@ -283,3 +289,67 @@ def test_luxonis_dataset_eq_uses_ldf_equivalence(
             second_dataset.delete_dataset(delete_local=True)
         if different_dataset is not None:
             different_dataset.delete_dataset(delete_local=True)
+
+
+def test_ldf_equivalent_rejects_a_non_dataset_under_optimization():
+    """Keep the argument check under ``python -O``."""
+    code = """
+from typeguard import TypeCheckError
+from luxonis_ml.data import ldf_equivalent
+
+try:
+    ldf_equivalent(1, 2)
+except TypeCheckError:
+    pass
+else:
+    raise RuntimeError("ldf_equivalent accepted a non-dataset")
+"""
+    subprocess.run([sys.executable, "-O", "-c", code], check=True)
+
+
+def test_ldf_equivalent_compares_metadata_tasks(
+    dataset_name: str, tempdir: Path
+):
+    """Metadata has no dedicated collector and uses the generic one."""
+    image = create_image(0, tempdir)
+
+    def generator(color: str) -> DatasetIterator:
+        yield {"file": image, "annotation": {"metadata": {"color": color}}}
+
+    red = create_dataset(f"{dataset_name}_red", generator("red"))
+    same = create_dataset(f"{dataset_name}_same", generator("red"))
+    blue = create_dataset(f"{dataset_name}_blue", generator("blue"))
+
+    assert ldf_equivalent(red, same)
+    assert not ldf_equivalent(red, blue)
+
+
+def test_ldf_equivalent_by_name_is_free_of_deprecations(
+    dataset_name: str, tempdir: Path
+):
+    def generator() -> DatasetIterator:
+        for i in range(2):
+            yield {
+                "file": create_image(i, tempdir),
+                "annotation": {"class": "person"},
+            }
+
+    first = create_dataset(f"{dataset_name}_first", generator())
+    second = create_dataset(f"{dataset_name}_second", generator())
+    try:
+        # polars emits its deprecations from Rust and swallows the
+        # exception of an `error` filter, so only a record shows them.
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", category=DeprecationWarning)
+            assert ldf_equivalent(
+                f"{dataset_name}_first", f"{dataset_name}_second"
+            )
+        deprecations = [
+            str(w.message)
+            for w in caught
+            if issubclass(w.category, DeprecationWarning)
+        ]
+        assert deprecations == []
+    finally:
+        first.delete_dataset(delete_local=True)
+        second.delete_dataset(delete_local=True)

@@ -10,6 +10,15 @@ repos:
         # caught as well.
         files: ^(pyproject\.toml|uv\.lock|luxonis_ml/__init__\.py|tools/export_requirements\.sh|(.*/)?requirements(-[a-z]+)?\.txt|extra_requirements/.*\.txt)$
 
+      - id: deptry
+        name: Check the declared dependencies against the imports
+        # deptry reads the installed packages to map package names to
+        # module names, so it runs in the project environment.
+        entry: uv run --no-sync deptry .
+        language: system
+        pass_filenames: false
+        files: ^(pyproject\.toml|uv\.lock|(luxonis_ml|tools)/.*\.py)$
+
   - repo: https://github.com/crate-ci/typos
     rev: v1.51.1
     hooks:

@@ -1,3 +1,5 @@
+"""Parser for datasets in the Unity SOLO format."""
+
 import json
 from pathlib import Path
 from typing import Any
@@ -5,6 +7,7 @@ from typing import Any
 import cv2
 import numpy as np
 from loguru import logger
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.utils.path import resolve_manifest_path
@@ -34,9 +37,9 @@ class SOLOParser(BaseParser):
     """
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
-        """Validate whether a split directory has the expected SOLO
-        format.
+        """Validate whether a split directory has the expected SOLO format.
 
         Args:
             split_path: Path to a split directory.
@@ -58,7 +61,9 @@ class SOLOParser(BaseParser):
             json_path = next(split_path.glob(json_fname), None)
             if not json_path:
                 return None
-        with open(split_path / "metadata.json") as json_file:
+        with (split_path / "metadata.json").open(
+            encoding="utf-8"
+        ) as json_file:
             metadata_dict = json.load(json_file)
         # check if all sequences are present
         total_sequences_expected = metadata_dict["totalSequences"]
@@ -72,6 +77,7 @@ class SOLOParser(BaseParser):
             )
         return {"split_path": split_path}
 
+    @override
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -90,6 +96,7 @@ class SOLOParser(BaseParser):
 
         return added_train_imgs, added_valid_imgs, added_test_imgs
 
+    @override
     def from_split(self, split_path: Path) -> ParserOutput:
         """Parse one SOLO split into LDF records.
 
@@ -114,7 +121,9 @@ class SOLOParser(BaseParser):
             split_path / "annotation_definitions.json"
         )
         if annotation_definitions_path.exists():
-            with open(annotation_definitions_path) as json_file:
+            with annotation_definitions_path.open(
+                encoding="utf-8"
+            ) as json_file:
                 annotation_definitions_dict = json.load(json_file)
         else:
             raise FileNotFoundError(
@@ -137,7 +146,7 @@ class SOLOParser(BaseParser):
                 # Separate JSON files can have the same annotations.
                 processed_per_step: dict[str, set[str]] = {}
                 for frame_path in sequence_path.glob("*.frame_data*.json"):
-                    frame = json.loads(frame_path.read_text())
+                    frame = json.loads(frame_path.read_text(encoding="utf-8"))
                     processed = processed_per_step.setdefault(
                         frame["step"], set()
                     )
@@ -160,12 +169,12 @@ class SOLOParser(BaseParser):
             Annotation type names.
 
         """
-        annotation_types = []
-        for definition in annotation_definitions_dict["annotationDefinitions"]:
-            annotation_types.append(
-                definition["@type"].replace("type.unity.com/unity.solo.", "")
-            )
-        return annotation_types
+        return [
+            definition["@type"].replace("type.unity.com/unity.solo.", "")
+            for definition in annotation_definitions_dict[
+                "annotationDefinitions"
+            ]
+        ]
 
     def _get_solo_bbox_class_names(
         self, annotation_definitions_dict: dict[str, Any]
@@ -241,6 +250,18 @@ def _parse_capture(
 
     Each annotation kind is read once per step. ``processed`` holds the
     kinds that an earlier capture of the same step already read.
+
+    Yields:
+        Records with the capture image as ``file``. The records of the
+        semantic masks come first, one per class. Then comes one record
+        for each instance that all the read kinds share, with its box,
+        plus its keypoints and instance mask if those were read.
+
+    Raises:
+        FileNotFoundError: If the capture image, or a mask that an
+            annotation references, does not exist.
+        ValueError: If a mask image cannot be read.
+
     """
     img_fname = capture["filename"]
     img_w, img_h = capture["dimension"]
@@ -359,6 +380,10 @@ def _instance_keypoints(
     """Map each instance ID to its normalized keypoints.
 
     The keypoints get the labels of the template, if it has them.
+
+    Returns:
+        Normalized keypoints keyed by instance ID.
+
     """
     result: dict[int, _Keypoints] = {}
     for value in anno.get("values", []):
@@ -386,13 +411,19 @@ def _instance_records(
     Bounding boxes, keypoints and instance masks of one instance belong
     together, so an instance that one of the present kinds lacks is
     dropped.
+
+    Yields:
+        Records with ``img_path`` as ``file``. Each annotation holds the
+        class, the instance ID and the bounding box, plus the keypoints
+        and the instance mask if those kinds are present. Nothing is
+        yielded if no kind is present.
+
     """
     present = [
         d for d in (bounding_boxes, instance_keypoints, instance_masks) if d
     ]
-    if not present:
-        return
-    for instance_id in set.intersection(*(set(d) for d in present)):
+    shared = set.intersection(*(set(d) for d in present)) if present else set()
+    for instance_id in shared:
         annotation = {
             "class": bounding_boxes[instance_id]["class"],
             "instance_id": instance_id,

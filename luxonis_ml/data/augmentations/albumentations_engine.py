@@ -408,7 +408,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         min_bbox_visibility: float = 0.0,
         seed: int | None = None,
         bbox_area_threshold: float = 0.0004,
-    ):
+    ) -> None:
         """Create an Albumentations-backed augmentation pipeline.
 
         Args:
@@ -489,7 +489,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         transforms = _TransformGroups()
         for cfg in validated_config:
             self._check_augmentation_warnings(cfg, available_target_types)
-            self._add_transform(transforms, cfg, keep_aspect_ratio)
+            self._add_transform(
+                transforms, cfg, keep_aspect_ratio=keep_aspect_ratio
+            )
 
         spatial_transforms: TransformsSeqType = transforms.spatial
         if "keypoints" in targets.values():
@@ -509,7 +511,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             self._tracked_augmentation_paths
         )
 
-        def _get_params(is_custom: bool = False) -> dict[str, Any]:
+        def _get_params(*, is_custom: bool = False) -> dict[str, Any]:
             return {
                 "bbox_params": A.BboxParams(
                     format="albumentations", min_visibility=min_bbox_visibility
@@ -533,10 +535,15 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             self._bbox_targets_by_group.values()
         ).union(*bbox_associations.values())
 
-        # Warning issued when "bbox_params" or "keypoint_params"
-        # are provided to a compose with transformations that
-        # do not use them. We don't care about these warnings.
-        with warnings.catch_warnings(record=True):
+        # Albumentations warns when a compose gets "bbox_params" or
+        # "keypoint_params" but none of its transformations uses them.
+        # Each compose gets both, so the warning is expected here.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Got processor for .*, but no transform to process it",
+                category=UserWarning,
+            )
             self._batch_transform = BatchCompose(
                 transforms.batch,
                 bbox_associations=bbox_associations,
@@ -586,6 +593,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         self,
         transforms: _TransformGroups,
         cfg: AlbumentationConfigItem,
+        *,
         keep_aspect_ratio: bool,
     ) -> None:
         """Create a configured transform and sort it into its group."""
@@ -603,7 +611,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     "Only one resizing augmentation can be provided."
                 )
             transforms.resize = self._with_resize_fallback(
-                cfg, transform, keep_aspect_ratio
+                cfg, transform, keep_aspect_ratio=keep_aspect_ratio
             )
         elif isinstance(transform, A.ImageOnlyTransform):
             transforms.pixel.append(transform)
@@ -611,15 +619,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             transforms.batch.append(transform)
         elif isinstance(transform, (A.DualTransform, A.BaseCompose)):
             transforms.spatial.append(transform)
-        elif isinstance(transform, A.BasicTransform):
-            transforms.custom.append(transform)
         else:
-            raise ValueError(
-                f"Unsupported transformation type: "
-                f"'{type(transform).__name__}'. "
-                f"Only subclasses of `A.BasicTransform` "
-                f"or `A.BaseCompose` are allowed. "
-            )
+            transforms.custom.append(transform)
 
     def _force_image_size(self, cfg: AlbumentationConfigItem) -> None:
         """Set the output size of a resizing transform to the image size."""
@@ -640,6 +641,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         self,
         cfg: AlbumentationConfigItem,
         transform: A.BasicTransform | A.BaseCompose,
+        *,
         keep_aspect_ratio: bool,
     ) -> A.BasicTransform | A.BaseCompose:
         """Pair a resizing transform with ``p < 1`` with a default resize."""
@@ -679,11 +681,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         for op in spatial_transforms:
             wrapped.append(op)
             wrapped.append(
-                A.Lambda(
-                    image=lambda img, **_: img,
-                    keypoints=self._mark_invisible_keypoints,
-                    p=1.0,
-                )
+                A.Lambda(keypoints=self._mark_invisible_keypoints, p=1.0)
             )
         return wrapped
 
@@ -740,6 +738,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         for compose in self._compositions:
             _reset_params(compose)
 
+        image_key = next(iter(input_batch[0][0]))
         data_batch, n_keypoints, label_specs = self._preprocess_batch(
             input_batch
         )
@@ -760,7 +759,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         for compose in self._compositions:
             self._record_augmentations(compose)
 
-        return self._postprocess(data, n_keypoints, emptied_targets)
+        return self._postprocess(data, n_keypoints, emptied_targets, image_key)
 
     def _drop_empty_targets(
         self, data: Data, label_specs: list[dict[str, LabelSpec]]
@@ -771,6 +770,12 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         transform emptied are returned with their LDF layout, so that
         postprocessing can still report them as empty rather than omit
         the task entirely.
+
+        Returns:
+            The dropped targets that a contributing batch member had
+            labels for, mapped to their LDF layout. Only the bounding-box
+            targets and the targets tied to them are included.
+
         """
         # A batch transform discards the members it did not merge, and a
         # task only those members carried is not part of this sample at all.
@@ -782,7 +787,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         emptied_targets = {}
         for target_name in list(data.keys()):
             value = data[target_name]
-            if not isinstance(value, np.ndarray) or value.size != 0:
+            if value.size != 0:
                 continue
             del data[target_name]
             if (
@@ -916,6 +921,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         data: Data,
         n_keypoints: dict[str, int],
         emptied_targets: dict[str, LabelSpec],
+        image_key: str,
     ) -> LoaderMultiOutput:
         """Postprocess the augmented data back to LDF format.
 
@@ -930,13 +936,15 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 emptied because all the bounding boxes they belong to were
                 filtered out. They are reported as empty labels rather than
                 omitted.
+            image_key: Source name of the image that the data keys
+                ``"image"``.
 
         Returns:
             Augmented images and labels.
 
         """
         out_labels = {}
-        out_image_dict = self._restore_images(data)
+        out_image_dict = self._restore_images(data, image_key)
         image_size = next(iter(out_image_dict.values())).shape[:2]
 
         bboxes_indices = {}
@@ -972,16 +980,22 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 image_size=image_size,
             )
 
-        for target_name, (trailing, dtype) in emptied_targets.items():
+        for target_name, (recorded, dtype) in emptied_targets.items():
             task = self._target_names_to_tasks[target_name]
-            if self._targets[target_name] == "instance_mask":
-                # The recorded shape is the pre-augmentation one.
-                trailing = image_size
+            # The recorded shape of an instance mask is the
+            # pre-augmentation one.
+            trailing = (
+                image_size
+                if self._targets[target_name] == "instance_mask"
+                else recorded
+            )
             out_labels[task] = np.zeros((0, *trailing), dtype=dtype)
 
         return out_image_dict, out_labels
 
-    def _restore_images(self, data: Data) -> dict[str, np.ndarray]:
+    def _restore_images(
+        self, data: Data, image_key: str
+    ) -> dict[str, np.ndarray]:
         """Pop the images out of ``data``, keyed by their source names."""
         out_image_dict = {}
         image_keys = [k for k in data if k in ["image", *self._source_names]]
@@ -989,10 +1003,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             img = data.pop(key)
             if img.ndim == 2:
                 img = np.expand_dims(img, axis=-1)
-            restored_key = (
-                data["_original_image_key"] if key == "image" else key
-            )
-            out_image_dict[restored_key] = img
+            out_image_dict[image_key if key == "image" else key] = img
         return out_image_dict
 
     def _postprocess_label(
@@ -1008,6 +1019,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
         Instance targets keep the instances whose bounding boxes
         survived, in the order of the boxes.
+
+        Returns:
+            Label array of the target in LDF format. A classification
+            target comes back unchanged.
+
         """
         target_type = self._targets[target_name]
         if target_type == "mask":
@@ -1052,6 +1068,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         annotation carried a different number of instances than boxes, which
         `BatchCompose` has already refused to guess at; the excess is dropped
         so that the sample still loads.
+
+        Returns:
+            Indices of the instances to keep, in box order. The array is
+            empty when the bounding boxes of the group are missing from
+            the augmented data, and holds every instance when the group
+            has no bounding-box target.
+
         """
         if task_group not in bboxes_indices:
             if task_group in self._bbox_targets_by_group:
@@ -1071,6 +1094,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     @staticmethod
     def _resolve_pipeline_stage(
         pipeline_stage: Literal["train", "val", "test"] | None,
+        *,
         is_validation_pipeline: bool | None,
     ) -> Literal["train", "val", "test"]:
         if pipeline_stage is not None:
@@ -1112,10 +1136,15 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 leaf transformation, keyed by its identity.
             parent_path: Configured names of the enclosing compositions.
 
+        Returns:
+            The Albumentations or custom transformation that ``config``
+            names, with its nested ``transforms`` items created as well.
+
         Raises:
-            ValueError: If a batch transform is nested inside another
-                transformation, or if a nested item is not a valid
-                transformation configuration.
+            ValueError: If the configured name does not create an
+                Albumentations transformation, if a batch transform is
+                nested inside another transformation, or if a nested
+                item is not a valid transformation configuration.
 
         """
         params: dict[str, Any] = config.params.copy()
@@ -1136,11 +1165,18 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         else:
             constructor = TRANSFORMATIONS.get(config.name)
 
-        transform = constructor(**params)  # type: ignore
-
-        if not isinstance(transform, A.BaseCompose):
+        transform = constructor(**params)
+        if isinstance(transform, A.BaseCompose):
+            return transform
+        if isinstance(transform, A.BasicTransform):
             tracked_paths[id(transform)] = "/".join(current_path)
-        return transform
+            return transform
+        raise ValueError(
+            f"Unsupported transformation type: "
+            f"'{type(transform).__name__}'. "
+            f"Only subclasses of `A.BasicTransform` "
+            f"or `A.BaseCompose` are allowed. "
+        )
 
     @staticmethod
     def _create_nested_transformation(
@@ -1151,7 +1187,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             raise ValueError(f"Invalid nested transform configuration: {item}")
         nested_cfg = AlbumentationConfigItem(
             name=str(item["name"]),
-            params=cast(Params, item.get("params", {})),
+            params=cast("Params", item.get("params", {})),
             use_for_resizing=bool(item.get("use_for_resizing", False)),
         )
         transform = AlbumentationsEngine._create_transformation(
@@ -1176,6 +1212,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         ``"/"`` of LDF's default task marks a name that is empty on purpose,
         while a task with no separator at all has no name to group by and is
         only ever grouped with itself.
+
+        Returns:
+            Name of the task group.
+
         """
         group = task.removesuffix(get_task_type(task)).removesuffix("/")
         if group:
@@ -1185,12 +1225,17 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     @staticmethod
     def _task_to_target_name(task: str) -> str:
         target = task.replace("/", "_").replace("-", "_")
-        assert target.isidentifier()
+        if not target.isidentifier():
+            raise ValueError(
+                f"Task '{task}' gives the target name '{target}', "
+                "which is not a valid identifier."
+            )
         return target
 
     @staticmethod
     def _wrap_transform(
         transform: A.BaseCompose,
+        *,
         is_pixel: bool = False,
         source_names: list[str] | None = None,
     ) -> Callable[..., Data]:
@@ -1212,7 +1257,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 provided.
 
         """
-
         if is_pixel:
             return partial(_apply_pixel_transform, transform, source_names)
         return partial(_apply_compose, transform)
@@ -1270,13 +1314,13 @@ def _resolve_target_type(task: str, task_type: str) -> TargetType:
     return target_type
 
 
-def _image_data(image_dict: dict[str, np.ndarray]) -> dict[str, Any]:
-    """Key the first image ``"image"`` and remember its source name."""
+def _image_data(image_dict: dict[str, np.ndarray]) -> Data:
+    """Key the first image ``"image"`` and the others by source name."""
     key = next(iter(image_dict))
-    data: dict[str, Any] = {"_original_image_key": key}
-    for source_name, img in image_dict.items():
-        data["image" if source_name == key else source_name] = img
-    return data
+    return {
+        "image" if source_name == key else source_name: img
+        for source_name, img in image_dict.items()
+    }
 
 
 def _preprocess_label(
@@ -1293,14 +1337,10 @@ def _preprocess_label(
 
 
 def _apply_compose(transform: A.BaseCompose, /, **data: np.ndarray) -> Data:
-    """Apply a composition and keep the source-name marker out of it."""
+    """Apply a composition, or pass the data on if it is empty."""
     if not transform.transforms:
         return data
-    original_key = data.pop("_original_image_key", None)
-    data = transform(**data)
-    if original_key is not None:
-        data["_original_image_key"] = original_key
-    return data
+    return transform(**data)
 
 
 def _apply_pixel_transform(
@@ -1312,6 +1352,15 @@ def _apply_pixel_transform(
     """Apply pixel transforms to the image and replay them on the sources.
 
     Only sources with a channel axis are replayed.
+
+    Returns:
+        ``data`` with the image and the replayed sources transformed.
+        It comes back unchanged when ``transform`` holds no transforms.
+
+    Raises:
+        ValueError: If ``transform`` holds transforms and ``source_names``
+            is ``None``.
+
     """
     if not transform.transforms:
         return data
@@ -1345,11 +1394,18 @@ def _normalize_params(
             configured value from a sampled one. Nested parameters have no
             transformation of their own.
 
+    Returns:
+        The kept parameters with string keys. NumPy scalars become Python
+        scalars, tuples become lists, mappings are normalized in turn, and
+        objects of unknown types become strings. Arrays, sequences that
+        hold one, and values that only echo the configuration are left
+        out.
+
     """
     normalized: Params = {}
-    for key, value in params.items():
-        key = str(key)
-        value = _normalize_value(value)
+    for raw_key, raw_value in params.items():
+        key = str(raw_key)
+        value = _normalize_value(raw_value)
         if value is _OMIT or _is_configured(transform, key, value):
             continue
         normalized[key] = value
@@ -1363,6 +1419,10 @@ def _is_configured(transform: Any, key: str, value: Any) -> bool:
     ``fill`` from the range it was given, and the drawn value belongs in
     the report. Keys the transformation knows nothing about, such as the
     input ``shape``, are never sampled.
+
+    Returns:
+        Whether to leave the parameter out of the report.
+
     """
     if key not in _STATIC_PARAMS:
         return False
@@ -1378,18 +1438,20 @@ def _normalize_value(value: Any) -> Any:
     if isinstance(value, Mapping):
         return _normalize_params(value)
     if isinstance(value, (list, tuple)):
-        normalized = []
-        for item in value:
-            item = _normalize_value(item)
-            # Dropping a single item would reindex the sequence and
-            # misrepresent its length.
-            if item is _OMIT:
-                return _OMIT
-            normalized.append(item)
-        return normalized
+        return _normalize_sequence(value)
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return str(value)
+
+
+def _normalize_sequence(values: list[Any] | tuple[Any, ...]) -> Any:
+    """Normalize each item, or omit the sequence if an item is omitted."""
+    normalized = [_normalize_value(item) for item in values]
+    # Dropping a single item would reindex the sequence and misrepresent
+    # its length.
+    if any(item is _OMIT for item in normalized):
+        return _OMIT
+    return normalized
 
 
 def _reset_params(transform: Any) -> None:
@@ -1405,6 +1467,12 @@ def _disambiguate_paths(paths: dict[int, str]) -> dict[int, str]:
 
     The same transformation can be configured more than once, and without
     the suffix all occurrences would collapse into a single entry.
+
+    Returns:
+        A new mapping with the keys of ``paths``. Each repeated path gets
+        ``"#1"``, ``"#2"`` and so on, in insertion order. A unique path
+        stays as it is.
+
     """
     duplicated = {
         path for path, count in Counter(paths.values()).items() if count > 1
@@ -1414,6 +1482,7 @@ def _disambiguate_paths(paths: dict[int, str]) -> dict[int, str]:
     for key, path in paths.items():
         if path in duplicated:
             seen[path] += 1
-            path = f"{path}#{seen[path]}"
-        disambiguated[key] = path
+            disambiguated[key] = f"{path}#{seen[path]}"
+        else:
+            disambiguated[key] = path
     return disambiguated

@@ -100,6 +100,11 @@ class COCOParser(BaseParser):
         train-only are ambiguous by directory names alone, so the
         annotation filename inside any present split decides: Roboflow
         has ``_annotations.coco.json``, FiftyOne has ``labels.json``.
+
+        Returns:
+            The detected format. ``None`` if there is no ``validation``
+            folder and no split in ``splits`` holds a valid COCO layout.
+
         """
         if "validation" in existing:
             return COCOFormat.FIFTYONE
@@ -117,7 +122,7 @@ class COCOParser(BaseParser):
     def _is_coco_json(json_path: Path) -> bool:
         """Check if JSON file has required COCO format fields."""
         try:
-            with open(json_path) as f:
+            with json_path.open(encoding="utf-8") as f:
                 data = json.load(f)
             if not isinstance(data, dict):
                 return False
@@ -134,28 +139,26 @@ class COCOParser(BaseParser):
             return False
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
-        json_path = next(split_path.glob("*.json"), None)
-        if not json_path:
+        json_path = split_path / "_annotations.coco.json"
+        if not json_path.exists():
+            json_path = next(split_path.glob("*.json"), None)
+        if json_path is None or not COCOParser._is_coco_json(json_path):
             return None
         if json_path.name == "_annotations.coco.json":
-            if not COCOParser._is_coco_json(json_path):
-                return None
             logger.info("Identified Roboflow format")
-            image_dir = split_path
-            return {"image_dir": image_dir, "annotation_path": json_path}
-        if not COCOParser._is_coco_json(json_path):
-            return None
+            return {"image_dir": split_path, "annotation_path": json_path}
         logger.info("Identified FiftyOne format")
         dirs = [d for d in split_path.iterdir() if d.is_dir()]
         if len(dirs) != 1:
             return None
-        image_dir = dirs[0]
-        return {"image_dir": image_dir, "annotation_path": json_path}
+        return {"image_dir": dirs[0], "annotation_path": json_path}
 
     @classmethod
+    @override
     def validate(cls, dataset_dir: Path) -> bool:
         dir_format, splits = cls._detect_dataset_dir_format(dataset_dir)
         if dir_format is None:
@@ -180,6 +183,7 @@ class COCOParser(BaseParser):
             discovered[cls._canonicalize_split_name(split_name)] = split_kwargs
         return discovered
 
+    @override
     def from_dir(
         self,
         dataset_dir: Path,
@@ -224,6 +228,7 @@ class COCOParser(BaseParser):
     def _resolve_dir_format_and_keypoint_paths(
         self,
         dataset_dir: Path,
+        *,
         use_keypoint_ann: bool,
         keypoint_ann_paths: dict[str, str] | None,
     ) -> tuple[COCOFormat, list[str], dict[str, str] | None]:
@@ -252,6 +257,7 @@ class COCOParser(BaseParser):
     def _finalize_split_definitions(
         self,
         split_definitions: dict[str, list[Path]],
+        *,
         split_val_to_test: bool,
     ) -> dict[str, list[Path]]:
         added_test_imgs = split_definitions.get("test", [])
@@ -273,6 +279,7 @@ class COCOParser(BaseParser):
             )
         return split_definitions
 
+    @override
     def from_split(
         self, image_dir: Path, annotation_path: Path
     ) -> ParserOutput:
@@ -300,7 +307,7 @@ class COCOParser(BaseParser):
                 its category.
 
         """
-        with open(annotation_path) as f:
+        with annotation_path.open(encoding="utf-8") as f:
             annotation_data = json.load(f)
 
         coco_images = annotation_data["images"]
@@ -339,8 +346,13 @@ class COCOParser(BaseParser):
     ) -> DatasetIterator:
         """Yield one record per COCO annotation of an existing image.
 
-        An image without annotations yields one record with no
+        An image without annotations yields one record with a ``None``
         annotation, unless ``skip_unlabeled`` is set.
+
+        Yields:
+            A dict with the image path under ``file`` and the LDF
+            annotation under ``annotation``.
+
         """
         img_dict = {img["id"]: img for img in coco_images}
         ann_dict: dict[int, list[dict[str, Any]]] = defaultdict(list)
@@ -487,7 +499,7 @@ class COCOParser(BaseParser):
             )
 
         return self._finalize_split_definitions(
-            split_definitions, split_val_to_test
+            split_definitions, split_val_to_test=split_val_to_test
         )
 
 
@@ -499,12 +511,17 @@ class _InstanceIds:
     annotation got.
     """
 
-    def __init__(self, annotations: list[dict[str, Any]]):
+    def __init__(self, annotations: list[dict[str, Any]]) -> None:
         self._taken = {ann["id"] for ann in annotations if "id" in ann}
         self._next = 0
 
     def of(self, ann: dict[str, Any]) -> int:
         """Return the instance ID of one annotation.
+
+        Returns:
+            The ``id`` of ``ann`` if it has one. Otherwise the lowest
+            integer that no annotation of the split uses and no earlier
+            call returned.
 
         Examples:
             >>> ids = _InstanceIds([{"id": 0}, {"id": 2}])
@@ -525,6 +542,11 @@ def _coco_bbox(
     bbox: list[Any], img_w: int, img_h: int
 ) -> dict[str, float] | None:
     """Normalize a COCO ``[x, y, w, h]`` box, or ``None`` if not numeric.
+
+    Returns:
+        The box with ``x``, ``y``, ``w`` and ``h`` as fractions of the
+        image size. ``None`` if ``bbox`` does not hold four finite
+        numbers.
 
     Examples:
         >>> _coco_bbox([10, 20, 30, 40], 100, 200)
@@ -548,6 +570,11 @@ def _coco_segmentation(
     coco_seg: Any, img_w: int, img_h: int
 ) -> dict[str, Any] | None:
     """Convert a COCO polygon list or RLE dict to an LDF RLE dict.
+
+    Returns:
+        The mask ``height``, ``width`` and RLE ``counts``. Polygons
+        merge into one mask. ``None`` if ``coco_seg`` is an empty list,
+        or is neither a list nor a dict.
 
     Examples:
         >>> _coco_segmentation({"size": [4, 5], "counts": "abc"}, 5, 4)
@@ -607,7 +634,7 @@ def clean_annotations(annotation_path: Path) -> Path:
         "000000578492.jpg",
         "000000531721.jpg",
     ]
-    with open(annotation_path) as f:
+    with annotation_path.open(encoding="utf-8") as f:
         annotation_data = json.load(f)
 
     filtered_images = [
@@ -630,7 +657,7 @@ def clean_annotations(annotation_path: Path) -> Path:
     annotation_data["annotations"] = filtered_annotations
 
     cleaned_annotation_path = annotation_path.with_name("labels_fixed.json")
-    with open(cleaned_annotation_path, "w") as f:
+    with cleaned_annotation_path.open("w", encoding="utf-8") as f:
         json.dump(annotation_data, f)
 
     return cleaned_annotation_path
@@ -640,6 +667,13 @@ def _keypoint_fields(category: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Return the task fields of each keypoint of a COCO category, by name.
 
     COCO numbers the ends of a skeleton edge from 1.
+
+    Returns:
+        Task fields keyed by keypoint name.
+
+    Raises:
+        ValueError: If names repeat or the skeleton or sigmas are invalid.
+
     """
     names: list[str] = category["keypoints"]
     if len(set(names)) < len(names):

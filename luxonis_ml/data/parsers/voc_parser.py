@@ -1,9 +1,12 @@
+"""Parser for datasets in the VOC format."""
+
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from defusedxml.ElementTree import parse
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
@@ -29,6 +32,7 @@ class VOCParser(BaseParser):
     """
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -39,6 +43,7 @@ class VOCParser(BaseParser):
             return None
         return {"image_dir": split_path, "annotation_dir": split_path}
 
+    @override
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -55,6 +60,7 @@ class VOCParser(BaseParser):
         )
         return added_train_imgs, added_val_imgs, added_test_imgs
 
+    @override
     def from_split(
         self, image_dir: Path, annotation_dir: Path
     ) -> ParserOutput:
@@ -104,7 +110,16 @@ class VOCParser(BaseParser):
     def _image_boxes(root: ET.Element) -> list[tuple[str, list[float]]]:
         """Return the ``(class, [x, y, w, h])`` normalized boxes of an image.
 
-        An object without a ``bndbox`` has no box.
+        Returns:
+            One ``(class, [x, y, w, h])`` pair per object with a
+            ``bndbox``, in document order. ``x`` and ``y`` locate the
+            top-left corner. ``x`` and ``w`` are fractions of the image
+            width, ``y`` and ``h`` of its height.
+
+        Raises:
+            ValueError: If the annotation has no ``size`` element, if the
+                size, a class name or a box coordinate is missing, or if a
+                size or a coordinate is not a number.
 
         Examples:
             >>> import xml.etree.ElementTree as ET
@@ -119,7 +134,8 @@ class VOCParser(BaseParser):
 
         """
         size_item = root.find("size")
-        assert size_item is not None
+        if size_item is None:
+            raise ValueError(f"Could not find size in {root}")
         height = float(VOCParser._xml_find(size_item, "height"))
         width = float(VOCParser._xml_find(size_item, "width"))
 

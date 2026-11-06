@@ -1,3 +1,5 @@
+"""Enum of the input kinds that an NN Archive model accepts."""
+
 from enum import Enum
 
 

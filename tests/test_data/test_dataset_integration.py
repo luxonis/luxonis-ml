@@ -3,10 +3,10 @@ import json
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
-from cv2.typing import MatLike
 
 from luxonis_ml.data import (
     BucketStorage,
@@ -19,10 +19,13 @@ from luxonis_ml.utils import LuxonisFileSystem
 
 from .utils import gather_tasks
 
+if TYPE_CHECKING:
+    from cv2.typing import MatLike
+
 
 def get_annotations(sequence_path: Path):
     frame_data = sequence_path / "step0.frame_data.json"
-    with open(frame_data) as f:
+    with frame_data.open() as f:
         data = json.load(f)["captures"][0]
         frame_data = data["annotations"]
 
@@ -150,10 +153,11 @@ def _vehicle_keypoints(
     kp_annotations = annotations["KeypointAnnotation"]["values"][0][
         "keypoints"
     ]
-    if vehicle_type == "motorbike":
-        kp_annotations = kp_annotations[:3]
-    else:
-        kp_annotations = kp_annotations[3:]
+    kp_annotations = (
+        kp_annotations[:3]
+        if vehicle_type == "motorbike"
+        else kp_annotations[3:]
+    )
 
     keypoints = []
     for kp in kp_annotations:
@@ -169,7 +173,7 @@ def _mosaic_records(
     """Tile four vehicles into one image and yield its records."""
     images: list[MatLike] = [
         cv2.imread(str(item["filepath"])) for item in batch
-    ]  # type: ignore
+    ]  # pyright: ignore[reportAssignmentType]
     assert all(img is not None for img in images)
     H_img, W_img, C = images[0].shape
     combined_image = np.empty((2 * H_img, 2 * W_img, C), dtype=images[0].dtype)
