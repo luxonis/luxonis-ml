@@ -128,7 +128,11 @@ Output Layouts
      - One binary mask per instance.
    * - ``keypoints``
      - :math:`\left(N, 3K\right)`
-     - Flattened :math:`\left(x, y, v\right)` keypoint triplets.
+     - Flattened :math:`\left(x, y, v\right)` keypoint triplets, in the
+       keypoint order of the task. A keypoint that an instance does not
+       name gets :math:`\left(0, 0, 0\right)`.
+       `LuxonisDataset.get_keypoint_metadata` gives the names, the edges
+       and the sigmas of each task.
    * - ``metadata``
      - Original value structure.
      - Values keyed by metadata field name.

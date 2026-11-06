@@ -15,11 +15,11 @@ from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
     check_group_file_correspondence,
     exporter_specific_annotation_warning,
-    get_single_skeleton,
     split_of_group,
 )
 from luxonis_ml.data.utils import COCOFormat
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.ldf import KeypointMetadata
 
 
 class CocoExporter(BaseExporter):
@@ -27,8 +27,9 @@ class CocoExporter(BaseExporter):
 
     Attributes:
         format: COCO output layout variant.
-        skeletons: Optional keypoint skeleton metadata.
-        allow_keypoints: Whether keypoint annotations can be exported.
+        allow_keypoints: Whether keypoint annotations can be exported. COCO
+            holds one keypoint definition, so a dataset needs exactly one
+            keypoint task.
         class_name_to_category_id: Category IDs per split and class name.
         last_category_id: Last assigned category ID per split.
         image_registry: Exported image metadata per split.
@@ -41,8 +42,6 @@ class CocoExporter(BaseExporter):
         output_path: Path,
         max_partition_size_gb: float | None,
         coco_format: COCOFormat = COCOFormat.ROBOFLOW,
-        *,
-        skeletons: dict[str, Any] | None = None,
     ) -> None:
         """Create the exporter.
 
@@ -52,26 +51,15 @@ class CocoExporter(BaseExporter):
             max_partition_size_gb: Maximum partition size in GiB, or
                 ``None`` to disable partitioning.
             coco_format: Directory layout of the export.
-            skeletons: Keypoint skeletons keyed by task name. Keypoints
-                are exported only when there is exactly one skeleton.
 
         """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
         self.format = coco_format
-        self.skeletons = skeletons
-        if self.skeletons is None:
-            self.allow_keypoints = False
-        elif len(self.skeletons) == 1:
-            self.allow_keypoints = True
-        else:
-            self.allow_keypoints = False
-            logger.warning(
-                "Skipping keypoint annotations because COCO only supports a "
-                "single keypoint export class. To export multiple keypoint "
-                "classes please use the Luxonis native export format"
-            )
+        self.allow_keypoints = False
+        self._keypoint_labels: list[str] = []
+        self._category_keypoints: dict[str, Any] = {}
 
         splits = self.get_split_names()
         self.class_name_to_category_id: dict[str, dict[str, int]] = {
@@ -100,12 +88,39 @@ class CocoExporter(BaseExporter):
     def supported_ann_types(self) -> list[str]:
         return DatasetType.COCO.supported_annotation_formats
 
+    def _set_keypoint_task(
+        self, keypoint_metadata: dict[str, KeypointMetadata]
+    ) -> None:
+        """Take the keypoint definition of the only keypoint task.
+
+        Each category carries the names, the skeleton and the sigmas. COCO
+        numbers the ends of a skeleton edge from 1.
+        """
+        self.allow_keypoints = len(keypoint_metadata) == 1
+        if len(keypoint_metadata) > 1:
+            logger.warning(
+                "Skipping keypoint annotations because COCO only supports a "
+                "single keypoint task. To export multiple keypoint tasks, "
+                "use the Luxonis native export format."
+            )
+        if not self.allow_keypoints:
+            return
+        task_keypoints = next(iter(keypoint_metadata.values()))
+        self._keypoint_labels = task_keypoints.labels
+        self._category_keypoints = {
+            "keypoints": task_keypoints.labels,
+            "skeleton": [[a + 1, b + 1] for a, b in task_keypoints.edges],
+        }
+        if task_keypoints.sigmas:
+            self._category_keypoints["sigmas"] = task_keypoints.sigmas
+
     @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
         exporter_specific_annotation_warning(
             prepared_ldf, self.supported_ann_types()
         )
+        self._set_keypoint_task(prepared_ldf.keypoint_metadata)
 
         splits = self.get_split_names()
         annotation_splits: dict[str, dict[str, Any]] = {
@@ -241,16 +256,7 @@ class CocoExporter(BaseExporter):
         if cname and cname not in self.class_name_to_category_id[split]:
             cid = self.last_category_id[split]
 
-            cat_entry = {"id": cid, "name": cname}
-
-            if self.allow_keypoints:
-                kp_labels, kp_skeleton = get_single_skeleton(
-                    allow_keypoints=self.allow_keypoints,
-                    skeletons=self.skeletons,
-                )
-                if kp_labels:
-                    cat_entry["keypoints"] = kp_labels
-                    cat_entry["skeleton"] = kp_skeleton
+            cat_entry = {"id": cid, "name": cname, **self._category_keypoints}
 
             annotation_splits[split]["categories"].append(cat_entry)
             self.class_name_to_category_id[split][cname] = cid
@@ -351,7 +357,10 @@ class CocoExporter(BaseExporter):
             or self.class_name_to_category_id[split][cname]
         )
 
-        raw_kps = data.get("keypoints", [])
+        raw_kps = [
+            data["keypoints"].get(name, (0, 0, 0))
+            for name in self._keypoint_labels
+        ]
         kps_px: list[float] = []
         xs: list[float] = []
         ys: list[float] = []

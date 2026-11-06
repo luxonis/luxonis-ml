@@ -4,9 +4,9 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Literal, TypeVar
 
 from pydantic import Field
-from typing_extensions import TypedDict
 
 from luxonis_ml.data.utils.constants import LDF_VERSION
+from luxonis_ml.ldf import KeypointMetadata
 from luxonis_ml.typing import BaseModelExtraForbid
 
 from .source import LuxonisSource
@@ -14,17 +14,28 @@ from .source import LuxonisSource
 T = TypeVar("T")
 
 
-class Skeletons(TypedDict):
-    """Keypoint skeleton metadata.
+def merge_keypoint_metadata(
+    keypoint_metadata: dict[str, KeypointMetadata],
+    task: str,
+    other: KeypointMetadata,
+) -> None:
+    """Merge ``other`` into the keypoint metadata of ``task``, in place.
 
-    Attributes:
-        labels: Keypoint names in index order.
-        edges: Keypoint graph edges as :math:`0`-based index pairs.
+    Args:
+        keypoint_metadata: The keypoint metadata of each task.
+        task: The task that ``other`` describes.
+        other: The keypoint metadata to add.
+
+    Raises:
+        ValueError: If the two give one keypoint different sigmas. The
+            message names the task.
 
     """
-
-    labels: list[str]
-    edges: list[tuple[int, int]]
+    stored = keypoint_metadata.get(task, KeypointMetadata())
+    try:
+        keypoint_metadata[task] = stored.merge(other)
+    except ValueError as e:
+        raise ValueError(f"Task '{task}': {e}") from e
 
 
 class Metadata(BaseModelExtraForbid):
@@ -35,7 +46,7 @@ class Metadata(BaseModelExtraForbid):
         ldf_version: Luxonis Data Format version.
         classes: Class-index mappings per task.
         tasks: Task types per task name.
-        skeletons: Keypoint skeleton definitions per task.
+        keypoint_metadata: The keypoints of each task.
         categorical_encodings: Integer encodings for categorical metadata.
         metadata_types: Metadata value types per metadata task.
         parent_dataset: Optional identifier of the source dataset this
@@ -47,7 +58,9 @@ class Metadata(BaseModelExtraForbid):
     ldf_version: str = str(LDF_VERSION)
     classes: dict[str, dict[str, int]] = Field(default_factory=dict)
     tasks: dict[str, list[str]] = Field(default_factory=dict)
-    skeletons: dict[str, Skeletons] = Field(default_factory=dict)
+    keypoint_metadata: dict[str, KeypointMetadata] = Field(
+        default_factory=dict
+    )
     categorical_encodings: dict[str, dict[str, int]] = Field(
         default_factory=dict
     )
@@ -83,13 +96,15 @@ class Metadata(BaseModelExtraForbid):
             other: Metadata object to merge into this one.
 
         Returns:
-            New metadata object containing merged classes, tasks,
-            skeletons, categorical encodings, metadata types, and source
+            New metadata object containing merged classes, tasks, keypoint
+            metadata, categorical encodings, metadata types, and source
             information.
 
         Raises:
             ValueError: If the two metadata objects use different LDF
                 versions.
+            ValueError: If the two metadata objects give one keypoint
+                different sigmas.
 
         """
         if self.ldf_version != other.ldf_version:  # pragma: no cover
@@ -104,6 +119,10 @@ class Metadata(BaseModelExtraForbid):
         else:
             merged_source = self.source.merge_with(other.source)
 
+        merged_keypoint_metadata = dict(self.keypoint_metadata)
+        for task, theirs in other.keypoint_metadata.items():
+            merge_keypoint_metadata(merged_keypoint_metadata, task, theirs)
+
         return Metadata(
             ldf_version=self.ldf_version,
             source=merged_source,
@@ -113,7 +132,7 @@ class Metadata(BaseModelExtraForbid):
             tasks=_merge_dicts(
                 self.tasks, other.tasks, lambda a, b: list(set(a + b))
             ),
-            skeletons={**self.skeletons, **other.skeletons},
+            keypoint_metadata=merged_keypoint_metadata,
             categorical_encodings=_merge_dicts(
                 self.categorical_encodings,
                 other.categorical_encodings,

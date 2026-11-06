@@ -1,12 +1,12 @@
 import json
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import polars as pl
 import pytest
 
 from luxonis_ml.data.exporters import (
+    PreparedLDF,
     UltralyticsNDJSONExporter,
     YoloV8InstanceSegmentationExporter,
     YoloV8KeypointsExporter,
@@ -21,34 +21,53 @@ from luxonis_ml.data.exporters.yolov8_keypoints_exporter import (
     _flat_keypoints,
 )
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.ldf import KeypointMetadata
 
 BOX = json.dumps({"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4})
 
 
-def _keypoint_row(keypoints: Any, class_name: str | None = "person") -> dict:
+def _keypoint_row(
+    keypoints: dict[str, list[float]], class_name: str | None = "person"
+) -> dict:
     """Build a keypoint row of the prepared LDF frame."""
     return {
+        "task_name": "pose",
         "task_type": "keypoints",
         "class_name": class_name,
         "annotation": json.dumps({"keypoints": keypoints}),
     }
 
 
+def _prepared(*names: str) -> PreparedLDF:
+    """Prepare an empty LDF whose ``pose`` task has these keypoints."""
+    return PreparedLDF(
+        splits={},
+        processed_df=pl.DataFrame(),
+        grouped_image_sources=pl.DataFrame(),
+        keypoint_metadata={
+            "pose": KeypointMetadata.model_validate(
+                {"keypoints": {name: {} for name in names}}
+            )
+        },
+    )
+
+
 def test_keypoint_line_skips_rows_it_cannot_export(tempdir: Path):
     exporter = YoloV8KeypointsExporter("ds", tempdir, None)
+    row = _keypoint_row({"nose": [0.1, 0.2, 2]})
+    unnamed = _keypoint_row({"nose": [0.1, 0.2, 2]}, None)
 
-    assert (
-        exporter._keypoint_line(_keypoint_row([[0.1, 0.2, 2]], None)) is None
-    )
-    assert exporter._keypoint_line(_keypoint_row([])) is None
-    assert exporter._keypoint_line(_keypoint_row([0.1, 0.2])) is None
+    assert exporter._keypoint_line(unnamed, _prepared("nose")) is None
+    # A task without keypoints leaves nothing to export.
+    assert exporter._keypoint_line(row, _prepared()) is None
     assert exporter.class_names == ["person"]
 
 
 def test_keypoint_line_gives_pairs_full_visibility(tempdir: Path):
     exporter = YoloV8KeypointsExporter("ds", tempdir, None)
+    row = _keypoint_row({"a": [0.25, 0.5], "b": [0.75, 0.5]})
 
-    line = exporter._keypoint_line(_keypoint_row([[0.25, 0.5], [0.75, 0.5]]))
+    line = exporter._keypoint_line(row, _prepared("a", "b"))
 
     assert line is not None
     keypoints = line.split()[5:]  # after the class ID and the 4 box values

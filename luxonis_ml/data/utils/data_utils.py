@@ -212,9 +212,9 @@ def _is_all_zero_keypoints(annotation_str: str) -> bool:
         the string does not parse or is ``None``.
 
     Examples:
-        >>> _is_all_zero_keypoints('{"keypoints": [[0, 0, 0], [0, 0, 0]]}')
+        >>> _is_all_zero_keypoints('{"keypoints": {"a": [0, 0, 0]}}')
         True
-        >>> _is_all_zero_keypoints('{"keypoints": [[0.5, 0, 2]]}')
+        >>> _is_all_zero_keypoints('{"keypoints": {"a": [0.5, 0, 2]}}')
         False
         >>> _is_all_zero_keypoints('{"x": 0.1}'), _is_all_zero_keypoints(None)
         (False, False)
@@ -223,12 +223,9 @@ def _is_all_zero_keypoints(annotation_str: str) -> bool:
     try:
         annotation = json.loads(annotation_str)
         if "keypoints" in annotation:
-            for kp in annotation["keypoints"]:
-                if len(kp) >= 3:
-                    x, y, v = kp[0], kp[1], kp[2]
-                    if x != 0 or y != 0 or v != 0:
-                        return False
-            return True
+            return all(
+                kp == [0, 0, 0] for kp in annotation["keypoints"].values()
+            )
     except (TypeError, ValueError):
         return False
     return False
@@ -515,11 +512,7 @@ def _annotation_points(
         )
 
     if task_type == "keypoints":
-        kps = [
-            kp
-            for kp in annotation.get("keypoints", [])
-            if len(kp) >= 3 and kp[2] > 0
-        ]
+        kps = [kp for kp in annotation["keypoints"].values() if kp[2] > 0]
         if not kps:
             return None
         coords = np.array([(kp[0], kp[1]) for kp in kps])

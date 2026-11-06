@@ -47,7 +47,7 @@ def _capture(sequence_path: Path) -> dict:
 
 
 def test_capture_joins_box_and_instance_mask(tempdir: Path):
-    (record,) = _parse_capture(tempdir, _capture(tempdir), set())
+    (record,) = _parse_capture(tempdir, _capture(tempdir), set(), [])
 
     assert isinstance(record, dict)
     annotation = record["annotation"]
@@ -62,7 +62,9 @@ def test_capture_reads_each_kind_once_per_step(tempdir: Path):
         "InstanceSegmentationAnnotation",
     }
 
-    assert list(_parse_capture(tempdir, _capture(tempdir), processed)) == []
+    assert (
+        list(_parse_capture(tempdir, _capture(tempdir), processed, [])) == []
+    )
 
 
 def test_capture_needs_its_image(tempdir: Path):
@@ -70,7 +72,7 @@ def test_capture_needs_its_image(tempdir: Path):
     capture["filename"] = "missing.png"
 
     with pytest.raises(FileNotFoundError, match=r"missing\.png"):
-        list(_parse_capture(tempdir, capture, set()))
+        list(_parse_capture(tempdir, capture, set(), []))
 
 
 @pytest.mark.parametrize(
@@ -87,4 +89,4 @@ def test_capture_needs_a_readable_mask(
         mask_path.write_bytes(contents)
 
     with pytest.raises(error, match=r"step0\.instance\.png"):
-        list(_parse_capture(tempdir, capture, set()))
+        list(_parse_capture(tempdir, capture, set(), []))
