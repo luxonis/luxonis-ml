@@ -4,7 +4,7 @@ import socket
 import sys
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import numpy.typing as npt
@@ -54,6 +54,10 @@ def tracking_uri(mlflow_dir: Path, monkeypatch: pytest.MonkeyPatch) -> str:
 
     MLflow puts the artifacts of a new experiment under the working
     directory, so the test runs in the store directory.
+
+    Returns:
+        The local SQLite tracking URI.
+
     """
     monkeypatch.chdir(mlflow_dir)
     return f"sqlite:///{mlflow_dir / 'mlflow.db'}"
@@ -66,8 +70,11 @@ def client(tracking_uri: str) -> MlflowClient:
 
 @pytest.fixture
 def project(request: pytest.FixtureRequest) -> str:
-    """Name a project of its own for each test, as the store is
-    shared.
+    """Name a unique project for each test in the shared store.
+
+    Returns:
+        A project name unique to the test.
+
     """
     return request.node.name
 
@@ -163,9 +170,7 @@ def test_start_joins_an_experiment_that_another_process_created(
     client: MlflowClient,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """Two trainings start the same new project at once. The second
-    one sees no experiment, and its create fails.
-    """
+    """Join a project that another training creates concurrently."""
     experiment_id = client.create_experiment(project)
     lookup = MlflowClient.get_experiment_by_name
     lookups: list[str] = []
@@ -190,7 +195,7 @@ def test_a_rejected_experiment_create_raises(
     tracking_uri: str,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    def refuse(self: MlflowClient, name: str) -> str:
+    def refuse(_self: MlflowClient, _name: str) -> str:
         raise MlflowException("no access", PERMISSION_DENIED)
 
     monkeypatch.setattr(MlflowClient, "create_experiment", refuse)
@@ -437,9 +442,7 @@ def test_a_failed_run_is_marked_failed(
 
 
 def test_the_client_exists_only_after_start(tmp_path: Path):
-    """The client opens a local store at once, which the constructor
-    must not do on every rank.
-    """
+    """Delay opening the client until the backend starts."""
     store = tmp_path / "fresh.db"
     backend = MLflowBackend(
         make_run(tmp_path, "project"), tracking_uri=f"sqlite:///{store}"
@@ -490,7 +493,7 @@ def test_a_run_in_a_missing_experiment_is_rejected(
     ],
 )
 def test_an_outage_is_told_from_a_rejected_call(
-    tmp_path: Path, tracking_uri: str, error: Exception, transient: bool
+    tmp_path: Path, tracking_uri: str, error: Exception, *, transient: bool
 ):
     backend = MLflowBackend(
         make_run(tmp_path, "project"), tracking_uri=tracking_uri
@@ -500,11 +503,11 @@ def test_an_outage_is_told_from_a_rejected_call(
 
 
 class FakeMonitor:
-    instances: list["FakeMonitor"] = []
+    instances: ClassVar[list["FakeMonitor"]] = []
     error: Exception | None = None
 
     def __init__(
-        self, run_id: str, resume_logging: bool, tracking_uri: str
+        self, run_id: str, *, resume_logging: bool, tracking_uri: str
     ) -> None:
         if self.error is not None:
             raise self.error
@@ -523,8 +526,11 @@ class FakeMonitor:
 
 @pytest.fixture
 def monitor(monkeypatch: pytest.MonkeyPatch) -> type[FakeMonitor]:
-    """Pretend that ``psutil`` is installed, which MLflow needs to
-    monitor the system.
+    """Pretend that MLflow can monitor the system.
+
+    Returns:
+        The fake system metrics monitor class.
+
     """
     module = ModuleType("system_metrics_monitor")
     module.SystemMetricsMonitor = FakeMonitor  # type: ignore[attr-defined]
@@ -582,7 +588,7 @@ def test_system_metrics_need_psutil(
 
 @pytest.mark.parametrize("buffered", [False, True])
 def test_a_missing_sdk_names_the_extra(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, buffered: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, buffered: bool
 ):
     monkeypatch.setitem(sys.modules, "mlflow", None)
     # the test module imported this one already

@@ -29,6 +29,7 @@ from uuid import uuid4
 import numpy as np
 import numpy.typing as npt
 from loguru import logger
+from typing_extensions import override
 
 from luxonis_ml.typing import ParamValue
 
@@ -36,8 +37,7 @@ from .backends.base import RunStatus, TableCell, TrackerBackend
 
 
 class BufferedBackend(TrackerBackend, register=False):
-    """Keep the calls that a remote backend cannot send, and send them
-    later.
+    """Buffer calls that a remote backend cannot send.
 
     `LuxonisTracker` wraps each backend that sets
     `TrackerBackend.buffered`. A failed call does not reach the training
@@ -123,6 +123,7 @@ class BufferedBackend(TrackerBackend, register=False):
         self._failed_kinds: set[type[_Call]] = set()
         self._reported_drop = False
 
+    @override
     def start(self) -> None:
         """Start the wrapped backend, and send the buffered calls.
 
@@ -139,6 +140,7 @@ class BufferedBackend(TrackerBackend, register=False):
         with self._hold():
             self._flush(raise_rejected_start=True)
 
+    @override
     def log_hyperparams(self, params: Mapping[str, ParamValue]) -> None:
         """Send the hyperparameters, or buffer them.
 
@@ -148,6 +150,7 @@ class BufferedBackend(TrackerBackend, register=False):
         """
         self._submit(_Hyperparams(params))
 
+    @override
     def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
         """Send the metrics, or buffer them.
 
@@ -158,6 +161,7 @@ class BufferedBackend(TrackerBackend, register=False):
         """
         self._submit(_Metrics(metrics, step))
 
+    @override
     def log_image(self, name: str, image: npt.NDArray[Any], step: int) -> None:
         r"""Send the image, or buffer it.
 
@@ -169,6 +173,7 @@ class BufferedBackend(TrackerBackend, register=False):
         """
         self._submit(_Image(name, image, step))
 
+    @override
     def log_matrix(
         self,
         matrix: npt.NDArray[Any],
@@ -187,6 +192,7 @@ class BufferedBackend(TrackerBackend, register=False):
         """
         self._submit(_Matrix(matrix, name, step, labels))
 
+    @override
     def log_table(
         self,
         name: str,
@@ -205,6 +211,7 @@ class BufferedBackend(TrackerBackend, register=False):
         """
         self._submit(_Table(name, rows, columns, step))
 
+    @override
     def upload_artifact(self, path: Path, name: str | None, typ: str) -> None:
         """Upload the file, or buffer a link or a copy of it.
 
@@ -217,6 +224,7 @@ class BufferedBackend(TrackerBackend, register=False):
         """
         self._submit(_Artifact(path, name, typ))
 
+    @override
     def close(self, status: RunStatus) -> None:
         """Send the buffer one last time, save the rest, and end the run.
 
@@ -260,6 +268,7 @@ class BufferedBackend(TrackerBackend, register=False):
         if first_error is not None:
             raise first_error
 
+    @override
     def flush(self) -> None:
         """Send the buffered calls, and flush the wrapped backend.
 
@@ -276,6 +285,7 @@ class BufferedBackend(TrackerBackend, register=False):
             if self._started:
                 self.backend.flush()
 
+    @override
     def is_transient(self, error: Exception) -> bool:
         """Ask the wrapped backend whether the error is transient.
 
@@ -290,9 +300,7 @@ class BufferedBackend(TrackerBackend, register=False):
 
     @contextmanager
     def _hold(self) -> Generator[None, None, None]:
-        """Keep the calls and the close of a signal handler until the
-        block ends.
-        """
+        """Hold signal-handler calls and close requests until block ends."""
         self._busy = True
         try:
             yield
@@ -346,7 +354,9 @@ class BufferedBackend(TrackerBackend, register=False):
         """
         if self._waits():
             return
-        if not self._started and not self._start(raise_rejected_start):
+        if not self._started and not self._start(
+            raise_rejected=raise_rejected_start
+        ):
             return
         index = 0
         # a signal handler can add calls during the loop
@@ -374,6 +384,10 @@ class BufferedBackend(TrackerBackend, register=False):
 
         A rejected call is done with, and gives a warning. A call that
         fails with a transient error is not, and its kind waits.
+
+        Returns:
+            Whether the call is complete.
+
         """
         try:
             call.send(self.backend)
@@ -386,7 +400,7 @@ class BufferedBackend(TrackerBackend, register=False):
         self._failed_kinds.clear()
         return True
 
-    def _start(self, raise_rejected: bool) -> bool:
+    def _start(self, *, raise_rejected: bool) -> bool:
         """Start the backend, and return whether it started."""
         try:
             self.backend.start()
@@ -407,8 +421,11 @@ class BufferedBackend(TrackerBackend, register=False):
         return True
 
     def _waits(self, kind: type["_Call"] | None = None) -> bool:
-        """Tell whether all calls, or the calls of ``kind``, wait for
-        their next attempt.
+        """Tell whether calls must wait for their next attempt.
+
+        Returns:
+            Whether all calls, or the calls of ``kind``, must wait.
+
         """
         now = time.monotonic()
         return now < self._retry_at or (
@@ -443,8 +460,9 @@ class BufferedBackend(TrackerBackend, register=False):
         )
 
     def _buffer(self, call: "_Call") -> None:
-        """Add the call to the buffer, and drop the oldest call of its
-        kind when the kind is over its limit.
+        """Add the call to the buffer.
+
+        Drop the oldest call of its kind when its limit is exceeded.
         """
         call = call.copy()
         if isinstance(call, _Artifact):
@@ -469,6 +487,10 @@ class BufferedBackend(TrackerBackend, register=False):
 
         A hard link shares the data with the original, so a rewrite of
         the original in place changes what is sent later.
+
+        Returns:
+            Call with a kept file, or the original if it cannot be kept.
+
         """
         directory = self.unsent_directory / "artifacts" / uuid4().hex
         target = directory / call.path.name
@@ -505,9 +527,7 @@ class BufferedBackend(TrackerBackend, register=False):
 
 
 class _Call(ABC):
-    """A logging call that `BufferedBackend` keeps until the service
-    takes it.
-    """
+    """A logging call kept until the service takes it."""
 
     limit: ClassVar[int]
     """How many calls of this kind the buffer holds."""
@@ -531,8 +551,11 @@ class _Call(ABC):
         return
 
     def copy(self) -> "_Call":
-        """Return the call with its own copy of the arrays and mappings
-        of the caller, nested values included.
+        """Copy arrays and mappings owned by the caller.
+
+        Returns:
+            Call with its own nested arrays and mappings.
+
         """
         return self
 
@@ -545,12 +568,16 @@ class _Hyperparams(_Call):
     label: ClassVar[str] = "hyperparameter"
     params: Mapping[str, ParamValue]
 
+    @override
     def send(self, backend: TrackerBackend) -> None:
         backend.log_hyperparams(self.params)
 
+    @override
     def record(self, directory: Path) -> dict[str, ParamValue]:
+        del directory
         return {"call": "log_hyperparams", "params": dict(self.params)}
 
+    @override
     def copy(self) -> "_Hyperparams":
         return _Hyperparams(deepcopy(dict(self.params)))
 
@@ -564,16 +591,20 @@ class _Metrics(_Call):
     metrics: Mapping[str, float]
     step: int
 
+    @override
     def send(self, backend: TrackerBackend) -> None:
         backend.log_metrics(self.metrics, self.step)
 
+    @override
     def record(self, directory: Path) -> dict[str, ParamValue]:
+        del directory
         return {
             "call": "log_metrics",
             "metrics": dict(self.metrics),
             "step": self.step,
         }
 
+    @override
     def copy(self) -> "_Metrics":
         return _Metrics(dict(self.metrics), self.step)
 
@@ -588,9 +619,11 @@ class _Image(_Call):
     image: npt.NDArray[Any]
     step: int
 
+    @override
     def send(self, backend: TrackerBackend) -> None:
         backend.log_image(self.name, self.image, self.step)
 
+    @override
     def record(self, directory: Path) -> dict[str, ParamValue]:
         path = directory / "images" / f"{uuid4().hex}.npy"
         path.parent.mkdir(exist_ok=True)
@@ -602,6 +635,7 @@ class _Image(_Call):
             "image": str(path),
         }
 
+    @override
     def copy(self) -> "_Image":
         return _Image(self.name, self.image.copy(), self.step)
 
@@ -617,10 +651,13 @@ class _Matrix(_Call):
     step: int
     labels: Sequence[str]
 
+    @override
     def send(self, backend: TrackerBackend) -> None:
         backend.log_matrix(self.matrix, self.name, self.step, self.labels)
 
+    @override
     def record(self, directory: Path) -> dict[str, ParamValue]:
+        del directory
         return {
             "call": "log_matrix",
             "name": self.name,
@@ -629,6 +666,7 @@ class _Matrix(_Call):
             "labels": list(self.labels),
         }
 
+    @override
     def copy(self) -> "_Matrix":
         return _Matrix(
             self.matrix.copy(), self.name, self.step, list(self.labels)
@@ -646,10 +684,13 @@ class _Table(_Call):
     columns: Sequence[str]
     step: int
 
+    @override
     def send(self, backend: TrackerBackend) -> None:
         backend.log_table(self.name, self.rows, self.columns, self.step)
 
+    @override
     def record(self, directory: Path) -> dict[str, ParamValue]:
+        del directory
         return {
             "call": "log_table",
             "name": self.name,
@@ -658,6 +699,7 @@ class _Table(_Call):
             "rows": [list(row) for row in self.rows],
         }
 
+    @override
     def copy(self) -> "_Table":
         return _Table(
             self.name,
@@ -686,10 +728,13 @@ class _Artifact(_Call):
     typ: str
     owned: bool = False
 
+    @override
     def send(self, backend: TrackerBackend) -> None:
         backend.upload_artifact(self.path, self.name, self.typ)
 
+    @override
     def record(self, directory: Path) -> dict[str, ParamValue]:
+        del directory
         return {
             "call": "upload_artifact",
             "path": str(self.path),
@@ -697,6 +742,7 @@ class _Artifact(_Call):
             "typ": self.typ,
         }
 
+    @override
     def discard(self) -> None:
         if self.owned:
             shutil.rmtree(self.path.parent, ignore_errors=True)
@@ -707,9 +753,13 @@ def _to_json(value: object) -> ParamValue:
 
     A mapping becomes a ``dict``, and an array, such as a NumPy scalar,
     becomes a number or a list. Any other value becomes its string.
+
+    Returns:
+        Value that ``json`` can serialize.
+
     """
     if isinstance(value, Mapping):
-        return dict(cast(Mapping[str, ParamValue], value))
+        return dict(cast("Mapping[str, ParamValue]", value))
     if hasattr(value, "__array__"):
         return np.asarray(value).tolist()
     return str(value)

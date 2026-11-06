@@ -20,10 +20,9 @@ from matplotlib.figure import Figure
 def confusion_figure(
     matrix: npt.NDArray[Any], labels: Sequence[str], title: str
 ) -> Figure:
-    """Draw a confusion matrix as a heatmap, with the true classes on
-    the rows.
+    """Draw a confusion matrix as a heatmap.
 
-    The cells hold the counts when the matrix has at most 20 classes.
+    True classes are on the rows. The cells hold the counts when the matrix has at most 20 classes.
     More would not fit.
 
     Args:

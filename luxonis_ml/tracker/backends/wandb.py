@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 
 import numpy as np
 import numpy.typing as npt
-from typing_extensions import Unpack
+from typing_extensions import Unpack, override
 
 from luxonis_ml.guard_extras import guard_missing_extra
 from luxonis_ml.typing import ParamValue
@@ -91,8 +91,9 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
 
     @property
     def wandb_run(self) -> "Run":
-        """The WandB ``Run``, for the calls that the tracker does not
-        make, such as ``watch``.
+        """Return the WandB ``Run``.
+
+        Use it for calls that the tracker does not make, such as ``watch``.
 
         Raises:
             RuntimeError: If the backend is not started.
@@ -102,6 +103,7 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
             raise RuntimeError("The WandB backend is not started.")
         return self._wandb_run
 
+    @override
     def start(self) -> None:
         """Start the WandB run.
 
@@ -123,6 +125,7 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
             name=self.run.run_name,
         )
 
+    @override
     def log_hyperparams(self, params: Mapping[str, ParamValue]) -> None:
         """Add the hyperparameters to the configuration of the run.
 
@@ -138,6 +141,7 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
             dict(params)
         )
 
+    @override
     def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
         """Log the metrics at the next WandB step.
 
@@ -149,8 +153,10 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
             RuntimeError: If the backend has not started.
 
         """
+        del step
         self.wandb_run.log(dict(metrics))
 
+    @override
     def log_image(self, name: str, image: npt.NDArray[Any], step: int) -> None:
         r"""Log the image at the next WandB step.
 
@@ -163,10 +169,12 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
             RuntimeError: If the backend has not started.
 
         """
+        del step
         import wandb
 
         self.wandb_run.log({name: wandb.Image(image, caption=name)})
 
+    @override
     def log_matrix(
         self,
         matrix: npt.NDArray[Any],
@@ -192,6 +200,7 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
             RuntimeError: If the backend has not started.
 
         """
+        del step
         import wandb
 
         table = wandb.Table(
@@ -213,6 +222,7 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
         )
         self.wandb_run.log({name: chart})
 
+    @override
     def log_table(
         self,
         name: str,
@@ -232,6 +242,7 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
             RuntimeError: If the backend has not started.
 
         """
+        del step
         import wandb
 
         table = wandb.Table(
@@ -239,6 +250,7 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
         )
         self.wandb_run.log({name: table})
 
+    @override
     def upload_artifact(self, path: Path, name: str | None, typ: str) -> None:
         """Log the file as a WandB artifact of the run.
 
@@ -261,6 +273,7 @@ class WandbBackend(TrackerBackend, register_name="wandb"):
         artifact.add_file(local_path=str(path))
         self.wandb_run.log_artifact(artifact)
 
+    @override
     def close(self, status: RunStatus) -> None:
         """Finish the WandB run.
 

@@ -290,7 +290,7 @@ class TrackerBackend(
             typ: Kind of the artifact, such as ``"weights"``.
 
         """
-        return
+        del path, name, typ
 
     def flush(self) -> None:
         """Write the pending data now, and keep the run open.
@@ -345,8 +345,13 @@ class TrackerBackend(
 
     @staticmethod
     def _is_outage_status(status: int) -> bool:
-        """Tell whether an HTTP status means that the server cannot take
-        the call now: a 5xx status, or 429 for too many requests.
+        """Tell whether an HTTP status indicates an outage.
+
+        Outage statuses are 5xx or 429 for too many requests.
+
+        Returns:
+            Whether the server cannot take the call now.
+
         """
         return status >= 500 or status == 429
 

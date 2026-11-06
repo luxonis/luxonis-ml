@@ -29,8 +29,11 @@ class RunSpy:
 
 @pytest.fixture
 def init_kwargs(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
-    """Run WandB in disabled mode, which needs no account, and record
-    the arguments of `wandb.init`.
+    """Record calls to a disabled WandB run.
+
+    Returns:
+        The arguments recorded for each call to `wandb.init`.
+
     """
     monkeypatch.setenv("WANDB_MODE", "disabled")
     calls: list[dict[str, Any]] = []
@@ -48,6 +51,7 @@ def init_kwargs(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
 def backend(
     run: RunContext, init_kwargs: list[dict[str, Any]]
 ) -> Iterator[WandbBackend]:
+    del init_kwargs
     backend = WandbBackend(run, entity="team")
     backend.start()
     yield backend
@@ -63,6 +67,7 @@ def spy(backend: WandbBackend, monkeypatch: pytest.MonkeyPatch) -> RunSpy:
 def test_start_opens_a_run_in_the_project(
     backend: WandbBackend, run: RunContext, init_kwargs: list[dict[str, Any]]
 ):
+    del backend
     assert init_kwargs == [
         {
             "project": "project",

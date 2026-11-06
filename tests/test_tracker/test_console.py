@@ -41,9 +41,7 @@ def lines(text: str) -> list[str]:
 
 
 def log_val_epoch(backend: ConsoleBackend) -> None:
-    """Log what Lightning sends at the end of a validation epoch: the
-    matrices first, then the scalars, the losses children first.
-    """
+    """Log values from the end of a Lightning validation epoch."""
     matrix = np.array([[4, 0], [1, 3]])
     backend.log_matrix(matrix, "val/head/cm", 3, ["cat", "dog"])
     backend.log_metrics(
@@ -75,6 +73,7 @@ def terminal(monkeypatch: pytest.MonkeyPatch) -> Console:
 @pytest.fixture
 def records(terminal: Console) -> Any:
     """Collect the log records of the test."""
+    del terminal
     collected: list[Any] = []
     sink = logger.add(lambda m: collected.append(m.record), format="{message}")
     yield collected

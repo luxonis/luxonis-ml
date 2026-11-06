@@ -39,6 +39,12 @@ def _mlflow_server_timeout() -> float:
     import and alembic creating the schema of a fresh SQLite database,
     once per ``xdist`` worker in parallel. The environment variable lets
     a slow runner raise it without a code change.
+
+    Returns:
+        The value of ``LUXONISML_TEST_MLFLOW_SERVER_TIMEOUT`` in
+        seconds, or ``DEFAULT_SERVER_TIMEOUT`` if the variable is not
+        set.
+
     """
     return float(os.environ.get(SERVER_TIMEOUT_ENV, DEFAULT_SERVER_TIMEOUT))
 
@@ -49,8 +55,8 @@ def _wait_for_mlflow_server(
     timeout = _mlflow_server_timeout()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if process.poll() is not None:
-            raise RuntimeError(log_path.read_text())
+        if process.poll() is not None:  # pragma: no cover
+            raise RuntimeError(log_path.read_text(encoding="utf-8"))
         try:
             with urlopen(  # noqa: S310
                 f"{tracking_uri}/health", timeout=0.5
@@ -63,7 +69,7 @@ def _wait_for_mlflow_server(
     raise TimeoutError(
         f"MLflow server did not become healthy within {timeout}s. "
         f"Set `{SERVER_TIMEOUT_ENV}` to wait longer.\n"
-        f"{log_path.read_text()}"
+        f"{log_path.read_text(encoding='utf-8')}"
     )
 
 
@@ -124,7 +130,7 @@ def configure_mlflow_tracking_uri(mlflow_tracking_uri: str) -> Iterator[None]:
 
 
 @pytest.fixture
-def mlflow_run(mlflow_tracking_uri: str, tempdir: Path, randint: int):
+def mlflow_run(mlflow_tracking_uri: str, randint: int):
     experiment_id = mlflow.create_experiment(f"fs-test-{randint}")
     client = mlflow.MlflowClient(tracking_uri=mlflow_tracking_uri)
     run = client.create_run(experiment_id)
@@ -140,6 +146,11 @@ def _listing(fs: LuxonisFileSystem, remote_dir: str) -> set[str]:
     The ``fsspec`` backend yields native paths, MLflow always yields
     POSIX ones, so listings from the two are only comparable once
     normalized.
+
+    Returns:
+        The path of each file under ``remote_dir`` and its
+        subdirectories, with ``/`` separators.
+
     """
     return {
         Path(path).as_posix()
@@ -219,7 +230,7 @@ def test_mlflow_server_timeout_reports_how_long_it_waited(
     with pytest.raises(TimeoutError, match=r"within 0\.01s") as error:
         _wait_for_mlflow_server(
             f"http://127.0.0.1:{_get_free_port()}",
-            cast(subprocess.Popen, _StillStartingProcess()),
+            cast("subprocess.Popen", _StillStartingProcess()),
             log_path,
         )
 
@@ -778,7 +789,7 @@ def test_mlflow_exists_only_swallows_missing_resources(
     class BrokenClient:
         """Client whose every call fails the way an outage would."""
 
-        def __init__(self, error: Exception):
+        def __init__(self, error: Exception) -> None:
             self.error = error
 
         def get_run(self, *_args, **_kwargs) -> NoReturn:

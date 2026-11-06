@@ -1,9 +1,11 @@
+"""Logging setup, a deprecation decorator, and a log-once helper."""
+
 import inspect
 import sys
 import warnings
 from collections.abc import Callable
 from functools import wraps
-from typing import Any, Literal
+from typing import Any, Literal, TextIO
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -94,18 +96,22 @@ def setup_logging(
             rotation=None,
         )
 
-    def _custom_warning_handler(
+    # `warnings.showwarning` passes every argument by position.
+    def _custom_warning_handler(  # noqa: PLR0917
         message: str,
         category: type[Warning],
         filename: str,
         lineno: int,
-        file: str | None = None,
+        file: TextIO | None = None,
         line: str | None = None,
     ) -> None:
         text = warnings.formatwarning(
             message, category, filename, lineno, line
         )
-        logger.warning(text)
+        if file is not None:
+            file.write(text)
+        else:
+            logger.warning(text)
 
     warnings.showwarning = _custom_warning_handler
 
@@ -169,31 +175,19 @@ def deprecated(
         def wrapper(*f_args, **f_kwargs) -> Any:
             fname = func.__name__
             if altogether:
-                msg = f"'{fname}' is deprecated and will be removed in future versions."
-                if additional_message:
-                    msg += f" {additional_message}"
-                warnings.warn(msg, DeprecationWarning, stacklevel=2)
+                _warn_deprecated_function(fname, additional_message)
 
-            if args:
-                pos_arg_names = list(sig.parameters.keys())[: len(f_args)]
-
-                for arg_name in pos_arg_names:
-                    if arg_name in args:
-                        _warn_deprecated(
-                            arg_name, fname, suggest, additional_message
-                        )
-
-                for arg_name in f_kwargs:
-                    if arg_name in args:
-                        _warn_deprecated(
-                            arg_name, fname, suggest, additional_message
-                        )
+            for arg_name in _deprecated_args_used(sig, args, f_args, f_kwargs):
+                _warn_deprecated(arg_name, fname, suggest, additional_message)
 
             return func(*f_args, **f_kwargs)
 
         return wrapper
 
     return decorator
+
+
+_logged_messages: set[str] = set()
 
 
 def log_once(logger: Callable[[str], None], message: str) -> None:
@@ -204,14 +198,32 @@ def log_once(logger: Callable[[str], None], message: str) -> None:
         message: The message to log.
 
     """
-    _cache: set[str]
-
-    if not hasattr(log_once, "_cache"):
-        log_once._cache = set()
-
-    if message not in log_once._cache:
+    if message not in _logged_messages:
         logger(message)
-        log_once._cache.add(message)
+        _logged_messages.add(message)
+
+
+def _deprecated_args_used(
+    sig: inspect.Signature,
+    deprecated_args: tuple[str, ...],
+    f_args: tuple,
+    f_kwargs: dict[str, Any],
+) -> list[str]:
+    """List the deprecated parameters that a call passes, positional first."""
+    pos_arg_names = list(sig.parameters.keys())[: len(f_args)]
+    return [
+        name for name in (*pos_arg_names, *f_kwargs) if name in deprecated_args
+    ]
+
+
+def _warn_deprecated_function(
+    fname: str, additional_message: str | None
+) -> None:
+    """Warn that the whole function ``fname`` is deprecated."""
+    msg = f"'{fname}' is deprecated and will be removed in future versions."
+    if additional_message:
+        msg += f" {additional_message}"
+    warnings.warn(msg, DeprecationWarning, stacklevel=3)
 
 
 def _warn_deprecated(

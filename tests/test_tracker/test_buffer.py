@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 import pytest
+from typing_extensions import override
 
 import luxonis_ml.tracker.buffer as buffer_module
 from luxonis_ml.tracker import BufferedBackend, RunContext
@@ -31,6 +32,7 @@ def inner(run: RunContext) -> FakeBackend:
 
 @pytest.fixture
 def buffered(inner: FakeBackend, clock: FakeClock) -> BufferedBackend:
+    del clock
     return BufferedBackend(inner, "fake", retry_interval=RETRY_INTERVAL)
 
 
@@ -148,6 +150,7 @@ class FlakyBackend(FakeBackend, register=False):
         super().__init__(run)
         self.errors: list[BaseException] = []
 
+    @override
     def _raise(self) -> None:
         if self.errors:
             raise self.errors.pop(0)
@@ -175,13 +178,13 @@ def test_the_replay_stops_at_an_outage_and_skips_a_rejected_call(
 
 
 class BrokenImageBackend(FakeBackend, register=False):
-    """Fail each image, as a server with a broken artifact store does,
-    and take the other calls.
-    """
+    """Reject images while accepting other calls."""
 
     image_attempts = 0
 
+    @override
     def log_image(self, name: str, image: npt.NDArray[Any], step: int) -> None:
+        del name, image, step
         self.image_attempts += 1
         raise ConnectionError("artifact store")
 
@@ -308,7 +311,7 @@ def test_an_artifact_is_copied_where_a_link_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    def refuse(self: Path, target: Path) -> None:
+    def refuse(_self: Path, _target: Path) -> None:
         raise OSError("cross-device link")
 
     monkeypatch.setattr(Path, "hardlink_to", refuse)
@@ -327,6 +330,7 @@ def test_an_artifact_is_copied_where_a_link_fails(
 
 
 def test_an_artifact_that_cannot_be_kept_keeps_its_path(
+    *,
     buffered: BufferedBackend,
     inner: FakeBackend,
     clock: FakeClock,
@@ -435,11 +439,12 @@ def test_close_saves_what_never_got_through(
         "rows": [["map", 0.5]],
     }
     assert records[5]["name"] == "final.txt"
-    assert Path(records[5]["path"]).read_text() == "weights"
+    assert Path(records[5]["path"]).read_text(encoding="utf-8") == "weights"
     assert inner.status is None
 
 
 def test_a_second_save_appends(run: RunContext, clock: FakeClock):
+    del clock
     for step in range(2):
         inner = FakeBackend(run)
         inner.error = ConnectionError()
@@ -457,6 +462,7 @@ def test_a_second_save_appends(run: RunContext, clock: FakeClock):
 def test_close_ends_the_run_when_the_save_fails(
     run: RunContext, clock: FakeClock
 ):
+    del clock
     inner = FlakyBackend(run)
     buffered = BufferedBackend(inner, "fake")
     buffered.start()
@@ -485,9 +491,8 @@ def test_a_failed_close_does_not_hide_the_first_error(
     replay_error: BaseException,
     expected: type[BaseException],
 ):
-    """A save that fails, or an interrupt, says more than the close of
-    a service that is down.
-    """
+    """Keep the original save failure when backend close also fails."""
+    del clock
     inner = FlakyBackend(run)
     buffered = BufferedBackend(inner, "fake")
     buffered.start()
@@ -505,9 +510,8 @@ def test_a_failed_close_does_not_hide_the_first_error(
 def test_an_interrupted_close_still_saves_the_calls(
     run: RunContext, clock: FakeClock
 ):
-    """Ctrl-C during the last flush must not lose the buffer, nor the
-    call that was being sent.
-    """
+    """Keep buffered calls when the last flush is interrupted."""
+    del clock
     inner = FlakyBackend(run)
     buffered = BufferedBackend(inner, "fake")
     buffered.start()
@@ -530,6 +534,7 @@ def test_an_interrupted_close_still_saves_the_calls(
 def test_an_interrupted_call_stays_in_the_buffer(
     run: RunContext, clock: FakeClock
 ):
+    del clock
     inner = FlakyBackend(run)
     buffered = BufferedBackend(inner, "fake")
     buffered.start()
@@ -580,9 +585,7 @@ def test_a_start_rejected_after_an_outage_keeps_the_calls(
     clock: FakeClock,
     warnings_log: list[str],
 ):
-    """Only the first start may raise. Later, the training must go on,
-    and the calls must reach the disk at close.
-    """
+    """Keep training and calls after a later start is rejected."""
     inner.error = ConnectionError()
     buffered.start()
     log(buffered, 0)
@@ -602,12 +605,11 @@ def test_a_start_rejected_after_an_outage_keeps_the_calls(
 
 
 class ReentrantBackend(FakeBackend, register=False):
-    """Log another call while a call is being sent, as a signal handler
-    can.
-    """
+    """Log another call while one is sent, as a signal handler can."""
 
     wrapper: BufferedBackend
 
+    @override
     def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
         if step == 0:
             log(self.wrapper, 99)
@@ -633,12 +635,11 @@ def test_a_call_made_during_a_replay_waits_its_turn(
 
 
 class ClosingBackend(FakeBackend, register=False):
-    """Log a call and close the run while a call is being sent, as the
-    interrupt handler of a training can.
-    """
+    """Log and close the run while another call is sent."""
 
     wrapper: BufferedBackend
 
+    @override
     def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
         if step == 0:
             log(self.wrapper, 99)
@@ -675,6 +676,7 @@ def test_a_waiting_close_that_fails_does_not_reach_the_call(
     buffered.start()
 
     def refuse(status: str) -> None:
+        del status
         raise ConnectionError("down")
 
     monkeypatch.setattr(inner, "close", refuse)
@@ -686,12 +688,14 @@ def test_a_waiting_close_that_fails_does_not_reach_the_call(
 
 
 class StartingBackend(FakeBackend, register=False):
-    """Log a call while the backend starts, as a signal handler can.
+    """Log while the backend starts, as a signal handler can.
+
     The tracker starts the backend again for that call.
     """
 
     wrapper: BufferedBackend
 
+    @override
     def start(self) -> None:
         self.wrapper.start()
         log(self.wrapper, 99)
@@ -787,12 +791,14 @@ class FlushingBackend(FakeBackend, register=False):
 
     wrapper: BufferedBackend
 
+    @override
     def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
         self.wrapper.flush()
         super().log_metrics(metrics, step)
 
 
 def test_a_flush_during_a_send_waits(run: RunContext, clock: FakeClock):
+    del clock
     inner = FlushingBackend(run)
     buffered = BufferedBackend(inner, "fake")
     inner.wrapper = buffered

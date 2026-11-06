@@ -9,6 +9,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 import requests
+from typing_extensions import override
 
 import luxonis_ml.tracker as tracker_package
 import luxonis_ml.tracker.tracker as tracker_module
@@ -34,6 +35,7 @@ from .conftest import (
 class BatchingBackend(FakeBackend, register_name="batching_fake"):
     """Take several images in one call."""
 
+    @override
     def log_images(
         self, images: Mapping[str, npt.NDArray[Any]], step: int
     ) -> None:
@@ -290,10 +292,7 @@ def test_other_ranks_join_the_exported_run(
 def test_other_ranks_wait_for_a_new_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """Without the exported name, as with ``torchrun``, a worker must
-    not take a run of an earlier training for the one that rank 0 is
-    about to create.
-    """
+    """Wait for a new run when the worker has no exported run name."""
     (tmp_path / "7-earlier").mkdir()
     clock = FakeClock(on_sleep=(tmp_path / "2-new").mkdir)
     monkeypatch.setattr(tracker_module, "time", clock)
@@ -611,7 +610,7 @@ def test_an_interrupted_close_still_closes_the_other_backends(
     tracker = make_tracker(tmp_path, fake=True, other_fake=True)
     tracker.log_metric("loss", 0.5, 1)
 
-    def interrupt(status: str) -> None:
+    def interrupt(_status: str) -> None:
         raise KeyboardInterrupt
 
     monkeypatch.setattr(fake(tracker), "close", interrupt)
@@ -706,7 +705,7 @@ def test_a_close_during_a_call_stops_the_call(
     tracker = make_tracker(tmp_path, fake=True, other_fake=True)
     tracker.start()
     monkeypatch.setattr(
-        fake(tracker), "log_metrics", lambda metrics, step: tracker.close()
+        fake(tracker), "log_metrics", lambda _metrics, _step: tracker.close()
     )
 
     tracker.log_metric("loss", 0.5, 1)
@@ -769,9 +768,7 @@ def test_the_context_manager_marks_a_failed_run(tmp_path: Path):
 
 
 class FakeAtexit:
-    """Stand in for the `atexit` module, which runs the hooks last
-    first.
-    """
+    """Stand in for `atexit` and run hooks last in, first out."""
 
     def __init__(self) -> None:
         self.hooks: list[Callable[[], object]] = []
@@ -832,9 +829,7 @@ def test_an_error_from_before_the_run_does_not_fail_it_at_exit(
 def test_the_exit_hook_runs_before_the_hooks_of_a_flush(
     tmp_path: Path, exit_hooks: FakeAtexit, monkeypatch: pytest.MonkeyPatch
 ):
-    """The TensorBoard flush opens a writer, which registers a hook that
-    closes the writer at exit.
-    """
+    """Run tracker exit hook before hook registered by its flush."""
     tracker = make_tracker(tmp_path)
     tracker.log_metric("loss", 0.5, 1)
     backend = fake(tracker)
@@ -864,9 +859,7 @@ def test_a_closed_or_idle_run_leaves_no_exit_hook(
 
 
 class FakeEntryPoint:
-    """Stand in for an entry point. `load` runs ``load_plugin``, as the
-    import of the plugin module would.
-    """
+    """Stand in for an entry point that loads a plugin."""
 
     def __init__(self, name: str, load_plugin: Callable[[], object]) -> None:
         self.name = name
@@ -928,7 +921,7 @@ def test_a_subclass_that_opts_out_is_not_registered():
     class Helper(FakeBackend, register=False):
         pass
 
-    assert "Helper" not in TRACKER_BACKENDS
+    assert Helper.__name__ not in TRACKER_BACKENDS
     assert "BufferedBackend" not in TRACKER_BACKENDS
 
 
@@ -985,7 +978,7 @@ def http_error(status: int) -> requests.HTTPError:
     ],
 )
 def test_the_default_retries_only_outages(
-    tmp_path: Path, error: Exception, transient: bool
+    tmp_path: Path, error: Exception, *, transient: bool
 ):
     backend = TensorBoardBackend(RunContext("0-test", tmp_path))
 

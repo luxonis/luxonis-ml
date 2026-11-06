@@ -139,12 +139,12 @@ def test_mosaic4(
     config = [
         {
             "name": "Mosaic4",
-            "params": {"p": 1.0, "out_width": 640, "out_height": 640},
+            "params": {"p": 1.0, "width": 640, "height": 640},
         }
     ]
     source_names = list(images_dict.keys())
     augmentations = AlbumentationsEngine(
-        256, 256, targets, n_classes, source_names, config
+        256, 256, targets, n_classes, source_names, config=config
     )
     augmentations.apply([(images_dict, deepcopy(labels)) for _ in range(4)])
 
@@ -158,7 +158,7 @@ def test_mixup(
     config = [{"name": "MixUp", "params": {"p": 1.0}}]
     source_names = list(images_dict.keys())
     augmentations = AlbumentationsEngine(
-        256, 256, targets, n_classes, source_names, config
+        256, 256, targets, n_classes, source_names, config=config
     )
     augmentations.apply([(images_dict, deepcopy(labels)) for _ in range(2)])
 
@@ -172,7 +172,7 @@ def test_cutmix(
     config = [{"name": "CutMix", "params": {"p": 1.0}}]
     source_names = list(images_dict.keys())
     augmentations = AlbumentationsEngine(
-        256, 256, targets, n_classes, source_names, config
+        256, 256, targets, n_classes, source_names, config=config
     )
     augmentations.apply([(images_dict, deepcopy(labels)) for _ in range(2)])
 
@@ -206,7 +206,7 @@ def test_at_least_one_bbox_random_crop() -> None:
         }
     ]
     engine = AlbumentationsEngine(
-        256, 256, targets, n_classes, ["image"], config
+        256, 256, targets, n_classes, ["image"], config=config
     )
     for _ in range(10):
         _, out_labels = engine.apply([(images_dict, deepcopy(labels))])
@@ -229,14 +229,14 @@ def test_batched_p_0(
     config = [
         {
             "name": "Mosaic4",
-            "params": {"p": 0, "out_width": 640, "out_height": 640},
+            "params": {"p": 0, "width": 640, "height": 640},
         },
         {"name": "MixUp", "params": {"p": 0}},
         {"name": "CutMix", "params": {"p": 0}},
     ]
     source_names = list(images_dict.keys())
     augmentations = AlbumentationsEngine(
-        256, 256, targets, n_classes, source_names, config
+        256, 256, targets, n_classes, source_names, config=config
     )
     # 16 samples so batch-size-2 stacking across all three batch transforms
     # exercises every pairing even when p=0 keeps each transform inactive.
@@ -281,7 +281,7 @@ def test_skipped_mosaic_before_mixup_reindexes_instance_masks(
     config = [
         {
             "name": "Mosaic4",
-            "params": {"p": 0, "out_width": 640, "out_height": 640},
+            "params": {"p": 0, "width": 640, "height": 640},
         },
         {"name": "MixUp", "params": {"p": mixup_probability}},
     ]
@@ -291,7 +291,7 @@ def test_skipped_mosaic_before_mixup_reindexes_instance_masks(
         targets,
         dict.fromkeys(targets, 1),
         ["image"],
-        config,
+        config=config,
     )
 
     other_instance_mask = np.zeros((2, 320, 320), dtype=np.uint8)
@@ -340,6 +340,13 @@ def test_mosaic_drops_boxes_keeps_masks_aligned(
         Reusing ids across batch members would let the checks below pass
         under a permutation mapping instance *i* of one sample onto
         instance *i* of another - exactly the mispairing they look for.
+
+        Returns:
+            Labels of four instances, one per corner, each with a box,
+            two keypoints and a mask channel that holds its id inside
+            the box. ``task/array`` holds the ids, and
+            ``task/metadata/id`` the ids plus 100.
+
         """
         instance_mask = np.zeros((4, 320, 320), dtype=np.uint8)
         boxes_in = []
@@ -383,7 +390,7 @@ def test_mosaic_drops_boxes_keeps_masks_aligned(
     config = [
         {
             "name": "Mosaic4",
-            "params": {"p": 1.0, "out_width": 640, "out_height": 640},
+            "params": {"p": 1.0, "width": 640, "height": 640},
         }
     ]
     batch_size = 4
@@ -397,7 +404,7 @@ def test_mosaic_drops_boxes_keeps_masks_aligned(
         targets,
         dict.fromkeys(targets, 1),
         ["image"],
-        config,
+        config=config,
         min_bbox_visibility=0.1,
         seed=42,
     )
@@ -473,7 +480,7 @@ def test_batch_transforms_keep_nested_task_groups_independent() -> None:
         targets,
         dict.fromkeys(targets, 1),
         ["image"],
-        [
+        config=[
             {
                 "name": "Mosaic4",
                 "params": {"p": 0.0, "height": 64, "width": 64},
@@ -528,7 +535,7 @@ def test_spatial_transform_emptying_the_boxes_keeps_the_task() -> None:
         targets,
         dict.fromkeys(targets, 2),
         ["image"],
-        [
+        config=[
             {
                 "name": "Crop",
                 "params": {
@@ -637,24 +644,23 @@ def test_standalone_labels_survive_bboxes_from_another_task_group() -> None:
         targets,
         dict.fromkeys(targets, 1),
         ["image"],
-        [{"name": "MixUp", "params": {"p": 1.0}}],
+        config=[{"name": "MixUp", "params": {"p": 1.0}}],
     )
     image = np.zeros((64, 64, 3), dtype=np.uint8)
-    batch = []
-    for i in range(2):
-        batch.append(
-            (
-                {"image": image},
-                {
-                    "detection/boundingbox": np.array(
-                        [[0.0, 0.1 + i * 0.5, 0.1, 0.2, 0.2]]
-                    ),
-                    "pose/keypoints": np.array([[0.2 + i * 0.5, 0.2, 2.0]]),
-                    "pose/array": np.array([[i, i + 1]]),
-                    "pose/metadata/id": np.array([10 + i]),
-                },
-            )
+    batch = [
+        (
+            {"image": image},
+            {
+                "detection/boundingbox": np.array(
+                    [[0.0, 0.1 + i * 0.5, 0.1, 0.2, 0.2]]
+                ),
+                "pose/keypoints": np.array([[0.2 + i * 0.5, 0.2, 2.0]]),
+                "pose/array": np.array([[i, i + 1]]),
+                "pose/metadata/id": np.array([10 + i]),
+            },
         )
+        for i in range(2)
+    ]
 
     _, output = augmentations.apply(batch)
 
@@ -695,7 +701,7 @@ def test_compaction_handles_all_filtered_bboxes() -> None:
         targets,
         dict.fromkeys(targets, 1),
         ["image"],
-        [
+        config=[
             {
                 "name": "Mosaic4",
                 "params": {"p": 1.0, "height": 64, "width": 64},
@@ -743,7 +749,7 @@ def test_instance_masks_without_bboxes_in_their_task_group() -> None:
         "seg/instance_segmentation": instance_mask,
     }
     augmentations = AlbumentationsEngine(
-        64, 64, targets, dict.fromkeys(targets, 1), ["image"], []
+        64, 64, targets, dict.fromkeys(targets, 1), ["image"], config=[]
     )
 
     _, output = augmentations.apply(
@@ -835,7 +841,7 @@ def test_unmatched_label_counts_are_left_as_is() -> None:
         targets,
         dict.fromkeys(targets, 1),
         ["image"],
-        [{"name": "MixUp", "params": {"p": 1.0}}],
+        config=[{"name": "MixUp", "params": {"p": 1.0}}],
     )
     labels: Labels = {
         "task/boundingbox": np.array([[0.0, 0.1, 0.1, 0.2, 0.2]]),
@@ -884,7 +890,7 @@ def test_partially_annotated_batches_stay_aligned() -> None:
         targets,
         dict.fromkeys(targets, 1),
         ["image"],
-        [{"name": "MixUp", "params": {"p": 1.0}}],
+        config=[{"name": "MixUp", "params": {"p": 1.0}}],
         seed=0,
     )
     image = np.zeros((64, 64, 3), dtype=np.uint8)
@@ -931,7 +937,7 @@ def test_tasks_only_a_discarded_sample_had_are_not_reported() -> None:
         targets,
         dict.fromkeys(targets, 1),
         ["image"],
-        [{"name": "MixUp", "params": {"p": 0.0}}],
+        config=[{"name": "MixUp", "params": {"p": 0.0}}],
     )
     image = np.zeros((16, 16, 3), dtype=np.uint8)
 
@@ -959,7 +965,7 @@ def test_unnamed_tasks_of_different_types_do_not_share_a_group() -> None:
     """
     targets = {"boundingbox": "boundingbox", "keypoints": "keypoints"}
     augmentations = AlbumentationsEngine(
-        32, 32, targets, dict.fromkeys(targets, 1), ["image"], []
+        32, 32, targets, dict.fromkeys(targets, 1), ["image"], config=[]
     )
     labels: Labels = {
         "boundingbox": np.array([[0.0, 0.1, 0.1, 0.2, 0.2]]),
@@ -991,5 +997,5 @@ def test_multiple_bbox_targets_in_one_task_group_are_rejected() -> None:
             targets,
             dict.fromkeys(targets, 1),
             ["image"],
-            [],
+            config=[],
         )

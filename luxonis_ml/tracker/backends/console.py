@@ -24,7 +24,7 @@ from rich.console import Console, RenderableType
 from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
-from typing_extensions import Unpack
+from typing_extensions import Unpack, override
 
 from luxonis_ml.typing import ParamValue
 
@@ -110,21 +110,24 @@ class ConsoleBackend(TrackerBackend, register_name="console"):
         self.prefixes = list(options.get("prefixes") or [""])
         self._matrices: defaultdict[str, list[Table]] = defaultdict(list)
 
+    @override
     def start(self) -> None:
         """Do nothing, because the terminal needs no connection."""
 
+    @override
     def log_hyperparams(self, params: Mapping[str, ParamValue]) -> None:
-        """Do nothing, because the configuration of a run is too long to
-        print.
+        """Ignore hyperparameters because they are too long to print.
 
         Args:
             params: Ignored.
 
         """
 
+    @override
     def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
-        """Print a block for each prefix, with the matrices that wait
-        for it.
+        """Print one block for each prefix.
+
+        Include the matrices that wait for the prefix.
 
         Args:
             metrics: The metric values, keyed by metric name.
@@ -154,6 +157,7 @@ class ConsoleBackend(TrackerBackend, register_name="console"):
                 ]
             )
 
+    @override
     def log_image(self, name: str, image: npt.NDArray[Any], step: int) -> None:
         """Do nothing, because a terminal shows no images.
 
@@ -164,6 +168,7 @@ class ConsoleBackend(TrackerBackend, register_name="console"):
 
         """
 
+    @override
     def log_matrix(
         self,
         matrix: npt.NDArray[Any],
@@ -186,6 +191,7 @@ class ConsoleBackend(TrackerBackend, register_name="console"):
             labels: The :math:`N` class names.
 
         """
+        del step
         for prefix in self.prefixes:
             if name.startswith(prefix):
                 table = _matrix_table(
@@ -194,6 +200,7 @@ class ConsoleBackend(TrackerBackend, register_name="console"):
                 self._matrices[prefix].append(table)
                 return
 
+    @override
     def log_table(
         self,
         name: str,
@@ -215,6 +222,7 @@ class ConsoleBackend(TrackerBackend, register_name="console"):
             table.add_row(*(Text(_format(cell)) for cell in row))
         self._print([table])
 
+    @override
     def flush(self) -> None:
         """Print the matrices that wait for a block."""
         matrices = [
@@ -224,6 +232,7 @@ class ConsoleBackend(TrackerBackend, register_name="console"):
         if matrices:
             self._print(matrices)
 
+    @override
     def close(self, status: RunStatus) -> None:
         """Print the matrices that wait for a block.
 
@@ -231,12 +240,11 @@ class ConsoleBackend(TrackerBackend, register_name="console"):
             status: Ignored.
 
         """
+        del status
         self.flush()
 
     def _print(self, renderables: Sequence[RenderableType]) -> None:
-        """Print to the terminal and to the log file, as the ``rich``
-        option says.
-        """
+        """Print to the terminal and log file according to ``rich``."""
         console = get_console()
         buffer = StringIO()
         plain = Console(
@@ -255,8 +263,13 @@ class ConsoleBackend(TrackerBackend, register_name="console"):
 
 
 def _format(value: TableCell) -> str:
-    """Write a float with five decimals, or in the ``e`` notation when
-    the decimals would hide it.
+    """Format a table cell.
+
+    A float uses five decimals, or ``e`` notation when decimals would
+    hide it.
+
+    Returns:
+        Formatted cell.
 
     Example:
         >>> [_format(v) for v in (0.412340164, 2e-06, 0.0, 812, "car")]
@@ -271,8 +284,13 @@ def _format(value: TableCell) -> str:
 
 
 def _table(title: str | None, columns: Sequence[str]) -> Table:
-    """Create a table with the columns, the first of them magenta and
-    the others right-aligned.
+    """Create a table with styled columns.
+
+    The first column is magenta and the others are right-aligned.
+
+    Returns:
+        Configured table.
+
     """
     table = Table(
         title=None if title is None else Text(title),
@@ -291,6 +309,9 @@ def _table(title: str | None, columns: Sequence[str]) -> Table:
 
 def _tree_order(keys: Sequence[str]) -> list[str]:
     """Put each key after its parent, in the order of first sight.
+
+    Returns:
+        Keys in tree order.
 
     Example:
         >>> _tree_order(["loss/head/bce", "metric/head/map", "loss"])
@@ -314,8 +335,11 @@ def _tree_order(keys: Sequence[str]) -> list[str]:
 
 
 def _tree_table(values: Mapping[str, float]) -> Table:
-    """Show the values in one table, with each level of their keys
-    indented by two spaces.
+    """Show values with key levels indented by two spaces.
+
+    Returns:
+        Table of nested names and values.
+
     """
     table = _table(None, ["Name", "Value"])
     shown: set[str] = set()
@@ -338,8 +362,13 @@ def _tree_table(values: Mapping[str, float]) -> Table:
 def _matrix_table(
     title: str, matrix: npt.NDArray[Any], labels: Sequence[str]
 ) -> Table:
-    """Show a confusion matrix, with the diagonal green and the zeros
-    grey.
+    """Show a confusion matrix with styled cells.
+
+    The diagonal is green and zeros are grey.
+
+    Returns:
+        Confusion-matrix table.
+
     """
     table = _table(title, ["true \\ pred", *labels])
     table.title_style = "italic"

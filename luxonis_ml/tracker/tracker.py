@@ -115,6 +115,7 @@ class LuxonisTracker:
 
     def __init__(
         self,
+        *,
         project_name: str | None = None,
         project_id: str | None = None,
         run_name: str | None = None,
@@ -127,7 +128,6 @@ class LuxonisTracker:
         wandb_entity: str | None = None,
         mlflow_tracking_uri: str | None = None,
         rank: int = 0,
-        *,
         tensorboard: bool | None = None,
         wandb: WandbOptions | bool | None = None,
         mlflow: MLflowOptions | bool | None = None,
@@ -627,8 +627,7 @@ class LuxonisTracker:
         self._send(lambda backend: backend.upload_artifact(file, name, typ))
 
     def flush(self) -> None:
-        """Write the pending data of each started backend, and keep the
-        run open.
+        """Write pending data and keep the run open.
 
         For example, TensorBoard writes its events to disk. A backend
         that fails to flush gives a warning, and the others still flush.
@@ -680,10 +679,8 @@ class LuxonisTracker:
         )
         interrupt: BaseException | None = None
         for name, backend in self._started.items():
-            try:
-                self._close_backend(name, backend)
-            except BaseException as error:
-                interrupt = interrupt or error
+            error = self._close_backend_and_catch_interrupt(name, backend)
+            interrupt = interrupt or error
         if interrupt is not None:
             raise interrupt
 
@@ -694,11 +691,25 @@ class LuxonisTracker:
         except Exception as error:
             logger.warning(f"Could not close the {name} run: {error}")
 
-    def _send(self, call: Callable[[TrackerBackend], object]) -> None:
-        """Make a logging call on each started backend, and start the
-        backends first if needed.
+    def _close_backend_and_catch_interrupt(
+        self, name: str, backend: TrackerBackend
+    ) -> BaseException | None:
+        """End one backend, and catch an interrupt.
 
-        A backend that fails gives a warning, and the other backends
+        Returns:
+            The interrupt, or ``None`` if the backend closed without one.
+
+        """
+        try:
+            self._close_backend(name, backend)
+        except BaseException as error:
+            return error
+        return None
+
+    def _send(self, call: Callable[[TrackerBackend], object]) -> None:
+        """Send a logging call to each backend.
+
+        Start backends first if needed. A backend that fails gives a warning, and the other backends
         still get the call. A signal handler can close the run during a
         call. The backends after that point then do not get the call.
         """
@@ -800,11 +811,11 @@ def _legacy_backends(
 def _warn_deprecated(
     configs: Mapping[str, Mapping[str, object]], names: set[str]
 ) -> None:
-    """Warn about the deprecated arguments, and name the backend
-    keywords that replace them.
+    """Warn about deprecated tracker arguments.
 
-    The replacement holds each backend of ``names`` that stays on, with
-    its final options. An option of a backend that stays off has no
+    The warning names the backend keywords that replace them. The
+    replacement holds each backend of ``names`` that stays on, with its
+    final options. An option of a backend that stays off has no
     effect, so the replacement leaves it out.
     """
     replacement = ", ".join(
@@ -870,6 +881,9 @@ def _join_run(save_directory: Path) -> str:
     Otherwise, as with ``torchrun``, all ranks start together, and this
     waits for a new run directory to appear. After a short grace period
     it falls back to the newest existing run.
+
+    Returns:
+        Name of the run that rank :math:`0` created.
 
     Raises:
         RuntimeError: If no run directory exists after the timeout.

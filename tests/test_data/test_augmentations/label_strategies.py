@@ -101,6 +101,29 @@ def _instance_boxes(n_instances: int) -> np.ndarray:
     return np.array(boxes, dtype=np.float64).reshape(n_instances, 5)
 
 
+def _box_keypoints(boxes: np.ndarray, n_keypoints: int) -> np.ndarray:
+    """Put every keypoint of an instance just inside its box, visible."""
+    keypoints = np.zeros((len(boxes), n_keypoints * 3))
+    for i, box in enumerate(boxes):
+        for k in range(n_keypoints):
+            keypoints[i, k * 3] = box[1] + 0.06
+            keypoints[i, k * 3 + 1] = box[2] + 0.06
+            keypoints[i, k * 3 + 2] = 2.0
+    return keypoints
+
+
+def _box_masks(boxes: np.ndarray, height: int, width: int) -> np.ndarray:
+    """Fill the box of each instance with its index plus one."""
+    masks = np.zeros((len(boxes), height, width), dtype=np.uint8)
+    for i, box in enumerate(boxes):
+        r0 = int(box[2] * height)
+        c0 = int(box[1] * width)
+        r1 = max(r0 + 1, int((box[2] + box[4]) * height))
+        c1 = max(c0 + 1, int((box[1] + box[3]) * width))
+        masks[i, r0:r1, c0:c1] = i + 1
+    return masks
+
+
 def build_labels(group: TaskGroupSpec, height: int, width: int) -> Labels:
     """Build one group's labels, consistent across every task type in it."""
     labels: Labels = {}
@@ -114,23 +137,10 @@ def build_labels(group: TaskGroupSpec, height: int, width: int) -> Labels:
             labels[task] = boxes.copy()
 
         elif task_type == "keypoints":
-            keypoints = np.zeros((n, group.n_keypoints * 3))
-            for i in range(n):
-                for k in range(group.n_keypoints):
-                    keypoints[i, k * 3] = boxes[i, 1] + 0.06
-                    keypoints[i, k * 3 + 1] = boxes[i, 2] + 0.06
-                    keypoints[i, k * 3 + 2] = 2.0
-            labels[task] = keypoints
+            labels[task] = _box_keypoints(boxes, group.n_keypoints)
 
         elif task_type == "instance_segmentation":
-            masks = np.zeros((n, height, width), dtype=np.uint8)
-            for i in range(n):
-                r0 = int(boxes[i, 2] * height)
-                c0 = int(boxes[i, 1] * width)
-                r1 = max(r0 + 1, int((boxes[i, 2] + boxes[i, 4]) * height))
-                c1 = max(c0 + 1, int((boxes[i, 1] + boxes[i, 3]) * width))
-                masks[i, r0:r1, c0:c1] = i + 1
-            labels[task] = masks
+            labels[task] = _box_masks(boxes, height, width)
 
         elif task_type == "array":
             labels[task] = np.arange(n * 2, dtype=np.float64).reshape(n, 2)

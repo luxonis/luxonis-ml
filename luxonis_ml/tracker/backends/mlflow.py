@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 
 import numpy.typing as npt
 from loguru import logger
-from typing_extensions import Unpack
+from typing_extensions import Unpack, override
 
 from luxonis_ml.guard_extras import guard_missing_extra
 from luxonis_ml.typing import ParamValue
@@ -146,8 +146,9 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
 
     @property
     def client(self) -> "MlflowClient":
-        """The ``MlflowClient`` of the backend, for the calls that the
-        tracker does not make, such as ``set_tag``.
+        """Return the ``MlflowClient`` of the backend.
+
+        Use it for calls the tracker does not make, such as ``set_tag``.
 
         Raises:
             RuntimeError: If the backend is not started.
@@ -178,6 +179,7 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
             tracking_uri=self.tracking_uri,
         )
 
+    @override
     def start(self) -> None:
         """Open the experiment and the run.
 
@@ -211,10 +213,11 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         else:
             self.client.update_run(self.run_id, status="RUNNING")
 
-        self._start_system_metrics(self.run_id, resumed)
+        self._start_system_metrics(self.run_id, resumed=resumed)
         if not self.run.is_sweep:
             _open_runs.append(self.run_id)
 
+    @override
     def log_hyperparams(self, params: Mapping[str, ParamValue]) -> None:
         """Log the hyperparameters as the parameters of the run.
 
@@ -238,6 +241,7 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
             params=[Param(key, str(value)) for key, value in params.items()],
         )
 
+    @override
     def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
         """Log the metrics in one request.
 
@@ -262,6 +266,7 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
             ],
         )
 
+    @override
     def log_image(self, name: str, image: npt.NDArray[Any], step: int) -> None:
         r"""Log the image as the artifact ``<directory>/<step>/<caption>.png``.
 
@@ -287,6 +292,7 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
             self._run_id, image, artifact_file=path
         )
 
+    @override
     def log_matrix(
         self,
         matrix: npt.NDArray[Any],
@@ -328,6 +334,7 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
             self._run_id, figure, f"{name}/step_{step}.png"
         )
 
+    @override
     def log_table(
         self,
         name: str,
@@ -360,6 +367,7 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
             self._run_id, data, artifact_file=f"{name}/step_{step}.json"
         )
 
+    @override
     def upload_artifact(self, path: Path, name: str | None, typ: str) -> None:
         """Upload the file to the root of the run artifacts.
 
@@ -376,6 +384,7 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
                 ``OSError`` or an error of ``botocore``.
 
         """
+        del typ
         remote_name = Path(name).name if name else path.name
         LuxonisFileSystem.upload(
             path,
@@ -383,6 +392,7 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
             tracking_uri=self.tracking_uri,
         )
 
+    @override
     def close(self, status: RunStatus) -> None:
         """Stop the system metrics, and end the run.
 
@@ -404,6 +414,7 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
             self._run_id, "FINISHED" if status == "success" else "FAILED"
         )
 
+    @override
     def is_transient(self, error: Exception) -> bool:
         """Tell an outage from a rejected call.
 
@@ -439,14 +450,21 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         return self.run_id
 
     def _get_or_create_experiment(self) -> str:
-        """Return the experiment of ``project_name``, and create it if
-        needed.
+        """Return the experiment of ``project_name``, creating it if needed.
+
+        Returns:
+            Experiment identifier.
+
+        Raises:
+            RuntimeError: If no project name is available.
+            MlflowException: If the server request fails.
+
         """
         from mlflow.exceptions import MlflowException
 
         name = self.run.project_name
-        # the constructor accepts no run without a project
-        assert name is not None
+        if name is None:
+            raise RuntimeError("An MLflow project name is required.")
         experiment = self.client.get_experiment_by_name(name)
         if experiment is not None:
             return experiment.experiment_id
@@ -457,7 +475,8 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
             if error.error_code != "RESOURCE_ALREADY_EXISTS":
                 raise
             experiment = self.client.get_experiment_by_name(name)
-            assert experiment is not None
+            if experiment is None:
+                raise
             return experiment.experiment_id
 
     def _create_run(self, experiment_id: str) -> str:
@@ -480,7 +499,7 @@ class MLflowBackend(TrackerBackend, register_name="mlflow"):
         )
         return run.info.run_id
 
-    def _start_system_metrics(self, run_id: str, resumed: bool) -> None:
+    def _start_system_metrics(self, run_id: str, *, resumed: bool) -> None:
         """Start the system metrics monitor, which is optional."""
         if find_spec("psutil") is None:
             logger.warning("Install `psutil` to log system metrics to MLflow.")
@@ -502,13 +521,19 @@ def _is_s3_outage(error: Exception) -> bool:
     """Tell whether ``botocore`` could not reach the S3 store.
 
     Its connection errors are no ``OSError``.
+
+    Returns:
+        Whether the error reports an S3 connection failure.
+
     """
     try:
         # botocore ships no type stubs
         from botocore.exceptions import (  # pyright: ignore[reportMissingTypeStubs]
-            ConnectionError,
+            ConnectionError as BotocoreConnectionError,
+        )
+        from botocore.exceptions import (  # pyright: ignore[reportMissingTypeStubs]
             HTTPClientError,
         )
     except ImportError:
         return False
-    return isinstance(error, ConnectionError | HTTPClientError)
+    return isinstance(error, BotocoreConnectionError | HTTPClientError)

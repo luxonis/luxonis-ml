@@ -1,3 +1,5 @@
+"""Export to the segmentation mask directory format."""
+
 import csv
 import json
 from collections import OrderedDict, defaultdict
@@ -6,6 +8,7 @@ from typing import Any, cast
 
 import numpy as np
 from PIL import Image
+from typing_extensions import override
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
@@ -14,6 +17,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
     decode_rle_with_pycoco,
     exporter_specific_annotation_warning,
     split_of_group,
+    whole_image_rows,
 )
 from luxonis_ml.enums import DatasetType
 
@@ -35,7 +39,16 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
         dataset_identifier: str,
         output_path: Path,
         max_partition_size_gb: float | None,
-    ):
+    ) -> None:
+        """Create the exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Maximum partition size in GiB, or
+                ``None`` to disable partitioning.
+
+        """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
@@ -47,8 +60,16 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
         self.ID_COL = "id"
 
     def get_split_names(self) -> dict[str, str]:
+        """Return the directory name of each split.
+
+        Returns:
+            Split names mapped to directory names. The ``val`` split
+            becomes ``valid``.
+
+        """
         return {"train": "train", "val": "valid", "test": "test"}
 
+    @override
     def supported_ann_types(self) -> list[str]:
         return DatasetType.SEGMASK.supported_annotation_formats
 
@@ -83,6 +104,7 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
             for name, cid in items_by_id:
                 w.writerow([cid, name])
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         """Export semantic segmentation masks and class CSV files.
 
@@ -110,20 +132,19 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
             split_dir.mkdir(parents=True, exist_ok=True)
 
         for key, entry in grouped:
-            file_name, group_id = cast(tuple[str, Any], key)
+            file_name, group_id = cast("tuple[str, Any]", key)
             file_path = Path(str(file_name))
             split = split_of_group(prepared_ldf, group_id)
 
             # Ensure background exists for this split up-front
             self._ensure_background(split)
 
-            # Only semantic segmentation rows for the entire image (instance_id == -1)
             seg_rows = [
                 row
-                for row in entry.iter_rows(named=True)
-                if row["task_type"] == "segmentation"
-                and row["instance_id"] == -1
-                and row["annotation"]
+                for row in whole_image_rows(entry, "segmentation").iter_rows(
+                    named=True
+                )
+                if row["annotation"]
             ]
             if not seg_rows:
                 continue
@@ -145,38 +166,14 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
                     dest_img.write_bytes(file_path.read_bytes())
                 copied_pairs.add(pair_key)
 
-            combined: np.ndarray | None = None
-
-            for row in seg_rows:
-                cname = str(row["class_name"] or "")
-                if not cname:
-                    continue
-
-                ann = json.loads(row["annotation"])
-                m = decode_rle_with_pycoco(ann)
-                h, w = m.shape
-
-                if combined is None:
-                    # Start with background (0) everywhere
-                    combined = np.zeros((h, w), dtype=np.uint16)
-
-                cid = self._class_id_for(split, cname)
-                combined[m != 0] = cid
-
+            combined = self._combined_mask(split, seg_rows)
             if combined is not None:
-                max_id = int(combined.max())
-                if max_id > 255:
-                    raise ValueError(
-                        f"SegmentationMaskDirectoryExporter: class id {max_id} exceeds 255; "
-                        f"the downstream parser expects 8-bit masks (cv2.IMREAD_GRAYSCALE). "
-                        f"Reduce the number of classes or adjust the parser."
-                    )
+                _write_mask(combined, split_dir / mask_name)
 
-                # Always write 8-bit L to match parser behavior
-                out_arr = combined.astype(np.uint8, copy=False)
-                dest_mask = split_dir / mask_name
-                Image.fromarray(out_arr, mode="L").save(dest_mask)
+        self._write_split_classes()
 
+    def _write_split_classes(self) -> None:
+        """Write the classes CSV of every split that has a directory."""
         for split in ("train", "val", "test"):
             split_dir = self._get_data_path(self.output_path, split, self.part)
             if split_dir.exists():
@@ -184,6 +181,31 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
                 self._ensure_background(split)
                 self._write_classes_csv(split, split_dir)
 
+    def _combined_mask(
+        self, split: str, seg_rows: list[dict[str, Any]]
+    ) -> np.ndarray | None:
+        """Paint the class ID of each segmentation row onto one mask.
+
+        Returns:
+            A ``uint16`` mask with the shape of the first decoded mask.
+            Each pixel holds the per-split class ID of the last row that
+            covers it, or ``0`` for background. ``None`` if no row names
+            a class.
+
+        """
+        combined = None
+        for row in seg_rows:
+            cname = str(row["class_name"] or "")
+            if not cname:
+                continue
+            m = decode_rle_with_pycoco(json.loads(row["annotation"]))
+            if combined is None:
+                # Start with background (0) everywhere
+                combined = np.zeros(m.shape, dtype=np.uint16)
+            combined[m != 0] = self._class_id_for(split, cname)
+        return combined
+
+    @override
     def _dump_annotations(
         self,
         annotation_splits: dict[str, dict[str, Any]],
@@ -192,6 +214,7 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
     ) -> None:
         return
 
+    @override
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:
@@ -202,3 +225,16 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
             else output_path / self.dataset_identifier
         )
         return base / split_name
+
+
+def _write_mask(mask: np.ndarray, dest: Path) -> None:
+    """Write a class-ID mask as an 8-bit grayscale PNG."""
+    max_id = int(mask.max())
+    if max_id > 255:
+        raise ValueError(
+            f"SegmentationMaskDirectoryExporter: class id {max_id} exceeds 255; "
+            f"the downstream parser expects 8-bit masks (cv2.IMREAD_GRAYSCALE). "
+            f"Reduce the number of classes or adjust the parser."
+        )
+    # Always write 8-bit L to match parser behavior
+    Image.fromarray(mask.astype(np.uint8, copy=False), mode="L").save(dest)

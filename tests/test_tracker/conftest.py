@@ -5,6 +5,7 @@ from typing import Any, TypeVar
 import numpy as np
 import numpy.typing as npt
 import pytest
+from typing_extensions import override
 
 import luxonis_ml.tracker.backends.mlflow as mlflow_module
 from luxonis_ml.tracker import (
@@ -32,9 +33,7 @@ def backend_of(
 
 
 class FakeClock:
-    """Stand in for the `time` module. `sleep` advances the clock and
-    runs ``on_sleep``.
-    """
+    """Stand in for time and advance the clock when sleep is called."""
 
     def __init__(self, on_sleep: Callable[[], object] | None = None) -> None:
         self.now = 0.0
@@ -54,9 +53,7 @@ class Rejected(Exception):
 
 
 class FakeBackend(TrackerBackend, register_name="fake"):
-    """Record each call. While `error` is set, `start`, `flush`,
-    `close` and every logging call raise it.
-    """
+    """Record calls and optionally raise the configured error."""
 
     def __init__(self, run: RunContext, *, option: str = "default") -> None:
         super().__init__(run)
@@ -67,19 +64,24 @@ class FakeBackend(TrackerBackend, register_name="fake"):
         self.status: RunStatus | None = None
         self.error: Exception | None = None
 
+    @override
     def start(self) -> None:
         self._raise()
         self.starts += 1
 
+    @override
     def log_hyperparams(self, params: Mapping[str, ParamValue]) -> None:
         self._record("log_hyperparams", dict(params))
 
+    @override
     def log_metrics(self, metrics: Mapping[str, float], step: int) -> None:
         self._record("log_metrics", dict(metrics), step)
 
+    @override
     def log_image(self, name: str, image: npt.NDArray[Any], step: int) -> None:
         self._record("log_image", name, image, step)
 
+    @override
     def log_matrix(
         self,
         matrix: npt.NDArray[Any],
@@ -89,6 +91,7 @@ class FakeBackend(TrackerBackend, register_name="fake"):
     ) -> None:
         self._record("log_matrix", matrix, name, step, list(labels))
 
+    @override
     def log_table(
         self,
         name: str,
@@ -99,18 +102,24 @@ class FakeBackend(TrackerBackend, register_name="fake"):
         rows_copy = [list(row) for row in rows]
         self._record("log_table", name, rows_copy, list(columns), step)
 
+    @override
     def upload_artifact(self, path: Path, name: str | None, typ: str) -> None:
         self._raise()
-        self._record("upload_artifact", path.read_text(), name, typ)
+        self._record(
+            "upload_artifact", path.read_text(encoding="utf-8"), name, typ
+        )
 
+    @override
     def flush(self) -> None:
         self._raise()
         self.flushes += 1
 
+    @override
     def close(self, status: RunStatus) -> None:
         self._raise()
         self.status = status
 
+    @override
     def is_transient(self, error: Exception) -> bool:
         return not isinstance(error, Rejected)
 
@@ -133,9 +142,7 @@ class BufferedFakeBackend(FakeBackend, register_name="buffered_fake"):
 
 @pytest.fixture(autouse=True)
 def isolated_process_state(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Undo what a tracker leaves in the process: the exported run
-    name, the MLflow retry count, and the open MLflow runs.
-    """
+    """Undo process state left by a tracker."""
     monkeypatch.setenv(RUN_NAME_ENV, "")
     # `setenv` records the original state, so that the teardown also
     # removes a value that the MLflow backend sets during the test

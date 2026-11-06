@@ -77,7 +77,7 @@ class ParquetFileManager:
         self.num = self._find_num() if self.parquet_files else 0
         self.current_file = self._generate_filename(self.num)
 
-        self._read()
+        self.buffer, self.row_count = self._read()
 
     def _find_num(self) -> int:
         return max(int(file.stem) for file in self.parquet_files)
@@ -85,16 +85,12 @@ class ParquetFileManager:
     def _generate_filename(self, num: int) -> Path:
         return self.dir / f"{num:010d}.parquet"
 
-    def _read(self) -> None:
-        if self.current_file.exists():
-            df = self._ensure_metadata_column(
-                pl.read_parquet(self.current_file)
-            )
-            self.buffer = df.to_dict(as_series=False)
-            self.row_count = len(df)
-        else:
-            self.row_count = 0
-            self.buffer = {}
+    def _read(self) -> tuple[dict[str, list[Any]], int]:
+        """Return the rows of the current file and their count."""
+        if not self.current_file.exists():
+            return {}, 0
+        df = self._ensure_metadata_column(pl.read_parquet(self.current_file))
+        return df.to_dict(as_series=False), len(df)
 
     @staticmethod
     def _ensure_metadata_column(df: pl.DataFrame) -> pl.DataFrame:
@@ -124,9 +120,8 @@ class ParquetFileManager:
             group_id: Unique identifier for the sample group.
 
         """
-
         if "sample_metadata" not in data:
-            data = {**data, "sample_metadata": DEFAULT_METADATA}  # type: ignore
+            data = {**data, "sample_metadata": DEFAULT_METADATA}  # pyright: ignore[reportUnreachable]
 
         if not self.buffer:
             self._initialize_data(data)
@@ -147,9 +142,18 @@ class ParquetFileManager:
             self._flush()
             self.num += 1
             self.current_file = self._generate_filename(self.num)
-            self._read()
+            self.buffer, self.row_count = self._read()
 
     def remove_duplicate_uuids(self, overwrite_uuids: set[str]) -> None:
+        """Remove the rows with the given UUIDs from all parquet files.
+
+        The buffer is flushed first and read again from the current
+        file afterwards.
+
+        Args:
+            overwrite_uuids: UUIDs of the rows to remove.
+
+        """
         self._flush()
 
         for parquet_file in self.dir.glob("*.parquet"):
@@ -161,7 +165,7 @@ class ParquetFileManager:
                 parquet_file.unlink()
                 df.write_parquet(parquet_file)
 
-        self._read()
+        self.buffer, self.row_count = self._read()
 
     def _flush(self) -> None:
         """Write buffered data to parquet."""
@@ -170,7 +174,9 @@ class ParquetFileManager:
             df.write_parquet(self.current_file)
 
     def __enter__(self) -> Self:
+        """Return the manager."""
         return self
 
     def __exit__(self, *_) -> None:
+        """Write the buffered rows to the current parquet file."""
         self._flush()

@@ -22,6 +22,10 @@ def half_covered(dataset_name: str, tempdir: Path) -> LuxonisDataset:
 
     The dataset needs two classes; the loader adds no background to a
     single-channel mask. The third sample carries no mask.
+
+    Returns:
+        The dataset, with its three samples in the ``train`` split.
+
     """
     mask = np.zeros((SIZE, SIZE), dtype=np.uint8)
     mask[: SIZE // 2] = 1
@@ -46,6 +50,10 @@ def overlapped(dataset_name: str, tempdir: Path) -> LuxonisDataset:
 
     The masks claim 300 rows each, of the 512 an image holds, so their
     areas add up to more than the image. Their union stops at row 400.
+
+    Returns:
+        The dataset, with its one image in the ``train`` split.
+
     """
     first = np.zeros((SIZE, SIZE), dtype=np.uint8)
     first[:300] = 1
@@ -90,7 +98,9 @@ def test_the_background_class_ignores_the_split_order(
     """A task keeps its class map, whichever sample the split puts first."""
     class_maps = []
     for unannotated_first in (True, False):
-        _reorder_split(half_covered, unannotated_first, tempdir)
+        _reorder_split(
+            half_covered, unannotated_first=unannotated_first, tempdir=tempdir
+        )
         class_maps.append(
             LuxonisLoader(half_covered, view="train")._classes[""]
         )
@@ -149,7 +159,7 @@ def test_a_polyline_takes_the_size_of_the_mask_beside_it():
 
 
 def _reorder_split(
-    dataset: LuxonisDataset, unannotated_first: bool, tempdir: Path
+    dataset: LuxonisDataset, *, unannotated_first: bool, tempdir: Path
 ) -> None:
     """Put the unannotated sample first or last in the train split."""
     unannotated = create_image(2, tempdir).absolute()
