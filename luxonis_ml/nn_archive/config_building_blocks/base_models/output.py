@@ -1,39 +1,57 @@
+"""Output schema of an NN Archive model."""
+
 from contextlib import suppress
-from typing import List, Optional
 
 from pydantic import Field, model_validator
 from typing_extensions import Self
 
-from luxonis_ml.utils import BaseModelExtraForbid
-
-from ...utils import infer_layout
-from ..enums import DataType
+from luxonis_ml.nn_archive.config_building_blocks.enums import DataType
+from luxonis_ml.nn_archive.utils import infer_layout
+from luxonis_ml.typing import BaseModelExtraForbid
 
 
 class Output(BaseModelExtraForbid):
-    """Represents output stream of a model.
+    """Model output stream definition.
 
-    @type name: str
-    @ivar name: Name of the output layer.
-    @type dtype: DataType
-    @ivar dtype: Data type of the output data (e.g., 'float32').
+    Attributes:
+        name: Name of the output layer.
+        dtype: Data type of the output data, such as ``"float32"``.
+        shape: Optional output tensor shape.
+        layout: Optional letter code for interpreting tensor dimensions,
+            such as ``"NC"``.
+
     """
 
     name: str = Field(description="Name of the output layer.")
     dtype: DataType = Field(
-        description="Data type of the output data (e.g., 'float32')."
+        description="Data type of the output data, such as 'float32'."
     )
-    shape: Optional[List[int]] = Field(
+    shape: list[int] | None = Field(
         None,
-        description="Shape of the output as a list of integers (e.g. [1, 1000]).",
+        description="Output tensor shape.",
     )
-    layout: Optional[str] = Field(
+    layout: str | None = Field(
         None,
-        description="List of letters describing the output layout (e.g. 'NC').",
+        description="Letter code for interpreting tensor dimensions, such as 'NC'.",
     )
 
     @model_validator(mode="after")
     def validate_layout(self) -> Self:
+        r"""Validate that the layout is compatible with the output shape.
+
+        The output layout describes every shape axis, so
+        :math:`|\mathrm{layout}| = |\mathrm{shape}|` whenever a layout is
+        provided.
+
+        Returns:
+            The validated output model.
+
+        Raises:
+            ValueError: If ``N`` is present but not first, ``layout`` is
+                provided without ``shape``, or layout and shape lengths do
+                not match.
+
+        """
         if self.layout is None:
             return self
 
@@ -54,6 +72,12 @@ class Output(BaseModelExtraForbid):
 
     @model_validator(mode="after")
     def infer_layout(self) -> Self:
+        """Infer the layout when a shape is provided without one.
+
+        Returns:
+            The output model with ``layout`` inferred when possible.
+
+        """
         if self.layout is None and self.shape is not None:
             with suppress(Exception):
                 self.layout = infer_layout(self.shape)

@@ -1,20 +1,34 @@
-from abc import ABC, abstractmethod
-from typing import Iterable, List, Mapping, Type
+"""`AugmentationEngine` base class and the registry of its subclasses."""
 
-from luxonis_ml.typing import LoaderOutput, Params
+from abc import ABC, abstractmethod
+from collections.abc import Iterable, Mapping
+from typing import Final, Literal
+
+from luxonis_ml.typing import LoaderMultiOutput, Params
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
-AUGMENTATION_ENGINES: Registry[Type["AugmentationEngine"]] = Registry(
+AUGMENTATION_ENGINES: Final[Registry[type["AugmentationEngine"]]] = Registry(
     name="augmentation_engines"
 )
+"""Registry for augmentation engines."""
 
 
+# TODO: The engine should probably also handle normalization
+# so it doesn't have to be done by injecting a normalization
+# transformation to the config in LuxonisTrain.
 class AugmentationEngine(
     ABC,
     metaclass=AutoRegisterMeta,
     registry=AUGMENTATION_ENGINES,
     register=False,
 ):
+    """Abstract base class for augmentation engines.
+
+    Subclasses implement ``__init__``, `apply` and `batch_size`. They
+    are registered in `AUGMENTATION_ENGINES` automatically, under the
+    class name or under the ``register_name`` class keyword.
+    """
+
     @abstractmethod
     def __init__(
         self,
@@ -22,75 +36,104 @@ class AugmentationEngine(
         width: int,
         targets: Mapping[str, str],
         n_classes: Mapping[str, int],
+        source_names: list[str],
+        *,
         config: Iterable[Params],
         keep_aspect_ratio: bool,
-        is_validation_pipeline: bool,
+        is_validation_pipeline: bool | None = None,
+        pipeline_stage: Literal["train", "val", "test"] | None = None,
         min_bbox_visibility: float = 0.0,
-    ):
+        seed: int | None = None,
+        bbox_area_threshold: float = 0.0004,
+    ) -> None:
         """Initialize augmentation pipeline from configuration.
 
-        @type height: int
-        @param height: Target image height
-        @type width: int
-        @param width: Target image width
+        Args:
+            height: Target image height.
 
-        @type targets: Dict[str, str]
-        @param targets: Dictionary mapping task names to task types.
-            Example::
-                {
-                    "detection/boundingbox": "bbox",
-                    "detection/segmentation": "mask",
-                }
+            width: Target image width.
 
-        @type n_classes: Dict[str, int]
-        @param n_classes: Dictionary mapping task names to the number
-            of associated classes. Example::
-                {
-                    "cars/boundingbox": 2,
-                    "cars/segmentation": 2,
-                    "motorbikes/boundingbox": 1,
-                }
+            targets: Task names mapped to task types, such as
+                ``{"detection/boundingbox": "bbox"}``.
 
-        @type config: List[Params]
-        @param config: List of dictionaries with configuration for each
-            augmentation. It is up to the augmentation engine to parse
-            and interpret this configuration.
+            n_classes: Number of associated classes for each task, such as
+                ``{"cars/boundingbox": 2}``.
 
-        @type keep_aspect_ratio: bool
-        @param keep_aspect_ratio: Whether to keep aspect ratio
-        @type is_validation_pipeline: bool
-        @param is_validation_pipeline: Whether this is a validation
-            pipeline (in which case some augmentations are skipped)
-        @type min_bbox_visibility: float
-        @param min_bbox_visibility: Minimum fraction of the original bounding box that must remain visible after augmentation.
+            source_names: Source names expected in loader images.
+
+            config: Augmentation configuration. Each item describes one
+                augmentation; interpretation is engine-specific.
+
+            keep_aspect_ratio: Whether to preserve image aspect ratio while
+                resizing.
+
+            is_validation_pipeline: Optional backward-compatible
+                train-versus-eval hint.
+
+                .. deprecated:: 0.5.0
+                    use ``pipeline_stage`` instead.
+
+            pipeline_stage: Optional explicit pipeline stage. When provided,
+                it takes precedence over ``is_validation_pipeline``.
+
+            min_bbox_visibility: Minimum fraction of the original bounding
+                box that must remain visible after augmentation.
+
+            seed: Optional random seed for reproducible augmentation.
+
+            bbox_area_threshold: Minimum normalized area for bounding boxes
+                to remain valid. The default removes very small boxes and
+                their associated keypoints.
+
         """
         ...
 
     @abstractmethod
-    def apply(self, data: List[LoaderOutput]) -> LoaderOutput:
+    def apply(self, input_batch: list[LoaderMultiOutput]) -> LoaderMultiOutput:
         """Apply the augmentation pipeline to the data.
 
-        @type data: List[LuxonisLoaderOutput]
-        @param data: List of data to augment. The length of the list
-            must be equal to the batch size.
-        @rtype: LuxonisLoaderOutput
-        @return: Augmented data
+        Args:
+            input_batch: Loader outputs to augment.
+                The number of items must match the engine's batch size.
+
+        Returns:
+            Augmented loader output.
+
         """
         ...
 
     @property
+    def applied_augmentations(self) -> dict[str, Params]:
+        """Runtime parameters keyed by configured augmentation path.
+
+        Describes the latest `apply` call; engines without provenance
+        tracking return an empty dictionary. Callers keep the mapping
+        alongside the sample it describes, so it must not be reused
+        across calls.
+        """
+        return {}
+
+    @property
     @abstractmethod
     def batch_size(self) -> int:
-        """Getter for the batch size.
+        r"""The batch size required by the augmentation pipeline.
 
-        The batch size is the number of images necessary for the
-        augmentation pipeline to work in case of batch-based
-        augmentations.
+        The batch size is the number of images requested by the
+        augmentation pipeline in case of batch-based augmentations.
 
         For example, if the augmentation pipeline contains the MixUp
-        augmentation, the batch size should be 2.
+        augmentation, the batch size should be :math:`2`.
 
         If the pipeline requires MixUp and also Mosaic4 augmentations,
-        the batch size should be 8 (2 * 4).
+        the batch size should be :math:`8 = \left(2 \cdot 4\right)`.
         """
         ...
+
+    @property
+    def batch_augmentation_indices(self) -> list[int]:
+        """Input positions contributing to the last augmented output.
+
+        Engines that do not expose this information are assumed to use every
+        input position, preserving the behavior of existing batch engines.
+        """
+        return list(range(self.batch_size))

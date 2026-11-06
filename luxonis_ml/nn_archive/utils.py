@@ -1,18 +1,23 @@
+"""Helpers that detect NN Archive files and infer tensor layouts."""
+
 import tarfile
 from pathlib import Path
-from typing import List
 
 from luxonis_ml.typing import PathType
 
 
 def is_nn_archive(path: PathType) -> bool:
-    """Check if the given path is a valid NN archive file.
+    """Check whether a path points to a valid NN Archive.
 
-    @type path: PathType
-    @param path: Path to the file to check.
-    @rtype: bool
-    @return: True if the file is a valid NN archive file, False
-        otherwise.
+    A valid archive must be a tar file and contain a top-level
+    ``config.json`` member.
+
+    Args:
+        path: Path to the file to check.
+
+    Returns:
+        ``True`` if the file is a valid NN Archive, otherwise ``False``.
+
     """
     path = Path(path)
 
@@ -29,17 +34,30 @@ def is_nn_archive(path: PathType) -> bool:
     return True
 
 
-def infer_layout(shape: List[int]) -> str:
-    """Infers a layout for the given shape.
+def infer_layout(shape: list[int]) -> str:
+    """Infer a layout code for a tensor shape.
 
-    Tries to guess most common layouts for the given shape pattern.
-    Otherwise, uses the first free letter of the alphabet for each dimension.
+    The function recognizes common image tensor layouts. For other shapes,
+    it uses the first available letters starting at ``C``.
 
-    Example::
-        >>> make_default_layout([1, 3, 256, 256])
-        >>> "NCHW"
-        >>> make_default_layout([1, 19, 7, 8])
-        >>> "NABC"
+    Args:
+        shape: Tensor shape to infer from.
+
+    Returns:
+        Layout code matching the number of dimensions in ``shape``.
+
+    Raises:
+        ValueError: If the shape has too many dimensions for automatic
+            layout inference.
+
+    Example:
+        >>> infer_layout([1, 3, 256, 256])
+        'NCHW'
+        >>> infer_layout([256, 256, 3])
+        'HWC'
+        >>> infer_layout([1, 19, 7, 8])
+        'NCDE'
+
     """
     layout = []
     i = 0
@@ -48,9 +66,9 @@ def infer_layout(shape: List[int]) -> str:
         i += 1
     if len(shape) - i == 3:
         if shape[i] < shape[i + 1] and shape[i] < shape[i + 2]:
-            return "".join(layout + ["C", "H", "W"])
-        elif shape[-1] < shape[-2] and shape[-1] < shape[-3]:
-            return "".join(layout + ["H", "W", "C"])
+            return "".join([*layout, "C", "H", "W"])
+        if shape[-1] < shape[-2] and shape[-1] < shape[-3]:
+            return "".join([*layout, "H", "W", "C"])
     i = 0
     while len(layout) < len(shape):
         # Starting with "C" for more sensible defaults

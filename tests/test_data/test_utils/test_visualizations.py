@@ -1,9 +1,13 @@
 import cv2
 import numpy as np
 import pytest
+from bidict import bidict
 
 from luxonis_ml.data.utils.visualizations import (
     ColorMap,
+    _classification_lines,
+    _format_metadata_value,
+    _metadata_lines,
     concat_images,
     create_text_image,
     distinct_color_generator,
@@ -16,6 +20,15 @@ from luxonis_ml.data.utils.visualizations import (
     str_to_rgb,
     visualize,
 )
+
+
+def _labels_panel(output: np.ndarray, image: np.ndarray) -> np.ndarray:
+    padding = 10
+    label_height = 30
+    cell_width = image.shape[1] + 2 * padding
+    y = label_height + padding
+    x = cell_width + padding
+    return output[y : y + image.shape[0], x : x + image.shape[1]]
 
 
 def test_distinct_color_generator():
@@ -40,7 +53,7 @@ def test_color_map():
     assert colors[(12,)] == (242, 48, 218)
     assert colors[23] == (161, 242, 48)
     assert len(colors) == 3
-    assert {label for label in colors} == {"red", 23, (12,)}
+    assert set(colors) == {"red", 23, (12,)}
 
 
 def test_resolve_color_string():
@@ -50,13 +63,13 @@ def test_resolve_color_string():
 
 def test_resolve_color_int():
     assert resolve_color(128) == (128, 128, 128)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="out of range"):
         resolve_color(300)
 
 
 def test_resolve_color_tuple():
     assert resolve_color((100, 150, 200)) == (100, 150, 200)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="out of range"):
         resolve_color((100, 150, 300))
 
 
@@ -187,19 +200,19 @@ def test_visualize():
 
     expected_labels = np.array(
         [
-            [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
-            [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1],
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             [0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1],
-            [0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0],
-            [0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0],
-            [0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0],
-            [0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0],
-            [0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0],
             [0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0],
             [0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0],
             [0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0],
@@ -244,7 +257,7 @@ def test_visualize():
         "semantic": {"background": 0, "red": 1, "green": 2, "blue": 3},
         "task2": {"class_name2": 0},
     }
-    image = visualize(image, labels, classes, blend_all=True)
+    image = visualize(image, "image", labels, classes, blend_all=True)
     image = (
         cv2.cvtColor(image, cv2.COLOR_RGB2GRAY).astype(bool).astype(np.uint8)
     )
@@ -254,3 +267,203 @@ def test_visualize():
         .astype(np.uint8)
     )
     assert np.array_equal(expected_image, image)
+
+
+def test_visualize_keypoint_label_modes(monkeypatch: pytest.MonkeyPatch):
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    labels = {
+        "pose/keypoints": np.array(
+            [[0.2, 0.5, 2.0, 0.5, 0.5, 1.0, 0.8, 0.5, 2.0]]
+        )
+    }
+    classes = {"pose": {"person": 0}}
+    skeletons = {"pose": (["nose", "eye"], [])}
+    calls: list[str] = []
+
+    def fake_draw_keypoint_label(
+        _image: np.ndarray,
+        text: str,
+        _point: tuple[int, int],
+        *,
+        size: int,
+        color: tuple[int, int, int],
+        font_scale: float,
+    ) -> None:
+        del size, color, font_scale
+        calls.append(text)
+
+    monkeypatch.setattr(
+        "luxonis_ml.data.utils.visualizations.draw_keypoint_label",
+        fake_draw_keypoint_label,
+    )
+
+    visualize(
+        image.copy(),
+        "image",
+        labels,
+        classes,
+        skeletons=skeletons,
+        keypoint_label_mode="none",
+    )
+    assert calls == []
+
+    visualize(
+        image.copy(),
+        "image",
+        labels,
+        classes,
+        skeletons=skeletons,
+        keypoint_label_mode="numbers",
+    )
+    assert calls == ["0", "1", "2"]
+
+    calls.clear()
+    visualize(
+        image.copy(),
+        "image",
+        labels,
+        classes,
+        skeletons=skeletons,
+        keypoint_label_mode="full",
+    )
+    assert calls == ["0: nose", "1: eye"]
+
+
+def test_visualize_keypoint_skeletons_respect_visibility():
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    labels = {
+        "pose/keypoints": np.array(
+            [[0.2, 0.5, 2.0, 0.5, 0.5, 1.0, 0.8, 0.5, 0.0]]
+        )
+    }
+    classes = {"pose": {"person": 0}}
+    skeletons = {"pose": ([], [(0, 1), (1, 2)])}
+
+    without_skeletons = visualize(
+        image.copy(),
+        "image",
+        labels,
+        classes,
+        blend_all=True,
+        skeletons=skeletons,
+        draw_skeletons=False,
+        keypoint_label_mode="none",
+    )
+    with_skeletons = visualize(
+        image.copy(),
+        "image",
+        labels,
+        classes,
+        blend_all=True,
+        skeletons=skeletons,
+        draw_skeletons=True,
+        keypoint_label_mode="none",
+    )
+
+    without_panel = _labels_panel(without_skeletons, image)
+    with_panel = _labels_panel(with_skeletons, image)
+
+    assert np.count_nonzero(without_panel[50, 35]) == 0
+    assert np.count_nonzero(with_panel[50, 35]) > 0
+    assert np.count_nonzero(with_panel[50, 65]) == 0
+
+
+def test_visualize_task_without_classes_draws_in_red():
+    image = np.zeros((20, 20, 3), dtype=np.uint8)
+    instance_mask = np.zeros((1, 20, 20), dtype=np.uint8)
+    instance_mask[:, :5, :5] = 1
+    labels = {
+        "pose/keypoints": np.array([[0.5, 0.5, 2.0]]),
+        "pose/instance_segmentation": instance_mask,
+    }
+
+    def draw(classes: dict[str, dict[str, int]]) -> np.ndarray:
+        output = visualize(
+            image.copy(),
+            "image",
+            labels,
+            classes,
+            blend_all=True,
+            keypoint_label_mode="none",
+        )
+        return _labels_panel(output, image)
+
+    panel = draw({})
+    assert np.array_equal(panel, draw({"pose": {}}))
+    assert panel[:5, :5, 0].any()
+    assert not panel[:5, :5, 1:].any()
+    assert panel[8:13, 8:13, 0].any()
+    assert not panel[8:13, 8:13, 1:].any()
+
+
+def test_classification_lines_list_each_task():
+    mappings = {
+        "animals": bidict({"cat": 0, "dog": 1}),
+        "colors": bidict({"red": 0, "blue": 1}),
+    }
+    animals = {"animals/classification": np.array([0, 1])}
+
+    assert _classification_lines(animals, mappings) == ["Classes:", "dog"]
+    assert _classification_lines(
+        {**animals, "colors/classification": np.array([1, 1])}, mappings
+    ) == ["Classification labels:", "animals: dog", "colors: red, blue"]
+
+
+def test_metadata_lines_decode_and_deduplicate_values():
+    labels = {
+        "car/metadata/color": np.array([0, 1, 0]),
+        "car/metadata/score": np.array([0.5, 0.25]),
+        "car/metadata/plate": np.array(["AB1", "AB1"]),
+        "car/metadata/empty": np.array([]),
+        "car/boundingbox": np.zeros((0, 5)),
+    }
+    mappings = {"car/metadata/color": bidict({"red": 0, "blue": 1})}
+
+    assert _metadata_lines(labels, mappings) == [
+        "Metadata labels:",
+        "car/color: red, blue",
+        "car/score: 0.5, 0.25",
+        "car/plate: AB1",
+    ]
+
+
+def test_metadata_value_outside_the_encoding_stays_as_it_is():
+    mapping = bidict({"red": 0})
+
+    assert _format_metadata_value(mapping, 5) == "5"
+    assert _format_metadata_value(mapping, "red") == "red"
+
+
+def test_visualize_appends_the_label_text():
+    image = np.zeros((64, 64, 3), dtype=np.uint8)
+    classes = {"animals": {"cat": 0, "dog": 1}}
+
+    plain = visualize(image.copy(), "image", {}, classes)
+    with_text = visualize(
+        image.copy(),
+        "image",
+        {"animals/classification": np.array([0, 1])},
+        classes,
+    )
+
+    assert with_text.shape[0] > plain.shape[0]
+
+
+def test_visualize_skips_skeleton_edges_outside_the_keypoints():
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    labels = {"pose/keypoints": np.array([[0.2, 0.5, 2.0, 0.8, 0.5, 2.0]])}
+    classes = {"pose": {"person": 0}}
+
+    def draw(edges: list[tuple[int, int]]) -> np.ndarray:
+        return visualize(
+            image.copy(),
+            "image",
+            labels,
+            classes,
+            blend_all=True,
+            skeletons={"pose": ([], edges)},
+            draw_skeletons=True,
+            keypoint_label_mode="none",
+        )
+
+    assert np.array_equal(draw([(0, 1)]), draw([(0, 1), (0, 7), (-1, 1)]))

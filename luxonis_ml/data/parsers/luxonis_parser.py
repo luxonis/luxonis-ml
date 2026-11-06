@@ -1,23 +1,24 @@
+"""Parser that detects the dataset format and runs the matching parser.
+
+It downloads remote, Roboflow, and Ultralytics datasets and extracts
+ZIP archives before it parses them.
+"""
+
 import subprocess
 import sys
 import zipfile
 from enum import Enum
 from importlib.util import find_spec
 from pathlib import Path
-from typing import (
-    Dict,
-    Generic,
-    Optional,
-    Tuple,
-    Type,
-    TypeVar,
-    Union,
-    overload,
-)
+from typing import ClassVar, Generic, TypeVar, overload
+from urllib.parse import parse_qs, quote, urlsplit
 
+import requests
 from loguru import logger
 
 from luxonis_ml.data import DATASETS_REGISTRY, BaseDataset, LuxonisDataset
+from luxonis_ml.data.utils.enums import ParserIssueMessage
+from luxonis_ml.data.utils.remote_file_downloader import download_remote_file
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import LuxonisFileSystem, environ
 from luxonis_ml.utils.filesystem import _pip_install
@@ -27,16 +28,27 @@ from .classification_directory_parser import ClassificationDirectoryParser
 from .coco_parser import COCOParser
 from .create_ml_parser import CreateMLParser
 from .darknet_parser import DarknetParser
+from .fiftyone_classification_parser import FiftyOneClassificationParser
 from .native_parser import NativeParser
 from .segmentation_mask_directory_parser import SegmentationMaskDirectoryParser
 from .solo_parser import SOLOParser
 from .tensorflow_csv_parser import TensorflowCSVParser
+from .ultralytics_ndjson_parser import UltralyticsNDJSONParser
 from .voc_parser import VOCParser
 from .yolov4_parser import YoloV4Parser
 from .yolov6_parser import YoloV6Parser
+from .yolov8_parser import YOLOv8Parser
 
 
 class ParserType(Enum):
+    """Recognized parser entry-point type.
+
+    Attributes:
+        DIR: Dataset directory with multiple splits.
+        SPLIT: Directory or file representing one parser input split.
+
+    """
+
     DIR = "dir"
     SPLIT = "split"
 
@@ -45,8 +57,35 @@ T = TypeVar("T", str, None)
 
 
 class LuxonisParser(Generic[T]):
-    parsers: Dict[DatasetType, Type[BaseParser]] = {
+    """Detect a dataset format and dispatch to the matching parser.
+
+    The parser accepts local paths, remote paths supported by
+    `LuxonisFileSystem`, ZIP archives, and Roboflow dataset URLs in
+    ``roboflow://workspace/project/version/format`` form. If
+    ``dataset_type`` is omitted, parsers are tried until one validates the
+    dataset directory as either a full directory or a single split.
+
+    Attributes:
+        _parsers: Dataset types mapped to concrete parser classes.
+        _dataset_dir: Local dataset directory used for parsing.
+        _dataset_type: Recognized or user-provided dataset type.
+        _parser_type: Whether ``dataset_dir`` represents a full directory or
+            a single split.
+        _dataset_constructor: Dataset class resolved from the plugin
+            registry, or `LuxonisDataset`.
+        _dataset: Dataset instance populated by parsing.
+        _parser: Concrete parser instance selected for ``dataset_type``.
+
+    """
+
+    _parsers: ClassVar[dict[DatasetType, type[BaseParser]]] = {
+        DatasetType.ULTRALYTICSNDJSON: UltralyticsNDJSONParser,
+        DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION: (
+            UltralyticsNDJSONParser
+        ),
+        DatasetType.ULTRALYTICSNDJSONKEYPOINTS: UltralyticsNDJSONParser,
         DatasetType.COCO: COCOParser,
+        DatasetType.FIFTYONECLS: FiftyOneClassificationParser,
         DatasetType.VOC: VOCParser,
         DatasetType.DARKNET: DarknetParser,
         DatasetType.YOLOV6: YoloV6Parser,
@@ -57,99 +96,185 @@ class LuxonisParser(Generic[T]):
         DatasetType.SEGMASK: SegmentationMaskDirectoryParser,
         DatasetType.SOLO: SOLOParser,
         DatasetType.NATIVE: NativeParser,
+        DatasetType.YOLOV8BOUNDINGBOX: YOLOv8Parser,
+        DatasetType.YOLOV8INSTANCESEGMENTATION: YOLOv8Parser,
+        DatasetType.YOLOV8KEYPOINTS: YOLOv8Parser,
     }
 
     def __init__(
         self,
         dataset_dir: str,
         *,
-        dataset_name: Optional[str] = None,
-        save_dir: Optional[Union[Path, str]] = None,
+        dataset_name: str | None = None,
+        save_dir: Path | str | None = None,
         dataset_plugin: T = None,
-        dataset_type: Optional[DatasetType] = None,
-        task_name: Optional[str] = None,
+        dataset_type: DatasetType | None = None,
+        task_name: str | dict[str, str] | None = None,
+        full_warnings: bool = False,
         **kwargs,
-    ):
+    ) -> None:
         """High-level abstraction over various parsers.
 
         Automatically recognizes the dataset format and uses the
         appropriate parser.
 
-        @type dataset_dir: str
-        @param dataset_dir: Identifier of the dataset directory.
-            Can be one of:
-                - Local path to the dataset directory.
-                - Remote URL supported by L{LuxonisFileSystem}.
-                  - C{gcs://} for Google Cloud Storage
-                  - C{s3://} for Amazon S3
-                - C{roboflow://} for Roboflow datasets.
-                  - Expected format: C{roboflow://workspace/project/version/format}.
-            Can be a remote URL supported by L{LuxonisFileSystem}.
-        @type dataset_name: Optional[str]
-        @param dataset_name: Name of the dataset. If C{None}, the name
-            is derived from the name of the dataset directory.
-        @type save_dir: Optional[Union[Path, str]]
-        @param save_dir: If a remote URL is provided in C{dataset_dir},
-            the dataset will be downloaded to this directory. If
-            C{None}, the dataset will be downloaded to the current
-            working directory.
-        @type dataset_plugin: Optional[str]
-        @param dataset_plugin: Name of the dataset plugin to use. If
-            C{None}, C{LuxonisDataset} is used.
-        @type dataset_type: Optional[DatasetType]
-        @param dataset_type: If provided, the parser will use this
-            dataset type instead of trying to recognize it
-            automatically.
-        @type task_name: Optional[str]
-        @param task_name: Name of the task. If C{None}, the task name
-            is derived from the dataset format.
-        @type kwargs: Dict[str, Any]
-        @param kwargs: Additional C{kwargs} to be passed to the
-            constructor of specific L{BaseDataset} implementation.
+        Args:
+            dataset_dir: Dataset directory identifier.
+                Can be one of:
+
+                    - Local path to the dataset directory.
+
+                    - Remote URL supported by L{LuxonisFileSystem}.
+                        - ``gcs://`` or ``gs://`` for Google Cloud Storage
+                        - ``s3://`` for Amazon S3
+
+                    - ``roboflow://`` for Roboflow datasets.
+                        - Expected format: ``roboflow://workspace/project/version/format``.
+
+                    - ``ultralytics://`` for Ultralytics Platform datasets.
+                        - Expected format: ``ultralytics://username/datasets/slug``
+                        - Optional version: append ``?v=<version>`` to
+                          export a specific dataset version.
+
+            dataset_name: Optional output dataset name. If omitted, the
+                name is derived from ``dataset_dir``.
+            save_dir: Optional directory used when downloading remote
+                datasets. If omitted, the current working directory is used.
+            dataset_plugin: Optional dataset plugin registry name. If
+                omitted, ``LuxonisDataset`` is used.
+            dataset_type: Optional dataset type. If provided, automatic
+                format recognition is skipped.
+            task_name: Optional task naming rule. A string is used for all
+                records. A mapping uses class names as keys and task names
+                as values.
+            full_warnings: Whether all skipped annotation warnings should
+                be logged without truncation.
+            kwargs: Additional arguments passed to the selected dataset
+                constructor.
+
+        Raises:
+            RuntimeError: If a Roboflow URL is used and
+                ``ROBOFLOW_API_KEY`` is not configured.
+            ValueError: If a Roboflow URL is malformed, its version is not
+                an integer, or the dataset format cannot be recognized.
+
         """
         save_dir = Path(save_dir) if save_dir else None
         if dataset_dir.startswith("roboflow://"):
-            self.dataset_dir, name = self._download_roboflow_dataset(
+            self._dataset_dir, name = self._download_roboflow_dataset(
+                dataset_dir, save_dir
+            )
+        elif dataset_dir.startswith("ultralytics://"):
+            self._dataset_dir, name = self._download_ultralytics_dataset(
                 dataset_dir, save_dir
             )
         else:
-            name = dataset_dir.split("/")[-1]
+            name = dataset_dir.rsplit("/", maxsplit=1)[-1]
             local_path = (save_dir or Path.cwd()) / name
-            self.dataset_dir = LuxonisFileSystem.download(
+            self._dataset_dir = LuxonisFileSystem.download(
                 dataset_dir, local_path
             )
-        if self.dataset_dir.suffix == ".zip":
-            with zipfile.ZipFile(self.dataset_dir, "r") as zip_ref:
-                unzip_dir = self.dataset_dir.parent / self.dataset_dir.stem
+        if self._dataset_dir.suffix == ".zip":
+            with zipfile.ZipFile(self._dataset_dir, "r") as zip_ref:
+                unzip_dir = self._dataset_dir.parent / self._dataset_dir.stem
                 logger.info(
-                    f"Extracting '{self.dataset_dir.name}' to '{unzip_dir}'"
+                    f"Extracting '{self._dataset_dir.name}' to '{unzip_dir}'"
                 )
                 zip_ref.extractall(unzip_dir)
-                self.dataset_dir = unzip_dir
+                self._dataset_dir = self._resolve_extracted_zip_root(unzip_dir)
 
         if dataset_type:
-            self.dataset_type = dataset_type
-            self.parser_type = (
-                ParserType.DIR
-                if Path(self.dataset_dir / "train").exists()
-                else ParserType.SPLIT
+            self._dataset_type = dataset_type
+            self._parser_type = self._infer_parser_type_for_explicit_type(
+                self._dataset_type
             )
         else:
-            self.dataset_type, self.parser_type = self._recognize_dataset()
+            self._dataset_type, self._parser_type = self._recognize_dataset()
 
         if dataset_plugin is not None:
-            self.dataset_constructor = DATASETS_REGISTRY.get(dataset_plugin)
+            self._dataset_constructor = DATASETS_REGISTRY.get(dataset_plugin)
         else:
-            self.dataset_constructor = LuxonisDataset
+            self._dataset_constructor = LuxonisDataset
 
         dataset_name = dataset_name or name.replace(" ", "_").split(".")[0]
 
-        self.dataset = self.dataset_constructor(
-            dataset_name=dataset_name,  # type: ignore
+        self._dataset = self._dataset_constructor(
+            dataset_name=dataset_name,  # pyright: ignore[reportCallIssue]
             **kwargs,
         )
-        self.parser = self.parsers[self.dataset_type](
-            self.dataset, self.dataset_type, task_name
+        self._parser = self._parsers[self._dataset_type](
+            self._dataset,
+            self._dataset_type,
+            task_name,
+            full_warnings=full_warnings,
+        )
+
+    @staticmethod
+    def _resolve_extracted_zip_root(unzip_dir: Path) -> Path:
+        ignored_entries = {"__MACOSX", "Thumbs.db", "desktop.ini"}
+        visible_entries = [
+            entry
+            for entry in unzip_dir.iterdir()
+            if entry.name not in ignored_entries
+            and not entry.name.startswith(".")
+        ]
+        if len(visible_entries) != 1:
+            return unzip_dir
+
+        only_entry = visible_entries[0]
+        if not only_entry.is_dir():
+            return unzip_dir
+        if not LuxonisParser._is_dataset_root(only_entry):
+            return unzip_dir
+
+        logger.info(
+            f"Detected top-level folder '{only_entry.name}' in extracted zip. "
+            "Using it as dataset root."
+        )
+        return only_entry
+
+    @staticmethod
+    def _is_dataset_root(directory: Path) -> bool:
+        """Tell a dataset root from an arbitrary wrapper folder.
+
+        `ClassificationDirectoryParser` is left out of the parser check,
+        because a single class folder can look like a wrapper.
+
+        Returns:
+            Whether ``directory`` holds a marker directory or file, or a
+            parser other than `ClassificationDirectoryParser` accepts it
+            as a dataset or a split.
+
+        """
+        marker_dirs = {
+            "train",
+            "valid",
+            "val",
+            "validation",
+            "test",
+            "images",
+            "labels",
+            "data",
+            "raw",
+            "masks",
+        }
+        marker_files = {
+            "annotations.json",
+            "labels.json",
+            "data.yaml",
+            "dataset.yaml",
+            "dataset.yml",
+        }
+        child_dirs = {d.name for d in directory.iterdir() if d.is_dir()}
+        child_files = {f.name for f in directory.iterdir() if f.is_file()}
+        if child_dirs & marker_dirs or child_files & marker_files:
+            return True
+        return any(
+            typ != DatasetType.CLSDIR
+            and (
+                parser.validate(directory) or parser.validate_split(directory)
+            )
+            for typ, parser in LuxonisParser._parsers.items()
         )
 
     @overload
@@ -159,103 +284,145 @@ class LuxonisParser(Generic[T]):
     def parse(self: "LuxonisParser[None]", **kwargs) -> LuxonisDataset: ...
 
     def parse(self, **kwargs) -> BaseDataset:
-        """Parses the dataset and returns it in LuxonisDataset format.
+        """Parse the dataset and return it in LDF format.
 
         If the dataset already exists, parsing will be skipped and the
         existing dataset will be returned instead.
 
-        @type kwargs: Dict[str, Any]
-        @param kwargs: Additional C{kwargs} for specific parser
-            implementation.
-        @rtype: LuxonisDataset
-        @return: Parsed dataset in L{LuxonisDataset} format.
+        Note:
+            When the parser reads a single split, this method sets
+            ``random_split=True`` unless you pass your own value. This
+            differs from `BaseParser.parse_split`, which declares
+            ``random_split=False``. A single split therefore gets random
+            train, val, and test splits by default.
+
+        Args:
+            kwargs: Parser-specific arguments.
+
+        Returns:
+            Parsed dataset.
+
+        Raises:
+            ValueError: If the selected parser rejects the dataset
+                structure or split arguments.
+
         """
-        if self.parser_type == ParserType.DIR:
-            dataset = self._parse_dir(**kwargs)
+        if self._parser_type == ParserType.DIR:
+            dataset = self._parser.parse_dir(self._dataset_dir, **kwargs)
         else:
-            dataset = self._parse_split(**kwargs)
+            parsed_kwargs = self._parser.validate_split(self._dataset_dir)
+            if parsed_kwargs is None:
+                raise ValueError(
+                    f"Dataset {self._dataset_dir} is not in the expected "
+                    f"format for {self._dataset_type} parser."
+                )
+            kwargs.setdefault("random_split", True)
+            dataset = self._parser.parse_split(**parsed_kwargs, **kwargs)
 
         logger.info("Dataset parsed successfully.")
         return dataset
 
-    def _recognize_dataset(self) -> Tuple[DatasetType, ParserType]:
-        """Recognizes the dataset format and parser type.
+    def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
+        """Return the parser issue messages of the last parse.
 
-        @rtype: Tuple[DatasetType, ParserType]
-        @return: Tuple of dataset type and parser type.
+        Returns:
+            A new list with each distinct message once, in the order
+            the parser first saw them.
+
         """
-        for typ, parser in self.parsers.items():
-            if parser.validate(self.dataset_dir):
-                logger.info(f"Recognized dataset format as <{typ.name}>")
-                return typ, ParserType.DIR
+        return self._get_parser_issue_messages()
 
-        for typ, parser in self.parsers.items():
-            if parser.validate_split(self.dataset_dir):
+    def _get_parser_issue_messages(self) -> list[ParserIssueMessage]:
+        """Return parser issue messages collected during the last parse."""
+        return self._parser._get_parser_issue_messages()
+
+    def _recognize_dataset(self) -> tuple[DatasetType, ParserType]:
+        """Recognize the dataset format and parser type.
+
+        Returns:
+            Dataset type and parser type.
+
+        Raises:
+            ValueError: If more than one parser matches a dataset that has
+                only some of its splits, or if no parser recognizes the
+                dataset.
+
+        """
+        for dataset_type, parser in self._parsers.items():
+            if parser.validate(self._dataset_dir):
                 logger.info(
-                    f"Recognized dataset format as a split of <{typ.name}>"
+                    f"Recognized dataset format as <{dataset_type.name}>"
                 )
-                return typ, ParserType.SPLIT
+                return dataset_type, ParserType.DIR
+
+        subset_matches: dict[type[BaseParser], DatasetType] = {}
+        for dataset_type, parser in self._parsers.items():
+            # The same YoloV8 or UltralyticsNDJSON parser can correspond to multiple dataset types.
+            if parser in subset_matches:
+                continue
+            if parser.discover_dir_splits(self._dataset_dir):
+                subset_matches[parser] = dataset_type
+
+        if len(subset_matches) == 1:
+            dataset_type = next(iter(subset_matches.values()))
+            logger.info(
+                f"Recognized dataset format as <{dataset_type.name}> from partial splits"
+            )
+            return dataset_type, ParserType.DIR
+
+        if len(subset_matches) > 1:
+            matched_parsers = set(subset_matches)
+            if matched_parsers == {YoloV6Parser, YOLOv8Parser}:
+                raise ValueError(
+                    "Dataset layout is compatible with multiple parsers when "
+                    "only a subset of splits is present. This layout is "
+                    "ambiguous between YOLOv6 and YOLOv8. Please specify "
+                    "dataset_type."
+                )
+            raise ValueError(
+                "Dataset layout is compatible with multiple parsers when "
+                "only a subset of splits is present. Please specify "
+                "dataset_type."
+            )
+
+        for dataset_type, parser in self._parsers.items():
+            if parser.validate_split(self._dataset_dir):
+                logger.info(
+                    f"Recognized dataset format as a split of <{dataset_type.name}>"
+                )
+                return dataset_type, ParserType.SPLIT
 
         raise ValueError(
-            f"Dataset {self.dataset_dir} is not in expected format for any of the parsers."
+            f"Dataset {self._dataset_dir} is not in expected format for any of the parsers."
         )
 
-    def _parse_dir(self, **kwargs) -> BaseDataset:
-        """Parses all present data in LuxonisDataset format.
-
-        Check under each parser for the expected directory structure.
-
-        @type kwargs: Dict[str, Any]
-        @param kwargs: Additional C{kwargs} for specific parser
-            function.
-        @rtype: LuxonisDataset
-        @return: C{LDF} with all the images and annotations parsed.
-        """
-
-        return self.parser.parse_dir(self.dataset_dir, **kwargs)
-
-    def _parse_split(
-        self,
-        split: Optional[str] = None,
-        random_split: bool = True,
-        split_ratios: Optional[Dict[str, float]] = None,
-        **kwargs,
-    ) -> BaseDataset:
-        """Parses data from a subdirectory representing a single split.
-
-        Should be used if adding/changing only specific split. Check
-        under each parser for expected directory structure.
-
-        @type split: Optional[Literal["train", "val", "test"]]
-        @param split: As what split the data will be added to LDF. If
-            set, C{split_ratios} and C{random_split} are ignored.
-        @type random_split: bool
-        @param random_split: If random splits should be made. If
-            C{True}, C{split_ratios} are used.
-        @type split_ratios: Optional[Dict[str, float]]
-        @param split_ratios: Ratios for random splits. Only used if
-            C{random_split} is C{True}. Defaults to C{{"train": 0.8,
-            "val": 0.1, "test": 0.1}}.
-        @type kwargs: Dict[str, Any]
-        @param kwargs: Additional kwargs for specific parser
-            implementation.
-        @rtype: LuxonisDataset
-        @return: C{LDF} with all the images and annotations parsed.
-        """
-        parsed_kwargs = self.parser.validate_split(self.dataset_dir)
-        if parsed_kwargs is None:
-            raise ValueError(
-                f"Dataset {self.dataset_dir} is not in the expected format for {self.dataset_type} parser."
-            )
-        return self.parser.parse_split(
-            split, random_split, split_ratios, **parsed_kwargs, **kwargs
+    def _infer_parser_type_for_explicit_type(
+        self, dataset_type: DatasetType
+    ) -> ParserType:
+        parser = self._parsers[dataset_type]
+        if parser.validate(self._dataset_dir) or parser.discover_dir_splits(
+            self._dataset_dir
+        ):
+            return ParserType.DIR
+        if parser.validate_split(self._dataset_dir):
+            return ParserType.SPLIT
+        raise ValueError(
+            f"Dataset {self._dataset_dir} is not in expected format for the "
+            f"{dataset_type.name} parser."
         )
 
+    @staticmethod
     def _download_roboflow_dataset(
-        self, dataset_dir: str, local_path: Optional[Path]
-    ) -> Tuple[Path, str]:
+        dataset_dir: str, local_path: Path | None
+    ) -> tuple[Path, str]:
+        if environ.ROBOFLOW_API_KEY is None:
+            raise RuntimeError(
+                "ROBOFLOW_API_KEY environment variable is not set. "
+                "Please set it to your Roboflow API key."
+            )
+
         if find_spec("roboflow") is None:  # pragma: no cover
-            _pip_install("roboflow", "roboflow~=1.1.0")
+            _pip_install("roboflow", "roboflow~=1.4")
             subprocess.run(
                 [
                     sys.executable,
@@ -265,7 +432,8 @@ class LuxonisParser(Generic[T]):
                     "-y",
                     "opencv-python",
                     "opencv-python-headless",
-                ]
+                ],
+                check=False,
             )
             subprocess.run(
                 [
@@ -274,27 +442,22 @@ class LuxonisParser(Generic[T]):
                     "pip",
                     "install",
                     "opencv-python~=4.10.0",
-                ]
+                ],
+                check=False,
             )
 
         from roboflow import Roboflow
 
-        if environ.ROBOFLOW_API_KEY is None:
-            raise RuntimeError(
-                "ROBOFLOW_API_KEY environment variable is not set. "
-                "Please set it to your Roboflow API key."
-            )
-
-        rf = Roboflow(api_key=environ.ROBOFLOW_API_KEY)
+        rf = Roboflow(api_key=environ.ROBOFLOW_API_KEY.get_secret_value())
         parts = dataset_dir.split("roboflow://")[1].split("/")
         if len(parts) != 4:
             raise ValueError(
                 f"Incorrect Roboflow dataset URL: `{dataset_dir}`. "
                 "Expected format: `roboflow://workspace/project/version/format`."
             )
-        workspace, project, version, format = dataset_dir.split("roboflow://")[
-            1
-        ].split("/")
+        workspace, project, version, export_format = dataset_dir.split(
+            "roboflow://"
+        )[1].split("/")
         try:
             version = int(version)
         except ValueError as e:
@@ -302,11 +465,99 @@ class LuxonisParser(Generic[T]):
                 f"Roboflow version must be an integer, got `{version}`."
             ) from e
 
-        local_path = local_path or Path.cwd() / f"{project}_{format}"
+        local_path = local_path or Path.cwd() / f"{project}_{export_format}"
         dataset = (
             rf.workspace(workspace)
             .project(project)
             .version(int(version))
-            .download(format, str(local_path / project))
+            .download(export_format, str(local_path / project))
         )
         return Path(dataset.location), project
+
+    @staticmethod
+    def _download_ultralytics_dataset(
+        dataset_dir: str, local_path: Path | None
+    ) -> tuple[Path, str]:
+        if environ.ULTRALYTICS_API_KEY is None:
+            raise RuntimeError(
+                "ULTRALYTICS_API_KEY environment variable is not set. "
+                "Please set it to your Ultralytics API key."
+            )
+
+        ultralytics_api_base_url = "https://platform.ultralytics.com/api"
+        headers = {
+            "Authorization": (
+                f"Bearer {environ.ULTRALYTICS_API_KEY.get_secret_value()}"
+            ),
+            "User-Agent": "luxonis-ml",
+        }
+
+        parsed = urlsplit(dataset_dir)
+        version = _ultralytics_export_version(parsed.query)
+
+        path_parts = [part for part in parsed.path.split("/") if part]
+        if not (
+            parsed.scheme == "ultralytics"
+            and parsed.netloc
+            and len(path_parts) == 2
+            and path_parts[0] == "datasets"
+        ):
+            raise ValueError(
+                f"Incorrect Ultralytics dataset reference: `{dataset_dir}`. "
+                "Expected `ultralytics://username/datasets/slug`."
+            )
+
+        name = path_parts[1]
+        export_response = requests.get(
+            f"{ultralytics_api_base_url}/datasets"
+            f"/{quote(parsed.netloc)}/{quote(name)}/export",
+            headers=headers,
+            params={"v": version} if version is not None else None,
+            timeout=120.0,
+        )
+        if not export_response.ok:
+            raise RuntimeError(
+                "Ultralytics API request failed: "
+                f"{_response_error_detail(export_response)}"
+            )
+
+        download_url = export_response.json()["downloadUrl"]
+
+        local_path = local_path or Path.cwd()
+        version_suffix = f".v{version}" if version is not None else ""
+        destination = local_path / f"{name}{version_suffix}.ndjson"
+        download_remote_file(download_url, destination, timeout=120.0)
+
+        return destination, name
+
+
+def _ultralytics_export_version(query: str) -> int | None:
+    """Read the ``v`` export version of an ``ultralytics://`` URL query."""
+    raw_version = parse_qs(query).get("v", [None])[0]
+    if raw_version is None:
+        return None
+    try:
+        version = int(raw_version)
+    except ValueError as e:
+        raise ValueError(
+            "Ultralytics dataset export version must be an integer, "
+            f"got `{raw_version}`."
+        ) from e
+    if version < 1:
+        raise ValueError(
+            f"Ultralytics dataset export version must be >= 1, got `{version}`."
+        )
+    return version
+
+
+def _response_error_detail(response: requests.Response) -> str:
+    """Describe a failed HTTP response: status, reason and the API error."""
+    try:
+        error = response.json().get("error")
+    except ValueError:
+        error = response.text.strip() or response.reason
+
+    detail = f"{response.status_code} {response.reason}"
+    if error:
+        detail = f"{detail}: {error}"
+    return detail

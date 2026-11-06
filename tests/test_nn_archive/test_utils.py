@@ -12,5 +12,5 @@ def test_infer_layout():
     assert infer_layout([256, 256, 1]) == "HWC"
     assert infer_layout([256, 256, 12]) == "HWC"
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Too many dimensions"):
         infer_layout(list(range(30)))

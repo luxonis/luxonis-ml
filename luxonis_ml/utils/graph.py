@@ -1,17 +1,23 @@
+"""Topological traversal and cycle check for predecessor graphs.
+
+A graph maps each node name to the names of its predecessors.
+"""
+
+from collections.abc import Iterator, Mapping
 from copy import deepcopy
-from typing import Dict, Iterator, List, Set, Tuple, TypeVar
+from typing import TypeVar
 
 T = TypeVar("T")
 
 
 def traverse_graph(
-    graph: Dict[str, List[str]], nodes: Dict[str, T]
-) -> Iterator[Tuple[str, T, List[str], List[str]]]:
-    """Traverses the graph in topological order, starting from the nodes
-    with no predecessors.
+    graph: dict[str, list[str]], nodes: Mapping[str, T]
+) -> Iterator[tuple[str, T, list[str], list[str]]]:
+    """Traverse the graph in topological order.
+
+    The traversal starts from the nodes with no predecessors.
 
     Example:
-
         >>> graph = {"a": ["b"], "b": []}
         >>> nodes = {"a": 1, "b": 2}
         >>> for name, value, preds, rem in traverse_graph(graph, nodes):
@@ -19,16 +25,18 @@ def traverse_graph(
         b 2 [] ['a']
         a 1 ['b'] []
 
-    @type graph: dict[str, list[str]]
-    @param graph: Graph in a format of a dictionary of predecessors.
-        Keys are node names, values are node predecessors (list of node
-        names).
-    @type nodes: dict[str, T]
-    @param nodes: Dictionary mapping node names to values.
-    @rtype: Iterator[tuple[str, T, list[str], list[str]]]
-    @return: Iterator of tuples containing node name, node value, node
-        predecessors, and remaining unprocessed nodes.
-    @raises RuntimeError: If the graph is malformed.
+    Args:
+        graph: Graph represented as a dictionary of predecessors. Keys
+            are node names, values are node predecessors.
+        nodes: Dictionary mapping node names to values.
+
+    Yields:
+        Tuples containing node name, node value, node predecessors, and
+        remaining unprocessed nodes.
+
+    Raises:
+        RuntimeError: If the graph is malformed.
+
     """
     # sort the set for consistent behavior
     unprocessed_nodes = sorted(set(nodes.keys()))
@@ -58,26 +66,37 @@ def traverse_graph(
             )
 
 
-def is_acyclic(graph: Dict[str, List[str]]) -> bool:
-    """Tests if graph is acyclic.
+def is_acyclic(graph: dict[str, list[str]]) -> bool:
+    """Test if graph is acyclic.
 
-    @type graph: dict[str, list[str]]
-    @param graph: Graph in a format of a dictionary of predecessors.
-    @rtype: bool
-    @return: True if graph is acyclic, False otherwise.
+    Args:
+        graph: Graph represented as a dictionary of predecessors.
+
+    Returns:
+        ``True`` if graph is acyclic, ``False`` otherwise.
+
+    Examples:
+        >>> is_acyclic({"a": ["b"], "b": []})
+        True
+        >>> is_acyclic({"a": ["b"], "b": ["a"]})
+        False
+        >>> is_acyclic({})
+        True
+
     """
     graph = graph.copy()
 
-    def dfs(node: str, visited: Set[str], recursion_stack: Set[str]) -> bool:
+    def dfs(node: str, visited: set[str], recursion_stack: set[str]) -> bool:
         visited.add(node)
         recursion_stack.add(node)
 
         for predecessor in graph.get(node, []):
             if predecessor in recursion_stack:
                 return True
-            if predecessor not in visited:
-                if dfs(predecessor, visited, recursion_stack):
-                    return True
+            if predecessor not in visited and dfs(
+                predecessor, visited, recursion_stack
+            ):
+                return True
 
         recursion_stack.remove(node)
         return False
@@ -85,9 +104,7 @@ def is_acyclic(graph: Dict[str, List[str]]) -> bool:
     visited: set[str] = set()
     recursion_stack: set[str] = set()
 
-    for node in graph.keys():
-        if node not in visited:
-            if dfs(node, visited, recursion_stack):
-                return False
-
-    return True
+    return not any(
+        node not in visited and dfs(node, visited, recursion_stack)
+        for node in graph
+    )

@@ -1,30 +1,73 @@
-from typing import Dict, Iterable, List, Literal, Optional, Tuple, Union
+"""Dataset metadata, as stored in ``metadata.json``."""
 
+from collections.abc import Callable, Iterable, Mapping
+from typing import Literal, TypeVar
+
+from pydantic import Field
 from typing_extensions import TypedDict
 
-from luxonis_ml.utils.pydantic_utils import BaseModelExtraForbid
+from luxonis_ml.data.utils.constants import LDF_VERSION
+from luxonis_ml.typing import BaseModelExtraForbid
 
 from .source import LuxonisSource
 
+T = TypeVar("T")
+
 
 class Skeletons(TypedDict):
-    labels: List[str]
-    edges: List[Tuple[int, int]]
+    """Keypoint skeleton metadata.
+
+    Attributes:
+        labels: Keypoint names in index order.
+        edges: Keypoint graph edges as :math:`0`-based index pairs.
+
+    """
+
+    labels: list[str]
+    edges: list[tuple[int, int]]
 
 
 class Metadata(BaseModelExtraForbid):
-    source: Optional[LuxonisSource]
-    ldf_version: str
-    classes: Dict[str, Dict[str, int]]
-    tasks: Dict[str, List[str]]
-    skeletons: Dict[str, Skeletons]
-    categorical_encodings: Dict[str, Dict[str, int]]
-    metadata_types: Dict[str, Literal["float", "int", "str", "Category"]]
-    parent_dataset: Optional[str] = None
+    """Stored metadata for a Luxonis Data Format dataset.
+
+    Attributes:
+        source: Dataset source description.
+        ldf_version: Luxonis Data Format version.
+        classes: Class-index mappings per task.
+        tasks: Task types per task name.
+        skeletons: Keypoint skeleton definitions per task.
+        categorical_encodings: Integer encodings for categorical metadata.
+        metadata_types: Metadata value types per metadata task.
+        parent_dataset: Optional identifier of the source dataset this
+            dataset was derived from.
+
+    """
+
+    source: LuxonisSource | None
+    ldf_version: str = str(LDF_VERSION)
+    classes: dict[str, dict[str, int]] = Field(default_factory=dict)
+    tasks: dict[str, list[str]] = Field(default_factory=dict)
+    skeletons: dict[str, Skeletons] = Field(default_factory=dict)
+    categorical_encodings: dict[str, dict[str, int]] = Field(
+        default_factory=dict
+    )
+    metadata_types: dict[str, Literal["float", "int", "str", "Category"]] = (
+        Field(default_factory=dict)
+    )
+    parent_dataset: str | None = None
 
     def set_classes(
-        self, classes: Union[List[str], Dict[str, int]], task: str
+        self, classes: list[str] | dict[str, int], task: str
     ) -> None:
+        """Set the classes of a task.
+
+        Args:
+            classes: Class names, or class IDs keyed by class name. Class
+                names get IDs in case-insensitive alphabetical order, and
+                ``"background"`` always gets ID :math:`0`.
+            task: Task to update.
+
+        """
         if isinstance(classes, list):
             self.classes[task] = {
                 class_name: i
@@ -34,81 +77,70 @@ class Metadata(BaseModelExtraForbid):
             self.classes[task] = classes
 
     def merge_with(self, other: "Metadata") -> "Metadata":
-        """Merge two metadata objects together."""
+        """Merge two metadata objects together.
+
+        Args:
+            other: Metadata object to merge into this one.
+
+        Returns:
+            New metadata object containing merged classes, tasks,
+            skeletons, categorical encodings, metadata types, and source
+            information.
+
+        Raises:
+            ValueError: If the two metadata objects use different LDF
+                versions.
+
+        """
         if self.ldf_version != other.ldf_version:  # pragma: no cover
             raise ValueError(
                 "Cannot merge metadata with different LDF versions"
             )
 
-        merged_classes = {}
-        for key in set(self.classes) | set(other.classes):
-            if key in self.classes and key in other.classes:
-                all_classes = self._sort_classes(
-                    set(self.classes[key]) | set(other.classes[key])
-                )
-                merged_classes[key] = {
-                    class_name: i for i, class_name in enumerate(all_classes)
-                }
-            elif key in self.classes:
-                merged_classes[key] = self.classes[key]
-            else:
-                merged_classes[key] = other.classes[key]
-
-        merged_tasks = {}
-        for key in set(self.tasks) | set(other.tasks):
-            if key in self.tasks and key in other.tasks:
-                merged_tasks[key] = list(
-                    set(self.tasks[key] + other.tasks[key])
-                )
-            elif key in self.tasks:
-                merged_tasks[key] = self.tasks[key]
-            else:
-                merged_tasks[key] = other.tasks[key]
-
-        merged_skeletons = {**self.skeletons, **other.skeletons}
-
-        merged_categorical_encodings = {}
-        for key in set(self.categorical_encodings) | set(
-            other.categorical_encodings
-        ):
-            if (
-                key in self.categorical_encodings
-                and key in other.categorical_encodings
-            ):
-                merged_inner = self.categorical_encodings[key].copy()
-                merged_inner.update(other.categorical_encodings[key])
-                merged_categorical_encodings[key] = merged_inner
-            elif key in self.categorical_encodings:
-                merged_categorical_encodings[key] = self.categorical_encodings[
-                    key
-                ]
-            else:
-                merged_categorical_encodings[key] = (
-                    other.categorical_encodings[key]
-                )
-
-        merged_metadata_types = {**self.metadata_types, **other.metadata_types}
-        if self.source is None and other.source is not None:
+        if self.source is None:
             merged_source = other.source
-        elif self.source is not None and other.source is None:
+        elif other.source is None:
             merged_source = self.source
-        elif self.source is not None and other.source is not None:
-            merged_source = self.source.merge_with(other.source)
         else:
-            merged_source = None
+            merged_source = self.source.merge_with(other.source)
 
         return Metadata(
             ldf_version=self.ldf_version,
             source=merged_source,
-            classes=merged_classes,
-            tasks=merged_tasks,
-            skeletons=merged_skeletons,
-            categorical_encodings=merged_categorical_encodings,
-            metadata_types=merged_metadata_types,  # type: ignore
+            classes=_merge_dicts(
+                self.classes, other.classes, self._merge_class_maps
+            ),
+            tasks=_merge_dicts(
+                self.tasks, other.tasks, lambda a, b: list(set(a + b))
+            ),
+            skeletons={**self.skeletons, **other.skeletons},
+            categorical_encodings=_merge_dicts(
+                self.categorical_encodings,
+                other.categorical_encodings,
+                lambda a, b: {**a, **b},
+            ),
+            metadata_types={**self.metadata_types, **other.metadata_types},
         )
 
-    def _sort_classes(self, classes: Iterable[str]) -> List[str]:
+    def _merge_class_maps(
+        self, a: dict[str, int], b: dict[str, int]
+    ) -> dict[str, int]:
+        """Index the union of two class sets in sorted order."""
+        all_classes = self._sort_classes(set(a) | set(b))
+        return {class_name: i for i, class_name in enumerate(all_classes)}
+
+    def _sort_classes(self, classes: Iterable[str]) -> list[str]:
         return sorted(
             classes,
             key=lambda x: (0, "") if x == "background" else (1, x.lower()),
         )
+
+
+def _merge_dicts(
+    a: Mapping[str, T], b: Mapping[str, T], combine: Callable[[T, T], T]
+) -> dict[str, T]:
+    """Union of two mappings; a key in both gets ``combine(a[k], b[k])``."""
+    merged = {**a, **b}
+    for key in a.keys() & b.keys():
+        merged[key] = combine(a[key], b[key])
+    return merged

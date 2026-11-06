@@ -1,0 +1,157 @@
+"""Context fields that the telemetry client attaches to events.
+
+`base_context` builds the shared fields. `host_context` and
+`system_context` build the optional host and runtime fields.
+"""
+
+import os
+import platform
+from pathlib import Path
+from typing import Any
+
+from luxonis_ml.utils.environ import environ
+
+RESERVED_METADATA_KEYS = frozenset(
+    {
+        "$process_person_profile",
+        "$session_id",
+        "source_product",
+        "source_component",
+        "sdk_version",
+    }
+)
+
+
+def is_ci() -> bool:
+    """Best-effort detection of CI environments."""
+    markers = [
+        "CI",
+        "GITHUB_ACTIONS",
+        "GITLAB_CI",
+        "BUILDKITE",
+        "JENKINS_URL",
+        "TEAMCITY_VERSION",
+    ]
+    return any(os.environ.get(marker) for marker in markers)
+
+
+def is_luxonis_cloud() -> bool:
+    """Return True when telemetry runs inside the Luxonis cloud."""
+    return bool(environ.LUXONIS_TELEMETRY_IS_LUXONIS_CLOUD)
+
+
+def normalized_processor() -> str:
+    """Return a coarse processor family for telemetry.
+
+    The raw ``platform.processor`` string never leaves the machine.
+    `host_context` still sends the ``platform.machine`` value as
+    ``arch``.
+
+    Returns:
+        One of ``"arm64"``, ``"arm"``, ``"x86_64"``, ``"x86"``,
+        ``"powerpc"``, ``"riscv"``, or ``"unknown"``.
+
+    """
+    raw_values = [platform.machine().lower(), platform.processor().lower()]
+    for value in raw_values:
+        if not value:
+            continue
+        for family, tokens in _PROCESSOR_FAMILIES:
+            if any(token in value for token in tokens):
+                return family
+    return "unknown"
+
+
+# Checked in order: "arm64" must come before "arm", "x86_64" before "x86".
+_PROCESSOR_FAMILIES = (
+    ("arm64", ("aarch64", "arm64")),
+    ("arm", ("arm",)),
+    ("x86_64", ("x86_64", "amd64")),
+    ("x86", ("x86", "i386", "i686")),
+    ("powerpc", ("ppc", "powerpc")),
+    ("riscv", ("riscv",)),
+)
+
+
+def base_context(
+    *,
+    library_name: str,
+    library_version: str | None,
+    session_id: str,
+    source_component: str | None,
+) -> dict[str, Any]:
+    """Create base context for all events.
+
+    Args:
+        library_name: Name of the emitting library.
+        library_version: Version string for the library.
+        session_id: Random session ID. It stays the same for the
+            lifetime of one `luxonis_ml.telemetry.Telemetry` instance,
+            not for the lifetime of the process. The PostHog backend
+            also uses it as the default ``distinct_id``.
+        source_component: Optional component name for the emitter. If
+            omitted, the library name is reused.
+
+    Returns:
+        The shared base context attached to events. It holds
+        ``$process_person_profile``, ``$session_id``,
+        ``source_product``, ``source_component``, and ``sdk_version``.
+
+    Note:
+        ``$process_person_profile`` is False on purpose. It keeps the
+        PostHog captures anonymous, so PostHog creates no person
+        profile. Do not change it to True.
+
+    """
+    return {
+        "$process_person_profile": False,
+        "$session_id": session_id,
+        "source_product": library_name,
+        "source_component": source_component or library_name,
+        "sdk_version": library_version,
+    }
+
+
+def host_context() -> dict[str, Any]:
+    """Return coarse host metadata for optional event context.
+
+    Returns:
+        A mapping of ``os``, ``os_version``, ``arch``, and
+        ``python_version``.
+
+    """
+    return {
+        "os": platform.system(),
+        "os_version": platform.release(),
+        "arch": platform.machine(),
+        "python_version": platform.python_version(),
+    }
+
+
+def system_context() -> dict[str, Any]:
+    """Return extended runtime metadata for optional event context.
+
+    Returns:
+        The keys of `host_context`, plus ``ci``, ``is_luxonis_cloud``,
+        ``processor`` (a coarse family from `normalized_processor`),
+        ``cpu_count``, and ``is_docker``.
+
+    """
+    return {
+        **host_context(),
+        "ci": is_ci(),
+        "is_luxonis_cloud": is_luxonis_cloud(),
+        "processor": normalized_processor(),
+        "cpu_count": os.cpu_count(),
+        "is_docker": Path("/.dockerenv").exists(),
+    }
+
+
+def host_context_provider(_telemetry: object) -> dict[str, Any]:
+    """Context provider that exposes coarse host metadata."""
+    return host_context()
+
+
+def system_context_provider(_telemetry: object) -> dict[str, Any]:
+    """Context provider that exposes extended runtime metadata."""
+    return system_context()

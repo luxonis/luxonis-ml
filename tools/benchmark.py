@@ -1,12 +1,20 @@
+"""Benchmark that writes and reads a synthetic `LuxonisDataset`.
+
+It prints the mean write and read times over the given repeats.
+"""
+
 import time
 from pathlib import Path
+from typing import Annotated
 
 import cv2
 import numpy as np
-import typer
-from typing_extensions import Annotated
+from cyclopts import App, Parameter
+from rich import print as rich_print
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
+from luxonis_ml.data.datasets.base_dataset import DatasetIterator
+from luxonis_ml.typing import Params
 
 name = "benchmark"
 
@@ -14,7 +22,20 @@ DATA_DIR = Path("data/test_data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def generator(size: int):
+def generator(size: int) -> DatasetIterator:
+    """Yield ten benchmark records for each of ``size`` random images.
+
+    Each image is a random 256x256 JPEG written to ``DATA_DIR``. Its
+    records have the class ``"test"``, a bounding box, a segmentation
+    polygon, and three keypoints.
+
+    Args:
+        size: Number of images to generate.
+
+    Yields:
+        Dictionaries with the image path and one annotation.
+
+    """
     for i in range(size):
         img = np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8)
         cv2.imwrite(str(DATA_DIR / f"img_{i}.jpg"), img)
@@ -50,14 +71,14 @@ def generator(size: int):
             }
 
 
-app = typer.Typer()
+app = App()
 
-normal_config = [
+normal_config: list[Params] = [
     {"name": "Defocus", "params": {"p": 1}},
     {"name": "Sharpen", "params": {"p": 1}},
     {"name": "Affine", "params": {"p": 1}},
 ]
-batched_config = [
+batched_config: list[Params] = [
     {
         "name": "MixUp",
         "params": {"p": 1, "alpha": 0.5},
@@ -65,25 +86,28 @@ batched_config = [
 ]
 
 
+@app.default
 def main(
-    repeat: Annotated[int, typer.Option(..., "-r", "--repeat")] = 1,
-    size: Annotated[int, typer.Option(..., "-s", "--size")] = 10_000,
-    no_write: Annotated[bool, typer.Option(..., "-nw", "--no-write")] = False,
-    no_read: Annotated[bool, typer.Option(..., "-nr", "--no-read")] = False,
-    augment: Annotated[bool, typer.Option(..., "-a", "--augment")] = False,
-    batched: Annotated[bool, typer.Option(..., "-b", "--batched")] = False,
+    *,
+    repeat: Annotated[int, Parameter(alias="-r")] = 1,
+    size: Annotated[int, Parameter(alias="-s")] = 10_000,
+    no_write: Annotated[bool, Parameter(alias="-nw")] = False,
+    no_read: Annotated[bool, Parameter(alias="-nr")] = False,
+    augment: Annotated[bool, Parameter(alias="-a")] = False,
+    batched: Annotated[bool, Parameter(alias="-b")] = False,
 ) -> None:
+    """Benchmark writing and reading a dataset with the given parameters."""
     if not no_write:
         avg = 0
         for _ in range(repeat):
             dataset = LuxonisDataset(
-                name, delete_existing=True, bucket_storage=BucketStorage.LOCAL
+                name, delete_local=True, bucket_storage=BucketStorage.LOCAL
             )
             t = time.time()
             dataset.add(generator(size))
             dataset.make_splits()
             avg += time.time() - t
-        print(f"Time to write: {avg / repeat:.2f}s")
+        rich_print(f"Time to write: {avg / repeat:.2f}s")
 
     if not no_read:
         avg = 0
@@ -103,8 +127,8 @@ def main(
                 pass
 
             avg += time.time() - t
-        print(f"Time to read: {avg / repeat:.2f}s")
+        rich_print(f"Time to read: {avg / repeat:.2f}s")
 
 
 if __name__ == "__main__":
-    typer.run(main)
+    app()

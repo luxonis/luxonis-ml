@@ -1,35 +1,29 @@
-from typing import List, Optional
+"""Schema of one model in an NN Archive config."""
 
 from pydantic import Field
 
-from luxonis_ml.utils import BaseModelExtraForbid
+from luxonis_ml.typing import BaseModelExtraForbid
 
 from .config_building_blocks import HeadType, Input, Metadata, Output
 
 
 class Model(BaseModelExtraForbid):
-    """Class defining a single-stage model config scheme.
+    """Configuration for one model stage in an NN Archive.
 
-    @type metadata: Metadata
-    @ivar metadata: Metadata object defining the model metadata.
-    @type inputs: list
-    @ivar inputs: List of Input objects defining the model inputs.
-    @type outputs: list
-    @ivar outputs: List of Output objects defining the model outputs.
-    @type heads: list
-    @ivar heads: List of Head objects defining the model heads. If not
-        defined, we assume a raw output.
+    Attributes:
+        metadata: Model-level metadata, including the executable path.
+        inputs: Input stream definitions.
+        outputs: Output stream definitions.
+        heads: Optional parser head definitions. If omitted, the archive
+            exposes raw model outputs.
+
     """
 
     metadata: Metadata = Field(
-        description="Metadata object defining the model metadata."
+        description="Model-level metadata, including the executable path."
     )
-    inputs: List[Input] = Field(
-        description="List of Input objects defining the model inputs."
-    )
-    outputs: List[Output] = Field(
-        description="List of Output objects defining the model outputs."
-    )
-    heads: Optional[List[HeadType]] = Field(
-        description="List of Head objects defining the model heads. If not defined, we assume a raw output."
+    inputs: list[Input] = Field(description="Input stream definitions.")
+    outputs: list[Output] = Field(description="Output stream definitions.")
+    heads: list[HeadType] | None = Field(
+        description="Parser head definitions. If omitted, the archive exposes raw model outputs."
     )

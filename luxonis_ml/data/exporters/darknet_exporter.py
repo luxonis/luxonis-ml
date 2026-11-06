@@ -1,0 +1,193 @@
+"""Export bounding boxes to the Darknet format."""
+
+from pathlib import Path
+from typing import Any, cast
+
+from typing_extensions import override
+
+from luxonis_ml.data.exporters.base_exporter import BaseExporter
+from luxonis_ml.data.exporters.exporter_utils import (
+    PreparedLDF,
+    check_group_file_correspondence,
+    exporter_specific_annotation_warning,
+    split_of_group,
+    yolo_bbox_label,
+)
+from luxonis_ml.enums import DatasetType
+
+
+class DarknetExporter(BaseExporter):
+    """Export object detection data in Darknet format.
+
+    Attributes:
+        class_to_id: Class-name to class-ID mapping.
+        class_names: Class names ordered by class ID.
+
+    """
+
+    def __init__(
+        self,
+        dataset_identifier: str,
+        output_path: Path,
+        max_partition_size_gb: float | None,
+    ) -> None:
+        """Create the exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Maximum partition size in GiB, or
+                ``None`` to disable partitioning.
+
+        """
+        super().__init__(
+            dataset_identifier, output_path, max_partition_size_gb
+        )
+        self.class_to_id: dict[str, int] = {}
+        self.class_names: list[str] = []
+
+    @staticmethod
+    def get_split_names() -> dict[str, str]:
+        """Return the directory name of each split.
+
+        Returns:
+            Split names mapped to directory names. The ``val`` split
+            becomes ``valid``.
+
+        """
+        return {"train": "train", "val": "valid", "test": "test"}
+
+    @override
+    def supported_ann_types(self) -> list[str]:
+        return DatasetType.DARKNET.supported_annotation_formats
+
+    @override
+    def export(self, prepared_ldf: PreparedLDF) -> None:
+        check_group_file_correspondence(prepared_ldf)
+        exporter_specific_annotation_warning(
+            prepared_ldf, self.supported_ann_types()
+        )
+
+        labels_by_split: dict[str, dict[str, list[str]]] = {
+            v: {} for v in self.get_split_names().values()
+        }
+
+        df = prepared_ldf.processed_df
+        grouped = df.group_by(["file", "group_id"], maintain_order=True)
+
+        copied_files: set[Path] = set()
+
+        for key, group_df in grouped:
+            file_name, group_id = cast("tuple[str, Any]", key)
+            split_key = split_of_group(prepared_ldf, group_id)
+            split_name = self.get_split_names()[split_key]
+
+            file_path = Path(str(file_name))
+            idx = self.image_indices.setdefault(
+                file_path, len(self.image_indices)
+            )
+            new_name = f"{idx}{file_path.suffix}"
+            new_stem = Path(new_name).stem
+
+            label_lines = self._collect_darknet_bounding_box_labels(group_df)
+
+            ann_size = sum(len(line) for line in label_lines)
+            img_size = file_path.stat().st_size
+            labels_by_split = self._maybe_roll_partition(
+                labels_by_split, ann_size + img_size
+            )
+
+            labels_by_split[split_name][new_stem] = label_lines
+
+            split_dir = self._get_data_path(
+                self.output_path, split_name, self.part
+            )
+            split_dir.mkdir(parents=True, exist_ok=True)
+            dest_img = split_dir / new_name
+
+            if file_path not in copied_files:
+                copied_files.add(file_path)
+                if dest_img != file_path:
+                    dest_img.write_bytes(file_path.read_bytes())
+                self.current_size += img_size
+
+        self._dump_annotations(labels_by_split, self.output_path, self.part)
+
+    def _collect_darknet_bounding_box_labels(
+        self,
+        group_df: Any,
+    ) -> list[str]:
+        label_lines: list[str] = []
+
+        for row in group_df.iter_rows(named=True):
+            label = yolo_bbox_label(row, self.class_to_id, self.class_names)
+            if label is None:
+                continue
+            cid, x_tl, y_tl, w, h = label
+            cx = x_tl + w / 2.0
+            cy = y_tl + h / 2.0
+            label_lines.append(f"{cid} {cx:.12f} {cy:.12f} {w:.12f} {h:.12f}")
+
+        return label_lines
+
+    def _maybe_roll_partition(
+        self,
+        labels_by_split: dict[str, dict[str, list[str]]],
+        additional_size: int,
+    ) -> dict[str, dict[str, list[str]]]:
+        if (
+            self.max_partition_size
+            and self.part is not None
+            and (self.current_size + additional_size) > self.max_partition_size
+        ):
+            self._dump_annotations(
+                labels_by_split, self.output_path, self.part
+            )
+            self.current_size = 0
+            self.part += 1
+            return {v: {} for v in self.get_split_names().values()}
+        return labels_by_split
+
+    @override
+    def _dump_annotations(
+        self,
+        labels_by_split: dict[str, dict[str, list[str]]],
+        output_path: Path,
+        part: int | None = None,
+    ) -> None:
+        if all(len(imgs) == 0 for imgs in labels_by_split.values()):
+            return
+
+        base = (
+            output_path / f"{self.dataset_identifier}_part{part}"
+            if part is not None
+            else output_path / self.dataset_identifier
+        )
+        base.mkdir(parents=True, exist_ok=True)
+
+        for split_name, per_image in labels_by_split.items():
+            split_dir = base / split_name
+            split_dir.mkdir(parents=True, exist_ok=True)
+
+            for stem, lines in per_image.items():
+                (split_dir / f"{stem}.txt").write_text(
+                    "\n".join(lines) + ("\n" if lines else ""),
+                    encoding="utf-8",
+                )
+
+            (split_dir / "_darknet.labels").write_text(
+                "\n".join(self.class_names)
+                + ("\n" if self.class_names else ""),
+                encoding="utf-8",
+            )
+
+    @override
+    def _get_data_path(
+        self, output_path: Path, split_name: str, part: int | None = None
+    ) -> Path:
+        base = (
+            output_path / f"{self.dataset_identifier}_part{part}"
+            if part is not None
+            else output_path / self.dataset_identifier
+        )
+        return base / split_name

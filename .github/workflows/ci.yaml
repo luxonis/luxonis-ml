@@ -2,138 +2,273 @@ name: CI
 
 on:
   pull_request:
-    branches: [ main ]
-    paths:
-      - 'luxonis_ml/**'
-      - 'tests/**'
-      - .github/workflows/ci.yaml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
-  pull-requests: write
-  contents: write
-  checks: write
+  contents: read
 
 jobs:
+  metadata:
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/reusable-metadata.yaml
+
   pre-commit:
     runs-on: ubuntu-latest
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ github.head_ref }}
 
-    - name: Install pre-commit
-      run: python3 -m pip install 'pre-commit<4.0.0'
-
-    - name: Run pre-commit
-      uses: pre-commit/action@v3.0.1
-
-  docs:
-    runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.head_ref }}
+          persist-credentials: false
 
-      - name: Install dependencies
-        run: pip install pydoctor
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          enable-cache: true
+
+      - name: Run pre-commit hooks
+        # deptry needs the project dependencies, which this job does not
+        # install. The type-check job runs it.
+        env:
+          SKIP: deptry
+        run: >-
+          uv run --locked --only-group lint prek run
+          --all-files --show-diff-on-failure --color=always
+
+  docs:
+    needs: pre-commit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.head_ref }}
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          enable-cache: true
 
       - name: Build docs
-        run: pydoctor --docformat=epytext luxonis_ml
+        run: uv run --locked --only-group docs pydoctor luxonis_ml
+
+  type-check:
+    needs: pre-commit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.head_ref }}
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Pyright check
+        run: uv run --no-sync pyright --warnings --level warning --project pyproject.toml
+
+      - name: Dependency check
+        run: uv run --no-sync deptry .
+
+  semgrep:
+    needs: pre-commit
+    uses: ./.github/workflows/reusable-semgrep.yaml
 
   tests:
-    needs:
-      - pre-commit
-      - docs
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.8', '3.10']
+        os: [ubuntu-latest, windows-latest]
+        group: [1, 2, 3, 4, 5, 6]
 
+    needs: [type-check, semgrep, docs]
     runs-on: ${{ matrix.os }}
 
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_S3_ENDPOINT_URL: ${{ secrets.AWS_S3_ENDPOINT_URL }}
+      ROBOFLOW_API_KEY: ${{ secrets.ROBOFLOW_API_KEY }}
+      ULTRALYTICS_API_KEY: ${{ secrets.ULTRALYTICS_API_KEY }}
+      LUXONISML_BUCKET: luxonis-test-bucket
+      GHC_ENABLED: ${{ secrets.GCP_CREDENTIALS != null }}
+
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ github.head_ref }}
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.head_ref }}
+          persist-credentials: false
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-        cache: pip
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          enable-cache: true
 
-    - name: Install package
-      run: pip install -e .[dev]
+      - name: Restore pytest durations
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .pytest-durations
+          key: pytest-durations-${{ matrix.os }}-${{ github.run_id }}
+          restore-keys: |
+            pytest-durations-${{ matrix.os }}-
 
-    - name: Authenticate to Google Cloud
-      id: google-auth
-      uses: google-github-actions/auth@v2
-      with:
-        credentials_json: ${{ secrets.GCP_CREDENTIALS }}
-        create_credentials_file: true
-        export_environment_variables: true
-        token_format: access_token
+      - name: Sync dependencies
+        run: uv sync --locked
 
-    - name: Run pytest
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        AWS_S3_ENDPOINT_URL: ${{ secrets.AWS_S3_ENDPOINT_URL }}
-        ROBOFLOW_API_KEY: ${{ secrets.ROBOFLOW_API_KEY }}
-        LUXONISML_BUCKET: luxonis-test-bucket
-      run:
-        pytest --cov --junitxml=junit.xml -o junit_family=legacy -n auto -vv -x
+      - name: Authenticate to Google Cloud
+        if: ${{ env.GHC_ENABLED }}
+        id: google-auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+          create_credentials_file: true
+          export_environment_variables: true
+          token_format: access_token
 
-    - name: Upload test results to Codecov
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
-      uses: codecov/test-results-action@v1
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        fail_ci_if_error: false
+      - name: Run pytest
+        shell: bash
+        env:
+          MATRIX_OS: ${{ matrix.os }}
+          MATRIX_GROUP: ${{ matrix.group }}
+        run: |
+          junit_xml="junit-$MATRIX_OS-$MATRIX_GROUP.xml"
+          mkdir -p .pytest-durations
+          durations_path=".pytest-durations/.test_durations.$MATRIX_OS"
+          pytest_args=(
+            --splits 6
+            --group "$MATRIX_GROUP"
+            --durations-path "$durations_path"
+            --splitting-algorithm duration_based_chunks
+            --junitxml "$junit_xml"
+            -o junit_family=legacy
+            -vv
+            -n auto
+            -x
+          )
 
-    - name: Upload coverage results to Codecov
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
-      uses: codecov/codecov-action@v4
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        fail_ci_if_error: false
+          if [[ "$MATRIX_OS" == "ubuntu-latest" ]]; then
+            coverage_xml="coverage-$MATRIX_OS-$MATRIX_GROUP.xml"
+            uv run --no-sync pytest --cov --cov-report term-missing --cov-report "xml:$coverage_xml" "${pytest_args[@]}"
+          else
+            uv run --no-sync pytest "${pytest_args[@]}"
+          fi
 
-    - name: Upload coverage as artifact
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
-      uses: actions/upload-artifact@v4
-      with:
-        name: coverage
-        path: coverage.xml
-        overwrite: true
+      - name: Upload test result artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: junit-${{ matrix.os }}-${{ matrix.group }}
+          path: junit-${{ matrix.os }}-${{ matrix.group }}.xml
+          if-no-files-found: ignore
+
+      - name: Upload test results to Codecov
+        if: ${{ always() && matrix.os == 'ubuntu-latest' }}
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          report_type: test_results
+          fail_ci_if_error: false
+          files: junit-${{ matrix.os }}-${{ matrix.group }}.xml
+          flags: pytest-${{ matrix.os }}
+          name: pytest-${{ matrix.os }}-${{ matrix.group }}
+          disable_search: true
+          handle_no_reports_found: true
+
+      - name: Upload coverage as artifact
+        if: ${{ always() && matrix.os == 'ubuntu-latest'  }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: coverage-${{ matrix.os }}-${{ matrix.group }}
+          path: coverage-${{ matrix.os }}-${{ matrix.group }}.xml
+          if-no-files-found: ignore
+          overwrite: true
+
+  coverage:
+    needs: tests
+    runs-on: ubuntu-latest
+
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      # Required by codecov-action, it builds the path-fixing file network
+      # from the checked out repository.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.head_ref }}
+          persist-credentials: false
+
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: coverage-ubuntu-latest-*
+          path: coverage
+          merge-multiple: true
+
+      - name: Collect coverage files
+        id: coverage-files
+        shell: bash
+        run: |
+          files=$(find coverage -type f -name 'coverage-ubuntu-latest-*.xml' | sort | paste -sd, -)
+          if [[ -z "$files" ]]; then
+            echo "No coverage files found" >&2
+            exit 1
+          fi
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+
+      - name: Upload coverage results to Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+          files: ${{ steps.coverage-files.outputs.files }}
+          flags: pytest-ubuntu-latest
+          name: pytest-ubuntu-latest
+          disable_search: true
 
   check-requirements:
     if: ${{ startsWith(github.head_ref, 'release/') }}
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        submodule: ["ldf", "data", "nn_archive", "utils"]
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.head_ref }}
+          persist-credentials: false
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
         with:
-          python-version: ${{ inputs.main-python-version }}
-          cache: pip
+          enable-cache: true
 
+      # Only the submodule's own extra, so a dependency missing from that extra
+      # fails here instead of silently working through the full dev install.
       - name: Install the package
-        run: pip install -e .[all]
+        run: uv sync --locked --no-default-groups --extra ${{ matrix.submodule }}
 
       - name: Check requirements
-        run: |
-          python3 <<EOF
-          from luxonis_ml.data import *
-          from luxonis_ml.utils import *
-          from luxonis_ml.nn_archive import *
-          EOF
-
+        run: uv run --no-sync python -c 'from luxonis_ml.${{ matrix.submodule }} import *'

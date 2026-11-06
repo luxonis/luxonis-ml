@@ -1,17 +1,18 @@
 import random
 from pathlib import Path
-from typing import List
 
 import numpy as np
 from pytest_subtests.plugin import SubTests
-from utils import create_dataset, create_image
 
 from luxonis_ml.data import LuxonisLoader
+from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
+
+from .utils import create_dataset, create_image
 
 
 def build_segmentation(
-    polylines: List[List[float]], img_w: int, img_h: int
+    polylines: list[list[float]], img_w: int, img_h: int
 ) -> dict:
     points = []
     for polyline in polylines:
@@ -31,7 +32,7 @@ def test_ordering_loader_background(tempdir: Path, subtests: SubTests):
         height,
     )
 
-    def generator(classes_list: List[str]):
+    def generator(classes_list: list[str]) -> DatasetIterator:
         for i, class_name in enumerate(classes_list):
             yield {
                 "file": create_image(i, tempdir),
@@ -55,7 +56,7 @@ def test_ordering_loader_background(tempdir: Path, subtests: SubTests):
                 classification, [1.0] + [0.0] * len(classes_list)
             )
 
-        assert loader.classes[""] == {
+        assert loader._classes[""] == {
             "background": 0,
             "airplane": 1,
             "cat": 2,
@@ -75,7 +76,7 @@ def test_ordering_loader_background(tempdir: Path, subtests: SubTests):
             classification = labels["/classification"]
             assert len(classification) == len(classes_list)
 
-        assert loader.classes[""] == {
+        assert loader._classes[""] == {
             "background": 0,
             "airplane": 1,
             "cat": 2,
@@ -83,7 +84,7 @@ def test_ordering_loader_background(tempdir: Path, subtests: SubTests):
         }
 
 
-def test_ordering_loader_no_backgroun(tempdir: Path):
+def test_ordering_loader_no_background(tempdir: Path):
     width, height = 512, 512
     left_seg = build_segmentation(
         [[0, 0, width / 2, 0, width / 2, height, 0, height]], width, height
@@ -94,7 +95,7 @@ def test_ordering_loader_no_backgroun(tempdir: Path):
         height,
     )
 
-    def generator():
+    def generator() -> DatasetIterator:
         yield {
             "file": create_image(0, tempdir),
             "annotation": {"class": "dog", "segmentation": right_seg},
@@ -111,7 +112,7 @@ def test_ordering_loader_no_backgroun(tempdir: Path):
         classification = labels["/classification"]
         assert len(classification) == 2
 
-    assert loader.classes == {"": {"cat": 0, "dog": 1}}
+    assert loader._classes == {"": {"cat": 0, "dog": 1}}
 
 
 def test_ordering_dataset(
@@ -119,12 +120,12 @@ def test_ordering_dataset(
 ):
     class_names = list("abcdefghijKLM")
 
-    def generator(classes: List[str]):
+    def generator(classes: list[str]) -> DatasetIterator:
         for i, class_name in enumerate(classes):
             img = create_image(i, tempdir)
             yield {
                 "file": img,
-                "task": "ordering",
+                "task_name": "ordering",
                 "annotation": {
                     "class": class_name,
                 },

@@ -1,0 +1,15 @@
+name: GitHub Actions Version Updater
+
+on:
+  schedule:
+    - cron: "0 0 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  update-github-actions:
+    uses: ./.github/workflows/reusable-actions-update.yaml
+    secrets:
+      WORKFLOW_SECRET: ${{ secrets.WORKFLOW_SECRET }}

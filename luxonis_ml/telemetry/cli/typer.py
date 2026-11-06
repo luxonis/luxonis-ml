@@ -1,0 +1,108 @@
+"""Telemetry instrumentation for the commands of a ``typer.Typer``."""
+
+from typing import Any
+
+from luxonis_ml.telemetry.cli.shared import join_command, wrap_command_callback
+from luxonis_ml.telemetry.client import Telemetry
+
+
+def instrument_typer(
+    app: Any,
+    telemetry: Telemetry,
+    *,
+    allowlist: set[str] | None = None,
+    include_system_metadata: bool | None = None,
+    exclude_commands: set[str] | None = None,
+) -> None:
+    """Wrap Typer commands to emit telemetry events.
+
+    The wrapper walks the app recursively, so it also instruments the
+    commands of every registered sub-app.
+
+    Args:
+        app: The Typer application to instrument.
+        telemetry: The telemetry client that captures the events.
+        allowlist: Names of the command arguments you allow in the
+            event. One allowlist covers every instrumented command. If
+            omitted, no argument value is sent. The wrapper always drops
+            ``self``, ``ctx``, and ``context``, and it drops any Click
+            or Typer context object.
+        include_system_metadata: Whether to attach system metadata to
+            the events. If omitted, the telemetry configuration
+            decides.
+        exclude_commands: Full command names to leave uninstrumented,
+            such as ``{"data parse"}``. Nested names use a space
+            between the parts.
+
+    Example:
+        Log the command names, and add the ``name`` argument of every
+        command that takes it.
+
+        .. code-block:: python
+
+            instrument_typer(app, telemetry, allowlist={"name"})
+
+    Note:
+        Use `luxonis_ml.telemetry.cli.skip_telemetry` on a single
+        callback to exclude that command, as an alternative to
+        ``exclude_commands``.
+
+    """
+    _wrap_typer(
+        app,
+        telemetry,
+        allowlist=allowlist,
+        include_system_metadata=include_system_metadata,
+        exclude_commands=exclude_commands,
+        prefix="",
+    )
+
+
+def _wrap_typer(
+    app: Any,
+    telemetry: Telemetry,
+    *,
+    allowlist: set[str] | None,
+    include_system_metadata: bool | None,
+    exclude_commands: set[str] | None,
+    prefix: str,
+) -> None:
+    """Wrap commands/groups recursively in a Typer app."""
+    for command in list(app.registered_commands or []):
+        callback = command.callback
+        if callback is None:
+            continue
+        name = _resolve_command_name(command.name, callback)
+        full_name = join_command(prefix, name)
+        if exclude_commands and full_name in exclude_commands:
+            continue
+        command.callback = wrap_command_callback(
+            callback,
+            telemetry,
+            full_name,
+            allowlist=allowlist,
+            include_system_metadata=include_system_metadata,
+        )
+
+    for group in list(app.registered_groups or []):
+        group_prefix = join_command(prefix, group.name or "")
+        if group.typer_instance is None:
+            continue
+        _wrap_typer(
+            group.typer_instance,
+            telemetry,
+            allowlist=allowlist,
+            include_system_metadata=include_system_metadata,
+            exclude_commands=exclude_commands,
+            prefix=group_prefix,
+        )
+
+
+def _resolve_command_name(command_name: str | None, callback: Any) -> str:
+    """Resolve the CLI-visible Typer command name."""
+    if command_name is not None:
+        return command_name
+
+    from typer.main import get_command_name
+
+    return get_command_name(callback.__name__)

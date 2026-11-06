@@ -1,0 +1,135 @@
+"""Telemetry instrumentation for the commands of a ``cyclopts.App``."""
+
+from collections.abc import Iterable
+
+import cyclopts
+
+from luxonis_ml.telemetry.cli.shared import join_command, wrap_command_callback
+from luxonis_ml.telemetry.client import Telemetry
+
+
+def instrument_cyclopts(
+    app: cyclopts.App,
+    telemetry: Telemetry,
+    *,
+    allowlist: set[str] | None = None,
+    include_system_metadata: bool | None = None,
+    exclude_commands: set[str] | None = None,
+) -> None:
+    """Wrap Cyclopts commands to emit telemetry events.
+
+    The wrapper walks the app recursively, so it also instruments the
+    commands of every sub-app. Aliases share one app object, so the
+    wrapper instruments each sub-app once.
+
+    Args:
+        app: The Cyclopts application to instrument.
+        telemetry: The telemetry client that captures the events.
+        allowlist: Names of the command arguments you allow in the
+            event. One allowlist covers every instrumented command. If
+            omitted, no argument value is sent. The wrapper always drops
+            ``self``, ``ctx``, and ``context``, and it drops any Click
+            or Typer context object.
+        include_system_metadata: Whether to attach system metadata to
+            the events. If omitted, the telemetry configuration
+            decides.
+        exclude_commands: Full command names to leave uninstrumented,
+            such as ``{"data parse"}``. Nested names use a space
+            between the parts.
+
+    Note:
+        The wrapper skips the generated help and version callbacks. Use
+        `luxonis_ml.telemetry.cli.skip_telemetry` on a single callback
+        to exclude that command as well.
+
+    """
+    _wrap_cyclopts(
+        app,
+        telemetry,
+        allowlist=allowlist,
+        include_system_metadata=include_system_metadata,
+        exclude_commands=exclude_commands,
+        prefix="",
+    )
+
+
+def _wrap_cyclopts(
+    app: cyclopts.App,
+    telemetry: Telemetry,
+    *,
+    allowlist: set[str] | None,
+    include_system_metadata: bool | None,
+    exclude_commands: set[str] | None,
+    prefix: str,
+) -> None:
+    """Wrap commands/subapps recursively in a Cyclopts app."""
+    default_command = app.default_command
+    if default_command is not None and not _is_builtin_cyclopts_command(
+        app, default_command
+    ):
+        command_name = prefix or _primary_name(app.name)
+        if not exclude_commands or command_name not in exclude_commands:
+            app.default_command = wrap_command_callback(
+                default_command,
+                telemetry,
+                command_name,
+                allowlist=allowlist,
+                include_system_metadata=include_system_metadata,
+            )
+
+    for subapp in _iter_unique_subapps(app._commands.values()):
+        name = _primary_name(subapp.name)
+        if not name or name.startswith("-"):
+            continue
+        subapp_prefix = join_command(prefix, name)
+        _wrap_cyclopts(
+            subapp,
+            telemetry,
+            allowlist=allowlist,
+            include_system_metadata=include_system_metadata,
+            exclude_commands=exclude_commands,
+            prefix=subapp_prefix,
+        )
+
+
+def _iter_unique_subapps(subapps: Iterable[object]) -> list[cyclopts.App]:
+    """Deduplicate Cyclopts subapps, because aliases share one app object.
+
+    Returns:
+        Each ``cyclopts.App`` in ``subapps`` once, in the order of first
+        appearance. Items that are not apps are left out.
+
+    """
+    unique: list[cyclopts.App] = []
+    seen: set[int] = set()
+    for subapp in subapps:
+        if not isinstance(subapp, cyclopts.App):
+            continue
+        identity = id(subapp)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        unique.append(subapp)
+    return unique
+
+
+def _primary_name(name: tuple[str, ...] | str | None) -> str:
+    """Return the primary command name from a Cyclopts app name value.
+
+    Returns:
+        The first name, or an empty string if ``name`` holds none.
+
+    """
+    if name is None:
+        return ""
+    if isinstance(name, tuple):
+        return name[0] if name else ""
+    return name
+
+
+def _is_builtin_cyclopts_command(
+    app: cyclopts.App,
+    default_command: object,
+) -> bool:
+    """Return True for Cyclopts-generated help/version callbacks."""
+    return default_command in {app.help_print, app.version_print}

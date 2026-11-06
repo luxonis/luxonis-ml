@@ -1,0 +1,311 @@
+"""Downloader for remote files with optional image validation."""
+
+import shutil
+from pathlib import Path
+from typing import Protocol
+from urllib.parse import unquote, urlsplit
+
+import requests
+from PIL import Image, UnidentifiedImageError
+
+from luxonis_ml.utils.filesystem import LuxonisFileSystem
+
+ALLOWED_IMAGE_SUFFIXES_BY_FORMAT = {
+    "JPEG": frozenset({".jpeg", ".jpg"}),
+    "PNG": frozenset({".png"}),
+    "WEBP": frozenset({".webp"}),
+    "BMP": frozenset({".bmp"}),
+    "TIFF": frozenset({".tif", ".tiff"}),
+    "HEIC": frozenset({".heic"}),
+    "AVIF": frozenset({".avif"}),
+    "JP2": frozenset({".jp2"}),
+    "DNG": frozenset({".dng"}),
+    "MPO": frozenset({".mpo"}),
+}
+ALLOWED_IMAGE_SUFFIXES = frozenset(
+    suffix
+    for suffixes in ALLOWED_IMAGE_SUFFIXES_BY_FORMAT.values()
+    for suffix in suffixes
+)
+ALLOWED_PILLOW_FORMATS_BY_FORMAT = {
+    "JPEG": frozenset({"JPEG"}),
+    "PNG": frozenset({"PNG"}),
+    "WEBP": frozenset({"WEBP"}),
+    "BMP": frozenset({"BMP"}),
+    "TIFF": frozenset({"TIFF"}),
+    "HEIC": frozenset({"HEIC", "HEIF"}),
+    "AVIF": frozenset({"AVIF"}),
+    "JP2": frozenset({"JP2", "JPEG2000"}),
+    "DNG": frozenset({"DNG", "TIFF"}),
+    "MPO": frozenset({"MPO"}),
+}
+FS_REMOTE_URL_SCHEMES = frozenset({"gcs", "gs", "s3"})
+ALLOWED_REMOTE_URL_SCHEMES = frozenset(
+    {"file", "http", "https", *FS_REMOTE_URL_SCHEMES}
+)
+
+
+class RemoteFileAPIClient(Protocol):
+    """Protocol for clients that download HTTP and HTTPS URLs."""
+
+    def download(self, url: str, destination: Path, *, timeout: float) -> None:
+        """Download ``url`` into the file ``destination``.
+
+        Args:
+            url: URL to download.
+            destination: Local file to write.
+            timeout: Request timeout in seconds.
+
+        """
+        ...
+
+
+class RequestsRemoteFileAPIClient:
+    """Download client for HTTP and HTTPS built on ``requests``.
+
+    `RemoteFileDownloader` uses it when no other client is given.
+    """
+
+    def download(self, url: str, destination: Path, *, timeout: float) -> None:
+        """Stream the response for ``url`` into ``destination``.
+
+        The request sends a ``luxonis-ml`` user agent and fails on an
+        HTTP error status.
+
+        Args:
+            url: URL to download.
+            destination: Local file to write.
+            timeout: Request timeout in seconds.
+
+        """
+        with (
+            requests.get(
+                url,
+                headers={"User-Agent": "luxonis-ml"},
+                stream=True,
+                timeout=timeout,
+            ) as response,
+            destination.open("wb") as output_file,
+        ):
+            response.raise_for_status()
+            shutil.copyfileobj(response.raw, output_file)
+
+
+class RemoteFileDownloader:
+    """Download remote files with optional image validation.
+
+    Attributes:
+        api_client: Client used for HTTP and HTTPS downloads.
+
+    """
+
+    def __init__(self, api_client: RemoteFileAPIClient | None = None) -> None:
+        """Create a remote file downloader.
+
+        Args:
+            api_client: Optional client used for HTTP and HTTPS downloads.
+                If omitted, `RequestsRemoteFileAPIClient` is used.
+
+        """
+        self.api_client = api_client or RequestsRemoteFileAPIClient()
+
+    def download(
+        self,
+        url: str,
+        destination: Path,
+        *,
+        timeout: float = 30.0,
+        validate_image: bool = False,
+    ) -> Path:
+        """Download a file to ``destination``.
+
+        Existing destination files are reused. When ``validate_image`` is
+        true, both reused and newly downloaded files are checked with
+        Pillow and the destination suffix.
+
+        Args:
+            url: Source URL. Supported schemes are ``file``, ``http``,
+                ``https``, ``gcs``, ``gs``, and ``s3``.
+            destination: Local destination path.
+            timeout: HTTP request timeout in seconds.
+            validate_image: Whether to validate image content and format
+                compatibility after download.
+
+        Returns:
+            Local destination path.
+
+        Raises:
+            ValueError: If the URL scheme is unsupported, the destination
+                image suffix is unsupported, the downloaded file is not a
+                valid image, or the image format does not match the suffix.
+
+        """
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = destination.with_suffix(f"{destination.suffix}.tmp")
+
+        try:
+            if destination.exists():
+                if validate_image:
+                    self._validate_image_format(destination)
+                return destination
+
+            self._remove_temporary_file(tmp_path)
+
+            scheme = urlsplit(url).scheme
+            if scheme not in ALLOWED_REMOTE_URL_SCHEMES:
+                raise ValueError(
+                    f"Unsupported remote URL scheme '{scheme}'. "
+                    f"Expected one of {sorted(ALLOWED_REMOTE_URL_SCHEMES)}."
+                )
+
+            try:
+                self._download_to_temporary_path(
+                    url,
+                    tmp_path,
+                    scheme=scheme,
+                    timeout=timeout,
+                )
+                if validate_image:
+                    self._validate_image_format(
+                        tmp_path, destination=destination
+                    )
+                tmp_path.replace(destination)
+            except Exception:
+                self._remove_temporary_file(tmp_path)
+                raise
+        finally:
+            self._remove_temporary_file(tmp_path)
+
+        return destination
+
+    def _download_to_temporary_path(
+        self,
+        url: str,
+        destination: Path,
+        *,
+        scheme: str,
+        timeout: float,
+    ) -> None:
+        if scheme in FS_REMOTE_URL_SCHEMES:
+            downloaded_path = LuxonisFileSystem.download(url, destination)
+            if downloaded_path != destination:
+                downloaded_path.replace(destination)
+            return
+
+        if scheme == "file":
+            shutil.copyfile(self._path_from_file_url(url), destination)
+            return
+
+        self.api_client.download(url, destination, timeout=timeout)
+
+    @staticmethod
+    def _path_from_file_url(url: str) -> Path:
+        parsed = urlsplit(url)
+        path = unquote(parsed.path)
+
+        if parsed.netloc and parsed.netloc != "localhost":
+            return Path(f"//{parsed.netloc}{path}")
+
+        if len(path) >= 3 and path[0] == "/" and path[2] == ":":
+            path = path[1:]
+
+        return Path(path)
+
+    @staticmethod
+    def _remove_temporary_file(path: Path) -> None:
+        if path.exists():
+            path.unlink()
+
+    @staticmethod
+    def _validate_image_format(
+        path: Path, *, destination: Path | None = None
+    ) -> None:
+        effective_destination = path if destination is None else destination
+        suffix = effective_destination.suffix.lower()
+        if suffix not in ALLOWED_IMAGE_SUFFIXES:
+            raise ValueError(
+                f"Unsupported downloaded image extension "
+                f"'{effective_destination.suffix}'. "
+                f"Expected one of {sorted(ALLOWED_IMAGE_SUFFIXES)}."
+            )
+
+        if suffix == ".heic":
+            # ``pillow-heif`` is not registered with Pillow on import. Do it
+            # only when HEIC validation is requested to keep the plugin's
+            # global registration scoped to the format that needs it.
+            from pillow_heif import register_heif_opener
+
+            register_heif_opener()
+
+        try:
+            with Image.open(path) as image:
+                image_format = image.format
+                image.verify()
+        except (OSError, SyntaxError, UnidentifiedImageError) as exc:
+            raise ValueError(
+                f"Downloaded file '{effective_destination.name}' "
+                "is not a valid image."
+            ) from exc
+
+        if image_format is None:
+            raise ValueError(
+                f"Downloaded image '{effective_destination.name}' "
+                "does not expose a format."
+            )
+
+        expected_formats = next(
+            (
+                pillow_formats
+                for declared_format, suffixes in ALLOWED_IMAGE_SUFFIXES_BY_FORMAT.items()
+                if suffix in suffixes
+                for pillow_formats in [
+                    ALLOWED_PILLOW_FORMATS_BY_FORMAT[declared_format]
+                ]
+            ),
+            None,
+        )
+        if expected_formats is None:
+            raise ValueError(
+                f"Unsupported downloaded image extension "
+                f"'{effective_destination.suffix}'. "
+                f"Expected one of {sorted(ALLOWED_IMAGE_SUFFIXES)}."
+            )
+
+        if image_format.upper() not in expected_formats:
+            raise ValueError(
+                f"Downloaded image '{effective_destination.name}' "
+                f"has format '{image_format}', which is incompatible "
+                f"with extension '{effective_destination.suffix}'."
+            )
+
+
+def download_remote_file(
+    url: str,
+    destination: Path,
+    *,
+    timeout: float = 30.0,
+    validate_image: bool = False,
+) -> Path:
+    """Download a remote file to the requested destination.
+
+    Args:
+        url: Source URL.
+        destination: Local destination path.
+        timeout: HTTP request timeout in seconds.
+        validate_image: Whether to validate image content and format
+            compatibility after download.
+
+    Returns:
+        Local destination path.
+
+    Raises:
+        ValueError: If the URL scheme is unsupported or image validation
+            fails.
+
+    """
+    return RemoteFileDownloader().download(
+        url,
+        destination,
+        timeout=timeout,
+        validate_image=validate_image,
+    )

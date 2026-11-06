@@ -1,31 +1,51 @@
+"""Parsing of task strings and iteration over labels by task type."""
+
+from collections.abc import Iterator
 from functools import lru_cache
-from typing import Iterator, Tuple
 
 import numpy as np
 
 from luxonis_ml.typing import Labels, TaskType
 
 
-@lru_cache()
+@lru_cache
 def task_is_metadata(task: str) -> bool:
-    """Returns whether a task is a metadata task.
+    """Check whether a task is a metadata task.
 
-    @type task: str
-    @param task: The task to check.
-    @rtype: bool
-    @return: Whether the task is a metadata task.
+    Args:
+        task: Task to check.
+
+    Returns:
+        Whether the task is a metadata task.
+
+    Examples:
+        >>> task_is_metadata("metadata/weather")
+        True
+        >>> task_is_metadata("camera/metadata/weather")
+        True
+        >>> task_is_metadata("camera/boundingbox")
+        False
+
     """
     return get_task_type(task).startswith("metadata/")
 
 
-@lru_cache()
-def split_task(task: str) -> Tuple[str, str]:
-    """Splits a task into its task name and type.
+@lru_cache
+def split_task(task: str) -> tuple[str, str]:
+    """Split a task into task name and task type.
 
-    @type task: str
-    @param task: The task to split.
-    @rtype: Tuple[str, str]
-    @return: A tuple containing the task name and type.
+    Args:
+        task: Task to split.
+
+    Returns:
+        Task name and task type.
+
+    Examples:
+        >>> split_task("detector/boundingbox")
+        ('detector', 'boundingbox')
+        >>> split_task("classification")
+        ('', 'classification')
+
     """
     splits = task.split("/", 1)
     if len(splits) == 1:
@@ -33,24 +53,31 @@ def split_task(task: str) -> Tuple[str, str]:
     return splits[0], splits[1]
 
 
-@lru_cache()
+@lru_cache
 def get_task_name(task: str) -> str:
-    """Returns the task name from a task.
+    """Return the task name from a task string.
 
-    @type task: str
-    @param task: The task.
-    @rtype: str
-    @return: The task name.
+    Args:
+        task: Task string.
+
+    Returns:
+        Task name.
+
+    Examples:
+        >>> get_task_name("detector/boundingbox")
+        'detector'
+        >>> get_task_name("classification")
+        'classification'
+
     """
-    return task.split("/")[0]
+    return task.split("/", maxsplit=1)[0]
 
 
-@lru_cache()
+@lru_cache
 def get_task_type(task: str) -> str:
-    """Returns the task type from a task.
+    """Return the task type from a task string.
 
     Example:
-
         >>> get_task_type("task_name/type")
         'type'
         >>> get_task_type("metadata/name")
@@ -58,11 +85,12 @@ def get_task_type(task: str) -> str:
         >>> get_task_type("task_name/metadata/name")
         'metadata/name'
 
-    @type task: str
-    @param task: The task in a format like "task_name/type".
-    @rtype: str
-    @return: The task type. If the task is a metadata task,
-        the type will be "metadata/type".
+    Args:
+        task: Task string, such as ``"task_name/type"``.
+
+    Returns:
+        Task type. Metadata tasks are returned as ``"metadata/type"``.
+
     """
     parts = task.split("/")
     if len(parts) == 1:
@@ -73,20 +101,32 @@ def get_task_type(task: str) -> str:
         return parts[1]
     if parts[-2] == "metadata":
         return f"metadata/{parts[-1]}"
-    return task.split("/")[-1]
+    return task.rsplit("/", maxsplit=1)[-1]
 
 
 def task_type_iterator(
     labels: Labels, task_type: TaskType
-) -> Iterator[Tuple[str, np.ndarray]]:
-    """Iterates over labels of a specific type.
+) -> Iterator[tuple[str, np.ndarray]]:
+    """Iterate over labels of a specific task type.
 
-    @type labels: Labels
-    @param labels: The labels to iterate over.
-    @type task_type: str
-    @param task_type: The type of label to iterate over.
-    @rtype: Iterator[Tuple[str, np.ndarray]]
-    @return: An iterator over the labels of the specified type.
+    Args:
+        labels: Labels to iterate over.
+        task_type: Label type to yield.
+
+    Yields:
+        The task name and the array of each label of the type.
+
+    Examples:
+        >>> labels = {
+        ...     "detector/boundingbox": np.array([1]),
+        ...     "pose/keypoints": np.array([2]),
+        ... }
+        >>> [
+        ...     (task, arr.tolist())
+        ...     for task, arr in task_type_iterator(labels, "keypoints")
+        ... ]
+        [('pose/keypoints', [2])]
+
     """
     for task, array in labels.items():
         if get_task_type(task) == task_type:

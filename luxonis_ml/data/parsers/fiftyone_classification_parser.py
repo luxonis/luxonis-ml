@@ -1,0 +1,239 @@
+"""Parser for FiftyOne image classification datasets.
+
+Also holds `clean_imagenet_annotations`, which fixes known label
+errors of ImageNet exports.
+"""
+
+import json
+from pathlib import Path
+from typing import Any
+
+from loguru import logger
+from typing_extensions import override
+
+from luxonis_ml.data import DatasetIterator
+from luxonis_ml.data.utils.enums import ParserIssue
+
+from .base_parser import BaseParser, ParserOutput
+
+
+class FiftyOneClassificationParser(BaseParser):
+    """Parse FiftyOne image classification data into LDF.
+
+    Supports two directory structures:
+
+    Split structure with train/test/validation subdirectories::
+
+        dataset_dir/
+        ├── train/
+        │   ├── data/
+        │   │   ├── img1.jpg
+        │   │   └── ...
+        │   └── labels.json
+        ├── validation/
+        │   ├── data/
+        │   └── labels.json
+        └── test/
+            ├── data/
+            └── labels.json
+
+    Flat structure (single directory, random splits applied at parse time)::
+
+        dataset_dir/
+        ├── data/
+        │   ├── img1.jpg
+        │   └── ...
+        └── labels.json
+
+    The labels.json format is::
+
+        {
+            "classes": ["class1", "class2", ...],
+            "labels": {
+                "image_stem": class_index,
+                ...
+            }
+        }
+
+    This parser supports the FiftyOne image classification export layout.
+
+    """
+
+    _SPLIT_NAMES: tuple[str, ...] = ("train", "validation", "test")
+
+    @staticmethod
+    @override
+    def validate_split(split_path: Path) -> dict[str, Any] | None:
+        if not split_path.exists():
+            return None
+
+        labels_path = split_path / "labels.json"
+        data_path = split_path / "data"
+
+        if not labels_path.exists() or not data_path.exists():
+            return None
+
+        if not data_path.is_dir():
+            return None
+
+        try:
+            with labels_path.open(encoding="utf-8") as f:
+                labels_data = json.load(f)
+            if "classes" not in labels_data or "labels" not in labels_data:
+                return None
+        except (json.JSONDecodeError, OSError):
+            return None
+
+        return {"split_path": split_path}
+
+    @override
+    def from_dir(
+        self, dataset_dir: Path, **kwargs
+    ) -> tuple[list[Path], list[Path], list[Path]]:
+        added_train_imgs: list[Path] = []
+        added_val_imgs: list[Path] = []
+        added_test_imgs: list[Path] = []
+
+        if (dataset_dir / "train").exists():
+            added_train_imgs = self._parse_split(
+                split_path=dataset_dir / "train"
+            )
+
+        if (dataset_dir / "validation").exists():
+            added_val_imgs = self._parse_split(
+                split_path=dataset_dir / "validation"
+            )
+
+        if (dataset_dir / "test").exists():
+            added_test_imgs = self._parse_split(
+                split_path=dataset_dir / "test"
+            )
+
+        return added_train_imgs, added_val_imgs, added_test_imgs
+
+    @override
+    def from_split(self, split_path: Path) -> ParserOutput:
+        labels_path = split_path / "labels.json"
+        data_path = split_path / "data"
+
+        is_flat_structure = split_path.name not in self._SPLIT_NAMES
+        if is_flat_structure:
+            labels_path = clean_imagenet_annotations(labels_path)
+
+        with labels_path.open(encoding="utf-8") as f:
+            labels_data = json.load(f)
+
+        classes = labels_data["classes"]
+        labels = labels_data["labels"]
+
+        images = self._list_images(data_path)
+        stem_to_path = {img.stem: img for img in images}
+
+        def generator() -> DatasetIterator:
+            for image_stem, class_idx in labels.items():
+                if image_stem not in stem_to_path:
+                    self._warn_skipped_annotation(
+                        ParserIssue.MISSING_IMAGE_STEM,
+                        "label references an image stem that is not present in the split",
+                        source=labels_path,
+                        image=image_stem,
+                    )
+                    continue
+
+                img_path = stem_to_path[image_stem]
+                class_name = classes[class_idx]
+
+                yield {
+                    "file": img_path,
+                    "annotation": {"class": class_name},
+                }
+
+        added_images = self._get_added_images(generator())
+
+        return generator(), {}, added_images
+
+
+def clean_imagenet_annotations(labels_path: Path) -> Path:
+    """Clean known ImageNet issues in FiftyOne labels.
+
+    The cleanup fixes duplicate class names and known label-index errors in
+    ImageNet FiftyOne exports:
+
+        - the first ``"crane"`` (the bird) becomes ``"crane bird"``, which
+          separates it from the crane machine;
+        - the second ``"maillot"`` becomes ``"maillot swim suit"``;
+        - image ``006742`` moves from index 517 to index 134;
+        - image ``031933`` moves from index 639 to index 638.
+
+    The function writes the result to ``labels_fixed.json`` next to the
+    original file, and it returns the original path when it changes
+    nothing.
+
+    Note:
+        `FiftyOneClassificationParser` runs this cleanup only for the
+        flat layout. It treats a split as flat when the directory name is
+        not ``train``, ``validation``, or ``test``, so a split-based
+        dataset keeps its labels unchanged.
+
+    Args:
+        labels_path: Path to ``labels.json``.
+
+    Returns:
+        Path to the cleaned labels file.
+
+    """
+    with labels_path.open(encoding="utf-8") as f:
+        labels_data = json.load(f)
+
+    classes = labels_data["classes"]
+    labels = labels_data["labels"]
+
+    modified = False
+
+    # Fix duplicate class names
+    # First "crane" (bird) should be renamed to "crane bird"
+    crane_indices = [i for i, c in enumerate(classes) if c == "crane"]
+    if len(crane_indices) >= 1:
+        first_crane_idx = crane_indices[0]
+        classes[first_crane_idx] = "crane bird"
+        logger.info(
+            f"Renamed class 'crane' at index {first_crane_idx} to 'crane bird'"
+        )
+        modified = True
+
+    # Second "maillot" should be renamed to "maillot swim suit"
+    maillot_indices = [i for i, c in enumerate(classes) if c == "maillot"]
+    if len(maillot_indices) >= 2:
+        second_maillot_idx = maillot_indices[1]
+        classes[second_maillot_idx] = "maillot swim suit"
+        logger.info(
+            f"Renamed class 'maillot' at index {second_maillot_idx} "
+            "to 'maillot swim suit'"
+        )
+        modified = True
+
+    # Fix misindexed labels
+    # Image 006742 should map to index 134, not 517
+    if labels.get("006742") == 517:
+        labels["006742"] = 134
+        logger.info("Fixed label index for image '006742': 517 -> 134")
+        modified = True
+
+    # Image 031933 should map to index 638, not 639
+    if labels.get("031933") == 639:
+        labels["031933"] = 638
+        logger.info("Fixed label index for image '031933': 639 -> 638")
+        modified = True
+
+    if not modified:
+        return labels_path
+
+    labels_data["classes"] = classes
+    labels_data["labels"] = labels
+
+    cleaned_labels_path = labels_path.with_name("labels_fixed.json")
+    with cleaned_labels_path.open("w", encoding="utf-8") as f:
+        json.dump(labels_data, f)
+
+    logger.info(f"Cleaned annotations saved to {cleaned_labels_path}")
+    return cleaned_labels_path

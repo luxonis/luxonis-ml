@@ -1,3 +1,4 @@
+import json
 import tarfile
 from functools import lru_cache
 from pathlib import Path
@@ -5,7 +6,24 @@ from typing import Literal
 
 import onnx
 import pytest
-from heads import (
+from onnx import checker, helper
+from onnx.onnx_pb import TensorProto
+from pydantic import ValidationError
+
+from luxonis_ml.nn_archive import ArchiveGenerator, is_nn_archive
+from luxonis_ml.nn_archive.__main__ import inspect
+from luxonis_ml.nn_archive.config_building_blocks import HeadMetadata
+from luxonis_ml.nn_archive.config_building_blocks.base_models.head_metadata import (
+    HeadSegmentationMetadata,
+    HeadYOLOMetadata,
+)
+from luxonis_ml.nn_archive.config_building_blocks.enums.data_type import (
+    DataType,
+)
+from luxonis_ml.nn_archive.model import HeadType, Input, Output
+from luxonis_ml.typing import Params
+
+from .heads import (
     classification_head,
     custom_segmentation_head,
     ssd_object_detection_head,
@@ -15,14 +33,6 @@ from heads import (
     yolo_obb_detection_head,
     yolo_object_detection_head,
 )
-from onnx import checker, helper
-from onnx.onnx_pb import TensorProto
-from pydantic import ValidationError
-
-from luxonis_ml.nn_archive import ArchiveGenerator, is_nn_archive
-from luxonis_ml.nn_archive.config_building_blocks import HeadMetadata
-from luxonis_ml.nn_archive.model import HeadType, Input, Output
-from luxonis_ml.typing import Params
 
 
 @lru_cache
@@ -41,7 +51,13 @@ def create_onnx_model():
         "output1", TensorProto.FLOAT, [1, 5, 5, 5]
     )
     graph = helper.make_graph(
-        [], "DummyModel", [input0, input1], [output0, output1]
+        [
+            helper.make_node("Identity", ["input0"], ["output0"]),
+            helper.make_node("Identity", ["input1"], ["output1"]),
+        ],
+        "DummyModel",
+        [input0, input1],
+        [output0, output1],
     )
 
     model = helper.make_model(graph, producer_name="DummyModelProducer")
@@ -57,7 +73,7 @@ def onnx_path(tempdir: Path):
 
 @pytest.mark.parametrize("compression", ["xz", "gz", "bz2"])
 @pytest.mark.parametrize(
-    "head, archive_name",
+    ("head", "archive_name"),
     [
         (classification_head, "classification"),
         (ssd_object_detection_head, "ssd_detection"),
@@ -130,6 +146,15 @@ def test_archive_generator(
     with tarfile.open(archive_path) as tar:
         assert "test_model.onnx" in tar.getnames()
         assert "config.json" in tar.getnames()
+        config = json.load(tar.extractfile("config.json"))  # pyright: ignore[reportArgumentType]
+
+    metadata = config["model"]["heads"][0]["metadata"]
+    if archive_name == "custom_segmentation":
+        assert metadata["background_class"] is True
+    if archive_name == "yolo_instance_segmentation":
+        assert metadata["strides"] == [8, 16, 32]
+    if archive_name == "yolo_keypoint_detection":
+        assert metadata["strides"] is None
 
     assert is_nn_archive(archive_path)
     assert not is_nn_archive(onnx_path)
@@ -185,16 +210,65 @@ def test_optional_head_name():
     # without head name
     HeadType(
         parser="Parser",
-        metadata=HeadMetadata(),  # type: ignore
+        metadata=HeadMetadata(),  # pyright: ignore[reportCallIssue]
         outputs=["output"],
     )
     # with head name
     HeadType(
         parser="Parser",
         name="HeadName",
-        metadata=HeadMetadata(),  # type: ignore
+        metadata=HeadMetadata(),  # pyright: ignore[reportCallIssue]
         outputs=["output"],
     )
+
+
+def test_head_metadata_defaults_and_overrides_serialize():
+    yolo_default = HeadType(
+        name=None,
+        parser="YOLO",
+        metadata=HeadYOLOMetadata(
+            classes=["person"],
+            n_classes=1,
+            iou_threshold=0.5,
+            conf_threshold=0.5,
+            max_det=100,
+            subtype="yolov6",
+            yolo_outputs=["feats"],
+        ),  # pyright: ignore[reportCallIssue]
+        outputs=["output"],
+    )
+    assert yolo_default.metadata.strides is None  # pyright: ignore[reportAttributeAccessIssue]
+    assert yolo_default.model_dump()["metadata"]["strides"] is None
+
+    yolo_override = HeadType(
+        name=None,
+        parser="YOLO",
+        metadata=HeadYOLOMetadata(
+            classes=["person"],
+            n_classes=1,
+            iou_threshold=0.5,
+            conf_threshold=0.5,
+            max_det=100,
+            subtype="yolov6",
+            yolo_outputs=["out1", "out2", "out3"],
+            strides=[8, 16, 32],
+        ),  # pyright: ignore[reportCallIssue]
+        outputs=["output"],
+    )
+    assert yolo_override.model_dump()["metadata"]["strides"] == [8, 16, 32]
+
+    segmentation = HeadType(
+        name=None,
+        parser="Segmentation",
+        metadata=HeadSegmentationMetadata(
+            classes=["person"],
+            n_classes=1,
+            is_softmax=False,
+            background_class=True,
+        ),  # pyright: ignore[reportCallIssue]
+        outputs=["output"],
+    )
+    assert segmentation.model_dump()["metadata"]["background_class"] is True
 
 
 def test_layout():
@@ -221,12 +295,10 @@ def test_layout():
     )
     assert inp.layout == "CHWD"
     out = Output(
-        **{
-            "name": "output",
-            "dtype": "float32",
-            "shape": [1, 10],
-            "layout": "nc",
-        }
+        name="output",
+        dtype=DataType.FLOAT32,
+        shape=[1, 10],
+        layout="nc",
     )
     assert out.layout == "NC"
 
@@ -259,19 +331,20 @@ def test_layout():
 
     with pytest.raises(ValidationError):
         Output(
-            **{
-                "name": "output",
-                "dtype": "float32",
-                "shape": [1, 10],
-                "layout": "ncn",
-            }
+            name="output", dtype=DataType.FLOAT32, shape=[1, 10], layout="ncn"
         )
 
     with pytest.raises(ValidationError):
         Output(
-            **{
-                "name": "output",
-                "dtype": "float32",
-                "layout": list("nc"),
-            }
-        )
+            name="output",
+            dtype=DataType.FLOAT32,
+            layout=list("nc"),
+        )  # pyright: ignore[reportCallIssue]
+
+
+def test_inspect_reports_a_missing_config(tempdir: Path):
+    archive = tempdir / "archive.tar"
+    tarfile.open(archive, "w").close()
+
+    with pytest.raises(RuntimeError, match="Config JSON not found"):
+        inspect(archive, buildinfo=True)

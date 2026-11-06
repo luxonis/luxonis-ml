@@ -1,7 +1,9 @@
+"""Helpers to download files and to look up file paths in an index."""
+
 import shutil
 from pathlib import Path
 from types import ModuleType
-from typing import Literal, Optional
+from typing import Literal
 
 import polars as pl
 from typing_extensions import overload
@@ -15,9 +17,9 @@ def get_file(
     fs: LuxonisFileSystem,
     remote_path: PosixPathType,
     local_path: PathType,
-    mlflow_instance: Optional[ModuleType] = ...,
-    default: Literal[None] = ...,
-) -> Optional[Path]: ...
+    mlflow_instance: ModuleType | None = ...,
+    default: None = ...,
+) -> Path | None: ...
 
 
 @overload
@@ -25,8 +27,9 @@ def get_file(
     fs: LuxonisFileSystem,
     remote_path: PosixPathType,
     local_path: PathType,
-    mlflow_instance: Optional[ModuleType] = ...,
-    default: PathType = ...,
+    mlflow_instance: ModuleType | None = ...,
+    *,
+    default: PathType,
 ) -> Path: ...
 
 
@@ -34,9 +37,27 @@ def get_file(
     fs: LuxonisFileSystem,
     remote_path: PosixPathType,
     local_path: PathType,
-    mlflow_instance: Optional[ModuleType] = None,
-    default: Optional[PathType] = None,
-) -> Optional[Path]:
+    mlflow_instance: ModuleType | None = None,
+    default: PathType | None = None,
+) -> Path | None:
+    """Download a file from ``fs`` and return its local path.
+
+    On ``shutil.SameFileError``, return ``local_path`` joined with the
+    name of ``remote_path``. On any other error, return ``default``.
+
+    Args:
+        fs: Filesystem to download from.
+        remote_path: Path of the file in ``fs``.
+        local_path: Local destination path.
+        mlflow_instance: Optional MLflow module for downloads from an
+            active run.
+        default: Path to return when the download fails.
+
+    Returns:
+        Path of the local file, or ``default`` if the download
+        fails.
+
+    """
     try:
         return fs.get_file(remote_path, local_path, mlflow_instance)
     except shutil.SameFileError:
@@ -48,27 +69,61 @@ def get_file(
 @overload
 def find_filepath_uuid(
     filepath: PathType,
-    index: Optional[pl.DataFrame],
+    index: pl.DataFrame | None,
     *,
     raise_on_missing: Literal[False] = ...,
-) -> Optional[str]: ...
+) -> str | None: ...
 
 
 @overload
 def find_filepath_uuid(
     filepath: PathType,
-    index: Optional[pl.DataFrame],
+    index: pl.DataFrame | None,
     *,
-    raise_on_missing: Literal[True] = ...,
+    raise_on_missing: Literal[True],
 ) -> str: ...
 
 
 def find_filepath_uuid(
     filepath: PathType,
-    index: Optional[pl.DataFrame],
+    index: pl.DataFrame | None,
     *,
     raise_on_missing: bool = False,
-) -> Optional[str]:
+) -> str | None:
+    """Find the UUID assigned to an original file path.
+
+    Args:
+        filepath: Original file path to look up.
+        index: Optional dataframe containing ``original_filepath`` and
+            ``uuid`` columns.
+        raise_on_missing: Whether to raise when the path is not in the
+            index.
+
+    Returns:
+        Matching UUID, or ``None`` when ``index`` is ``None`` or the path
+        is missing and ``raise_on_missing`` is ``False``.
+
+    Raises:
+        ValueError: If ``raise_on_missing`` is ``True`` and the path is
+            not in the index.
+
+    Examples:
+        >>> import polars as pl
+        >>> path = Path("image.jpg").absolute().resolve()
+        >>> index = pl.DataFrame(
+        ...     {
+        ...         "original_filepath": [str(path)],
+        ...         "uuid": ["abc"],
+        ...     }
+        ... )
+        >>> find_filepath_uuid(path, index)
+        'abc'
+        >>> find_filepath_uuid("missing.jpg", index, raise_on_missing=True)
+        Traceback (most recent call last):
+        ...
+        ValueError: File ...missing.jpg not found in index
+
+    """
     if index is None:
         return None
 
@@ -76,8 +131,77 @@ def find_filepath_uuid(
     matched = index.filter(pl.col("original_filepath") == abs_path)
 
     if len(matched):
-        return list(matched.select("uuid"))[0][0]
-    elif raise_on_missing:
+        return next(iter(matched.select("uuid")))[0]
+    if raise_on_missing:
+        raise ValueError(f"File {abs_path} not found in index")
+    return None
+
+
+@overload
+def find_filepath_group_id(
+    filepath: PathType,
+    index: pl.DataFrame | None,
+    *,
+    raise_on_missing: Literal[False] = ...,
+) -> str | None: ...
+
+
+@overload
+def find_filepath_group_id(
+    filepath: PathType,
+    index: pl.DataFrame | None,
+    *,
+    raise_on_missing: Literal[True],
+) -> str: ...
+
+
+def find_filepath_group_id(
+    filepath: PathType,
+    index: pl.DataFrame | None,
+    *,
+    raise_on_missing: bool = False,
+) -> str | None:
+    """Find the group ID assigned to an original file path.
+
+    Args:
+        filepath: Original file path to look up.
+        index: Optional dataframe containing ``original_filepath`` and
+            ``group_id`` columns.
+        raise_on_missing: Whether to raise when the path is not in the
+            index.
+
+    Returns:
+        Matching group ID, or ``None`` when ``index`` is ``None`` or the
+        path is missing and ``raise_on_missing`` is ``False``.
+
+    Raises:
+        ValueError: If ``raise_on_missing`` is ``True`` and the path is
+            not in the index.
+
+    Examples:
+        >>> import polars as pl
+        >>> path = Path("image.jpg").absolute().resolve()
+        >>> index = pl.DataFrame(
+        ...     {
+        ...         "original_filepath": [str(path)],
+        ...         "group_id": ["group-1"],
+        ...     }
+        ... )
+        >>> find_filepath_group_id(path, index)
+        'group-1'
+        >>> find_filepath_group_id(None, None) is None
+        True
+
+    """
+    if index is None:
+        return None
+
+    abs_path = str(Path(filepath).absolute().resolve())
+    matched = index.filter(pl.col("original_filepath") == abs_path)
+
+    if len(matched):
+        return next(iter(matched.select("group_id")))[0]
+    if raise_on_missing:
         raise ValueError(f"File {abs_path} not found in index")
     return None
 
@@ -87,10 +211,10 @@ def get_dir(
     fs: LuxonisFileSystem,
     remote_path: PosixPathType,
     local_dir: PathType,
-    mlflow_instance: Optional[ModuleType] = ...,
+    mlflow_instance: ModuleType | None = ...,
     *,
-    default: Literal[None] = None,
-) -> Optional[Path]: ...
+    default: None = None,
+) -> Path | None: ...
 
 
 @overload
@@ -98,9 +222,9 @@ def get_dir(
     fs: LuxonisFileSystem,
     remote_path: PosixPathType,
     local_dir: PathType,
-    mlflow_instance: Optional[ModuleType] = ...,
+    mlflow_instance: ModuleType | None = ...,
     *,
-    default: Path = ...,
+    default: Path,
 ) -> Path: ...
 
 
@@ -108,10 +232,28 @@ def get_dir(
     fs: LuxonisFileSystem,
     remote_path: PosixPathType,
     local_dir: PathType,
-    mlflow_instance: Optional[ModuleType] = None,
+    mlflow_instance: ModuleType | None = None,
     *,
-    default: Optional[PathType] = None,
-) -> Optional[Path]:
+    default: PathType | None = None,
+) -> Path | None:
+    """Download a directory from ``fs`` and return its local path.
+
+    On ``shutil.SameFileError``, return ``local_dir`` joined with the
+    name of ``remote_path``. On any other error, return ``default``.
+
+    Args:
+        fs: Filesystem to download from.
+        remote_path: Path of the directory in ``fs``.
+        local_dir: Local destination directory.
+        mlflow_instance: Optional MLflow module for downloads from an
+            active run.
+        default: Path to return when the download fails.
+
+    Returns:
+        Path of the local directory, or ``default`` if the download
+        fails.
+
+    """
     try:
         return fs.get_dir(remote_path, local_dir, mlflow_instance)
     except shutil.SameFileError:

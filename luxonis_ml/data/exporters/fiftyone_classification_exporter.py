@@ -1,0 +1,202 @@
+"""Export to the FiftyOne classification format."""
+
+import json
+from pathlib import Path
+from typing import Any, cast
+
+from typing_extensions import override
+
+from luxonis_ml.data.exporters.base_exporter import BaseExporter
+from luxonis_ml.data.exporters.exporter_utils import (
+    PreparedLDF,
+    check_group_file_correspondence,
+    exporter_specific_annotation_warning,
+    split_of_group,
+    whole_image_classes,
+)
+from luxonis_ml.enums import DatasetType
+
+
+class FiftyOneClassificationExporter(BaseExporter):
+    """Export FiftyOne classification data.
+
+    Output structure::
+
+        <dataset_name>/
+            train/
+                data/
+                    000001.jpg
+                    000002.jpg
+                    ...
+                labels.json
+            validation/
+                data/
+                    ...
+                labels.json
+            test/
+                data/
+                    ...
+                labels.json
+
+    The ``labels.json`` file has structure::
+
+        {
+            "classes": ["class1", "class2", ...],
+            "labels": {
+                "000001": 0,  # index into classes array
+                "000002": 1,
+                ...
+            }
+        }
+
+    Attributes:
+        class_to_idx: Class-name to index mapping.
+        split_labels: Per-split image-stem to class-index mapping.
+        split_image_counter: Per-split image counter used for exported
+            filenames.
+
+    """
+
+    def __init__(
+        self,
+        dataset_identifier: str,
+        output_path: Path,
+        max_partition_size_gb: float | None,
+    ) -> None:
+        """Create the exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Maximum partition size in GiB, or
+                ``None`` to disable partitioning.
+
+        """
+        super().__init__(
+            dataset_identifier, output_path, max_partition_size_gb
+        )
+        self.class_to_idx: dict[str, int] = {}
+        self.split_labels: dict[str, dict[str, int]] = {}
+        self.split_image_counter: dict[str, int] = {}
+
+    def get_split_names(self) -> dict[str, str]:
+        """Return the directory name of each split.
+
+        Returns:
+            Split names mapped to directory names. The ``val`` split
+            becomes ``validation``.
+
+        """
+        return {"train": "train", "val": "validation", "test": "test"}
+
+    @override
+    def supported_ann_types(self) -> list[str]:
+        return DatasetType.FIFTYONECLS.supported_annotation_formats
+
+    @override
+    def export(self, prepared_ldf: PreparedLDF) -> None:
+        check_group_file_correspondence(prepared_ldf)
+        exporter_specific_annotation_warning(
+            prepared_ldf, self.supported_ann_types()
+        )
+
+        for split in self.get_split_names():
+            self.split_labels[split] = {}
+            self.split_image_counter[split] = 0
+
+        sorted_classes = sorted(
+            set(whole_image_classes(prepared_ldf.processed_df))
+        )
+        self.class_to_idx = {
+            cls: idx for idx, cls in enumerate(sorted_classes)
+        }
+
+        grouped = prepared_ldf.processed_df.group_by(
+            ["file", "group_id"], maintain_order=True
+        )
+
+        copied_pairs: set[tuple[Path, str]] = set()
+
+        for key, entry in grouped:
+            file_name, group_id = cast("tuple[str, Any]", key)
+            file_path = Path(str(file_name))
+
+            split = split_of_group(prepared_ldf, group_id)
+
+            # Take first classification label
+            class_name = next(iter(whole_image_classes(entry)), None)
+            if class_name is None:
+                continue
+
+            self.split_image_counter[split] += 1
+            idx = self.split_image_counter[split]
+
+            new_name = f"{idx:06d}{file_path.suffix}"
+
+            target_dir = self._get_data_path(
+                self.output_path, split, self.part
+            )
+            target_dir.mkdir(parents=True, exist_ok=True)
+
+            dest = target_dir / new_name
+            pair_key = (file_path, str(dest))
+
+            if pair_key not in copied_pairs:
+                copied_pairs.add(pair_key)
+                if dest != file_path:
+                    dest.write_bytes(file_path.read_bytes())
+
+            # Store label mapping (without extension, just the padded number)
+            label_key = f"{idx:06d}"
+            self.split_labels[split][label_key] = self.class_to_idx[class_name]
+
+        self._dump_annotations(
+            {"classes": sorted_classes, "split_labels": self.split_labels},
+            self.output_path,
+            self.part,
+        )
+
+    @override
+    def _dump_annotations(
+        self,
+        annotation_data: dict[str, Any],
+        output_path: Path,
+        part: int | None = None,
+    ) -> None:
+        classes = annotation_data["classes"]
+        split_labels = annotation_data["split_labels"]
+
+        for split_name, labels in split_labels.items():
+            if not labels:
+                continue
+
+            save_name = self.get_split_names().get(split_name, split_name)
+            base = (
+                output_path / f"{self.dataset_identifier}_part{part}"
+                if part is not None
+                else output_path / self.dataset_identifier
+            )
+            split_path = base / (
+                save_name if save_name is not None else str(split_name)
+            )
+            split_path.mkdir(parents=True, exist_ok=True)
+
+            labels_data = {
+                "classes": classes,
+                "labels": labels,
+            }
+            (split_path / "labels.json").write_text(
+                json.dumps(labels_data), encoding="utf-8"
+            )
+
+    @override
+    def _get_data_path(
+        self, output_path: Path, split: str, part: int | None = None
+    ) -> Path:
+        split_name = self.get_split_names().get(split, split)
+        base = (
+            output_path / f"{self.dataset_identifier}_part{part}"
+            if part is not None
+            else output_path / self.dataset_identifier
+        )
+        return base / split_name / "data"

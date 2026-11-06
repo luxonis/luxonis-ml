@@ -1,4 +1,4 @@
-from typing import Iterator, Set, Tuple
+from collections.abc import Iterator
 
 import numpy as np
 
@@ -47,8 +47,8 @@ def test_task_type_iterator():
     }
 
     def compare(
-        iterator: Iterator[Tuple[str, np.ndarray]], expected: Set[str]
-    ):
+        iterator: Iterator[tuple[str, np.ndarray]], expected: set[str]
+    ) -> None:
         tasks = set()
         for task, _ in iterator:
             tasks.add(task)

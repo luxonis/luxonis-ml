@@ -1,210 +1,635 @@
-import os
+"""Base class and shared steps of the dataset parsers."""
+
+import inspect
+import random
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from collections import defaultdict
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any
+
+import polars as pl
+from loguru import logger
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
+from luxonis_ml.data.utils.enums import ParserIssue, ParserIssueMessage
 from luxonis_ml.enums.enums import DatasetType
+from luxonis_ml.ldf import DatasetRecord
+from luxonis_ml.typing import PathType
 
-ParserOutput = Tuple[DatasetIterator, Dict[str, Dict], List[Path]]
-"""Type alias for parser output.
+if TYPE_CHECKING:
+    from luxonis_ml.data import LuxonisDataset
 
-Contains a function to create the annotation generator, list of classes
-names, skeleton dictionary for keypoints and list of added images.
-"""
+ParserOutput = tuple[DatasetIterator, dict[str, dict], list[Path]]
 
 
-@dataclass
+def yolo_box_to_ldf(
+    x_center: Any, y_center: Any, width: Any, height: Any
+) -> dict[str, float]:
+    """Convert a normalized YOLO center box to an LDF corner box."""
+    return {
+        "x": float(x_center) - float(width) / 2,
+        "y": float(y_center) - float(height) / 2,
+        "w": float(width),
+        "h": float(height),
+    }
+
+
 class BaseParser(ABC):
-    dataset: BaseDataset
-    dataset_type: DatasetType
-    task_name: Optional[str]
+    """Base class for dataset-format parsers."""
+
+    _SPLIT_NAMES: tuple[str, ...] = ("train", "valid", "test")
+    _CANONICAL_SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
+    _SKIPPED_WARNING_LIMIT: int = 10
+
+    def __init__(
+        self,
+        dataset: BaseDataset,
+        dataset_type: DatasetType,
+        task_name: str | dict[str, str] | None,
+        *,
+        full_warnings: bool = False,
+    ) -> None:
+        """Create a parser for a target dataset.
+
+        Args:
+            dataset: Dataset to populate with parsed records.
+            dataset_type: Source dataset format.
+            task_name: Optional task naming rule. A string is used for all
+                records. A mapping uses class names as keys and task names
+                as values.
+            full_warnings: Whether to log every skipped-annotation warning.
+                When ``False``, only the first 10 warnings are logged and the
+                rest are summarized.
+
+        """
+        self._dataset = dataset
+        self._dataset_type = dataset_type
+        self._default_task_name: str | None = None
+        if isinstance(task_name, str):
+            self._task_name = defaultdict(lambda: task_name)
+            self._default_task_name = task_name
+        else:
+            self._task_name = task_name
+        self._parser_issue_messages: list[ParserIssueMessage] = []
+        self._seen_parser_issue_messages: set[ParserIssueMessage] = set()
+        self._full_warnings = full_warnings
+        self._logged_skipped_annotation_warnings = 0
+        self._suppressed_skipped_annotation_warnings = 0
+        self._skipped_annotation_counts_by_reason: dict[str, int] = (
+            defaultdict(int)
+        )
+
+    def _reset_parser_issue_messages(self) -> None:
+        """Clear collected parser issue messages and warning counters."""
+        self._logged_skipped_annotation_warnings = 0
+        self._suppressed_skipped_annotation_warnings = 0
+
+        self._parser_issue_messages.clear()
+        self._seen_parser_issue_messages.clear()
+        self._skipped_annotation_counts_by_reason.clear()
+
+    def reset_parser_issue_messages(self) -> None:
+        """Clear collected parser issue messages."""
+        self._reset_parser_issue_messages()
+
+    def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
+        """Return the parser issue messages of the last parse.
+
+        Returns:
+            A new list with each distinct message once, in the order
+            the parser first saw them.
+
+        """
+        return self._get_parser_issue_messages()
+
+    def _get_parser_issue_messages(self) -> list[ParserIssueMessage]:
+        """Return parser issue messages collected during the last parse."""
+        return list(self._parser_issue_messages)
 
     @staticmethod
     @abstractmethod
-    def validate_split(split_path: Path) -> Optional[Dict[str, Any]]:
-        """Validates if a split subdirectory is in an expected format.
-        If so, returns kwargs to pass to L{from_split} method.
+    def validate_split(split_path: Path) -> dict[str, Any] | None:
+        """Validate whether a split directory has the expected format.
 
-        @type split_path: Path
-        @param split_path: Path to split directory.
-        @rtype: Optional[Dict[str, Any]]
-        @return: Dictionary with kwargs to pass to L{from_split} method
-            or C{None} if the split is not in the expected format.
+        Args:
+            split_path: Path to a split directory.
+
+        Returns:
+            Keyword arguments for ``from_split``, or ``None`` if the split
+            is not in the expected format.
+
         """
         ...
+
+    @classmethod
+    def validate(cls, dataset_dir: Path) -> bool:
+        """Validate whether the dataset directory has the expected format.
+
+        Args:
+            dataset_dir: Source dataset directory.
+
+        Returns:
+            Whether the dataset is in the expected format.
+
+        """
+        splits = [
+            d.name
+            for d in dataset_dir.iterdir()
+            if d.is_dir() and d.name in cls._SPLIT_NAMES
+        ]
+        if len(splits) == 0:
+            return False
+
+        return all(cls.validate_split(dataset_dir / split) for split in splits)
 
     @staticmethod
-    @abstractmethod
-    def validate(dataset_dir: Path) -> bool:
-        """Validates if the dataset is in an expected format.
+    def _canonicalize_split_name(split_name: str) -> str:
+        """Map the split names ``valid`` and ``validation`` to ``val``.
 
-        @type dataset_dir: Path
-        @param dataset_dir: Path to source dataset directory.
-        @rtype: bool
-        @return: If the dataset is in the expected format.
+        All current parsers name the splits ``train`` and ``test``, but the
+        validation split can be ``val``, ``valid`` or ``validation``.
+
+        Returns:
+            ``val`` for ``valid`` and ``validation``, else
+            ``split_name`` unchanged.
+
         """
-        ...
+        if split_name in {"valid", "validation"}:
+            return "val"
+        return split_name
+
+    @classmethod
+    def discover_dir_splits(
+        cls, dataset_dir: Path
+    ) -> dict[str, dict[str, Any]]:
+        """Return the present and valid split directories.
+
+        Args:
+            dataset_dir: Source dataset directory.
+
+        Returns:
+            The keyword arguments for ``from_split``, keyed by canonical
+            split name.
+
+        """
+        discovered: dict[str, dict[str, Any]] = {}
+        for split_name in cls._SPLIT_NAMES:
+            split_kwargs = cls.validate_split(dataset_dir / split_name)
+            if split_kwargs is None:
+                continue
+            discovered[cls._canonicalize_split_name(split_name)] = split_kwargs
+        return discovered
 
     @abstractmethod
     def from_dir(
         self, dataset_dir: Path, **kwargs
-    ) -> Tuple[List[str], List[str], List[str]]:
-        """Parses all present data to L{LuxonisDataset} format.
+    ) -> tuple[list[Path], list[Path], list[Path]]:
+        """Parse all data in a source dataset directory.
 
-        @type dataset_dir: str
-        @param dataset_dir: Path to source dataset directory.
-        @type kwargs: Any
-        @param kwargs: Additional arguments for a specific parser
-            implementation.
-        @rtype: Tuple[List[str], List[str], List[str]]
-        @return: Tuple with added images for C{train}, C{val} and
-            C{test} splits.
+        Args:
+            dataset_dir: Source dataset directory.
+            kwargs: Additional parser-specific arguments.
+
+        Returns:
+            Added images for the train, validation, and test splits.
+
         """
         ...
 
     @abstractmethod
     def from_split(self, **kwargs) -> ParserOutput:
-        """Parses a data in a split subdirectory to L{LuxonisDataset}
-        format.
+        """Parse data from one split subdirectory.
 
-        @type kwargs: Dict[str, Any]
-        @param kwargs: Additional kwargs for specific parser implementation.
-            Should work together with L{validate_split} method like:
+        Args:
+            kwargs: Parser-specific arguments, usually produced by
+                ``validate_split``.
 
-                >>> from_split(**validate_split(split_path))
+        Example:
+            .. python::
 
-        @rtype: ParserOutput
-        @return: C{LDF} generator, list of class names,
-            skeleton dictionary for keypoints and list of added images.
+                split_kwargs = parser.validate_split(split_path)
+                if split_kwargs is not None:
+                    parser.from_split(**split_kwargs)
+
+        Returns:
+            LDF generator, skeleton metadata, and added images.
+
         """
         ...
 
-    def _parse_split(self, **kwargs) -> List[Path]:
-        """Parses data in a split subdirectory.
+    def _parse_split(self, **kwargs) -> list[Path]:
+        """Parse data in one split subdirectory.
 
-        @type kwargs: Dict[str, Any]
-        @param kwargs: Additional kwargs for specific parser
-            implementation.
-        @rtype: List[str]
-        @return: List of added images.
+        Args:
+            kwargs: Parser-specific arguments.
+
+        Returns:
+            Added images.
+
         """
-        old_cwd = os.getcwd()
-        try:
-            generator, skeletons, added_images = self.from_split(**kwargs)
-            self.dataset.add(self._add_task(generator))
-            if skeletons:
-                for skeleton in skeletons.values():
-                    self.dataset.set_skeletons(
-                        skeleton.get("labels"),
-                        skeleton.get("edges"),
-                        self.dataset_type.value,
+        generator, skeletons, added_images = self.from_split(**kwargs)
+        self._dataset.add(self._wrap_generator(generator))
+        if skeletons:
+            for skeleton in skeletons.values():
+                self._dataset.set_skeletons(
+                    skeleton.get("labels"),
+                    skeleton.get("edges"),
+                )
+        return added_images
+
+    @staticmethod
+    def _apply_counts_to_pool(
+        images: Sequence[PathType], split_ratios: dict[str, int]
+    ) -> dict[str, Sequence[PathType]]:
+        """Distribute images across splits based on requested counts.
+
+        When total requested exceeds available, fills splits by priority
+        (most requested first).
+
+        Args:
+            images: Images to distribute.
+            split_ratios: Requested counts for each split.
+
+        Returns:
+            Split names mapped to assigned images.
+
+        """
+        total_requested = sum(split_ratios.values())
+        available = len(images)
+
+        shuffled = list(images)
+        random.shuffle(shuffled)
+
+        if total_requested > available:
+            logger.warning(
+                f"Requested {total_requested} total samples, "
+                f"but only {available} available. "
+                "Filling splits by priority (most requested first)."
+            )
+            sorted_splits = sorted(
+                ["train", "val", "test"],
+                key=lambda s: split_ratios[s],
+                reverse=True,
+            )
+
+            sampled: dict[str, Sequence[PathType]] = {}
+            remaining = available
+            offset = 0
+            for split_name in sorted_splits:
+                count = min(split_ratios[split_name], remaining)
+                sampled[split_name] = shuffled[offset : offset + count]
+                offset += count
+                remaining -= count
+            return sampled
+
+        # Enough samples: distribute in order
+        sampled = {}
+        offset = 0
+        for split_name in ["train", "val", "test"]:
+            count = split_ratios[split_name]
+            sampled[split_name] = shuffled[offset : offset + count]
+            offset += count
+        return sampled
+
+    @staticmethod
+    def _sample_from_splits(
+        original_splits: dict[str, Sequence[PathType]],
+        split_ratios: dict[str, int],
+    ) -> dict[str, Sequence[PathType]]:
+        """Sample from each original split independently.
+
+        Args:
+            original_splits: Existing split assignments.
+            split_ratios: Requested counts for each split.
+
+        Returns:
+            Split names mapped to sampled images.
+
+        """
+        sampled: dict[str, Sequence[PathType]] = {}
+        for split_name in ["train", "val", "test"]:
+            requested = split_ratios[split_name]
+            available = original_splits[split_name]
+            available_count = len(available)
+
+            if requested == 0:
+                sampled[split_name] = []
+            elif requested >= available_count:
+                if requested > available_count:
+                    logger.warning(
+                        f"Requested {requested} samples for '{split_name}' split, "
+                        f"but only {available_count} available. "
+                        f"Using all {available_count} samples."
                     )
-            return added_images
-        finally:
-            os.chdir(old_cwd)
+                sampled[split_name] = list(available)
+            else:
+                sampled[split_name] = random.sample(list(available), requested)
+        return sampled
 
     def parse_split(
         self,
-        split: Optional[str] = None,
+        split: str | None = None,
+        *,
         random_split: bool = False,
-        split_ratios: Optional[Dict[str, float]] = None,
+        split_ratios: dict[str, float | int] | None = None,
         **kwargs,
     ) -> BaseDataset:
-        """Parses data in a split subdirectory to L{LuxonisDataset}
-        format.
+        """Parse one split subdirectory into the target dataset.
 
-        @type split: Optional[str]
-        @param split: As what split the data will be added to LDF. If
-            set, C{split_ratios} and C{random_split} are ignored.
-        @type random_split: bool
-        @param random_split: If random splits should be made. If
-            C{True}, C{split_ratios} are used.
-        @type split_ratios: Optional[Tuple[float, float, float]]
-        @param split_ratios: Ratios for random splits. Only used if
-            C{random_split} is C{True}. Defaults to C{(0.8, 0.1, 0.1)}.
-        @type kwargs: Dict[str, Any]
-        @param kwargs: Additional C{kwargs} for specific parser
-            implementation.
-        @rtype: LuxonisDataset
-        @return: C{LDF} with all the images and annotations parsed.
+        Args:
+            split: Optional split name to assign to parsed data. When set,
+                ``split_ratios`` and ``random_split`` are ignored.
+            random_split: Whether to generate random splits using
+                ``split_ratios``.
+            split_ratios: Optional ratios or counts. Float values are
+                treated as ratios; integer values are treated as counts.
+            kwargs: Parser-specific arguments.
+
+        Returns:
+            Dataset with parsed images and annotations.
+
         """
-        added_images = self._parse_split(**kwargs)
-        if split is not None:
-            self.dataset.make_splits({split: added_images})
-        elif random_split:
-            self.dataset.make_splits(split_ratios)
-        return self.dataset
+        self._reset_parser_issue_messages()
+        try:
+            added_images = self._parse_split(**kwargs)
+
+            if split is not None:
+                self._dataset.make_splits({split: added_images})
+            elif random_split:
+                is_counts = split_ratios is not None and all(
+                    isinstance(v, int) for v in split_ratios.values()
+                )
+                if is_counts:
+                    sampled = self._apply_counts_to_pool(
+                        added_images,
+                        split_ratios,  # pyright: ignore[reportArgumentType]
+                    )
+                    self._dataset.make_splits(sampled)
+                    self._remove_unsplit_records()
+                else:
+                    self._dataset.make_splits(split_ratios)
+            return self._dataset
+        finally:
+            self._log_skipped_annotation_summary()
 
     def parse_dir(self, dataset_dir: Path, **kwargs) -> BaseDataset:
-        """Parses entire dataset directory to L{LuxonisDataset} format.
+        """Parse an entire dataset directory into the target dataset.
 
-        @type dataset_dir: str
-        @param dataset_dir: Path to source dataset directory.
-        @type kwargs: Dict[str, Any]
-        @param kwargs: Additional C{kwargs} for specific parser
-            implementation.
-        @rtype: LuxonisDataset
-        @return: C{LDF} with all the images and annotations parsed.
+        Args:
+            dataset_dir: Source dataset directory.
+            kwargs: Parser-specific arguments.
+
+        Returns:
+            Dataset with parsed images and annotations.
+
+        Raises:
+            ValueError: If no split directory has the expected format, or
+                if no split holds a sample.
+
         """
-        train, val, test = self.from_dir(dataset_dir, **kwargs)
+        self._reset_parser_issue_messages()
+        try:
+            split_ratios = kwargs.pop("split_ratios", None)
+            is_counts = split_ratios is not None and all(
+                isinstance(v, int) for v in split_ratios.values()
+            )
 
-        self.dataset.make_splits({"train": train, "val": val, "test": test})
-        return self.dataset
+            # Disable automatic val-to-test splitting when using explicit counts
+            if is_counts and "split_val_to_test" not in kwargs:
+                sig = inspect.signature(self._parse_available_splits)
+                if "split_val_to_test" in sig.parameters:
+                    kwargs["split_val_to_test"] = False
+
+            split_definitions = self._parse_available_splits(
+                dataset_dir, **kwargs
+            )
+            if not split_definitions:
+                existing_dirs = [
+                    d.name for d in dataset_dir.iterdir() if d.is_dir()
+                ]
+                raise ValueError(
+                    "No valid split directories found in dataset. "
+                    f"Found directories: {existing_dirs}."
+                )
+            if all(
+                len(split_images) == 0
+                for split_images in split_definitions.values()
+            ):
+                raise ValueError(
+                    "No samples were parsed from the discovered split directories."
+                )
+
+            original_splits: dict[str, Sequence[PathType]] = {
+                split_name: split_definitions.get(split_name, [])
+                for split_name in self._CANONICAL_SPLIT_NAMES
+            }
+
+            if split_ratios is None:
+                self._dataset.make_splits(original_splits)
+            elif is_counts:
+                sampled = self._apply_counts_to_splits(
+                    original_splits,
+                    split_ratios,
+                )
+                self._dataset.make_splits(sampled)
+                self._remove_unsplit_records()
+            else:
+                logger.warning(
+                    "Using percentage-based split ratios will redistribute "
+                    "and shuffle all samples across splits. Original split "
+                    "boundaries will not be preserved."
+                )
+                self._dataset.make_splits(split_ratios)
+
+            return self._dataset
+        finally:
+            self._log_skipped_annotation_summary()
+
+    def _parse_available_splits(
+        self, dataset_dir: Path, **kwargs
+    ) -> dict[str, list[Path]]:
+        split_definitions: dict[str, list[Path]] = {}
+        for split_name, split_kwargs in self.discover_dir_splits(
+            dataset_dir
+        ).items():
+            split_definitions[split_name] = self._parse_split(
+                **split_kwargs, **kwargs
+            )
+        return split_definitions
 
     @staticmethod
-    def _get_added_images(generator: DatasetIterator) -> List[Path]:
-        """Returns list of unique images added by the generator
-        function.
+    def _apply_counts_to_splits(
+        original_splits: dict[str, Sequence[PathType]],
+        split_ratios: dict[str, int],
+    ) -> dict[str, Sequence[PathType]]:
+        """Apply count-based split requests to existing splits.
 
-        @type generator: L{DatasetGenerator}
-        @param generator: Generator function
-        @rtype: List[str]
-        @return: List of added images by generator function
+        Samples from each original split independently. If more samples
+        are requested than available in a split, all available samples
+        from that split are used.
+
+        Args:
+            original_splits: Existing split assignments.
+            split_ratios: Requested counts for each split.
+
+        Returns:
+            Split names mapped to assigned images.
+
+        """
+        return BaseParser._sample_from_splits(original_splits, split_ratios)
+
+    def _remove_unsplit_records(self) -> None:
+        """Remove records that are not assigned to any split."""
+        # Cast to LuxonisDataset to access internal methods
+        dataset: LuxonisDataset = self._dataset  # pyright: ignore[reportAssignmentType]
+
+        splits = dataset.get_splits()
+        if splits is None:
+            return
+
+        # Get all group_ids that are in any split
+        all_split_group_ids: set[str] = set()
+        for group_ids in splits.values():
+            all_split_group_ids.update(group_ids)
+
+        if not all_split_group_ids:
+            return
+
+        df = dataset._load_df_offline(lazy=True)
+        if df is None:
+            return
+
+        # Filter to keep only records whose group_id is in a split
+        df = df.filter(pl.col("group_id").is_in(list(all_split_group_ids)))
+        dataset._save_df_offline(df.collect())
+
+    @staticmethod
+    def _get_added_images(generator: DatasetIterator) -> list[Path]:
+        """Return unique images yielded by a dataset generator.
+
+        Args:
+            generator: Dataset record generator.
+
+        Returns:
+            Unique added image paths.
+
         """
         return list(
-            set(
-                Path(item["file"] if isinstance(item, dict) else item.file)
+            {
+                Path(v)
                 for item in generator
-            )
+                for v in (
+                    [item["file"]]
+                    if isinstance(item, dict) and "file" in item
+                    else item["files"].values()
+                    if isinstance(item, dict) and "files" in item
+                    else [item.file]
+                    if isinstance(item, DatasetRecord)
+                    else []
+                )
+            }
         )
+
+    def _warn_skipped_annotation(
+        self,
+        parser_issue: ParserIssue,
+        reason: str,
+        *,
+        source: PathType | None = None,
+        image: PathType | None = None,
+        annotation_id: str | int | None = None,
+    ) -> None:
+        message = ParserIssueMessage(
+            parser_issue=parser_issue,
+            reason=reason,
+            source=source,
+            image=image,
+            annotation_id=annotation_id,
+        )
+        if message in self._seen_parser_issue_messages:
+            return
+
+        self._seen_parser_issue_messages.add(message)
+        self._parser_issue_messages.append(message)
+        self._skipped_annotation_counts_by_reason[reason] += 1
+
+        details = []
+        if annotation_id is not None:
+            details.append(f"annotation_id={annotation_id}")
+        if source is not None:
+            details.append(f"source={source}")
+        if image is not None:
+            details.append(f"image={image}")
+
+        suffix = f" ({', '.join(details)})" if details else ""
+        if (
+            self._full_warnings
+            or self._logged_skipped_annotation_warnings
+            < self._SKIPPED_WARNING_LIMIT
+        ):
+            logger.warning(f"Skipping annotation: {reason}{suffix}")
+            self._logged_skipped_annotation_warnings += 1
+        else:
+            self._suppressed_skipped_annotation_warnings += 1
+
+    def _log_skipped_annotation_summary(self) -> None:
+        if (
+            self._full_warnings
+            or self._suppressed_skipped_annotation_warnings == 0
+        ):
+            return
+
+        logger.warning(
+            "Skipped logging "
+            f"{self._suppressed_skipped_annotation_warnings} additional warnings. "
+            "Enable the `--log-all-warnings` flag to see the full list."
+        )
+        for reason, count in sorted(
+            self._skipped_annotation_counts_by_reason.items(),
+            key=lambda item: (-item[1], item[0]),
+        ):
+            logger.warning(f"Skipped annotations: {reason} ({count} records)")
 
     @staticmethod
     def _compare_stem_files(
         list1: Iterable[Path], list2: Iterable[Path]
     ) -> bool:
-        """Compares sets of files by their stem.
+        """Compare sets of files by stem.
 
         Example:
-
-            >>> BaseParser._compare_stem_files([Path("a.jpg"), Path("b.jpg")],
-            ...                                [Path("a.xml"), Path("b.xml")])
+            >>> BaseParser._compare_stem_files(
+            ...     [Path("a.jpg"), Path("b.jpg")],
+            ...     [Path("a.xml"), Path("b.xml")],
+            ... )
             True
-            >>> BaseParser._compare_stem_files([Path("a.jpg")], [Path("b.txt")])
+            >>> BaseParser._compare_stem_files(
+            ...     [Path("a.jpg")], [Path("b.txt")]
+            ... )
             False
 
-        @type list1: Iterable[Path]
-        @param list1: First list of files
-        @type list2: Iterable[Path]
-        @param list2: Second list of files
-        @rtype: bool
-        @return: If the two sets of files are equal when compared by their stems.
-            If the sets are empty, returns C{False}.
+        Args:
+            list1: First files to compare.
+            list2: Second files to compare.
+
+        Returns:
+            Whether the non-empty file stem sets are equal.
+
         """
-        set1 = set(Path(f).stem for f in list1)
-        set2 = set(Path(f).stem for f in list2)
+        set1 = {Path(f).stem for f in list1}
+        set2 = {Path(f).stem for f in list2}
         return len(set1) > 0 and set1 == set2
 
     @staticmethod
-    def _list_images(image_dir: Path) -> List[Path]:
-        """Returns list of all images in the directory supported by
-        opencv.
+    def _list_images(image_dir: Path) -> list[Path]:
+        """List OpenCV-supported images in a directory.
 
-        @type image_dir: Path
-        @param image_dir: Path to directory with images
-        @rtype: List[Path]
-        @return: List of images in the directory
+        Args:
+            image_dir: Directory with images.
+
+        Returns:
+            Supported image paths.
+
         """
         cv2_supported_image_formats = {
             ".bmp",
@@ -235,20 +660,51 @@ class BaseParser(ABC):
             if img.suffix in cv2_supported_image_formats
         ]
 
-    def _add_task(self, generator: DatasetIterator) -> DatasetIterator:
-        """Adds task to the generator.
+    def _wrap_generator(self, generator: DatasetIterator) -> DatasetIterator:
+        """Add configured task names to generated records.
 
-        @type generator: DatasetIterator
-        @param generator: Generator function
-        @rtype: DatasetIterator
-        @return: Generator function with added task
+        Args:
+            generator: Dataset record generator.
+
+        Yields:
+            Each record as a `DatasetRecord`. If task names are set, a
+            record without an annotation is copied once for each task.
+
+        Raises:
+            ValueError: If a dict record is not a valid `DatasetRecord`,
+                or if the class of a record has no task name.
+
         """
-
-        task_name = self.task_name or ""
         for item in generator:
-            if isinstance(item, dict):
-                if "task" not in item or self.task_name is not None:
-                    item["task"] = task_name
-            elif not item.task or self.task_name is not None:
-                item.task = task_name
-            yield item
+            record = DatasetRecord(**item) if isinstance(item, dict) else item
+            if self._task_name is None:
+                yield record
+            elif record.annotation is None:
+                # A record without labels belongs to every task.
+                task_names = (
+                    {self._default_task_name}
+                    if self._default_task_name is not None
+                    else set(self._task_name.values())
+                )
+                for task_name in task_names:
+                    yield record.model_copy(
+                        update={"task_name": task_name}, deep=True
+                    )
+            else:
+                self._assign_task_name(record, self._task_name)
+                yield record
+
+    @staticmethod
+    def _assign_task_name(
+        item: DatasetRecord, task_names: Mapping[str, str]
+    ) -> None:
+        """Set the task name that the class of a record maps to."""
+        if item.annotation is None or item.annotation.class_name is None:
+            return
+        class_name = item.annotation.class_name
+        try:
+            item.task_name = task_names[class_name]
+        except KeyError:
+            raise ValueError(
+                f"Class '{class_name}' not found in task names."
+            ) from None

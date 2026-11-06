@@ -1,22 +1,30 @@
-from typing import Dict
+"""Deprecated models for the sources and components of a dataset."""
 
-from pydantic import Field
+from typing import Any
+
+from pydantic import Field, field_validator
+from typing_extensions import deprecated
 
 from luxonis_ml.data.utils import ImageType, MediaType
-from luxonis_ml.utils import BaseModelExtraForbid
+from luxonis_ml.typing import BaseModelExtraForbid
 
 
+@deprecated(
+    "LuxonisComponent is deprecated and will be removed in a future release."
+)
 class LuxonisComponent(BaseModelExtraForbid):
-    """Abstraction for a piece of media within a source. Most commonly,
+    """Media component within a source.
 
-    this abstracts an image sensor.
-    @type name: str
-    @ivar name: A recognizable name for the component.
-    @type media_type: L{MediaType}
-    @ivar media_type: Enum for the type of media for the component.
-    @type image_type: L{ImageType}
-    @ivar image_type: Enum for the image type. Only used if
-        C{media_type==MediaType.IMAGE}.
+    Most commonly, this represents one image sensor.
+
+    Attributes:
+        name: Human-readable component name.
+        media_type: Media kind represented by the component.
+        image_type: Image kind. Only used for image media.
+
+    .. deprecated:: 0.10.0
+        LuxonisComponent is deprecated and will be removed in a future release.
+
     """
 
     name: str
@@ -24,28 +32,31 @@ class LuxonisComponent(BaseModelExtraForbid):
     image_type: ImageType = ImageType.COLOR
 
 
+@deprecated(
+    "LuxonisSource is deprecated and will be removed in a future release."
+)
 class LuxonisSource(BaseModelExtraForbid):
-    """Abstracts the structure of a dataset and which components/media
-    are included.
+    """Source definition for a dataset.
 
-    For example, with an U{OAK-D<https://docs.luxonis.com/projects/hardware
-    /en/latest/pages/BW1098OAK/>}, you can have a source with 4 image
-    components: C{rgb} (color), C{left} (mono), C{right} (mono), and C{depth}.
+    A source describes which components or media streams are included. For
+    example, an `OAK-D`_ source can contain ``rgb``, ``left``,
+    ``right``, ``depth`` components.
 
-    @type name: str
-    @ivar name: A recognizable name for the source. Defaults to "default".
+    Attributes:
+        name: Human-readable source name.
+        components: Components grouped in the source.
+        main_component: Component name used as the primary visualization
+            target.
 
-    @type components: Optional[List[LuxonisComponent]]
-    @ivar components: If not using the default configuration, a list of
-    L{LuxonisComponent} to group together in the source.
+    .. _OAK-D: https://docs.luxonis.com/projects/hardware/en/latest/pages/BW1098OAK/
 
-    @type main_component: Optional[str]
-    @ivar main_component: The name of the component that should be
-        primarily visualized.
+    .. deprecated:: 0.10.0
+        LuxonisSource is deprecated and will be removed in a future release.
+
     """
 
     name: str = "default"
-    components: Dict[str, LuxonisComponent] = Field(
+    components: dict[str, LuxonisComponent] = Field(
         default_factory=lambda: {"default": LuxonisComponent(name="default")}
     )
     main_component: str = "default"
@@ -53,10 +64,39 @@ class LuxonisSource(BaseModelExtraForbid):
     def merge_with(self, other: "LuxonisSource") -> "LuxonisSource":
         """Merge two sources together.
 
-        @type other: LuxonisSource
-        @param other: The other source to merge with.
-        @rtype: LuxonisSource
-        @return: A new source with the components of both sources.
+        ``name`` and ``main_component`` are taken from the first source.
+        ``components`` are merged together, with the second source's components
+        taking precedence in case of name conflicts.
+
+        Example:
+            >>> source1 = LuxonisSource(
+            ...     name="source1",
+            ...     components={
+            ...         "rgb": LuxonisComponent(name="rgb"),
+            ...     },
+            ...     main_component="rgb",
+            ... )
+            >>> source2 = LuxonisSource(
+            ...     name="source2",
+            ...     components={
+            ...         "depth": LuxonisComponent(name="depth"),
+            ...     },
+            ...     main_component="depth",
+            ... )
+            >>> merged_source = source1.merge_with(source2)
+            >>> merged_source.name
+            'source1'
+            >>> merged_source.main_component
+            'rgb'
+            >>> sorted(merged_source.components.keys())
+            ['depth', 'rgb']
+
+        Args:
+            other: Source to merge with.
+
+        Returns:
+            New source containing components from both sources.
+
         """
         components = self.components.copy()
         components.update(other.components)
@@ -65,3 +105,11 @@ class LuxonisSource(BaseModelExtraForbid):
             components=components,
             main_component=self.main_component,
         )
+
+    @field_validator("components", mode="before")
+    @classmethod
+    def _validate_components(cls, components: Any) -> Any:
+        if isinstance(components, list):
+            migrated = [LuxonisComponent(**c) for c in components]
+            return {component.name: component for component in migrated}
+        return components

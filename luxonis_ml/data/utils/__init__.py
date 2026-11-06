@@ -1,6 +1,80 @@
-from .data_utils import infer_task, rgb_to_bool_masks, warn_on_duplicates
-from .enums import BucketStorage, BucketType, ImageType, MediaType, UpdateMode
+"""Utility helpers shared by the data package.
+
+`visualize` draws the labels of a loaded sample on its image:
+
+.. python::
+
+    from luxonis_ml.data import LuxonisDataset, LuxonisLoader
+    from luxonis_ml.data.utils import visualize
+
+    dataset = LuxonisDataset("parking_lot")
+    sample = LuxonisLoader(dataset)[0]
+    image = visualize(
+        sample.images["image"], "image", sample.labels, dataset.get_classes()
+    )
+
+This package collects public helper APIs used by dataset creation, parsing,
+loading, exporting, validation, and visualization. The utilities are grouped by
+the part of the data workflow they support:
+
+.. list-table:: Utility groups
+   :header-rows: 1
+
+   * - Group
+     - Public APIs
+   * - Task keys
+     - `task_is_metadata`, `split_task`, `get_task_name`, `get_task_type`,
+       and `task_type_iterator` parse and filter ``"task_name/task_type"``
+       labels.
+   * - Storage and parser enums
+     - `BucketStorage`, `BucketType`, `MediaType`, `ImageType`,
+       `UpdateMode`, `ParserIssue`, and `ParserIssueMessage`.
+   * - Dataframe and parquet helpers
+     - `ParquetFileManager`, `ParquetRecord`, duplicate detection, class
+       distributions, missing-annotation summaries, heatmaps, and UUID
+       merging.
+   * - Remote media
+     - `RemoteFileDownloader` and `download_remote_file` copy supported
+       remote files to local paths and validate image inputs.
+   * - Visualization
+     - `visualize`, color-map helpers, image concatenation, augmentation
+       footers, and dataset-statistic plots.
+   * - Equivalence
+     - LDF equivalence checks.
+
+The task-key helpers follow the same convention as `LuxonisLoader`: labels are
+addressed by ``"task_name/task_type"`` and metadata labels use
+``"task_name/metadata/key"`` or ``"metadata/key"`` when no task name is
+present.
+"""
+
+from .data_utils import (
+    find_duplicates,
+    get_class_distributions,
+    get_duplicates_info,
+    get_heatmaps,
+    get_missing_annotations,
+    infer_task,
+    merge_uuids,
+    rgb_to_bool_masks,
+    warn_on_duplicates,
+)
+from .enums import (
+    BucketStorage,
+    BucketType,
+    COCOFormat,
+    ImageType,
+    MediaType,
+    ParserIssue,
+    ParserIssueMessage,
+    UpdateMode,
+)
 from .parquet import ParquetFileManager, ParquetRecord
+from .plot_utils import plot_class_distribution, plot_heatmap
+from .remote_file_downloader import (
+    RemoteFileDownloader,
+    download_remote_file,
+)
 from .task_utils import (
     get_task_name,
     get_task_type,
@@ -10,6 +84,7 @@ from .task_utils import (
 )
 from .visualizations import (
     ColorMap,
+    add_augmentation_footer,
     concat_images,
     create_text_image,
     distinct_color_generator,
@@ -17,24 +92,38 @@ from .visualizations import (
 )
 
 __all__ = [
-    "create_text_image",
-    "concat_images",
-    "visualize",
-    "ColorMap",
-    "distinct_color_generator",
-    "infer_task",
-    "warn_on_duplicates",
-    "rgb_to_bool_masks",
-    "ParquetRecord",
-    "ParquetFileManager",
-    "MediaType",
-    "ImageType",
-    "BucketType",
     "BucketStorage",
+    "BucketType",
+    "COCOFormat",
+    "ColorMap",
+    "ImageType",
+    "MediaType",
+    "ParquetFileManager",
+    "ParquetRecord",
+    "ParserIssue",
+    "ParserIssueMessage",
+    "RemoteFileDownloader",
     "UpdateMode",
+    "add_augmentation_footer",
+    "concat_images",
+    "create_text_image",
+    "distinct_color_generator",
+    "download_remote_file",
+    "find_duplicates",
+    "get_class_distributions",
+    "get_duplicates_info",
+    "get_heatmaps",
+    "get_missing_annotations",
     "get_task_name",
-    "task_type_iterator",
-    "task_is_metadata",
     "get_task_type",
+    "infer_task",
+    "merge_uuids",
+    "plot_class_distribution",
+    "plot_heatmap",
+    "rgb_to_bool_masks",
     "split_task",
+    "task_is_metadata",
+    "task_type_iterator",
+    "visualize",
+    "warn_on_duplicates",
 ]

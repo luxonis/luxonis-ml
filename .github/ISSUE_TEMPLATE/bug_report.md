@@ -2,13 +2,13 @@ ______________________________________________________________________
 
 name: Bug report
 about: Create a bug report to help us improve
-title: "\[BUG_TITLE\]"
+title: "[BUG_TITLE]"
 labels: bug
 assignees: ''
 
 ______________________________________________________________________
 
-# \[BUG_TITLE\]
+# [BUG_TITLE]
 
 ## Description
 
