@@ -1,4 +1,53 @@
-from .augmentations_collector import AugmentationsCollector
+"""Utility helpers shared by the data package.
+
+`visualize` draws the labels of a loaded sample on its image:
+
+.. python::
+
+    from luxonis_ml.data import LuxonisDataset, LuxonisLoader
+    from luxonis_ml.data.utils import visualize
+
+    dataset = LuxonisDataset("parking_lot")
+    sample = LuxonisLoader(dataset)[0]
+    image = visualize(
+        sample.images["image"], "image", sample.labels, dataset.get_classes()
+    )
+
+This package collects public helper APIs used by dataset creation, parsing,
+loading, exporting, validation, and visualization. The utilities are grouped by
+the part of the data workflow they support:
+
+.. list-table:: Utility groups
+   :header-rows: 1
+
+   * - Group
+     - Public APIs
+   * - Task keys
+     - `task_is_metadata`, `split_task`, `get_task_name`, `get_task_type`,
+       and `task_type_iterator` parse and filter ``"task_name/task_type"``
+       labels.
+   * - Storage and parser enums
+     - `BucketStorage`, `BucketType`, `MediaType`, `ImageType`,
+       `UpdateMode`, `ParserIssue`, and `ParserIssueMessage`.
+   * - Dataframe and parquet helpers
+     - `ParquetFileManager`, `ParquetRecord`, duplicate detection, class
+       distributions, missing-annotation summaries, heatmaps, and UUID
+       merging.
+   * - Remote media
+     - `RemoteFileDownloader` and `download_remote_file` copy supported
+       remote files to local paths and validate image inputs.
+   * - Visualization
+     - `visualize`, color-map helpers, image concatenation, augmentation
+       footers, and dataset-statistic plots.
+   * - Equivalence
+     - LDF equivalence checks.
+
+The task-key helpers follow the same convention as `LuxonisLoader`: labels are
+addressed by ``"task_name/task_type"`` and metadata labels use
+``"task_name/metadata/key"`` or ``"metadata/key"`` when no task name is
+present.
+"""
+
 from .data_utils import (
     find_duplicates,
     get_class_distributions,
@@ -43,7 +92,6 @@ from .visualizations import (
 )
 
 __all__ = [
-    "AugmentationsCollector",
     "BucketStorage",
     "BucketType",
     "COCOFormat",

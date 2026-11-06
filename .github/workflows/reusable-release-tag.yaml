@@ -1,0 +1,67 @@
+name: Reusable Release Tag
+
+# Shared by every Luxonis repository. Call it from a thin `Release Tag`
+# workflow, as `.github/workflows/release-tag.yaml` in this repository does.
+
+on:
+  workflow_call:
+    inputs:
+      version-file:
+        description: "File that holds `__version__`, such as pkg/__init__.py"
+        type: string
+        required: true
+      tag-suffix:
+        description: >-
+          A tag-name convention that every Luxonis release since 2024 keeps.
+          It does not mark the GitHub release as a prerelease, and it does not
+          change the PyPI version. Change both deliberately, not through this
+          input alone.
+        type: string
+        default: "-beta"
+    secrets:
+      WORKFLOW_SECRET:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          persist-credentials: false
+
+      - name: Check out the version tool
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: luxonis/luxonis-ml
+          ref: main
+          path: .release-tools
+          sparse-checkout: tools/version.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Read the version
+        id: version
+        env:
+          VERSION_FILE: ${{ inputs.version-file }}
+        run: |
+          version="$(python3 .release-tools/tools/version.py --path "$VERSION_FILE")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Create the release
+        env:
+          # The default token cannot start another workflow. The personal
+          # token makes the release event start the publish workflows.
+          GH_TOKEN: ${{ secrets.WORKFLOW_SECRET }}
+          TAG: v${{ steps.version.outputs.version }}${{ inputs.tag-suffix }}
+          TARGET: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          gh release create "$TAG" \
+            --target "$TARGET" \
+            --title "$TAG" \
+            --generate-notes

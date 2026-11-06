@@ -1,16 +1,36 @@
+"""Import guard for the optional extras of ``luxonis-ml``.
+
+A failed import is raised again with the install command of the extra.
+"""
+
 from collections.abc import Generator
 from contextlib import contextmanager
 
 
 @contextmanager
 def guard_missing_extra(name: str) -> Generator[None, None, None]:
+    """Rewrite missing optional-extra import errors with install guidance.
+
+    Args:
+        name: Optional extra name, such as ``"data"``.
+
+    Yields:
+        Control to the guarded import block.
+
+    Raises:
+        ImportError: If the guarded block raises ``ImportError``.
+
+    """
     try:
         yield
     except ImportError as e:
         raise ImportError(
-            f"Error importing `luxonis-ml.{name}`. This can mean that some of the dependencies of `luxonis-ml[{name}]` are not installed. "
-            f"Ensure you installed the package with the `[{name}]` or `[all]` extra specified. "
-            f"Use `pip install luxonis-ml[{name}]` to install dependencies for the `{name}` submodule.",
+            f"Error importing `luxonis-ml.{name}`. This can mean that some "
+            f"of the dependencies of `luxonis-ml[{name}]` are not installed. "
+            f"Ensure you installed the package with the `[{name}]` or "
+            "`[all]` extra specified. "
+            f"Use `pip install luxonis-ml[{name}]` to install dependencies "
+            f"for the `{name}` submodule.",
             str(e),
         ) from e
 

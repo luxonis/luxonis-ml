@@ -152,7 +152,7 @@ head_segmentation_metadata = HeadSegmentationMetadata(
     n_classes=2,
     is_softmax=False,
     background_class=True,
-    custom_field="custom_field",  # type: ignore
+    custom_field="custom_field",  # pyright: ignore[reportCallIssue]
     postprocessor_path="postprocessor.onnx",
 )
 

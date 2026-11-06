@@ -1,3 +1,5 @@
+"""Loader for the samples and labels of a `LuxonisDataset`."""
+
 import inspect
 import json
 import random
@@ -5,11 +7,12 @@ import warnings
 from collections import defaultdict
 from copy import deepcopy
 from pathlib import Path
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import cv2
 import numpy as np
 import polars as pl
+import pycocotools.mask
 import yaml
 from loguru import logger
 from typeguard import typechecked
@@ -26,31 +29,69 @@ from luxonis_ml.data.datasets import (
     UpdateMode,
     load_annotation,
 )
-from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.loaders.base_loader import BaseLoader
-from luxonis_ml.data.utils import (
-    get_task_name,
-    get_task_type,
-    split_task,
-    task_type_iterator,
-)
+from luxonis_ml.data.utils import get_task_type, split_task
 from luxonis_ml.data.utils.task_utils import task_is_metadata
+from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.typing import (
     Labels,
     LoaderOutput,
     Params,
     PathType,
+    TrackedAugmentations,
 )
+
+if TYPE_CHECKING:
+    from pycocotools import _EncodedRLE
 
 
 class LuxonisLoader(BaseLoader):
+    r"""Indexed loader for `LuxonisDataset` samples.
+
+    `LuxonisLoader` reads one split or multiple splits, loads image
+    sources, assembles labels by task key, optionally applies
+    augmentations, and returns `LoaderOutput` values with images, labels,
+    and sample metadata.
+
+    Iterating a `LoaderOutput` preserves the legacy tuple behavior:
+    for a single-source dataset it yields ``(image, labels)``. For a
+    multi-source dataset it yields ``(images, labels)``, where ``images``
+    maps source names to arrays.
+
+    Prefer attribute access for new code:
+
+    .. python::
+
+        sample = loader[0]
+
+        images = sample.images
+        labels = sample.labels
+        metadata = sample.metadata
+
+    ``sample.metadata`` contains **record-level metadata** from
+    `DatasetRecord.sample_metadata`. When ``autopopulate_metadata`` is enabled,
+    the loader also adds a ``"filenames"`` mapping from source name to file
+    basename. Augmented outputs additionally include an ``"augmentations"``
+    mapping from configured transformation paths to the runtime parameters
+    that were selected. Both are reserved keys that never overwrite metadata
+    stored on the record.
+
+    Label keys use ``"task_name/task_type"``. If a dataset was created
+    without a task name, the default task name is empty and keys look like
+    ``"/boundingbox"`` or ``"/segmentation"``.
+
+    Attributes:
+        dataset: Dataset being loaded.
+
+    """
+
     @typechecked
     def __init__(
         self,
         dataset: LuxonisDataset,
         view: str | list[str] = "train",
-        augmentation_engine: Literal["albumentations"]
-        | str = "albumentations",
+        *,
+        augmentation_engine: str = "albumentations",
         augmentation_config: list[Params] | PathType | None = None,
         height: int | None = None,
         width: int | None = None,
@@ -62,84 +103,90 @@ class LuxonisLoader(BaseLoader):
         seed: int | None = None,
         min_bbox_visibility: float = 0.0,
         bbox_area_threshold: float = 0.0004,
-        *,
         keep_categorical_as_strings: bool = False,
         update_mode: UpdateMode | Literal["all", "missing"] = UpdateMode.ALL,
         filter_task_names: list[str] | None = None,
         autopopulate_metadata: bool = True,
     ) -> None:
-        """A loader class used for loading data from L{LuxonisDataset}.
+        """Create a loader for a Luxonis dataset.
 
-        @type dataset: LuxonisDataset
-        @param dataset: Instance of C{LuxonisDataset} to use.
-        @type view: Union[str, List[str]]
-        @param view: What splits to use. Can be either a single split or
-            a list of splits. Defaults to C{"train"}.
-        @type augmentation_engine: Union[Literal["albumentations"], str]
-        @param augmentation_engine: The augmentation engine to use.
-            Defaults to C{"albumentations"}.
-        @type augmentation_config: Optional[Union[List[Params],
-            PathType]]
-        @param augmentation_config: The configuration for the
-            augmentations. This can be either a list of C{Dict[str, JsonValue]} or
-            a path to a configuration file.
-            The config member is a dictionary with two keys: C{name} and
-            C{params}. C{name} is the name of the augmentation to
-            instantiate and C{params} is an optional dictionary
-            of parameters to pass to the augmentation.
+        Args:
+            dataset: Dataset to load from.
+            view: Split name or split names to load.
+            augmentation_engine: Augmentation engine registry name.
+            augmentation_config: Optional augmentation configuration or path
+                to a configuration file. Each configuration item contains
+                ``name`` and optional ``params`` keys.
+            height: Optional output image height. Required when
+                augmentations are enabled.
+            width: Optional output image width. Required when augmentations
+                are enabled.
+            keep_aspect_ratio: Whether resizing should preserve image aspect
+                ratio.
+            exclude_empty_annotations: Whether to omit empty annotations
+                from the returned label dictionary.
+            color_space: Optional color space for each source. A single
+                value applies to all sources; if omitted, all sources use
+                ``"RGB"``.
+            seed: Optional random seed for augmentations.
+            min_bbox_visibility: Minimum fraction of the original bounding
+                box that must remain visible after augmentation.
+            bbox_area_threshold: Minimum normalized area for bounding boxes
+                to remain valid. The default removes very small boxes and
+                their associated keypoints.
+            keep_categorical_as_strings: Whether to keep categorical
+                metadata labels as strings instead of converting them to
+                integers.
+            update_mode: Sync mode for media files in remote datasets.
+                Annotations and metadata are always overwritten.
+            filter_task_names: Optional task names to include. If omitted,
+                all tasks are included.
+            autopopulate_metadata: Whether to add automatic sample metadata
+                such as source filenames. When enabled, returned metadata
+                includes a ``"filenames"`` dictionary keyed by source name.
+                Set to ``False`` to return only metadata stored in
+                `DatasetRecord.sample_metadata`. Augmentation provenance
+                is reported either way, as it describes the returned
+                arrays rather than the record.
 
-            Example::
+        Raises:
+            ValueError: If ``filter_task_names`` contains task names not
+                present in the dataset.
+            ValueError: If ``augmentation_config`` is set without
+                ``height`` and ``width``.
+            RuntimeError: If split metadata is missing.
 
-                [
-                    {"name": "HorizontalFlip", "params": {"p": 0.5}},
-                    {"name": "RandomBrightnessContrast", "params": {"p": 0.1}},
-                    {"name": "Defocus"}
+        Example:
+            .. python::
+
+                augmentation_config = [
+                    {
+                        "name": "Defocus",
+                        "params": {"p": 1},
+                    },
+                    {
+                        "name": "RandomCrop",
+                        "params": {"height": 512, "width": 512, "p": 1},
+                    },
+                    {
+                        "name": "Mosaic4",
+                        "params": {
+                            "height": 256,
+                            "width": 256,
+                            "p": 1.0,
+                        },
+                    },
                 ]
 
-        @type height: Optional[int]
-        @param height: The height of the output images. Defaults to
-            C{None}.
-        @type width: Optional[int]
-        @param width: The width of the output images. Defaults to
-            C{None}.
-        @type keep_aspect_ratio: bool
-        @param keep_aspect_ratio: Whether to keep the aspect ratio of the
-            images. Defaults to C{True}.
-        @type color_space: Optional[Union[dict[str, Literal["RGB", "BGR", "GRAY"]], Literal["RGB", "BGR", "GRAY"]]]
-        @param color_space: The color space to use for the images.
-            If a string is provided, it will be used for all sources. If not provided, the default is C{"RGB"} for all sources.
-        @type seed: Optional[int]
-        @param seed: The random seed to use for the augmentations.
-        @type min_bbox_visibility: float
-        @param min_bbox_visibility: Minimum fraction of the original bounding box that must remain visible after augmentation.
-        @type bbox_area_threshold: float
-        @param bbox_area_threshold: Minimum area threshold for bounding boxes to be considered valid. In the range [0, 1].
-            Default is 0.0004, which corresponds to a small area threshold to remove invalid bboxes and respective keypoints.
-        @type exclude_empty_annotations: bool
-        @param exclude_empty_annotations: Whether to exclude
-            empty annotations from the final label dictionary.
-            Defaults to C{False} (i.e. include empty annotations).
+                loader = LuxonisLoader(
+                    dataset,
+                    view="train",
+                    augmentation_config=augmentation_config,
+                    height=640,
+                    width=640,
+                )
 
-        @type keep_categorical_as_strings: bool
-        @param keep_categorical_as_strings: Whether to keep categorical
-            metadata labels as strings.
-            Defaults to C{False} (i.e. convert categorical labels to integers).
-
-        @type update_mode: UpdateMode
-        @param update_mode: Enum that determines the sync mode for media files of the remote dataset (annotations and metadata are always overwritten):
-            - UpdateMode.MISSING: Downloads only the missing media files for the dataset.
-            - UpdateMode.ALL: Always downloads and overwrites all media files in the local dataset.
-
-        @type filter_task_names: Optional[List[str]]
-        @param filter_task_names: List of task names to filter the dataset by.
-            If C{None}, all task names are included. Defaults to C{None}.
-            This is useful for filtering out tasks that are not needed for a specific use case.
-
-        @type autopopulate_metadata: bool
-        @param autopopulate_metadata: Whether to automatically
-            populate metadata for the dataset.
         """
-
         self.dataset = dataset
 
         if self.dataset.is_remote:
@@ -155,131 +202,151 @@ class LuxonisLoader(BaseLoader):
         self._filter_task_names = filter_task_names
 
         self._source_names = self.dataset.get_source_names()
-        if isinstance(color_space, dict):
-            self._color_space = {
-                source_name: color_space.get(source_name, "RGB")
-                for source_name in self._source_names
-            }
-        else:
-            self._color_space = dict.fromkeys(
-                self._source_names, color_space or "RGB"
-            )
+        self._color_space = self._resolve_color_space(color_space)
 
         self._df = self.dataset._load_df_offline(raise_when_empty=True)
-        self._classes = self.dataset.get_classes()
-
+        self._classes = dict(self.dataset.get_classes())
         if self._filter_task_names is not None:
-            if self.dataset.metadata.tasks:
-                df_task_names = set(self.dataset.metadata.tasks)
-            else:
-                df_task_names = set(self._df["task_name"].to_list())
-            if extras := set(self._filter_task_names) - df_task_names:
-                raise ValueError(
-                    f"`filter_task_names` contains task names that "
-                    f"are not in the dataset: {extras}"
-                )
-            self._df = self._df.filter(
-                pl.col("task_name").is_in(self._filter_task_names)
-            )
+            self._filter_tasks(self._filter_task_names)
 
         self._df_col_indices = {
             column: i for i, column in enumerate(self._df.columns)
         }
-        self._instances: list[str] = []
+
+        view_instances = self._view_instances()
+        group_ids = self._df["group_id"].to_list()
+        group_id_set = set(group_ids)
+        self._instances = [g for g in view_instances if g in group_id_set]
+
+        idx_map: dict[str, list[int]] = defaultdict(list)
+        for i, group_id in enumerate(group_ids):
+            idx_map[group_id].append(i)
+        self._idx_to_df_row = [idx_map[uuid] for uuid in self._instances]
+
+        self._idx_to_img_paths = self._precompute_image_paths()
+
+        self._tasks_without_background: set[str] = set()
+        for task_name in self._uncovered_tasks():
+            self._add_background_class(task_name)
+
+        self._augmentations = self._init_augmentations(
+            augmentation_engine,
+            augmentation_config or [],
+            height=height,
+            width=width,
+            keep_aspect_ratio=keep_aspect_ratio,
+            seed=seed,
+            min_bbox_visibility=min_bbox_visibility,
+            bbox_area_threshold=bbox_area_threshold,
+        )
+
+    def _resolve_color_space(
+        self,
+        color_space: dict[str, Literal["RGB", "BGR", "GRAY"]]
+        | Literal["RGB", "BGR", "GRAY"]
+        | None,
+    ) -> dict[str, str]:
+        """Return the color space of each source; ``"RGB"`` by default."""
+        if isinstance(color_space, dict):
+            return {
+                source_name: color_space.get(source_name, "RGB")
+                for source_name in self._source_names
+            }
+        return dict.fromkeys(self._source_names, color_space or "RGB")
+
+    def _filter_tasks(self, task_names: list[str]) -> None:
+        """Keep only the rows of the given task names."""
+        if self.dataset.metadata.tasks:
+            df_task_names = set(self.dataset.metadata.tasks)
+        else:
+            df_task_names = set(self._df["task_name"].to_list())
+        if extras := set(task_names) - df_task_names:
+            raise ValueError(
+                f"`filter_task_names` contains task names that "
+                f"are not in the dataset: {extras}"
+            )
+        self._df = self._df.filter(pl.col("task_name").is_in(task_names))
+
+    def _view_instances(self) -> list[str]:
+        """List the group IDs of the splits in the view."""
         splits_path = self.dataset._metadata_path / "splits.json"
         if not splits_path.exists():
             raise RuntimeError(
                 "Cannot find splits! Ensure you call dataset.make_splits()"
             )
-
-        with open(splits_path) as file:
+        with splits_path.open(encoding="utf-8") as file:
             splits = json.load(file)
 
+        instances: list[str] = []
         for v in self._view:
-            self._instances.extend(splits[v])
+            instances.extend(splits[v])
+        return instances
 
-        group_id_list = self._df["group_id"].to_list()
-        group_id_set = set(group_id_list)
-        self._instances = [
-            group_id
-            for group_id in self._instances
-            if group_id in group_id_set
-        ]
+    def _add_background_class(self, task_name: str) -> None:
+        """Give a segmentation task with unassigned pixels a background class.
 
-        idx_map: dict[str, list[int]] = defaultdict(list)
-        for i, group_id in enumerate(group_id_list):
-            idx_map[group_id].append(i)
-
-        self._idx_to_df_row = [idx_map[uuid] for uuid in self._instances]
-
-        self._tasks_without_background = set()
-
-        self._idx_to_img_paths = self._precompute_image_paths()
-
-        _, test_labels, _ = self._load_data(0)
-        for task, seg_masks in task_type_iterator(test_labels, "segmentation"):
-            task_name = get_task_name(task)
-            if seg_masks.shape[0] > 1 and (
-                "background" not in self._classes[task_name]
-                or self._classes[task_name]["background"] != 0
-            ):
-                unassigned_pixels = np.sum(seg_masks, axis=0) == 0
-
-                if np.any(unassigned_pixels):
-                    logger.warning(
-                        "Found unassigned pixels in segmentation masks. "
-                        "Assigning them to `background` class (class index 0). "
-                        "If this is not desired then make sure all pixels are "
-                        "assigned to one class or rename your background class."
-                    )
-                    self._tasks_without_background.add(task)
-                    if "background" not in self._classes[task_name]:
-                        self._classes[task_name] = {
-                            "background": 0,
-                            **{
-                                class_name: i + 1
-                                for class_name, i in self._classes[
-                                    task_name
-                                ].items()
-                            },
-                        }
-
-        self._augmentations = self._init_augmentations(
-            augmentation_engine,
-            augmentation_config or [],
-            height,
-            width,
-            keep_aspect_ratio,
-            seed,
-            min_bbox_visibility,
-            bbox_area_threshold,
+        The class gets index 0; the other classes move up by one.
+        """
+        classes = self._classes[task_name]
+        if len(classes) <= 1 or classes.get("background") == 0:
+            return
+        logger.warning(
+            "Found unassigned pixels in the segmentation masks of task "
+            f"'{task_name}'. Assigning them to `background` class (class "
+            "index 0). If this is not desired then make sure all pixels "
+            "are assigned to one class or rename your background class."
         )
+        self._tasks_without_background.add(f"{task_name}/segmentation")
+        if "background" not in classes:
+            self._classes[task_name] = {
+                "background": 0,
+                **{name: i + 1 for name, i in classes.items()},
+            }
 
     @override
     def __len__(self) -> int:
-        """Returns length of the dataset.
+        """Return the number of samples in the loader.
 
-        @rtype: int
-        @return: Length of the loader.
+        Returns:
+            Number of samples.
+
         """
         return len(self._instances)
 
     @override
     def __getitem__(self, idx: int) -> LoaderOutput:
-        """Function to load a sample consisting of an image and its
-        annotations.
+        """Load a sample and its annotations.
 
-        @type idx: int
-        @param idx: The integer index of the sample to retrieve.
-        @rtype: L{LoaderOutput}
-        @return: The loader output consisting of the image and a
-            dictionary defining its annotations.
+        Args:
+            idx: Index of the sample to retrieve.
+
+        Returns:
+            `LoaderOutput` with image arrays, annotation labels, and
+            record-level metadata.
+
+        Example:
+            .. python::
+
+                sample = loader[0]
+
+                images = sample.images
+                labels = sample.labels
+                metadata = sample.metadata
+
+                image_or_images, labels = sample  # Legacy compatibility.
+
+        Raises:
+            ValueError: If the selected views contain no records or a
+                grayscale source has an unsupported image shape.
+            FileNotFoundError: If an image path cannot be found or read.
+
         """
-
         if self._augmentations is None:
             img_dict, labels, metadata = self._load_data(idx)
         else:
-            img_dict, labels, metadata = self._load_with_augmentations(idx)
+            img_dict, labels, metadata = self._load_with_augmentations(
+                idx, self._augmentations
+            )
 
         if not self._exclude_empty_annotations:
             img_dict, labels = self._add_empty_annotations(img_dict, labels)
@@ -292,65 +359,155 @@ class LuxonisLoader(BaseLoader):
             )
         return LoaderOutput(img_dict, labels, metadata)
 
+    def _uncovered_tasks(self) -> set[str]:
+        """Return the segmentation tasks that leave pixels unassigned.
+
+        A task is uncovered when the union of one sample's masks does
+        not fill the image. The union counts a pixel once, as
+        `SegmentationAnnotation.combine_to_numpy` does, and
+        ``pycocotools`` measures it without a decode.
+
+        A sample with no mask gives no verdict on its task.
+
+        Returns:
+            The names of the uncovered segmentation tasks.
+
+        """
+        samples = (
+            self._df.filter(
+                (pl.col("task_type") == "segmentation")
+                & pl.col("group_id").is_in(self._instances)
+            )
+            .group_by(["group_id", "task_name"])
+            .agg(pl.col("annotation"))
+        )
+
+        uncovered: set[str] = set()
+        for _, task_name, annotations in samples.iter_rows():
+            # One uncovered sample settles the task.
+            if task_name in uncovered:
+                continue
+            union = pycocotools.mask.merge(self._sample_masks(annotations))
+            height, width = union["size"]
+            if pycocotools.mask.area(union) < height * width:
+                uncovered.add(task_name)
+        return uncovered
+
     def _add_empty_annotations(
         self, img_dict: dict[str, np.ndarray], labels: Labels
     ) -> tuple[dict[str, np.ndarray], Labels]:
-        image_height, image_width = next(iter(img_dict.values())).shape[:2]
-        for task_name, task_types in self.dataset.get_tasks().items():
-            if (
-                self._filter_task_names is not None
-                and task_name not in self._filter_task_names
-            ):
+        image_size = next(iter(img_dict.values())).shape[:2]
+        for task_name, task_type in self._loaded_tasks():
+            task = f"{task_name}/{task_type}"
+            if task in labels:
                 continue
-            for task_type in task_types:
-                task = f"{task_name}/{task_type}"
-                if task not in labels:
-                    if task_type == "boundingbox":
-                        labels[task] = np.zeros((0, 5))
-                    elif task_type == "keypoints":
-                        n_keypoints = self.dataset.get_n_keypoints()[task_name]
-                        labels[task] = np.zeros((0, n_keypoints * 3))
-                    elif task_type == "instance_segmentation":
-                        labels[task] = np.zeros((0, image_height, image_width))
-                    elif task_type == "segmentation":
-                        labels[task] = np.zeros(
-                            (
-                                len(self._classes[task_name]),
-                                image_height,
-                                image_width,
-                            )
-                        )
-                    elif task_type == "classification" or task_is_metadata(
-                        task
-                    ):
-                        labels[task] = np.zeros(
-                            (len(self._classes[task_name]),)
-                        )
+            empty = self._empty_label(task_name, task_type, image_size)
+            if empty is not None:
+                labels[task] = empty
 
         return img_dict, labels
+
+    def _loaded_tasks(self) -> list[tuple[str, str]]:
+        """List the ``(task_name, task_type)`` pairs the loader returns."""
+        return [
+            (task_name, task_type)
+            for task_name, task_types in self.dataset.get_tasks().items()
+            if self._filter_task_names is None
+            or task_name in self._filter_task_names
+            for task_type in task_types
+        ]
+
+    def _empty_label(
+        self, task_name: str, task_type: str, image_size: tuple[int, int]
+    ) -> np.ndarray | None:
+        """Return the label array of a task with no annotations."""
+        image_height, image_width = image_size
+        if task_type == "boundingbox":
+            return np.zeros((0, 5))
+        if task_type == "keypoints":
+            n_keypoints = self.dataset.get_n_keypoints()[task_name]
+            return np.zeros((0, n_keypoints * 3))
+        if task_type == "instance_segmentation":
+            return np.zeros((0, image_height, image_width))
+        if task_type == "segmentation":
+            classes = self._classes[task_name]
+            mask = np.zeros((len(classes), image_height, image_width))
+            if f"{task_name}/{task_type}" in self._tasks_without_background:
+                mask[classes["background"]] = 1
+            return mask
+        if task_type == "classification" or task_is_metadata(
+            f"{task_name}/{task_type}"
+        ):
+            return np.zeros((len(self._classes[task_name]),))
+        return None
 
     def _load_data(
         self, idx: int
     ) -> tuple[dict[str, np.ndarray], Labels, Params]:
-        """Loads image and its annotations based on index.
+        """Load image data and annotations by index.
 
-        @type idx: int
-        @param idx: Index of the image
-        @rtype: Tuple[np.ndarray, Labels]
-        @return: Image as C{np.ndarray} in RGB format and a dictionary
-            with all the present annotations
+        Args:
+            idx: Index of the image.
+
+        Returns:
+            Images, labels, and sample metadata present for the sample.
+
+        Raises:
+            ValueError: If the selected views contain no records or a
+                grayscale source has an unsupported image shape.
+            FileNotFoundError: If an image path cannot be found or read.
+
         """
-
         if not self._idx_to_df_row:
             raise ValueError(
                 f"No data found in dataset '{self.dataset.identifier}' "
                 f"for {self._view} views"
             )
 
-        ann_indices = self._idx_to_df_row[idx]
-        ann_rows = [self._df.row(row) for row in ann_indices]
-        col = self._df_col_indices
+        ann_rows = [self._df.row(row) for row in self._idx_to_df_row[idx]]
+        source_to_path = self._idx_to_img_paths[idx]
+        sample_metadata = self._sample_metadata(ann_rows, source_to_path)
 
+        img_dict = {
+            source_name: _read_image(
+                path, self._color_space.get(source_name, "RGB")
+            )
+            for source_name, path in source_to_path.items()
+        }
+        image_shape = next(iter(img_dict.values())).shape
+
+        annotations_by_task: dict[str, list[tuple[int, Annotation, int]]] = (
+            defaultdict(list)
+        )
+        metadata_by_task: dict[
+            str, list[tuple[int, str | int | float | Category]]
+        ] = defaultdict(list)
+        for row in ann_rows:
+            parsed = self._parse_annotation_row(row, image_shape)
+            if parsed is None:
+                continue
+            task, instance_id, value = parsed
+            if isinstance(value, Annotation):
+                class_id = self._class_id(row)
+                annotations_by_task[task].append(
+                    (instance_id, value, class_id)
+                )
+            else:
+                metadata_by_task[task].append((instance_id, value))
+
+        # Both helpers sort by instance ID, so that index i is the same object
+        # in every label array of a task: boxes, keypoints, masks and metadata.
+        labels = self._metadata_labels(metadata_by_task)
+        for task, instances in annotations_by_task.items():
+            labels[task] = self._annotation_label(task, instances)
+
+        return img_dict, labels, sample_metadata
+
+    def _sample_metadata(
+        self, ann_rows: list[tuple], source_to_path: dict[str, Path]
+    ) -> Params:
+        """Decode the sample metadata of the rows, plus the filenames."""
+        col = self._df_col_indices
         sample_metadata: Params = {}
         metadata_idx = col.get("sample_metadata")
         for row in ann_rows:
@@ -358,9 +515,9 @@ class LuxonisLoader(BaseLoader):
                 row[metadata_idx] if metadata_idx is not None else None
             )
 
-        source_to_path = self._idx_to_img_paths[idx]
-
-        if self._autopopulate_metadata:
+        if self._autopopulate_metadata and self._reserve_key(
+            sample_metadata, "filenames"
+        ):
             sample_metadata = {
                 "filenames": {
                     source_name: path.name
@@ -368,166 +525,222 @@ class LuxonisLoader(BaseLoader):
                 },
                 **sample_metadata,
             }
+        return sample_metadata
 
-        img_dict: dict[str, np.ndarray] = {}
+    def _parse_annotation_row(
+        self, row: tuple, image_shape: tuple[int, ...]
+    ) -> tuple[str, int, Annotation | str | int | float | Category] | None:
+        """Parse one dataframe row into its task, instance ID and value.
 
-        for source_name, path in source_to_path.items():
-            color_space = self._color_space.get(source_name, "RGB")
-            if color_space == "GRAY":
-                img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
-            else:
-                img = cv2.imread(str(path), cv2.IMREAD_COLOR)
-            if img is None:
-                raise FileNotFoundError(f"Cannot read image at path: {path}")
-            if color_space == "GRAY":
-                if img.ndim == 2:
-                    img_gray = img[..., np.newaxis]
-                elif img.ndim == 3 and img.shape[2] == 3:
-                    img_gray = img[..., 0:1]
-                else:
-                    raise ValueError(
-                        f"Unsupported image format: shape {img.shape}"
-                    )
+        A metadata row gives its raw value, any other row an `Annotation`.
 
-                img_dict[source_name] = img_gray
-            else:
-                img_dict[source_name] = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        Returns:
+            The ``"task_name/task_type"`` key of the row, its instance
+            ID and its value. ``None`` if the row has no annotation.
 
-        labels_by_task: dict[str, list[Annotation]] = defaultdict(list)
-        class_ids_by_task: dict[str, list[int]] = defaultdict(list)
-        instance_ids_by_task: dict[str, list[int]] = defaultdict(list)
-        metadata_by_task: dict[str, list[str | int | float | Category]] = (
-            defaultdict(list)
-        )
+        """
+        col = self._df_col_indices
+        ann_str: str | None = row[col["annotation"]]
+        if ann_str is None:
+            return None
 
-        for annotation_data in ann_rows:
-            task_name: str = annotation_data[col["task_name"]]
-            class_name: str | None = annotation_data[col["class_name"]]
-            instance_id: int = annotation_data[col["instance_id"]]
-            task_type: str = annotation_data[col["task_type"]]
-            ann_str: str | None = annotation_data[col["annotation"]]
+        task_name: str = row[col["task_name"]]
+        instance_id: int = row[col["instance_id"]]
+        task = f"{task_name}/{row[col['task_type']]}"
+        task_type = get_task_type(task)
 
-            if ann_str is None:
-                continue
+        data = json.loads(ann_str)
+        if task_type == "array" and self.dataset.is_remote:
+            data["path"] = self.dataset._arrays_path / data["path"]
 
-            data = json.loads(ann_str)
-            full_task_name = f"{task_name}/{task_type}"
-            task_type = get_task_type(full_task_name)
-            if task_type == "array" and self.dataset.is_remote:
-                data["path"] = self.dataset._arrays_path / data["path"]
+        if task_type.startswith("metadata/"):
+            return task, instance_id, data
 
-            if task_type.startswith("metadata/"):
-                metadata_by_task[full_task_name].append(data)
-            else:  # pragma: no cover
-                # Conversion from LDF v1.0
-                if "points" in data and "width" not in data:
-                    sample_img = next(iter(img_dict.values()))
-                    data["width"] = sample_img.shape[1]
-                    data["height"] = sample_img.shape[0]
-                    data["points"] = [tuple(p) for p in data["points"]]
+        # Conversion from LDF v1.0
+        if "points" in data and "width" not in data:  # pragma: no cover
+            data["height"], data["width"] = image_shape[:2]
+            data["points"] = [tuple(p) for p in data["points"]]
 
-                annotation = load_annotation(task_type, data)
-                labels_by_task[full_task_name].append(annotation)
-                if class_name is not None:
-                    class_ids_by_task[full_task_name].append(
-                        self._classes[task_name][class_name]
-                    )
-                else:
-                    class_ids_by_task[full_task_name].append(0)
-                instance_ids_by_task[full_task_name].append(instance_id)
+        return task, instance_id, load_annotation(task_type, data)  # pyright: ignore[reportArgumentType]
 
+    def _class_id(self, row: tuple) -> int:
+        """Return the class index of a row, or 0 for a row without a class."""
+        col = self._df_col_indices
+        class_name: str | None = row[col["class_name"]]
+        if class_name is None:
+            return 0
+        task_name: str = row[col["task_name"]]
+        return self._classes[task_name][class_name]
+
+    def _metadata_labels(
+        self,
+        metadata_by_task: dict[
+            str, list[tuple[int, str | int | float | Category]]
+        ],
+    ) -> Labels:
+        """Build one array per metadata task, in instance ID order."""
         labels: Labels = {}
         encodings = self.dataset.get_categorical_encodings()
-        for task, metadata in metadata_by_task.items():
+        for task, values in metadata_by_task.items():
+            values.sort(key=lambda x: x[0])
+            metadata = [value for _, value in values]
             if not self._keep_categorical_as_strings and task in encodings:
-                metadata = [encodings[task][m] for m in metadata]  # type: ignore
+                metadata = [encodings[task][m] for m in metadata]  # pyright: ignore[reportArgumentType]
             labels[task] = np.array(metadata)
+        return labels
 
-        for task, anns in labels_by_task.items():
-            assert anns, f"No annotations found for task {task_name}"
-            instance_ids = instance_ids_by_task[task]
+    def _annotation_label(
+        self, task: str, instances: list[tuple[int, Annotation, int]]
+    ) -> np.ndarray:
+        """Combine the annotations of a task into one array, in instance ID order."""
+        instances.sort(key=lambda x: x[0])
+        anns = [ann for _, ann, _ in instances]
+        class_ids = [class_id for _, _, class_id in instances]
 
-            anns = [
-                ann
-                for _, ann in sorted(
-                    zip(instance_ids, anns, strict=True), key=lambda x: x[0]
-                )
-            ]
-
-            task_name, task_type = split_task(task)
-            array = anns[0].combine_to_numpy(
-                anns,
-                class_ids_by_task[task],
-                len(self._classes[task_name]),
-            )
-            if task in self._tasks_without_background:
-                unassigned_pixels = ~np.any(array, axis=0)
-                background_idx = self._classes[task_name]["background"]
-                array[background_idx, unassigned_pixels] = 1
-
-            labels[task] = array
-
-        return img_dict, labels, sample_metadata
+        task_name, _ = split_task(task)
+        array = anns[0].combine_to_numpy(
+            anns,
+            class_ids,
+            len(self._classes[task_name]),
+        )
+        if task in self._tasks_without_background:
+            unassigned_pixels = ~np.any(array, axis=0)
+            background_idx = self._classes[task_name]["background"]
+            array[background_idx, unassigned_pixels] = 1
+        return array
 
     def _load_with_augmentations(
-        self, idx: int
+        self, idx: int, augmentations: AugmentationEngine
     ) -> tuple[dict[str, np.ndarray], Labels, Params]:
-        indices = [idx]
-        assert self._augmentations is not None
-        if self._augmentations.batch_size > 1:
-            if self._augmentations.batch_size > len(self):
-                warnings.warn(
-                    f"Augmentations batch_size ({self._augmentations.batch_size}) "
-                    f"is larger than dataset size ({len(self)}). "
-                    "Samples will include repetitions.",
-                    stacklevel=2,
-                )
-                other_indices = [i for i in range(len(self)) if i != idx]
-                picked_indices = random.choices(
-                    other_indices, k=self._augmentations.batch_size - 1
-                )
-            else:
-                picked_indices = set()
-                max_val = len(self)
-                while len(picked_indices) < self._augmentations.batch_size - 1:
-                    rand_idx = random.randint(0, max_val - 1)
-                    if rand_idx != idx and rand_idx not in picked_indices:
-                        picked_indices.add(rand_idx)
-                picked_indices = list(picked_indices)
-
-            indices.extend(picked_indices)
+        indices = [
+            idx,
+            *self._pick_batch_members(idx, augmentations.batch_size),
+        ]
 
         loaded_anns: list[tuple[dict[str, np.ndarray], Labels]] = []
         sample_metadata_list: list[Params] = []
         for i in indices:
-            img_dict, labels, sample_etadata = self._load_data(i)
+            img_dict, labels, sample_metadata = self._load_data(i)
             loaded_anns.append((img_dict, labels))
-            sample_metadata_list.append(sample_etadata)
+            sample_metadata_list.append(sample_metadata)
 
-        img_dict, labels = self._augmentations.apply(loaded_anns)
-        sample_etadata = self._merge_sample_metadata(sample_metadata_list)
-        return img_dict, labels, sample_etadata
+        img_dict, labels = augmentations.apply(loaded_anns)
+        metadata_indices = augmentations.batch_augmentation_indices
+        if len(metadata_indices) > 1:
+            sample_metadata = self._merge_sample_metadata(
+                [sample_metadata_list[i] for i in metadata_indices],
+                metadata_indices,
+            )
+        else:
+            sample_metadata = sample_metadata_list[metadata_indices[0]]
+
+        if self._reserve_key(sample_metadata, "augmentations"):
+            sample_metadata["augmentations"] = TrackedAugmentations(
+                augmentations.applied_augmentations
+            )
+        return img_dict, labels, sample_metadata
+
+    def _pick_batch_members(self, idx: int, batch_size: int) -> list[int]:
+        """Draw the other samples that a batch augmentation of ``idx`` needs.
+
+        The samples are distinct from ``idx`` and from each other, unless
+        the batch is larger than the dataset.
+
+        Returns:
+            The indices of the ``batch_size - 1`` other samples. An
+            empty list if the batch has one sample only.
+
+        """
+        n_others = batch_size - 1
+        if n_others < 1:
+            return []
+
+        if batch_size > len(self):
+            warnings.warn(
+                f"Augmentations batch_size ({batch_size}) "
+                f"is larger than dataset size ({len(self)}). "
+                "Samples will include repetitions.",
+                stacklevel=3,
+            )
+            other_indices = [i for i in range(len(self)) if i != idx] or [idx]
+            return random.choices(other_indices, k=n_others)
+
+        picked: set[int] = set()
+        while len(picked) < n_others:
+            rand_idx = random.randint(0, len(self) - 1)
+            if rand_idx != idx and rand_idx not in picked:
+                picked.add(rand_idx)
+        return list(picked)
 
     @staticmethod
-    def _merge_sample_metadata(metadata_batch: list[Params]) -> Params:
+    def _reserve_key(metadata: Params, key: str) -> bool:
+        """Whether the loader may fill in one of its reserved keys."""
+        if key not in metadata:
+            return True
+        warnings.warn(
+            f"Record metadata already defines the reserved '{key}' key. "
+            "Keeping the stored value.",
+            stacklevel=3,
+        )
+        return False
+
+    @staticmethod
+    def _merge_sample_metadata(
+        metadata_batch: list[Params], input_indices: list[int] | None = None
+    ) -> Params:
+        """Merge metadata from samples used by a batch augmentation.
+
+        The first sample's metadata remains at the top level. Metadata from
+        every contributing input sample is also preserved in
+        ``"batch_augmentation_metadata"`` so consumers can inspect which
+        records contributed to the augmented output. ``input_index`` is the
+        source sample's position in the original augmentation batch.
+
+        Returns:
+            The merged metadata, built from deep copies of the inputs.
+            An empty dict if ``metadata_batch`` is empty.
+
+        Example:
+            .. python::
+
+                {
+                    "record_id": 123,
+
+                    "batch_augmentation_metadata": [
+                        {
+                            "input_index": 0,
+                            "sample_metadata": {"record_id": 123},
+                        },
+                        {
+                            "input_index": 1,
+                            "sample_metadata": {"record_id": 456},
+                        },
+                    ],
+                }
+
+        """
         if not metadata_batch:
             return {}
 
+        if input_indices is None:
+            input_indices = list(range(len(metadata_batch)))
+
         metadata = deepcopy(metadata_batch[0])
 
-        metadata["batch_augmentation_metadata"] = [  # type: ignore
+        metadata["batch_augmentation_metadata"] = [
             {
                 "input_index": i,
                 "sample_metadata": deepcopy(m),
             }
-            for i, m in enumerate(metadata_batch)
+            for i, m in zip(input_indices, metadata_batch, strict=True)
         ]
         return metadata
 
     def _init_augmentations(
         self,
-        augmentation_engine: Literal["albumentations"] | str,
+        augmentation_engine: str,
         augmentation_config: list[Params] | PathType,
+        *,
         height: int | None,
         width: int | None,
         keep_aspect_ratio: bool,
@@ -536,9 +749,9 @@ class LuxonisLoader(BaseLoader):
         bbox_area_threshold: float = 0.0004,
     ) -> AugmentationEngine | None:
         if isinstance(augmentation_config, PathType):
-            with open(augmentation_config) as file:
+            with Path(augmentation_config).open(encoding="utf-8") as file:
                 augmentation_config = cast(
-                    list[Params], yaml.safe_load(file) or []
+                    "list[Params]", yaml.safe_load(file) or []
                 )
         if augmentation_config and (width is None or height is None):
             raise ValueError(
@@ -548,22 +761,14 @@ class LuxonisLoader(BaseLoader):
         if height is None or width is None:
             return None
 
-        dataset_tasks = self.dataset.get_tasks()
-
+        loaded_tasks = self._loaded_tasks()
         targets = {
             f"{task_name}/{task_type}": task_type
-            for task_name, task_types in dataset_tasks.items()
-            if self._filter_task_names is None
-            or task_name in self._filter_task_names
-            for task_type in task_types
+            for task_name, task_type in loaded_tasks
         }
-
         n_classes = {
-            f"{task_name}/{task_type}": self.dataset.get_n_classes()[task_name]
-            for task_name, task_types in dataset_tasks.items()
-            if self._filter_task_names is None
-            or task_name in self._filter_task_names
-            for task_type in task_types
+            f"{task_name}/{task_type}": len(self._classes[task_name])
+            for task_name, task_type in loaded_tasks
         }
         pipeline_stage = self._get_augmentation_pipeline_stage()
 
@@ -637,3 +842,53 @@ class LuxonisLoader(BaseLoader):
             idx_to_img_paths[idx] = dict(sorted(source_to_path.items()))
 
         return idx_to_img_paths
+
+    @staticmethod
+    def _sample_masks(annotations: list[str]) -> list["_EncodedRLE"]:
+        """Return the masks of one sample as run-length encodings.
+
+        An LDF 1.0 polyline stores normalized points and no size, so it
+        is rasterized on a grid and no image is read.
+
+        Returns:
+            One run-length encoding for each mask and each polyline.
+            All have the size of the first encoded mask, or of a fixed
+            grid if the sample has polylines only.
+
+        """
+        parsed = [json.loads(annotation) for annotation in annotations]
+        encoded = [data for data in parsed if "counts" in data]
+        polylines = [data["points"] for data in parsed if "counts" not in data]
+
+        # Any grid measures a normalized polyline.
+        height, width = 1000, 1000
+        if encoded:
+            height, width = encoded[0]["height"], encoded[0]["width"]
+
+        masks: list[_EncodedRLE] = [
+            {"counts": data["counts"].encode(), "size": [height, width]}
+            for data in encoded
+        ]
+        for points in polylines:
+            polygon = []
+            for x, y in points:
+                polygon += [round(x * width), round(y * height)]
+            masks += pycocotools.mask.frPyObjects([polygon], height, width)
+        return masks
+
+
+def _read_image(path: Path, color_space: str) -> np.ndarray:
+    """Read an image in the given color space, with a channel axis."""
+    if color_space == "GRAY":
+        img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    else:
+        img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if img is None:
+        raise FileNotFoundError(f"Cannot read image at path: {path}")
+    if color_space != "GRAY":
+        return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    if img.ndim == 2:
+        return img[..., np.newaxis]
+    if img.ndim == 3 and img.shape[2] == 3:
+        return img[..., 0:1]
+    raise ValueError(f"Unsupported image format: shape {img.shape}")

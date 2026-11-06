@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import cast
 
 import polars as pl
 import pytest
@@ -142,10 +143,12 @@ def test_native_export_import_preserves_record_metadata(
 
     metadata = sorted(
         (data.metadata for data in LuxonisLoader(imported_dataset)),
-        key=lambda item: item["record_id"],  # type: ignore
+        key=lambda item: cast("int", item["record_id"]),
     )
     assert [item["record_id"] for item in metadata] == [0, 1]
-    assert {item["origin"] for item in metadata} == {"native-roundtrip"}
+    assert {cast("str", item["origin"]) for item in metadata} == {
+        "native-roundtrip"
+    }
 
 
 @pytest.mark.parametrize("url", ["COCO_people_subset.zip"])
@@ -164,18 +167,18 @@ def test_export_edge_cases(
         save_dir=tempdir,
     ).parse()
 
-    dataset.make_splits(ratios=(1, 0, 0), replace_old_splits=True)
+    dataset.make_splits((1, 0, 0), replace_old_splits=True)
 
     loader = LuxonisLoader(dataset, view="train")
     original_data = [img for img, _ in loader]
 
+    dataset.export(
+        output_path=tempdir / "exported",
+        max_partition_size_gb=0.003,
+        zip_output=True,
+    )
+    zip_files = sorted((tempdir / "exported").glob("*.zip"))
     with subtests.test("Export with max_zip_size_gb=0.003"):
-        dataset.export(
-            output_path=tempdir / "exported",
-            max_partition_size_gb=0.003,
-            zip_output=True,
-        )
-        zip_files = sorted((tempdir / "exported").glob("*.zip"))
         assert len(zip_files) == 2
 
     with subtests.test(
@@ -188,7 +191,7 @@ def test_export_edge_cases(
                 delete_local=(i == 0),
                 save_dir=tempdir,
             ).parse()
-        dataset.make_splits(ratios=(1, 0, 0), replace_old_splits=True)
+        dataset.make_splits((1, 0, 0), replace_old_splits=True)
         loader = LuxonisLoader(dataset, view="train")
         new_data = [img for img, _ in loader]
         assert len(new_data) == len(original_data)
@@ -324,6 +327,7 @@ def test_export_no_partition(
     ],
 )
 def test_ultralytics_ndjson_export_relative_file_paths(
+    *,
     dataset_name: str,
     storage_url: str,
     tempdir: Path,

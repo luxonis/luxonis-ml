@@ -1,3 +1,5 @@
+"""Constants of the data package, such as the LDF version it writes."""
+
 from typing import Final
 
 from semver.version import Version

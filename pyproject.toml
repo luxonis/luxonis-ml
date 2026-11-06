@@ -8,13 +8,79 @@ license = "Apache-2.0"
 authors = [{ name = "Luxonis", email = "support@luxonis.com" }]
 maintainers = [{ name = "Luxonis", email = "support@luxonis.com" }]
 keywords = ["ml", "ops", "camera", "luxonis", "oak"]
-dynamic = ["dependencies", "optional-dependencies", "version"]
+dynamic = ["version"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Programming Language :: Python :: 3.10",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
   "Topic :: Scientific/Engineering :: Image Processing",
   "Topic :: Scientific/Engineering :: Image Recognition",
+]
+dependencies = [
+  "PyYAML~=6.0",
+  "cyclopts~=4.16",
+  "fsspec>=2026.1.0",
+  "loguru~=0.7",
+  "pydantic-core~=2.0",
+  "pydantic-extra-types~=2.10",
+  "pydantic-settings~=2.1",
+  "pydantic~=2.13",
+  "rich~=15.0",
+  "semver~=3.0",
+  "typeguard~=4.1",
+  "typing-extensions~=4.5",
+]
+
+[project.optional-dependencies]
+ldf = ["numpy~=2.2", "pillow>=10.0", "pycocotools~=2.0"]
+data = [
+  "luxonis-ml[ldf]",
+  "albumentations>=2.0.0",
+  "bidict~=0.21",
+  "defusedxml~=0.7",
+  "filelock>=4.0.3",
+  "gdown~=6.1",
+  "matplotlib~=3.10",
+  "numpy~=2.2",
+  "opencv-python~=4.10",
+  "pillow-heif~=1.5",
+  "polars[timezone]~=1.43",
+  "pycocotools~=2.0",
+  "requests~=2.32",
+]
+telemetry = ["posthog~=7.29"]
+tracker = ["numpy~=2.2", "unique-names-generator~=1.0"]
+# Public install targets whose dependencies are already in the base package.
+nn_archive = []
+utils = []
+
+gcs = ["gcsfs>=2026.1.0"]
+mlflow = ["mlflow~=3.1"]
+roboflow = ["roboflow~=1.4"]
+s3 = ["s3fs>=2026.1.0"]
+
+all = [
+  "luxonis-ml[data,gcs,ldf,mlflow,nn_archive,roboflow,s3,telemetry,tracker,utils]",
+]
+
+[dependency-groups]
+lint = ["prek~=0.4"]
+docs = ["pydoctor~=25.10"]
+dev = [
+  { include-group = "lint" },
+  { include-group = "docs" },
+  "luxonis-ml[all]",
+  "complexipy~=8.0",
+  "deptry~=0.25",
+  "hypothesis~=6.161",
+  "onnx~=1.22",
+  "pyright~=1.1",
+  "pytest-clarity~=1.0",
+  "pytest-cov~=7.1",
+  "pytest-dependency~=0.6",
+  "pytest-split~=0.11",
+  "pytest-subtests~=0.15",
+  "pytest-xdist~=3.8",
 ]
 
 [project.scripts]
@@ -25,83 +91,64 @@ repository = "https://github.com/luxonis/luxonis-ml"
 issues = "https://github.com/luxonis/luxonis-ml/issues"
 
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
+
+[tool.uv]
+exclude-newer = "7 days"
+override-dependencies = ["opencv-python-headless; sys_platform == 'never'"]
 
 [tool.setuptools.packages.find]
 where = ["."]
+include = ["luxonis_ml*"]
 
 [tool.setuptools.dynamic]
-dependencies = { file = ["luxonis_ml/utils/requirements.txt"] }
 version = { attr = "luxonis_ml.__version__" }
-
-[tool.setuptools.dynamic.optional-dependencies]
-data = { file = ["luxonis_ml/data/requirements.txt"] }
-utils = { file = ["luxonis_ml/utils/requirements.txt"] }
-tracker = { file = ["luxonis_ml/tracker/requirements.txt"] }
-telemetry = { file = ["extra_requirements/posthog.txt"] }
-nn_archive = { file = ["luxonis_ml/nn_archive/requirements.txt"] }
-
-roboflow = { file = ["extra_requirements/roboflow.txt"] }
-gcs = { file = ["extra_requirements/gcs.txt"] }
-s3 = { file = ["extra_requirements/s3.txt"] }
-mlflow = { file = ["extra_requirements/mlflow.txt"] }
-
-[tool.setuptools.dynamic.optional-dependencies.all]
-file = [
-  "luxonis_ml/data/requirements.txt",
-  "luxonis_ml/utils/requirements.txt",
-  "luxonis_ml/tracker/requirements.txt",
-  "luxonis_ml/nn_archive/requirements.txt",
-  "extra_requirements/roboflow.txt",
-  "extra_requirements/gcs.txt",
-  "extra_requirements/s3.txt",
-  "extra_requirements/mlflow.txt",
-  "extra_requirements/posthog.txt",
-]
-
-[tool.setuptools.dynamic.optional-dependencies.dev]
-file = [
-  "luxonis_ml/data/requirements.txt",
-  "luxonis_ml/utils/requirements.txt",
-  "luxonis_ml/tracker/requirements.txt",
-  "luxonis_ml/nn_archive/requirements.txt",
-  "extra_requirements/roboflow.txt",
-  "extra_requirements/gcs.txt",
-  "extra_requirements/s3.txt",
-  "extra_requirements/mlflow.txt",
-  "extra_requirements/posthog.txt",
-  "requirements-dev.txt",
-]
 
 [tool.ruff]
 target-version = "py310"
 line-length = 79
 indent-width = 4
 
+[tool.ruff.format]
+docstring-code-format = true
+
 [tool.ruff.lint]
+preview = true
+explicit-preview-rules = true
 select = [
+  "A",
   "ANN",
+  "ARG",
+  "ASYNC",
   "B",
   "C4",
+  "D",
+  "DOC201",
+  "DOC202",
+  "DOC402",
+  "DOC501",
   "DTZ",
   "E",
   "ERA",
+  "EXE",
   "F",
+  "FBT",
   "FLY",
   "FURB",
+  "G",
   "I",
-  "ICN",
   "ICN",
   "INP",
   "INT",
   "ISC",
+  "LOG",
   "NPY",
-  "PERF101",
-  "PERF102",
-  "PERF402",
+  "PERF",
+  "PGH",
   "PIE",
   "PL",
+  "PLW1514",
   "PT",
   "PTH",
   "PYI",
@@ -111,67 +158,105 @@ select = [
   "RUF",
   "S",
   "SIM",
+  "SLOT",
   "T10",
   "T20",
+  "TC",
   "TID",
   "TRY",
   "UP",
   "W",
+  "YTT",
 ]
 ignore = [
   "ANN002",
   "ANN003",
-  "ANN204",
   "ANN401",
-  "D1",
-  "E501",
-  "F403",
-  "ICN002",
+  "D203",
+  "D213",
   "NPY002",
   "PLC0415",
-  "PLR0911",
-  "PLR0912",
   "PLR0913",
-  "PLR0915",
   "PLR2004",
-  "PLW2901",
-  "PTH123",
-  "PYI051",
-  "RET503",
-  "RUF012",
-  "S101",
   "S311",
   "S603",
-  "SIM108",
   "TRY003",
-  "W191",
 ]
-unfixable = ["B905", "PLC0208"]
+unfixable = ["B905"]
+
+[tool.ruff.lint.pycodestyle]
+max-line-length = 100
+
+[tool.ruff.lint.pydoclint]
+ignore-one-line-docstrings = true
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["ANN201"]
+"tests/*" = ["ANN201", "D1", "S101"]
 "__main__.py" = ["ANN201"]
-"tools/benchmark.py" = ["T201"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"__future__".msg = "Do not use imports from __future__."
+
+[tool.deptry.per_rule_ignores]
+# The tracker imports these only when a user turns on TensorBoard
+# (through torch) or Weights & Biases. deptry reports them as DEP001
+# when they are not installed and as DEP003 when they are.
+DEP001 = ["torch", "wandb"]
+DEP002 = [
+  # fsspec loads these by the protocol of a URL (gs://, s3://).
+  "gcsfs",
+  "s3fs",
+  # Not used here, but the tests of luxonis-train import gdown and
+  # luxonis-eval imports its tqdm, and neither declares them.
+  "gdown",
+]
+DEP003 = [
+  # The tracker integrations, as for DEP001.
+  "torch",
+  "wandb",
+  # The telemetry wraps a Typer application that the user brings.
+  "typer",
+]
 
 [tool.docformatter]
 black = true
-style = "epytext"
+style = "google"
 wrap-summaries = 72
 wrap-descriptions = 72
 
-[tool.pyright]
-exclude = ["luxonis_ml/tracker", "examples", "__main__.py"]
-typeCheckingMode = "basic"
-reportMissingTypeStubs = "none"
-reportPrivateImportUsage = "none"
-reportPrivateUsage = "none"
-reportIncompatibleVariableOverride = "none"
-reportIncompatibleMethodOverride = "none"
-reportUnnecessaryIsInstance = "none"
+[tool.pydoctor]
+docformat = "google"
+warnings-as-errors = true
 
-[tool.pyleft]
-paths = ["luxonis_train"]
-exclude = ["luxonis_ml/tracker", "examples", "__main__.py"]
+[tool.pyright]
+pythonVersion = "3.10"
+exclude = ["build", "dist", "luxonis_ml/tracker"]
+typeCheckingMode = "standard"
+reportMissingTypeStubs = "none"
+reportPrivateUsage = "none"
+reportIncompatibleMethodOverride = "none"
+reportImplicitOverride = "error"
+reportUnnecessaryTypeIgnoreComment = "error"
+reportUnnecessaryCast = "error"
+reportUnnecessaryComparison = "error"
+reportUnnecessaryIsInstance = "error"
+reportUnreachable = "error"
+reportUninitializedInstanceVariable = "error"
+reportCallInDefaultInitializer = "error"
+reportDuplicateImport = "error"
+reportMatchNotExhaustive = "error"
+reportPropertyTypeMismatch = "error"
+reportTypeCommentUsage = "error"
+reportUnnecessaryContains = "error"
+reportUntypedBaseClass = "error"
+reportUntypedFunctionDecorator = "error"
+reportUntypedNamedTuple = "error"
+reportUnusedClass = "error"
+reportUnusedFunction = "error"
+reportUnusedImport = "error"
+reportUnusedVariable = "error"
+reportInconsistentConstructor = "error"
+reportUntypedClassDecorator = "error"
 
 [tool.pytest]
 doctest_optionflags = [
@@ -179,9 +264,22 @@ doctest_optionflags = [
   "IGNORE_EXCEPTION_DETAIL",
   "NUMBER",
 ]
-testpaths = ["tests"]
-addopts = ["--disable-warnings"]
-
+testpaths = ["tests", "luxonis_ml"]
+addopts = ["--doctest-modules"]
+filterwarnings = [
+  "error",
+  # google-api-core warns that it no longer supports Python 3.10.
+  "ignore:You are using a non-supported Python version:FutureWarning",
+  # typer calls deprecated click stream functions.
+  "ignore:'click\\.utils\\.get_\\w+_stream' is deprecated:DeprecationWarning",
+  # gcsfs does not close its connections before garbage collection.
+  "ignore:unclosed transport <:ResourceWarning",
+  # pycocotools' compiled mask decoder predates the NumPy 2 copy rules.
+  "ignore:__array__ implementation doesn't accept a copy keyword:DeprecationWarning:pycocotools",
+  # The library still builds these deprecated classes itself.
+  "ignore:LuxonisSource is deprecated:DeprecationWarning",
+  "ignore:LuxonisComponent is deprecated:DeprecationWarning",
+]
 
 [tool.coverage.run]
 omit = ["luxonis_ml/utils/logging.py", "luxonis_ml/tracker/*", "**/__main__.py"]

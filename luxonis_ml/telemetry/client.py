@@ -1,9 +1,16 @@
+"""Telemetry client that builds events and passes them to a backend.
+
+`Telemetry` sanitizes the event properties, adds the context, and
+logs its own failures at the debug level instead of raising them.
+"""
+
 from collections.abc import Callable, Mapping
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 from uuid import uuid4
 
 from loguru import logger
+from typeguard import check_type
 
 from luxonis_ml.telemetry.backends.base import (
     TELEMETRY_BACKENDS,
@@ -51,6 +58,7 @@ class Telemetry:
             system_context_providers: Callables that return extra
                 context to attach only when system metadata is
                 requested.
+
         """
         self._config = config or TelemetryConfig.from_environ()
         if self._config.enabled and not Telemetry._logged_enabled_notice:
@@ -77,22 +85,30 @@ class Telemetry:
 
     @property
     def config(self) -> TelemetryConfig:
+        """Telemetry configuration of the client."""
         return self._config
 
     @property
     def library_name(self) -> str:
+        """Name of the library that emits the events."""
         return self._library_name
 
     @property
     def library_version(self) -> str | None:
+        """Version of the library, or ``None`` when it is unknown."""
         return self._library_version
 
     @property
     def source_component(self) -> str:
+        """Name of the emitting component.
+
+        The library name is the default.
+        """
         return self._source_component
 
     @property
     def is_enabled(self) -> bool:
+        """Whether the configuration enables telemetry."""
         return self._config.enabled
 
     def add_context_provider(self, provider: ContextProvider) -> None:
@@ -102,8 +118,7 @@ class Telemetry:
     def add_system_context_provider(
         self, provider: SystemContextProvider
     ) -> None:
-        """Register a context provider used only with system
-        metadata."""
+        """Register a context provider used only with system metadata."""
         self._add_provider(self._system_context_providers, provider)
 
     def extend_context_providers(
@@ -129,9 +144,26 @@ class Telemetry:
         """Register a custom backend class.
 
         Args:
-            name: Backend name used in ``TelemetryConfig.backend``.
+            name: Backend name used in ``TelemetryConfig.backend``. The
+                name is stored in lower case, so the lookup ignores
+                case.
             backend_cls: Backend class instantiated with
                 ``TelemetryConfig``.
+
+        Example:
+            Register a backend and select it through the config.
+
+            .. code-block:: python
+
+                Telemetry.register_backend("my_backend", MyBackend)
+
+                config = TelemetryConfig(backend="my_backend")
+                telemetry = Telemetry("luxonis_ml", config=config)
+
+        Note:
+            Registration replaces any backend already stored under the
+            same name.
+
         """
         TELEMETRY_BACKENDS.register(
             name=name.lower(),
@@ -161,6 +193,7 @@ class Telemetry:
             distinct_id: Optional backend identity override. When
                 omitted, it defaults to the client's ephemeral session
                 identifier.
+
         """
         if not self.is_enabled:
             return
@@ -173,7 +206,9 @@ class Telemetry:
                     self._config.allowlist if allowlist is None else allowlist
                 ),
             )
-            context = self._build_context(include_system_metadata)
+            context = self._build_context(
+                include_system_metadata=include_system_metadata
+            )
             payload = TelemetryEvent.create(
                 name=event,
                 properties=sanitized,
@@ -216,8 +251,15 @@ class Telemetry:
             return
 
     def _init_backend(self) -> TelemetryBackend:
-        """Initialize the configured backend or fall back to
-        NoopBackend."""
+        """Initialize the configured backend, or fall back to NoopBackend.
+
+        Returns:
+            An instance of the backend class that is registered under
+            the configured ``backend`` name. A ``NoopBackend`` if
+            telemetry is disabled, the name is not registered, or the
+            backend fails to initialize.
+
+        """
         if not self.is_enabled:
             return NoopBackend(self._config)
         name = self._config.backend.lower()
@@ -239,7 +281,7 @@ class Telemetry:
             return NoopBackend(self._config)
 
     def _build_context(
-        self, include_system_metadata: bool | None
+        self, *, include_system_metadata: bool | None
     ) -> dict[str, Any]:
         """Build the merged context for an event."""
         context = (
@@ -270,32 +312,24 @@ class Telemetry:
     ) -> None:
         """Merge context from providers into the event context."""
         for provider in providers:
-            try:
-                extra = provider(self)
-            except Exception as exc:
-                logger.debug("{} ({})", error_message, type(exc).__name__)
-                continue
-            if extra is None:
-                continue
-            if not isinstance(extra, Mapping):
-                logger.debug(
-                    "Telemetry context provider returned a non-mapping; skipping."
-                )
-                continue
-            if not extra:
-                continue
+            self._merge_context_provider(context, provider, error_message)
+
+    def _merge_context_provider(
+        self,
+        context: dict[str, Any],
+        provider: ContextProvider | SystemContextProvider,
+        error_message: str,
+    ) -> None:
+        """Merge the context of one provider, or skip it if it fails."""
+        try:
+            extra = provider(self)
+            check_type(extra, Mapping)
             if self._config.allow_reserved_overrides:
                 context.update(extra)
-                continue
-            for key, value in extra.items():
-                if key in RESERVED_METADATA_KEYS and key in context:
-                    logger.debug(
-                        "Telemetry context provider attempted to override "
-                        "protected key '{}'; skipping.",
-                        key,
-                    )
-                    continue
-                context[key] = value
+            else:
+                _update_unreserved(context, extra)
+        except Exception as exc:
+            logger.debug("{} ({})", error_message, type(exc).__name__)
 
     def _add_provider(
         self,
@@ -305,6 +339,21 @@ class Telemetry:
         """Register a provider once while preserving call order."""
         if provider not in providers:
             providers.append(provider)
+
+
+def _update_unreserved(
+    context: dict[str, Any], extra: Mapping[str, Any]
+) -> None:
+    """Merge ``extra`` into ``context``; a reserved key already set stays."""
+    for key, value in extra.items():
+        if key in RESERVED_METADATA_KEYS and key in context:
+            logger.debug(
+                "Telemetry context provider attempted to override "
+                "protected key '{}'; skipping.",
+                key,
+            )
+            continue
+        context[key] = value
 
 
 def _safe_version(dist_name: str) -> str | None:

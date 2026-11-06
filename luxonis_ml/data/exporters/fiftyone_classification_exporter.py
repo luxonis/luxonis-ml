@@ -1,8 +1,10 @@
-from __future__ import annotations
+"""Export to the FiftyOne classification format."""
 
 import json
 from pathlib import Path
 from typing import Any, cast
+
+from typing_extensions import override
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
@@ -10,12 +12,15 @@ from luxonis_ml.data.exporters.exporter_utils import (
     check_group_file_correspondence,
     exporter_specific_annotation_warning,
     split_of_group,
+    whole_image_classes,
 )
 from luxonis_ml.enums import DatasetType
 
 
 class FiftyOneClassificationExporter(BaseExporter):
-    """Output structure::
+    """Export FiftyOne classification data.
+
+    Output structure::
 
         <dataset_name>/
             train/
@@ -24,7 +29,7 @@ class FiftyOneClassificationExporter(BaseExporter):
                     000002.jpg
                     ...
                 labels.json
-            val/
+            validation/
                 data/
                     ...
                 labels.json
@@ -33,16 +38,23 @@ class FiftyOneClassificationExporter(BaseExporter):
                     ...
                 labels.json
 
-    The labels.json has structure::
+    The ``labels.json`` file has structure::
 
-        E{lb}
+        {
             "classes": ["class1", "class2", ...],
-            "labels": E{lb}
+            "labels": {
                 "000001": 0,  # index into classes array
                 "000002": 1,
                 ...
-            E{rb}
-        E{rb}
+            }
+        }
+
+    Attributes:
+        class_to_idx: Class-name to index mapping.
+        split_labels: Per-split image-stem to class-index mapping.
+        split_image_counter: Per-split image counter used for exported
+            filenames.
+
     """
 
     def __init__(
@@ -50,7 +62,16 @@ class FiftyOneClassificationExporter(BaseExporter):
         dataset_identifier: str,
         output_path: Path,
         max_partition_size_gb: float | None,
-    ):
+    ) -> None:
+        """Create the exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Maximum partition size in GiB, or
+                ``None`` to disable partitioning.
+
+        """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
@@ -59,11 +80,20 @@ class FiftyOneClassificationExporter(BaseExporter):
         self.split_image_counter: dict[str, int] = {}
 
     def get_split_names(self) -> dict[str, str]:
+        """Return the directory name of each split.
+
+        Returns:
+            Split names mapped to directory names. The ``val`` split
+            becomes ``validation``.
+
+        """
         return {"train": "train", "val": "validation", "test": "test"}
 
+    @override
     def supported_ann_types(self) -> list[str]:
         return DatasetType.FIFTYONECLS.supported_annotation_formats
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
         exporter_specific_annotation_warning(
@@ -74,17 +104,9 @@ class FiftyOneClassificationExporter(BaseExporter):
             self.split_labels[split] = {}
             self.split_image_counter[split] = 0
 
-        all_classes: set[str] = set()
-        for row in prepared_ldf.processed_df.iter_rows(named=True):
-            if (
-                row["task_type"] == "classification"
-                and row["instance_id"] == -1
-            ):
-                cname = row["class_name"]
-                if cname:
-                    all_classes.add(str(cname))
-
-        sorted_classes = sorted(all_classes)
+        sorted_classes = sorted(
+            set(whole_image_classes(prepared_ldf.processed_df))
+        )
         self.class_to_idx = {
             cls: idx for idx, cls in enumerate(sorted_classes)
         }
@@ -96,22 +118,13 @@ class FiftyOneClassificationExporter(BaseExporter):
         copied_pairs: set[tuple[Path, str]] = set()
 
         for key, entry in grouped:
-            file_name, group_id = cast(tuple[str, Any], key)
+            file_name, group_id = cast("tuple[str, Any]", key)
             file_path = Path(str(file_name))
 
             split = split_of_group(prepared_ldf, group_id)
 
-            class_name: str | None = None
-            for row in entry.iter_rows(named=True):
-                if (
-                    row["task_type"] == "classification"
-                    and row["instance_id"] == -1
-                ):
-                    cname = row["class_name"]
-                    if cname:
-                        class_name = str(cname)
-                        break  # Take first classification label
-
+            # Take first classification label
+            class_name = next(iter(whole_image_classes(entry)), None)
             if class_name is None:
                 continue
 
@@ -143,6 +156,7 @@ class FiftyOneClassificationExporter(BaseExporter):
             self.part,
         )
 
+    @override
     def _dump_annotations(
         self,
         annotation_data: dict[str, Any],
@@ -175,6 +189,7 @@ class FiftyOneClassificationExporter(BaseExporter):
                 json.dumps(labels_data), encoding="utf-8"
             )
 
+    @override
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:

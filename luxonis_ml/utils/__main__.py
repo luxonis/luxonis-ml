@@ -1,8 +1,10 @@
+"""Filesystem commands that download, upload, delete, and list files."""
+
 from pathlib import Path
 from typing import Annotated, Literal
 
 from cyclopts import App, Parameter
-from rich import print
+from rich import print as rich_print
 
 from luxonis_ml.utils import LuxonisFileSystem
 
@@ -20,6 +22,7 @@ def get(
         url: URL of the file to download.
         save_dir: Directory to save the file.
             Defaults to current working directory.
+
     """
     LuxonisFileSystem.download(url, save_dir or Path.cwd())
 
@@ -34,6 +37,7 @@ def put(
     Args:
         file: Path to the file to upload.
         url: URL of the file.
+
     """
     LuxonisFileSystem.upload(file, url)
 
@@ -44,6 +48,7 @@ def delete(url: str):
 
     Args:
         url: URL of the file to delete.
+
     """
     LuxonisFileSystem(url).delete_file("")
 
@@ -54,7 +59,7 @@ def ls(
     *,
     recursive: Annotated[
         bool,
-        Parameter(alias="-r", negative=""),
+        Parameter(alias="-r", negative=()),
     ] = False,
     typ: Annotated[
         Literal["file", "directory", "all"],
@@ -69,7 +74,8 @@ def ls(
         url: URL of the directory to list.
         recursive: Whether to list files recursively.
         typ: Type of files to list.
+
     """
     fs = LuxonisFileSystem(url.rstrip("/"))
     for file in fs.walk_dir("", recursive=recursive, typ=typ):
-        print(file)
+        rich_print(file)

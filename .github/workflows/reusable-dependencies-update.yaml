@@ -1,0 +1,61 @@
+name: Reusable Dependencies Update
+
+# Shared by every Luxonis repository. Call it from a thin
+# `Python Dependencies Updater` workflow, as
+# `.github/workflows/dependencies_autoupdate.yaml` in this repository does.
+
+on:
+  workflow_call:
+    inputs:
+      export-script:
+        description: "Script that writes the requirements exports"
+        type: string
+        required: true
+      uv-version:
+        description: "Version of uv to lock with. Empty selects the latest."
+        type: string
+        default: ""
+    secrets:
+      WORKFLOW_SECRET:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  update-python-dependencies:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          token: ${{ secrets.WORKFLOW_SECRET }}
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          version: ${{ inputs.uv-version }}
+          enable-cache: true
+
+      - name: Upgrade and export dependencies
+        env:
+          EXPORT_SCRIPT: ${{ inputs.export-script }}
+        run: |
+          uv lock --upgrade
+          "./$EXPORT_SCRIPT"
+
+      - name: Create or update pull request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1
+        with:
+          token: ${{ secrets.WORKFLOW_SECRET }}
+          branch: chore/update-python-dependencies
+          delete-branch: true
+          commit-message: "chore: update Python dependencies"
+          title: "chore: update Python dependencies"
+          body: Automated update of `uv.lock` and the pip requirements exports.
+          labels: automated
+          add-paths: |
+            uv.lock
+            *requirements*.txt

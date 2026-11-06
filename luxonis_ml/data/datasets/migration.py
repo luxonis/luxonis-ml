@@ -1,3 +1,5 @@
+"""Migration of LDF ``1.0.0`` datasets to the current layout."""
+
 from collections import defaultdict
 from typing import Any, Final, Literal, overload
 
@@ -28,6 +30,19 @@ LDF_1_0_0_TASK_TYPES: Final[dict[str, str]] = {
 
 
 class LDF_1_0_0_MetadataDict(TypedDict):
+    """Metadata dictionary used by LDF ``1.0.0``.
+
+    Attributes:
+        source: Source metadata dictionary.
+        ldf_version: LDF version string.
+        classes: Class names keyed by old task names.
+        tasks: Task types keyed by old task names.
+        skeletons: Keypoint skeletons keyed by task name.
+        categorical_encodings: Categorical metadata encodings.
+        metadata_types: Metadata value types.
+
+    """
+
     source: dict[str, Any]
     ldf_version: str
     classes: dict[str, list[str]]
@@ -48,6 +63,16 @@ def migrate_dataframe(df: pl.DataFrame) -> pl.DataFrame: ...
 def migrate_dataframe(
     df: pl.LazyFrame | pl.DataFrame,
 ) -> pl.LazyFrame | pl.DataFrame:  # pragma: no cover
+    """Migrate LDF ``1.0.0`` annotation rows to the current columns.
+
+    Args:
+        df: Annotation rows in the LDF ``1.0.0`` layout.
+
+    Returns:
+        The rows with the current column names, task names and task
+        types, as the same frame type as ``df``.
+
+    """
     return (
         df.rename({"class": "class_name"})
         .with_columns(
@@ -99,6 +124,21 @@ def migrate_dataframe(
 def migrate_metadata(
     metadata: LDF_1_0_0_MetadataDict, df: pl.LazyFrame | None
 ) -> Metadata:  # pragma: no cover
+    """Migrate LDF ``1.0.0`` metadata to the current schema.
+
+    Args:
+        metadata: Metadata dictionary in the LDF ``1.0.0`` layout.
+        df: Optional annotation dataframe used to infer task names for
+            non-default datasets.
+
+    Returns:
+        Migrated metadata model.
+
+    Raises:
+        ValueError: If task inference requires annotation rows but
+            ``df`` is ``None``.
+
+    """
     new_metadata = {}
     old_classes = metadata["classes"]
     if set(old_classes.keys()) <= LDF_1_0_0_TASKS:
@@ -128,4 +168,4 @@ def migrate_metadata(
         new_metadata["tasks"] = dict(tasks)
 
     metadata.update(new_metadata)
-    return Metadata(**metadata)  # type: ignore
+    return Metadata(**metadata)  # pyright: ignore[reportArgumentType]

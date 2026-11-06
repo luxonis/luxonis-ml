@@ -1,3 +1,5 @@
+"""Abstract base class for the dataset exporters."""
+
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -7,12 +9,36 @@ if TYPE_CHECKING:
 
 
 class BaseExporter(ABC):
+    """Base class for dataset exporters.
+
+    Attributes:
+        dataset_identifier: Name or identifier used for exported paths.
+        output_path: Directory where the export is written.
+        image_indices: Per-image export indices used by concrete
+            exporters.
+        max_partition_size_gb: Optional maximum partition size in GiB.
+        max_partition_size: Optional maximum partition size in bytes.
+        part: Current partition index, or ``None`` when partitioning is
+            disabled.
+        current_size: Current partition size in bytes.
+
+    """
+
     def __init__(
         self,
         dataset_identifier: str,
         output_path: Path,
         max_partition_size_gb: float | None,
-    ):
+    ) -> None:
+        """Set up the export paths and the partition state.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Maximum partition size in GiB, or
+                ``None`` to disable partitioning.
+
+        """
         self.dataset_identifier = dataset_identifier
         self.output_path = output_path
         self.image_indices = {}
@@ -29,7 +55,16 @@ class BaseExporter(ABC):
 
     @abstractmethod
     def export(self, prepared_ldf: "PreparedLDF") -> None:
-        """Convert the prepared dataset into the exporter's format."""
+        """Convert the prepared dataset into the exporter's format.
+
+        Args:
+            prepared_ldf: Dataset data prepared for export.
+
+        Raises:
+            NotImplementedError: Always raised by the abstract base
+                implementation.
+
+        """
         raise NotImplementedError
 
     @abstractmethod
@@ -45,4 +80,14 @@ class BaseExporter(ABC):
 
     @abstractmethod
     def supported_ann_types(self) -> list[str]:
+        """Return task types supported by this exporter.
+
+        Returns:
+            Supported annotation task types.
+
+        Raises:
+            NotImplementedError: Always raised by the abstract base
+                implementation.
+
+        """
         raise NotImplementedError

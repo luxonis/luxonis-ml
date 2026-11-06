@@ -5,8 +5,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
 
+import cv2
 import numpy as np
 import pytest
+from typing_extensions import override
 
 from luxonis_ml.data import (
     BucketStorage,
@@ -16,16 +18,22 @@ from luxonis_ml.data import (
 )
 from luxonis_ml.data.augmentations import AugmentationEngine
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
+from luxonis_ml.data.loaders.luxonis_loader import _read_image
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.typing import LoaderMultiOutput, LoaderSingleOutput, Params
+from luxonis_ml.typing import (
+    LoaderMultiOutput,
+    LoaderSingleOutput,
+    Params,
+    TrackedAugmentations,
+)
 from luxonis_ml.utils import LuxonisFileSystem
 
 from .utils import create_dataset, create_image
 
-AUGMENTATIONS_CONFIG: list[Params] = [  # type: ignore[reportAssignmentType]
+AUGMENTATIONS_CONFIG: list[Params] = [
     {
         "name": "Mosaic4",
-        "params": {"p": 1, "out_width": 512, "out_height": 512},
+        "params": {"p": 1, "width": 512, "height": 512},
     },
     {
         "name": "Rotate",
@@ -33,7 +41,7 @@ AUGMENTATIONS_CONFIG: list[Params] = [  # type: ignore[reportAssignmentType]
             "limit": 10,
             "p": 0.3,
             "border_mode": 0,
-            "value": [0, 0, 0],
+            "fill": 0,
         },
     },
     {
@@ -41,12 +49,11 @@ AUGMENTATIONS_CONFIG: list[Params] = [  # type: ignore[reportAssignmentType]
         "params": {
             "scale": [0.02, 0.05],
             "keep_size": True,
-            "pad_mode": 0,
-            "pad_val": 0,
-            "mask_pad_val": 0,
+            "border_mode": 0,
+            "fill": 0,
+            "fill_mask": 0,
             "fit_output": False,
             "interpolation": 1,
-            "always_apply": False,
             "p": 0.3,
         },
     },
@@ -59,13 +66,12 @@ AUGMENTATIONS_CONFIG: list[Params] = [  # type: ignore[reportAssignmentType]
             "shear": 5,
             "interpolation": 1,
             "mask_interpolation": 0,
-            "cval": 0,
-            "cval_mask": 0,
-            "mode": 0,
+            "fill": 0,
+            "fill_mask": 0,
+            "border_mode": 0,
             "fit_output": False,
             "keep_ratio": False,
             "rotate_method": "largest_box",
-            "always_apply": False,
             "p": 0.3,
         },
     },
@@ -132,6 +138,7 @@ class CompatibilityOnlyEngine(
         targets: Mapping[str, str],
         n_classes: Mapping[str, int],
         source_names: list[str],
+        *,
         config: Iterable[Params],
         keep_aspect_ratio: bool,
         is_validation_pipeline: bool | None = None,
@@ -153,12 +160,36 @@ class CompatibilityOnlyEngine(
         )
         type(self).last_is_validation_pipeline = is_validation_pipeline
 
+    @override
     def apply(self, data: list[LoaderMultiOutput]) -> LoaderMultiOutput:
         return data[0]
 
     @property
+    @override
     def batch_size(self) -> int:
         return 1
+
+
+class CompatibilityBatchEngine(
+    CompatibilityOnlyEngine, register_name="compatibility_batch_engine"
+):
+    @property
+    @override
+    def batch_size(self) -> int:
+        return 2
+
+
+class SelectiveBatchEngine(
+    CompatibilityBatchEngine, register_name="selective_batch_engine"
+):
+    @override
+    def apply(self, data: list[LoaderMultiOutput]) -> LoaderMultiOutput:
+        return data[1]
+
+    @property
+    @override
+    def batch_augmentation_indices(self) -> list[int]:
+        return [1]
 
 
 @contextmanager
@@ -243,7 +274,10 @@ def test_filter_task_names(randint: int, tempdir: Path):
     loader = LuxonisLoader(dataset, filter_task_names=["animals"])
 
     assert len(loader) == 2
-    assert loader._classes == {"animals": {"cat": 0, "dog": 1}}
+    assert loader._classes == {
+        "animals": {"cat": 0, "dog": 1},
+        "vehicles": {"car": 0, "truck": 1},
+    }
 
     labels_by_sample = [labels for _, labels in loader]
     for labels in labels_by_sample:
@@ -271,6 +305,57 @@ def test_filter_task_names_rejects_unknown_task(randint: int, tempdir: Path):
         LuxonisLoader(dataset, filter_task_names=["missing"])
 
 
+def test_loader_keeps_unordered_instances_together(
+    dataset_name: str, tempdir: Path
+):
+    """Class and metadata stay with their object after the ID sort."""
+    size = 512
+    # Three strips that fill the image, so the loader adds no background.
+    edges = np.linspace(0, size, 4).astype(int).tolist()
+    # Stored as instances 30, 10, 20: the sort moves every object.
+    stored = [(30, "rectangle", 0), (10, "triangle", 1), (20, "square", 2)]
+
+    def generator() -> DatasetIterator:
+        img = create_image(0, tempdir)
+        for instance_id, class_name, slot in stored:
+            left, right = edges[slot], edges[slot + 1]
+            mask = np.zeros((size, size), dtype=np.uint8)
+            mask[:, left:right] = 1
+            yield {
+                "file": img,
+                "annotation": {
+                    "instance_id": instance_id,
+                    "class": class_name,
+                    "boundingbox": {
+                        "x": left / size,
+                        "y": 0.0,
+                        "w": (right - left) / size,
+                        "h": 1.0,
+                    },
+                    "segmentation": {"mask": mask},
+                    "metadata": {"shape": class_name},
+                },
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    classes = dataset.get_classes()[""]
+    names = {class_id: name for name, class_id in classes.items()}
+    labels = LuxonisLoader(dataset)[0].labels
+
+    in_id_order = ["triangle", "square", "rectangle"]
+    boxes = labels["/boundingbox"]
+    assert boxes[:, 1].tolist() == pytest.approx(
+        [edges[1] / size, edges[2] / size, 0.0]
+    )
+    assert [names[int(c)] for c in boxes[:, 0]] == in_id_order
+    assert labels["/metadata/shape"].tolist() == in_id_order
+
+    segmentation = labels["/segmentation"]
+    for _, class_name, slot in stored:
+        columns = slice(edges[slot], edges[slot + 1])
+        assert segmentation[classes[class_name], :, columns].all()
+
+
 def test_loader_passes_is_validation_pipeline_to_legacy_engines(
     dataset_name: str, tempdir: Path
 ):
@@ -289,7 +374,7 @@ def test_loader_passes_is_validation_pipeline_to_legacy_engines(
         dataset_name, generator(), splits={"custom_split": 1.0}
     )
 
-    LuxonisLoader(
+    loader = LuxonisLoader(
         dataset,
         view="custom_split",
         height=256,
@@ -299,6 +384,351 @@ def test_loader_passes_is_validation_pipeline_to_legacy_engines(
     )
 
     assert CompatibilityOnlyEngine.last_is_validation_pipeline is True
+    assert loader[0].metadata["augmentations"] == {}
+
+
+def test_loader_records_augmentations_in_sample_metadata(
+    dataset_name: str, tempdir: Path
+):
+    def generator() -> DatasetIterator:
+        img = create_image(0, tempdir)
+        yield {
+            "file": img,
+            "sample_metadata": {"record_id": "sample-1"},
+            "annotation": {"class": "person"},
+        }
+
+    dataset = create_dataset(dataset_name, generator())
+    loader = LuxonisLoader(
+        dataset,
+        height=512,
+        width=512,
+        augmentation_config=[{"name": "HorizontalFlip", "params": {"p": 1.0}}],
+        autopopulate_metadata=False,
+    )
+
+    metadata = loader[0].metadata
+
+    assert isinstance(metadata["augmentations"], TrackedAugmentations)
+    assert metadata == {
+        "augmentations": {"HorizontalFlip": {}},
+        "record_id": "sample-1",
+    }
+
+
+def test_loader_reads_augmentation_config_from_a_file(
+    dataset_name: str, tempdir: Path
+):
+    def generator() -> DatasetIterator:
+        img = create_image(0, tempdir)
+        yield {"file": img, "annotation": {"class": "person"}}
+
+    config_path = tempdir / "augmentations.yaml"
+    config_path.write_text(
+        "- name: HorizontalFlip\n  params:\n    p: 1.0\n", encoding="utf-8"
+    )
+    dataset = create_dataset(dataset_name, generator())
+    loader = LuxonisLoader(
+        dataset, height=512, width=512, augmentation_config=config_path
+    )
+
+    assert loader[0].metadata["augmentations"] == {"HorizontalFlip": {}}
+
+
+def test_loader_keeps_stored_metadata_over_the_reserved_augmentations_key(
+    dataset_name: str, tempdir: Path
+):
+    """``"augmentations"`` is reserved but must not destroy user data.
+
+    Overwriting it made metadata that was written to the dataset
+    unreadable through the loader, with no warning.
+    """
+
+    def generator() -> DatasetIterator:
+        img = create_image(0, tempdir)
+        yield {
+            "file": img,
+            "sample_metadata": {
+                "augmentations": {"user_pipeline": {"run_id": 42}},
+                "record_id": "sample-1",
+            },
+            "annotation": {"class": "person"},
+        }
+
+    dataset = create_dataset(dataset_name, generator())
+    loader = LuxonisLoader(
+        dataset,
+        height=512,
+        width=512,
+        augmentation_config=[{"name": "HorizontalFlip", "params": {"p": 1.0}}],
+        autopopulate_metadata=False,
+    )
+
+    with pytest.warns(UserWarning, match="reserved 'augmentations' key"):
+        metadata = loader[0].metadata
+
+    assert metadata == {
+        "augmentations": {"user_pipeline": {"run_id": 42}},
+        "record_id": "sample-1",
+    }
+
+
+def test_loader_warns_when_stored_metadata_hides_the_filenames_key(
+    dataset_name: str, tempdir: Path
+):
+    """``"filenames"`` is reserved just like ``"augmentations"``.
+
+    The stored value wins, which silently left consumers indexing a value
+    the loader never put there.
+    """
+
+    def generator() -> DatasetIterator:
+        img = create_image(0, tempdir)
+        yield {
+            "file": img,
+            "sample_metadata": {"filenames": "stored-value"},
+            "annotation": {"class": "person"},
+        }
+
+    dataset = create_dataset(dataset_name, generator())
+    loader = LuxonisLoader(dataset, height=512, width=512)
+
+    with pytest.warns(UserWarning, match="reserved 'filenames' key"):
+        metadata = loader[0].metadata
+
+    assert metadata == {"filenames": "stored-value", "augmentations": {}}
+
+
+def test_loader_preserves_metadata_for_custom_batch_engines(
+    dataset_name: str, tempdir: Path
+) -> None:
+    def generator() -> DatasetIterator:
+        for i in range(2):
+            yield {
+                "file": create_image(i, tempdir),
+                "sample_metadata": {"record_id": i},
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    loader = LuxonisLoader(
+        dataset,
+        view="train",
+        height=256,
+        width=256,
+        autopopulate_metadata=False,
+        augmentation_engine="compatibility_batch_engine",
+        augmentation_config=[{"name": "Normalize"}],
+    )
+
+    metadata = loader[0].metadata
+    batch_metadata = cast(
+        "list[dict[str, Params]]", metadata["batch_augmentation_metadata"]
+    )
+
+    assert [cast("int", entry["input_index"]) for entry in batch_metadata] == [
+        0,
+        1,
+    ]
+    assert {
+        cast("int", entry["sample_metadata"]["record_id"])
+        for entry in batch_metadata
+    } == {0, 1}
+
+
+def test_loader_repeats_the_only_sample_for_a_batch_augmentation(
+    dataset_name: str, tempdir: Path
+) -> None:
+    def generator() -> DatasetIterator:
+        yield {
+            "file": create_image(0, tempdir),
+            "sample_metadata": {"record_id": 0},
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    loader = LuxonisLoader(
+        dataset,
+        view="train",
+        height=256,
+        width=256,
+        autopopulate_metadata=False,
+        augmentation_engine="compatibility_batch_engine",
+        augmentation_config=[{"name": "Normalize"}],
+    )
+
+    with pytest.warns(UserWarning, match="larger than dataset size"):
+        metadata = loader[0].metadata
+
+    batch_metadata = cast(
+        "list[dict[str, Params]]", metadata["batch_augmentation_metadata"]
+    )
+    assert [
+        cast("int", entry["sample_metadata"]["record_id"])
+        for entry in batch_metadata
+    ] == [0, 0]
+
+
+def test_loader_uses_metadata_from_custom_engine_single_contributor(
+    dataset_name: str, tempdir: Path
+) -> None:
+    def generator() -> DatasetIterator:
+        for i in range(2):
+            yield {
+                "file": create_image(i, tempdir),
+                "sample_metadata": {"record_id": i},
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    # Splits are shuffled when the dataset is created, so which record ends up
+    # at which loader position is not knowable here. Read the positions back
+    # instead of assuming the generator's order survived.
+    reference = LuxonisLoader(
+        dataset,
+        view="train",
+        height=256,
+        width=256,
+        autopopulate_metadata=False,
+    )
+    loader = LuxonisLoader(
+        dataset,
+        view="train",
+        height=256,
+        width=256,
+        autopopulate_metadata=False,
+        augmentation_engine="selective_batch_engine",
+        augmentation_config=[{"name": "Normalize"}],
+    )
+
+    metadata = loader[0].metadata
+
+    # Both loaders augment, so both report provenance. That is not what this
+    # test is about, so the record's own metadata is compared instead.
+    assert metadata["augmentations"] == {}
+    record_id = metadata["record_id"]
+
+    # The engine reports input position 1 as its only contributor, so the
+    # loader must report that position's metadata rather than position 0's.
+    assert record_id == reference[1].metadata["record_id"]
+    assert record_id != reference[0].metadata["record_id"]
+
+
+@pytest.mark.parametrize(
+    ("probability", "metadata_is_merged"), [(0.0, False), (1.0, True)]
+)
+def test_loader_merges_metadata_only_for_applied_batch_augmentations(
+    dataset_name: str,
+    tempdir: Path,
+    probability: float,
+    *,
+    metadata_is_merged: bool,
+) -> None:
+    def generator() -> DatasetIterator:
+        for i in range(2):
+            yield {
+                "file": create_image(i, tempdir),
+                "sample_metadata": {"record_id": i},
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    loader = LuxonisLoader(
+        dataset,
+        view="train",
+        height=256,
+        width=256,
+        autopopulate_metadata=False,
+        augmentation_config=[{"name": "MixUp", "params": {"p": probability}}],
+    )
+
+    metadata = loader[0].metadata
+
+    assert ("batch_augmentation_metadata" in metadata) is metadata_is_merged
+    if metadata_is_merged:
+        batch_metadata = cast(
+            "list[dict[str, Params]]", metadata["batch_augmentation_metadata"]
+        )
+        assert {
+            cast("int", entry["input_index"]) for entry in batch_metadata
+        } == {
+            0,
+            1,
+        }
+        assert {
+            cast("int", entry["sample_metadata"]["record_id"])
+            for entry in batch_metadata
+        } == {0, 1}
+        assert (
+            metadata["record_id"]
+            == batch_metadata[0]["sample_metadata"]["record_id"]
+        )
+    else:
+        assert metadata in (
+            {"record_id": 0, "augmentations": {}},
+            {"record_id": 1, "augmentations": {}},
+        )
+
+
+@pytest.mark.parametrize(
+    ("mosaic_probability", "mixup_probability", "expected_input_indices"),
+    [
+        (0.0, 0.0, None),
+        (1.0, 0.0, [0, 1, 2, 3]),
+        # A skipped Mosaic4 passes through the first input from each group of
+        # four, so MixUp combines source inputs 0 and 4.
+        (0.0, 1.0, [0, 4]),
+        (1.0, 1.0, list(range(8))),
+    ],
+)
+def test_loader_tracks_metadata_through_multiple_batch_augmentations(
+    dataset_name: str,
+    tempdir: Path,
+    mosaic_probability: float,
+    mixup_probability: float,
+    expected_input_indices: list[int] | None,
+) -> None:
+    def generator() -> DatasetIterator:
+        for i in range(8):
+            yield {
+                "file": create_image(i, tempdir),
+                "sample_metadata": {"record_id": i},
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    loader = LuxonisLoader(
+        dataset,
+        view="train",
+        height=256,
+        width=256,
+        autopopulate_metadata=False,
+        augmentation_config=[
+            {
+                "name": "Mosaic4",
+                "params": {
+                    "p": mosaic_probability,
+                    "width": 256,
+                    "height": 256,
+                },
+            },
+            {"name": "MixUp", "params": {"p": mixup_probability}},
+        ],
+    )
+
+    metadata = loader[0].metadata
+
+    if expected_input_indices is None:
+        assert "batch_augmentation_metadata" not in metadata
+        return
+
+    batch_metadata = cast(
+        "list[dict[str, Params]]", metadata["batch_augmentation_metadata"]
+    )
+    assert [
+        cast("int", entry["input_index"]) for entry in batch_metadata
+    ] == expected_input_indices
+    assert len(
+        {
+            cast("int", entry["sample_metadata"]["record_id"])
+            for entry in batch_metadata
+        }
+    ) == len(expected_input_indices)
 
 
 def load_annotations(annotation_name: str) -> list[dict[str, Any]]:
@@ -309,7 +739,7 @@ def load_annotations(annotation_name: str) -> list[dict[str, Any]]:
         remote_path = f"gs://luxonis-test-bucket/luxonis-ml-test-data/test-augmentation-data/{annotation_name}"
         local_path = LuxonisFileSystem.download(remote_path, dest=dest_dir)
 
-    with open(local_path) as f:
+    with local_path.open() as f:
         return json.load(f)
 
 
@@ -489,48 +919,19 @@ def test_edge_cases(tempdir: Path):
         ]
     )
 
-    def generator() -> DatasetIterator:
-        num_samples = len(keypoints_before)
-        for i in range(num_samples):
-            img = create_image(i, tempdir)
-            keypoints_list = keypoints_before[i].tolist()
-            bbox_list = bboxes_before[i].tolist()
-
-            keypoints_split = [
-                [x, y, int(visibility)]
-                for x, y, visibility in (
-                    keypoints_list[j : j + 3]
-                    for j in range(0, len(keypoints_list), 3)
-                )
-            ]
-
-            yield {
-                "file": img,
-                "annotation": {
-                    "class": "dog",
-                    "boundingbox": {
-                        "x": bbox_list[1],
-                        "y": bbox_list[2],
-                        "w": bbox_list[3],
-                        "h": bbox_list[4],
-                    },
-                    "keypoints": {"keypoints": keypoints_split},
-                },
-            }
-
     dataset = LuxonisDataset(
         "test_edge_cases",
         delete_local=True,
         delete_remote=True,
         bucket_storage=BucketStorage.LOCAL,
-    ).add(generator())
+    ).add(_dog_records(tempdir, keypoints_before, bboxes_before))
 
-    dataset.make_splits(ratios=(1, 0, 0))
+    dataset.make_splits((1, 0, 0))
 
     augmentation_config: list[Params] = [
         {
             "name": "Mosaic4",
-            "params": {"p": 1, "out_width": 512, "out_height": 512},
+            "params": {"p": 1, "width": 512, "height": 512},
         },
         {
             "name": "Rotate",
@@ -538,7 +939,7 @@ def test_edge_cases(tempdir: Path):
                 "limit": 10,
                 "p": 1,
                 "border_mode": 0,
-                "value": [0, 0, 0],
+                "fill": 0,
             },
         },
         {
@@ -546,12 +947,11 @@ def test_edge_cases(tempdir: Path):
             "params": {
                 "scale": [0.02, 0.05],
                 "keep_size": True,
-                "pad_mode": 0,
-                "pad_val": 0,
-                "mask_pad_val": 0,
+                "border_mode": 0,
+                "fill": 0,
+                "fill_mask": 0,
                 "fit_output": False,
                 "interpolation": 1,
-                "always_apply": False,
                 "p": 1,
             },
         },
@@ -564,13 +964,12 @@ def test_edge_cases(tempdir: Path):
                 "shear": 5,
                 "interpolation": 1,
                 "mask_interpolation": 0,
-                "cval": 0,
-                "cval_mask": 0,
-                "mode": 0,
+                "fill": 0,
+                "fill_mask": 0,
+                "border_mode": 0,
                 "fit_output": False,
                 "keep_ratio": False,
                 "rotate_method": "largest_box",
-                "always_apply": False,
                 "p": 1,
             },
         },
@@ -585,32 +984,70 @@ def test_edge_cases(tempdir: Path):
     )
     for _ in range(20):
         for batch in loader:
-            keypoints = batch[1]["/keypoints"]
-            bboxes = batch[1]["/boundingbox"]
-            keypoints = keypoints.reshape(-1, 3)
-            for kp in keypoints:
-                x, y, v = kp
-                assert not (x == 0 and y == 0 and v in {1, 2}), (
-                    f"Invalid keypoint detected: {kp}"
-                )
-                assert 0 <= x <= 1, f"Keypoint x out of bounds: {kp}"
-                assert 0 <= y <= 1, f"Keypoint y out of bounds: {kp}"
+            _assert_keypoints_valid(batch[1]["/keypoints"].reshape(-1, 3))
+            _assert_bboxes_valid(batch[1]["/boundingbox"])
 
-            for bbox in bboxes:
-                _, x_min, y_min, width, height = bbox
 
-                x_max = x_min + width
-                y_max = y_min + height
+def _dog_records(
+    tempdir: Path, keypoints_before: np.ndarray, bboxes_before: np.ndarray
+) -> DatasetIterator:
+    """Yield one ``dog`` record per row of keypoints and boxes."""
+    for i in range(len(keypoints_before)):
+        img = create_image(i, tempdir)
+        keypoints_list = keypoints_before[i].tolist()
+        bbox_list = bboxes_before[i].tolist()
 
-                assert 0 <= x_min <= 1, f"BBox x_min out of bounds: {bbox}"
-                assert 0 <= y_min <= 1, f"BBox y_min out of bounds: {bbox}"
-                assert 0 <= x_max <= 1, f"BBox x_max out of bounds: {bbox}"
-                assert 0 <= y_max <= 1, f"BBox y_max out of bounds: {bbox}"
+        keypoints_split = [
+            [x, y, int(visibility)]
+            for x, y, visibility in (
+                keypoints_list[j : j + 3]
+                for j in range(0, len(keypoints_list), 3)
+            )
+        ]
 
-                bbox_area = width * height
-                assert bbox_area >= 0.0004, (
-                    f"BBox area too small: {bbox}, area={bbox_area}"
-                )
+        yield {
+            "file": img,
+            "annotation": {
+                "class": "dog",
+                "boundingbox": {
+                    "x": bbox_list[1],
+                    "y": bbox_list[2],
+                    "w": bbox_list[3],
+                    "h": bbox_list[4],
+                },
+                "keypoints": {"keypoints": keypoints_split},
+            },
+        }
+
+
+def _assert_keypoints_valid(keypoints: np.ndarray) -> None:
+    """Check that every visible keypoint lies inside the image."""
+    for kp in keypoints:
+        x, y, v = kp
+        assert not (x == 0 and y == 0 and v in {1, 2}), (
+            f"Invalid keypoint detected: {kp}"
+        )
+        assert 0 <= x <= 1, f"Keypoint x out of bounds: {kp}"
+        assert 0 <= y <= 1, f"Keypoint y out of bounds: {kp}"
+
+
+def _assert_bboxes_valid(bboxes: np.ndarray) -> None:
+    """Check that every box lies inside the image and is not tiny."""
+    for bbox in bboxes:
+        _, x_min, y_min, width, height = bbox
+
+        x_max = x_min + width
+        y_max = y_min + height
+
+        assert 0 <= x_min <= 1, f"BBox x_min out of bounds: {bbox}"
+        assert 0 <= y_min <= 1, f"BBox y_min out of bounds: {bbox}"
+        assert 0 <= x_max <= 1, f"BBox x_max out of bounds: {bbox}"
+        assert 0 <= y_max <= 1, f"BBox y_max out of bounds: {bbox}"
+
+        bbox_area = width * height
+        assert bbox_area >= 0.0004, (
+            f"BBox area too small: {bbox}, area={bbox_area}"
+        )
 
 
 def test_dataset_reproducibility(storage_url: str, tempdir: Path):
@@ -732,19 +1169,58 @@ def test_colorspace(storage_url: str, tempdir: Path):
         },
     ]
     loader = create_loader(storage_url, tempdir, augmentation_config=norm_3d)
-    rgb_img, _ = cast(LoaderSingleOutput, next(iter(loader)))
+    rgb_img, _ = cast("LoaderSingleOutput", next(iter(loader)))
     assert len(rgb_img.shape) == 3
     assert rgb_img.shape[2] == 3
     loader = create_loader(
         storage_url, tempdir, color_space="BGR", augmentation_config=norm_3d
     )
-    bgr_img, _ = cast(LoaderSingleOutput, next(iter(loader)))
+    bgr_img, _ = cast("LoaderSingleOutput", next(iter(loader)))
     assert len(bgr_img.shape) == 3
     assert bgr_img.shape[2] == 3
     assert np.array_equal(rgb_img, bgr_img[:, :, ::-1])
     loader = create_loader(
         storage_url, tempdir, color_space="GRAY", augmentation_config=norm_1d
     )
-    gray_img, _ = cast(LoaderSingleOutput, next(iter(loader)))
+    gray_img, _ = cast("LoaderSingleOutput", next(iter(loader)))
     assert len(gray_img.shape) == 3
     assert gray_img.shape[2] == 1
+
+
+def test_loader_needs_splits(randint: int, tempdir: Path):
+    dataset = create_dataset(
+        f"test_loader_needs_splits_{randint}",
+        iter(
+            [
+                {
+                    "file": create_image(0, tempdir),
+                    "annotation": {"class": "cat"},
+                }
+            ]
+        ),
+        splits=False,
+    )
+
+    with pytest.raises(RuntimeError, match="Cannot find splits"):
+        LuxonisLoader(dataset)
+    dataset.delete_dataset(delete_local=True)
+
+
+def test_read_image_gives_a_gray_image_a_channel_axis(tempdir: Path):
+    gray = tempdir / "gray.png"
+    cv2.imwrite(str(gray), np.full((4, 6), 7, dtype=np.uint8))
+
+    assert _read_image(gray, "GRAY").shape == (4, 6, 1)
+
+
+def test_read_image_rejects_rgba_as_gray(tempdir: Path):
+    rgba = tempdir / "rgba.png"
+    cv2.imwrite(str(rgba), np.zeros((4, 6, 4), dtype=np.uint8))
+
+    with pytest.raises(ValueError, match="Unsupported image format"):
+        _read_image(rgba, "GRAY")
+
+
+def test_read_image_needs_the_file(tempdir: Path):
+    with pytest.raises(FileNotFoundError, match="Cannot read image"):
+        _read_image(tempdir / "missing.png", "RGB")

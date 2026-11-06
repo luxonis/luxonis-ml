@@ -1,19 +1,24 @@
+"""Schema of the model metadata stored in an NN Archive."""
+
 from pydantic import BaseModel, Field
 
 from luxonis_ml.nn_archive.config_building_blocks.enums import DataType
 
 
 class Metadata(BaseModel):
-    """Represents metadata of a model.
+    """Model metadata stored in an NN Archive.
 
-    @type name: str
-    @ivar name: Name of the model.
-    @type path: str
-    @ivar path: Relative path to the model executable.
+    Attributes:
+        name: Name of the model.
+        path: Relative path to the model executable inside the archive.
+        precision: Precision of the model weights.
+
     """
 
     name: str = Field(description="Name of the model.")
-    path: str = Field(description="Relative path to the model executable.")
+    path: str = Field(
+        description="Relative path to the model executable inside the archive."
+    )
     precision: DataType = Field(
         DataType.FLOAT32, description="Precision of the model weights."
     )

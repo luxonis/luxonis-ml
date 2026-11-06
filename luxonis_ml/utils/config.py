@@ -1,9 +1,11 @@
+"""Base model for configs loaded from YAML with dotted-key overrides."""
+
 import ast
 from pathlib import Path, PurePath
 from typing import Any, TypeVar
 
 import yaml
-from typing_extensions import Self
+from typing_extensions import Self, deprecated, override
 
 from luxonis_ml.typing import BaseModelExtraForbid, Params, PathType
 
@@ -19,18 +21,28 @@ class LuxonisConfig(BaseModelExtraForbid):
     def get_config(
         cls,
         cfg: PathType | Params | None = None,
-        overrides: Params | list[str] | tuple[str, ...] | None = None,
+        overrides: Params
+        | dict[str, Any]
+        | list[str]
+        | tuple[str, ...]
+        | None = None,
     ) -> Self:
-        """Loads config from a yaml file or a dictionary.
+        """Load config from a yaml file or a dictionary.
 
-        @type cfg: Optional[Union[str, dict]]
-        @param cfg: Path to config file or a dictionary.
-        @type overrides: Optional[Union[dict, list[str], tuple[str, ...]]]
-        @param overrides: List of CLI overrides in a form of a dictionary mapping
-            "dotted" keys to unparsed string or python values.
-        @rtype: LuxonisConfig
-        @return: Instance of the config class.
-        @raise ValueError: If neither C{cfg} nor C{overrides} are provided.
+        Args:
+            cfg: Path to a config file or a dictionary.
+            overrides: CLI overrides. Can be a dictionary mapping
+                "dotted" keys to unparsed string or Python values, or a
+                list or a tuple of alternating key-value pairs.
+
+        Returns:
+            Instance of the config class.
+
+        Raises:
+            ValueError: If neither ``cfg`` nor ``overrides`` is provided,
+                or if ``overrides`` is a list or a tuple with an odd number
+                of items.
+
         """
         if cfg is None and overrides is None:
             raise ValueError(
@@ -59,27 +71,35 @@ class LuxonisConfig(BaseModelExtraForbid):
             data = cfg
 
         cls._merge_overrides(data, overrides)
-        return cls(**data)  # type: ignore
+        return cls(**data)
 
+    @override
     def __str__(self) -> str:
         return self.model_dump_json(indent=4)
 
+    @override
     def __repr__(self) -> str:
         return self.__str__()
 
+    @deprecated("Use `model_json_schema(mode='validation')` instead.")
     def get_json_schema(self) -> Params:
-        """Returns dict representation of the config json schema.
+        """Return the JSON schema of the config.
 
-        @rtype: dict
-        @return: Dictionary with config json schema.
+        .. deprecated:: 0.9.0
+           Use ``model_json_schema(mode='validation')`` instead.
+
+        Returns:
+            Dictionary with the JSON schema.
+
         """
         return self.model_json_schema(mode="validation")
 
     def save_data(self, path: PathType) -> None:
-        """Saves config to a yaml file.
+        """Save the config to a YAML file.
 
-        @type path: str
-        @param path: Path to output yaml file.
+        Args:
+            path: Path to the file where the config should be saved.
+
         """
 
         def path_representer(
@@ -89,142 +109,164 @@ class LuxonisConfig(BaseModelExtraForbid):
 
         yaml.SafeDumper.add_multi_representer(PurePath, path_representer)
 
-        with open(path, "w+") as f:
+        with Path(path).open("w+", encoding="utf-8") as f:
             yaml.safe_dump(self.model_dump(), f, default_flow_style=False)
 
     def get(self, key_merged: str, default: Any = None) -> Any:
-        """Returns a value from L{Config} based on the given key.
+        """Return a value from the config based on the given key.
 
         If the key doesn't exist, the default value is returned.
 
-        @type key_merged: str
-        @param key_merged: Key in a form of a string with levels
-            separated by dots.
-        @type default: Any
-        @param default: Default value to return if the key doesn't
-            exist.
-        @rtype: Any
-        @return: Value of the key or default value.
+        Args:
+            key_merged: Key as a string with levels separated by dots.
+            default: Default value to return if the key doesn't exist.
+
+        Returns:
+            Value of the key, or the default value.
+
+        Raises:
+            ValueError: If a list is accessed with a non-integer key.
+
         """
         value = self
         for key in key_merged.split("."):
-            if isinstance(value, list):
-                try:
-                    index = int(key)
-                except ValueError:
-                    raise ValueError(
-                        f"Can't access list with non-int key `{key}`."
-                    ) from None
-                if index >= len(value):
-                    return default
-                value = value[index]
-            elif isinstance(value, dict):
-                if key not in value:
-                    return default
-                value = value[key]
-            else:
-                if not hasattr(value, key):
-                    return default
-                value = getattr(value, key)
+            value = _child(value, key)
+            if value is _MISSING:
+                return default
         return value
 
     @staticmethod
     def _merge_overrides(data: Params, overrides: Params) -> None:
-        """Merges the config dictionary with the CLI overrides.
+        """Merge the config dictionary with the CLI overrides.
 
         The overrides are a dictionary mapping "dotted" keys to either
         final or unparsed values.
 
-        @type data: dict
-        @param data: Dictionary with config data.
-        @type overrides: dict
-        @param overrides: Dictionary with CLI overrides.
-        @raise ValueError: If the overrides contain an invalid option.
+        Args:
+            data: Dictionary with config data.
+            overrides: Dictionary with CLI overrides.
+
+        Raises:
+            ValueError: If the overrides contain an invalid option.
+
         """
+        dot_name = ""
+        try:
+            for dot_name, value in overrides.items():
+                _merge_override(data, dot_name, value)
+        except Exception as e:
+            raise ValueError(f"Invalid option `{dot_name}`: {e}") from e
 
-        def _parse_value(value: Any) -> Any:
-            if not isinstance(value, str):
-                return value
 
-            try:
-                return ast.literal_eval(value)
-            except (ValueError, SyntaxError):
-                # keep as string and hope for the best
-                return value
+_MISSING = object()
 
-        def _merge_recursive(
-            data: dict | list, dot_name: str, value: Any
-        ) -> None:
-            key, *tail = dot_name.split(".")
-            if not tail:
-                parsed_value = _parse_value(value)
-                if key.isdecimal():
-                    index = int(key)
-                    if not isinstance(data, list):
-                        raise ValueError(
-                            "int keys are not allowed for non-list values"
-                        )
-                    if index >= len(data):
-                        data.append(parsed_value)
-                    else:
-                        data[index] = parsed_value
-                elif isinstance(data, list):
-                    if key == "+":
-                        data.append(parsed_value)
-                    else:
-                        raise ValueError(
-                            "Only int keys are allowed for list values"
-                        )
-                else:
-                    data[key] = parsed_value
 
-                return
+def _child(value: Any, key: str) -> Any:
+    """Return the child of a config node at ``key``, or `_MISSING`."""
+    if isinstance(value, list):
+        try:
+            index = int(key)
+        except ValueError:
+            raise ValueError(
+                f"Can't access list with non-int key `{key}`."
+            ) from None
+        return value[index] if index < len(value) else _MISSING
+    if isinstance(value, dict):
+        return value.get(key, _MISSING)
+    return getattr(value, key, _MISSING)
 
-            key_tail = ".".join(tail)
 
-            if key.isdecimal() or key == "+":
-                if not isinstance(data, list):
-                    raise ValueError(
-                        "int keys are not allowed for non-list values"
-                    )
-                if key == "+":
-                    data.append(type(data[0])())
-                    _merge_recursive(data[-1], key_tail, value)
-                else:
-                    index = int(key)
-                    if index >= len(data):
-                        index = len(data)
-                        if data:
-                            data.append(type(data[0])())
-                            _merge_recursive(data[index], key_tail, value)
-                        else:
-                            # Try to guess type, backtrack if fails
-                            data.append([])
-                            try:
-                                _merge_recursive(data[index], key_tail, value)
-                            except Exception:
-                                data[index] = {}
-                                _merge_recursive(data[index], key_tail, value)
-                    else:
-                        _merge_recursive(data[index], key_tail, value)
-            else:
-                if not isinstance(data, dict):
-                    raise ValueError(
-                        "Only dict values can be accessed with string keys"
-                    )
-                if key not in data:
-                    # Try to guess type, backtrack if fails
-                    data[key] = []
-                    try:
-                        _merge_recursive(data[key], key_tail, value)
-                    except Exception:
-                        data[key] = {}
-                        _merge_recursive(data[key], key_tail, value)
-                else:
-                    _merge_recursive(data[key], key_tail, value)
+def _parse_override_value(value: Any) -> Any:
+    """Parse a string override as a Python literal, if it is one."""
+    if not isinstance(value, str):
+        return value
+    try:
+        return ast.literal_eval(value)
+    except (ValueError, SyntaxError):
+        # keep as string and hope for the best
+        return value
 
-        for dot_name, value in overrides.items():
-            try:
-                _merge_recursive(data, dot_name, value)  # type: ignore
-            except Exception as e:
-                raise ValueError(f"Invalid option `{dot_name}`: {e}") from e
+
+def _merge_override(data: dict | list, dot_name: str, value: Any) -> None:
+    """Set ``value`` at the dotted path ``dot_name`` of ``data``.
+
+    A decimal key indexes a list, ``+`` appends to one, and any other
+    key names a dict entry. Missing containers on the way are created.
+
+    Raises:
+        ValueError: If a key does not fit the value it indexes, such as
+            a decimal key for a dict, or a key other than a decimal or
+            ``+`` for a list.
+        TypeError: If the last key is not a decimal and indexes a value
+            that is neither a dict nor a list.
+
+    """
+    key, *tail = dot_name.split(".")
+    if not tail:
+        _set_leaf(data, key, _parse_override_value(value))
+        return
+
+    key_tail = ".".join(tail)
+    if key.isdecimal() or key == "+":
+        if not isinstance(data, list):
+            raise ValueError("int keys are not allowed for non-list values")
+        _merge_into_list(data, key, key_tail, value)
+    elif isinstance(data, dict):
+        _merge_into_dict(data, key, key_tail, value)
+    else:
+        raise ValueError("Only dict values can be accessed with string keys")
+
+
+def _set_leaf(data: dict | list, key: str, value: Any) -> None:
+    """Store a parsed value under the last key of an override path."""
+    if key.isdecimal():
+        if not isinstance(data, list):
+            raise ValueError("int keys are not allowed for non-list values")
+        index = int(key)
+        if index >= len(data):
+            data.append(value)
+        else:
+            data[index] = value
+    elif isinstance(data, list):
+        if key != "+":
+            raise ValueError("Only int keys are allowed for list values")
+        data.append(value)
+    else:
+        data[key] = value
+
+
+def _merge_into_list(data: list, key: str, key_tail: str, value: Any) -> None:
+    """Descend into the list item at ``key``.
+
+    The key ``+`` appends a new item, as an index past the end does.
+    """
+    index = len(data) if key == "+" else int(key)
+    if index < len(data):
+        _merge_override(data[index], key_tail, value)
+    elif data:
+        data.append(type(data[0])())
+        _merge_override(data[-1], key_tail, value)
+    else:
+        data.append([])
+        _merge_into_new(data, 0, key_tail, value)
+
+
+def _merge_into_dict(data: dict, key: str, key_tail: str, value: Any) -> None:
+    """Descend into the dict entry at ``key``, creating it if missing."""
+    if key in data:
+        _merge_override(data[key], key_tail, value)
+        return
+    data[key] = []
+    _merge_into_new(data, key, key_tail, value)
+
+
+def _merge_into_new(
+    container: dict | list, key: Any, key_tail: str, value: Any
+) -> None:
+    """Merge into the new empty list at ``key``; a dict if that fails."""
+    # Try to guess type, backtrack if fails
+    try:
+        _merge_override(container[key], key_tail, value)
+    except (ValueError, IndexError):
+        container[key] = {}
+        _merge_override(container[key], key_tail, value)

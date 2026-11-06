@@ -1,0 +1,25 @@
+# Groups the notes that `gh release create --generate-notes` writes.
+changelog:
+  exclude:
+    labels:
+      - release
+  categories:
+    - title: New features
+      labels:
+        - enhancement
+    - title: Bug fixes
+      labels:
+        - fix
+        - hotfix
+        - bug
+    - title: Documentation
+      labels:
+        - documentation
+    - title: Maintenance
+      labels:
+        - DevOps
+        - tests
+        - automated
+    - title: Other changes
+      labels:
+        - "*"

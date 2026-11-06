@@ -17,7 +17,7 @@ def _make_engine(config: list[Params]) -> AlbumentationsEngine:
         {"/classification": "classification"},
         {"/classification": 2},
         ["image"],
-        config,
+        config=config,
     )
 
 
@@ -91,8 +91,7 @@ def test_mixed_pipeline():
 
 
 def test_batch_transform_inside_composition():
-    """BatchTransforms nested inside compositions should raise an
-    error."""
+    """BatchTransforms nested inside compositions raise an error."""
     with pytest.raises(ValueError, match="cannot be nested inside"):
         _make_engine(
             [
@@ -103,8 +102,8 @@ def test_batch_transform_inside_composition():
                             {
                                 "name": "Mosaic4",
                                 "params": {
-                                    "out_height": 64,
-                                    "out_width": 64,
+                                    "height": 64,
+                                    "width": 64,
                                     "p": 1,
                                 },
                             },
@@ -124,6 +123,21 @@ def test_batch_transform_inside_composition():
                         "n": 1,
                         "transforms": [
                             {"name": "MixUp", "params": {"p": 1}},
+                        ],
+                        "p": 1,
+                    },
+                }
+            ]
+        )
+
+    with pytest.raises(ValueError, match="cannot be nested inside"):
+        _make_engine(
+            [
+                {
+                    "name": "Sequential",
+                    "params": {
+                        "transforms": [
+                            {"name": "CutMix", "params": {"p": 1}},
                         ],
                         "p": 1,
                     },
@@ -201,7 +215,7 @@ def _apply_config(
     labels: Labels,
 ) -> tuple[dict[str, np.ndarray], Labels]:
     engine = AlbumentationsEngine(
-        H, W, targets, n_classes, ["image"], config, seed=SEED
+        H, W, targets, n_classes, ["image"], config=config, seed=SEED
     )
     return engine.apply([({"image": image.copy()}, deepcopy(labels))])
 
@@ -280,6 +294,7 @@ def _assert_results_equal(
     ],
 )
 def test_nested_equivalent_to_direct(
+    *,
     wrapper: str,
     augmentation: Params,
     coco_targets: dict[str, str],
@@ -287,9 +302,11 @@ def test_nested_equivalent_to_direct(
     coco_image: np.ndarray,
     coco_labels: Labels,
 ):
-    """Wrapping a p=1 augmentation inside Sequential, OneOf, or SomeOf
-    must produce exactly the same result as using the augmentation
-    directly."""
+    """Wrapping a p=1 augmentation in a composition changes nothing.
+
+    Sequential, OneOf and SomeOf must give exactly the result of the
+    augmentation used directly.
+    """
     direct_config: list[Params] = [augmentation]
 
     nested_params: dict = {

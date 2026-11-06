@@ -1,4 +1,4 @@
-from __future__ import annotations
+"""Export to the COCO format."""
 
 import json
 import sys
@@ -8,6 +8,7 @@ from typing import Any, cast
 import pycocotools.mask as maskUtils
 from loguru import logger
 from PIL import Image
+from typing_extensions import override
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
@@ -22,21 +23,43 @@ from luxonis_ml.enums import DatasetType
 
 
 class CocoExporter(BaseExporter):
-    """Exporter for COCO dataset format (Roboflow/FiftyOne variants)."""
+    """Exporter for COCO dataset format.
+
+    Attributes:
+        format: COCO output layout variant.
+        skeletons: Optional keypoint skeleton metadata.
+        allow_keypoints: Whether keypoint annotations can be exported.
+        class_name_to_category_id: Category IDs per split and class name.
+        last_category_id: Last assigned category ID per split.
+        image_registry: Exported image metadata per split.
+
+    """
 
     def __init__(
         self,
         dataset_identifier: str,
         output_path: Path,
         max_partition_size_gb: float | None,
-        format: COCOFormat = COCOFormat.ROBOFLOW,
+        coco_format: COCOFormat = COCOFormat.ROBOFLOW,
         *,
         skeletons: dict[str, Any] | None = None,
-    ):
+    ) -> None:
+        """Create the exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Maximum partition size in GiB, or
+                ``None`` to disable partitioning.
+            coco_format: Directory layout of the export.
+            skeletons: Keypoint skeletons keyed by task name. Keypoints
+                are exported only when there is exactly one skeleton.
+
+        """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
-        self.format = format
+        self.format = coco_format
         self.skeletons = skeletons
         if self.skeletons is None:
             self.allow_keypoints = False
@@ -45,8 +68,9 @@ class CocoExporter(BaseExporter):
         else:
             self.allow_keypoints = False
             logger.warning(
-                "Skipping keypoint annotations because COCO only supports a single keypoint export class."
-                "To export multiple keypoint classes please use the Luxonis native export format"
+                "Skipping keypoint annotations because COCO only supports a "
+                "single keypoint export class. To export multiple keypoint "
+                "classes please use the Luxonis native export format"
             )
 
         splits = self.get_split_names()
@@ -59,13 +83,24 @@ class CocoExporter(BaseExporter):
         }
 
     def get_split_names(self) -> dict[str, str]:
+        """Return the directory name of each split.
+
+        The Roboflow layout names the ``val`` split ``valid``; the
+        FiftyOne layout names it ``validation``.
+
+        Returns:
+            Split names mapped to directory names.
+
+        """
         if self.format == COCOFormat.ROBOFLOW:
             return {"train": "train", "val": "valid", "test": "test"}
         return {"train": "train", "val": "validation", "test": "test"}
 
+    @override
     def supported_ann_types(self) -> list[str]:
         return DatasetType.COCO.supported_annotation_formats
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
         exporter_specific_annotation_warning(
@@ -85,7 +120,9 @@ class CocoExporter(BaseExporter):
         copied_files: set[Path] = set()
 
         for key, entry in grouped:
-            file_name, _instance_id, group_id = cast(tuple[str, int, Any], key)
+            file_name, _instance_id, group_id = cast(
+                "tuple[str, int, Any]", key
+            )
 
             split = split_of_group(prepared_ldf, group_id)
             file_path = Path(str(file_name))
@@ -106,7 +143,12 @@ class CocoExporter(BaseExporter):
 
             for row in entry.iter_rows(named=True):
                 ann, row_has_ann = self._process_row(
-                    row, split, annotation_splits, ann, width, height
+                    row,
+                    split=split,
+                    annotation_splits=annotation_splits,
+                    ann=ann,
+                    w=width,
+                    h=height,
                 )
                 has_valid_ann = has_valid_ann or row_has_ann
 
@@ -169,7 +211,8 @@ class CocoExporter(BaseExporter):
                 new_name,
             )
 
-        width, height = Image.open(path).size
+        with Image.open(path) as image:
+            width, height = image.size
         image_id = len(annotation_splits[split]["images"]) + 1
         img_entry = {
             "id": image_id,
@@ -184,6 +227,7 @@ class CocoExporter(BaseExporter):
     def _process_row(
         self,
         row: dict[str, Any],
+        *,
         split: str,
         annotation_splits: dict[str, dict[str, Any]],
         ann: dict[str, Any],
@@ -201,7 +245,8 @@ class CocoExporter(BaseExporter):
 
             if self.allow_keypoints:
                 kp_labels, kp_skeleton = get_single_skeleton(
-                    self.allow_keypoints, self.skeletons
+                    allow_keypoints=self.allow_keypoints,
+                    skeletons=self.skeletons,
                 )
                 if kp_labels:
                     cat_entry["keypoints"] = kp_labels
@@ -220,7 +265,7 @@ class CocoExporter(BaseExporter):
 
         if ttype == "boundingbox":
             data = json.loads(ann_str)
-            self._fill_bbox(ann, data, w, h, split, cname)
+            self._fill_bbox(ann, data, w=w, h=h, split=split, cname=cname)
             return ann, True
 
         if ttype == "instance_segmentation":
@@ -230,7 +275,7 @@ class CocoExporter(BaseExporter):
 
         if ttype == "keypoints" and self.allow_keypoints:
             data = json.loads(ann_str)
-            self._fill_keypoints(ann, data, w, h, split, cname)
+            self._fill_keypoints(ann, data, w=w, h=h, split=split, cname=cname)
             return ann, True
 
         return ann, False
@@ -239,6 +284,7 @@ class CocoExporter(BaseExporter):
         self,
         ann: dict[str, Any],
         data: dict[str, Any],
+        *,
         w: int,
         h: int,
         split: str,
@@ -280,8 +326,8 @@ class CocoExporter(BaseExporter):
                 "size": [H, W],
                 "counts": counts.encode("utf-8"),
             }
-            area = float(maskUtils.area(rle_runtime))  # type: ignore[arg-type]
-            bbox = maskUtils.toBbox(rle_runtime).tolist()  # type: ignore[arg-type]
+            area = float(maskUtils.area(rle_runtime))  # pyright: ignore[reportArgumentType]
+            bbox = maskUtils.toBbox(rle_runtime).tolist()  # pyright: ignore[reportArgumentType]
             ann["area"] = area
             if not ann.get("bbox"):
                 ann["bbox"] = bbox
@@ -294,6 +340,7 @@ class CocoExporter(BaseExporter):
         self,
         ann: dict[str, Any],
         data: dict[str, Any],
+        *,
         w: int,
         h: int,
         split: str,
@@ -339,6 +386,7 @@ class CocoExporter(BaseExporter):
             ann.setdefault("bbox", [0.0, 0.0, 0.0, 0.0])
             ann.setdefault("area", 0.0)
 
+    @override
     def _dump_annotations(
         self,
         annotation_splits: dict[str, dict[str, Any]],
@@ -360,6 +408,7 @@ class CocoExporter(BaseExporter):
                 json.dumps(split_data, indent=2), encoding="utf-8"
             )
 
+    @override
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:

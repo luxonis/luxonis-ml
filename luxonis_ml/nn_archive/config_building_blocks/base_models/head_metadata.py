@@ -1,200 +1,202 @@
+"""Metadata schemas for the parser heads of an NN Archive model.
+
+The YOLO schema also checks its fields against the supported tasks.
+"""
+
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class HeadMetadata(BaseModel):
-    """Metadata for the basic head. It allows you to specify additional
-    fields.
+    """Base parser metadata.
 
-    @type postprocessor_path: str | None
-    @ivar postprocessor_path: Path to the postprocessor.
+    Extra fields are allowed so custom parsers can store their own
+    metadata.
+
+    Attributes:
+        postprocessor_path: Optional path to the postprocessor.
+
     """
 
     model_config = ConfigDict(extra="allow")
 
     postprocessor_path: str | None = Field(
-        None, description="Path to the postprocessor."
+        None, description="Optional path to the postprocessor."
     )
 
 
 class HeadObjectDetectionMetadata(HeadMetadata):
-    """Metadata for the object detection head.
+    """Metadata for an object detection head.
 
-    @type classes: list
-    @ivar classes: Names of object classes detected by the model.
-    @type n_classes: int
-    @ivar n_classes: Number of object classes detected by the model.
-    @type iou_threshold: float
-    @ivar iou_threshold: Non-max suppression threshold limiting boxes
-        intersection.
-    @type conf_threshold: float
-    @ivar conf_threshold: Confidence score threshold above which a
-        detected object is considered valid.
-    @type max_det: int
-    @ivar max_det: Maximum detections per image.
-    @type anchors: list
-    @ivar anchors: Predefined bounding boxes of different sizes and
-        aspect ratios. The innermost lists are length 2 tuples of box
-        sizes. The middle lists are anchors for each output. The outmost
-        lists go from smallest to largest output.
+    Attributes:
+        classes: Names of classes detected by the model.
+        n_classes: Number of classes detected by the model.
+        iou_threshold: Non-maximum suppression IoU threshold for
+            filtering overlapping boxes.
+        conf_threshold: Confidence threshold above which a detection is
+            considered valid.
+        max_det: Maximum detections per image.
+        anchors: Optional predefined boxes of different sizes and aspect
+            ratios. The innermost values describe box sizes, the middle
+            values group anchors per output, and the outer values are
+            ordered from smallest to largest output.
+
     """
 
     classes: list[str] = Field(
-        description="Names of object classes recognized by the model."
+        description="Names of classes detected by the model."
     )
     n_classes: int = Field(
-        description="Number of object classes recognized by the model."
+        description="Number of classes detected by the model."
     )
     iou_threshold: float = Field(
-        description="Non-max suppression threshold limiting boxes intersection."
+        description="Non-maximum suppression IoU threshold for filtering overlapping boxes."
     )
     conf_threshold: float = Field(
-        description="Confidence score threshold above which a detected object is considered valid."
+        description="Confidence threshold above which a detection is considered valid."
     )
     max_det: int = Field(description="Maximum detections per image.")
     anchors: list[list[list[float]]] | None = Field(
         None,
-        description="Predefined bounding boxes of different sizes and aspect ratios. The innermost lists are length 2 tuples of box sizes. The middle lists are anchors for each output. The outmost lists go from smallest to largest output.",
+        description=(
+            "Predefined boxes of different sizes and aspect ratios, "
+            "ordered from smallest to largest output."
+        ),
     )
 
 
 class HeadObjectDetectionSSDMetadata(HeadObjectDetectionMetadata):
-    """Metadata for the SSD object detection head.
+    """Metadata for an SSD object detection head.
 
-    @type boxes_outputs: str
-    @ivar boxes_outputs: Output name corresponding to predicted bounding
-        box coordinates.
-    @type scores_outputs: str
-    @ivar scores_outputs: Output name corresponding to predicted
-        bounding box confidence scores.
+    Attributes:
+        boxes_outputs: Output containing predicted bounding box
+            coordinates.
+        scores_outputs: Output containing predicted bounding box
+            confidence scores.
+
     """
 
     boxes_outputs: str = Field(
-        description="Output name corresponding to predicted bounding box coordinates."
+        description="Output containing predicted bounding box coordinates."
     )
     scores_outputs: str = Field(
-        description="Output name corresponding to predicted bounding box confidence scores."
+        description=(
+            "Output containing predicted bounding box confidence scores."
+        )
     )
 
 
 class HeadClassificationMetadata(HeadMetadata):
-    """Metadata for the classification head.
+    """Metadata for a classification head.
 
-    @type classes: list
-    @ivar classes: Names of object classes classified by the model.
-    @type n_classes: int
-    @ivar n_classes: Number of object classes classified by the model.
-    @type is_softmax: bool
-    @ivar is_softmax: True, if output is already softmaxed
+    Attributes:
+        classes: Names of classes recognized by the model.
+        n_classes: Number of classes recognized by the model.
+        is_softmax: Whether the output already contains softmax
+            probabilities.
+
     """
 
     classes: list[str] = Field(
-        description="Names of object classes recognized by the model."
+        description="Names of classes recognized by the model."
     )
     n_classes: int = Field(
-        description="Number of object classes recognized by the model."
+        description="Number of classes recognized by the model."
     )
     is_softmax: bool = Field(
-        description="True, if output is already softmaxed."
+        description="Whether the output already contains softmax probabilities."
     )
 
 
 class HeadSegmentationMetadata(HeadMetadata):
-    """Metadata for the segmentation head.
+    """Metadata for a segmentation head.
 
-    @type classes: list
-    @ivar classes: Names of object classes segmented by the model.
-    @type n_classes: int
-    @ivar n_classes: Number of object classes segmented by the model.
-    @type is_softmax: bool
-    @ivar is_softmax: True, if output is already softmaxed
-    @type background_class: bool
-    @ivar background_class: Whether the pixels classified as index 0
-        should be treated as background.
+    Attributes:
+        classes: Names of classes segmented by the model.
+        n_classes: Number of classes segmented by the model.
+        is_softmax: Whether the output already contains softmax
+            probabilities.
+        background_class: Whether the pixels classified as index 0
+            should be treated as background.
+
     """
 
     classes: list[str] = Field(
-        description="Names of object classes recognized by the model."
+        description="Names of classes segmented by the model."
     )
     n_classes: int = Field(
-        description="Number of object classes recognized by the model."
+        description="Number of classes segmented by the model."
     )
     is_softmax: bool = Field(
-        description="True, if output is already softmaxed."
+        description="Whether the output already contains softmax probabilities."
     )
     background_class: bool = Field(
-        False,
+        default=False,
         description="Whether the pixels classified as index 0 should be treated as background.",
     )
 
 
 class HeadYOLOMetadata(HeadObjectDetectionMetadata):
-    """Metadata for the YOLO head.
+    """Metadata for a YOLO head.
 
-    @type yolo_outputs: list
-    @ivar yolo_outputs: A list of output names for each of the different
-        YOLO grid sizes.
-    @type mask_outputs: list | None
-    @ivar mask_outputs: A list of output names for each mask output.
-    @type protos_outputs: str | None
-    @ivar protos_outputs: Output name for the protos.
-    @type keypoints_outputs: list | None
-    @ivar keypoints_outputs: A list of output names for the keypoints.
-    @type angles_outputs: list | None
-    @ivar angles_outputs: A list of output names for the angles.
-    @type subtype: str
-    @ivar subtype: YOLO family decoding subtype (e.g. yolov5, yolov6,
-        yolov7 etc.)
-    @type n_prototypes: int | None
-    @ivar n_prototypes: Number of prototypes per bbox in YOLO instance
-        segmentation.
-    @type n_keypoints: int | None
-    @ivar n_keypoints: Number of keypoints per bbox in YOLO keypoint
-        detection.
-    @type is_softmax: bool | None
-    @ivar is_softmax: True, if output is already softmaxed in YOLO
-        instance segmentation
-    @type strides: list[int] | None
-    @ivar strides: Optional per-head strides.
+    Attributes:
+        yolo_outputs: Output names for the YOLO grid outputs.
+        mask_outputs: Optional output names for mask coefficients.
+        protos_outputs: Optional output name for mask prototypes.
+        keypoints_outputs: Optional output names for keypoints.
+        angles_outputs: Optional output names for oriented bounding box
+            angles.
+        subtype: YOLO family decoding subtype, such as ``"yolov5"``.
+        n_prototypes: Optional number of prototypes per box for YOLO
+            instance segmentation.
+        n_keypoints: Optional number of keypoints per box for YOLO
+            keypoint detection.
+        is_softmax: Optional flag indicating whether YOLO instance
+            segmentation outputs already contain softmax probabilities.
+        strides: Optional per-head strides.
+
     """
 
     yolo_outputs: list[str] = Field(
-        description="A list of output names for each of the different YOLO grid sizes."
+        description="Output names for the YOLO grid outputs."
     )
 
     # Instance segmentation
     mask_outputs: list[str] | None = Field(
-        None, description="A list of output names for each mask output."
+        None, description="Output names for mask coefficients."
     )
     protos_outputs: str | None = Field(
-        None, description="Output name for the protos."
+        None, description="Output name for mask prototypes."
     )
 
     # Keypoint detection
     keypoints_outputs: list[str] | None = Field(
-        None, description="A list of output names for the keypoints."
+        None, description="Output names for keypoints."
     )
 
     # OBB detection
     angles_outputs: list[str] | None = Field(
-        None, description="A list of output names for the angles."
+        None, description="Output names for oriented bounding box angles."
     )
 
     subtype: str = Field(
-        description="YOLO family decoding subtype (e.g. yolov5, yolov6, yolov7 etc.)."
+        description="YOLO family decoding subtype, such as 'yolov5'."
     )
     n_prototypes: int | None = Field(
         None,
-        description="Number of prototypes per bbox in YOLO instance segmentation.",
+        description="Number of prototypes per box for YOLO instance segmentation.",
     )
     n_keypoints: int | None = Field(
         None,
-        description="Number of keypoints per bbox in YOLO keypoint detection.",
+        description="Number of keypoints per box for YOLO keypoint detection.",
     )
     is_softmax: bool | None = Field(
         None,
-        description="True, if output is already softmaxed in YOLO instance segmentation.",
+        description=(
+            "Whether YOLO instance segmentation outputs already contain "
+            "softmax probabilities."
+        ),
     )
     strides: list[int] | None = Field(
         None,
@@ -206,122 +208,165 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata):
     def validate_task_specific_fields(
         cls, values: dict[str, Any]
     ) -> dict[str, Any]:
+        """Validate that YOLO metadata fields match a supported task.
+
+        Args:
+            values: Raw YOLO metadata fields.
+
+        Returns:
+            The raw metadata fields when they describe a supported YOLO
+            task and output set.
+
+        Raises:
+            ValueError: If task-specific fields cannot infer a supported
+                task, a field is not supported for the inferred task, a
+                required output field is missing, or an output field is not
+                supported for the inferred task.
+
+        """
         defined_params = {k for k, v in dict(values).items() if v is not None}
-
-        common_fields = [
-            "postprocessor_path",
-            "yolo_outputs",
-            "mask_outputs",
-            "protos_outputs",
-            "keypoints_outputs",
-            "angles_outputs",
-            "subtype",
-            "iou_threshold",
-            "conf_threshold",
-            "max_det",
-            "classes",
-            "n_classes",
-            "anchors",
-            "strides",
-        ]
-        defined_params = defined_params.difference(common_fields)
-
-        required_fields = {
-            "object_detection": [],
-            "instance_segmentation": [
-                "n_prototypes",
-                "is_softmax",
-            ],
-            "keypoint_detection": ["n_keypoints"],
-        }
-
-        unsupported_fields = {
-            "object_detection": [
-                "n_prototypes",
-                "n_keypoints",
-                "is_softmax",
-            ],
-            "instance_segmentation": ["n_keypoints"],
-            "keypoint_detection": [
-                "n_prototypes",
-                "is_softmax",
-            ],
-        }
-
-        tasks = []
-        # Extract the task type
-        if all(
-            field in defined_params
-            for field in required_fields.get("instance_segmentation", [])
-        ):
-            tasks.append("instance_segmentation")
-        if all(
-            field in defined_params
-            for field in required_fields.get("keypoint_detection", [])
-        ):
-            tasks.append("keypoint_detection")
-        if all(
-            field not in defined_params
-            for field in unsupported_fields.get("object_detection", [])
-        ):
-            tasks.append("object_detection")
-
-        if len(tasks) == 0:
-            raise ValueError(
-                "Invalid combination of parameters. No specific task can be inferred."
-            )
-
-        for param in defined_params:
-            if not any(param in required_fields[task] for task in tasks):
-                raise ValueError(
-                    f"Invalid combination of parameters. Field {param} is not supported for the tasks {tasks}."
-                )
-
-        # Validate Outputs
-        defined_params = {k for k, v in dict(values).items() if v is not None}
-        common_fields = [
-            "postprocessor_path",
-            "subtype",
-            "iou_threshold",
-            "conf_threshold",
-            "max_det",
-            "classes",
-            "n_classes",
-            "anchors",
-            "n_prototypes",
-            "n_keypoints",
-            "is_softmax",
-            "strides",
-        ]
-        defined_params = defined_params.difference(common_fields)
-
-        supported_output_params = {
-            "instance_segmentation": [
-                "yolo_outputs",
-                "mask_outputs",
-                "protos_outputs",
-            ],
-            "keypoint_detection": ["yolo_outputs", "keypoints_outputs"],
-            "object_detection": ["yolo_outputs"],
-        }
-
-        # Check if all required output fields are present
-        if not all(
-            field in defined_params
-            for task in tasks
-            for field in supported_output_params[task]
-        ):
-            raise ValueError(f"Invalid output fields for tasks {tasks}")
-
-        # Check if all defined fields are supported
-        for param in defined_params:
-            if param == "angles_outputs" and "object_detection" in tasks:
-                continue
-            if not any(
-                param in supported_output_params[task] for task in tasks
-            ):
-                raise ValueError(
-                    f"Invalid combination of output parameters. Field {param} is not supported for the tasks {tasks}."
-                )
-
+        tasks = _infer_yolo_tasks(defined_params - _YOLO_COMMON_FIELDS)
+        _check_yolo_outputs(defined_params - _YOLO_NON_OUTPUT_FIELDS, tasks)
         return values
+
+
+# Fields that do not decide the YOLO task.
+_YOLO_COMMON_FIELDS = frozenset(
+    {
+        "postprocessor_path",
+        "yolo_outputs",
+        "mask_outputs",
+        "protos_outputs",
+        "keypoints_outputs",
+        "angles_outputs",
+        "subtype",
+        "iou_threshold",
+        "conf_threshold",
+        "max_det",
+        "classes",
+        "n_classes",
+        "anchors",
+        "strides",
+    }
+)
+
+# Fields that are not output names.
+_YOLO_NON_OUTPUT_FIELDS = frozenset(
+    {
+        "postprocessor_path",
+        "subtype",
+        "iou_threshold",
+        "conf_threshold",
+        "max_det",
+        "classes",
+        "n_classes",
+        "anchors",
+        "n_prototypes",
+        "n_keypoints",
+        "is_softmax",
+        "strides",
+    }
+)
+
+_YOLO_REQUIRED_FIELDS = {
+    "object_detection": [],
+    "instance_segmentation": ["n_prototypes", "is_softmax"],
+    "keypoint_detection": ["n_keypoints"],
+}
+
+# Fields that rule out plain object detection.
+_YOLO_DETECTION_EXCLUDED_FIELDS = frozenset(
+    {"n_prototypes", "n_keypoints", "is_softmax"}
+)
+
+_YOLO_OUTPUT_FIELDS = {
+    "instance_segmentation": [
+        "yolo_outputs",
+        "mask_outputs",
+        "protos_outputs",
+    ],
+    "keypoint_detection": ["yolo_outputs", "keypoints_outputs"],
+    "object_detection": ["yolo_outputs"],
+}
+
+
+def _infer_yolo_tasks(defined_params: set[str]) -> list[str]:
+    """Infer the YOLO tasks that the task-specific fields describe.
+
+    Returns:
+        The inferred task names, out of ``instance_segmentation``,
+        ``keypoint_detection`` and ``object_detection``, in that order.
+
+    Raises:
+        ValueError: If ``defined_params`` fits no task, or if one of its
+            fields belongs to none of the inferred tasks.
+
+    Examples:
+        >>> _infer_yolo_tasks(set())
+        ['object_detection']
+        >>> _infer_yolo_tasks({"n_keypoints"})
+        ['keypoint_detection']
+        >>> _infer_yolo_tasks({"is_softmax"})
+        Traceback (most recent call last):
+        ...
+        ValueError: Invalid combination of parameters. No specific task can be inferred.
+
+    """
+    tasks = [
+        task
+        for task in ("instance_segmentation", "keypoint_detection")
+        if all(f in defined_params for f in _YOLO_REQUIRED_FIELDS[task])
+    ]
+    if defined_params.isdisjoint(_YOLO_DETECTION_EXCLUDED_FIELDS):
+        tasks.append("object_detection")
+
+    if len(tasks) == 0:
+        raise ValueError(
+            "Invalid combination of parameters. No specific task can be inferred."
+        )
+
+    for param in defined_params:
+        if not any(param in _YOLO_REQUIRED_FIELDS[task] for task in tasks):
+            raise ValueError(
+                "Invalid combination of parameters. "
+                f"Field {param} is not supported for the tasks {tasks}."
+            )
+    return tasks
+
+
+def _check_yolo_outputs(defined_params: set[str], tasks: list[str]) -> None:
+    """Check that the output fields are the ones of the tasks.
+
+    Object detection may also set ``angles_outputs``.
+
+    Raises:
+        ValueError: If a task lacks one of its output fields, or if an
+            output field belongs to none of the tasks.
+
+    Examples:
+        >>> _check_yolo_outputs(
+        ...     {"yolo_outputs", "angles_outputs"}, ["object_detection"]
+        ... )
+        >>> _check_yolo_outputs(
+        ...     {"yolo_outputs", "mask_outputs"}, ["object_detection"]
+        ... )
+        Traceback (most recent call last):
+        ...
+        ValueError: Invalid combination of output parameters. ...
+
+    """
+    if not all(
+        field in defined_params
+        for task in tasks
+        for field in _YOLO_OUTPUT_FIELDS[task]
+    ):
+        raise ValueError(f"Invalid output fields for tasks {tasks}")
+
+    for param in defined_params:
+        if param == "angles_outputs" and "object_detection" in tasks:
+            continue
+        if not any(param in _YOLO_OUTPUT_FIELDS[task] for task in tasks):
+            raise ValueError(
+                "Invalid combination of output parameters. "
+                f"Field {param} is not supported for the tasks {tasks}."
+            )
