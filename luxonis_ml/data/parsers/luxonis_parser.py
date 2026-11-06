@@ -1,11 +1,17 @@
+"""Parser that detects the dataset format and runs the matching parser.
+
+It downloads remote, Roboflow, and Ultralytics datasets and extracts
+ZIP archives before it parses them.
+"""
+
 import subprocess
 import sys
 import zipfile
 from enum import Enum
 from importlib.util import find_spec
 from pathlib import Path
-from typing import Generic, TypeVar, overload
-from urllib.parse import parse_qs, urlsplit
+from typing import ClassVar, Generic, TypeVar, overload
+from urllib.parse import parse_qs, quote, urlsplit
 
 import requests
 from loguru import logger
@@ -72,7 +78,7 @@ class LuxonisParser(Generic[T]):
 
     """
 
-    _parsers: dict[DatasetType, type[BaseParser]] = {
+    _parsers: ClassVar[dict[DatasetType, type[BaseParser]]] = {
         DatasetType.ULTRALYTICSNDJSON: UltralyticsNDJSONParser,
         DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION: (
             UltralyticsNDJSONParser
@@ -106,7 +112,7 @@ class LuxonisParser(Generic[T]):
         task_name: str | dict[str, str] | None = None,
         full_warnings: bool = False,
         **kwargs,
-    ):
+    ) -> None:
         """High-level abstraction over various parsers.
 
         Automatically recognizes the dataset format and uses the
@@ -119,7 +125,7 @@ class LuxonisParser(Generic[T]):
                     - Local path to the dataset directory.
 
                     - Remote URL supported by L{LuxonisFileSystem}.
-                        - ``gcs://`` for Google Cloud Storage
+                        - ``gcs://`` or ``gs://`` for Google Cloud Storage
                         - ``s3://`` for Amazon S3
 
                     - ``roboflow://`` for Roboflow datasets.
@@ -127,7 +133,8 @@ class LuxonisParser(Generic[T]):
 
                     - ``ultralytics://`` for Ultralytics Platform datasets.
                         - Expected format: ``ultralytics://username/datasets/slug``
-                        - Optional version: append ``?v=<version>`` to export a specific dataset version.
+                        - Optional version: append ``?v=<version>`` to
+                          export a specific dataset version.
 
             dataset_name: Optional output dataset name. If omitted, the
                 name is derived from ``dataset_dir``.
@@ -192,7 +199,7 @@ class LuxonisParser(Generic[T]):
         dataset_name = dataset_name or name.replace(" ", "_").split(".")[0]
 
         self._dataset = self._dataset_constructor(
-            dataset_name=dataset_name,  # type: ignore
+            dataset_name=dataset_name,  # pyright: ignore[reportCallIssue]
             **kwargs,
         )
         self._parser = self._parsers[self._dataset_type](
@@ -217,11 +224,28 @@ class LuxonisParser(Generic[T]):
         only_entry = visible_entries[0]
         if not only_entry.is_dir():
             return unzip_dir
+        if not LuxonisParser._is_dataset_root(only_entry):
+            return unzip_dir
 
-        # Only unwrap when the inner directory clearly looks like a
-        # dataset root, not an arbitrary folder.
-        # ClassificationDirectoryParser is excluded from parser-based
-        # checks because a single class folder can look like a wrapper.
+        logger.info(
+            f"Detected top-level folder '{only_entry.name}' in extracted zip. "
+            "Using it as dataset root."
+        )
+        return only_entry
+
+    @staticmethod
+    def _is_dataset_root(directory: Path) -> bool:
+        """Tell a dataset root from an arbitrary wrapper folder.
+
+        `ClassificationDirectoryParser` is left out of the parser check,
+        because a single class folder can look like a wrapper.
+
+        Returns:
+            Whether ``directory`` holds a marker directory or file, or a
+            parser other than `ClassificationDirectoryParser` accepts it
+            as a dataset or a split.
+
+        """
         marker_dirs = {
             "train",
             "valid",
@@ -241,30 +265,17 @@ class LuxonisParser(Generic[T]):
             "dataset.yaml",
             "dataset.yml",
         }
-        child_dirs = {d.name for d in only_entry.iterdir() if d.is_dir()}
-        child_files = {f.name for f in only_entry.iterdir() if f.is_file()}
-        has_markers = bool(
-            child_dirs & marker_dirs or child_files & marker_files
-        )
-        if not has_markers:
-            recognized_by_non_clsdir = any(
-                (
-                    typ != DatasetType.CLSDIR
-                    and (
-                        parser.validate(only_entry)
-                        or parser.validate_split(only_entry)
-                    )
-                )
-                for typ, parser in LuxonisParser._parsers.items()
+        child_dirs = {d.name for d in directory.iterdir() if d.is_dir()}
+        child_files = {f.name for f in directory.iterdir() if f.is_file()}
+        if child_dirs & marker_dirs or child_files & marker_files:
+            return True
+        return any(
+            typ != DatasetType.CLSDIR
+            and (
+                parser.validate(directory) or parser.validate_split(directory)
             )
-            if not recognized_by_non_clsdir:
-                return unzip_dir
-
-        logger.info(
-            f"Detected top-level folder '{only_entry.name}' in extracted zip. "
-            "Using it as dataset root."
+            for typ, parser in LuxonisParser._parsers.items()
         )
-        return only_entry
 
     @overload
     def parse(self: "LuxonisParser[str]", **kwargs) -> BaseDataset: ...
@@ -277,6 +288,13 @@ class LuxonisParser(Generic[T]):
 
         If the dataset already exists, parsing will be skipped and the
         existing dataset will be returned instead.
+
+        Note:
+            When the parser reads a single split, this method sets
+            ``random_split=True`` unless you pass your own value. This
+            differs from `BaseParser.parse_split`, which declares
+            ``random_split=False``. A single split therefore gets random
+            train, val, and test splits by default.
 
         Args:
             kwargs: Parser-specific arguments.
@@ -305,8 +323,12 @@ class LuxonisParser(Generic[T]):
         return dataset
 
     def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
-        """Return parser issue messages collected during the last
-        parse.
+        """Return the parser issue messages of the last parse.
+
+        Returns:
+            A new list with each distinct message once, in the order
+            the parser first saw them.
+
         """
         return self._get_parser_issue_messages()
 
@@ -319,6 +341,11 @@ class LuxonisParser(Generic[T]):
 
         Returns:
             Dataset type and parser type.
+
+        Raises:
+            ValueError: If more than one parser matches a dataset that has
+                only some of its splits, or if no parser recognizes the
+                dataset.
 
         """
         for dataset_type, parser in self._parsers.items():
@@ -428,9 +455,9 @@ class LuxonisParser(Generic[T]):
                 f"Incorrect Roboflow dataset URL: `{dataset_dir}`. "
                 "Expected format: `roboflow://workspace/project/version/format`."
             )
-        workspace, project, version, format = dataset_dir.split("roboflow://")[
-            1
-        ].split("/")
+        workspace, project, version, export_format = dataset_dir.split(
+            "roboflow://"
+        )[1].split("/")
         try:
             version = int(version)
         except ValueError as e:
@@ -438,12 +465,12 @@ class LuxonisParser(Generic[T]):
                 f"Roboflow version must be an integer, got `{version}`."
             ) from e
 
-        local_path = local_path or Path.cwd() / f"{project}_{format}"
+        local_path = local_path or Path.cwd() / f"{project}_{export_format}"
         dataset = (
             rf.workspace(workspace)
             .project(project)
             .version(int(version))
-            .download(format, str(local_path / project))
+            .download(export_format, str(local_path / project))
         )
         return Path(dataset.location), project
 
@@ -466,21 +493,7 @@ class LuxonisParser(Generic[T]):
         }
 
         parsed = urlsplit(dataset_dir)
-        raw_version = parse_qs(parsed.query).get("v", [None])[0]
-        version: int | None = None
-        if raw_version is not None:
-            try:
-                version = int(raw_version)
-            except ValueError as e:
-                raise ValueError(
-                    "Ultralytics dataset export version must be an integer, "
-                    f"got `{raw_version}`."
-                ) from e
-            if version < 1:
-                raise ValueError(
-                    "Ultralytics dataset export version must be >= 1, "
-                    f"got `{version}`."
-                )
+        version = _ultralytics_export_version(parsed.query)
 
         path_parts = [part for part in parsed.path.split("/") if part]
         if not (
@@ -494,60 +507,57 @@ class LuxonisParser(Generic[T]):
                 "Expected `ultralytics://username/datasets/slug`."
             )
 
-        dataset_response = requests.get(
-            f"{ultralytics_api_base_url}/datasets",
-            headers=headers,
-            params={
-                "username": parsed.netloc,
-                "slug": path_parts[1],
-            },
-            timeout=30.0,
-        )
-        if not dataset_response.ok:
-            try:
-                error = dataset_response.json().get("error")
-            except ValueError:
-                error = dataset_response.text
-
-            raise RuntimeError(
-                f"Ultralytics API request failed "
-                f"({dataset_response.status_code}): {error}"
-            )
-
-        dataset = dataset_response.json()["dataset"]
-
-        dataset_id = dataset["_id"]
-
-        export_params = {"v": version} if version is not None else None
+        name = path_parts[1]
         export_response = requests.get(
-            f"{ultralytics_api_base_url}/datasets/{dataset_id}/export",
+            f"{ultralytics_api_base_url}/datasets"
+            f"/{quote(parsed.netloc)}/{quote(name)}/export",
             headers=headers,
-            params=export_params,
+            params={"v": version} if version is not None else None,
             timeout=120.0,
         )
         if not export_response.ok:
-            error = None
-            try:
-                payload = export_response.json()
-                error = payload.get("error")
-            except ValueError:
-                error = export_response.text.strip() or export_response.reason
-
-            detail = f"{export_response.status_code} {export_response.reason}"
-            if error:
-                detail = f"{detail}: {error}"
-            raise RuntimeError(f"Ultralytics API request failed: {detail}")
+            raise RuntimeError(
+                "Ultralytics API request failed: "
+                f"{_response_error_detail(export_response)}"
+            )
 
         download_url = export_response.json()["downloadUrl"]
 
-        file_stem = dataset["slug"]
-        dataset_name = dataset["name"]
         local_path = local_path or Path.cwd()
-        destination = (
-            local_path / f"{file_stem}.v{version}.ndjson"
-            if version is not None
-            else local_path / f"{file_stem}.ndjson"
-        )
+        version_suffix = f".v{version}" if version is not None else ""
+        destination = local_path / f"{name}{version_suffix}.ndjson"
         download_remote_file(download_url, destination, timeout=120.0)
 
-        return destination, dataset_name
+        return destination, name
+
+
+def _ultralytics_export_version(query: str) -> int | None:
+    """Read the ``v`` export version of an ``ultralytics://`` URL query."""
+    raw_version = parse_qs(query).get("v", [None])[0]
+    if raw_version is None:
+        return None
+    try:
+        version = int(raw_version)
+    except ValueError as e:
+        raise ValueError(
+            "Ultralytics dataset export version must be an integer, "
+            f"got `{raw_version}`."
+        ) from e
+    if version < 1:
+        raise ValueError(
+            f"Ultralytics dataset export version must be >= 1, got `{version}`."
+        )
+    return version
+
+
+def _response_error_detail(response: requests.Response) -> str:
+    """Describe a failed HTTP response: status, reason and the API error."""
+    try:
+        error = response.json().get("error")
+    except ValueError:
+        error = response.text.strip() or response.reason
+
+    detail = f"{response.status_code} {response.reason}"
+    if error:
+        detail = f"{detail}: {error}"
+    return detail

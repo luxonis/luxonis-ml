@@ -12,8 +12,18 @@ def dags(draw: st.DrawFn, min_nodes: int = 0) -> dict[str, list[str]]:
     Node ``i`` may only depend on nodes with a lower index, which makes
     a cycle impossible by construction. The keys are shuffled so that
     traversals cannot rely on insertion order.
+
+    Returns:
+        Acyclic graph with randomized labels and insertion order.
+
     """
-    names = [f"node{i}" for i in range(draw(st.integers(min_nodes, 8)))]
+    names = list(
+        draw(
+            st.permutations(
+                [f"node{i}" for i in range(draw(st.integers(min_nodes, 8)))]
+            )
+        )
+    )
 
     graph: dict[str, list[str]] = {}
     for i, name in enumerate(names):
@@ -106,7 +116,7 @@ def test_traversal_rejects_cycles(graph: dict[str, list[str]]):
         ({"a": ["b", "c"], "b": ["d"], "c": ["d"], "d": ["a"]}, False),
     ],
 )
-def test_acyclic(graph: dict[str, list[str]], acyclic: bool):
+def test_acyclic(graph: dict[str, list[str]], *, acyclic: bool):
     assert is_acyclic(graph) == acyclic
 
 

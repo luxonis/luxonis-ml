@@ -1,0 +1,35 @@
+name: Reusable Metadata
+
+# Shared by every Luxonis repository. Call it from a pull request workflow,
+# as the `metadata` job of `.github/workflows/ci.yaml` in this repository does.
+# The calling job must grant `pull-requests: write`.
+
+on:
+  workflow_call:
+    inputs:
+      assign-author:
+        description: "Assign the pull request to its author"
+        type: boolean
+        default: true
+
+permissions:
+  # `actions/labeler` reads `.github/labeler.yaml` through the API, so it
+  # needs read access to the contents. It does not need a checkout.
+  contents: read
+  pull-requests: write
+
+jobs:
+  auto-assign:
+    if: inputs.assign-author
+    runs-on: ubuntu-latest
+    steps:
+      - name: Auto-assign
+        uses: toshimaru/auto-author-assign@a78a94b219445cece8ccf0d45fec60af449f212a
+
+  labeler:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Labeler
+        uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13
+        with:
+          configuration-path: .github/labeler.yaml

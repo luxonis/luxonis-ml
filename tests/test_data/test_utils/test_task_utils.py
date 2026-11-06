@@ -76,7 +76,12 @@ def test_split_task_is_lossless(task: str):
 
 
 @given(
-    names=st.lists(segments, min_size=1, max_size=4, unique=True),
+    names=st.lists(
+        st.lists(segments, min_size=1, max_size=3).map("/".join),
+        min_size=1,
+        max_size=4,
+        unique=True,
+    ),
     task_type=task_types,
     other_type=task_types,
 )

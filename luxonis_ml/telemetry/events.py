@@ -1,3 +1,5 @@
+"""Telemetry event record that the client passes to a backend."""
+
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any

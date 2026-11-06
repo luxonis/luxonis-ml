@@ -1,4 +1,12 @@
+"""Telemetry backend that sends events to PostHog.
+
+`PostHogBackend` needs an API key and the ``posthog`` package,
+which the ``luxonis-ml[telemetry]`` extra installs.
+"""
+
 from typing import Any
+
+from typing_extensions import override
 
 from luxonis_ml.telemetry.backends.base import (
     TELEMETRY_BACKENDS,
@@ -45,6 +53,7 @@ class PostHogBackend(TelemetryBackend):
             kwargs["host"] = config.endpoint
         self._client = Posthog(**kwargs)
 
+    @override
     def capture(self, event: TelemetryEvent) -> None:
         """Capture an event using the PostHog client."""
         properties = _merge_properties(
@@ -58,6 +67,7 @@ class PostHogBackend(TelemetryBackend):
             timestamp=event.timestamp,
         )
 
+    @override
     def flush(self) -> None:
         """Flush buffered PostHog events if supported."""
         if hasattr(self._client, "flush"):

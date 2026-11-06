@@ -1,7 +1,10 @@
 import json
 from pathlib import Path
 
-from luxonis_ml.data.parsers.native_parser import NativeParser
+from luxonis_ml.data.parsers.native_parser import (
+    NativeParser,
+    _resolve_record_paths,
+)
 from luxonis_ml.data.parsers.yolov4_parser import YoloV4Parser
 from luxonis_ml.enums import DatasetType
 
@@ -40,7 +43,7 @@ def test_native_parser_accepts_windows_style_file_paths(tempdir: Path):
     )
 
     generator, _, added_images = NativeParser(
-        dataset=None,  # type: ignore[arg-type]
+        dataset=None,
         dataset_type=DatasetType.NATIVE,
         task_name=None,
     ).from_split(annotation_path=annotations_path)
@@ -74,7 +77,7 @@ def test_yolov4_parser_keeps_unlabeled_image_with_duplicate_basename(
     classes_path.write_text("class0\n", encoding="utf-8")
 
     generator, _, _ = YoloV4Parser(
-        dataset=None,  # type: ignore[arg-type]
+        dataset=None,  # pyright: ignore[reportArgumentType]
         dataset_type=DatasetType.YOLOV4,
         task_name=None,
     ).from_split(
@@ -93,3 +96,148 @@ def test_yolov4_parser_keeps_unlabeled_image_with_duplicate_basename(
 
     assert annotated_image.resolve() in files
     assert unlabeled_image.resolve() in files
+
+
+def test_native_parser_resolves_array_annotation_paths(tempdir: Path):
+    import numpy as np
+
+    image_path = create_image(0, tempdir)
+    split_dir = tempdir / "train"
+    (split_dir / "images").mkdir(parents=True)
+    (split_dir / "arrays").mkdir(parents=True)
+    copied_image = split_dir / "images" / image_path.name
+    copied_image.write_bytes(image_path.read_bytes())
+    array_path = split_dir / "arrays" / "0.npy"
+    np.save(array_path, np.zeros((4, 5), dtype=np.float32))
+
+    annotations_path = split_dir / "annotations.json"
+    annotations_path.write_text(
+        json.dumps(
+            [
+                {
+                    "file": f"images/{image_path.name}",
+                    "task_name": "stereo",
+                    "annotation": {
+                        "class": "disparity",
+                        "array": {"path": "arrays/0.npy"},
+                    },
+                }
+            ],
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    generator, _, _ = NativeParser(
+        dataset=None,
+        dataset_type=DatasetType.NATIVE,
+        task_name=None,
+    ).from_split(annotation_path=annotations_path)
+
+    record = next(iter(generator))
+    assert isinstance(record, dict)
+    assert record["annotation"]["array"]["path"] == array_path.resolve()
+
+
+def test_native_parser_resolves_paths_for_a_list_of_annotations(
+    tempdir: Path,
+):
+    image_path = create_image(0, tempdir)
+    split_dir = tempdir / "train"
+    (split_dir / "images").mkdir(parents=True)
+    (split_dir / "masks").mkdir(parents=True)
+    copied_image = split_dir / "images" / image_path.name
+    copied_image.write_bytes(image_path.read_bytes())
+    mask_path = split_dir / "masks" / "0.png"
+    mask_path.write_bytes(image_path.read_bytes())
+
+    annotations_path = split_dir / "annotations.json"
+    annotations_path.write_text(
+        json.dumps(
+            [
+                {
+                    "file": f"images/{image_path.name}",
+                    "task_name": "task",
+                    "annotation": [
+                        {
+                            "class": "class0",
+                            "segmentation": {"mask": "masks/0.png"},
+                        },
+                        {"class": "class1"},
+                    ],
+                }
+            ],
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    generator, _, _ = NativeParser(
+        dataset=None,
+        dataset_type=DatasetType.NATIVE,
+        task_name=None,
+    ).from_split(annotation_path=annotations_path)
+
+    record = next(iter(generator))
+    assert isinstance(record, dict)
+    resolved = record["annotation"][0]["segmentation"]["mask"]
+    assert resolved == mask_path.resolve()
+
+
+def test_native_parser_resolves_paths_inside_sub_detections(tempdir: Path):
+    image_path = create_image(0, tempdir)
+    split_dir = tempdir / "train"
+    (split_dir / "images").mkdir(parents=True)
+    (split_dir / "masks").mkdir(parents=True)
+    copied_image = split_dir / "images" / image_path.name
+    copied_image.write_bytes(image_path.read_bytes())
+    mask_path = split_dir / "masks" / "head.png"
+    mask_path.write_bytes(image_path.read_bytes())
+
+    annotations_path = split_dir / "annotations.json"
+    annotations_path.write_text(
+        json.dumps(
+            [
+                {
+                    "file": f"images/{image_path.name}",
+                    "task_name": "person",
+                    "annotation": {
+                        "class": "person",
+                        "sub_detections": {
+                            "head": {
+                                "class": "head",
+                                "instance_segmentation": {
+                                    "mask": "masks/head.png"
+                                },
+                            }
+                        },
+                    },
+                }
+            ],
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    generator, _, _ = NativeParser(
+        dataset=None,
+        dataset_type=DatasetType.NATIVE,
+        task_name=None,
+    ).from_split(annotation_path=annotations_path)
+
+    record = next(iter(generator))
+    assert isinstance(record, dict)
+    nested = record["annotation"]["sub_detections"]["head"]
+    assert nested["instance_segmentation"]["mask"] == mask_path.resolve()
+
+
+def test_native_parser_resolves_each_source_path(tempdir: Path):
+    record = {"files": {"left": "left.png", "right": "right.png", "depth": 3}}
+
+    _resolve_record_paths(record, tempdir)
+
+    assert record["files"] == {
+        "left": (tempdir / "left.png").resolve(),
+        "right": (tempdir / "right.png").resolve(),
+        "depth": 3,
+    }

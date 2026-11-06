@@ -1,3 +1,5 @@
+"""Migration of LDF ``1.0.0`` datasets to the current layout."""
+
 from collections import defaultdict
 from typing import Any, Final, Literal, overload
 
@@ -28,7 +30,7 @@ LDF_1_0_0_TASK_TYPES: Final[dict[str, str]] = {
 
 
 class LDF_1_0_0_MetadataDict(TypedDict):
-    """Metadata dictionary used by LDF :math:`1.0.0`.
+    """Metadata dictionary used by LDF ``1.0.0``.
 
     Attributes:
         source: Source metadata dictionary.
@@ -61,6 +63,16 @@ def migrate_dataframe(df: pl.DataFrame) -> pl.DataFrame: ...
 def migrate_dataframe(
     df: pl.LazyFrame | pl.DataFrame,
 ) -> pl.LazyFrame | pl.DataFrame:  # pragma: no cover
+    """Migrate LDF ``1.0.0`` annotation rows to the current columns.
+
+    Args:
+        df: Annotation rows in the LDF ``1.0.0`` layout.
+
+    Returns:
+        The rows with the current column names, task names and task
+        types, as the same frame type as ``df``.
+
+    """
     return (
         df.rename({"class": "class_name"})
         .with_columns(
@@ -112,10 +124,10 @@ def migrate_dataframe(
 def migrate_metadata(
     metadata: LDF_1_0_0_MetadataDict, df: pl.LazyFrame | None
 ) -> Metadata:  # pragma: no cover
-    """Migrate LDF :math:`1.0.0` metadata to the current schema.
+    """Migrate LDF ``1.0.0`` metadata to the current schema.
 
     Args:
-        metadata: Metadata dictionary in the LDF :math:`1.0.0` layout.
+        metadata: Metadata dictionary in the LDF ``1.0.0`` layout.
         df: Optional annotation dataframe used to infer task names for
             non-default datasets.
 
@@ -156,4 +168,4 @@ def migrate_metadata(
         new_metadata["tasks"] = dict(tasks)
 
     metadata.update(new_metadata)
-    return Metadata(**metadata)  # type: ignore
+    return Metadata(**metadata)  # pyright: ignore[reportArgumentType]

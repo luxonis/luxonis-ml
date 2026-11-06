@@ -1,13 +1,29 @@
+"""Parser for datasets in the native LDF format."""
+
 import json
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+from semver.version import Version
+from typing_extensions import override
+
 from luxonis_ml.data import DatasetIterator
+from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils.path import resolve_manifest_path
 
 from .base_parser import BaseParser, ParserOutput
+
+# Annotation fields holding a path to a companion file, as ``(field, key)``.
+# These are written relative to ``annotations.json`` so a dataset directory
+# stays portable, and have to be resolved before the record is validated.
+_ANNOTATION_PATHS: tuple[tuple[str, str], ...] = (
+    ("segmentation", "mask"),
+    ("instance_segmentation", "mask"),
+    ("array", "path"),
+)
 
 
 class NativeParser(BaseParser):
@@ -16,10 +32,15 @@ class NativeParser(BaseParser):
     Expected format::
 
         dataset_dir/
+        ├── metadata.json  (optional; names the LDF version written)
         ├── train/
         │   └── annotations.json
         ├── val/
         └── test/
+
+    ``metadata.json`` is a version stamp written by `NativeExporter`. It is
+    never required, and is read only to warn about exports from a *newer*
+    LDF version.
 
     The annotations are stored in a single JSON file as a list of dictionaries
     in the same format as the output of the generator function used by
@@ -58,13 +79,26 @@ class NativeParser(BaseParser):
 
     _SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
 
+    def __init__(self, *args, **kwargs) -> None:
+        """Create the parser.
+
+        Args:
+            *args: Positional arguments passed to `BaseParser`.
+            **kwargs: Keyword arguments passed to `BaseParser`.
+
+        """
+        super().__init__(*args, **kwargs)
+        self._checked_stamps: set[Path] = set()
+
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         annotation_path = split_path / "annotations.json"
         if not annotation_path.exists():
             return None
         return {"annotation_path": annotation_path}
 
+    @override
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -79,6 +113,7 @@ class NativeParser(BaseParser):
         )
         return added_train_imgs, added_val_imgs, added_test_imgs
 
+    @override
     def from_split(self, annotation_path: Path) -> ParserOutput:
         """Parse native LDF annotations.
 
@@ -90,32 +125,84 @@ class NativeParser(BaseParser):
             and added images.
 
         """
-        data = json.loads(annotation_path.read_text())
+        self._warn_on_newer_export(annotation_path)
+        data = json.loads(annotation_path.read_text(encoding="utf-8"))
 
         def generator() -> DatasetIterator:
             for record in data:
-                with suppress(KeyError):
-                    if "file" in record:
-                        record["file"] = resolve_manifest_path(
-                            annotation_path.parent, record["file"]
-                        )
-                    elif "files" in record:
-                        for key, value in record["files"].items():
-                            if isinstance(value, PathType):
-                                record["files"][key] = resolve_manifest_path(
-                                    annotation_path.parent, value
-                                )
-                for mask_type in ["segmentation", "instance_segmentation"]:
-                    with suppress(KeyError):
-                        mask = record["annotation"][mask_type]["mask"]
-                        if isinstance(mask, PathType):
-                            record["annotation"][mask_type]["mask"] = (
-                                resolve_manifest_path(
-                                    annotation_path.parent, mask
-                                )
-                            )
+                _resolve_record_paths(record, annotation_path.parent)
                 yield record
 
         added_images = self._get_added_images(generator())
 
         return generator(), {}, added_images
+
+    def _warn_on_newer_export(self, annotation_path: Path) -> None:
+        """Warn when the export was written by a newer LDF version.
+
+        An older export is a strict subset of what this version accepts,
+        so only a newer one is worth reporting. Comparing the whole
+        version matters: ``sample_metadata`` arrived in a minor bump, so
+        a same-major export can be just as unreadable.
+
+        The stamp is best-effort: exports predating it have none, and a
+        damaged one must not break the parse.
+        """
+        stamp = annotation_path.parent.parent / "metadata.json"
+        if stamp in self._checked_stamps:
+            return
+        self._checked_stamps.add(stamp)
+        with suppress(OSError, ValueError, TypeError, KeyError):
+            version = Version.parse(
+                json.loads(stamp.read_text(encoding="utf-8"))["ldf_version"],
+                optional_minor_and_patch=True,
+            )
+            if version > LDF_VERSION:
+                logger.warning(
+                    f"'{stamp}' declares LDF {version}, but this luxonis-ml "
+                    f"reads LDF {LDF_VERSION}. Upgrade it if parsing fails."
+                )
+
+
+def _resolve_record_paths(record: dict[str, Any], base_dir: Path) -> None:
+    """Rewrite the file paths of one record in place, relative to ``base_dir``.
+
+    The image path or paths come first, then the companion files of each
+    detection.
+    """
+    with suppress(KeyError):
+        if "file" in record:
+            record["file"] = resolve_manifest_path(base_dir, record["file"])
+        elif "files" in record:
+            for key, value in record["files"].items():
+                if isinstance(value, PathType):
+                    record["files"][key] = resolve_manifest_path(
+                        base_dir, value
+                    )
+
+    annotation = record.get("annotation")
+    detections = annotation if isinstance(annotation, list) else [annotation]
+    for detection in detections:
+        if isinstance(detection, dict):
+            _resolve_annotation_paths(detection, base_dir)
+
+
+def _resolve_annotation_paths(
+    annotation: dict[str, Any], base_dir: Path
+) -> None:
+    """Rewrite one detection's companion-file paths in place.
+
+    Args:
+        annotation: A detection, as read from the manifest.
+        base_dir: Directory that relative paths are resolved against.
+
+    """
+    for field, key in _ANNOTATION_PATHS:
+        value = annotation.get(field)
+        if isinstance(value, dict) and isinstance(value.get(key), PathType):
+            value[key] = resolve_manifest_path(base_dir, value[key])
+    sub_detections = annotation.get("sub_detections")
+    if isinstance(sub_detections, dict):
+        for sub_detection in sub_detections.values():
+            if isinstance(sub_detection, dict):
+                _resolve_annotation_paths(sub_detection, base_dir)

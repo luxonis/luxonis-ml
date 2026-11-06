@@ -1,11 +1,13 @@
+"""Abstract dataset interface and the registry of dataset classes."""
+
 from abc import ABC, abstractmethod
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from typing import TypeAlias
 
 from semver.version import Version
 
-from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.datasets.source import LuxonisSource
+from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
@@ -13,6 +15,11 @@ DATASETS_REGISTRY: Registry[type["BaseDataset"]] = Registry(name="datasets")
 
 
 DatasetIterator: TypeAlias = Iterator[dict | DatasetRecord]
+SplitDefinition: TypeAlias = (
+    Mapping[str, Sequence[PathType]]
+    | Mapping[str, float]
+    | tuple[float, float, float]
+)
 
 
 class BaseDataset(
@@ -168,27 +175,46 @@ class BaseDataset(
     @abstractmethod
     def make_splits(
         self,
-        splits: dict[str, Sequence[PathType]]
-        | dict[str, float]
-        | tuple[float, float, float]
-        | None = None,
+        splits: SplitDefinition | None = None,
         *,
-        ratios: dict[str, float] | tuple[float, float, float] | None = None,
-        definitions: dict[str, list[PathType]] | None = None,
         replace_old_splits: bool = False,
     ) -> None:
-        """Generate dataset splits.
+        """Create dataset splits for training, validation, and testing.
+
+        Note:
+            Although ``"train"``, ``"val"``, and ``"test"``
+            are the conventional split names, you can use any split names
+            you want by providing a mapping to the ``splits`` argument.
+            This can be useful for combining records from multiple
+            sources (``"train_real"``, ``"train_synth"``) or for
+            creating fully custom splits.
 
         Args:
-            splits: Split definitions or ratios. Accepts explicit
-                filepath lists, split ratios keyed by split name, or a
-                ``(train, val, test)`` ratio tuple.
-            ratios: Optional deprecated split ratios. Use ``splits``
-                instead.
-            definitions: Optional deprecated filepath split definitions.
-                Use ``splits`` instead.
-            replace_old_splits: Whether to replace existing split
-                assignments instead of adding only new files.
+            splits: A mapping defining the splits. Can be one of the following:
+
+                - A mapping of split names to lists of file paths.
+                - A mapping of split names to ratios.
+                - A tuple of three ratios for train, val, and test splits.
+
+                A ratio is a number from 0 to 1, and the ratios sum to
+                1. ``1`` and ``1.0`` both work.
+
+            replace_old_splits: Whether to replace old splits with new ones.
+                If ``False`` (default), new splits are added to the existing
+                splits. If ``True``, the existing splits are discarded first.
+
+        Raises:
+            TypeError: If the mapping values are neither ratios nor
+                filepath lists.
+            TypeCheckError: If ``splits`` does not match its type, for
+                example a filepath list with an element that is not a
+                filepath.
+            ValueError: If ``splits`` is provided but is empty.
+            ValueError: If the ratios are outside the range from 0 to 1 or
+                do not sum to 1.
+            ValueError: If split ratios are used but all the data already
+                belongs to a split while ``replace_old_splits`` is ``False``.
+            FileNotFoundError: If the dataset is empty.
 
         """
         ...

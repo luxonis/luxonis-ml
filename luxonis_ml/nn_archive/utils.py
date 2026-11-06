@@ -1,3 +1,5 @@
+"""Helpers that detect NN Archive files and infer tensor layouts."""
+
 import tarfile
 from pathlib import Path
 
@@ -45,9 +47,10 @@ def infer_layout(shape: list[int]) -> str:
         Layout code matching the number of dimensions in ``shape``.
 
     Raises:
-        ValueError: If the shape has too many dimensions for automatic
-            layout inference. At most 24 dimensions are supported, one
-            per usable letter of the alphabet.
+        ValueError: If the shape is empty or has too many dimensions for
+            automatic layout inference. At most 24 dimensions are
+            supported when the leading dimension is the batch dimension;
+            otherwise, at most 23 are supported.
 
     Note:
         A leading dimension of size ``1`` is always taken to be the batch
@@ -68,6 +71,9 @@ def infer_layout(shape: list[int]) -> str:
         'NCD'
 
     """
+    if not shape:
+        raise ValueError("Cannot infer the layout of an empty shape.")
+
     layout = []
     i = 0
     if shape[0] == 1:
@@ -87,7 +93,7 @@ def infer_layout(shape: list[int]) -> str:
                 f"Too many dimensions ({len(shape)}) for automatic layout."
             )
 
-        if letter not in layout:
+        if letter != "N":
             layout.append(letter)
         i += 1
     return "".join(layout)

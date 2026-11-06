@@ -33,26 +33,36 @@ from luxonis_ml.guard_extras import guard_missing_extra
 with guard_missing_extra("utils"):
     from luxonis_ml.typing import BaseModelExtraForbid
 
+    from .color import Color
     from .config import LuxonisConfig
     from .environ import Environ, environ
     from .filesystem import PUT_FILE_REGISTRY, LuxonisFileSystem
     from .graph import is_acyclic, traverse_graph
     from .logging import deprecated, log_once, setup_logging
     from .registry import AutoRegisterMeta, Registry
+    from .validation import (
+        ValidationProblem,
+        format_validation_error,
+        render_validation_error,
+    )
 
 
 __all__ = [
     "PUT_FILE_REGISTRY",
     "AutoRegisterMeta",
     "BaseModelExtraForbid",
+    "Color",
     "Environ",
     "LuxonisConfig",
     "LuxonisFileSystem",
     "Registry",
+    "ValidationProblem",
     "deprecated",
     "environ",
+    "format_validation_error",
     "is_acyclic",
     "log_once",
+    "render_validation_error",
     "setup_logging",
     "traverse_graph",
 ]

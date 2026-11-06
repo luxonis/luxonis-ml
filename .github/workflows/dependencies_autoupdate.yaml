@@ -1,0 +1,17 @@
+name: Python Dependencies Updater
+
+on:
+  schedule:
+    - cron: "0 1 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  update-python-dependencies:
+    uses: ./.github/workflows/reusable-dependencies-update.yaml
+    with:
+      export-script: tools/export_requirements.sh
+    secrets:
+      WORKFLOW_SECRET: ${{ secrets.WORKFLOW_SECRET }}

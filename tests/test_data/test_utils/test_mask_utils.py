@@ -19,6 +19,10 @@ def rgb_masks(draw: st.DrawFn) -> RGBMask:
     The class colors are unique, so every pixel belongs to at most one
     class. Pixels are painted from the palette plus a few arbitrary
     extra colors.
+
+    Returns:
+        RGB mask and its class-name palette.
+
     """
     names = draw(
         st.lists(

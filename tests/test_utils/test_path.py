@@ -10,13 +10,21 @@ from luxonis_ml.utils.path import (
     resolve_manifest_path,
 )
 
-# Segments exclude "." and ".." and anything pathlib treats differently
-# across platforms, so the parts always survive a roundtrip unchanged.
+WINDOWS_RESERVED_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+
+# Segments exclude names pathlib treats differently across platforms.
 segments = st.text(
     alphabet=string.ascii_letters + string.digits + "_-",
     min_size=1,
     max_size=6,
-)
+).filter(lambda segment: segment.upper() not in WINDOWS_RESERVED_NAMES)
 relative_paths = st.lists(segments, min_size=1, max_size=4)
 
 
@@ -39,7 +47,7 @@ def test_parse_posix_roundtrip(parts: list[str]):
 
 
 @given(parts=relative_paths)
-def test_relative_paths_stay_under_base_dir(parts: list[str]):
+def test_relative_paths_resolve_from_base_dir(parts: list[str]):
     base_dir = Path.cwd().resolve()
 
     resolved = resolve_manifest_path(base_dir, "\\".join(parts))

@@ -1,9 +1,12 @@
+"""Parser for segmentation datasets stored as mask images."""
+
 from pathlib import Path
 from typing import Any
 
 import cv2
 import numpy as np
 import polars as pl
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 
@@ -24,12 +27,32 @@ class SegmentationMaskDirectoryParser(BaseParser):
         ├── valid/
         └── test/
 
-    ``_classes.csv`` maps pixel values to class names.
+    ``_classes.csv`` maps pixel values to class names::
+
+        Pixel Value, Class
+        0, background
+        1, class1
+        2, class2
+
+    The parser reads only the class-name column. That column must be
+    named ``" Class"`` with a leading space, which is the header that
+    Roboflow writes. The name of the pixel-value column does not matter,
+    because the parser never reads it. The row order gives the pixel
+    value, so the first row describes pixel value 0.
+
+    The parser does not remove the whitespace from the class names. The
+    row ``0, background`` gives the class name ``" background"``, with
+    the leading space.
+
+    The parser reads each mask as an 8-bit grayscale image. Each distinct
+    pixel value becomes one class. The parser takes the class name from
+    that row of the class-name column.
 
     This is one of the formats that Roboflow can generate.
     """
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -46,6 +69,7 @@ class SegmentationMaskDirectoryParser(BaseParser):
             "classes_path": split_path / "_classes.csv",
         }
 
+    @override
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -66,6 +90,7 @@ class SegmentationMaskDirectoryParser(BaseParser):
         )
         return added_train_imgs, added_val_imgs, added_test_imgs
 
+    @override
     def from_split(
         self, image_dir: Path, seg_dir: Path, classes_path: Path
     ) -> ParserOutput:
@@ -98,11 +123,11 @@ class SegmentationMaskDirectoryParser(BaseParser):
                     raise ValueError(f"Failed to read mask image: {mask_path}")
 
                 ids = np.unique(mask)
-                for id in ids:
-                    class_name = class_names[id]
+                for class_id in ids:
+                    class_name = class_names[class_id]
 
                     curr_seg_mask = np.zeros_like(mask)
-                    curr_seg_mask[mask == id] = 1
+                    curr_seg_mask[mask == class_id] = 1
                     yield {
                         "file": file,
                         "annotation": {

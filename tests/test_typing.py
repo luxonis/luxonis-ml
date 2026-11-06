@@ -47,3 +47,8 @@ def test_check_type_containers(numbers: list[int], strings: list[str]):
 
     # An empty container matches any element type.
     assert check_type(numbers, list[str]) == (numbers == [])
+
+
+def test_check_type_checks_every_container_item():
+    assert not check_type([1, "bad"], list[int])
+    assert not check_type({"good": 1, "bad": "bad"}, dict[str, int])
