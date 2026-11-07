@@ -65,6 +65,7 @@ def terminal(monkeypatch: pytest.MonkeyPatch) -> Console:
         record=True,
         force_terminal=True,
         color_system="standard",
+        legacy_windows=False,
     )
     monkeypatch.setattr(console_module, "get_console", lambda: console)
     return console
