@@ -1,10 +1,10 @@
 r"""Experiment tracking for Luxonis ML workflows.
 
 `LuxonisTracker` logs a run to several tracking services at once:
-TensorBoard, Weights & Biases, MLflow, and any service that a plugin
-adds. Training and evaluation code log hyperparameters, metrics, images,
-matrices, and artifacts through one API, and choose the services at
-runtime.
+TensorBoard, Weights & Biases, MLflow, the console, and any service that
+a plugin adds. Training and evaluation code log hyperparameters,
+metrics, images, confusion matrices, tables, and artifacts through one
+API, and choose the services at runtime.
 
 Example:
     Log a run to TensorBoard and MLflow.
@@ -70,6 +70,11 @@ be on.
      - `MLflowOptions`: ``tracking_uri``, which defaults to
        ``MLFLOW_TRACKING_URI`` from the environment, and
        ``parent_run_id``.
+   * - ``console``
+     - `ConsoleBackend`
+     - None.
+     - `ConsoleOptions`: ``rich`` and ``prefixes``. See
+       `Console Output`_.
 
 WandB and MLflow need ``project_name`` or ``project_id``. A backend
 rejects an option that it does not know with ``TypeError``, and so does
@@ -79,7 +84,7 @@ The backends start on the first logging call. Call
 `LuxonisTracker.start` to start them earlier, for example to create the
 MLflow run of a sweep before its trials.
 
-Each built-in backend is a property of the tracker:
+Each built-in backend with an SDK is a property of the tracker:
 `LuxonisTracker.tensorboard`, `LuxonisTracker.wandb` and
 `LuxonisTracker.mlflow`. The property starts the backends first. On
 rank :math:`0`, the SDK handle of the backend is then ready for a call
@@ -113,38 +118,151 @@ Each backend stores the call in the form that its service knows:
      - TensorBoard
      - WandB
      - MLflow
+     - Console
    * - `LuxonisTracker.log_hyperparams`
      - One set in the HParams dashboard, written when the run closes.
        A value that is not a scalar becomes a string.
      - The configuration of the run.
      - The parameters of the run, as strings. MLflow rejects a new value
        for a parameter that the run has already.
+     - Nothing.
    * - `LuxonisTracker.log_metric`, `LuxonisTracker.log_metrics`
      - A scalar at ``step``.
      - A value at the next WandB step.
      - A metric at ``step``.
+     - A block with the values under each prefix.
    * - `LuxonisTracker.log_image`, `LuxonisTracker.log_images`
      - An image at ``step``.
      - A ``wandb.Image`` at the next WandB step.
      - The artifact ``<directory>/<step>/<caption>.png``. The directory
        is the part of the name before the last ``/``.
+     - Nothing.
    * - `LuxonisTracker.log_matrix`
-     - Text of the whole matrix at ``step``.
-     - The table ``<name>_table``.
-     - The artifact ``<name>.json``, with ``flat_array``, ``shape`` and
-       the ``extra_data``. A later step replaces it.
+     - A markdown table at ``step``, in the text tab.
+     - The chart of ``wandb.plot.confusion_matrix``.
+     - The artifacts ``<name>/step_<step>.json``, with ``labels`` and
+       ``matrix``, and ``<name>/step_<step>.png``, a heatmap.
+     - A table at the end of the next block of its prefix.
+   * - `LuxonisTracker.log_table`
+     - A markdown table at ``step``, in the text tab.
+     - A ``wandb.Table`` at the next WandB step.
+     - The artifact ``<name>/step_<step>.json`` of
+       ``MlflowClient.log_table``.
+     - A table, at once.
    * - `LuxonisTracker.upload_artifact`
      - Nothing.
      - A WandB artifact of the type ``typ``.
      - A file at the root of the run artifacts.
+     - Nothing.
    * - `LuxonisTracker.close`
      - Closes the event file.
      - Finishes the run with the exit code :math:`0` or :math:`1`.
      - Ends the run as ``FINISHED`` or ``FAILED``.
+     - Prints the matrices that wait for a block.
 
 WandB receives no ``step``, because it drops a call whose step is lower
 than the step of the call before. The images are ``numpy`` arrays of
 shape :math:`\left(H, W, C\right)`.
+
+`LuxonisTracker.log_matrix` takes a confusion matrix: a square matrix of
+counts, with the true classes on the rows and the predicted classes on
+the columns. One list of labels names the rows and the columns.
+
+.. code-block:: python
+
+    tracker.log_matrix(
+        np.array([[50, 2], [4, 44]]),
+        "val/head/confusion_matrix",
+        step=3,
+        labels=["cat", "dog"],
+    )
+    tracker.log_table(
+        "quantization",
+        [
+            ("map", 0.41, 0.37),
+            ("loss", 1.90, 2.25),
+        ],
+        ["Name", "Float", "INT8"],
+        step=3000,
+    )
+
+
+Console Output
+==============
+
+`ConsoleBackend` prints the results of a run as tables, to the terminal
+and to the log file. It needs no extra. With ``prefixes``, it prints
+only the metrics and the matrices whose names start with one of them,
+for example the validation results and not each training step:
+
+.. code-block:: python
+
+    with LuxonisTracker(
+        console={"prefixes": ["val/", "test/"]},
+    ) as tracker:
+        tracker.log_matrix(
+            np.array([[50, 2], [4, 44]]),
+            "val/head/confusion_matrix",
+            step=3,
+            labels=["cat", "dog"],
+        )
+        tracker.log_metrics(
+            {
+                "val/loss": 0.31,
+                "val/loss/head/ce": 0.31,
+                "val/metric/head/accuracy": 0.94,
+                "epoch": 3,
+            },
+            step=300,
+        )
+
+The ``log_metrics`` call prints one block, which holds the matrix that
+waited for it:
+
+.. code-block:: text
+
+    ───────────────── val · epoch 3 · step 300 ─────────────────
+    ┏━━━━━━━━━━━━━━┳━━━━━━━━━┓
+    ┃ Name         ┃   Value ┃
+    ┡━━━━━━━━━━━━━━╇━━━━━━━━━┩
+    │ loss         │ 0.31000 │
+    │   head       │         │
+    │     ce       │ 0.31000 │
+    │ metric       │         │
+    │   head       │         │
+    │     accuracy │ 0.94000 │
+    └──────────────┴─────────┘
+       head/confusion_matrix
+    ┏━━━━━━━━━━━━━┳━━━━━┳━━━━━┓
+    ┃ true \ pred ┃ cat ┃ dog ┃
+    ┡━━━━━━━━━━━━━╇━━━━━╇━━━━━┩
+    │ cat         │  50 │   2 │
+    │ dog         │   4 │  44 │
+    └─────────────┴─────┴─────┘
+    ────────────────────────────────────────────────────────────
+
+With ``rich`` on, the default, the block prints in colour on the global
+console of ``rich``, so it appears above a live progress bar of
+``rich``, such as the one of Lightning. The diagonal of a matrix is
+green, and its zeros are grey. A copy without colour goes to the log
+file only. With ``rich`` off, the copy without colour goes through
+``logger.info``, to the terminal and to the log file.
+
+Limitations:
+
+    - A confusion matrix prints with the next block of its prefix.
+      Without one, it waits for `LuxonisTracker.flush` or
+      `LuxonisTracker.close`.
+    - A key ``epoch`` goes into the rule of the block, not into its
+      table, also without a prefix.
+    - The hyperparameters, the images and the artifacts do not print.
+    - A float prints with five decimals, or in the ``e`` notation
+      below :math:`10^{-3}`.
+    - The output is as wide as the terminal. A matrix that is wider
+      wraps its cells.
+    - With ``rich`` off and the ``rich`` sink of
+      `luxonis_ml.utils.setup_logging`, the sink indents each line, so
+      the rules wrap. Turn ``rich`` off together with ``use_rich``.
 
 
 Runs and Local Files
@@ -213,8 +331,8 @@ which keeps the training going:
       The calls of its kind wait 60 seconds, and keep their order. The
       other kinds still go out. So an image upload that a broken
       artifact store fails again and again does not stop the metrics.
-      The kinds are hyperparameters, metrics, images, matrices and
-      artifacts.
+      The kinds are hyperparameters, metrics, images, matrices, tables
+      and artifacts.
     - When a second kind fails before any call gets through, the server
       is down. All calls then wait 60 seconds, and the next attempt
       sends the buffer first.
@@ -224,8 +342,8 @@ which keeps the training going:
       ``project_id``, raises at once. A later start that it rejects keeps
       the calls for the local save.
     - The buffer holds at most 100 hyperparameter calls, 500 metric
-      calls, 50 images, 500 matrices and 10 artifacts. A full buffer
-      drops the oldest call of that kind.
+      calls, 50 images, 500 matrices, 100 tables and 10 artifacts. A
+      full buffer drops the oldest call of that kind.
     - A buffered artifact is kept as a hard link or a copy, so the
       caller can delete the file.
 
@@ -252,7 +370,7 @@ JSON Lines file:
 .. code-block:: python
 
     import json
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
     from typing import IO, Any
 
     import numpy.typing as npt
@@ -261,6 +379,7 @@ JSON Lines file:
         LuxonisTracker,
         RunContext,
         RunStatus,
+        TableCell,
         TrackerBackend,
     )
     from luxonis_ml.typing import ParamValue
@@ -295,9 +414,19 @@ JSON Lines file:
             matrix: npt.NDArray[Any],
             name: str,
             step: int,
-            extra_data: Mapping[str, ParamValue],
+            labels: Sequence[str],
         ) -> None:
             self._write({"step": step, name: matrix.tolist()})
+
+        def log_table(
+            self,
+            name: str,
+            rows: Sequence[Sequence[TableCell]],
+            columns: Sequence[str],
+            step: int,
+        ) -> None:
+            records = [dict(zip(columns, row)) for row in rows]
+            self._write({"step": step, name: records})
 
         def close(self, status: RunStatus) -> None:
             self._write({"status": status})
@@ -356,10 +485,13 @@ from luxonis_ml.guard_extras import guard_missing_extra
 with guard_missing_extra("tracker"):
     from .backends import (
         TRACKER_BACKENDS,
+        ConsoleBackend,
+        ConsoleOptions,
         MLflowBackend,
         MLflowOptions,
         RunContext,
         RunStatus,
+        TableCell,
         TensorBoardBackend,
         TrackerBackend,
         WandbBackend,
@@ -405,11 +537,14 @@ _load_backend_plugins()
 __all__ = [
     "TRACKER_BACKENDS",
     "BufferedBackend",
+    "ConsoleBackend",
+    "ConsoleOptions",
     "LuxonisTracker",
     "MLflowBackend",
     "MLflowOptions",
     "RunContext",
     "RunStatus",
+    "TableCell",
     "TensorBoardBackend",
     "TrackerBackend",
     "WandbBackend",
