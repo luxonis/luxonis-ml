@@ -3,11 +3,41 @@
 import warnings
 from abc import ABCMeta
 from collections.abc import Callable
+from contextvars import ContextVar
 from typing import Generic, TypedDict, TypeVar, overload
 
 from typing_extensions import Unpack, deprecated, override
 
 T = TypeVar("T", bound=type)
+
+_AUTOREGISTER_CONTROLS: ContextVar[tuple[bool, str | None] | None] = (
+    ContextVar("autoregister_controls", default=None)
+)
+
+
+def _call_init_subclass(
+    base: type,
+    cls: type,
+    original_hook: Callable[..., object] | None,
+    controls: tuple[bool, str | None],
+    kwargs: dict[str, object],
+) -> tuple[bool, str | None]:
+    """Call the cooperative hook with scoped registration controls."""
+    inherited_controls = _AUTOREGISTER_CONTROLS.get()
+    token = None
+    if inherited_controls is None:
+        token = _AUTOREGISTER_CONTROLS.set(controls)
+    else:
+        controls = inherited_controls
+    try:
+        if original_hook is None:
+            super(base, cls).__init_subclass__(**kwargs)
+        else:
+            original_hook(cls, **kwargs)
+    finally:
+        if token is not None:
+            _AUTOREGISTER_CONTROLS.reset(token)
+    return controls
 
 
 class Registry(Generic[T]):
@@ -202,6 +232,69 @@ class Registry(Generic[T]):
             )
 
         self._module_dict[module_name] = module
+
+    def autoregister(self) -> Callable[[T], T]:
+        """Register subclasses of a decorated base class.
+
+        Use this decorator when the base class already needs another
+        metaclass.
+
+        Example:
+            >>> registry = Registry(name="modules")
+            >>> @registry.autoregister()
+            ... class Base:
+            ...     pass
+            >>> class Foo(Base):
+            ...     pass
+            >>> class Bar(Base, register_name="Baz"):
+            ...     pass
+            >>> registry.get("Foo").__name__
+            'Foo'
+            >>> registry.get("Baz").__name__
+            'Bar'
+
+        Returns:
+            Decorator that installs automatic subclass registration.
+
+        Warning:
+            Type checkers cannot see the dynamically added ``register``
+            and ``register_name`` class keywords.
+
+        """
+
+        def decorate(base: T) -> T:
+            descriptor = base.__dict__.get("__init_subclass__")
+            original_hook = (
+                descriptor.__func__
+                if isinstance(descriptor, classmethod)
+                else None
+            )
+
+            def subclass_hook(
+                cls: T,
+                *,
+                register: bool = True,
+                register_name: str | None = None,
+                **kwargs: object,
+            ) -> None:
+                register, register_name = _call_init_subclass(
+                    base,
+                    cls,
+                    original_hook,
+                    (register, register_name),
+                    kwargs,
+                )
+                if not register:
+                    return
+                name = register_name or cls.__name__
+                if name not in self or not issubclass(cls, self.get(name)):
+                    self.register(module=cls, name=name, force=True)
+
+            hook_name = "__init_subclass__"
+            setattr(base, hook_name, classmethod(subclass_hook))
+            return base
+
+        return decorate
 
 
 class _RegisterKeywords(TypedDict, total=False):

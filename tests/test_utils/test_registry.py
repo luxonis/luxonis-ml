@@ -112,6 +112,91 @@ def test_autoregistry(registry: Registry):
             pass
 
 
+def test_autoregistry_decorator(registry: Registry[type]):
+    base = registry.autoregister()(types.new_class("Base"))
+    a = types.new_class("A", (base,))
+    b = types.new_class("B", (base,), {"register_name": "AliasB"})
+    c = types.new_class("C", (base,), {"register": False})
+
+    assert registry.get("A") is a
+    assert registry.get("AliasB") is b
+    assert "B" not in registry
+    assert c.__name__ == "C"
+    assert "C" not in registry
+
+
+def test_autoregistry_decorator_keeps_existing_hooks(
+    registry: Registry[type],
+):
+    calls: list[tuple[str, str]] = []
+    other = Registry[type]("other")
+
+    class Parent:
+        def __init_subclass__(cls) -> None:
+            calls.append(("parent", cls.__name__))
+            super().__init_subclass__()
+
+    class Base(Parent):
+        def __init_subclass__(cls, *, tag: str) -> None:
+            assert cls.__name__ not in registry
+            assert cls.__name__ not in other
+            calls.append((tag, cls.__name__))
+            super().__init_subclass__()
+
+    calls.clear()
+    base = other.autoregister()(registry.autoregister()(Base))
+    child = types.new_class("Child", (base,), {"tag": "base"})
+
+    assert calls == [("base", "Child"), ("parent", "Child")]
+    assert registry.get("Child") is child
+    assert other.get("Child") is child
+
+    alias = types.new_class(
+        "Aliased", (base,), {"tag": "base", "register_name": "Alias"}
+    )
+    skipped = types.new_class(
+        "Skipped", (base,), {"tag": "base", "register": False}
+    )
+    for registered in (registry, other):
+        assert registered.get("Alias") is alias
+        assert "Aliased" not in registered
+        assert skipped.__name__ not in registered
+
+
+def test_autoregistry_decorator_forwards_inherited_controls(
+    registry: Registry[type],
+):
+    other = Registry[type]("other")
+    ancestor = registry.autoregister()(types.new_class("Ancestor"))
+    base = other.autoregister()(types.new_class("Base", (ancestor,)))
+
+    alias = types.new_class("Aliased", (base,), {"register_name": "Alias"})
+    skipped = types.new_class("Skipped", (base,), {"register": False})
+
+    for registered in (registry, other):
+        assert registered.get("Alias") is alias
+        assert "Aliased" not in registered
+        assert skipped.__name__ not in registered
+
+
+def test_autoregistry_decorator_handles_same_named_classes(
+    registry: Registry[type],
+):
+    base = registry.autoregister()(types.new_class("Base"))
+    first = type("Node", (base,), {})
+
+    class Proxy:
+        pass
+
+    proxy = type("Node", (Proxy, first), {})
+    assert issubclass(proxy, first)
+    assert registry.get("Node") is first
+
+    second = type("Node", (base,), {})
+    assert first is not second
+    assert registry.get("Node") is second
+
+
 def test_autoregistry_keeps_class_over_same_named_subclass(
     registry: Registry,
 ):
