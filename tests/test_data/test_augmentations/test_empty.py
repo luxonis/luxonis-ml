@@ -68,7 +68,7 @@ def test_empty(dataset_name: str, tempdir: Path, n_samples: int):
         if "/classification" not in labels:
             continue
 
-        classes = dataset.get_classes()[""]
+        classes = loader._classes[""]
         n_classes = len(classes)
         if labels["/classification"].sum() == 0:
             assert labels["/classification"].shape == (n_classes,)
