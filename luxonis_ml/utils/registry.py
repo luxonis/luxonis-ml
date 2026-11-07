@@ -15,6 +15,31 @@ _AUTOREGISTER_CONTROLS: ContextVar[tuple[bool, str | None] | None] = (
 )
 
 
+def _call_init_subclass(
+    base: type,
+    cls: type,
+    original_hook: Callable[..., object] | None,
+    controls: tuple[bool, str | None],
+    kwargs: dict[str, object],
+) -> tuple[bool, str | None]:
+    """Call the cooperative hook with scoped registration controls."""
+    inherited_controls = _AUTOREGISTER_CONTROLS.get()
+    token = None
+    if inherited_controls is None:
+        token = _AUTOREGISTER_CONTROLS.set(controls)
+    else:
+        controls = inherited_controls
+    try:
+        if original_hook is None:
+            super(base, cls).__init_subclass__(**kwargs)
+        else:
+            original_hook(cls, **kwargs)
+    finally:
+        if token is not None:
+            _AUTOREGISTER_CONTROLS.reset(token)
+    return controls
+
+
 class Registry(Generic[T]):
     """A registry to store and retrieve modules.
 
@@ -252,22 +277,13 @@ class Registry(Generic[T]):
                 register_name: str | None = None,
                 **kwargs: object,
             ) -> None:
-                controls = _AUTOREGISTER_CONTROLS.get()
-                token = None
-                if controls is None:
-                    token = _AUTOREGISTER_CONTROLS.set(
-                        (register, register_name)
-                    )
-                else:
-                    register, register_name = controls
-                try:
-                    if original_hook is None:
-                        super(base, cls).__init_subclass__(**kwargs)
-                    else:
-                        original_hook(cls, **kwargs)
-                finally:
-                    if token is not None:
-                        _AUTOREGISTER_CONTROLS.reset(token)
+                register, register_name = _call_init_subclass(
+                    base,
+                    cls,
+                    original_hook,
+                    (register, register_name),
+                    kwargs,
+                )
                 if not register:
                     return
                 name = register_name or cls.__name__
