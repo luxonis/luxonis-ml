@@ -1,4 +1,5 @@
 import builtins
+import os
 import platform
 import random
 import shutil
@@ -13,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from _pytest.fixtures import SubRequest
+from hypothesis import settings as hypothesis_settings
 from loguru import logger
 from rich import print as rich_print
 
@@ -22,6 +24,14 @@ from luxonis_ml.utils import LuxonisFileSystem
 from luxonis_ml.utils.environ import environ
 
 CREATED_DATASETS = []
+
+# Deadlines are flaky on the slower CI runners. CI also has no example
+# database to replay failures from, so it runs derandomized instead.
+hypothesis_settings.register_profile("local", deadline=None)
+hypothesis_settings.register_profile(
+    "ci", deadline=None, derandomize=True, database=None
+)
+hypothesis_settings.load_profile("ci" if os.getenv("CI") else "local")
 
 
 @pytest.fixture(autouse=True, scope="session")
