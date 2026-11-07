@@ -8,6 +8,7 @@ import pycocotools.mask
 import pytest
 
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader
+from luxonis_ml.data.augmentations import AlbumentationsEngine
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.ldf.annotation import SegmentationAnnotation
 
@@ -101,12 +102,32 @@ def test_the_background_class_ignores_the_split_order(
         _reorder_split(
             half_covered, unannotated_first=unannotated_first, tempdir=tempdir
         )
-        class_maps.append(
-            LuxonisLoader(half_covered, view="train")._classes[""]
-        )
+        loader = LuxonisLoader(half_covered, view="train")
+        class_maps.append(loader._classes[""])
+        for sample in loader:
+            mask = sample.labels["/segmentation"]
+            assert np.array_equal(mask.sum(axis=0), np.ones((SIZE, SIZE)))
 
     assert class_maps[0] == class_maps[1]
     assert "background" in class_maps[0]
+    assert "background" not in half_covered.get_classes()[""]
+
+
+def test_augmentation_uses_the_background_class_count(
+    half_covered: LuxonisDataset,
+):
+    """Augmentations receive the class map after background insertion."""
+    loader = LuxonisLoader(
+        half_covered,
+        view="train",
+        height=SIZE,
+        width=SIZE,
+    )
+
+    assert isinstance(loader._augmentations, AlbumentationsEngine)
+    assert loader._augmentations._n_classes["/segmentation"] == len(
+        loader._classes[""]
+    )
 
 
 def test_overlapping_masks_do_not_hide_uncovered_pixels(

@@ -274,7 +274,10 @@ def test_filter_task_names(randint: int, tempdir: Path):
     loader = LuxonisLoader(dataset, filter_task_names=["animals"])
 
     assert len(loader) == 2
-    assert loader._classes == {"animals": {"cat": 0, "dog": 1}}
+    assert loader._classes == {
+        "animals": {"cat": 0, "dog": 1},
+        "vehicles": {"car": 0, "truck": 1},
+    }
 
     labels_by_sample = [labels for _, labels in loader]
     for labels in labels_by_sample:
