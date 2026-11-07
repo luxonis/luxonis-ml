@@ -248,7 +248,11 @@ class ConsoleBackend(TrackerBackend, register_name="console"):
         console = get_console()
         buffer = StringIO()
         plain = Console(
-            file=buffer, width=console.width, no_color=True, highlight=False
+            file=buffer,
+            width=console.width,
+            no_color=True,
+            highlight=False,
+            legacy_windows=console.legacy_windows,
         )
         for renderable in renderables:
             plain.print(renderable)
