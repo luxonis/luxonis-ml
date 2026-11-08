@@ -12,10 +12,11 @@ owns them:
 
     - `luxonis_ml.data.datasets` documents dataset lifecycle, storage layout,
       splits, cloning, merging, remote synchronization, and dataset plugins.
-    - `luxonis_ml.data.datasets.annotation` documents `DatasetRecord`,
-      `Detection`, `Category`, and all annotation payload schemas.
+    - `luxonis_ml.ldf.annotation` documents `DatasetRecord`, `Detection`,
+      `Category`, and all annotation payload schemas.
     - `luxonis_ml.data.parsers` documents dataset imports, parser plugins,
-      supported external formats, split-ratio modes, and format caveats.
+      supported external formats, expected directory layouts, split-ratio
+      modes, and parser-specific caveats.
     - `luxonis_ml.data.loaders` documents `LuxonisLoader`, loader outputs,
       label key conventions, color spaces, filtering, and preprocessing.
     - `luxonis_ml.data.augmentations` documents `AlbumentationsEngine`,
@@ -135,9 +136,139 @@ Example:
     '/segmentation'
 
 See:
-    `luxonis_ml.data.datasets.annotation` for the exact record model,
-    annotation payload schemas, normalized coordinate conventions, metadata
-    categories, and instance-association rules.
+    `luxonis_ml.ldf.annotation` for the exact record model, annotation
+    payload schemas, normalized coordinate conventions, metadata categories,
+    and instance-association rules.
+
+
+Adding Records with a Generator
+===============================
+
+`LuxonisDataset.add` takes an iterator of records. A generator function is
+the usual choice, because you do not build the full list of records in
+memory.
+
+The generator below reads one annotation file for each directory. It yields
+the bounding box and the keypoints of one object under a shared
+``instance_id``. It yields each segmentation mask under a separate task
+name.
+
+.. python::
+
+    import json
+    from pathlib import Path
+
+    import cv2
+    import numpy as np
+
+    from luxonis_ml.data import LuxonisDataset
+
+    dataset_root = Path("data/parking_lot")
+
+
+    def generator():
+        for annotation_file in dataset_root.rglob("annotations.json"):
+            data = json.loads(annotation_file.read_text())
+            width = data["dimensions"]["width"]
+            height = data["dimensions"]["height"]
+            image = str(annotation_file.parent / data["filename"])
+
+            for instance_id, box in data["BoundingBoxAnnotation"].items():
+                x, y = box["origin"]
+                w, h = box["dimension"]
+                yield {
+                    "file": image,
+                    "task_name": f"instance_keypoints_{box['labelName']}",
+                    "annotation": {
+                        "class": box["labelName"],
+                        "instance_id": int(instance_id),
+                        "boundingbox": {
+                            "x": x / width,
+                            "y": y / height,
+                            "w": w / width,
+                            "h": h / height,
+                        },
+                    },
+                }
+
+            for instance_id, pose in data["KeypointsAnnotation"].items():
+                yield {
+                    "file": image,
+                    "task_name": f"instance_keypoints_{pose['labelName']}",
+                    "annotation": {
+                        "instance_id": int(instance_id),
+                        "keypoints": {
+                            "keypoints": [
+                                (
+                                    keypoint["location"][0] / width,
+                                    keypoint["location"][1] / height,
+                                    keypoint["visibility"],
+                                )
+                                for keypoint in pose["keypoints"]
+                            ]
+                        },
+                    },
+                }
+
+            masks = data["VehicleTypeSegmentation"]
+            mask_path = annotation_file.parent / masks["filename"]
+            mask = cv2.cvtColor(cv2.imread(str(mask_path)), cv2.COLOR_BGR2RGB)
+
+            for instance in masks["instances"]:
+                color = np.array(instance["pixelValue"], dtype=np.uint8)
+                yield {
+                    "file": image,
+                    "task_name": "segmentation",
+                    "annotation": {
+                        "class": instance["labelName"],
+                        "segmentation": {
+                            "mask": (mask == color)
+                            .all(axis=-1)
+                            .astype(np.uint8)
+                        },
+                    },
+                }
+
+
+    dataset = LuxonisDataset("parking_lot")
+    dataset.add(generator())
+
+Note:
+    The shared ``instance_id`` links the box and the keypoints of one
+    object. Give the keypoints of each class a separate task name, because
+    the loader stacks the keypoints of one task into a single array.
+
+
+Defining Splits
+===============
+
+`LuxonisDataset.make_splits` assigns the records to named splits. Pass the
+ratios of the splits, or pass the exact files of each split.
+
+.. python::
+
+    dataset.make_splits({"train": 0.7, "val": 0.2, "test": 0.1})
+
+    dataset.make_splits(
+        {
+            "train": ["image_1.jpg", "image_2.jpg"],
+            "val": ["image_3.jpg"],
+            "test": ["image_4.jpg"],
+        }
+    )
+
+A call with no argument splits 80/10/10. A ratio is a number from 0 to 1,
+and the ratios must sum to 1.
+
+A split from ratios uses only the records that no split holds yet. A second
+call with ratios thus needs new records, or it raises an error. A call with
+explicit file lists adds only the files that no split holds yet. If no named
+file is new, the call logs a warning and keeps the old splits. Thus you can
+parse the same data twice.
+
+Pass ``replace_old_splits=True`` to drop the old splits. A later call with
+ratios then splits every record again. A later call with file lists splits
+only the files that you name.
 
 
 Annotation Payloads
@@ -161,8 +292,8 @@ records describe the same physical object, use the same ``instance_id`` so
 boxes, keypoints, and instance masks can be associated reliably.
 
 See:
-    `luxonis_ml.data.datasets.annotation` for examples, exact field names,
-    mask encoding details, metadata categories, and loader output shapes.
+    `luxonis_ml.ldf.annotation` for examples, exact field names, mask
+    encoding details, metadata categories, and loader output shapes.
 
 
 Command Line Interface
@@ -182,9 +313,9 @@ sanitizing, exporting, synchronizing, cloning, merging, and deleting datasets.
     luxonis_ml data inspect <dataset_name>
     luxonis_ml data health <dataset_name>
     luxonis_ml data sanitize <dataset_name>
-    luxonis_ml data export <dataset_name> --type ultralytics-ndjson
-    luxonis_ml data export <dataset_name> --type ultralytics-ndjson-instancesegmentation
-    luxonis_ml data export <dataset_name> --type ultralytics-ndjson-keypoints
+    luxonis_ml data export <dataset_name> --type native
+    luxonis_ml data export <dataset_name> --type coco
+    luxonis_ml data export <dataset_name> --type ultralyticsndjson
     luxonis_ml data push <dataset_name>
     luxonis_ml data pull <dataset_name>
     luxonis_ml data clone <dataset_name> <new_name>
@@ -192,7 +323,9 @@ sanitizing, exporting, synchronizing, cloning, merging, and deleting datasets.
     luxonis_ml data delete <dataset_name>
 
 See:
-    `luxonis_ml.data.__main__` for command implementation details.
+    `luxonis_ml.data.__main__` for command implementation details, and
+    `luxonis_ml.data.parsers` for the directory layout of every supported
+    format, including the native LDF layout that ``--type native`` writes.
 
 
 Extension Points
@@ -211,7 +344,7 @@ See:
 
 """
 
-from importlib.metadata import entry_points
+from importlib.metadata import EntryPoint, entry_points
 
 from loguru import logger
 
@@ -253,14 +386,14 @@ with guard_missing_extra("data"):
 
 def _load_dataset_plugins() -> None:  # pragma: no cover
     """Register external dataset ``BaseDataset`` plugins."""
-    for entry_point in _get_entry_points_subset("dataset_plugins"):
+    for entry_point in entry_points(group="dataset_plugins"):
         plugin_class = entry_point.load()
         DATASETS_REGISTRY.register(module=plugin_class)
 
 
 def _load_loader_plugins() -> None:  # pragma: no cover
     """Register external dataset ``BaseLoader`` plugins."""
-    for entry_point in _get_entry_points_subset("loader_plugins"):
+    for entry_point in entry_points(group="loader_plugins"):
         plugin_class = entry_point.load()
         LOADERS_REGISTRY.register(module=plugin_class)
 
@@ -283,14 +416,8 @@ def _load_parser_plugins() -> None:
             )
 
 
-def _get_entry_points_subset(key: str) -> list:
-    entry_points_obj = entry_points()
-    if hasattr(entry_points_obj, "select"):
-        selected_entry_points = entry_points_obj.select(group=key)
-    else:
-        # py3.8 specific
-        selected_entry_points = entry_points_obj.get(key, [])
-    return list(selected_entry_points)
+def _get_entry_points_subset(key: str) -> list[EntryPoint]:
+    return list(entry_points(group=key))
 
 
 _load_dataset_plugins()

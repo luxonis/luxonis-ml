@@ -201,7 +201,7 @@ def _categories(scale: Scale, *, with_skeleton: bool) -> list[dict[str, Any]]:
 
 def _write_labels(split_dir: Path, payload: dict[str, Any]) -> None:
     """Write one ``labels.json`` annotation file."""
-    with open(split_dir / "labels.json", "w") as file:
+    with Path(split_dir / "labels.json").open("w") as file:
         json.dump(payload, file)
 
 

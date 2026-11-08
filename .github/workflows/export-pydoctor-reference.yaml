@@ -1,0 +1,21 @@
+name: Export pydoctor reference
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  export:
+    uses: ./.github/workflows/reusable-export-pydoctor-reference.yaml
+    with:
+      package-id: luxonis-ml
+    secrets:
+      DOCS_CONTENT_SSH_KEY: ${{ secrets.DOCS_CONTENT_SSH_KEY }}

@@ -1,3 +1,5 @@
+"""Parser for datasets in the TensorFlow CSV format."""
+
 from collections import defaultdict
 from os.path import islink, join
 from pathlib import Path
@@ -5,6 +7,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.utils.path import parse_manifest_path, resolve_manifest_path
@@ -32,6 +35,7 @@ class TensorflowCSVParser(SplitParserPlugin):
     dataset_types = ("tfcsv",)
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -49,6 +53,7 @@ class TensorflowCSVParser(SplitParserPlugin):
             "images": images,
         }
 
+    @override
     def _split_files(
         self,
         image_dir: Path,
@@ -73,6 +78,7 @@ class TensorflowCSVParser(SplitParserPlugin):
         paths = self._resolve_images(image_dir, images)
         return [Path(path) for path in dict.fromkeys(paths)]
 
+    @override
     def _split_records(
         self,
         image_dir: Path,

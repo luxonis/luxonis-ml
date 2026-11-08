@@ -347,7 +347,9 @@ def test_yolov6_records_are_lazy(tmp_path: Path):
     parser = _plugin(YoloV6Parser)
 
     parsed = _parse(parser, root)
-    records = cast(Iterator[tuple[str | None, dict[str, Any]]], parsed.records)
+    records = cast(
+        "Iterator[tuple[str | None, dict[str, Any]]]", parsed.records
+    )
     assert isinstance(records, Iterator)
 
     split_name, first = next(records)

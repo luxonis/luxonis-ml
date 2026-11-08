@@ -209,7 +209,7 @@ def _fake_roboflow_module(location: Path) -> types.ModuleType:
             assert workspace == "workspace"
             return Workspace()
 
-    cast(Any, module).Roboflow = Roboflow
+    cast("Any", module).Roboflow = Roboflow
     return module
 
 
@@ -336,28 +336,16 @@ def test_download_ultralytics_api_errors(
     with pytest.raises(RuntimeError, match=r"500.*server failed"):
         parser_source._download_ultralytics_dataset(reference, tmp_path)
 
-    dataset_response = _Response(
-        ok=True,
-        status_code=200,
-        payload={
-            "dataset": {
-                "_id": "dataset-id",
-                "slug": "project",
-                "name": "Project",
-            }
-        },
-    )
     export_json_error = _Response(
         ok=False,
         status_code=422,
         payload={"error": "bad export"},
         reason="Unprocessable",
     )
-    responses = iter([dataset_response, export_json_error])
     monkeypatch.setattr(
         parser_source.requests,
         "get",
-        lambda *args, **kwargs: next(responses),
+        lambda *args, **kwargs: export_json_error,
     )
     with pytest.raises(RuntimeError, match="422 Unprocessable: bad export"):
         parser_source._download_ultralytics_dataset(reference, tmp_path)
@@ -369,11 +357,10 @@ def test_download_ultralytics_api_errors(
         text="",
         reason="Unavailable",
     )
-    responses = iter([dataset_response, export_text_error])
     monkeypatch.setattr(
         parser_source.requests,
         "get",
-        lambda *args, **kwargs: next(responses),
+        lambda *args, **kwargs: export_text_error,
     )
     with pytest.raises(RuntimeError, match="503 Unavailable"):
         parser_source._download_ultralytics_dataset(reference, tmp_path)
@@ -390,28 +377,18 @@ def test_download_ultralytics_success(
         "ULTRALYTICS_API_KEY",
         SecretStr("secret"),
     )
-    dataset_response = _Response(
-        ok=True,
-        status_code=200,
-        payload={
-            "dataset": {
-                "_id": "dataset-id",
-                "slug": "project",
-                "name": "Project",
-            }
-        },
-    )
     export_response = _Response(
         ok=True,
         status_code=200,
         payload={"downloadUrl": "https://example.com/export.ndjson"},
     )
-    responses = iter([dataset_response, export_response])
-    monkeypatch.setattr(
-        parser_source.requests,
-        "get",
-        lambda *args, **kwargs: next(responses),
-    )
+    calls: list[tuple[str, Any, Any]] = []
+
+    def get(url: str, **kwargs: Any) -> _Response:
+        calls.append((url, kwargs.get("params"), kwargs.get("timeout")))
+        return export_response
+
+    monkeypatch.setattr(parser_source.requests, "get", get)
 
     def download(url: str, destination: Path, *, timeout: float) -> None:
         assert url.endswith("export.ndjson")
@@ -424,10 +401,54 @@ def test_download_ultralytics_success(
         f"ultralytics://user/datasets/project{suffix}",
         tmp_path,
     )
+    assert calls == [
+        (
+            "https://platform.ultralytics.com/api/datasets/user/project/export",
+            {"v": version} if version is not None else None,
+            120.0,
+        )
+    ]
     assert destination.name == (
         f"project.v{version}.ndjson"
         if version is not None
         else "project.ndjson"
     )
     assert destination.read_text() == "downloaded"
-    assert name == "Project"
+    assert name == "project"
+
+
+def test_ultralytics_url_escapes_both_segments(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        parser_source.environ,
+        "ULTRALYTICS_API_KEY",
+        SecretStr("secret"),
+    )
+    response = _Response(
+        ok=True,
+        status_code=200,
+        payload={"downloadUrl": "https://example.com/export.ndjson"},
+    )
+    urls: list[str] = []
+
+    def get(url: str, **kwargs: Any) -> _Response:
+        urls.append(url)
+        return response
+
+    def download(url: str, destination: Path, *, timeout: float) -> None:
+        assert url
+        assert destination
+        assert timeout == 120.0
+
+    monkeypatch.setattr(parser_source.requests, "get", get)
+    monkeypatch.setattr(parser_source, "download_remote_file", download)
+
+    parser_source._download_ultralytics_dataset(
+        "ultralytics://a b/datasets/c d", tmp_path
+    )
+
+    assert urls == [
+        "https://platform.ultralytics.com/api/datasets/a%20b/c%20d/export"
+    ]

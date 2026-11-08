@@ -1,10 +1,12 @@
+import types
+
 import pytest
 
 from luxonis_ml.utils.registry import AutoRegisterMeta, Registry
 
 
 @pytest.fixture
-def registry() -> Registry:
+def registry() -> Registry[type]:
     return Registry("test")
 
 
@@ -17,7 +19,7 @@ def test_creation():
     assert repr(registry) == "Registry('test')"
 
 
-def test_registry(registry: Registry):
+def test_registry(registry: Registry[type]):
     assert not registry._module_dict
     assert len(registry) == 0
 
@@ -108,3 +110,44 @@ def test_autoregistry(registry: Registry):
 
         class _(metaclass=AutoRegisterMeta, register=True):
             pass
+
+
+def test_autoregistry_keeps_class_over_same_named_subclass(
+    registry: Registry,
+):
+    class Base(metaclass=AutoRegisterMeta, registry=registry, register=False):
+        pass
+
+    class Node(Base):
+        pass
+
+    # The tracer of `torch.export` wraps a module in a subclass of the
+    # module class, under the same name.
+    class Proxy:
+        pass
+
+    proxy = type("Node", (Proxy, Node), {})
+
+    assert issubclass(proxy, Node)
+    assert registry.get("Node") is Node
+
+
+def test_autoregistry_replaces_redefined_class(registry: Registry):
+    class Base(metaclass=AutoRegisterMeta, registry=registry, register=False):
+        pass
+
+    # `importlib.reload` defines the class again, without inheritance.
+    first = type("Node", (Base,), {})
+    second = type("Node", (Base,), {})
+
+    assert first is not second
+    assert registry.get("Node") is second
+
+
+def test_autoregistry_rejects_unknown_class_keywords(registry: Registry):
+    class Base(metaclass=AutoRegisterMeta, registry=registry, register=False):
+        pass
+
+    with pytest.raises(TypeError, match="alias"):
+        types.new_class("Node", (Base,), {"alias": "Other"})
+    assert len(registry) == 0

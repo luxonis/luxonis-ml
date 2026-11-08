@@ -1,5 +1,18 @@
 """Utility helpers shared by the data package.
 
+`visualize` draws the labels of a loaded sample on its image:
+
+.. python::
+
+    from luxonis_ml.data import LuxonisDataset, LuxonisLoader
+    from luxonis_ml.data.utils import visualize
+
+    dataset = LuxonisDataset("parking_lot")
+    sample = LuxonisLoader(dataset)[0]
+    image = visualize(
+        sample.images["image"], "image", sample.labels, dataset.get_classes()
+    )
+
 This package collects public helper APIs used by dataset creation, parsing,
 loading, exporting, validation, and visualization. The utilities are grouped by
 the part of the data workflow they support:
@@ -26,9 +39,8 @@ the part of the data workflow they support:
    * - Visualization
      - `visualize`, color-map helpers, image concatenation, augmentation
        footers, and dataset-statistic plots.
-   * - Equivalence and augmentation inspection
-     - LDF equivalence checks and `AugmentationsCollector` summaries for
-       configured augmentation pipelines.
+   * - Equivalence
+     - LDF equivalence checks.
 
 The task-key helpers follow the same convention as `LuxonisLoader`: labels are
 addressed by ``"task_name/task_type"`` and metadata labels use
@@ -36,7 +48,6 @@ addressed by ``"task_name/task_type"`` and metadata labels use
 present.
 """
 
-from .augmentations_collector import AugmentationsCollector
 from .data_utils import (
     find_duplicates,
     get_class_distributions,
@@ -81,7 +92,6 @@ from .visualizations import (
 )
 
 __all__ = [
-    "AugmentationsCollector",
     "BucketStorage",
     "BucketType",
     "COCOFormat",

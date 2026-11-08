@@ -38,7 +38,7 @@ def test_multi_input(dataset_name: str, tempdir: Path):
         {"name": "Defocus", "params": {"p": 1}},
         {
             "name": "Mosaic4",
-            "params": {"out_width": 512, "out_height": 512, "p": 1},
+            "params": {"width": 512, "height": 512, "p": 1},
         },
         {
             "name": "Affine",
@@ -46,15 +46,17 @@ def test_multi_input(dataset_name: str, tempdir: Path):
                 "p": 1,
                 "scale": [0.8, 1.2],
                 "rotate": [-10, 10],
-                "translate": [0.1, 0.1],
+                "translate_percent": [0.1, 0.1],
             },
         },
     ]
     color_space = cast(
-        dict[str, Literal["RGB", "BGR", "GRAY"]],
+        "dict[str, Literal['RGB', 'BGR', 'GRAY']]",
         {"image1": "RGB", "image2": "BGR", "image3": "GRAY"},
     )
-    dataset = create_dataset(dataset_name, generator())
+    # `Mosaic4` combines four images, so the train split must keep all
+    # four groups. The default ratios give one group to `val`.
+    dataset = create_dataset(dataset_name, generator(), splits=(1.0, 0.0, 0.0))
     loader = LuxonisLoader(
         dataset,
         height=512,

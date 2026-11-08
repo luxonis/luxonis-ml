@@ -1,3 +1,5 @@
+"""Telemetry instrumentation for the commands of a ``cyclopts.App``."""
+
 from collections.abc import Iterable
 
 import cyclopts
@@ -14,7 +16,33 @@ def instrument_cyclopts(
     include_system_metadata: bool | None = None,
     exclude_commands: set[str] | None = None,
 ) -> None:
-    """Wrap Cyclopts commands to emit telemetry events."""
+    """Wrap Cyclopts commands to emit telemetry events.
+
+    The wrapper walks the app recursively, so it also instruments the
+    commands of every sub-app. Aliases share one app object, so the
+    wrapper instruments each sub-app once.
+
+    Args:
+        app: The Cyclopts application to instrument.
+        telemetry: The telemetry client that captures the events.
+        allowlist: Names of the command arguments you allow in the
+            event. One allowlist covers every instrumented command. If
+            omitted, no argument value is sent. The wrapper always drops
+            ``self``, ``ctx``, and ``context``, and it drops any Click
+            or Typer context object.
+        include_system_metadata: Whether to attach system metadata to
+            the events. If omitted, the telemetry configuration
+            decides.
+        exclude_commands: Full command names to leave uninstrumented,
+            such as ``{"data parse"}``. Nested names use a space
+            between the parts.
+
+    Note:
+        The wrapper skips the generated help and version callbacks. Use
+        `luxonis_ml.telemetry.cli.skip_telemetry` on a single callback
+        to exclude that command as well.
+
+    """
     _wrap_cyclopts(
         app,
         telemetry,
@@ -65,8 +93,12 @@ def _wrap_cyclopts(
 
 
 def _iter_unique_subapps(subapps: Iterable[object]) -> list[cyclopts.App]:
-    """Deduplicate Cyclopts subapps because aliases share the same app
-    object.
+    """Deduplicate Cyclopts subapps, because aliases share one app object.
+
+    Returns:
+        Each ``cyclopts.App`` in ``subapps`` once, in the order of first
+        appearance. Items that are not apps are left out.
+
     """
     unique: list[cyclopts.App] = []
     seen: set[int] = set()
@@ -82,8 +114,11 @@ def _iter_unique_subapps(subapps: Iterable[object]) -> list[cyclopts.App]:
 
 
 def _primary_name(name: tuple[str, ...] | str | None) -> str:
-    """Return the primary command name from a Cyclopts app name
-    value.
+    """Return the primary command name from a Cyclopts app name value.
+
+    Returns:
+        The first name, or an empty string if ``name`` holds none.
+
     """
     if name is None:
         return ""

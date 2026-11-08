@@ -1,8 +1,11 @@
+"""Parser for datasets in the CreateML format."""
+
 import json
 from pathlib import Path
 from typing import Any
 
 from PIL import Image
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
@@ -31,6 +34,7 @@ class CreateMLParser(SplitParserPlugin):
     dataset_types = ("createml",)
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -68,6 +72,7 @@ class CreateMLParser(SplitParserPlugin):
             return (base_dir / reference).resolve()
         return resolve_manifest_path(base_dir, reference)
 
+    @override
     def _split_records(
         self, image_dir: Path, annotation_path: Path
     ) -> DatasetIterator:
@@ -84,7 +89,7 @@ class CreateMLParser(SplitParserPlugin):
             a single time and each record is emitted as it is read.
 
         """
-        with open(annotation_path, encoding="utf-8") as f:
+        with annotation_path.open(encoding="utf-8") as f:
             annotations_data = json.load(f)
 
         # The same for every entry, so resolved once.
@@ -125,6 +130,7 @@ class CreateMLParser(SplitParserPlugin):
                     },
                 }
 
+    @override
     def _split_files(
         self, image_dir: Path, annotation_path: Path
     ) -> list[Path]:
@@ -142,7 +148,7 @@ class CreateMLParser(SplitParserPlugin):
             deduplicated, mirroring a manifest that names one image twice.
 
         """
-        with open(annotation_path, encoding="utf-8") as f:
+        with annotation_path.open(encoding="utf-8") as f:
             annotations_data = json.load(f)
 
         base_dir = image_dir.absolute().resolve()

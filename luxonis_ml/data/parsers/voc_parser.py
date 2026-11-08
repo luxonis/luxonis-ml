@@ -1,8 +1,11 @@
+"""Parser for datasets in the VOC format."""
+
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
 from defusedxml.ElementTree import parse
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
@@ -34,6 +37,7 @@ class VOCParser(SplitParserPlugin):
     dataset_types = ("voc",)
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -46,6 +50,7 @@ class VOCParser(SplitParserPlugin):
             return None
         return {"image_dir": split_path, "annotation_dir": split_path}
 
+    @override
     def _split_records(
         self, image_dir: Path, annotation_dir: Path
     ) -> DatasetIterator:
@@ -88,42 +93,65 @@ class VOCParser(SplitParserPlugin):
                 )
                 continue
 
-            size_item = root.find("size")
-            assert size_item is not None
-            height = float(self._xml_find(size_item, "height"))
-            width = float(self._xml_find(size_item, "width"))
-
             file = str(path)
-            boxed = False
-            for object_item in root.findall("object"):
-                # Read before the box check, so that an object without a
-                # `name` is an error whether or not it carries a box.
-                class_name = self._xml_find(object_item, "name")
-
-                bbox_info = object_item.find("bndbox")
-                if bbox_info is None:
-                    continue
-
-                xmin = float(self._xml_find(bbox_info, "xmin"))
-                ymin = float(self._xml_find(bbox_info, "ymin"))
-                xmax = float(self._xml_find(bbox_info, "xmax"))
-                ymax = float(self._xml_find(bbox_info, "ymax"))
-                boxed = True
+            boxes = self._image_boxes(root)
+            if not boxes:
+                yield {"file": file, "annotation": None}
+                continue
+            for bbox_class, (x, y, w, h) in boxes:
                 yield {
                     "file": file,
                     "annotation": {
-                        "class": class_name,
+                        "class": bbox_class,
                         "boundingbox": {
-                            "x": xmin / width,
-                            "y": ymin / height,
-                            "w": (xmax - xmin) / width,
-                            "h": (ymax - ymin) / height,
+                            "x": x,
+                            "y": y,
+                            "w": w,
+                            "h": h,
                         },
                     },
                 }
 
-            if not boxed:
-                yield {"file": file, "annotation": None}
+    @staticmethod
+    def _image_boxes(root: ET.Element) -> list[tuple[str, list[float]]]:
+        """Return the ``(class, [x, y, w, h])`` normalized boxes of an image.
+
+        Returns:
+            One ``(class, [x, y, w, h])`` pair per object with a
+            ``bndbox``, in document order. ``x`` and ``y`` locate the
+            top-left corner. ``x`` and ``w`` are fractions of the image
+            width, ``y`` and ``h`` of its height.
+
+        Raises:
+            ValueError: If the annotation has no ``size`` element, if the
+                size, a class name or a box coordinate is missing, or if a
+                size or a coordinate is not a number.
+
+        """
+        size_item = root.find("size")
+        if size_item is None:
+            raise ValueError(f"Could not find size in {root}")
+        height = float(VOCParser._xml_find(size_item, "height"))
+        width = float(VOCParser._xml_find(size_item, "width"))
+
+        boxes: list[tuple[str, list[float]]] = []
+        for object_item in root.findall("object"):
+            class_name = VOCParser._xml_find(object_item, "name")
+            bbox_info = object_item.find("bndbox")
+            if bbox_info is None:
+                continue
+            xmin = float(VOCParser._xml_find(bbox_info, "xmin"))
+            ymin = float(VOCParser._xml_find(bbox_info, "ymin"))
+            xmax = float(VOCParser._xml_find(bbox_info, "xmax"))
+            ymax = float(VOCParser._xml_find(bbox_info, "ymax"))
+            bbox_xywh = [
+                xmin / width,
+                ymin / height,
+                (xmax - xmin) / width,
+                (ymax - ymin) / height,
+            ]
+            boxes.append((class_name, bbox_xywh))
+        return boxes
 
     @staticmethod
     def _xml_find(root: ET.Element, tag: str) -> str:

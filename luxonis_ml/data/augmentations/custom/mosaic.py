@@ -1,3 +1,5 @@
+"""`Mosaic4` augmentation that tiles four images in a two-by-two grid."""
+
 import math
 import random
 from typing import Any
@@ -33,10 +35,9 @@ class Mosaic4(BatchTransform):
     needed with the specified fill values.
 
     .. figure::
-       https://github.com/luxonis/luxonis-ml/blob/58fb10adc38a393640b9dc889fdefd1db81f9900/luxonis_ml/data/augmentations/media/mosaic4.png
+       https://raw.githubusercontent.com/luxonis/luxonis-ml/58fb10adc38a393640b9dc889fdefd1db81f9900/luxonis_ml/data/augmentations/media/mosaic4.png
        :height: 300px
        :width: 400px
-       :loading: embed
 
        An example of the Mosaic4 augmentation.
 
@@ -63,6 +64,7 @@ class Mosaic4(BatchTransform):
         self,
         height: int | None = None,
         width: int | None = None,
+        *,
         image_fill_value: float | list[int] | list[float] | None = None,
         mask_fill_value: float | list[int] | list[float] | None = None,
         p: float = 0.5,
@@ -70,9 +72,8 @@ class Mosaic4(BatchTransform):
         out_width: int | None = None,
         value: float | list[int] | list[float] | None = None,
         mask_value: float | list[int] | list[float] | None = None,
-    ):
+    ) -> None:
         """Create a Mosaic4 augmentation.
-
 
         Args:
             height: Output image height.
@@ -139,8 +140,13 @@ class Mosaic4(BatchTransform):
         }
 
     def generate_random_crop_center(self) -> tuple[int, int]:
-        """Generate a random crop center within the bounds of the mosaic
-        image size.
+        """Return a random crop center within the mosaic image bounds.
+
+        Returns:
+            The x coordinate, from ``0`` to the output width, and the y
+            coordinate, from ``0`` to the output height. Both ranges
+            include their ends.
+
         """
         crop_x = random.randint(0, max(0, self._width))
         crop_y = random.randint(0, max(0, self._height))
@@ -165,11 +171,11 @@ class Mosaic4(BatchTransform):
         """
         return self._apply_mosaic4_to_images(
             image_batch,
-            self._height,
-            self._width,
-            x_crop,
-            y_crop,
-            self._image_fill_value,
+            out_height=self._height,
+            out_width=self._width,
+            x_crop=x_crop,
+            y_crop=y_crop,
+            padding=self._image_fill_value,
         )
 
     @override
@@ -212,11 +218,11 @@ class Mosaic4(BatchTransform):
                     )
         return self._apply_mosaic4_to_images(
             mask_batch,
-            self._height,
-            self._width,
-            x_crop,
-            y_crop,
-            self._mask_fill_value,
+            out_height=self._height,
+            out_width=self._width,
+            x_crop=x_crop,
+            y_crop=y_crop,
+            padding=self._mask_fill_value,
         )
 
     @override
@@ -240,11 +246,11 @@ class Mosaic4(BatchTransform):
         """
         return self._apply_mosaic4_to_instance_masks(
             masks_batch,
-            self._height,
-            self._width,
-            x_crop,
-            y_crop,
-            self._image_fill_value,
+            out_height=self._height,
+            out_width=self._width,
+            x_crop=x_crop,
+            y_crop=y_crop,
+            value=self._image_fill_value,
         )
 
     @override
@@ -275,13 +281,13 @@ class Mosaic4(BatchTransform):
         ):
             bbox = self._apply_mosaic4_to_bboxes(
                 bboxes,
-                orig_height,
-                orig_width,
-                i,
-                self._height,
-                self._width,
-                x_crop,
-                y_crop,
+                in_height=orig_height,
+                in_width=orig_width,
+                position_index=i,
+                out_height=self._height,
+                out_width=self._width,
+                x_crop=x_crop,
+                y_crop=y_crop,
             )
             new_bboxes.append(bbox)
 
@@ -315,13 +321,13 @@ class Mosaic4(BatchTransform):
         ):
             new_keypoint = self._apply_mosaic4_to_keypoints(
                 keypoints,
-                orig_height,
-                orig_width,
-                i,
-                self._height,
-                self._width,
-                x_crop,
-                y_crop,
+                in_height=orig_height,
+                in_width=orig_width,
+                position_index=i,
+                out_height=self._height,
+                out_width=self._width,
+                x_crop=x_crop,
+                y_crop=y_crop,
             )
             new_keypoints.append(new_keypoint)
         return np.concatenate(new_keypoints, axis=0)
@@ -392,6 +398,7 @@ class Mosaic4(BatchTransform):
     @staticmethod
     def _apply_mosaic4_to_instance_masks(
         masks_batch: list[np.ndarray],
+        *,
         out_height: int,
         out_width: int,
         x_crop: int,
@@ -456,6 +463,7 @@ class Mosaic4(BatchTransform):
     @staticmethod
     def _apply_mosaic4_to_images(
         image_batch: list[np.ndarray],
+        *,
         out_height: int,
         out_width: int,
         x_crop: int,
@@ -467,6 +475,12 @@ class Mosaic4(BatchTransform):
         The input images should have the same number of channels but can
         have different widths and heights. The gaps are filled by the
         padding value.
+
+        Returns:
+            The ``out_height`` by ``out_width`` crop of the mosaic that
+            starts at ``(x_crop, y_crop)``. It has no channel axis if the
+            first image has none.
+
         """
         if len(image_batch[0].shape) == 2:
             out_shape = [out_height * 2, out_width * 2]
@@ -483,7 +497,8 @@ class Mosaic4(BatchTransform):
             dtype=image_batch[0].dtype,
         )
 
-        for quadrant, img in enumerate(image_batch):
+        for quadrant, source in enumerate(image_batch):
+            img = source
             h, w = img.shape[:2]
             imgsz = max(out_height, out_width)
             r = imgsz / max(h, w)
@@ -545,6 +560,7 @@ class Mosaic4(BatchTransform):
     @staticmethod
     def _apply_mosaic4_to_bboxes(
         bbox: np.ndarray,
+        *,
         in_height: int,
         in_width: int,
         position_index: int,
@@ -580,6 +596,7 @@ class Mosaic4(BatchTransform):
     @staticmethod
     def _apply_mosaic4_to_keypoints(
         keypoints: np.ndarray,
+        *,
         in_height: int,
         in_width: int,
         position_index: int,

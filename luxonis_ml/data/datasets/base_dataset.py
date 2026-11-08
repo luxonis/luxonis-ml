@@ -1,3 +1,5 @@
+"""Abstract dataset interface and the registry of dataset classes."""
+
 import inspect
 import math
 from abc import ABC, abstractmethod
@@ -6,16 +8,16 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import suppress
 from itertools import chain
 from pathlib import Path
-from typing import Any, ClassVar, TypeAlias, cast
+from typing import Any, ClassVar, TypeAlias
 
 from loguru import logger
 from semver.version import Version
 from typing_extensions import Self
 
-from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.datasets.source import LuxonisSource
 from luxonis_ml.data.utils.enums import BucketStorage, ParserIssueMessage
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
@@ -23,6 +25,11 @@ DATASETS_REGISTRY: Registry[type["BaseDataset"]] = Registry(name="datasets")
 
 
 DatasetIterator: TypeAlias = Iterator[dict | DatasetRecord]
+SplitDefinition: TypeAlias = (
+    Mapping[str, Sequence[PathType]]
+    | Mapping[str, float]
+    | tuple[float, float, float]
+)
 
 
 def _prepare_import_records(
@@ -44,6 +51,9 @@ def _prepare_import_records(
         selected_files: When given, only records naming one of these files
             are kept.
         split_files: Filled with the ordered, unique files of each split.
+
+    Raises:
+        ValueError: If a class name has no task mapping.
 
     Yields:
         Records to add to the dataset.
@@ -119,10 +129,17 @@ def _record_files(item: dict | DatasetRecord) -> Iterator[PathType]:
 
 
 def _peek(records: DatasetIterator) -> DatasetIterator:
-    """Return ``records``, raising if it yields nothing.
+    """Return records after checking that the iterator is not empty.
 
-    Pulling the first record before anything is written keeps an empty
-    source failing before a dataset is populated.
+    Args:
+        records: Records to check.
+
+    Returns:
+        The records, including the item consumed by the check.
+
+    Raises:
+        ValueError: If the iterator is empty.
+
     """
     first = next(records, None)
     if first is None:
@@ -137,6 +154,10 @@ def _delete_replaces_dataset(dataset_kwargs: Mapping[str, Any]) -> bool:
     the bucket holds is still the dataset that was already there, so an
     import given nothing but that flag has not made the dataset its own
     and may not delete it when it fails.
+
+    Returns:
+        Whether the constructor flags replace the stored dataset.
+
     """
     # `or` rather than a default, so that an explicit `bucket_storage=None`
     # reads as local instead of failing the enum lookup.
@@ -149,6 +170,43 @@ def _delete_replaces_dataset(dataset_kwargs: Mapping[str, Any]) -> bool:
         if is_remote
         else dataset_kwargs.get("delete_local")
     )
+
+
+def _open_import_dataset(
+    dataset_class: Any,
+    dataset_name: str,
+    dataset_kwargs: Mapping[str, Any],
+) -> tuple[Any, bool]:
+    """Open the target dataset and determine cleanup ownership.
+
+    Args:
+        dataset_class: Concrete dataset class to instantiate.
+        dataset_name: Name of the imported dataset.
+        dataset_kwargs: Arguments passed to the dataset constructor.
+
+    Returns:
+        The dataset and whether this import may delete it after failure.
+
+    """
+    # The constructor opens an existing dataset of that name rather
+    # than replacing it, so whether this import created the dataset
+    # decides whether the failure handler below may delete it. Being
+    # asked to delete the old one first makes it this import's again.
+    exists_parameters = inspect.signature(dataset_class.exists).parameters
+    replaces_existing = _delete_replaces_dataset(dataset_kwargs)
+    created_now = replaces_existing or not dataset_class.exists(
+        dataset_name,
+        **{
+            name: value
+            for name, value in dataset_kwargs.items()
+            if name in exists_parameters
+        },
+    )
+    dataset = dataset_class(
+        dataset_name=dataset_name,
+        **dataset_kwargs,
+    )
+    return dataset, created_now
 
 
 def _validate_split_ratios(
@@ -211,6 +269,16 @@ def _enumerate_by_parsing(
     The fallback for a parser that cannot enumerate its files without
     parsing them. It costs a full extra parse, so it runs only for
     count-based `split_ratios`.
+
+    Args:
+        plugin: Parser plugin instance.
+        source: Prepared dataset source.
+        layout: Layout detected by the parser plugin.
+        parser_kwargs: Format-specific parser keyword arguments.
+
+    Returns:
+        Files grouped by source split.
+
     """
     collected: dict[str | None, dict[Path, None]] = {}
     result = plugin.parse(source, layout, **parser_kwargs)
@@ -219,6 +287,140 @@ def _enumerate_by_parsing(
         for file in _record_files(raw_record):
             files_of_split[Path(file)] = None
     return {name: list(files) for name, files in collected.items()}
+
+
+def _select_count_splits(
+    plugin: Any,
+    source: Path,
+    layout: Any,
+    parser_kwargs: dict[str, Any],
+    count_ratios: dict[str, int],
+    *,
+    has_original_splits: bool,
+) -> tuple[dict[str, Sequence[PathType]], set[Path]]:
+    """Select requested sample counts before records are imported.
+
+    Args:
+        plugin: Parser plugin instance.
+        source: Prepared dataset source.
+        layout: Layout detected by the parser plugin.
+        parser_kwargs: Format-specific parser keyword arguments.
+        count_ratios: Requested sample count per canonical split.
+        has_original_splits: Whether the source defines named splits.
+
+    Returns:
+        Selected files grouped by split and their absolute paths.
+
+    """
+    from luxonis_ml.data.parsers.parser_plugin import (
+        apply_counts_to_pool,
+        apply_counts_to_splits,
+    )
+
+    enumerated = plugin.enumerate_files(source, layout, **parser_kwargs)
+    if enumerated is None:
+        enumerated = _enumerate_by_parsing(
+            plugin, source, layout, parser_kwargs
+        )
+    if has_original_splits:
+        selected_splits = apply_counts_to_splits(
+            {
+                name: files
+                for name, files in enumerated.items()
+                if name is not None
+            },
+            count_ratios,
+        )
+    else:
+        selected_splits = apply_counts_to_pool(
+            [file for files in enumerated.values() for file in files],
+            count_ratios,
+        )
+    selected_files = {
+        Path(file).absolute()
+        for files in selected_splits.values()
+        for file in files
+    }
+    return selected_splits, selected_files
+
+
+def _apply_skeletons(
+    dataset: Any,
+    skeletons: Mapping[str, Mapping[str, Any]],
+) -> None:
+    """Apply parser skeletons to their matching tasks.
+
+    Args:
+        dataset: Dataset populated by the parser records.
+        skeletons: Skeleton metadata keyed by task name.
+
+    """
+    # Skeletons are keyed by the task the parser saw, which `task_name` may
+    # have renamed. Routing a skeleton to its own task keeps a source with
+    # several keypoint tasks from having them all overwritten by whichever
+    # one came last; an unknown key falls back to updating every task.
+    known_tasks = set(dataset.get_task_names())
+    for skeleton_task, skeleton in skeletons.items():
+        dataset.set_skeletons(
+            skeleton.get("labels"),
+            skeleton.get("edges"),
+            task=skeleton_task if skeleton_task in known_tasks else None,
+        )
+
+
+def _apply_import_splits(
+    dataset: Any,
+    *,
+    split: str | None,
+    selected_splits: dict[str, Sequence[PathType]] | None,
+    split_ratios: dict[str, float | int] | None,
+    has_original_splits: bool,
+    split_files: Mapping[str | None, Mapping[Path, None]],
+    random_split: bool,
+) -> None:
+    """Apply explicit, sampled, original, or random splits.
+
+    Args:
+        dataset: Dataset populated by the parser records.
+        split: Optional split assigned to every imported file.
+        selected_splits: Splits selected from count-based requests.
+        split_ratios: Ratios or counts supplied by the caller.
+        has_original_splits: Whether the source defines named splits.
+        split_files: Imported files grouped by their source split.
+        random_split: Whether to split a source without named splits.
+
+    """
+    if split is not None:
+        dataset.make_splits(
+            {split: [file for files in split_files.values() for file in files]}
+        )
+    elif selected_splits is not None:
+        dataset.make_splits(selected_splits)
+    elif split_ratios is not None:
+        # Counts are consumed above, so only percentages reach here.
+        if has_original_splits:
+            logger.warning(
+                "Using percentage-based split ratios will "
+                "redistribute and shuffle all samples across "
+                "splits. Original split boundaries will not be "
+                "preserved."
+            )
+        # `make_splits` tells ratios from counts by the type of the first
+        # value alone, so a mixed mapping would use the default ratios.
+        dataset.make_splits(
+            {name: float(value) for name, value in split_ratios.items()}
+        )
+    elif has_original_splits:
+        # A source with original splits defines all three, even the ones it
+        # left empty: a train-only dataset still reports an empty `val` and
+        # `test` rather than omitting them.
+        original_splits: dict[str, Sequence[PathType]] = {
+            name: list(split_files.get(name, {}))
+            for name in ("train", "val", "test")
+        }
+        dataset.make_splits(original_splits)
+    elif random_split:
+        dataset.make_splits(None)
 
 
 class BaseDataset(
@@ -277,11 +479,12 @@ class BaseDataset(
         Returns:
             Newly created and populated dataset.
 
+        Raises:
+            ValueError: If the source or import configuration is invalid.
+
         """
         from luxonis_ml.data.parsers.parser_plugin import (
             ParseIssueCollector,
-            apply_counts_to_pool,
-            apply_counts_to_splits,
             get_parser_plugin,
         )
         from luxonis_ml.data.parsers.source import prepare_source
@@ -300,7 +503,6 @@ class BaseDataset(
         # Resolved before the dataset is created so that invalid arguments do
         # not leave an empty dataset behind.
         count_ratios = _validate_split_ratios(split_ratios)
-        is_counts = count_ratios is not None
 
         resolved_name = (
             dataset_name
@@ -311,23 +513,10 @@ class BaseDataset(
                 f"Could not derive a dataset name from source '{source}'. "
                 "Pass `dataset_name` explicitly."
             )
-        # The constructor opens an existing dataset of that name rather
-        # than replacing it, so whether this import created the dataset
-        # decides whether the failure handler below may delete it. Being
-        # asked to delete the old one first makes it this import's again.
-        exists_parameters = inspect.signature(cls.exists).parameters
-        replaces_existing = _delete_replaces_dataset(dataset_kwargs)
-        created_now = replaces_existing or not cls.exists(
+        dataset, created_now = _open_import_dataset(
+            cls,
             resolved_name,
-            **{
-                name: value
-                for name, value in dataset_kwargs.items()
-                if name in exists_parameters
-            },
-        )
-        dataset = cast(Any, cls)(
-            dataset_name=resolved_name,
-            **dataset_kwargs,
+            dataset_kwargs,
         )
         issues = ParseIssueCollector(full_warnings=full_warnings)
         plugin = plugin_type(issues)
@@ -336,7 +525,7 @@ class BaseDataset(
             resolved_parser_kwargs = dict(parser_kwargs or {})
             if (
                 split is None
-                and is_counts
+                and count_ratios is not None
                 and "split_val_to_test" not in resolved_parser_kwargs
                 and "split_val_to_test"
                 in inspect.signature(plugin.parse).parameters
@@ -350,38 +539,14 @@ class BaseDataset(
             # Counts are an explicit request to sample, so they are honoured
             # even when `random_split` turned automatic splitting off.
             if split is None and count_ratios is not None:
-                # The only feature that has to know the files before a
-                # record is added.
-                enumerated = plugin.enumerate_files(
-                    source_path, layout, **resolved_parser_kwargs
+                selected_splits, selected_files = _select_count_splits(
+                    plugin,
+                    source_path,
+                    layout,
+                    resolved_parser_kwargs,
+                    count_ratios,
+                    has_original_splits=has_original_splits,
                 )
-                if enumerated is None:
-                    enumerated = _enumerate_by_parsing(
-                        plugin, source_path, layout, resolved_parser_kwargs
-                    )
-                if has_original_splits:
-                    selected_splits = apply_counts_to_splits(
-                        {
-                            name: files
-                            for name, files in enumerated.items()
-                            if name is not None
-                        },
-                        count_ratios,
-                    )
-                else:
-                    selected_splits = apply_counts_to_pool(
-                        [
-                            file
-                            for files in enumerated.values()
-                            for file in files
-                        ],
-                        count_ratios,
-                    )
-                selected_files = {
-                    Path(file).absolute()
-                    for files in selected_splits.values()
-                    for file in files
-                }
 
             parsed = plugin.parse(
                 source_path,
@@ -397,62 +562,17 @@ class BaseDataset(
             )
             dataset.add(_peek(records))
 
-            # Skeletons are keyed by the task the parser saw, which
-            # `task_name` may have renamed. Routing a skeleton to its own
-            # task keeps a source with several keypoint tasks from having
-            # them all overwritten by whichever one came last; a key that
-            # matches no task can only fall back to updating every task.
-            known_tasks = set(dataset.get_task_names())
-            for skeleton_task, skeleton in parsed.skeletons.items():
-                dataset.set_skeletons(
-                    skeleton.get("labels"),
-                    skeleton.get("edges"),
-                    task=skeleton_task
-                    if skeleton_task in known_tasks
-                    else None,
-                )
+            _apply_skeletons(dataset, parsed.skeletons)
 
-            if split is not None:
-                dataset.make_splits(
-                    {
-                        split: [
-                            file
-                            for files in split_files.values()
-                            for file in files
-                        ]
-                    }
-                )
-            elif selected_splits is not None:
-                dataset.make_splits(selected_splits)
-            elif split_ratios is not None:
-                # Counts are consumed above, so only percentages reach here.
-                if has_original_splits:
-                    logger.warning(
-                        "Using percentage-based split ratios will "
-                        "redistribute and shuffle all samples across "
-                        "splits. Original split boundaries will not be "
-                        "preserved."
-                    )
-                # `make_splits` tells ratios from counts by the type of the
-                # first value alone, so a mapping mixing the two would
-                # silently fall back to the default ratios.
-                dataset.make_splits(
-                    {
-                        name: float(value)
-                        for name, value in split_ratios.items()
-                    }
-                )
-            elif has_original_splits:
-                # A source with original splits defines all three, even the
-                # ones it left empty: a train-only dataset still reports an
-                # empty `val` and `test` rather than omitting them.
-                original_splits: dict[str, Sequence[PathType]] = {
-                    name: list(split_files.get(name, {}))
-                    for name in ("train", "val", "test")
-                }
-                dataset.make_splits(original_splits)
-            elif random_split:
-                dataset.make_splits(None)
+            _apply_import_splits(
+                dataset,
+                split=split,
+                selected_splits=selected_splits,
+                split_ratios=split_ratios,
+                has_original_splits=has_original_splits,
+                split_files=split_files,
+                random_split=random_split,
+            )
 
             logger.info("Dataset imported successfully.")
         except Exception:
@@ -634,27 +754,46 @@ class BaseDataset(
     @abstractmethod
     def make_splits(
         self,
-        splits: dict[str, Sequence[PathType]]
-        | dict[str, float]
-        | tuple[float, float, float]
-        | None = None,
+        splits: SplitDefinition | None = None,
         *,
-        ratios: dict[str, float] | tuple[float, float, float] | None = None,
-        definitions: dict[str, list[PathType]] | None = None,
         replace_old_splits: bool = False,
     ) -> None:
-        """Generate dataset splits.
+        """Create dataset splits for training, validation, and testing.
+
+        Note:
+            Although ``"train"``, ``"val"``, and ``"test"``
+            are the conventional split names, you can use any split names
+            you want by providing a mapping to the ``splits`` argument.
+            This can be useful for combining records from multiple
+            sources (``"train_real"``, ``"train_synth"``) or for
+            creating fully custom splits.
 
         Args:
-            splits: Split definitions or ratios. Accepts explicit
-                filepath lists, split ratios keyed by split name, or a
-                ``(train, val, test)`` ratio tuple.
-            ratios: Optional deprecated split ratios. Use ``splits``
-                instead.
-            definitions: Optional deprecated filepath split definitions.
-                Use ``splits`` instead.
-            replace_old_splits: Whether to replace existing split
-                assignments instead of adding only new files.
+            splits: A mapping defining the splits. Can be one of the following:
+
+                - A mapping of split names to lists of file paths.
+                - A mapping of split names to ratios.
+                - A tuple of three ratios for train, val, and test splits.
+
+                A ratio is a number from 0 to 1, and the ratios sum to
+                1. ``1`` and ``1.0`` both work.
+
+            replace_old_splits: Whether to replace old splits with new ones.
+                If ``False`` (default), new splits are added to the existing
+                splits. If ``True``, the existing splits are discarded first.
+
+        Raises:
+            TypeError: If the mapping values are neither ratios nor
+                filepath lists.
+            TypeCheckError: If ``splits`` does not match its type, for
+                example a filepath list with an element that is not a
+                filepath.
+            ValueError: If ``splits`` is provided but is empty.
+            ValueError: If the ratios are outside the range from 0 to 1 or
+                do not sum to 1.
+            ValueError: If split ratios are used but all the data already
+                belongs to a split while ``replace_old_splits`` is ``False``.
+            FileNotFoundError: If the dataset is empty.
 
         """
         ...

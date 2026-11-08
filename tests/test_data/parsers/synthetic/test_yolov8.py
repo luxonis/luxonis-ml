@@ -132,7 +132,7 @@ def _write_yolo8_split(
     if kpt_shape is not None:
         data["kpt_shape"] = kpt_shape
     classes_path = root.parent / f"{root.name}.yaml"
-    classes_path.write_text(cast(str, yaml.safe_dump(data)))
+    classes_path.write_text(cast("str", yaml.safe_dump(data)))
     return image_dir, annotation_dir, classes_path
 
 

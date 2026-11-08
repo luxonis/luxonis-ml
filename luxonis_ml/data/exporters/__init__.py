@@ -1,5 +1,15 @@
 """Exporters that convert LDF datasets to external formats.
 
+`LuxonisDataset.export` picks the exporter for the requested format:
+
+.. python::
+
+    from luxonis_ml.data import LuxonisDataset
+    from luxonis_ml.enums import DatasetType
+
+    dataset = LuxonisDataset("parking_lot")
+    dataset.export("exports", dataset_type=DatasetType.COCO)
+
 This package contains exporter implementations for writing Luxonis Data Format
 (LDF) datasets into common annotation formats used by training frameworks,
 dataset tools, and interchange workflows. Exporters operate on prepared LDF
@@ -34,7 +44,9 @@ metadata, and media paths used by concrete exporters.
      - Native LDF and Ultralytics NDJSON interchange formats.
 
 `NativeExporter` preserves **record-level metadata** by writing
-``sample_metadata`` objects into native LDF ``annotations.json`` files.
+``sample_metadata`` objects into native LDF ``annotations.json`` files. It
+can also target an older LDF version, so an export stays readable by an
+older luxonis-ml -- see `luxonis_ml.data.exporters.ldf_downgrade`.
 """
 
 from .base_exporter import BaseExporter

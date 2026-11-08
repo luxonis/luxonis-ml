@@ -1,3 +1,5 @@
+"""Helpers that detect NN Archive files and infer tensor layouts."""
+
 import tarfile
 from pathlib import Path
 

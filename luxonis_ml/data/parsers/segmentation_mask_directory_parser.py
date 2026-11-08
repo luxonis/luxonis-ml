@@ -1,3 +1,5 @@
+"""Parser for segmentation datasets stored as mask images."""
+
 import os
 import re
 from collections.abc import Iterator
@@ -7,6 +9,7 @@ from typing import Any
 import cv2
 import numpy as np
 import polars as pl
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 
@@ -31,7 +34,26 @@ class SegmentationMaskDirectoryParser(SplitParserPlugin):
         ├── valid/
         └── test/
 
-    ``_classes.csv`` maps pixel values to class names.
+    ``_classes.csv`` maps pixel values to class names::
+
+        Pixel Value, Class
+        0, background
+        1, class1
+        2, class2
+
+    The parser reads only the class-name column. That column must be
+    named ``" Class"`` with a leading space, which is the header that
+    Roboflow writes. The name of the pixel-value column does not matter,
+    because the parser never reads it. The row order gives the pixel
+    value, so the first row describes pixel value 0.
+
+    The parser does not remove the whitespace from the class names. The
+    row ``0, background`` gives the class name ``" background"``, with
+    the leading space.
+
+    The parser reads each mask as an 8-bit grayscale image. Each distinct
+    pixel value becomes one class. The parser takes the class name from
+    that row of the class-name column.
 
     This is one of the formats that Roboflow can generate.
     """
@@ -39,6 +61,7 @@ class SegmentationMaskDirectoryParser(SplitParserPlugin):
     dataset_types = ("segmask",)
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -97,6 +120,7 @@ class SegmentationMaskDirectoryParser(SplitParserPlugin):
             pass
         return entries, by_prefix
 
+    @override
     def _split_files(
         self, image_dir: Path, seg_dir: Path, classes_path: Path
     ) -> list[Path]:
@@ -127,6 +151,7 @@ class SegmentationMaskDirectoryParser(SplitParserPlugin):
             )
         )
 
+    @override
     def _split_records(
         self, image_dir: Path, seg_dir: Path, classes_path: Path
     ) -> DatasetIterator:

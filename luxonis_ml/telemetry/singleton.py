@@ -1,3 +1,9 @@
+"""Shared telemetry instances, one for each library and component.
+
+`get_or_init` creates an instance once and reuses it later. The
+optional exit handler shuts down every instance at exit.
+"""
+
 import atexit
 import threading
 from contextlib import suppress
@@ -15,6 +21,14 @@ from luxonis_ml.telemetry.config import TelemetryConfig
 
 @dataclass(frozen=True)
 class TelemetryKey:
+    """Lookup key of one shared `Telemetry` instance.
+
+    Attributes:
+        library_name: Name of the library that emits telemetry.
+        source_component: Name of the emitting component.
+
+    """
+
     library_name: str
     source_component: str
 
@@ -52,6 +66,20 @@ def get_or_init(
     Returns:
         The existing or newly initialized telemetry instance for the
         ``(library_name, source_component)`` key.
+
+    Note:
+        A second call for the same key does not rebuild the instance,
+        and it reconciles the arguments in two different ways:
+
+            - ``config`` and ``library_version`` are immutable. A value
+              that differs from the existing one is ignored, and the
+              function logs a warning.
+            - ``context_providers`` and ``system_context_providers``
+              are additive. New providers are merged into the existing
+              instance.
+
+        This lets several integration points contribute telemetry
+        context without a rebuild of the singleton.
 
     """
     with _singleton_lock:
@@ -203,9 +231,7 @@ def _reconcile_existing_telemetry(
     context_providers: list[ContextProvider] | None,
     system_context_providers: list[SystemContextProvider] | None,
 ) -> None:
-    """Merge additive inputs and warn when immutable args are
-    ignored.
-    """
+    """Merge additive inputs and warn when immutable args are ignored."""
     resolved_source_component = _resolve_source_component(
         library_name=library_name,
         source_component=source_component,

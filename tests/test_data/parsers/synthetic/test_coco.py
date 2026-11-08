@@ -247,6 +247,27 @@ def _write_coco_split(
     return image_dir, annotation_path
 
 
+def test_coco_split_prefers_the_roboflow_annotation_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Directory order must not decide which JSON file is used."""
+    split = tmp_path / "roboflow_split"
+    split.mkdir()
+    data = _coco_data([], categories=[])
+    annotation = split / "_annotations.coco.json"
+    annotation.write_text(json.dumps(data), encoding="utf-8")
+    extra = split / "extra.json"
+    extra.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(Path, "glob", lambda *_: iter([extra, annotation]))
+
+    parser = _plugin(COCOParser)
+    assert parser.validate_split(split) == {
+        "image_dir": split,
+        "annotation_path": annotation,
+        "annotation_data": data,
+    }
+
+
 def test_coco_split_source_rejects_unknown_parser_kwargs(
     dataset_name: str,
     tempdir: Path,
@@ -1002,7 +1023,7 @@ def test_coco_records_stream_one_segmentation_at_a_time(
     first = next(iter(records))
     assert len(decoded_polygons) == 1
 
-    collected = cast(list[dict[str, Any]], [first, *records])
+    collected = cast("list[dict[str, Any]]", [first, *records])
     assert len(decoded_polygons) == 2
     files = list(dict.fromkeys(record["file"] for record in collected))
     assert [file.name for file in files] == ["one.jpg", "two.jpg"]
@@ -1243,16 +1264,16 @@ def test_coco_write_json_matches_json_dump(tmp_path: Path):
     }
 
     chunked = tmp_path / "chunked.json"
-    with open(chunked, "w") as file:
+    with chunked.open("w", encoding="utf-8") as file:
         coco_parser_module._write_json(file, payload)
     dumped = tmp_path / "dumped.json"
-    with open(dumped, "w") as file:
+    with dumped.open("w", encoding="utf-8") as file:
         json.dump(payload, file)
     assert chunked.read_text() == dumped.read_text()
 
     for value in ([], {}, "text", 3, None, [[]], {"a": []}):
         single = tmp_path / "single.json"
-        with open(single, "w") as file:
+        with single.open("w", encoding="utf-8") as file:
             coco_parser_module._write_json(file, value)
         assert single.read_text() == json.dumps(value)
 
@@ -1280,7 +1301,7 @@ def test_coco_write_json_does_not_buffer_the_whole_file(tmp_path: Path):
     written = tmp_path / "chunked.json"
     tracemalloc.start()
     try:
-        with open(written, "w") as file:
+        with written.open("w", encoding="utf-8") as file:
             coco_parser_module._write_json(file, payload)
         _, peak = tracemalloc.get_traced_memory()
     finally:

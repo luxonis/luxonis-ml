@@ -240,7 +240,7 @@ def test_darknet_streams_records_tagged_with_their_split(
 
     result = parser.parse(tmp_path, layout)
     tagged = cast(
-        list[tuple[str | None, dict[str, Any]]], list(result.records)
+        "list[tuple[str | None, dict[str, Any]]]", list(result.records)
     )
     assert Counter(split for split, _ in tagged) == Counter(
         {"train": 3, "val": 3, "test": 3}

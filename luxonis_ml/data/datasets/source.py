@@ -1,11 +1,17 @@
+"""Deprecated models for the sources and components of a dataset."""
+
 from typing import Any
 
 from pydantic import Field, field_validator
+from typing_extensions import deprecated
 
 from luxonis_ml.data.utils import ImageType, MediaType
 from luxonis_ml.typing import BaseModelExtraForbid
 
 
+@deprecated(
+    "LuxonisComponent is deprecated and will be removed in a future release."
+)
 class LuxonisComponent(BaseModelExtraForbid):
     """Media component within a source.
 
@@ -16,6 +22,9 @@ class LuxonisComponent(BaseModelExtraForbid):
         media_type: Media kind represented by the component.
         image_type: Image kind. Only used for image media.
 
+    .. deprecated:: 0.10.0
+        LuxonisComponent is deprecated and will be removed in a future release.
+
     """
 
     name: str
@@ -23,6 +32,9 @@ class LuxonisComponent(BaseModelExtraForbid):
     image_type: ImageType = ImageType.COLOR
 
 
+@deprecated(
+    "LuxonisSource is deprecated and will be removed in a future release."
+)
 class LuxonisSource(BaseModelExtraForbid):
     """Source definition for a dataset.
 
@@ -37,6 +49,9 @@ class LuxonisSource(BaseModelExtraForbid):
             target.
 
     .. _OAK-D: https://docs.luxonis.com/projects/hardware/en/latest/pages/BW1098OAK/
+
+    .. deprecated:: 0.10.0
+        LuxonisSource is deprecated and will be removed in a future release.
 
     """
 
@@ -95,9 +110,6 @@ class LuxonisSource(BaseModelExtraForbid):
     @classmethod
     def _validate_components(cls, components: Any) -> Any:
         if isinstance(components, list):
-            migrated_components = {}
-            for component in components:
-                component = LuxonisComponent(**component)
-                migrated_components[component.name] = component
-            return migrated_components
+            migrated = [LuxonisComponent(**c) for c in components]
+            return {component.name: component for component in migrated}
         return components

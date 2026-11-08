@@ -1,3 +1,5 @@
+"""Parser for datasets in the Ultralytics NDJSON format."""
+
 import hashlib
 import json
 from collections.abc import Iterator
@@ -31,6 +33,19 @@ class UltralyticsNDJSONParser(ParserPlugin):
     NDJSON records may carry their own split names. When no split is
     present on an image record, the image is assigned to ``"train"``.
     ``"valid"`` and ``"validation"`` are normalized to ``"val"``.
+
+    An image record locates its image through two fields:
+
+        - ``file`` names a local image. A relative path resolves against
+          the directory that holds the ``.ndjson`` manifest. An absolute
+          path is used as it is.
+        - ``url`` names a remote image. The parser downloads it, and
+          ``file`` then supplies only the cached file name. The parser
+          appends a hash of the URL to that name and writes the image to
+          a per-split cache directory.
+
+    A record that holds a ``url`` therefore never reads a local ``file``
+    path. One manifest can describe a fully remote dataset.
     """
 
     dataset_types = (
@@ -154,16 +169,9 @@ class UltralyticsNDJSONParser(ParserPlugin):
         for record in self._iter_image_records(ndjson_path):
             url = record.get("url")
             if url and not remote_image_dir_checked:
-                if remote_image_dir.exists():
-                    if not reuse_cached:
-                        raise ValueError(
-                            f"Remote NDJSON image directory "
-                            f"'{remote_image_dir}' already exists."
-                        )
-                    logger.warning(
-                        f"Reusing existing remote NDJSON image "
-                        f"directory '{remote_image_dir}'."
-                    )
+                _check_remote_image_dir(
+                    remote_image_dir, reuse_cached=reuse_cached
+                )
                 remote_image_dir_checked = True
 
             image_path = self._resolve_image_path(
@@ -181,112 +189,71 @@ class UltralyticsNDJSONParser(ParserPlugin):
                 continue
 
             split_name = self._normalize_split_name(record.get("split"))
-            annotations = record.get("annotations") or {}
-            instance_id = 0
-            yielded_annotation = False
             image_file = str(image_path)
+            for file_record in _file_records(
+                image_file,
+                self._record_annotations(record, class_names, kpt_shape),
+            ):
+                yield split_name, file_record
 
-            for box in annotations.get("boxes", []):
-                class_id, x_center, y_center, width, height = box
-                yielded_annotation = True
-                yield (
-                    split_name,
-                    {
-                        "file": image_file,
-                        "annotation": {
-                            "class": class_names[int(class_id)],
-                            "instance_id": instance_id,
-                            "boundingbox": centered_box(
-                                x_center, y_center, width, height
-                            ),
-                        },
-                    },
-                )
-                instance_id += 1
+    @classmethod
+    def _record_annotations(
+        cls,
+        record: dict[str, Any],
+        class_names: dict[int, str],
+        kpt_shape: tuple[int, int] | None,
+    ) -> Iterator[dict[str, Any]]:
+        """Yield the LDF annotations of one image record.
 
-            for segment in annotations.get("segments", []):
-                class_id, *points = segment
-                points_array = np.array(points, dtype=float).reshape(-1, 2)
-                yielded_annotation = True
-                yield (
-                    split_name,
-                    {
-                        "file": image_file,
-                        "annotation": {
-                            "class": class_names[int(class_id)],
-                            "instance_id": instance_id,
-                            "boundingbox": self._fit_boundingbox(points_array),
-                            "instance_segmentation": {
-                                "height": int(record["height"]),
-                                "width": int(record["width"]),
-                                "points": list(
-                                    map(tuple, points_array.tolist())
-                                ),
-                            },
-                        },
-                    },
-                )
-                instance_id += 1
+        Boxes come first, then segments, then poses. The instance IDs
+        count up across the three kinds.
 
-            for pose in annotations.get("pose", []):
-                (
-                    class_id,
-                    x_center,
-                    y_center,
-                    width,
-                    height,
-                    *keypoints,
-                ) = pose
-                if kpt_shape is None:
-                    if len(keypoints) % 3 != 0:
-                        raise ValueError(
-                            "Ultralytics NDJSON pose annotations require "
-                            "`kpt_shape` in the dataset header when the "
-                            "keypoint dimensionality is not inferable."
-                        )
-                    n_kpts = len(keypoints) // 3
-                    kpt_dim = 3
-                else:
-                    n_kpts, kpt_dim = kpt_shape
+        Yields:
+            One annotation per box, segment or pose, with the class name,
+            the instance ID and a bounding box. A segment also holds its
+            polygon and the image size, and a pose its keypoints.
 
-                keypoints_array = np.array(keypoints, dtype=float).reshape(
-                    n_kpts, kpt_dim
-                )
-                if kpt_dim == 2:
-                    # Annotations without a visibility column are fully
-                    # visible.
-                    keypoint_values = [
-                        (x, y, 2) for x, y in keypoints_array.tolist()
-                    ]
-                else:
-                    keypoint_values = [
-                        (x, y, int(v)) for x, y, v in keypoints_array.tolist()
-                    ]
+        """
+        annotations = record.get("annotations") or {}
+        instance_id = 0
+        for box in annotations.get("boxes", []):
+            class_id, x_center, y_center, width, height = box
+            yield {
+                "class": class_names[int(class_id)],
+                "instance_id": instance_id,
+                "boundingbox": centered_box(x_center, y_center, width, height),
+            }
+            instance_id += 1
 
-                yielded_annotation = True
-                yield (
-                    split_name,
-                    {
-                        "file": image_file,
-                        "annotation": {
-                            "class": class_names[int(class_id)],
-                            "instance_id": instance_id,
-                            "boundingbox": centered_box(
-                                x_center, y_center, width, height
-                            ),
-                            "keypoints": {"keypoints": keypoint_values},
-                        },
-                    },
-                )
-                instance_id += 1
+        for class_id, *points in annotations.get("segments", []):
+            points_array = np.array(points, dtype=float).reshape(-1, 2)
+            yield {
+                "class": class_names[int(class_id)],
+                "instance_id": instance_id,
+                "boundingbox": cls._fit_boundingbox(points_array),
+                "instance_segmentation": {
+                    "height": int(record["height"]),
+                    "width": int(record["width"]),
+                    "points": list(map(tuple, points_array.tolist())),
+                },
+            }
+            instance_id += 1
 
-            if not yielded_annotation:
-                yield split_name, {"file": image_file, "annotation": None}
+        for pose in annotations.get("pose", []):
+            class_id, x_center, y_center, width, height, *keypoints = pose
+            keypoint_values = _pose_keypoints(keypoints, kpt_shape)
+            yield {
+                "class": class_names[int(class_id)],
+                "instance_id": instance_id,
+                "boundingbox": centered_box(x_center, y_center, width, height),
+                "keypoints": {"keypoints": keypoint_values},
+            }
+            instance_id += 1
 
     @staticmethod
     def _iter_image_records(ndjson_path: Path) -> Iterator[dict[str, Any]]:
         """Yield image records one line at a time."""
-        with open(ndjson_path, encoding="utf-8-sig") as file:
+        with ndjson_path.open(encoding="utf-8-sig") as file:
             for raw_line in file:
                 line = raw_line.strip()
                 if not line:
@@ -323,7 +290,7 @@ class UltralyticsNDJSONParser(ParserPlugin):
         dataset_record = None
         has_image_record = False
         try:
-            with open(ndjson_path, encoding="utf-8-sig") as file:
+            with ndjson_path.open(encoding="utf-8-sig") as file:
                 for raw_line in file:
                     line = raw_line.strip()
                     if not line:
@@ -438,3 +405,65 @@ class UltralyticsNDJSONParser(ParserPlugin):
             "w": x_max - x_min,
             "h": y_max - y_min,
         }
+
+
+def _check_remote_image_dir(
+    remote_image_dir: Path, *, reuse_cached: bool
+) -> None:
+    """Refuse or announce the reuse of a download directory that exists."""
+    if not remote_image_dir.exists():
+        return
+    if not reuse_cached:
+        raise ValueError(
+            f"Remote NDJSON image directory '{remote_image_dir}' already exists."
+        )
+    logger.warning(
+        f"Reusing existing remote NDJSON image directory '{remote_image_dir}'."
+    )
+
+
+def _file_records(
+    file: str, annotations: Iterator[dict[str, Any]]
+) -> DatasetIterator:
+    """Yield one record per annotation, or one record without labels."""
+    yielded_annotation = False
+    for annotation in annotations:
+        yielded_annotation = True
+        yield {"file": file, "annotation": annotation}
+    if not yielded_annotation:
+        yield {"file": file, "annotation": None}
+
+
+def _pose_keypoints(
+    keypoints: list[Any], kpt_shape: tuple[int, int] | None
+) -> list[tuple[float, float, int]]:
+    """Reshape a flat keypoint list into ``(x, y, visibility)`` rows.
+
+    Pairs get full visibility.
+
+    Returns:
+        One ``(x, y, visibility)`` triplet per keypoint.
+
+    Raises:
+        ValueError: If the length of ``keypoints`` does not fit
+            ``kpt_shape`` or, without a ``kpt_shape``, is not a multiple
+            of 3.
+
+    """
+    if kpt_shape is None:
+        if len(keypoints) % 3 != 0:
+            raise ValueError(
+                "Ultralytics NDJSON pose annotations require "
+                "`kpt_shape` in the dataset header when the "
+                "keypoint dimensionality is not inferable."
+            )
+        n_kpts, kpt_dim = len(keypoints) // 3, 3
+    else:
+        n_kpts, kpt_dim = kpt_shape
+
+    keypoints_array = np.array(keypoints, dtype=float).reshape(n_kpts, kpt_dim)
+    if kpt_dim == 2:
+        # Annotations without a visibility column are fully
+        # visible.
+        return [(x, y, 2) for x, y in keypoints_array.tolist()]
+    return [(x, y, int(v)) for x, y, v in keypoints_array.tolist()]

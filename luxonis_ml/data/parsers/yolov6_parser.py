@@ -1,3 +1,5 @@
+"""Parser for datasets in the YOLOv6 format."""
+
 from pathlib import Path
 from typing import Any, cast
 
@@ -40,6 +42,7 @@ class YoloV6Parser(SplitParserPlugin):
     dataset_types = ("yolov6",)
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         label_split = split_path.parent.parent / "labels" / split_path.name
         if not split_path.exists():
@@ -142,8 +145,8 @@ class YoloV6Parser(SplitParserPlugin):
             One record per annotation, and one per unannotated image.
 
         """
-        with open(classes_path, encoding="utf-8") as f:
-            classes_data = cast(dict[str, Any], yaml.safe_load(f))
+        with classes_path.open(encoding="utf-8") as f:
+            classes_data = cast("dict[str, Any]", yaml.safe_load(f))
         # YOLO `data.yaml` files declare `names` either as a sequence or
         # as an index-to-name mapping; the YOLOv8 parser accepts both, so
         # the two must agree on the same file.
@@ -163,7 +166,7 @@ class YoloV6Parser(SplitParserPlugin):
 
                 annotation_data = []
                 if ann_path.exists():
-                    with open(ann_path, encoding="utf-8") as f:
+                    with ann_path.open(encoding="utf-8") as f:
                         annotation_data = f.readlines()
 
                 if not annotation_data:

@@ -1,9 +1,12 @@
+"""Parser for classification datasets with one directory per class."""
+
 import os
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 
@@ -69,6 +72,7 @@ class ClassificationDirectoryParser(SplitParserPlugin):
         ]
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -152,6 +156,7 @@ class ClassificationDirectoryParser(SplitParserPlugin):
             resolved_dir, tails = self._resolve_listed(class_path, images)
             yield class_path.name, resolved_dir, tails
 
+    @override
     def _split_records(self, class_dir: Path) -> DatasetIterator:
         """Parse classification-directory annotations into LDF records.
 
@@ -175,6 +180,7 @@ class ClassificationDirectoryParser(SplitParserPlugin):
                     "annotation": {"class": class_name},
                 }
 
+    @override
     def _split_files(self, class_dir: Path) -> list[Path]:
         """List the images of one split without building its records.
 

@@ -1,3 +1,5 @@
+"""Deprecated compatibility facade for dataset-owned imports."""
+
 import warnings
 from pathlib import Path
 from typing import Any, Generic, TypeVar, overload
@@ -37,6 +39,29 @@ class LuxonisParser(Generic[T]):
         full_warnings: bool = False,
         **kwargs: Any,
     ) -> None:
+        """Configure a dataset import through the dataset-owned API.
+
+        Args:
+            dataset_dir: Local path, supported remote path, ZIP archive, or
+                provider URL to import.
+            dataset_name: Output dataset name. If omitted, the name is derived
+                from ``dataset_dir``.
+            save_dir: Directory for downloaded sources and dataset storage.
+            dataset_plugin: Dataset plugin registry name. If omitted,
+                `LuxonisDataset` is used.
+            dataset_type: Parser type. If omitted, the source format is
+                detected automatically.
+            task_name: Task name for all records, or class-to-task mapping.
+            full_warnings: Whether to log all skipped annotation warnings.
+            kwargs: Additional arguments for the dataset constructor.
+
+        Raises:
+            RuntimeError: If a provider URL requires a missing API key, or a
+                provider request fails.
+            ValueError: If the source reference is malformed or no parser
+                recognizes the source.
+
+        """
         warnings.warn(
             "`LuxonisParser` is deprecated and will be removed in a future "
             "release. Use `LuxonisDataset.import_dataset(...)` instead.",
@@ -75,7 +100,18 @@ class LuxonisParser(Generic[T]):
     ) -> LuxonisDataset: ...
 
     def parse(self, **kwargs: Any) -> BaseDataset:
-        """Import the configured source through the dataset-owned API."""
+        """Import the configured source through the dataset-owned API.
+
+        Args:
+            kwargs: Split controls and parser-specific arguments.
+
+        Returns:
+            Imported dataset.
+
+        Raises:
+            ValueError: If the parser rejects the source or import arguments.
+
+        """
         split = kwargs.pop("split", None)
         random_split = kwargs.pop("random_split", True)
         split_ratios = kwargs.pop("split_ratios", None)
@@ -101,7 +137,12 @@ class LuxonisParser(Generic[T]):
         return self._dataset
 
     def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
-        """Return issues collected during the most recent parse."""
+        """Return issues collected during the most recent parse.
+
+        Returns:
+            A copy of the issues, in the order they were first collected.
+
+        """
         if self._dataset is not None:
             return self._dataset.get_parser_issue_messages()
         # A failed parse never returned a dataset to read these from, so

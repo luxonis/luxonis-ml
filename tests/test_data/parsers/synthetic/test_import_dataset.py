@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from typing_extensions import override
 
 from luxonis_ml.data import (
     DatasetIterator,
@@ -665,11 +666,13 @@ def test_import_routes_each_skeleton_to_its_own_task(
         dataset_types = ("test-two-skeletons",)
 
         @classmethod
+        @override
         def detect(cls, source: Path) -> Layout | None:
             if source.suffix != ".twoskel":
                 return None
             return Layout({None: {}})
 
+        @override
         def parse(
             self, source: Path, layout: Layout, **kwargs: Any
         ) -> ParseResult:

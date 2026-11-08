@@ -8,11 +8,11 @@ from typing import Any, ClassVar, TypeAlias, overload
 
 from loguru import logger
 
-from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.datasets.base_dataset import (
     DatasetIterator,
 )
 from luxonis_ml.data.utils.enums import ParserIssue, ParserIssueMessage
+from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import Registry
 

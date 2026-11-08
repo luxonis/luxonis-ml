@@ -1,3 +1,5 @@
+"""Experiment tracker that logs to TensorBoard, WandB, and MLflow."""
+
 import json
 import os
 import time
@@ -54,6 +56,7 @@ class LuxonisTracker:
 
     def __init__(
         self,
+        *,
         project_name: str | None = None,
         project_id: str | None = None,
         run_name: str | None = None,
@@ -66,7 +69,7 @@ class LuxonisTracker:
         wandb_entity: str | None = None,
         mlflow_tracking_uri: str | None = None,
         rank: int = 0,
-    ):
+    ) -> None:
         """Create a tracker for one or more logging integrations.
 
         Args:
@@ -181,9 +184,9 @@ class LuxonisTracker:
         else:
             return
 
-        self.store_log_locally(log_fn, *args, **kwargs)
+        self.store_log_locally(log_fn, *args)
 
-    def store_log_locally(self, log_fn: Callable, *args, **kwargs) -> None:
+    def store_log_locally(self, log_fn: Callable, *args) -> None:
         """Store log data locally if logging to MLflow fails."""
         # Checking functions without triggering reconnections.
         if log_fn == self.experiment["mlflow"].log_metric:
@@ -249,7 +252,27 @@ class LuxonisTracker:
             logger.warning(f"Failed to re-log stored logs to MLflow: {e}")
 
     def save_logs_locally(self) -> None:
-        """Save metrics, parameters, images, artifacts, and matrices locally."""
+        """Save metrics, parameters, images, artifacts, and matrices locally.
+
+        The tracker buffers MLflow logs when a remote call fails. This
+        method writes the buffer under the run directory, which is
+        ``<save_directory>/<run_name>``:
+
+            - ``local_logs.json`` holds the metrics, the parameters, the
+              matrices, and the index of the saved images and artifacts;
+            - ``images/`` holds the buffered images as ``<index>.png``;
+            - ``artifacts/`` holds a copy of each buffered artifact whose
+              source file still exists.
+
+        The image entries in ``local_logs.json`` hold the new local paths,
+        not the original data. An artifact entry holds the new local path
+        only after a successful copy. A missing source keeps its original
+        path.
+
+        `LuxonisTracker.close` calls this method when MLflow is enabled and
+        the buffer is not empty.
+
+        """
         image_dir = self.run_directory / "images"
         artifact_dir = self.run_directory / "artifacts"
 
@@ -271,7 +294,7 @@ class LuxonisTracker:
                 artifact["path"] = str(local_path)
 
         log_dir = self.run_directory / "local_logs.json"
-        with open(log_dir, "w") as f:
+        with log_dir.open("w") as f:
             json.dump(
                 {
                     k: self.local_logs[k]
@@ -317,102 +340,118 @@ class LuxonisTracker:
     def experiment(
         self,
     ) -> dict[Literal["tensorboard", "wandb", "mlflow"], Any]:
-        """Creates new experiments or returns active ones if already
-        created.
-        """
+        """Create new experiments, or return the active ones."""
         if self._experiment is None:
             self._experiment = {}
 
         if self.is_tensorboard and "tensorboard" not in self._experiment:
-            from torch.utils.tensorboard.writer import SummaryWriter
-
-            log_dir = self.save_directory / "tensorboard_logs" / self.run_name
-            if self.is_sweep:
-                trial_id = 0
-                if log_dir.exists():
-                    trial_id = (
-                        max(
-                            (
-                                int(f.split("_")[-1])
-                                for f in os.listdir(log_dir)  # noqa: PTH208
-                                if f.startswith("trial_")
-                            ),
-                            default=0,
-                        )
-                        + 1
-                    )
-                log_dir = log_dir / f"trial_{trial_id}"
-
-            self._experiment["tensorboard"] = SummaryWriter(log_dir=log_dir)
+            self._experiment["tensorboard"] = self._tensorboard_writer()
 
         if self.is_wandb and "wandb" not in self._experiment:
-            import wandb
-
-            self._experiment["wandb"] = wandb
-
-            log_dir = self.save_directory / "wandb_logs"
-            log_dir.mkdir(parents=True, exist_ok=True)
-
-            self._experiment["wandb"].init(
-                project=self.project_name
-                if self.project_name is not None
-                else self.project_id,
-                entity=self.wandb_entity,
-                dir=log_dir,
-                name=self.run_name,
-            )
+            self._start_wandb_run(self._experiment)
 
         if self.is_mlflow and self.mlflow_initialized is False:
             try:
-                import mlflow
-
-                if find_spec("psutil") is not None:
-                    mlflow.enable_system_metrics_logging()
-                    if find_spec("pynvml") is None:
-                        logger.warning(
-                            "pynvml not found, GPU stats will not be monitored. "
-                            "To enable GPU monitoring, install it using 'pip install pynvml'"
-                        )
-                else:
-                    logger.warning(
-                        "`psutil` not found. To enable system metric logging, "
-                        "install it using 'pip install psutil'"
-                    )
-
-                self._experiment["mlflow"] = mlflow
-
-                self.artifacts_dir = self.run_directory / "artifacts"
-                self.artifacts_dir.mkdir(parents=True, exist_ok=True)
-
-                self._experiment["mlflow"].set_tracking_uri(
-                    self.mlflow_tracking_uri
-                )
-
-                if self.project_id is not None:
-                    self.project_name = None
-
-                experiment = self._experiment["mlflow"].set_experiment(
-                    experiment_name=self.project_name,
-                    experiment_id=self.project_id,
-                )
-                self.project_id = experiment.experiment_id
-
-                # If self.run_id is None, create a new run; otherwise, use the existing one
-                run = self._experiment["mlflow"].start_run(
-                    run_id=self.run_id,
-                    run_name=self.run_name,
-                    nested=self.is_sweep,
-                )
-                self.run_id = run.info.run_id
-                self.mlflow_initialized = (
-                    True  # Mark MLflow as initialized successfully
-                )
-
+                self._start_mlflow_run(self._experiment)
+                self.mlflow_initialized = True
             except Exception as e:
                 logger.warning(f"Failed to initialize MLflow: {e}")
                 self.mlflow_initialized = False  # Mark MLflow as unavailable
 
         return self._experiment
+
+    def _tensorboard_writer(self) -> Any:
+        """Create the TensorBoard writer; a sweep gets a new trial directory."""
+        from torch.utils.tensorboard.writer import SummaryWriter
+
+        log_dir = self.save_directory / "tensorboard_logs" / self.run_name
+        if self.is_sweep:
+            trial_id = 0
+            if log_dir.exists():
+                trial_id = (
+                    max(
+                        (
+                            int(f.split("_")[-1])
+                            for f in os.listdir(log_dir)  # noqa: PTH208
+                            if f.startswith("trial_")
+                        ),
+                        default=0,
+                    )
+                    + 1
+                )
+            log_dir = log_dir / f"trial_{trial_id}"
+        return SummaryWriter(log_dir=log_dir)
+
+    def _start_wandb_run(
+        self, experiments: dict[Literal["tensorboard", "wandb", "mlflow"], Any]
+    ) -> None:
+        """Start the Weights & Biases run.
+
+        The module is stored before the run starts, so a failed start is
+        not tried again on the next access.
+        """
+        import wandb
+
+        experiments["wandb"] = wandb
+
+        log_dir = self.save_directory / "wandb_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        wandb.init(
+            project=self.project_name
+            if self.project_name is not None
+            else self.project_id,
+            entity=self.wandb_entity,
+            dir=log_dir,
+            name=self.run_name,
+        )
+
+    def _start_mlflow_run(
+        self, experiments: dict[Literal["tensorboard", "wandb", "mlflow"], Any]
+    ) -> None:
+        """Start the MLflow run.
+
+        The module is stored before the run starts, so a failed start still
+        leaves `log_to_mlflow` its fallback.
+        """
+        import mlflow
+
+        if find_spec("psutil") is not None:
+            mlflow.enable_system_metrics_logging()
+            if find_spec("pynvml") is None:
+                logger.warning(
+                    "pynvml not found, GPU stats will not be monitored. "
+                    "To enable GPU monitoring, install it using 'pip install pynvml'"
+                )
+        else:
+            logger.warning(
+                "`psutil` not found. To enable system metric logging, "
+                "install it using 'pip install psutil'"
+            )
+
+        experiments["mlflow"] = mlflow
+
+        self.artifacts_dir = self.run_directory / "artifacts"
+        self.artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+
+        if self.project_id is not None:
+            self.project_name = None
+
+        experiment = mlflow.set_experiment(
+            experiment_name=self.project_name,
+            experiment_id=self.project_id,
+        )
+        self.project_id = experiment.experiment_id
+
+        # If self.run_id is None, create a new run; otherwise, use the existing one
+        run = mlflow.start_run(
+            run_id=self.run_id,
+            run_name=self.run_name,
+            nested=self.is_sweep,
+        )
+        self.run_id = run.info.run_id
 
     @rank_zero_only
     def log_hyperparams(
@@ -557,6 +596,13 @@ class LuxonisTracker:
             path: Path to the artifact.
             name: Artifact name. If ``None``, uses the file name.
 
+        Raises:
+            KeyError: If the tracker does not use MLflow, or if MLflow
+                fails to load before the run starts.
+            ValueError: If the MLflow experiment ID or run ID is still
+                unset after the experiment is accessed, for example
+                because the MLflow run failed to start.
+
         """
         _ = self.experiment["mlflow"]
         if self.project_id is None or self.run_id is None:
@@ -633,7 +679,6 @@ class LuxonisTracker:
 
     def _get_next_run_number(self) -> int:
         """Return the number ID for the next run."""
-
         log_dirs = [
             path.name
             for path in self.save_directory.iterdir()
@@ -665,10 +710,7 @@ class LuxonisTracker:
             for path in self.save_directory.iterdir()
             if path.is_dir()
         ]
-        runs = []
-        for ld in log_dirs:
-            if ld.split("-")[0].isnumeric():
-                runs.append(ld)
+        runs = [ld for ld in log_dirs if ld.split("-")[0].isnumeric()]
         runs.sort(
             key=lambda x: (self.save_directory / x).stat().st_mtime,
             reverse=True,

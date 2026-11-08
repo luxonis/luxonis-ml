@@ -1,5 +1,9 @@
+"""Parser for datasets in the Darknet format."""
+
 from pathlib import Path
 from typing import Any
+
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 
@@ -26,6 +30,7 @@ class DarknetParser(SplitParserPlugin):
     dataset_types = ("darknet",)
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -42,6 +47,7 @@ class DarknetParser(SplitParserPlugin):
             "image_paths": image_paths,
         }
 
+    @override
     def _split_files(
         self,
         image_dir: Path,
@@ -70,6 +76,7 @@ class DarknetParser(SplitParserPlugin):
             return self._list_images(image_dir)
         return image_paths
 
+    @override
     def _split_records(
         self,
         image_dir: Path,
@@ -93,7 +100,7 @@ class DarknetParser(SplitParserPlugin):
         """
         # Read before the generator is entered, so that an unreadable
         # class file fails the parse rather than a half-finished import.
-        with open(classes_path, encoding="utf-8") as f:
+        with classes_path.open(encoding="utf-8") as f:
             class_names = {
                 i: line.rstrip() for i, line in enumerate(f.readlines())
             }
@@ -106,7 +113,7 @@ class DarknetParser(SplitParserPlugin):
                 ann_path = img_path.with_suffix(".txt")
                 file = str(img_path)
                 if ann_path.exists():
-                    with open(ann_path, encoding="utf-8") as f:
+                    with ann_path.open(encoding="utf-8") as f:
                         annotation_data = f.readlines()
                 else:
                     annotation_data = []

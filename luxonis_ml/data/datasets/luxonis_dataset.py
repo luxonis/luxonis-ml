@@ -1,3 +1,8 @@
+"""Dataset handle for the Luxonis Data Format.
+
+See `luxonis_ml.data.datasets` for the lifecycle and the storage layout.
+"""
+
 import json
 import math
 import shutil
@@ -5,6 +10,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
+from dataclasses import dataclass, field
 from functools import cached_property
 from os import PathLike
 from pathlib import Path, PurePosixPath
@@ -18,6 +24,7 @@ from filelock import FileLock
 from loguru import logger
 from rich.progress import Progress
 from semver.version import Version
+from typeguard import CollectionCheckStrategy, check_type
 from typing_extensions import Self, override
 
 from luxonis_ml.data.exporters import (
@@ -43,11 +50,13 @@ from luxonis_ml.data.exporters.exporter_utils import (
     ExporterSpec,
     create_zip_output,
 )
+from luxonis_ml.data.exporters.ldf_downgrade import resolve_export_version
 from luxonis_ml.data.utils import (
     BucketStorage,
     BucketType,
     COCOFormat,
     ParquetFileManager,
+    ParquetRecord,
     UpdateMode,
     get_class_distributions,
     get_duplicates_info,
@@ -58,14 +67,13 @@ from luxonis_ml.data.utils import (
     warn_on_duplicates,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
-from luxonis_ml.data.utils.ldf_equivalence import ldf_equivalent
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.enums.enums import DatasetType
+from luxonis_ml.ldf import Category, DatasetRecord, Detection
 from luxonis_ml.typing import PathType
-from luxonis_ml.utils import LuxonisFileSystem, deprecated, environ
+from luxonis_ml.utils import LuxonisFileSystem, environ
 
-from .annotation import Category, DatasetRecord, Detection
-from .base_dataset import BaseDataset, DatasetIterator
+from .base_dataset import BaseDataset, DatasetIterator, SplitDefinition
 from .metadata import Metadata
 from .migration import migrate_dataframe, migrate_metadata
 from .source import LuxonisComponent, LuxonisSource
@@ -84,10 +92,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     designed for use within the Luxonis MLOps ecosystem.
 
     Attributes:
-        dataset_name: Name of the dataset.
-        bucket_storage: Underlying storage backend for the dataset.
-        bucket_type: Whether the dataset uses internal or external buckets.
-        team_id: Optional cloud team identifier.
         version: The version of the underlying LDF that the dataset adheres to.
 
     """
@@ -118,13 +122,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             delete_remote: Whether to delete the remote dataset as well.
 
         Raises:
-            ValueError: If the dataset exists and deletion flags are not set.
             ValueError: If the dataset is remote but no bucket is configured.
             NotImplementedError: If Azure Blob Storage is selected as the
                 bucket storage.
 
         """
-
         self._dataset_name = dataset_name
         self._base_path = environ.LUXONISML_BASE_PATH
         self._base_path.mkdir(exist_ok=True)
@@ -140,13 +142,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         if self._bucket_storage == BucketStorage.AZURE_BLOB:
             raise NotImplementedError("Azure Blob Storage not yet supported")
 
-        self._bucket = self._get_credential("LUXONISML_BUCKET")
-
-        if self.is_remote and self._bucket is None:
-            raise ValueError(
-                "The `LUXONISML_BUCKET` environment variable "
-                "must be set for remote datasets"
-            )
+        self._bucket: str | None = None
+        if self.is_remote:
+            self._bucket = self._get_credential("LUXONISML_BUCKET")
 
         self._team_id = team_id or self._get_credential("LUXONISML_TEAM_ID")
 
@@ -206,9 +204,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
     @cached_property
     def version(self) -> Version:
-        """The version of the underlying LDF that the dataset adheres
-        to.
-        """
+        """The version of the LDF that the dataset adheres to."""
         return Version.parse(
             self._metadata.ldf_version, optional_minor_and_patch=True
         )
@@ -233,8 +229,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     def identifier(self) -> str:
         return self._dataset_name
 
+    @override
     def __eq__(self, other: object) -> bool | NotImplementedType:
         """Compare datasets for equivalence."""
+        from luxonis_ml.data.utils.ldf_equivalence import ldf_equivalent
+
         if not isinstance(other, (LuxonisDataset, str)):
             return NotImplemented
         return ldf_equivalent(self, other)
@@ -248,14 +247,31 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         return len(df.select("uuid").unique()) if df is not None else 0
 
     def _get_credential(self, key: str) -> str:
-        """Get secret credentials from the credentials file or
-        environment.
+        """Get a credential from the credentials file or the environment.
+
+        Returns:
+            The value of ``key`` from the credentials file, or else the
+            ``environ`` setting of that name.
+
+        Raises:
+            RuntimeError: If ``key`` is neither in the credentials file
+                nor a setting of ``environ``.
+            ValueError: If the value is ``None``, as for an unset
+                ``LUXONISML_BUCKET``.
+
         """
         if key in self._credentials:
-            return self._credentials[key]
-        if not hasattr(environ, key):
+            value = self._credentials[key]
+        elif hasattr(environ, key):
+            value = getattr(environ, key)
+        else:
             raise RuntimeError(f"'{key}' must be set in ENV variables")
-        return getattr(environ, key)
+        if value is None:
+            raise ValueError(
+                f"'{key}' must be set in ENV variables "
+                "or in the credentials file"
+            )
+        return value
 
     def _init_paths(self) -> None:
         """Configure local paths or a bucket directory."""
@@ -271,14 +287,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         self._metadata_path = self._local_path / "metadata"
         self._arrays_path = self._local_path / "arrays"
 
-        for path in [
-            self._media_path,
-            self._annotations_path,
-            self._metadata_path,
-        ]:
-            path.mkdir(exist_ok=True, parents=True)
-
-        if not self.is_remote:
+        if self._bucket is None:
             self._path = str(self._local_path)
         else:
             self._path = self._construct_url(
@@ -287,6 +296,13 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 self._team_id,
                 self._dataset_name,
             )
+
+        for path in [
+            self._media_path,
+            self._annotations_path,
+            self._metadata_path,
+        ]:
+            path.mkdir(exist_ok=True, parents=True)
 
     def _save_df_offline(self, pl_df: pl.DataFrame) -> None:
         """Save annotations DataFrame into parquet files.
@@ -319,7 +335,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 data_dict.pop("uuid", None)
                 data_dict.pop("group_id", None)
 
-                pfm.write(uuid_val, data_dict, group_id_val)  # type: ignore
+                pfm.write(uuid_val, data_dict, group_id_val)  # pyright: ignore[reportArgumentType]
 
         logger.info(
             f"Saved DataFrame to Parquet files in '{annotations_path}'."
@@ -333,6 +349,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     def clone(
         self,
         new_dataset_name: str,
+        *,
         push_to_cloud: bool = True,
         splits_to_clone: list[str] | None = None,
         team_id: str | None = None,
@@ -377,7 +394,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         new_dataset_path = Path(new_dataset._local_path)
         new_dataset_path.mkdir(parents=True, exist_ok=True)
 
-        if splits_to_clone is not None:
+        if splits_to_clone is None:
+            shutil.copytree(
+                self._local_path, new_dataset._local_path, dirs_exist_ok=True
+            )
+        else:
             df_self = self._load_df_offline(raise_when_empty=True)
             splits_self = self._load_splits(self._metadata_path)
             uuids_to_clone = {
@@ -385,23 +406,20 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 for split in splits_to_clone
                 for uid in splits_self.get(split, [])
             }
-            df_self = df_self.filter(df_self["uuid"].is_in(uuids_to_clone))
-            splits_self = {
-                k: v for k, v in splits_self.items() if k in splits_to_clone
-            }
-
-        shutil.copytree(
-            self._local_path,
-            new_dataset._local_path,
-            dirs_exist_ok=True,
-            ignore=lambda d, n: self._ignore_files_not_in_uuid_set(
-                d, n, uuids_to_clone if splits_to_clone else set()
-            ),
-        )
-
-        if splits_to_clone is not None:
-            new_dataset._save_df_offline(df_self)
-            new_dataset._save_splits(splits_self)
+            shutil.copytree(
+                self._local_path,
+                new_dataset._local_path,
+                dirs_exist_ok=True,
+                ignore=lambda d, n: self._ignore_files_not_in_uuid_set(
+                    d, n, uuids_to_clone
+                ),
+            )
+            new_dataset._save_df_offline(
+                df_self.filter(df_self["uuid"].is_in(uuids_to_clone))
+            )
+            new_dataset._save_splits(
+                {k: v for k, v in splits_self.items() if k in splits_to_clone}
+            )
 
         new_dataset._init_paths()
         new_dataset._metadata = self._get_metadata()
@@ -416,7 +434,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 )
             else:
                 logger.warning(
-                    f"Cannot push to cloud. The cloned dataset '{new_dataset._dataset_name}' is local. "
+                    "Cannot push to cloud. The cloned dataset "
+                    f"'{new_dataset._dataset_name}' is local. "
                 )
 
         new_dataset._write_metadata()
@@ -426,6 +445,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     def merge_with(
         self,
         other: "LuxonisDataset",
+        *,
         inplace: bool = True,
         new_dataset_name: str | None = None,
         splits_to_merge: list[str] | None = None,
@@ -446,26 +466,20 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             Dataset containing the merged data.
 
         Raises:
-            ValueError: If the datasets have different bucket storage types.
+            ValueError: If ``inplace`` is ``False`` and the datasets have
+                different bucket storage types.
             ValueError: If ``inplace`` is ``False`` but no name for the new
                 dataset is provided.
+            ValueError: If the datasets have different LDF versions.
+            FileNotFoundError: If either dataset is empty.
 
         """
-        if inplace:
-            target_dataset = self
-        elif new_dataset_name:
-            if self._bucket_storage != other._bucket_storage:
-                raise ValueError(
-                    "Cannot merge datasets with different bucket storage types."
-                )
-            target_dataset = self.clone(
-                new_dataset_name, push_to_cloud=False, team_id=team_id
-            )
-        else:
-            raise ValueError(
-                "You must specify a name for the new dataset "
-                "when `inplace` is `False`"
-            )
+        target_dataset = self._merge_target(
+            other,
+            inplace=inplace,
+            new_dataset_name=new_dataset_name,
+            team_id=team_id,
+        )
 
         if self.is_remote:
             other.pull_from_cloud(UpdateMode.MISSING)
@@ -487,6 +501,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         splits_self = self._load_splits(self._metadata_path)
         splits_other = self._load_splits(other._metadata_path)
+        uuids_to_merge: set[str] = set()
         if splits_to_merge is not None:
             uuids_to_merge = {
                 uuid
@@ -498,8 +513,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 k: v for k, v in splits_other.items() if k in splits_to_merge
             }
 
-        df_merged = pl.concat([df_self, df_other])
-        target_dataset._save_df_offline(df_merged)
+        target_dataset._save_df_offline(pl.concat([df_self, df_other]))
 
         splits_other = {
             split_name: [
@@ -518,7 +532,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 target_dataset._media_path,
                 dirs_exist_ok=True,
                 ignore=lambda d, n: self._ignore_files_not_in_uuid_set(
-                    d, n, uuids_to_merge if splits_to_merge else set()
+                    d, n, uuids_to_merge
                 ),
             )
             target_dataset.push_to_cloud(
@@ -526,6 +540,39 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 update_mode=UpdateMode.MISSING,
             )
 
+        target_dataset._copy_media_from(other, df_other)
+        target_dataset._merge_metadata_with(other)
+
+        return target_dataset
+
+    def _merge_target(
+        self,
+        other: "LuxonisDataset",
+        *,
+        inplace: bool,
+        new_dataset_name: str | None,
+        team_id: str | None,
+    ) -> "LuxonisDataset":
+        """Return the dataset that receives a merge: this one or a clone."""
+        if inplace:
+            return self
+        if not new_dataset_name:
+            raise ValueError(
+                "You must specify a name for the new dataset "
+                "when `inplace` is `False`"
+            )
+        if self._bucket_storage != other._bucket_storage:
+            raise ValueError(
+                "Cannot merge datasets with different bucket storage types."
+            )
+        return self.clone(
+            new_dataset_name, push_to_cloud=False, team_id=team_id
+        )
+
+    def _copy_media_from(
+        self, other: "LuxonisDataset", df_other: pl.DataFrame
+    ) -> None:
+        """Copy the media files of ``df_other`` that this dataset lacks."""
         for entry in (
             df_other.select(["uuid", "file"])
             .unique(subset=["uuid"])
@@ -533,18 +580,14 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         ):
             uid, rel_file = entry["uuid"], entry["file"]
             src_path = other._media_path / f"{uid}{Path(rel_file).suffix}"
-            dst_path = target_dataset._media_path / src_path.name
+            dst_path = self._media_path / src_path.name
             if src_path.exists() and not dst_path.exists():
                 dst_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(src_path, dst_path)
 
-        target_dataset._merge_metadata_with(other)
-
-        return target_dataset
-
     def _load_splits(self, path: Path) -> dict[str, list[str]]:
         splits_path = path / "splits.json"
-        with open(splits_path) as f:
+        with splits_path.open() as f:
             return json.load(f)
 
     def _ignore_files_not_in_uuid_set(
@@ -577,12 +620,13 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
     def _save_splits(self, splits: dict[str, list[str]]) -> None:
         splits_path_self = self._metadata_path / "splits.json"
-        with open(splits_path_self, "w") as f:
+        with splits_path_self.open("w") as f:
             json.dump(splits, f, indent=4)
 
     @overload
     def _load_df_offline(
         self,
+        *,
         lazy: Literal[False] = ...,
         raise_when_empty: Literal[False] = ...,
         attempt_migration: bool = ...,
@@ -591,15 +635,17 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     @overload
     def _load_df_offline(
         self,
+        *,
         lazy: Literal[False] = ...,
-        raise_when_empty: Literal[True] = ...,
+        raise_when_empty: Literal[True],
         attempt_migration: bool = ...,
     ) -> pl.DataFrame: ...
 
     @overload
     def _load_df_offline(
         self,
-        lazy: Literal[True] = ...,
+        *,
+        lazy: Literal[True],
         raise_when_empty: Literal[False] = ...,
         attempt_migration: bool = ...,
     ) -> pl.LazyFrame | None: ...
@@ -607,13 +653,15 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     @overload
     def _load_df_offline(
         self,
-        lazy: Literal[True] = ...,
-        raise_when_empty: Literal[True] = ...,
+        *,
+        lazy: Literal[True],
+        raise_when_empty: Literal[True],
         attempt_migration: bool = ...,
     ) -> pl.LazyFrame: ...
 
     def _load_df_offline(
         self,
+        *,
         lazy: bool = False,
         raise_when_empty: bool = False,
         attempt_migration: bool = True,
@@ -681,7 +729,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         lazy_frames = []
         for file in files:
             lazy_frame = pl.scan_parquet(str(file))
-            if "sample_metadata" not in lazy_frame.schema:
+            if "sample_metadata" not in lazy_frame.collect_schema():
                 lazy_frame = lazy_frame.with_columns(
                     pl.lit(DEFAULT_METADATA).alias("sample_metadata")
                 )
@@ -694,6 +742,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     @overload
     def _get_index(
         self,
+        *,
         lazy: Literal[False] = ...,
         raise_when_empty: Literal[False] = ...,
     ) -> pl.DataFrame | None: ...
@@ -701,26 +750,30 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     @overload
     def _get_index(
         self,
+        *,
         lazy: Literal[False] = ...,
-        raise_when_empty: Literal[True] = ...,
+        raise_when_empty: Literal[True],
     ) -> pl.DataFrame: ...
 
     @overload
     def _get_index(
         self,
-        lazy: Literal[True] = ...,
+        *,
+        lazy: Literal[True],
         raise_when_empty: Literal[False] = ...,
     ) -> pl.LazyFrame | None: ...
 
     @overload
     def _get_index(
         self,
-        lazy: Literal[True] = ...,
-        raise_when_empty: Literal[True] = ...,
+        *,
+        lazy: Literal[True],
+        raise_when_empty: Literal[True],
     ) -> pl.LazyFrame: ...
 
     def _get_index(
         self,
+        *,
         lazy: bool = False,
         raise_when_empty: bool = False,
     ) -> pl.DataFrame | pl.LazyFrame | None:
@@ -804,6 +857,13 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         """Load metadata from local storage or cloud.
 
         Cloud metadata is always downloaded before loading.
+
+        Returns:
+            The dataset metadata, migrated first if its major LDF version
+            differs from the current one. New metadata with the current
+            LDF version, a default source and no classes or tasks if the
+            dataset has no metadata file.
+
         """
         if self._fs.exists("metadata/metadata.json"):
             path = get_file(
@@ -815,18 +875,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             metadata_json = json.loads(path.read_text())
 
             # TODO: Remove this LuxonisSource and df migration in the future
-            if "source" in metadata_json:
-                source_data = metadata_json["source"]
-                if isinstance(source_data, dict):
-                    components = source_data.get("components", {})
-                    if isinstance(components, dict) and len(components) == 1:
-                        new_components = {
-                            "image": LuxonisComponent(
-                                **next(iter(components.values()))
-                            )
-                        }
-                        metadata_json["source"]["components"] = new_components
-                        metadata_json["source"]["main_component"] = "image"
+            _migrate_single_component_source(metadata_json)
             df = self._load_df_offline(lazy=False, attempt_migration=False)
             if df is not None and "group_id" not in df.columns:
                 df = df.with_columns(pl.col("uuid").alias("group_id"))
@@ -851,9 +900,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
     @property
     def is_remote(self) -> bool:
-        """Whether the dataset is stored remotely (in a cloud bucket) or
-        locally.
-        """
+        """Whether the dataset is stored in a cloud bucket."""
         return self._bucket_storage != BucketStorage.LOCAL
 
     @override
@@ -872,6 +919,19 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         task: str | None = None,
         rewrite_metadata: bool = True,
     ) -> None:
+        """Set classes for one or more tasks.
+
+        Args:
+            classes: Class names, or class IDs keyed by class name. If
+                class names are provided, IDs are assigned
+                alphabetically starting from :math:`0`. A class named
+                ``"background"`` is always assigned ID :math:`0`.
+            task: Optional task to update. If omitted, all tasks are
+                updated.
+            rewrite_metadata: Whether to write the metadata file. With
+                ``False``, only this handle holds the new classes.
+
+        """
         tasks = self.get_task_names() if task is None else [task]
 
         for t in tasks:
@@ -940,48 +1000,68 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     def get_categorical_encodings(
         self,
     ) -> dict[str, dict[str, int]]:
-        """Get the categorical encodings for the dataset grouped by
-        task.
+        """Get the categorical encodings of the metadata tasks.
 
-        Example output:
+        A metadata task is named ``"<task_name>/metadata/<name>"``, for
+        example:
 
         .. python::
 
             {
-                "vehicles": {
-                    "color": {"red": 0, "green": 1, "blue": 2},
-                    "brand": {"audi": 0, "bmw": 1, "mercedes": 2},
-                }
+                "vehicles/metadata/color": {"red": 0, "green": 1},
+                "vehicles/metadata/brand": {"audi": 0, "bmw": 1},
             }
+
+        Returns:
+            The integer code of each category value, keyed by metadata
+            task.
+
         """
         return self._metadata.categorical_encodings
 
     def get_metadata_types(
         self,
     ) -> dict[str, Literal["float", "int", "str", "Category"]]:
-        """Get the metadata types for each metadata annotation in the
-        dataset.
+        """Get the value type of each metadata task.
 
-        Example output:
+        A metadata task is named ``"<task_name>/metadata/<name>"``, for
+        example:
 
         .. python::
 
             {
-                "id": "int",
-                "time_of_day": "Category",
-                "temperature": "float",
+                "vehicles/metadata/id": "int",
+                "vehicles/metadata/time_of_day": "Category",
+                "vehicles/metadata/temperature": "float",
             }
+
+        Returns:
+            The type name of the values, keyed by metadata task.
+
         """
         return self._metadata.metadata_types
 
     def pull_from_cloud(
         self, update_mode: UpdateMode = UpdateMode.MISSING
     ) -> None:
-        """Synchronize the dataset from a remote bucket to a local
-        storage.
+        """Synchronize the dataset from a remote bucket to local storage.
 
         Annotations and metadata are always pulled. Media files are pulled
         either when missing locally or always, depending on ``update_mode``.
+
+        The pull overwrites the local ``annotations/`` and ``metadata/``
+        folders with the remote copies on every call, so local-only edits
+        to those folders are lost.
+
+        With ``UpdateMode.MISSING``, a media file counts as missing only
+        when both locations are absent:
+
+            - the path in the ``file`` column of the Parquet shard;
+            - ``media/<uuid><suffix>``, where the UUID comes from the
+              ``uuid`` column of the same shard.
+
+        With ``UpdateMode.ALL``, every media file is downloaded again and
+        overwrites the local copy.
 
         Args:
             update_mode: Media synchronization mode.
@@ -1081,24 +1161,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         )
 
         missing_df = index.filter(~pl.col("uuid").is_in(bucket_uuids))
-
-        missing_uuid_dict = {}
-        for original_path, uuid in zip(
-            missing_df["original_filepath"].to_list(),
-            missing_df["uuid"].to_list(),
-            strict=True,
-        ):
-            if not Path(original_path).exists():
-                suffix = Path(original_path).suffix
-                fallback_path = self._local_path / "media" / f"{uuid}{suffix}"
-                if fallback_path.exists():
-                    missing_uuid_dict[str(fallback_path)] = uuid
-                else:
-                    raise FileNotFoundError(
-                        f"File {original_path} and {fallback_path} do not exist!"
-                    )
-            else:
-                missing_uuid_dict[original_path] = uuid
+        missing_uuid_dict = self._local_media_paths(missing_df)
 
         for dir_name in ["annotations", "metadata"]:
             dataset._fs.put_dir(
@@ -1124,12 +1187,43 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         else:
             logger.info("Media already synced")
 
+    def _local_media_paths(self, index: pl.DataFrame) -> dict[str, str]:
+        """Map the local path of each indexed media file to its UUID.
+
+        A file that is gone from its original location is taken from the
+        local media directory instead.
+
+        Returns:
+            The UUID of each media file, keyed by its local path.
+
+        Raises:
+            FileNotFoundError: If a file exists neither at its original
+                path nor in the local media directory.
+
+        """
+        paths = {}
+        for original_path, uuid in zip(
+            index["original_filepath"].to_list(),
+            index["uuid"].to_list(),
+            strict=True,
+        ):
+            if Path(original_path).exists():
+                paths[original_path] = uuid
+                continue
+            suffix = Path(original_path).suffix
+            fallback_path = self._local_path / "media" / f"{uuid}{suffix}"
+            if not fallback_path.exists():
+                raise FileNotFoundError(
+                    f"File {original_path} and {fallback_path} do not exist!"
+                )
+            paths[str(fallback_path)] = uuid
+        return paths
+
     @override
     def delete_dataset(
         self, *, delete_remote: bool = False, delete_local: bool = False
     ) -> None:
-        """Delete the dataset from local storage and optionally the
-        cloud.
+        """Delete the dataset locally and optionally from the cloud.
 
         Args:
             delete_remote: Whether to delete the remote dataset.
@@ -1154,9 +1248,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             logger.info(
                 f"Deleting remote dataset '{self._dataset_name}' from cloud storage"
             )
-            assert self._path
-            assert self._dataset_name
-            assert self._local_path
+            if not self._dataset_name:
+                raise ValueError(
+                    "A remote dataset without a name cannot be deleted."
+                )
             self._fs.delete_dir(allow_delete_parent=True)
 
         if self.is_remote and delete_local:
@@ -1200,7 +1295,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         pfm: ParquetFileManager,
         index: pl.DataFrame | None,
     ) -> None:
-        paths = {path for data in data_batch for path in data.all_file_paths}
+        paths = {path for data in data_batch for path in data.files.values()}
         logger.info("Generating UUIDs...")
         uuid_dict = self._fs.get_file_uuids(paths, local=True)
 
@@ -1210,12 +1305,38 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             if matched_id is not None:
                 overwrite_uuids.add(matched_id)
                 logger.warning(
-                    f"File {file_path} with UUID: {matched_id} already existed in the dataset from previous dataset.add() call. "
+                    f"File {file_path} with UUID: {matched_id} already existed "
+                    "in the dataset from previous dataset.add() call. "
                     "Old data will be overwritten with the new data."
                 )
 
-        if overwrite_uuids:
-            pfm.remove_duplicate_uuids(overwrite_uuids)
+        # The rows store the array paths that this call sets.
+        self._process_arrays(data_batch)
+
+        task = self._progress.add_task(
+            "[magenta]Processing data...", total=len(data_batch)
+        )
+
+        # The media upload can raise. It runs before `remove_duplicate_uuids`
+        # and the first write, so a failed batch changes no row.
+        rows: list[tuple[str, ParquetRecord, str]] = []
+        with self._progress:
+            for record in data_batch:
+                file_paths = list(record.files.values())
+                uuid_list = [
+                    uuid_dict[str(file_path)] for file_path in file_paths
+                ]
+                group_id = (
+                    str(merge_uuids(uuid_list))
+                    if len(uuid_list) > 1
+                    else str(uuid_list[0])
+                )
+                rows.extend(
+                    (uuid_dict[row["file"]], row, group_id)
+                    for row in record.to_parquet_rows()
+                )
+                self._progress.update(task, advance=1)
+        self._progress.remove_task(task)
 
         if self.is_remote:
             logger.info("Uploading media...")
@@ -1227,28 +1348,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             )
             logger.info("Media uploaded")
 
-        self._process_arrays(data_batch)
-
-        task = self._progress.add_task(
-            "[magenta]Processing data...", total=len(data_batch)
-        )
+        if overwrite_uuids:
+            pfm.remove_duplicate_uuids(overwrite_uuids)
 
         logger.info("Saving annotations...")
-        with self._progress:
-            for record in data_batch:
-                file_paths = record.all_file_paths
-                uuid_list = [
-                    uuid_dict[str(file_path)] for file_path in file_paths
-                ]
-                group_id = (
-                    str(merge_uuids(uuid_list))
-                    if len(uuid_list) > 1
-                    else str(uuid_list[0])
-                )
-                for row in record.to_parquet_rows():
-                    pfm.write(uuid_dict[row["file"]], row, group_id)
-                self._progress.update(task, advance=1)
-        self._progress.remove_task(task)
+        for uuid, row, group_id in rows:
+            pfm.write(uuid, row, group_id)
 
     @override
     def add(
@@ -1312,6 +1417,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 to storage. Larger batch sizes may be more efficient but will
                 use more memory.
 
+        Returns:
+            The same dataset, so that calls can be chained.
+
         Raises:
             ValueError: If the records yielded by the generator are not in the expected format.
             ValueError: If the dataset contains metadata annotations with conflicting types.
@@ -1320,13 +1428,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         logger.info(f"Adding data to dataset '{self._dataset_name}'...")
 
         data_batch: list[DatasetRecord] = []
-
-        classes_per_task: dict[str, set[str]] = defaultdict(set)
-        tasks: dict[str, set[str]] = defaultdict(set)
-        categorical_encodings = defaultdict(dict)
-        metadata_types = {}
-        num_kpts_per_task: dict[str, int] = {}
-        sources: set[str] = set()
+        added = _AddedLabels()
 
         annotations_path = get_dir(
             self._fs,
@@ -1337,13 +1439,14 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         index = self._get_index()
 
-        assert annotations_path is not None
-
         with ParquetFileManager(annotations_path, batch_size) as pfm:
-            for i, record in enumerate(generator, start=1):
-                if not isinstance(record, DatasetRecord):
-                    record = DatasetRecord(**record)
-                sources.update(record.files.keys())
+            for i, item in enumerate(generator, start=1):
+                record = (
+                    item
+                    if isinstance(item, DatasetRecord)
+                    else DatasetRecord(**item)
+                )
+                added.sources.update(record.files.keys())
                 ann = record.annotation
                 if ann is not None:
                     if not record.task_name:
@@ -1352,48 +1455,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                             ann.class_name,
                             self.get_classes(),
                         )
-
-                    def update_state(task_name: str, ann: Detection) -> None:
-                        if ann.class_name is not None:
-                            classes_per_task[task_name].add(ann.class_name)
-                        elif not classes_per_task[task_name]:
-                            classes_per_task[task_name] = set()
-
-                        tasks[task_name] |= ann.get_task_types()
-
-                        if ann.keypoints is not None:
-                            num_kpts_per_task[task_name] = len(
-                                ann.keypoints.keypoints
-                            )
-                        for name, value in ann.metadata.items():
-                            task = f"{task_name}/metadata/{name}"
-                            typ = type(value).__name__
-                            if (
-                                task in metadata_types
-                                and metadata_types[task] != typ
-                            ):
-                                if {typ, metadata_types[task]} == {
-                                    "int",
-                                    "float",
-                                }:
-                                    metadata_types[task] = "float"
-                                else:
-                                    raise ValueError(
-                                        f"Metadata type mismatch for {task}: {metadata_types[task]} and {typ}"
-                                    )
-                            else:
-                                metadata_types[task] = typ
-
-                            if not isinstance(value, Category):
-                                continue
-                            if value not in categorical_encodings[task]:
-                                categorical_encodings[task][value] = len(
-                                    categorical_encodings[task]
-                                )
-                        for name, sub_detection in ann.sub_detections.items():
-                            update_state(f"{task_name}/{name}", sub_detection)
-
-                    update_state(record.task_name, ann)
+                    added.update(record.task_name, ann)
 
                 data_batch.append(record)
                 if i % batch_size == 0:
@@ -1405,8 +1467,14 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         with suppress(shutil.SameFileError):
             self._fs.put_dir(annotations_path, "")
 
+        self._register_added_labels(added)
+        self._warn_on_duplicates()
+        return self
+
+    def _register_added_labels(self, added: "_AddedLabels") -> None:
+        """Put what the added records say about the tasks into the metadata."""
         curr_classes = self.get_classes()
-        for task, classes in classes_per_task.items():
+        for task, classes in added.classes_per_task.items():
             old_classes = set(curr_classes.get(task, []))
             new_classes = list(classes - old_classes)
             if new_classes or task not in curr_classes:
@@ -1416,30 +1484,30 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
                 self.set_classes(list(classes | old_classes), task=task)
 
-        for task, num_kpts in num_kpts_per_task.items():
+        for task, num_kpts in added.num_kpts_per_task.items():
             self.set_skeletons(
                 labels=[str(i) for i in range(num_kpts)],
                 edges=[(i, i + 1) for i in range(num_kpts - 1)],
                 task=task,
             )
 
-        self._metadata.categorical_encodings = dict(categorical_encodings)
-        self._metadata.metadata_types = metadata_types
-        self.set_tasks(tasks)
-        if sources:
+        self._metadata.categorical_encodings = dict(
+            added.categorical_encodings
+        )
+        self._metadata.metadata_types = added.metadata_types
+        self.set_tasks(added.tasks)
+        if added.sources:
             components = {
                 source_name: LuxonisComponent(
                     name=source_name,
                 )
-                for source_name in sources
+                for source_name in added.sources
             }
             source = LuxonisSource(
                 components=components,
                 main_component=next(iter(components.keys())),
             )
             self.update_source(source)
-        self._warn_on_duplicates()
-        return self
 
     def _warn_on_duplicates(self) -> None:
         df = self._load_df_offline(lazy=True)
@@ -1461,202 +1529,67 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         if splits_path is None:
             return None
 
-        with open(splits_path) as file:
+        with splits_path.open() as file:
             return json.load(file)
 
-    @deprecated(
-        "ratios",
-        "definitions",
-        suggest={"ratios": "splits", "definitions": "splits"},
-    )
     @override
     def make_splits(
         self,
-        splits: (
-            Mapping[str, Sequence[PathType]]
-            | Mapping[str, float]
-            | tuple[float, float, float]
-            | None
-        ) = None,
+        splits: SplitDefinition | None = None,
         *,
-        ratios: dict[str, float] | tuple[float, float, float] | None = None,
-        definitions: dict[str, list[PathType]] | None = None,
         replace_old_splits: bool = False,
     ) -> None:
-        """Create dataset splits for training, validation, and testing.
-
-        Note:
-            Although ``"train"``, ``"val"``, and ``"test"``
-            are the conventional split names, you can use any split names
-            you want by providing a mapping to the ``splits`` argument.
-            This can be useful for combining records from multiple
-            sources (``"train_real"``, ``"train_synth"``) or for
-            creating fully custom splits.
-
-        Args:
-            splits: A mapping defining the splits. Can be one of the following:
-
-                - A mapping of split names to lists of file paths.
-                - A mapping of split names to float ratios.
-                - A tuple of three float ratios for train, val, and test splits.
-
-            ratios: A mapping of split names to float ratios
-                or a tuple of three float ratios for train, val, and test splits.
-
-                .. deprecated:: 0.4.0
-                    Use ``splits`` instead.
-
-            definitions: A mapping of split names to lists of file paths.
-
-                .. deprecated:: 0.4.0
-                    Use ``splits`` instead.
-
-            replace_old_splits: Whether to replace old splits with new ones. If ``False`
-                (default), new splits will be added to old splits, and duplicate group IDs will be filtered out. If ``True``, old splits will be replaced with new splits.
-
-        Raises:
-            ValueError: If both ``ratios`` and ``definitions`` are provided.
-            ValueError: If neither ``splits``, ``ratios``, nor ``definitions`` is provided.
-            ValueError: If both ``splits`` and ``ratios``/``definitions`` are provided.
-            ValueError: If ``splits`` is provided but is empty.
-            ValueError: If ``ratios`` is provided but does not sum to 1.
-            ValueError: If ``definitions`` is provided but the total number of files in definitions exceeds
-                the dataset size.
-            ValueError: If ``definitions`` are provided but all of them
-                are already included in old splits, resulting in no new
-                files to add to splits while ``replace_old_splits`` is ``False``.
-            FileNotFoundError: If the dataset is empty.
-            TypeError: If the splits definitions are not in the expected format.
-
-        """
-        if ratios is not None and definitions is not None:
-            raise ValueError("Cannot provide both ratios and definitions")
-
-        if splits is None and ratios is None and definitions is None:
+        if splits is None:
             splits = {"train": 0.8, "val": 0.1, "test": 0.1}
 
-        if splits is not None:
-            if ratios is not None or definitions is not None:
-                raise ValueError(
-                    "Cannot provide both splits and ratios/definitions"
-                )
-            if isinstance(splits, tuple):
-                ratios = splits
-            elif isinstance(splits, dict):
-                if not splits:
-                    raise ValueError("Splits cannot be empty")
-                value = next(iter(splits.values()))
-                if isinstance(value, float):
-                    ratios = splits  # type: ignore
-                elif isinstance(value, list):
-                    definitions = splits  # type: ignore
-
-        if ratios is not None:
-            if isinstance(ratios, tuple):
-                if not len(ratios) == 3:
-                    raise ValueError(
-                        "Ratios must be a tuple of 3 floats for train, val, and test splits"
-                    )
-                ratios = {
-                    "train": ratios[0],
-                    "val": ratios[1],
-                    "test": ratios[2],
-                }
-            sum_ = sum(ratios.values())
-            if not math.isclose(sum_, 1.0):
-                raise ValueError(f"Ratios must sum to 1.0, got {sum_:0.4f}")
-
-        if definitions is not None:
-            n_files = sum(map(len, definitions.values()))
-            if n_files > len(self):
-                logger.warning(
-                    "Dataset size is smaller than the total number of files in the definitions. "
-                    f"Dataset size: {len(self)}, Definitions: {n_files}. "
-                    "Duplicate files will be filtered out and extra files in definitions will be ignored."
-                )
-                self.remove_duplicates()
-
-        splits_to_update: list[str] = []
-        new_splits: dict[str, list[str]] = {}
-        old_splits: dict[str, list[str]] = defaultdict(list)
-
+        check_type(
+            splits,
+            SplitDefinition,
+            collection_check_strategy=CollectionCheckStrategy.ALL_ITEMS,
+        )
+        check_type(replace_old_splits, bool)
         splits_path = get_file(
             self._fs,
             "metadata/splits.json",
             self._metadata_path,
             default=self._metadata_path / "splits.json",
         )
+        old_splits: dict[str, list[str]] = defaultdict(list)
         if splits_path.exists():
-            with open(splits_path) as file:
+            with splits_path.open() as file:
                 old_splits = defaultdict(list, json.load(file))
 
-        defined_group_ids = {
-            group_id
-            for group_ids in old_splits.values()
-            for group_id in group_ids
-        }
+        defined_group_ids: set[str] = set()
+        if not replace_old_splits:
+            for group_ids in old_splits.values():
+                defined_group_ids.update(group_ids)
 
-        if definitions is None:
-            ratios = ratios or {"train": 0.8, "val": 0.1, "test": 0.1}
-            df = self._load_df_offline(raise_when_empty=True)
-            ids = (
-                df.filter(~pl.col("group_id").is_in(defined_group_ids))
-                .select("group_id")
-                .unique()
-                .sort("group_id")
-                .get_column("group_id")
-                .to_list()
-            )
-            if not ids:
-                if not replace_old_splits:
-                    raise ValueError(
-                        "No new files to add to splits. "
-                        "If you want to generate new splits, set `replace_old_splits=True`"
-                    )
-                ids = (
-                    df.select("group_id")
-                    .unique()
-                    .get_column("group_id")
-                    .to_list()
+        match _resolve_splits(splits):
+            case (ratios, None):
+                new_splits = self._split_by_ratio(ratios, defined_group_ids)
+            case (None, definitions):
+                new_splits = self._split_by_definition(
+                    definitions, defined_group_ids
                 )
-                old_splits = defaultdict(list)
-
-            np.random.shuffle(ids)
-            N = len(ids)
-            lower_bound = 0
-            for split, ratio in ratios.items():
-                upper_bound = lower_bound + math.ceil(N * ratio)
-                new_splits[split] = ids[lower_bound:upper_bound]
-                splits_to_update.append(split)
-                lower_bound = upper_bound
-
-        else:
-            index = self._get_index(raise_when_empty=True)
-            for split, filepaths in definitions.items():
-                splits_to_update.append(split)
-                if not isinstance(filepaths, list):
-                    raise TypeError(
-                        "Must provide splits as a list of filepaths"
-                    )
-                ids: list[str] = []
-                for filepath in filepaths:
-                    group_id = find_filepath_group_id(
-                        filepath, index, raise_on_missing=False
-                    )
-
-                    if group_id is None:
+                if not any(new_splits.values()):
+                    if not replace_old_splits:
                         logger.warning(
-                            f"No group ID found for '{filepath}' in definitions; skipping."
+                            "No new files to add to splits. "
+                            "The existing splits are left unchanged."
                         )
-                        continue
-                    ids.append(group_id)
+                        return
+                    logger.warning(
+                        "No file from the definitions is in the dataset. "
+                        "The new splits are empty."
+                    )
 
-                new_splits[split] = list(set(ids))
+        if replace_old_splits:
+            old_splits.clear()
 
         for split, group_ids in new_splits.items():
             old_splits[split].extend(group_ids)
 
-        splits_path.write_text(json.dumps(old_splits, indent=4))
+        _write_json(splits_path, old_splits)
 
         with suppress(shutil.SameFileError):
             self._fs.put_file(splits_path, "metadata/splits.json")
@@ -1751,7 +1684,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         output_path: PathType,
         dataset_type: DatasetType = DatasetType.NATIVE,
         max_partition_size_gb: float | None = None,
+        *,
         zip_output: bool = False,
+        ldf_version: str | None = None,
     ) -> Path | list[Path]:
         """Export the dataset into one of the supported formats.
 
@@ -1763,6 +1698,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 ``{dataset_name}_part{partition_number}``.
             zip_output: Whether to zip the exported dataset or each
                 partition after export.
+            ldf_version: LDF version to write, for example ``"2.0"``, so
+                the export can be read by an older luxonis-ml. Native
+                format only. Defaults to the version this installation
+                writes. Downgrading is lossy and warns about what it drops.
 
         Returns:
             Export directory, or ZIP archive paths when ``zip_output`` is
@@ -1770,15 +1709,68 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         Raises:
             NotImplementedError: If the specified export format is not supported.
-            ValueError: If the output path already exists.
+            ValueError: If the output path already exists, or if
+                ``ldf_version`` is set for a non-native format or names a
+                version this installation cannot write.
 
         """
-        EXPORTER_MAP: dict[DatasetType, ExporterSpec] = {
-            DatasetType.NATIVE: ExporterSpec(NativeExporter, {}),
+        if ldf_version is not None and dataset_type != DatasetType.NATIVE:
+            raise ValueError(
+                f"'ldf_version' only applies to the native format, "
+                f"not '{dataset_type}'."
+            )
+        target_version = resolve_export_version(ldf_version)
+        spec = self._exporter_specs(target_version).get(dataset_type)
+        if spec is None:
+            raise NotImplementedError(
+                f"Unsupported export format: {dataset_type}"
+            )
+
+        logger.info(
+            f"Exporting '{self.identifier}' to '{dataset_type.name}' format"
+        )
+
+        out_path = Path(output_path)
+        if out_path.exists():
+            raise ValueError(
+                f"Export path '{out_path}' already exists. Please remove it first."
+            )
+        out_path.mkdir(parents=True)
+
+        prepared_ldf = PreparedLDF.from_dataset(self)
+
+        exporter: BaseExporter = spec.cls(
+            self.identifier, out_path, max_partition_size_gb, **spec.kwargs
+        )
+
+        exporter.export(prepared_ldf=prepared_ldf)
+
+        result: Path | list[Path] = out_path
+        if zip_output:
+            result = create_zip_output(
+                max_partition_size=max_partition_size_gb,
+                output_path=out_path,
+                part=_last_part_index(out_path, self.identifier),
+                dataset_identifier=self.identifier,
+            )
+        shown = (
+            [str(p) for p in result] if isinstance(result, list) else result
+        )
+        logger.info(f"Dataset successfully exported to: {shown}")
+        return result
+
+    def _exporter_specs(
+        self, ldf_version: Version
+    ) -> dict[DatasetType, ExporterSpec]:
+        """Map each export format to its exporter and its arguments."""
+        return {
+            DatasetType.NATIVE: ExporterSpec(
+                NativeExporter, {"ldf_version": ldf_version}
+            ),
             DatasetType.COCO: ExporterSpec(
                 CocoExporter,
                 {
-                    "format": COCOFormat.ROBOFLOW,
+                    "coco_format": COCOFormat.ROBOFLOW,
                     "skeletons": getattr(self.metadata, "skeletons", None),
                 },
             ),
@@ -1828,64 +1820,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 },
             ),
         }
-        spec = EXPORTER_MAP.get(dataset_type)
-        if spec is None:
-            raise NotImplementedError(
-                f"Unsupported export format: {dataset_type}"
-            )
-
-        logger.info(
-            f"Exporting '{self.identifier}' to '{dataset_type.name}' format"
-        )
-
-        out_path = Path(output_path)
-        if out_path.exists():
-            raise ValueError(
-                f"Export path '{out_path}' already exists. Please remove it first."
-            )
-        out_path.mkdir(parents=True)
-
-        prepared_ldf = PreparedLDF.from_dataset(self)
-
-        exporter: BaseExporter = spec.cls(
-            self.identifier, out_path, max_partition_size_gb, **spec.kwargs
-        )
-
-        exporter.export(prepared_ldf=prepared_ldf)
-
-        # Detect whether partitioned export was produced and the max part index
-        def _detect_last_part(base: Path, ds_id: str) -> int | None:
-            max_idx: int | None = None
-            prefix = f"{ds_id}_part"
-            for p in base.iterdir():
-                if p.is_dir() and p.name.startswith(prefix):
-                    try:
-                        idx = int(p.name[len(prefix) :])
-                    except ValueError:
-                        continue
-                    max_idx = (
-                        idx if (max_idx is None or idx > max_idx) else max_idx
-                    )
-            return max_idx
-
-        last_part = _detect_last_part(out_path, self.identifier)
-        if zip_output:
-            archives = create_zip_output(
-                max_partition_size=max_partition_size_gb,
-                output_path=out_path,
-                part=last_part,
-                dataset_identifier=self.identifier,
-            )
-            if isinstance(archives, list):
-                logger.info(
-                    f"Dataset successfully exported to: {[str(p) for p in archives]}"
-                )
-                return archives
-            logger.info(f"Dataset successfully exported to: {archives}")
-            return archives
-
-        logger.info(f"Dataset successfully exported to: {out_path}")
-        return out_path
 
     def get_statistics(
         self, sample_size: int | None = None, view: str | None = None
@@ -1924,7 +1858,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         splits = self.get_splits()
         if splits is not None and view and view in splits:
-            df = df.filter(pl.col("uuid").is_in(splits[view]))  # type: ignore
+            df = df.filter(pl.col("uuid").is_in(splits[view]))
 
         stats["duplicates"] = get_duplicates_info(df)
 
@@ -1951,11 +1885,21 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             for duplicates in duplicate_info["duplicate_uuids"]
             for file in duplicates["files"][1:]
         ]
+        n_rows = df.select(pl.len()).collect().item()
         df = df.filter(~pl.col("file").is_in(duplicate_files_to_remove))
 
-        df = df.unique(subset=["file", "annotation"], maintain_order=True)
+        deduplicated = df.unique(
+            subset=["file", "annotation"], maintain_order=True
+        ).collect()
 
-        self._save_df_offline(df.collect())
+        # Both steps above only drop rows. An equal row count thus means
+        # the data did not change, so the rewrite and the upload below
+        # would only repeat the current contents.
+        if deduplicated.height == n_rows:
+            logger.info("The dataset has no duplicates.")
+            return
+
+        self._save_df_offline(deduplicated)
 
         if self.is_remote:
             self._fs.put_dir(
@@ -2011,3 +1955,331 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                     task=task_name,
                     rewrite_metadata=False,
                 )
+
+    def _split_by_ratio(
+        self, ratios: Mapping[str, float], defined_group_ids: set[str]
+    ) -> dict[str, list[str]]:
+        """Divide the unassigned groups between the splits.
+
+        Args:
+            ratios: Split names mapped to ratios that sum to 1.
+            defined_group_ids: Groups that already belong to a split.
+
+        Returns:
+            Split names mapped to the group ids they receive.
+
+        Raises:
+            ValueError: If every group already belongs to a split.
+
+        """
+        df = self._load_df_offline(raise_when_empty=True)
+        ids = (
+            df.filter(~pl.col("group_id").is_in(defined_group_ids))
+            .select("group_id")
+            .unique()
+            .sort("group_id")
+            .get_column("group_id")
+            .to_list()
+        )
+        if not ids:
+            raise ValueError(
+                "No new files to add to splits. "
+                "If you want to generate new splits, set "
+                "`replace_old_splits=True`"
+            )
+
+        np.random.shuffle(ids)
+        new_splits: dict[str, list[str]] = {}
+        lower_bound = 0
+        for split, size in _split_sizes(len(ids), ratios).items():
+            upper_bound = lower_bound + size
+            new_splits[split] = ids[lower_bound:upper_bound]
+            lower_bound = upper_bound
+
+        for split, group_ids in new_splits.items():
+            if not group_ids and ratios[split] > 0:
+                logger.warning(
+                    f"Split '{split}' got no data. The dataset has "
+                    f"{len(ids)} new groups, which is too few for "
+                    f"the ratio {ratios[split]}."
+                )
+        return new_splits
+
+    def _split_by_definition(
+        self,
+        definitions: Mapping[str, Sequence[PathType]],
+        defined_group_ids: set[str],
+    ) -> dict[str, list[str]]:
+        """Resolve filepath lists to group ids.
+
+        The method adds each group that it takes to
+        ``defined_group_ids``, so no group lands in two splits.
+
+        Args:
+            definitions: Split names mapped to filepath lists.
+            defined_group_ids: Groups that already belong to a split.
+
+        Returns:
+            Split names mapped to the group ids they receive.
+
+        """
+        n_files = sum(map(len, definitions.values()))
+        dataset_size = len(self)
+        if n_files > dataset_size:
+            logger.warning(
+                "Dataset size is smaller than the total number of files in the definitions. "
+                f"Dataset size: {dataset_size}, Definitions: {n_files}. "
+                "Duplicate files will be filtered out and extra files in "
+                "definitions will be ignored."
+            )
+            self.remove_duplicates()
+
+        index = self._get_index(raise_when_empty=True)
+        new_splits: dict[str, list[str]] = {}
+        for split, filepaths in definitions.items():
+            ids: list[str] = []
+            for filepath in filepaths:
+                group_id = find_filepath_group_id(
+                    filepath, index, raise_on_missing=False
+                )
+
+                if group_id is None:
+                    logger.warning(
+                        f"No group ID found for '{filepath}' in definitions; skipping."
+                    )
+                    continue
+                if group_id in defined_group_ids:
+                    continue
+                ids.append(group_id)
+                defined_group_ids.add(group_id)
+
+            new_splits[split] = ids
+        return new_splits
+
+
+def _resolve_splits(
+    splits: Mapping[str, Sequence[PathType]]
+    | Mapping[str, float]
+    | tuple[float, float, float],
+) -> (
+    tuple[dict[str, float], None]
+    | tuple[None, Mapping[str, Sequence[PathType]]]
+):
+    """Read the ``splits`` argument as ratios or as filepath lists.
+
+    Args:
+        splits: The argument given to ``make_splits``.
+
+    Returns:
+        The ratios and the filepath lists. Exactly one of the two is
+        ``None``.
+
+    Raises:
+        ValueError: If ``splits`` is empty, or if the ratios fall outside
+            the range from 0 to 1, or do not sum to 1.
+        TypeError: If the mapping values are neither ratios nor filepath
+            lists.
+
+    """
+    if isinstance(splits, tuple):
+        ratios = dict(
+            zip(["train", "val", "test"], map(float, splits), strict=True)
+        )
+        return _checked_ratios(ratios), None
+    if not splits:
+        raise ValueError("Splits cannot be empty")
+
+    ratios = {
+        split: float(value)
+        for split, value in splits.items()
+        if isinstance(value, (int, float))
+    }
+    if len(ratios) == len(splits):
+        return _checked_ratios(ratios), None
+
+    definitions = {
+        split: value
+        for split, value in splits.items()
+        # A `str` is a Sequence, but one path is not a list.
+        if isinstance(value, Sequence) and not isinstance(value, str)
+    }
+    if len(definitions) < len(splits):
+        raise TypeError(
+            "Splits must map names to either ratios or filepath "
+            "lists. A ratio is a number from 0 to 1."
+        )
+    return None, definitions
+
+
+def _checked_ratios(ratios: dict[str, float]) -> dict[str, float]:
+    """Check that the ratios lie between 0 and 1 and sum to 1."""
+    # Check the range first; a bad ratio breaks the sum too.
+    if any(not 0.0 <= ratio <= 1.0 for ratio in ratios.values()):
+        raise ValueError("Ratios must be between 0.0 and 1.0 (inclusive)")
+    sum_ = sum(ratios.values())
+    if not math.isclose(sum_, 1.0):
+        raise ValueError(f"Ratios must sum to 1.0, got {sum_:0.4f}")
+    return ratios
+
+
+def _last_part_index(base: Path, ds_id: str) -> int | None:
+    """Return the highest partition index of an export, if partitioned."""
+    prefix = f"{ds_id}_part"
+    indices = []
+    for p in base.iterdir():
+        if p.is_dir() and p.name.startswith(prefix):
+            with suppress(ValueError):
+                indices.append(int(p.name[len(prefix) :]))
+    return max(indices, default=None)
+
+
+def _migrate_single_component_source(metadata_json: dict[str, Any]) -> None:
+    """Name the only component of an old source ``image`` and make it main.
+
+    Examples:
+        >>> metadata = {"source": {"components": {"cam": {"name": "cam"}}}}
+        >>> _migrate_single_component_source(metadata)
+        >>> source = metadata["source"]
+        >>> source["main_component"], list(source["components"])
+        ('image', ['image'])
+        >>> metadata = {"source": {"components": {"a": {}, "b": {}}}}
+        >>> _migrate_single_component_source(metadata)
+        >>> sorted(metadata["source"]["components"])
+        ['a', 'b']
+        >>> metadata = {"source": None}
+        >>> _migrate_single_component_source(metadata)
+        >>> metadata
+        {'source': None}
+
+    """
+    source_data = metadata_json.get("source")
+    if not isinstance(source_data, dict):
+        return
+    components = source_data.get("components", {})
+    if not isinstance(components, dict) or len(components) != 1:
+        return
+    source_data["components"] = {
+        "image": LuxonisComponent(**next(iter(components.values())))
+    }
+    source_data["main_component"] = "image"
+
+
+@dataclass
+class _AddedLabels:
+    """What the records added to a dataset say about its tasks."""
+
+    classes_per_task: defaultdict[str, set[str]] = field(
+        default_factory=lambda: defaultdict(set)
+    )
+    tasks: defaultdict[str, set[str]] = field(
+        default_factory=lambda: defaultdict(set)
+    )
+    categorical_encodings: defaultdict[str, dict[str, int]] = field(
+        default_factory=lambda: defaultdict(dict)
+    )
+    metadata_types: dict[str, Any] = field(default_factory=dict)
+    num_kpts_per_task: dict[str, int] = field(default_factory=dict)
+    sources: set[str] = field(default_factory=set)
+
+    def update(self, task_name: str, ann: Detection) -> None:
+        """Record one annotation and its sub-detections."""
+        classes = self.classes_per_task[task_name]  # registers the task
+        if ann.class_name is not None:
+            classes.add(ann.class_name)
+
+        self.tasks[task_name] |= ann.get_task_types()
+
+        if ann.keypoints is not None:
+            self.num_kpts_per_task[task_name] = len(ann.keypoints.keypoints)
+        for name, value in ann.metadata.items():
+            self._update_metadata(f"{task_name}/metadata/{name}", value)
+        for name, sub_detection in ann.sub_detections.items():
+            self.update(f"{task_name}/{name}", sub_detection)
+
+    def _update_metadata(self, task: str, value: object) -> None:
+        """Record the type of a metadata value and encode a category.
+
+        Raises:
+            ValueError: If the type of ``value`` differs from the type
+                already recorded for ``task``. An ``int`` and a
+                ``float`` do not conflict.
+
+        Examples:
+            >>> added = _AddedLabels()
+            >>> added._update_metadata("cars/metadata/score", 1)
+            >>> added._update_metadata("cars/metadata/score", 0.5)
+            >>> added.metadata_types
+            {'cars/metadata/score': 'float'}
+            >>> added._update_metadata("cars/metadata/score", "high")
+            Traceback (most recent call last):
+            ...
+            ValueError: Metadata type mismatch for cars/metadata/score: float and str
+
+        """
+        typ = type(value).__name__
+        known = self.metadata_types.get(task)
+        if known is None or known == typ:
+            self.metadata_types[task] = typ
+        elif {typ, known} == {"int", "float"}:
+            self.metadata_types[task] = "float"
+        else:
+            raise ValueError(
+                f"Metadata type mismatch for {task}: {known} and {typ}"
+            )
+
+        if not isinstance(value, Category):
+            return
+        if value not in self.categorical_encodings[task]:
+            self.categorical_encodings[task][value] = len(
+                self.categorical_encodings[task]
+            )
+
+
+def _write_json(path: Path, data: Mapping[str, list[str]]) -> None:
+    """Write JSON to a temporary file, then rename the file.
+
+    ``Path.replace`` is atomic on one filesystem. A failure during the
+    write thus leaves the previous file unchanged, instead of a
+    truncated file that no longer parses.
+
+    Args:
+        path: The destination file.
+        data: The data to write.
+
+    """
+    tmp_path = path.with_name(f"{path.name}.tmp")
+    try:
+        tmp_path.write_text(json.dumps(data, indent=4))
+        tmp_path.replace(path)
+    finally:
+        # `push_to_cloud` uploads the whole metadata directory.
+        tmp_path.unlink(missing_ok=True)
+
+
+def _split_sizes(n_groups: int, ratios: Mapping[str, float]) -> dict[str, int]:
+    """Divide the groups between the splits.
+
+    The function uses the largest remainder method. Each split first
+    gets the whole part of its exact share. The leftover groups then go
+    to the splits with the largest fractional parts. A ``ceil`` of each
+    share would give every split more than its part in turn, and the
+    last split would absorb all the error.
+
+    Args:
+        n_groups: The number of groups to divide.
+        ratios: A mapping of split names to ratios. The ratios sum to 1.
+
+    Returns:
+        A mapping of split names to group counts. The counts sum to
+        ``n_groups``.
+
+    """
+    shares = {split: n_groups * ratio for split, ratio in ratios.items()}
+    sizes = {split: int(share) for split, share in shares.items()}
+    leftover = max(0, n_groups - sum(sizes.values()))
+    by_remainder = sorted(
+        shares, key=lambda split: shares[split] - sizes[split], reverse=True
+    )
+    for split in by_remainder[:leftover]:
+        sizes[split] += 1
+    return sizes

@@ -1,3 +1,5 @@
+"""Parser for datasets in the COCO format."""
+
 import json
 import math
 from collections import defaultdict
@@ -25,7 +27,7 @@ from .parser_plugin import (
 
 def _load_annotations(annotation_path: Path) -> dict[str, Any]:
     """Decode a COCO annotation file."""
-    with open(annotation_path, encoding="utf-8") as f:
+    with annotation_path.open(encoding="utf-8") as f:
         data: dict[str, Any] = json.load(f)
     return data
 
@@ -75,39 +77,29 @@ class COCOParser(SplitParserPlugin):
         if not dataset_dir.is_dir():
             return None, []
 
-        fiftyone_splits = ["train", "validation", "test"]
-        roboflow_splits = ["train", "valid", "test"]
-
         existing = [d.name for d in dataset_dir.iterdir() if d.is_dir()]
 
         # Clash with NATIVE format
         if "val" in existing:
             return None, []
 
-        fiftyone_splits = [s for s in fiftyone_splits if s in existing]
-        roboflow_splits = [s for s in roboflow_splits if s in existing]
+        splits = {
+            COCOFormat.FIFTYONE: [
+                s for s in ("train", "validation", "test") if s in existing
+            ],
+            COCOFormat.ROBOFLOW: [
+                s for s in ("train", "valid", "test") if s in existing
+            ],
+        }
+        fiftyone_splits = splits[COCOFormat.FIFTYONE]
+        roboflow_splits = splits[COCOFormat.ROBOFLOW]
 
         if fiftyone_splits and len(fiftyone_splits) == len(roboflow_splits):
-            # The two only differ in the name of the validation split.
-            if "validation" in existing:
-                return COCOFormat.FIFTYONE, fiftyone_splits
-            if "valid" in existing:
-                return COCOFormat.ROBOFLOW, roboflow_splits
-
-            # Partial layouts like train-only are ambiguous by directory
-            # names alone, so inspect the annotation filename inside any
-            # present split to distinguish Roboflow from FiftyOne.
-            for split_name in fiftyone_splits:
-                split_info = COCOParser.validate_split(
-                    dataset_dir / split_name
-                )
-                if split_info is not None:
-                    if (
-                        split_info["annotation_path"].name
-                        == "_annotations.coco.json"
-                    ):
-                        return COCOFormat.ROBOFLOW, roboflow_splits
-                    return COCOFormat.FIFTYONE, fiftyone_splits
+            dir_format = COCOParser._disambiguate_dir_format(
+                dataset_dir, existing, fiftyone_splits
+            )
+            if dir_format is not None:
+                return dir_format, splits[dir_format]
 
         if fiftyone_splits and len(fiftyone_splits) >= len(roboflow_splits):
             return COCOFormat.FIFTYONE, fiftyone_splits
@@ -116,10 +108,38 @@ class COCOParser(SplitParserPlugin):
         return None, []
 
     @staticmethod
+    def _disambiguate_dir_format(
+        dataset_dir: Path, existing: list[str], splits: list[str]
+    ) -> COCOFormat | None:
+        """Tell FiftyOne from Roboflow when both layouts match equally.
+
+        A ``validation`` folder means FiftyOne. Partial layouts like
+        train-only are ambiguous by directory names alone, so the
+        annotation filename inside any present split decides: Roboflow
+        has ``_annotations.coco.json``, FiftyOne has ``labels.json``.
+
+        Returns:
+            The detected format. ``None`` if there is no ``validation``
+            folder and no split in ``splits`` holds a valid COCO layout.
+
+        """
+        if "validation" in existing:
+            return COCOFormat.FIFTYONE
+
+        for split_name in splits:
+            split_info = COCOParser.validate_split(dataset_dir / split_name)
+            if split_info is None:
+                continue
+            if split_info["annotation_path"].name == "_annotations.coco.json":
+                return COCOFormat.ROBOFLOW
+            return COCOFormat.FIFTYONE
+        return None
+
+    @staticmethod
     def _load_coco_json(json_path: Path) -> dict[str, Any] | None:
         """Decode ``json_path`` if it has the required COCO fields."""
         try:
-            with open(json_path, encoding="utf-8") as f:
+            with json_path.open(encoding="utf-8") as f:
                 data = json.load(f)
         except (json.JSONDecodeError, OSError):
             return None
@@ -153,6 +173,7 @@ class COCOParser(SplitParserPlugin):
         return categories if isinstance(categories, list) else []
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         """Return the parse arguments when ``split_path`` holds COCO labels.
 
@@ -170,8 +191,10 @@ class COCOParser(SplitParserPlugin):
         """
         if not split_path.exists():
             return None
-        json_path = next(split_path.glob("*.json"), None)
-        if not json_path:
+        json_path = split_path / "_annotations.coco.json"
+        if not json_path.exists():
+            json_path = next(split_path.glob("*.json"), None)
+        if json_path is None:
             return None
         data = COCOParser._load_coco_json(json_path)
         if data is None:
@@ -220,6 +243,7 @@ class COCOParser(SplitParserPlugin):
     def _resolve_dir_format_and_keypoint_paths(
         self,
         dataset_dir: Path,
+        *,
         use_keypoint_ann: bool,
         keypoint_ann_paths: dict[str, str] | None,
     ) -> tuple[COCOFormat, list[str], dict[str, str] | None]:
@@ -430,22 +454,9 @@ class COCOParser(SplitParserPlugin):
                 continue
             class_name = categories[ann["category_id"]]
 
-            try:
-                raw_x, raw_y, raw_w, raw_h = ann["bbox"]
-                x = float(raw_x)
-                y = float(raw_y)
-                w = float(raw_w)
-                h = float(raw_h)
-                valid_bbox = (
-                    math.isfinite(x)
-                    and math.isfinite(y)
-                    and math.isfinite(w)
-                    and math.isfinite(h)
-                )
-            except (TypeError, ValueError):
-                valid_bbox = False
+            box = _coco_bbox(ann["bbox"])
 
-            if not valid_bbox:
+            if box is None:
                 self._warn_skipped_annotation(
                     ParserIssue.NON_NUMERIC_ANNOTATION,
                     "Annotation contains non-numeric bbox values",
@@ -455,7 +466,7 @@ class COCOParser(SplitParserPlugin):
                 )
                 continue
 
-            yield ann, class_name, (x, y, w, h)
+            yield ann, class_name, box
 
     def _iter_split_files(
         self,
@@ -525,6 +536,7 @@ class COCOParser(SplitParserPlugin):
             if next(kept, None) is not None:
                 yield file
 
+    @override
     def _split_files(
         self,
         image_dir: Path,
@@ -536,6 +548,7 @@ class COCOParser(SplitParserPlugin):
             self._iter_split_files(image_dir, annotation_path, annotation_data)
         )
 
+    @override
     def _split_records(
         self,
         image_dir: Path,
@@ -566,15 +579,17 @@ class COCOParser(SplitParserPlugin):
         coco_categories = self._coco_categories(annotation_data)
         categories = {cat["id"]: cat["name"] for cat in coco_categories}
 
-        skeletons = {}
-        for cat in coco_categories:
-            if "keypoints" in cat and "skeleton" in cat:
-                skeletons[categories[cat["id"]]] = {
-                    "labels": cat["keypoints"],
-                    "edges": list(
-                        map(tuple, (np.array(cat["skeleton"]) - 1).tolist())
-                    ),
-                }
+        skeletons = {
+            categories[cat["id"]]: {
+                "labels": cat["keypoints"],
+                "edges": [
+                    tuple(edge)
+                    for edge in (np.array(cat["skeleton"]) - 1).tolist()
+                ],
+            }
+            for cat in coco_categories
+            if "keypoints" in cat and "skeleton" in cat
+        }
         self._skeletons.update(skeletons)
 
         ann_dict: dict[Any, list[dict[str, Any]]] = defaultdict(list)
@@ -588,8 +603,7 @@ class COCOParser(SplitParserPlugin):
         base_dir = image_dir.absolute().resolve()
 
         def generator() -> DatasetIterator:
-            existing_ids: set[Any] | None = None
-            next_fallback_id = 0
+            instance_ids = _InstanceIds(coco_annotations)
 
             for img_id, img in img_dict.items():
                 file = resolve_manifest_path(base_dir, img["file_name"])
@@ -621,81 +635,17 @@ class COCOParser(SplitParserPlugin):
                     file=file,
                     annotation_path=annotation_path,
                 ):
-                    x, y, w, h = box
-
-                    segmentation = None
-
-                    coco_seg = ann.get("segmentation", [])
-
-                    if isinstance(coco_seg, list) and coco_seg:
-                        rles = mask_util.frPyObjects(coco_seg, img_h, img_w)
-                        rle = mask_util.merge(rles)
-                        segmentation = {
-                            "height": rle["size"][0],
-                            "width": rle["size"][1],
-                            "counts": rle["counts"],
-                        }
-                    elif isinstance(coco_seg, dict):
-                        segmentation = {
-                            "height": coco_seg["size"][0],
-                            "width": coco_seg["size"][1],
-                            "counts": coco_seg["counts"],
-                        }
-
-                    if "id" in ann:
-                        instance_id = ann["id"]
-                    else:
-                        if existing_ids is None:
-                            # Collected lazily: only a missing id needs to
-                            # know which ids are taken.
-                            existing_ids = {
-                                other["id"]
-                                for other in coco_annotations
-                                if "id" in other
-                            }
-                        while next_fallback_id in existing_ids:
-                            next_fallback_id += 1
-                        instance_id = next_fallback_id
-                        existing_ids.add(instance_id)
-                        next_fallback_id += 1
-
-                    record = {
+                    yield {
                         "file": file,
-                        "annotation": {
-                            "class": class_name,
-                            "instance_id": instance_id,
-                            "boundingbox": {
-                                "x": x / img_w,
-                                "y": y / img_h,
-                                "w": w / img_w,
-                                "h": h / img_h,
-                            },
-                        },
+                        "annotation": _coco_annotation(
+                            ann,
+                            class_name,
+                            box,
+                            img_w=img_w,
+                            img_h=img_h,
+                            instance_ids=instance_ids,
+                        ),
                     }
-
-                    if segmentation is not None:
-                        record["annotation"]["segmentation"] = segmentation
-                        record["annotation"]["instance_segmentation"] = (
-                            segmentation
-                        )
-
-                    if "keypoints" in ann:
-                        kpts = np.array(ann["keypoints"]).reshape(-1, 3)
-
-                        np.clip(kpts[:, 0], 0, img_w, out=kpts[:, 0])
-                        np.clip(kpts[:, 1], 0, img_h, out=kpts[:, 1])
-
-                        keypoints = []
-                        for kp in kpts:
-                            keypoints.append(
-                                (kp[0] / img_w, kp[1] / img_h, int(kp[2]))
-                            )
-
-                        record["annotation"]["keypoints"] = {
-                            "keypoints": keypoints
-                        }
-
-                    yield record
 
         return generator()
 
@@ -802,7 +752,7 @@ class COCOParser(SplitParserPlugin):
                 for record in self._split_records(**split_kwargs, **kwargs):
                     if (
                         split_name == "val"
-                        and cast(dict[str, Any], record)["file"]
+                        and cast("dict[str, Any]", record)["file"]
                         in moved_to_test
                     ):
                         yield "test", record
@@ -873,6 +823,120 @@ class COCOParser(SplitParserPlugin):
                 ]
                 enumerated["test"] = [*enumerated.get("test", []), *moved]
         return enumerated
+
+
+class _InstanceIds:
+    """Hand out collision-free instance IDs for COCO annotations."""
+
+    def __init__(self, annotations: list[dict[str, Any]]) -> None:
+        self._annotations = annotations
+        self._taken: set[Any] | None = None
+        self._next = 0
+
+    def of(self, ann: dict[str, Any]) -> Any:
+        """Return the declared ID or the next unused integer."""
+        if "id" in ann:
+            return ann["id"]
+        taken = self._taken
+        if taken is None:
+            taken = {
+                other["id"] for other in self._annotations if "id" in other
+            }
+            self._taken = taken
+        while self._next in taken:
+            self._next += 1
+        instance_id = self._next
+        taken.add(instance_id)
+        self._next += 1
+        return instance_id
+
+
+def _coco_bbox(
+    bbox: Any,
+) -> tuple[float, float, float, float] | None:
+    """Convert a COCO box to four finite numbers.
+
+    Returns:
+        The ``x``, ``y``, ``w`` and ``h`` values, or ``None`` when
+        ``bbox`` does not contain four finite numbers.
+
+    """
+    try:
+        x, y, w, h = (float(value) for value in bbox)
+    except (TypeError, ValueError):
+        return None
+    if not all(math.isfinite(value) for value in (x, y, w, h)):
+        return None
+    return x, y, w, h
+
+
+def _coco_segmentation(
+    coco_seg: Any, img_w: int, img_h: int
+) -> dict[str, Any] | None:
+    """Convert a COCO polygon list or RLE dict to an LDF RLE dict.
+
+    Returns:
+        The mask ``height``, ``width`` and RLE ``counts``. ``None``
+        if ``coco_seg`` is empty or has an unsupported type.
+
+    """
+    if isinstance(coco_seg, list):
+        if not coco_seg:
+            return None
+        coco_seg = mask_util.merge(
+            mask_util.frPyObjects(coco_seg, img_h, img_w)
+        )
+    elif not isinstance(coco_seg, dict):
+        return None
+    return {
+        "height": coco_seg["size"][0],
+        "width": coco_seg["size"][1],
+        "counts": coco_seg["counts"],
+    }
+
+
+def _coco_keypoints(
+    flat: list[float], img_w: int, img_h: int
+) -> list[tuple[float, float, int]]:
+    """Normalize a flat COCO keypoint list, clipped to the image."""
+    kpts = np.array(flat).reshape(-1, 3)
+    np.clip(kpts[:, 0], 0, img_w, out=kpts[:, 0])
+    np.clip(kpts[:, 1], 0, img_h, out=kpts[:, 1])
+    return [(kp[0] / img_w, kp[1] / img_h, int(kp[2])) for kp in kpts]
+
+
+def _coco_annotation(
+    ann: dict[str, Any],
+    class_name: str,
+    box: tuple[float, float, float, float],
+    *,
+    img_w: int,
+    img_h: int,
+    instance_ids: _InstanceIds,
+) -> dict[str, Any]:
+    """Convert one kept COCO annotation to an LDF annotation."""
+    segmentation = _coco_segmentation(
+        ann.get("segmentation", []), img_w, img_h
+    )
+    x, y, w, h = box
+    annotation: dict[str, Any] = {
+        "class": class_name,
+        "instance_id": instance_ids.of(ann),
+        "boundingbox": {
+            "x": x / img_w,
+            "y": y / img_h,
+            "w": w / img_w,
+            "h": h / img_h,
+        },
+    }
+    if segmentation is not None:
+        annotation["segmentation"] = segmentation
+        annotation["instance_segmentation"] = segmentation
+    if "keypoints" in ann:
+        annotation["keypoints"] = {
+            "keypoints": _coco_keypoints(ann["keypoints"], img_w, img_h)
+        }
+    return annotation
 
 
 #: Containers with more children than this are written one child at a
@@ -984,7 +1048,7 @@ def clean_annotations(
     annotation_data["annotations"] = filtered_annotations
 
     cleaned_annotation_path = annotation_path.with_name("labels_fixed.json")
-    with open(cleaned_annotation_path, "w", encoding="utf-8") as f:
+    with cleaned_annotation_path.open("w", encoding="utf-8") as f:
         _write_json(f, annotation_data)
 
     return cleaned_annotation_path

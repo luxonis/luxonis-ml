@@ -1,24 +1,13 @@
-from collections.abc import Iterator
-
 import albumentations as A
 import numpy as np
 import pytest
-from loguru import logger
+from typing_extensions import override
 
 from luxonis_ml.data.augmentations import BatchCompose, BatchTransform, MixUp
 
 from .helpers import KeepFirstSample
 
 IMAGE = np.zeros((16, 16, 3), dtype=np.uint8)
-
-
-@pytest.fixture
-def warnings_log() -> Iterator[list[str]]:
-    """Collect loguru warnings, which pytest's caplog does not see."""
-    messages: list[str] = []
-    handler = logger.add(messages.append, level="WARNING", format="{message}")
-    yield messages
-    logger.remove(handler)
 
 
 class PushFirstBoxOutOfFrame(KeepFirstSample):
@@ -28,6 +17,7 @@ class PushFirstBoxOutOfFrame(KeepFirstSample):
     the non-contiguous indices that compaction exists to handle.
     """
 
+    @override
     def apply_to_bboxes(
         self, bboxes_batch: list[np.ndarray], **_
     ) -> np.ndarray:
@@ -37,6 +27,7 @@ class PushFirstBoxOutOfFrame(KeepFirstSample):
 
 
 class ReturnsFlatBoxes(KeepFirstSample):
+    @override
     def apply_to_bboxes(self, _batch: list[np.ndarray], **_) -> np.ndarray:
         return np.array([1.0, 2.0, 3.0])
 
@@ -48,6 +39,7 @@ class DropsFirstBox(KeepFirstSample):
     instance count gives the mismatch away.
     """
 
+    @override
     def apply_to_bboxes(
         self, bboxes_batch: list[np.ndarray], **_
     ) -> np.ndarray:
@@ -293,10 +285,9 @@ def test_indices_are_restamped_without_a_bbox_processor() -> None:
     assert output["bboxes"][:, -1].tolist() == [0.0, 1.0]
 
 
-def test_make_contiguous_leaves_non_arrays_alone() -> None:
-    data = {"image": np.zeros((4, 4))[::2], "note": "kept as is"}
+def test_make_contiguous_copies_strided_arrays() -> None:
+    data = {"image": np.zeros((4, 4))[::2]}
 
-    out = BatchCompose._make_contiguous(data)  # type: ignore[arg-type]
+    out = BatchCompose._make_contiguous(data)
 
     assert out["image"].flags["C_CONTIGUOUS"]
-    assert out["note"] == "kept as is"

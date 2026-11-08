@@ -1,9 +1,15 @@
+"""Settings read from the environment and the ``.env`` file.
+
+The ``environ`` object loads the values again on each attribute access.
+"""
+
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, cast
 
 from pydantic import NonNegativeInt, SecretStr, model_serializer
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing_extensions import override
 
 from luxonis_ml.typing import Params
 
@@ -42,6 +48,8 @@ class Environ(BaseSettings):
         LUXONISML_TEAM_ID: Team identifier used by dataset storage.
         LUXONISML_DISABLE_SETUP_LOGGING: Whether automatic logging setup
             is disabled.
+        LUXONISML_DISABLE_PRETTY_VALIDATION_ERRORS: Whether automatic
+            validation error summaries are disabled.
         ROBOFLOW_API_KEY: Optional Roboflow API key used by
             `BaseDataset.import_dataset`.
         GOOGLE_APPLICATION_CREDENTIALS: Optional Google credentials path.
@@ -77,6 +85,7 @@ class Environ(BaseSettings):
     LUXONISML_BASE_PATH: Path = Path.home() / "luxonis_ml"
     LUXONISML_TEAM_ID: str = "offline"
     LUXONISML_DISABLE_SETUP_LOGGING: bool = False
+    LUXONISML_DISABLE_PRETTY_VALIDATION_ERRORS: bool = False
 
     LUXONIS_TELEMETRY_ENABLED: bool = True
     LUXONIS_TELEMETRY_BACKEND: str | None = None
@@ -101,8 +110,11 @@ class Environ(BaseSettings):
 
 @lru_cache(maxsize=1)
 def _load_environ() -> Environ:
-    """Return a cached Environ instance, reading .env and os.environ
-    once.
+    """Return a cached Environ instance that reads .env and os.environ once.
+
+    Returns:
+        The same instance on every call until the cache is cleared.
+
     """
     return Environ()
 
@@ -113,9 +125,10 @@ class _EnvironProxy:
         real = _load_environ()
         return getattr(real, name)
 
+    @override
     def __repr__(self) -> str:
         return "<EnvironProxy loading from .env>"
 
 
 _proxy = _EnvironProxy()
-environ: Environ = cast(Environ, _proxy)
+environ: Environ = cast("Environ", _proxy)

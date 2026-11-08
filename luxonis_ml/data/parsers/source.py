@@ -3,7 +3,7 @@ import sys
 import zipfile
 from importlib.util import find_spec
 from pathlib import Path, PurePath
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 
 import requests
 from loguru import logger
@@ -235,17 +235,9 @@ def _download_ultralytics_dataset(
             "`ultralytics://username/datasets/slug`."
         )
 
-    dataset_response = requests.get(
-        f"{api_base_url}/datasets",
-        headers=headers,
-        params={"username": parsed.netloc, "slug": path_parts[1]},
-        timeout=30.0,
-    )
-    _raise_for_api_error(dataset_response)
-
-    dataset = dataset_response.json()["dataset"]
+    name = path_parts[1]
     export_response = requests.get(
-        f"{api_base_url}/datasets/{dataset['_id']}/export",
+        f"{api_base_url}/datasets/{quote(parsed.netloc)}/{quote(name)}/export",
         headers=headers,
         params={"v": version} if version is not None else None,
         timeout=120.0,
@@ -253,14 +245,11 @@ def _download_ultralytics_dataset(
     _raise_for_api_error(export_response)
 
     destination_root = local_path or Path.cwd()
-    destination = (
-        destination_root / f"{dataset['slug']}.v{version}.ndjson"
-        if version is not None
-        else destination_root / f"{dataset['slug']}.ndjson"
-    )
+    version_suffix = f".v{version}" if version is not None else ""
+    destination = destination_root / f"{name}{version_suffix}.ndjson"
     download_remote_file(
         export_response.json()["downloadUrl"],
         destination,
         timeout=120.0,
     )
-    return destination, dataset["name"]
+    return destination, name

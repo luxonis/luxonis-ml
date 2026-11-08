@@ -1,3 +1,9 @@
+"""Parser for FiftyOne image classification datasets.
+
+Also holds `clean_imagenet_annotations`, which fixes known label
+errors of ImageNet exports.
+"""
+
 import json
 from pathlib import Path
 from typing import Any, cast
@@ -57,6 +63,7 @@ class FiftyOneClassificationParser(SplitParserPlugin):
     split_names = ("train", "validation", "test")
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -71,7 +78,7 @@ class FiftyOneClassificationParser(SplitParserPlugin):
             return None
 
         try:
-            with open(labels_path, encoding="utf-8") as f:
+            with labels_path.open(encoding="utf-8") as f:
                 labels_data = json.load(f)
         except (json.JSONDecodeError, OSError):
             return None
@@ -125,8 +132,8 @@ class FiftyOneClassificationParser(SplitParserPlugin):
 
     @staticmethod
     def _read_labels(labels_path: Path) -> dict[str, Any]:
-        with open(labels_path, encoding="utf-8") as f:
-            return cast(dict[str, Any], json.load(f))
+        with labels_path.open(encoding="utf-8") as f:
+            return cast("dict[str, Any]", json.load(f))
 
     def _stem_to_path(self, split_path: Path) -> dict[str, Path]:
         """Map each image stem in a split's ``data`` directory to its path.
@@ -139,6 +146,7 @@ class FiftyOneClassificationParser(SplitParserPlugin):
             for image in self._list_images(split_path / "data")
         }
 
+    @override
     def _split_records(
         self,
         split_path: Path,
@@ -203,6 +211,7 @@ class FiftyOneClassificationParser(SplitParserPlugin):
                 "annotation": {"class": classes[class_idx]},
             }
 
+    @override
     def _split_files(
         self,
         split_path: Path,
@@ -242,7 +251,22 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
     """Clean known ImageNet issues in FiftyOne labels.
 
     The cleanup fixes duplicate class names and known label-index errors in
-    ImageNet FiftyOne exports.
+    ImageNet FiftyOne exports:
+
+        - the first ``"crane"`` (the bird) becomes ``"crane bird"``, which
+          separates it from the crane machine;
+        - the second ``"maillot"`` becomes ``"maillot swim suit"``;
+        - image ``006742`` moves from index 517 to index 134;
+        - image ``031933`` moves from index 639 to index 638.
+
+    The function writes the result to ``labels_fixed.json`` next to the
+    original file, and it returns the original path when it changes
+    nothing.
+
+    Note:
+        `FiftyOneClassificationParser` runs this cleanup only for layout
+        entries whose detection-carried ``is_flat`` flag is true. A
+        source's directory name does not decide whether the layout is flat.
 
     Args:
         labels_path: Path to ``labels.json``.
@@ -251,7 +275,7 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
         Path to the cleaned labels file.
 
     """
-    with open(labels_path, encoding="utf-8") as f:
+    with labels_path.open(encoding="utf-8") as f:
         labels_data = json.load(f)
 
     classes = labels_data["classes"]
@@ -301,7 +325,7 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
     labels_data["labels"] = labels
 
     cleaned_labels_path = labels_path.with_name("labels_fixed.json")
-    with open(cleaned_labels_path, "w", encoding="utf-8") as f:
+    with cleaned_labels_path.open("w", encoding="utf-8") as f:
         json.dump(labels_data, f)
 
     logger.info(f"Cleaned annotations saved to {cleaned_labels_path}")

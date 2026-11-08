@@ -7,55 +7,18 @@ back to a dictionary when records are loaded or exported.
 """
 
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 
 import polars as pl
 from typing_extensions import Self
 
+from luxonis_ml.ldf.parquet import ParquetRecord
 from luxonis_ml.typing import PathType
+
+__all__ = ["DEFAULT_METADATA", "ParquetFileManager", "ParquetRecord"]
 
 DEFAULT_METADATA = "{}"
 """Serialized empty metadata object used for old or missing metadata rows."""
-
-
-class ParquetRecord(TypedDict):
-    """Single annotation row written to parquet.
-
-    Attributes:
-        file: Image or source file path.
-        source_name: Source component name.
-        task_name: Task name.
-        class_name: Optional class name.
-        instance_id: Optional instance identifier.
-        task_type: Optional task type.
-        annotation: Optional serialized annotation JSON.
-        sample_metadata: Serialized JSON object for **record-level metadata**.
-            Empty metadata is stored as ``"{}"``.
-
-    Example:
-        .. python::
-
-            {
-                "file": "/data/images/frame_001.jpg",
-                "source_name": "image",
-                "task_name": "detection",
-                "class_name": "person",
-                "instance_id": 0,
-                "task_type": "boundingbox",
-                "annotation": '{"x":0.1,"y":0.2,"w":0.3,"h":0.4}',
-                "sample_metadata": '{"record_id":123,"camera":"left"}',
-            }
-
-    """
-
-    file: str
-    source_name: str
-    task_name: str
-    class_name: str | None
-    instance_id: int | None
-    task_type: str | None
-    annotation: str | None
-    sample_metadata: str
 
 
 class ParquetFileManager:
@@ -114,7 +77,7 @@ class ParquetFileManager:
         self.num = self._find_num() if self.parquet_files else 0
         self.current_file = self._generate_filename(self.num)
 
-        self._read()
+        self.buffer, self.row_count = self._read()
 
     def _find_num(self) -> int:
         return max(int(file.stem) for file in self.parquet_files)
@@ -122,16 +85,12 @@ class ParquetFileManager:
     def _generate_filename(self, num: int) -> Path:
         return self.dir / f"{num:010d}.parquet"
 
-    def _read(self) -> None:
-        if self.current_file.exists():
-            df = self._ensure_metadata_column(
-                pl.read_parquet(self.current_file)
-            )
-            self.buffer = df.to_dict(as_series=False)
-            self.row_count = len(df)
-        else:
-            self.row_count = 0
-            self.buffer = {}
+    def _read(self) -> tuple[dict[str, list[Any]], int]:
+        """Return the rows of the current file and their count."""
+        if not self.current_file.exists():
+            return {}, 0
+        df = self._ensure_metadata_column(pl.read_parquet(self.current_file))
+        return df.to_dict(as_series=False), len(df)
 
     @staticmethod
     def _ensure_metadata_column(df: pl.DataFrame) -> pl.DataFrame:
@@ -161,9 +120,8 @@ class ParquetFileManager:
             group_id: Unique identifier for the sample group.
 
         """
-
         if "sample_metadata" not in data:
-            data = {**data, "sample_metadata": DEFAULT_METADATA}  # type: ignore
+            data = {**data, "sample_metadata": DEFAULT_METADATA}  # pyright: ignore[reportUnreachable]
 
         if not self.buffer:
             self._initialize_data(data)
@@ -184,9 +142,18 @@ class ParquetFileManager:
             self._flush()
             self.num += 1
             self.current_file = self._generate_filename(self.num)
-            self._read()
+            self.buffer, self.row_count = self._read()
 
     def remove_duplicate_uuids(self, overwrite_uuids: set[str]) -> None:
+        """Remove the rows with the given UUIDs from all parquet files.
+
+        The buffer is flushed first and read again from the current
+        file afterwards.
+
+        Args:
+            overwrite_uuids: UUIDs of the rows to remove.
+
+        """
         self._flush()
 
         for parquet_file in self.dir.glob("*.parquet"):
@@ -198,7 +165,7 @@ class ParquetFileManager:
                 parquet_file.unlink()
                 df.write_parquet(parquet_file)
 
-        self._read()
+        self.buffer, self.row_count = self._read()
 
     def _flush(self) -> None:
         """Write buffered data to parquet."""
@@ -207,7 +174,9 @@ class ParquetFileManager:
             df.write_parquet(self.current_file)
 
     def __enter__(self) -> Self:
+        """Return the manager."""
         return self
 
     def __exit__(self, *_) -> None:
+        """Write the buffered rows to the current parquet file."""
         self._flush()

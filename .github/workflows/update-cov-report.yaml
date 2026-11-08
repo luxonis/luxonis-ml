@@ -18,7 +18,7 @@ jobs:
       # Required by codecov-action, it builds the path-fixing file network
       # from the checked out repository.
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
@@ -76,7 +76,7 @@ jobs:
 
       - name: Download artifacts
         if: ${{ steps.ci-run.outputs.upload == 'true' }}
-        uses: dawidd6/action-download-artifact@b6e2e70617bc3265edd6dab6c906732b2f1ae151
+        uses: dawidd6/action-download-artifact@d63b86af1b34672e53c440b1b83979861906bad7
         with:
           run_id: ${{ steps.ci-run.outputs.run-id }}
           name: coverage-ubuntu-latest-.*

@@ -1,8 +1,11 @@
+"""Parser for datasets in the YOLOv4 format."""
+
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 from PIL import Image
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
@@ -32,6 +35,7 @@ class YoloV4Parser(SplitParserPlugin):
     dataset_types = ("yolov4",)
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -70,7 +74,7 @@ class YoloV4Parser(SplitParserPlugin):
             reported as a skipped annotation instead.
 
         """
-        with open(annotation_path, encoding="utf-8") as f:
+        with annotation_path.open(encoding="utf-8") as f:
             for ann_line in f:
                 img_path, _, boxes = ann_line.rstrip().partition(" ")
                 path = resolve_manifest_path(base_dir, img_path)
@@ -119,6 +123,7 @@ class YoloV4Parser(SplitParserPlugin):
             ):
                 yield img_path
 
+    @override
     def _split_records(
         self,
         image_dir: Path,
@@ -139,7 +144,7 @@ class YoloV4Parser(SplitParserPlugin):
             none, and one for every image the annotations do not list.
 
         """
-        with open(classes_path, encoding="utf-8") as f:
+        with classes_path.open(encoding="utf-8") as f:
             class_names = {
                 i: line.rstrip() for i, line in enumerate(f.readlines())
             }
@@ -186,6 +191,7 @@ class YoloV4Parser(SplitParserPlugin):
         for img_path in self._unlisted_images(image_dir, base_dir, annotated):
             yield {"file": str(img_path), "annotation": None}
 
+    @override
     def _split_files(
         self,
         image_dir: Path,

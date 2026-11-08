@@ -62,6 +62,13 @@ def _voc_split(root: Path, images: int) -> Path:
     return split
 
 
+def test_voc_parser_requires_image_size() -> None:
+    root = fromstring("<annotation />")
+
+    with pytest.raises(ValueError, match="Could not find size"):
+        VOCParser._image_boxes(root)
+
+
 def test_voc_parser(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

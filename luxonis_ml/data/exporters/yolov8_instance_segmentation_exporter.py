@@ -1,12 +1,17 @@
+"""Export instance segmentation to the YOLOv8 format."""
+
 import json
 from pathlib import Path
 from typing import Any, cast
+
+from typing_extensions import override
 
 from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
     annotation_to_polygons,
     check_group_file_correspondence,
     exporter_specific_annotation_warning,
+    register_class,
     split_of_group,
 )
 from luxonis_ml.enums import DatasetType
@@ -29,7 +34,16 @@ class YoloV8InstanceSegmentationExporter(BaseExporter):
         dataset_identifier: str,
         output_path: Path,
         max_partition_size_gb: float | None,
-    ):
+    ) -> None:
+        """Create the exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Maximum partition size in GiB, or
+                ``None`` to disable partitioning.
+
+        """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
@@ -37,16 +51,25 @@ class YoloV8InstanceSegmentationExporter(BaseExporter):
         self.class_names: list[str] = []
 
     def get_split_names(self) -> dict[str, str]:
+        """Return the directory name of each split.
+
+        Returns:
+            The ``train``, ``val`` and ``test`` splits, each mapped to
+            its own name.
+
+        """
         return {"train": "train", "val": "val", "test": "test"}
 
     def _yaml_filename(self) -> str:
         return "dataset.yaml"
 
+    @override
     def supported_ann_types(self) -> list[str]:
         return (
             DatasetType.YOLOV8INSTANCESEGMENTATION.supported_annotation_formats
         )
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
         exporter_specific_annotation_warning(
@@ -62,7 +85,7 @@ class YoloV8InstanceSegmentationExporter(BaseExporter):
         copied_files: set[Path] = set()
 
         for key, group_df in grouped:
-            file_name, group_id = cast(tuple[str, Any], key)
+            file_name, group_id = cast("tuple[str, Any]", key)
             logical_split = split_of_group(prepared_ldf, group_id)
             split = self.get_split_names()[logical_split]
 
@@ -75,36 +98,7 @@ class YoloV8InstanceSegmentationExporter(BaseExporter):
             label_lines: list[str] = []
 
             for row in group_df.iter_rows(named=True):
-                ttype = row["task_type"]
-                ann_str = row["annotation"]
-                cname = row["class_name"]
-
-                if ann_str is None:
-                    continue
-                if ttype != "instance_segmentation":
-                    continue
-
-                if cname and cname not in self.class_to_id:
-                    self.class_to_id[cname] = len(self.class_to_id)
-                    self.class_names.append(cname)
-                if not cname or cname not in self.class_to_id:
-                    continue
-
-                ann = json.loads(ann_str)
-
-                cid = self.class_to_id[cname]
-                polygons = annotation_to_polygons(ann, file_path)
-
-                for poly in polygons:
-                    if len(poly) < 3:
-                        continue
-                    parts = []
-                    for x, y in poly:
-                        x_ = 0.0 if x < 0 else 1.0 if x > 1 else x
-                        y_ = 0.0 if y < 0 else 1.0 if y > 1 else y
-                        parts.append(f"{x_:.12f} {y_:.12f}")
-                    line = f"{cid} " + " ".join(parts)
-                    label_lines.append(line)
+                label_lines.extend(self._polygon_lines(row, file_path))
 
             ann_size_estimate = sum(len(s) + 1 for s in label_lines)
             img_size = file_path.stat().st_size
@@ -125,6 +119,31 @@ class YoloV8InstanceSegmentationExporter(BaseExporter):
 
         self._dump_annotations(annotation_splits, self.output_path, self.part)
 
+    def _polygon_lines(
+        self, row: dict[str, Any], file_path: Path
+    ) -> list[str]:
+        """Return one YOLO segment line per polygon of an instance row."""
+        if row["annotation"] is None:
+            return []
+        if row["task_type"] != "instance_segmentation":
+            return []
+        cname = row["class_name"]
+        if not cname:
+            return []
+
+        cid = register_class(cname, self.class_to_id, self.class_names)
+        polygons = annotation_to_polygons(
+            json.loads(row["annotation"]), file_path
+        )
+        lines = []
+        for poly in polygons:
+            parts = [
+                f"{min(max(x, 0.0), 1.0):.12f} {min(max(y, 0.0), 1.0):.12f}"
+                for x, y in poly
+            ]
+            lines.append(f"{cid} " + " ".join(parts))
+        return lines
+
     def _maybe_roll_partition(
         self,
         annotation_splits: dict[str, dict[str, list[str]]],
@@ -143,6 +162,7 @@ class YoloV8InstanceSegmentationExporter(BaseExporter):
             return {k: {} for k in self.get_split_names().values()}
         return annotation_splits
 
+    @override
     def _dump_annotations(
         self,
         annotation_splits: dict[str, dict[str, list[str]]],
@@ -184,6 +204,7 @@ class YoloV8InstanceSegmentationExporter(BaseExporter):
                 self._to_yaml(yaml_obj), encoding="utf-8"
             )
 
+    @override
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:

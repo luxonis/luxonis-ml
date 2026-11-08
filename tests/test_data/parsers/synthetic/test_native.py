@@ -291,3 +291,85 @@ def test_native_parser_accepts_windows_style_file_paths(tempdir: Path):
         else parsed_record.file
     )
     assert parsed_file == copied_image.resolve()
+
+
+def test_native_parser_resolves_array_annotation_paths(
+    tmp_path: Path,
+):
+    split = tmp_path / "train"
+    array_path = split / "arrays" / "0.npy"
+    array_path.parent.mkdir(parents=True)
+    array_path.write_bytes(b"array")
+    annotation_path = _write_split(
+        split,
+        [
+            {
+                "file": "images/0.jpg",
+                "annotation": {
+                    "class": "disparity",
+                    "array": {"path": "arrays/0.npy"},
+                },
+            }
+        ],
+    )
+
+    record = next(_plugin(NativeParser)._split_records(annotation_path))
+    assert record["annotation"]["array"]["path"] == array_path.resolve()
+
+
+def test_native_parser_resolves_paths_for_a_list_of_annotations(
+    tmp_path: Path,
+):
+    split = tmp_path / "train"
+    mask_path = split / "masks" / "0.png"
+    mask_path.parent.mkdir(parents=True)
+    mask_path.write_bytes(b"mask")
+    annotation_path = _write_split(
+        split,
+        [
+            {
+                "file": "images/0.jpg",
+                "annotation": [
+                    {
+                        "class": "class0",
+                        "segmentation": {"mask": "masks/0.png"},
+                    },
+                    {"class": "class1"},
+                ],
+            }
+        ],
+    )
+
+    record = next(_plugin(NativeParser)._split_records(annotation_path))
+    resolved = record["annotation"][0]["segmentation"]["mask"]
+    assert resolved == mask_path.resolve()
+
+
+def test_native_parser_resolves_paths_inside_sub_detections(tmp_path: Path):
+    split = tmp_path / "train"
+    mask_path = split / "masks" / "head.png"
+    mask_path.parent.mkdir(parents=True)
+    mask_path.write_bytes(b"mask")
+    annotation_path = _write_split(
+        split,
+        [
+            {
+                "file": "images/0.jpg",
+                "annotation": {
+                    "class": "person",
+                    "sub_detections": {
+                        "head": {
+                            "class": "head",
+                            "instance_segmentation": {
+                                "mask": "masks/head.png"
+                            },
+                        },
+                    },
+                },
+            }
+        ],
+    )
+
+    record = next(_plugin(NativeParser)._split_records(annotation_path))
+    nested = record["annotation"]["sub_detections"]["head"]
+    assert nested["instance_segmentation"]["mask"] == mask_path.resolve()

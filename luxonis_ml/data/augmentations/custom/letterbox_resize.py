@@ -1,3 +1,10 @@
+"""Letterbox resize transform that keeps the aspect ratio.
+
+`LetterboxResize` scales the input to fit and pads the remainder.
+`create_letterbox_or_resize` picks between it and a plain
+``albumentations.Resize``.
+"""
+
 from typing import Any
 
 import albumentations as A
@@ -5,13 +12,12 @@ import cv2
 import numpy as np
 from typing_extensions import override
 
-from luxonis_ml.data.utils.visualizations import resolve_color
-from luxonis_ml.typing import RGB, Color
+from luxonis_ml.typing import RGB
+from luxonis_ml.utils.color import Color, ColorLike
 
 
 class LetterboxResize(A.DualTransform):
-    """Augmentation that resizes an image with padding to
-    maintain the aspect ratio.
+    """Augmentation that resizes with padding to keep the aspect ratio.
 
     Attributes:
         height: The desired height of the output image.
@@ -23,11 +29,12 @@ class LetterboxResize(A.DualTransform):
         self,
         height: int,
         width: int,
+        *,
         interpolation: int = cv2.INTER_LINEAR,
-        image_fill_value: Color = "black",
+        image_fill_value: ColorLike = "black",
         mask_fill_value: int = 0,
         p: float = 1.0,
-    ):
+    ) -> None:
         """Create a ``LetterboxResize`` augmentation.
 
         Args:
@@ -35,23 +42,26 @@ class LetterboxResize(A.DualTransform):
             width: The desired width of the output image
             interpolation: ``cv2`` flag to specify interpolation used
                 when resizing. Defaults to ``cv2.INTER_LINEAR``.
-            image_fill_value: Padding value for images.
-                Can be a string color name or an RGB tuple.
+            image_fill_value: Padding value for images. Can be a color name,
+                a hex string, a grayscale integer, or an RGB tuple.
                 Defaults to ``"black"``.
             mask_fill_value: Padding value for masks. Must be an integer
                 representing a class label. Defaults to ``0`` (background).
             p: The probability of applying the transform. Defaults to ``1.0``.
 
         """
-
         super().__init__(p=p)
 
         self.height = height
         self.width = width
 
         self._interpolation = interpolation
-        self._image_fill_value = resolve_color(image_fill_value)
-        self._mask_fill_value = resolve_color(mask_fill_value)
+        self._image_fill_value = self._fill_color(
+            image_fill_value, "image_fill_value"
+        )
+        self._mask_fill_value = self._fill_color(
+            mask_fill_value, "mask_fill_value"
+        )
 
     @property
     @override
@@ -94,8 +104,7 @@ class LetterboxResize(A.DualTransform):
     def compute_padding(
         orig_height: int, orig_width: int, out_height: int, out_width: int
     ) -> tuple[int, int, int, int]:
-        """Compute the padding required to resize an image to the
-        letterbox format.
+        """Compute the padding of an image resized to the letterbox format.
 
         Args:
             orig_height: Original height of the image.
@@ -148,12 +157,12 @@ class LetterboxResize(A.DualTransform):
         """
         return self._apply_to_image_data(
             img,
-            pad_top,
-            pad_bottom,
-            pad_left,
-            pad_right,
-            self._interpolation,
-            self._image_fill_value,
+            pad_top=pad_top,
+            pad_bottom=pad_bottom,
+            pad_left=pad_left,
+            pad_right=pad_right,
+            interpolation=self._interpolation,
+            fill_value=self._image_fill_value,
         )
 
     @override
@@ -183,12 +192,12 @@ class LetterboxResize(A.DualTransform):
         """
         return self._apply_to_image_data(
             mask,
-            pad_top,
-            pad_bottom,
-            pad_left,
-            pad_right,
-            cv2.INTER_NEAREST,
-            self._mask_fill_value,
+            pad_top=pad_top,
+            pad_bottom=pad_bottom,
+            pad_left=pad_left,
+            pad_right=pad_right,
+            interpolation=cv2.INTER_NEAREST,
+            fill_value=self._mask_fill_value,
         )
 
     @override
@@ -313,6 +322,7 @@ class LetterboxResize(A.DualTransform):
     def _apply_to_image_data(
         self,
         img: np.ndarray,
+        *,
         pad_top: int,
         pad_bottom: int,
         pad_left: int,
@@ -342,3 +352,41 @@ class LetterboxResize(A.DualTransform):
             padded_img = padded_img[..., None]
 
         return padded_img
+
+    @staticmethod
+    def _fill_color(value: ColorLike, name: str) -> RGB:
+        """Resolve a padding value to RGB, rejecting out-of-range channels.
+
+        `Color.parse` clamps rather than raising, which for a fill value would
+        silently pad with a color the config never asked for.
+
+        Returns:
+            The red, green and blue channels of ``value``. A grayscale
+            integer gives three equal channels, and an alpha channel is
+            dropped.
+
+        Raises:
+            ValueError: If an integer channel of ``value`` is outside 0
+                to 255, or if ``value`` is not a valid color.
+
+        """
+        channels = value if isinstance(value, tuple) else (value,)
+        for channel in channels:
+            if isinstance(channel, int) and not 0 <= channel <= 255:
+                raise ValueError(
+                    f"{name} value {channel} is out of range [0, 255]"
+                )
+        return Color.parse(value).rgb
+
+
+def create_letterbox_or_resize(
+    *,
+    keep_aspect_ratio: bool,
+    height: int,
+    width: int,
+    p: float = 1.0,
+) -> "LetterboxResize | A.Resize":
+    """Create a resize transform, letterboxed when aspect ratio is kept."""
+    if keep_aspect_ratio:
+        return LetterboxResize(height=height, width=width, p=p)
+    return A.Resize(height=height, width=width, p=p)
