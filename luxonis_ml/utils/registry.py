@@ -2,7 +2,7 @@
 
 import warnings
 from abc import ABCMeta
-from collections.abc import Callable
+from collections.abc import Callable, ValuesView
 from typing import Generic, TypedDict, TypeVar, overload
 
 from typing_extensions import Unpack, deprecated, override
@@ -51,6 +51,10 @@ class Registry(Generic[T]):
     def __contains__(self, key: str) -> bool:
         """Return whether a module is registered under ``key``."""
         return key in self._module_dict
+
+    def values(self) -> ValuesView[T]:
+        """Return registered modules."""
+        return self._module_dict.values()
 
     @property
     def name(self) -> str:

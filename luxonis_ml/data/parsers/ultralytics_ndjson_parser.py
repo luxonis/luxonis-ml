@@ -2,16 +2,15 @@
 
 import hashlib
 import json
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from urllib.parse import urlsplit
 
 import numpy as np
 from loguru import logger
 from typing_extensions import override
 
-from luxonis_ml.data import BaseDataset, DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
 from luxonis_ml.data.utils.remote_file_downloader import RemoteFileDownloader
 from luxonis_ml.utils.path import (
@@ -19,13 +18,16 @@ from luxonis_ml.utils.path import (
     resolve_manifest_path,
 )
 
-from .base_parser import BaseParser, ParserOutput, yolo_box_to_ldf
+from .parser_plugin import (
+    Layout,
+    ParseResult,
+    ParserPlugin,
+    SplitRecord,
+    centered_box,
+)
 
-if TYPE_CHECKING:
-    from luxonis_ml.typing import PathType
 
-
-class UltralyticsNDJSONParser(BaseParser):
+class UltralyticsNDJSONParser(ParserPlugin):
     """Parse Ultralytics NDJSON datasets into LDF.
 
     NDJSON records may carry their own split names. When no split is
@@ -46,276 +48,153 @@ class UltralyticsNDJSONParser(BaseParser):
     path. One manifest can describe a fully remote dataset.
     """
 
+    dataset_types = (
+        "ultralytics-ndjson",
+        "ultralytics-ndjson-instancesegmentation",
+        "ultralytics-ndjson-keypoints",
+    )
     _remote_file_downloader = RemoteFileDownloader()
-
-    @staticmethod
-    @override
-    def validate_split(split_path: Path) -> dict[str, Any] | None:
-        ndjson_path = UltralyticsNDJSONParser._resolve_ndjson_path(split_path)
-        if ndjson_path is None:
-            return None
-        if UltralyticsNDJSONParser._load_header(ndjson_path) is None:
-            return None
-        return {"ndjson_path": ndjson_path}
 
     @classmethod
     @override
-    def validate(cls, dataset_dir: Path) -> bool:
-        return cls._load_header(dataset_dir) is not None
-
-    @override
-    def from_dir(
-        self, dataset_dir: Path, reuse_cached: bool = True, **kwargs
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        """Parse an Ultralytics NDJSON file into dataset records.
-
-        Args:
-            dataset_dir: Directory containing exactly one ``.ndjson`` file,
-                or a direct path to an ``.ndjson`` file.
-            reuse_cached: Whether to reuse cached remote images if they already exist.
-            **kwargs: Parser-specific arguments.
-
-        Returns:
-            Added images for the train, validation, and test splits.
-
-        Raises:
-            ValueError: If no NDJSON dataset file can be resolved, the
-                resolved file has an invalid header, a remote image
-                download directory already exists, or pose annotations
-                cannot infer keypoint dimensionality.
-
-        """
-        ndjson_path = self._resolve_ndjson_path(dataset_dir)
+    def detect(cls, source: Path) -> Layout | None:
+        ndjson_path = cls._resolve_ndjson_path(source)
         if ndjson_path is None:
-            raise ValueError(
-                f"Ultralytics NDJSON dataset file not found in '{dataset_dir}'."
-            )
+            return None
 
-        generator, added_by_split, _added_images = self._build_record_stream(
-            ndjson_path, reuse_cached=reuse_cached
-        )
-        self._dataset.add(self._wrap_generator(generator))
-        return (
-            added_by_split["train"],
-            added_by_split["val"],
-            added_by_split["test"],
-        )
+        header = cls._load_header(ndjson_path)
+        if header is None:
+            return None
 
-    @override
-    def parse_dir(
-        self,
-        dataset_dir: Path,
-        reuse_cached: bool = True,
-        **kwargs,
-    ) -> BaseDataset:
-        """Parse a full NDJSON dataset and preserve record-level splits.
-
-        Args:
-            dataset_dir: Directory containing exactly one ``.ndjson`` file,
-                or a direct path to an ``.ndjson`` file.
-            reuse_cached: Whether to reuse cached remote images if they already exist.
-            kwargs: Parser-specific arguments. ``split_ratios`` may be
-                supplied to resample split assignments.
-
-        Returns:
-            Dataset with parsed images and annotations.
-
-        Raises:
-            ValueError: If the NDJSON file cannot be resolved or parsed as
-                a valid Ultralytics dataset.
-
-        """
-        self._reset_parser_issue_messages()
-        split_ratios = kwargs.pop("split_ratios", None)
-        is_counts = split_ratios is not None and all(
-            isinstance(v, int) for v in split_ratios.values()
-        )
-
-        train, val, test = self.from_dir(
-            dataset_dir,
-            reuse_cached=reuse_cached,
-            **kwargs,
-        )
-        original_splits: dict[str, Sequence[PathType]] = {
-            "train": train,
-            "val": val,
-            "test": test,
+        # Which splits a manifest uses is written on its image records, so
+        # answering exactly would cost a walk of the whole file - the walk
+        # the parse makes anyway. The layout claims the splits the format
+        # defines and carries the manifest and header along.
+        splits: dict[str | None, dict[str, Any]] = {
+            split_name: {"ndjson_path": ndjson_path, "header": header}
+            for split_name in ("train", "val", "test")
         }
-
-        if split_ratios is None:
-            self._dataset.make_splits(original_splits)
-        elif is_counts:
-            sampled = self._apply_counts_to_splits(
-                original_splits,
-                split_ratios,
-            )
-            self._dataset.make_splits(sampled)
-            self._remove_unsplit_records()
-        else:
-            logger.warning(
-                "Using percentage-based split ratios will redistribute "
-                "and shuffle all samples across splits. Original split "
-                "boundaries from the NDJSON file will not be preserved."
-            )
-            self._dataset.make_splits(split_ratios)
-
-        return self._dataset
+        return Layout(splits)
 
     @override
-    def from_split(
+    def parse(
+        self,
+        source: Path,
+        layout: Layout,
+        *,
+        reuse_cached: bool = True,
+        **kwargs: Any,
+    ) -> ParseResult:
+        del source, kwargs
+        # Every split is read from the same manifest, so any entry of the
+        # layout names it.
+        manifest = next(iter(layout.splits.values()))
+        return ParseResult(
+            self._stream_records(
+                manifest["ndjson_path"],
+                manifest["header"],
+                reuse_cached=reuse_cached,
+            ),
+            self._skeletons,
+        )
+
+    @override
+    def enumerate_files(
+        self,
+        source: Path,
+        layout: Layout,
+        **kwargs: Any,
+    ) -> dict[str | None, list[Path]] | None:
+        """List each split's images without downloading any of them.
+
+        Worth implementing here: the importer's fallback is a throwaway
+        parse, which for this format would download every remote image and
+        create the cache directory the real parse then refuses to write
+        into. A remote image's destination is derived from its record, so
+        it can be named without fetching anything.
+        """
+        del source, kwargs
+        manifest = next(iter(layout.splits.values()))
+        ndjson_path = manifest["ndjson_path"]
+        base_dir = ndjson_path.parent
+        remote_image_dir = base_dir / ndjson_path.stem
+
+        enumerated: dict[str | None, list[Path]] = {}
+        for record in self._iter_image_records(ndjson_path):
+            image_path = self._resolve_image_path(
+                base_dir,
+                record,
+                remote_image_dir=remote_image_dir,
+                download=False,
+            )
+            # Drop what the parse drops: counting an image that is never
+            # added would leave a count-based split short. The parse warns
+            # about each one, so this stays silent.
+            if not record.get("url") and not image_path.exists():
+                continue
+            # Likewise for the split warnings.
+            split_name = self._normalize_split_name(
+                record.get("split"), warn=False
+            )
+            enumerated.setdefault(split_name, []).append(image_path)
+        return enumerated
+
+    def _stream_records(
         self,
         ndjson_path: Path,
-        reuse_cached: bool = True,
-    ) -> ParserOutput:
-        """Parse a single Ultralytics NDJSON file.
+        header: dict[str, Any],
+        *,
+        reuse_cached: bool,
+    ) -> Iterator[SplitRecord]:
+        """Stream one manifest, tagging each record with its split.
 
         Args:
-            ndjson_path: Path to an Ultralytics NDJSON file.
-            reuse_cached: Whether to reuse cached remote images if they already exist.
+            ndjson_path: Manifest to read.
+            header: The manifest's leading ``dataset`` record.
+            reuse_cached: Whether an existing directory of downloaded
+                images may be reused instead of failing.
 
-        Returns:
-            Parser output containing annotation records, empty skeleton
-            metadata, and added images.
-
-        Raises:
-            ValueError: If the file has an invalid header, a remote image
-                download directory already exists, or pose annotations
-                cannot infer keypoint dimensionality.
+        Yields:
+            The split an image record names, and one record per
+            annotation it carries. An image without annotations yields a
+            single record with no annotation.
 
         """
-        generator, _added_by_split, added_images = self._build_record_stream(
-            ndjson_path, reuse_cached=reuse_cached
-        )
-        return generator, {}, added_images
-
-    @override
-    def parse_split(
-        self,
-        split: str | None = None,
-        random_split: bool = True,
-        split_ratios: dict[str, float | int] | None = None,
-        reuse_cached: bool = True,
-        **kwargs,
-    ) -> BaseDataset:
-        """Parse an NDJSON file that represents a single parser input.
-
-        Args:
-            split: Optional split name to assign to all parsed images.
-            random_split: Whether percentage ``split_ratios`` should
-                resample all images.
-            split_ratios: Optional ratios or counts. Float values are
-                treated as ratios; integer values are treated as counts.
-            reuse_cached: Whether to reuse cached remote images if they already exist.
-            kwargs: Parser-specific arguments. Must include
-                ``ndjson_path``.
-
-        Returns:
-            Dataset with parsed images and annotations.
-
-        Raises:
-            ValueError: If ``ndjson_path`` is missing, the file has an
-                invalid header, a remote image download directory already
-                exists, or pose annotations cannot infer keypoint
-                dimensionality.
-
-        """
-        self._reset_parser_issue_messages()
-        ndjson_path = kwargs.get("ndjson_path")
-        if ndjson_path is None:
-            raise ValueError("`ndjson_path` is required for NDJSON parsing.")
-
-        generator, added_by_split, added_images = self._build_record_stream(
-            ndjson_path, reuse_cached=reuse_cached
-        )
-        self._dataset.add(self._wrap_generator(generator))
-        split_definitions: dict[str, Sequence[PathType]] = dict(added_by_split)
-
-        is_counts = split_ratios is not None and all(
-            isinstance(v, int) for v in split_ratios.values()
-        )
-
-        if split is not None:
-            self._dataset.make_splits({split: added_images})
-        elif split_ratios is None:
-            self._dataset.make_splits(split_definitions)
-        elif is_counts:
-            sampled = self._apply_counts_to_splits(
-                split_definitions,
-                split_ratios,  # pyright: ignore[reportArgumentType]
-            )
-            self._dataset.make_splits(sampled)
-            self._remove_unsplit_records()
-        elif random_split:
-            logger.warning(
-                "Using percentage-based split ratios will redistribute "
-                "and shuffle all samples across splits. Original split "
-                "boundaries from the NDJSON file will not be preserved."
-            )
-            self._dataset.make_splits(split_ratios)
-
-        return self._dataset
-
-    def _build_record_stream(
-        self, ndjson_path: Path, *, reuse_cached: bool = True
-    ) -> tuple[DatasetIterator, dict[str, list[Path]], list[Path]]:
-        header = self._load_header(ndjson_path)
-        if header is None:
-            raise ValueError(
-                f"Invalid Ultralytics NDJSON dataset file: '{ndjson_path}'."
-            )
-
         class_names = self._get_class_names(header["class_names"])
         kpt_shape = header.get("kpt_shape")
-        added_by_split: dict[str, list[Path]] = {
-            "train": [],
-            "val": [],
-            "test": [],
-        }
-        added_images: list[Path] = []
-        remote_image_dir = ndjson_path.parent / ndjson_path.stem
+        base_dir = ndjson_path.parent
+        remote_image_dir = base_dir / ndjson_path.stem
+        remote_image_dir_checked = False
 
-        def generator() -> DatasetIterator:
-            seen_by_split: dict[str, set[Path]] = {
-                "train": set(),
-                "val": set(),
-                "test": set(),
-            }
-            seen_images: set[Path] = set()
-            remote_image_dir_checked = False
-            for record in _image_records(ndjson_path):
-                if record.get("url") and not remote_image_dir_checked:
-                    _check_remote_image_dir(
-                        remote_image_dir, reuse_cached=reuse_cached
-                    )
-                    remote_image_dir_checked = True
-
-                image_path = self._resolve_image_path(
-                    ndjson_path,
-                    record,
-                    remote_image_dir=remote_image_dir,
+        for record in self._iter_image_records(ndjson_path):
+            url = record.get("url")
+            if url and not remote_image_dir_checked:
+                _check_remote_image_dir(
+                    remote_image_dir, reuse_cached=reuse_cached
                 )
-                if not record.get("url") and not image_path.exists():
-                    self._warn_skipped_annotation(
-                        ParserIssue.MISSING_IMAGE,
-                        "referenced image file does not exist",
-                        source=ndjson_path,
-                        image=image_path,
-                    )
-                    continue
-                split_name = self._normalize_split_name(record.get("split"))
-                _add_unique(added_images, seen_images, image_path)
-                _add_unique(
-                    added_by_split[split_name],
-                    seen_by_split[split_name],
-                    image_path,
-                )
+                remote_image_dir_checked = True
 
-                yield from _file_records(
-                    str(image_path),
-                    self._record_annotations(record, class_names, kpt_shape),
+            image_path = self._resolve_image_path(
+                base_dir,
+                record,
+                remote_image_dir=remote_image_dir,
+            )
+            if not url and not image_path.exists():
+                self._warn_skipped_annotation(
+                    ParserIssue.MISSING_IMAGE,
+                    "referenced image file does not exist",
+                    source=ndjson_path,
+                    image=image_path,
                 )
+                continue
 
-        return generator(), added_by_split, added_images
+            split_name = self._normalize_split_name(record.get("split"))
+            image_file = str(image_path)
+            for file_record in _file_records(
+                image_file,
+                self._record_annotations(record, class_names, kpt_shape),
+            ):
+                yield split_name, file_record
 
     @classmethod
     def _record_annotations(
@@ -342,9 +221,7 @@ class UltralyticsNDJSONParser(BaseParser):
             yield {
                 "class": class_names[int(class_id)],
                 "instance_id": instance_id,
-                "boundingbox": yolo_box_to_ldf(
-                    x_center, y_center, width, height
-                ),
+                "boundingbox": centered_box(x_center, y_center, width, height),
             }
             instance_id += 1
 
@@ -357,30 +234,34 @@ class UltralyticsNDJSONParser(BaseParser):
                 "instance_segmentation": {
                     "height": int(record["height"]),
                     "width": int(record["width"]),
-                    "points": [
-                        (float(x), float(y)) for x, y in points_array.tolist()
-                    ],
+                    "points": list(map(tuple, points_array.tolist())),
                 },
             }
             instance_id += 1
 
         for pose in annotations.get("pose", []):
-            class_id, x_center, y_center, width, height, *flat = pose
-            keypoints = _pose_keypoints(flat, kpt_shape)
+            class_id, x_center, y_center, width, height, *keypoints = pose
+            keypoint_values = _pose_keypoints(keypoints, kpt_shape)
             yield {
                 "class": class_names[int(class_id)],
                 "instance_id": instance_id,
-                "boundingbox": yolo_box_to_ldf(
-                    x_center, y_center, width, height
-                ),
-                "keypoints": {
-                    "keypoints": [
-                        (float(x), float(y), int(v))
-                        for x, y, v in keypoints.tolist()
-                    ]
-                },
+                "boundingbox": centered_box(x_center, y_center, width, height),
+                "keypoints": {"keypoints": keypoint_values},
             }
             instance_id += 1
+
+    @staticmethod
+    def _iter_image_records(ndjson_path: Path) -> Iterator[dict[str, Any]]:
+        """Yield image records one line at a time."""
+        with ndjson_path.open(encoding="utf-8-sig") as file:
+            for raw_line in file:
+                line = raw_line.strip()
+                if not line:
+                    continue
+
+                record = json.loads(line)
+                if record.get("type") == "image":
+                    yield record
 
     @staticmethod
     def _resolve_ndjson_path(path: Path) -> Path | None:
@@ -393,12 +274,19 @@ class UltralyticsNDJSONParser(BaseParser):
                 return matches[0].resolve()
         return None
 
-    @classmethod
-    def _load_header(cls, path: Path) -> dict[str, Any] | None:
-        ndjson_path = cls._resolve_ndjson_path(path)
-        if ndjson_path is None:
-            return None
+    @staticmethod
+    def _load_header(ndjson_path: Path) -> dict[str, Any] | None:
+        """Return the leading ``dataset`` record of a manifest.
 
+        Args:
+            ndjson_path: Manifest to read, as resolved by
+                `_resolve_ndjson_path`.
+
+        Returns:
+            The header, or ``None`` when the file cannot be read or does
+            not describe an Ultralytics NDJSON dataset.
+
+        """
         dataset_record = None
         has_image_record = False
         try:
@@ -432,51 +320,60 @@ class UltralyticsNDJSONParser(BaseParser):
     @classmethod
     def _resolve_image_path(
         cls,
-        ndjson_path: Path,
+        base_dir: Path,
         record: dict[str, Any],
         *,
         remote_image_dir: Path,
+        download: bool = True,
     ) -> Path:
         if record.get("url"):
-            return cls._download_image(
+            destination = cls._remote_image_path(
                 record,
                 remote_image_dir=remote_image_dir,
+            )
+            if not download:
+                return destination
+            return cls._remote_file_downloader.download(
+                record["url"], destination, validate_image=True
             )
 
         file_path = parse_manifest_path(record["file"])
         if file_path.is_absolute():
             return file_path.resolve()
-        return resolve_manifest_path(ndjson_path.parent, record["file"])
+        return resolve_manifest_path(base_dir, record["file"])
 
     @classmethod
-    def _download_image(
+    def _remote_image_path(
         cls,
         record: dict[str, Any],
         *,
         remote_image_dir: Path,
     ) -> Path:
+        """Where a record's remote image is, or would be, downloaded."""
         file_name = parse_manifest_path(record["file"])
         url = record["url"]
-        split_name = cls._normalize_split_name(record.get("split"))
+        # The caller warns about the record's split itself.
+        split_name = cls._normalize_split_name(record.get("split"), warn=False)
         url_hash = hashlib.blake2s(
             url.encode("utf-8"), digest_size=6
         ).hexdigest()
         suffix = file_name.suffix or Path(urlsplit(url).path).suffix
-        destination = (
+        return (
             remote_image_dir
             / split_name
             / f"{file_name.stem}-{url_hash}{suffix}"
         )
-        return cls._remote_file_downloader.download(
-            url, destination, validate_image=True
-        )
 
     @staticmethod
-    def _normalize_split_name(split_name: str | None) -> str:
+    def _normalize_split_name(
+        split_name: str | None, *, warn: bool = True
+    ) -> str:
         if split_name in {"train", "val", "test"}:
             return split_name
         if split_name in {"valid", "validation"}:
             return "val"
+        if not warn:
+            return "train"
         if split_name is None:
             logger.warning(
                 "Missing split in Ultralytics NDJSON record. Defaulting to 'train'."
@@ -499,28 +396,15 @@ class UltralyticsNDJSONParser(BaseParser):
 
     @staticmethod
     def _fit_boundingbox(points: np.ndarray) -> dict[str, float]:
-        x_min = float(np.min(points[:, 0]))
-        y_min = float(np.min(points[:, 1]))
-        x_max = float(np.max(points[:, 0]))
-        y_max = float(np.max(points[:, 1]))
+        """Fit a bounding box around a polygon."""
+        x_min, y_min = points.min(axis=0).tolist()
+        x_max, y_max = points.max(axis=0).tolist()
         return {
             "x": x_min,
             "y": y_min,
             "w": x_max - x_min,
             "h": y_max - y_min,
         }
-
-
-def _image_records(ndjson_path: Path) -> Iterator[dict[str, Any]]:
-    """Yield the image records of an NDJSON file, other lines skipped."""
-    with ndjson_path.open(encoding="utf-8-sig") as file:
-        for raw_line in file:
-            line = raw_line.strip()
-            if not line:
-                continue
-            record = json.loads(line)
-            if record.get("type") == "image":
-                yield record
 
 
 def _check_remote_image_dir(
@@ -531,8 +415,7 @@ def _check_remote_image_dir(
         return
     if not reuse_cached:
         raise ValueError(
-            f"Remote NDJSON image directory "
-            f"'{remote_image_dir}' already exists."
+            f"Remote NDJSON image directory '{remote_image_dir}' already exists."
         )
     logger.warning(
         f"Reusing existing remote NDJSON image directory '{remote_image_dir}'."
@@ -551,39 +434,20 @@ def _file_records(
         yield {"file": file, "annotation": None}
 
 
-def _add_unique(items: list[Path], seen: set[Path], item: Path) -> None:
-    """Append an item the list does not hold yet."""
-    if item not in seen:
-        seen.add(item)
-        items.append(item)
-
-
 def _pose_keypoints(
     keypoints: list[Any], kpt_shape: tuple[int, int] | None
-) -> np.ndarray:
+) -> list[tuple[float, float, int]]:
     """Reshape a flat keypoint list into ``(x, y, visibility)`` rows.
 
     Pairs get full visibility.
 
     Returns:
-        A float array with one ``(x, y, visibility)`` row per keypoint.
-        It has ``kpt_shape[0]`` rows, or a third of the list length
-        without a ``kpt_shape``.
+        One ``(x, y, visibility)`` triplet per keypoint.
 
     Raises:
         ValueError: If the length of ``keypoints`` does not fit
             ``kpt_shape`` or, without a ``kpt_shape``, is not a multiple
             of 3.
-
-    Examples:
-        >>> _pose_keypoints([0.1, 0.2, 2, 0.3, 0.4, 0], None).tolist()
-        [[0.1, 0.2, 2.0], [0.3, 0.4, 0.0]]
-        >>> _pose_keypoints([0.1, 0.2], (1, 2)).tolist()
-        [[0.1, 0.2, 2.0]]
-        >>> _pose_keypoints([0.1, 0.2], None)
-        Traceback (most recent call last):
-        ...
-        ValueError: Ultralytics NDJSON pose annotations require `kpt_shape` ...
 
     """
     if kpt_shape is None:
@@ -599,8 +463,7 @@ def _pose_keypoints(
 
     keypoints_array = np.array(keypoints, dtype=float).reshape(n_kpts, kpt_dim)
     if kpt_dim == 2:
-        keypoints_array = np.concatenate(
-            [keypoints_array, np.ones((n_kpts, 1), dtype=float) * 2],
-            axis=1,
-        )
-    return keypoints_array
+        # Annotations without a visibility column are fully
+        # visible.
+        return [(x, y, 2) for x, y in keypoints_array.tolist()]
+    return [(x, y, int(v)) for x, y, v in keypoints_array.tolist()]

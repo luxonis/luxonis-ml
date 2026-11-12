@@ -12,10 +12,10 @@ from typing_extensions import override
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.utils.path import resolve_manifest_path
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import SplitParserPlugin
 
 
-class SOLOParser(BaseParser):
+class SOLOParser(SplitParserPlugin):
     """Parse a directory with SOLO annotations into LDF.
 
     Expected format::
@@ -35,6 +35,8 @@ class SOLOParser(BaseParser):
 
     This is the default format returned by Unity simulation engine.
     """
+
+    dataset_types = ("solo",)
 
     @staticmethod
     @override
@@ -78,41 +80,29 @@ class SOLOParser(BaseParser):
         return {"split_path": split_path}
 
     @override
-    def from_dir(
-        self, dataset_dir: Path
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        """Parse all SOLO data in a source dataset directory.
+    def _split_records(self, split_path: Path) -> DatasetIterator:
+        """Stream one SOLO split as LDF records.
 
-        Args:
-            dataset_dir: Source dataset directory.
+        The definitions are read and validated before the walk starts, so a
+        malformed split fails without a record being pulled.
 
-        Returns:
-            Added images for the train, validation, and test splits.
-
-        """
-        added_train_imgs = self._parse_split(split_path=dataset_dir / "train")
-        added_valid_imgs = self._parse_split(split_path=dataset_dir / "valid")
-        added_test_imgs = self._parse_split(split_path=dataset_dir / "test")
-
-        return added_train_imgs, added_valid_imgs, added_test_imgs
-
-    @override
-    def from_split(self, split_path: Path) -> ParserOutput:
-        """Parse one SOLO split into LDF records.
+        `_split_files` is left unimplemented: which captures yield records
+        is only known once every frame JSON has been read, which is the
+        parse itself.
 
         Args:
             split_path: Directory with SOLO sequences and annotations.
 
         Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+            Annotation records of the split, streamed in one walk.
 
         Raises:
-            FileNotFoundError: If the split directory, annotation
-                definitions file, referenced image, or referenced mask does
-                not exist.
+            FileNotFoundError: If the split directory or the annotation
+                definitions file does not exist. Streaming raises it for a
+                referenced image or mask that does not exist.
             ValueError: If no bounding-box class names can be identified
-                from ``annotation_definitions.json``.
+                from ``annotation_definitions.json``. Streaming raises it
+                for a mask that cannot be decoded.
 
         """
         if not split_path.exists():
@@ -142,10 +132,12 @@ class SOLOParser(BaseParser):
             annotation_definitions_dict
         )
 
-        skeletons = {
-            class_name: {"labels": keypoint_labels}
-            for class_name in bbox_class_names
-        }
+        self._skeletons.update(
+            {
+                class_name: {"labels": keypoint_labels}
+                for class_name in bbox_class_names
+            }
+        )
 
         def generator() -> DatasetIterator:
             for sequence_path in split_path.glob("sequence*"):
@@ -161,7 +153,24 @@ class SOLOParser(BaseParser):
                             sequence_path, capture, processed
                         )
 
-        return generator(), skeletons, []
+        return generator()
+
+    @staticmethod
+    def _read_mask_int(mask_path: Path) -> np.ndarray:
+        """Read a mask image and pack its BGR channels into one integer."""
+        mask = cv2.imread(str(mask_path))
+        if mask is None:
+            raise ValueError(f"Failed to read mask image from {mask_path}.")
+        return (
+            (mask[..., 0].astype(np.uint32) << 16)
+            | (mask[..., 1].astype(np.uint32) << 8)
+            | mask[..., 2].astype(np.uint32)
+        )
+
+    @staticmethod
+    def _instance_mask(mask_int: np.ndarray, target_int: int) -> np.ndarray:
+        """Extract the binary mask of one instance colour."""
+        return (mask_int == target_int).astype(np.uint8)
 
     def _get_solo_annotation_types(
         self, annotation_definitions_dict: dict[str, Any]
@@ -175,12 +184,12 @@ class SOLOParser(BaseParser):
             Annotation type names.
 
         """
-        return [
-            definition["@type"].replace("type.unity.com/unity.solo.", "")
-            for definition in annotation_definitions_dict[
-                "annotationDefinitions"
-            ]
-        ]
+        annotation_types = []
+        for definition in annotation_definitions_dict["annotationDefinitions"]:
+            annotation_types.append(
+                definition["@type"].replace("type.unity.com/unity.solo.", "")
+            )
+        return annotation_types
 
     def _get_solo_bbox_class_names(
         self, annotation_definitions_dict: dict[str, Any]
@@ -303,20 +312,14 @@ def _read_mask(sequence_path: Path, anno: dict[str, Any]) -> np.ndarray:
     mask_path = resolve_manifest_path(sequence_path, anno["filename"])
     if not mask_path.exists():
         raise FileNotFoundError(f"{mask_path} not existent.")
-    mask = cv2.imread(str(mask_path))
-    if mask is None:
-        raise ValueError(f"Failed to read mask image from {mask_path}.")
-    return (
-        (mask[..., 0].astype(np.uint32) << 16)
-        | (mask[..., 1].astype(np.uint32) << 8)
-        | mask[..., 2].astype(np.uint32)
-    )
+    return SOLOParser._read_mask_int(mask_path)
 
 
 def _color_mask(mask: np.ndarray, color: list[int]) -> np.ndarray:
     """Select the pixels of one RGBA color from an integer mask."""
     r, g, b, _ = color
-    return (mask == ((b << 16) | (g << 8) | r)).astype(np.uint8)
+    target_int = (b << 16) | (g << 8) | r
+    return SOLOParser._instance_mask(mask, target_int)
 
 
 def _semantic_records(
@@ -405,6 +408,9 @@ def _instance_records(
         yielded if no kind is present.
 
     """
+    if not bounding_boxes:
+        return
+
     present = [
         d for d in (bounding_boxes, instance_keypoints, instance_masks) if d
     ]

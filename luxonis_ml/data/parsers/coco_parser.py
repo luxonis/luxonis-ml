@@ -3,9 +3,9 @@
 import json
 import math
 from collections import defaultdict
-from functools import partial
+from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO, cast
 
 import numpy as np
 import pycocotools.mask as mask_util
@@ -17,10 +17,22 @@ from luxonis_ml.data.utils import COCOFormat
 from luxonis_ml.data.utils.enums import ParserIssue
 from luxonis_ml.utils.path import resolve_manifest_path
 
-from .base_parser import BaseParser, ParserOutput
+from .parser_plugin import (
+    Layout,
+    ParseResult,
+    SplitParserPlugin,
+    SplitRecord,
+)
 
 
-class COCOParser(BaseParser):
+def _load_annotations(annotation_path: Path) -> dict[str, Any]:
+    """Decode a COCO annotation file."""
+    with annotation_path.open(encoding="utf-8") as f:
+        data: dict[str, Any] = json.load(f)
+    return data
+
+
+class COCOParser(SplitParserPlugin):
     """Parse a directory with COCO annotations into LDF.
 
     Expected formats::
@@ -55,11 +67,16 @@ class COCOParser(BaseParser):
         This is one of the formats that Roboflow can generate.
     """
 
+    dataset_types = ("coco",)
+
     @staticmethod
     def _detect_dataset_dir_format(
         dataset_dir: Path,
     ) -> tuple[COCOFormat | None, list[str]]:
         """Detect whether a dataset uses FiftyOne or Roboflow layout."""
+        if not dataset_dir.is_dir():
+            return None, []
+
         existing = [d.name for d in dataset_dir.iterdir() if d.is_dir()]
 
         # Clash with NATIVE format
@@ -119,111 +136,109 @@ class COCOParser(BaseParser):
         return None
 
     @staticmethod
-    def _is_coco_json(json_path: Path) -> bool:
-        """Check if JSON file has required COCO format fields."""
+    def _load_coco_json(json_path: Path) -> dict[str, Any] | None:
+        """Decode ``json_path`` if it has the required COCO fields."""
         try:
             with json_path.open(encoding="utf-8") as f:
                 data = json.load(f)
-            if not isinstance(data, dict):
-                return False
-            # images is required, annotations is optional (test sets don't have them)
-            if "images" not in data:
-                return False
-            # Categories can be at top level or nested inside info
-            return "categories" in data or (
-                "info" in data
-                and isinstance(data["info"], dict)
-                and "categories" in data["info"]
-            )
         except (json.JSONDecodeError, OSError):
-            return False
+            return None
+        if not isinstance(data, dict):
+            return None
+        # images is required, annotations is optional (test sets don't have them)
+        if "images" not in data:
+            return None
+        # Categories can be at top level or nested inside info
+        if "categories" in data or (
+            "info" in data
+            and isinstance(data["info"], dict)
+            and "categories" in data["info"]
+        ):
+            return data
+        return None
+
+    @staticmethod
+    def _coco_categories(annotation_data: dict[str, Any]) -> list[Any]:
+        """Return the category table, from wherever the file keeps it.
+
+        `_load_coco_json` recognizes a file whose categories are nested
+        inside ``info``, so reading only the top-level key would leave the
+        table empty and every ``category_id`` unresolvable.
+        """
+        categories = annotation_data.get("categories")
+        if categories is None:
+            info = annotation_data.get("info")
+            if isinstance(info, dict):
+                categories = info.get("categories")
+        return categories if isinstance(categories, list) else []
 
     @staticmethod
     @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
+        """Return the parse arguments when ``split_path`` holds COCO labels.
+
+        Recognizing a split decodes its whole annotation file, so the
+        decoded contents travel back to the parse inside the layout rather
+        than being read a second time.
+
+        Args:
+            split_path: Directory expected to hold one split.
+
+        Returns:
+            Arguments for `_split_records`, or ``None`` when the
+            directory does not hold a COCO split.
+
+        """
         if not split_path.exists():
             return None
         json_path = split_path / "_annotations.coco.json"
         if not json_path.exists():
             json_path = next(split_path.glob("*.json"), None)
-        if json_path is None or not COCOParser._is_coco_json(json_path):
+        if json_path is None:
+            return None
+        data = COCOParser._load_coco_json(json_path)
+        if data is None:
             return None
         if json_path.name == "_annotations.coco.json":
             logger.info("Identified Roboflow format")
-            return {"image_dir": split_path, "annotation_path": json_path}
+            return {
+                "image_dir": split_path,
+                "annotation_path": json_path,
+                "annotation_data": data,
+            }
         logger.info("Identified FiftyOne format")
         dirs = [d for d in split_path.iterdir() if d.is_dir()]
         if len(dirs) != 1:
             return None
-        return {"image_dir": dirs[0], "annotation_path": json_path}
+        return {
+            "image_dir": dirs[0],
+            "annotation_path": json_path,
+            "annotation_data": data,
+        }
 
     @classmethod
     @override
-    def validate(cls, dataset_dir: Path) -> bool:
-        dir_format, splits = cls._detect_dataset_dir_format(dataset_dir)
-        if dir_format is None:
-            return False
+    def detect(cls, source: Path) -> Layout | None:
+        # Which directories hold splits depends on the layout variant, so
+        # the FiftyOne / Roboflow detection replaces the inherited one.
+        dir_format, splits = cls._detect_dataset_dir_format(source)
 
-        return all(cls.validate_split(dataset_dir / split) for split in splits)
+        discovered: dict[str | None, dict[str, Any]] = {}
+        if dir_format is not None:
+            for split_name in splits:
+                split_kwargs = cls.validate_split(source / split_name)
+                if split_kwargs is None:
+                    continue
+                discovered[cls._canonicalize_split_name(split_name)] = (
+                    split_kwargs
+                )
+        if discovered:
+            return Layout(discovered)
 
-    @classmethod
-    @override
-    def discover_dir_splits(
-        cls, dataset_dir: Path
-    ) -> dict[str, dict[str, Any]]:
-        dir_format, splits = cls._detect_dataset_dir_format(dataset_dir)
-        if dir_format is None:
-            return {}
-
-        discovered: dict[str, dict[str, Any]] = {}
-        for split_name in splits:
-            split_kwargs = cls.validate_split(dataset_dir / split_name)
-            if split_kwargs is None:
-                continue
-            discovered[cls._canonicalize_split_name(split_name)] = split_kwargs
-        return discovered
-
-    @override
-    def from_dir(
-        self,
-        dataset_dir: Path,
-        use_keypoint_ann: bool = False,
-        keypoint_ann_paths: dict[str, str] | None = None,
-        split_val_to_test: bool = True,
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        """Parse all COCO splits in a source dataset directory.
-
-        Args:
-            dataset_dir: Source dataset directory.
-            use_keypoint_ann: Whether to use separate COCO keypoint
-                annotation files for FiftyOne-style datasets.
-            keypoint_ann_paths: Optional paths to keypoint annotation files,
-                relative to ``dataset_dir`` and keyed by ``"train"``,
-                ``"val"``, and ``"test"``.
-            split_val_to_test: Whether to split validation images
-                :math:`50/50` into validation and test when no test
-                annotations are available.
-
-        Returns:
-            Added images for the train, validation, and test splits.
-
-        Raises:
-            ValueError: If the dataset directory, train split, validation
-                split, or present test split is not in a recognized COCO
-                layout.
-
-        """
-        split_definitions = self._parse_available_splits(
-            dataset_dir,
-            use_keypoint_ann=use_keypoint_ann,
-            keypoint_ann_paths=keypoint_ann_paths,
-            split_val_to_test=split_val_to_test,
-        )
-        return (
-            split_definitions.get("train", []),
-            split_definitions.get("val", []),
-            split_definitions.get("test", []),
-        )
+        split_kwargs = cls.validate_split(source)
+        if split_kwargs is None:
+            return None
+        return Layout({None: split_kwargs})
 
     def _resolve_dir_format_and_keypoint_paths(
         self,
@@ -254,61 +269,316 @@ class COCOParser(BaseParser):
             }
         return dir_format, splits, keypoint_ann_paths
 
-    def _finalize_split_definitions(
+    def _resolve_split_inputs(
         self,
-        split_definitions: dict[str, list[Path]],
+        dataset_dir: Path,
+        layout: Layout,
         *,
-        split_val_to_test: bool,
-    ) -> dict[str, list[Path]]:
-        added_test_imgs = split_definitions.get("test", [])
-        added_val_imgs = split_definitions.get("val", [])
+        use_keypoint_ann: bool,
+        keypoint_ann_paths: dict[str, str] | None,
+    ) -> dict[str, dict[str, Any]]:
+        """Return the parse arguments of every split, in split order.
 
-        if len(added_test_imgs) == 0 and split_val_to_test and added_val_imgs:
-            split_point = round(len(added_val_imgs) * 0.5)
-            split_definitions["val"] = added_val_imgs[:split_point]
-            split_definitions["test"] = added_val_imgs[split_point:]
-        elif (
-            len(added_test_imgs) == 0
-            and not split_val_to_test
-            and "test" in split_definitions
-        ):
+        The layout already carries the annotations `detect` decoded. Only
+        the keypoint annotation files and the cleaned train annotations
+        replace them, neither of which is known any earlier.
+
+        Args:
+            dataset_dir: Root of the dataset.
+            layout: Layout returned by `detect`.
+            use_keypoint_ann: Whether the official COCO keypoint
+                annotation files replace the recognized ones.
+            keypoint_ann_paths: Keypoint annotation file per split,
+                relative to ``dataset_dir``.
+
+        Returns:
+            Arguments for `_split_records` per canonical split name.
+
+        Raises:
+            ValueError: If a split directory is not in the expected
+                format.
+
+        """
+        dir_format, splits, keypoint_ann_paths = (
+            self._resolve_dir_format_and_keypoint_paths(
+                dataset_dir,
+                use_keypoint_ann=use_keypoint_ann,
+                keypoint_ann_paths=keypoint_ann_paths,
+            )
+        )
+
+        resolved: dict[str, dict[str, Any]] = {}
+        for split_name in splits:
+            canonical_name = self._canonicalize_split_name(split_name)
+            split_kwargs = layout.splits.get(canonical_name)
+            if split_kwargs is None:
+                raise ValueError(
+                    f"{split_name.title()} split not in expected format"
+                )
+
+            annotation_path = split_kwargs["annotation_path"]
+            annotation_data = split_kwargs["annotation_data"]
+
+            if (
+                keypoint_ann_paths
+                and use_keypoint_ann
+                and dir_format is COCOFormat.FIFTYONE
+            ):
+                # The mapping is caller-supplied, so it may name only some
+                # of the splits, or files that do not exist. A missing
+                # test split is fine - COCO does not publish its keypoint
+                # annotations - but train and val must fail loudly.
+                relative = keypoint_ann_paths.get(canonical_name)
+                if canonical_name == "test":
+                    kp_path = (
+                        dataset_dir / relative
+                        if relative is not None
+                        else None
+                    )
+                    if kp_path is None or not kp_path.exists():
+                        logger.warning(
+                            f"Keypoint annotation file not found: {kp_path}. "
+                            "Skipping test split."
+                        )
+                        continue
+                    annotation_path = kp_path
+                else:
+                    if relative is None:
+                        raise ValueError(
+                            "`keypoint_ann_paths` is missing an entry "
+                            f"for the '{canonical_name}' split."
+                        )
+                    annotation_path = dataset_dir / relative
+                    if not annotation_path.exists():
+                        raise ValueError(
+                            "Keypoint annotation file not found: "
+                            f"{annotation_path}"
+                        )
+                # The decoded annotations belong to the file the split was
+                # recognized by, which this one replaces.
+                annotation_data = None
+
+            if canonical_name == "train":
+                if annotation_data is None:
+                    annotation_data = _load_annotations(annotation_path)
+                # Cleaning filters in place, so `annotation_data` stays the
+                # contents of the path it hands back.
+                annotation_path = clean_annotations(
+                    annotation_path, annotation_data
+                )
+
+            resolved[canonical_name] = {
+                "image_dir": split_kwargs["image_dir"],
+                "annotation_path": annotation_path,
+                "annotation_data": annotation_data,
+            }
+        return resolved
+
+    @staticmethod
+    def _val_files_moved_to_test(
+        val_files: Sequence[Path],
+        *,
+        has_test_files: bool,
+        split_val_to_test: bool,
+    ) -> list[Path]:
+        """Return the validation images imported as the test split.
+
+        A COCO test split ships without annotations and then contributes
+        no image at all, in which case the validation images are halved
+        and the second half stands in for the test split.
+
+        Args:
+            val_files: Images of the validation split, in the order the
+                records report them. Empty when the split does not have
+                to be halved.
+            has_test_files: Whether the test split contributes an image.
+            split_val_to_test: Whether halving is allowed at all.
+
+        Returns:
+            The validation images imported as the test split.
+
+        """
+        if has_test_files:
+            return []
+        if not split_val_to_test:
             logger.warning(
                 "Sampling from the test set cannot be done since the "
                 "labels are missing. This is expected for COCO datasets "
                 "where the test set annotations are not publicly available."
             )
-        return split_definitions
+            return []
+        if not val_files:
+            return []
+        # `max` keeps at least one image in the validation split: Python
+        # rounds half to even, so a lone validation image would get a
+        # split point of zero and move to `test` whole.
+        split_point = max(1, round(len(val_files) * 0.5))
+        return list(val_files[split_point:])
 
-    @override
-    def from_split(
-        self, image_dir: Path, annotation_path: Path
-    ) -> ParserOutput:
-        """Parse COCO annotations into LDF records.
+    def _iter_kept_annotations(
+        self,
+        annotations: list[dict[str, Any]],
+        *,
+        categories: dict[Any, str],
+        file: Path,
+        annotation_path: Path,
+    ) -> Iterator[
+        tuple[dict[str, Any], str, tuple[float, float, float, float]]
+    ]:
+        """Yield the annotations of one image that produce a record.
 
-        Annotations include classification, segmentation, object detection,
-        and keypoints when present.
+        Listing a split's files and streaming its records have to agree on
+        which annotations survive, so the checks deciding that live here.
+        Reporting a skip twice is free - the collector keeps every distinct
+        issue once.
 
-        The method also builds the skeleton metadata. It reads every
-        category that holds both a ``keypoints`` field and a ``skeleton``
-        field. It uses ``keypoints`` as the keypoint labels, and it
-        converts the ``skeleton`` pairs to edges. COCO numbers the skeleton
-        joints from 1, so the method subtracts 1 from each index.
+        Args:
+            annotations: Annotations referencing one image.
+            categories: Class name per COCO category id.
+            file: Resolved path of the image, used for reporting.
+            annotation_path: Annotation file, used for reporting.
+
+        Yields:
+            The annotation, its class name and its bounding box.
+
+        """
+        for ann in annotations:
+            if ann.get("iscrowd"):
+                self._warn_skipped_annotation(
+                    ParserIssue.COCO_ISCROWD,
+                    "COCO annotation has iscrowd=1",
+                    source=annotation_path,
+                    image=file,
+                    annotation_id=ann.get("id"),
+                )
+                continue
+            class_name = categories[ann["category_id"]]
+
+            box = _coco_bbox(ann["bbox"])
+
+            if box is None:
+                self._warn_skipped_annotation(
+                    ParserIssue.NON_NUMERIC_ANNOTATION,
+                    "Annotation contains non-numeric bbox values",
+                    source=annotation_path,
+                    image=file,
+                    annotation_id=ann.get("id"),
+                )
+                continue
+
+            yield ann, class_name, box
+
+    def _iter_split_files(
+        self,
+        image_dir: Path,
+        annotation_path: Path,
+        annotation_data: dict[str, Any] | None = None,
+    ) -> Iterator[Path]:
+        """Yield the images of one split that contribute a record.
+
+        The image table is the index the parse walks anyway, so listing a
+        split costs a path resolution, an existence check and the same
+        annotation filter the records are built from - no segmentation is
+        decoded.
 
         Args:
             image_dir: Directory with images.
             annotation_path: Annotation JSON file.
+            annotation_data: Decoded contents of ``annotation_path``, as
+                carried by the layout. Read from disk when not given.
 
-        Returns:
-            Parser output containing annotation records, skeleton metadata,
-            and added images.
+        Yields:
+            The images of the split, in the order the records report
+            them.
 
         """
-        with annotation_path.open(encoding="utf-8") as f:
-            annotation_data = json.load(f)
+        if annotation_data is None:
+            annotation_data = _load_annotations(annotation_path)
+
+        coco_categories = self._coco_categories(annotation_data)
+        categories = {cat["id"]: cat["name"] for cat in coco_categories}
+        # Whether the split has skeletons decides whether an unannotated
+        # image contributes a record.
+        has_skeletons = any(
+            "keypoints" in cat and "skeleton" in cat for cat in coco_categories
+        )
+
+        ann_dict: dict[Any, list[dict[str, Any]]] = defaultdict(list)
+        for ann in annotation_data.get("annotations", []):
+            ann_dict[ann["image_id"]].append(ann)
+
+        base_dir = image_dir.absolute().resolve()
+        img_dict = {img["id"]: img for img in annotation_data["images"]}
+        for img_id, img in img_dict.items():
+            file = resolve_manifest_path(base_dir, img["file_name"])
+            if not file.exists():
+                self._warn_skipped_annotation(
+                    ParserIssue.MISSING_IMAGE,
+                    "referenced image file does not exist",
+                    source=annotation_path,
+                    image=file,
+                )
+                continue
+
+            img_anns = ann_dict.get(img_id)
+            if not img_anns:
+                if not has_skeletons:
+                    yield file
+                continue
+
+            # One kept annotation is enough to list the image.
+            kept = self._iter_kept_annotations(
+                img_anns,
+                categories=categories,
+                file=file,
+                annotation_path=annotation_path,
+            )
+            if next(kept, None) is not None:
+                yield file
+
+    @override
+    def _split_files(
+        self,
+        image_dir: Path,
+        annotation_path: Path,
+        annotation_data: dict[str, Any] | None = None,
+    ) -> list[Path]:
+        """List the images of one split from its annotation index."""
+        return list(
+            self._iter_split_files(image_dir, annotation_path, annotation_data)
+        )
+
+    @override
+    def _split_records(
+        self,
+        image_dir: Path,
+        annotation_path: Path,
+        annotation_data: dict[str, Any] | None = None,
+    ) -> DatasetIterator:
+        """Stream COCO annotations of one split as LDF records.
+
+        Annotations include classification, segmentation, object detection,
+        and keypoints when present.
+
+        Args:
+            image_dir: Directory with images.
+            annotation_path: Annotation JSON file.
+            annotation_data: Decoded contents of ``annotation_path``, as
+                carried by the layout. Read from disk when not given.
+
+        Returns:
+            One record per kept annotation, and one per unannotated
+            image while the split declares no skeleton.
+
+        """
+        if annotation_data is None:
+            annotation_data = _load_annotations(annotation_path)
 
         coco_images = annotation_data["images"]
-        coco_categories = annotation_data.get("categories", [])
+        coco_annotations = annotation_data.get("annotations", [])
+        coco_categories = self._coco_categories(annotation_data)
         categories = {cat["id"]: cat["name"] for cat in coco_categories}
+
         skeletons = {
             categories[cat["id"]]: {
                 "labels": cat["keypoints"],
@@ -320,235 +590,275 @@ class COCOParser(BaseParser):
             for cat in coco_categories
             if "keypoints" in cat and "skeleton" in cat
         }
+        self._skeletons.update(skeletons)
 
-        records = partial(
-            self._records,
-            image_dir,
-            annotation_path,
-            coco_images,
-            annotation_data.get("annotations", []),
-            categories,
-            skip_unlabeled=bool(skeletons),
-        )
-        added_images = self._get_added_images(records())
-
-        return records(), skeletons, added_images
-
-    def _records(
-        self,
-        image_dir: Path,
-        annotation_path: Path,
-        coco_images: list[dict[str, Any]],
-        coco_annotations: list[dict[str, Any]],
-        categories: dict[int, str],
-        *,
-        skip_unlabeled: bool,
-    ) -> DatasetIterator:
-        """Yield one record per COCO annotation of an existing image.
-
-        An image without annotations yields one record with a ``None``
-        annotation, unless ``skip_unlabeled`` is set.
-
-        Yields:
-            A dict with the image path under ``file`` and the LDF
-            annotation under ``annotation``.
-
-        """
-        img_dict = {img["id"]: img for img in coco_images}
-        ann_dict: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        ann_dict: dict[Any, list[dict[str, Any]]] = defaultdict(list)
         for ann in coco_annotations:
             ann_dict[ann["image_id"]].append(ann)
-        instance_ids = _InstanceIds(coco_annotations)
-        root = image_dir.absolute().resolve()
 
-        for img_id, img in img_dict.items():
-            file = resolve_manifest_path(root, img["file_name"])
-            if not file.exists():
-                self._warn_skipped_annotation(
-                    ParserIssue.MISSING_IMAGE,
-                    "referenced image file does not exist",
-                    source=annotation_path,
-                    image=file,
-                )
-                continue
+        # Keying by id keeps the last entry of a duplicated id while
+        # preserving the order of the first. `_iter_split_files` does the
+        # same, so the two agree on the split's images and their order.
+        img_dict = {img["id"]: img for img in coco_images}
+        base_dir = image_dir.absolute().resolve()
 
-            img_anns = ann_dict.get(img_id, [])
-            img_size = (img["height"], img["width"])
-            if not img_anns and not skip_unlabeled:
-                yield {"file": file, "annotation": None}
+        def generator() -> DatasetIterator:
+            instance_ids = _InstanceIds(coco_annotations)
 
-            for ann in img_anns:
-                annotation = self._annotation(
-                    ann,
-                    img_size,
-                    categories,
-                    instance_ids,
-                    source=annotation_path,
-                    image=file,
-                )
-                if annotation is not None:
-                    yield {"file": file, "annotation": annotation}
+            for img_id, img in img_dict.items():
+                file = resolve_manifest_path(base_dir, img["file_name"])
+                if not file.exists():
+                    self._warn_skipped_annotation(
+                        ParserIssue.MISSING_IMAGE,
+                        "referenced image file does not exist",
+                        source=annotation_path,
+                        image=file,
+                    )
+                    continue
 
-    def _annotation(
+                img_anns = ann_dict.get(img_id)
+
+                if not img_anns:
+                    if skeletons:
+                        # Keypoint annotations: skip images with no labels
+                        continue
+                    # Register image with no annotations (valid COCO case)
+                    yield {"file": file, "annotation": None}
+                    continue
+
+                img_h = img["height"]
+                img_w = img["width"]
+
+                for ann, class_name, box in self._iter_kept_annotations(
+                    img_anns,
+                    categories=categories,
+                    file=file,
+                    annotation_path=annotation_path,
+                ):
+                    yield {
+                        "file": file,
+                        "annotation": _coco_annotation(
+                            ann,
+                            class_name,
+                            box,
+                            img_w=img_w,
+                            img_h=img_h,
+                            instance_ids=instance_ids,
+                        ),
+                    }
+
+        return generator()
+
+    def _reject_single_split_options(
         self,
-        ann: dict[str, Any],
-        img_size: tuple[int, int],
-        categories: dict[int, str],
-        instance_ids: "_InstanceIds",
-        *,
         source: Path,
-        image: Path,
-    ) -> dict[str, Any] | None:
-        """Convert one COCO annotation, or warn and return ``None``."""
-        if ann.get("iscrowd"):
-            self._warn_skipped_annotation(
-                ParserIssue.COCO_ISCROWD,
-                "COCO annotation has iscrowd=1",
-                source=source,
-                image=image,
-                annotation_id=ann.get("id"),
-            )
-            return None
+        use_keypoint_ann: bool,
+        keypoint_ann_paths: dict[str, str] | None,
+    ) -> None:
+        """Reject the options that only a split-based source supports.
 
-        class_name = categories[ann["category_id"]]
-        img_h, img_w = img_size
-        segmentation = _coco_segmentation(
-            ann.get("segmentation", []), img_w, img_h
-        )
-        bbox = _coco_bbox(ann["bbox"], img_w, img_h)
-        if bbox is None:
-            self._warn_skipped_annotation(
-                ParserIssue.NON_NUMERIC_ANNOTATION,
-                "Annotation contains non-numeric bbox values",
-                source=source,
-                image=image,
-                annotation_id=ann.get("id"),
-            )
-            return None
+        ``split_val_to_test`` is meaningless for a single split, but the
+        keypoint options would be silently ignored, so they are refused
+        rather than dropped.
 
-        annotation: dict[str, Any] = {
-            "class": class_name,
-            "instance_id": instance_ids.of(ann),
-            "boundingbox": bbox,
-        }
-        if segmentation is not None:
-            annotation["segmentation"] = segmentation
-            annotation["instance_segmentation"] = segmentation
-        if "keypoints" in ann:
-            annotation["keypoints"] = {
-                "keypoints": _coco_keypoints(ann["keypoints"], img_w, img_h)
-            }
-        return annotation
+        Raises:
+            ValueError: If a keypoint option was given.
+
+        """
+        unsupported = [
+            name
+            for name, value in (
+                ("use_keypoint_ann", use_keypoint_ann),
+                ("keypoint_ann_paths", keypoint_ann_paths),
+            )
+            if value
+        ]
+        if unsupported:
+            raise ValueError(
+                f"COCO options {unsupported} are only supported for "
+                "sources containing split directories, not for the "
+                f"single split '{source}'."
+            )
 
     @override
-    def _parse_available_splits(
+    def parse(
         self,
-        dataset_dir: Path,
+        source: Path,
+        layout: Layout,
+        *,
         use_keypoint_ann: bool = False,
         keypoint_ann_paths: dict[str, str] | None = None,
         split_val_to_test: bool = True,
-    ) -> dict[str, list[Path]]:
-        dir_format, splits, keypoint_ann_paths = (
-            self._resolve_dir_format_and_keypoint_paths(
-                dataset_dir,
-                use_keypoint_ann=use_keypoint_ann,
-                keypoint_ann_paths=keypoint_ann_paths,
+        **kwargs: Any,
+    ) -> ParseResult:
+        """Stream the records of every split of a COCO source.
+
+        Args:
+            source: Root of the dataset.
+            layout: Layout returned by `detect`.
+            use_keypoint_ann: Whether the official COCO keypoint
+                annotation files replace the recognized ones.
+            keypoint_ann_paths: Keypoint annotation file per split,
+                relative to ``source``. Defaults to where the official
+                COCO release keeps them.
+            split_val_to_test: Whether the second half of the validation
+                split is imported as the test split when the test split
+                contributes no image.
+            kwargs: Arguments forwarded to a single-split parse.
+
+        Returns:
+            Records tagged with the split they belong to.
+
+        """
+        if not layout.split_names:
+            self._reject_single_split_options(
+                source, use_keypoint_ann, keypoint_ann_paths
+            )
+            return super().parse(source, layout, **kwargs)
+
+        split_inputs = self._resolve_split_inputs(
+            source,
+            layout,
+            use_keypoint_ann=use_keypoint_ann,
+            keypoint_ann_paths=keypoint_ann_paths,
+        )
+
+        test_kwargs = split_inputs.get("test")
+        # Only whether the test split contributes anything matters, so it
+        # is never listed in full.
+        has_test_files = test_kwargs is not None and (
+            next(self._iter_split_files(**test_kwargs), None) is not None
+        )
+        val_kwargs = split_inputs.get("val")
+        val_files = (
+            self._split_files(**val_kwargs)
+            if val_kwargs is not None
+            and split_val_to_test
+            and not has_test_files
+            else []
+        )
+        moved_to_test = set(
+            self._val_files_moved_to_test(
+                val_files,
+                has_test_files=has_test_files,
+                split_val_to_test=split_val_to_test,
             )
         )
 
-        split_definitions: dict[str, list[Path]] = {}
+        def records() -> Iterator[SplitRecord]:
+            # `kwargs` is forwarded so that an argument this parser does
+            # not take is as loud here as in the inherited parse.
+            for split_name, split_kwargs in split_inputs.items():
+                for record in self._split_records(**split_kwargs, **kwargs):
+                    if (
+                        split_name == "val"
+                        and cast("dict[str, Any]", record)["file"]
+                        in moved_to_test
+                    ):
+                        yield "test", record
+                    else:
+                        yield split_name, record
 
-        for split_name in splits:
-            split_kwargs = COCOParser.validate_split(dataset_dir / split_name)
-            if split_kwargs is None:
-                raise ValueError(
-                    f"{split_name.title()} split not in expected format"
-                )
+        return ParseResult(records(), self._skeletons)
 
-            canonical_name = self._canonicalize_split_name(split_name)
-            annotation_path = split_kwargs["annotation_path"]
+    @override
+    def enumerate_files(
+        self,
+        source: Path,
+        layout: Layout,
+        *,
+        use_keypoint_ann: bool = False,
+        keypoint_ann_paths: dict[str, str] | None = None,
+        split_val_to_test: bool = True,
+        **kwargs: Any,
+    ) -> dict[str | None, list[Path]] | None:
+        """List the images of every split from the annotation index.
 
-            if (
-                keypoint_ann_paths
-                and use_keypoint_ann
-                and dir_format is COCOFormat.FIFTYONE
-            ):
-                annotation_path = (
-                    dataset_dir / keypoint_ann_paths[canonical_name]
-                )
-                if canonical_name == "test" and not annotation_path.exists():
-                    logger.warning(
-                        f"Keypoint annotation file not found: {annotation_path}. "
-                        "Skipping test split."
-                    )
-                    split_definitions["test"] = []
-                    continue
+        Args:
+            source: Root of the dataset.
+            layout: Layout returned by `detect`.
+            use_keypoint_ann: Whether the official COCO keypoint
+                annotation files replace the recognized ones.
+            keypoint_ann_paths: Keypoint annotation file per split,
+                relative to ``source``.
+            split_val_to_test: Whether the second half of the validation
+                split is imported as the test split when the test split
+                contributes no image.
+            kwargs: Arguments forwarded to a single-split enumeration.
 
-            if canonical_name == "train":
-                annotation_path = clean_annotations(annotation_path)
+        Returns:
+            The images of each split, split exactly the way the records
+            are tagged.
 
-            split_definitions[canonical_name] = self._parse_split(
-                image_dir=split_kwargs["image_dir"],
-                annotation_path=annotation_path,
+        """
+        if not layout.split_names:
+            self._reject_single_split_options(
+                source, use_keypoint_ann, keypoint_ann_paths
             )
+            return super().enumerate_files(source, layout, **kwargs)
 
-        return self._finalize_split_definitions(
-            split_definitions, split_val_to_test=split_val_to_test
+        split_inputs = self._resolve_split_inputs(
+            source,
+            layout,
+            use_keypoint_ann=use_keypoint_ann,
+            keypoint_ann_paths=keypoint_ann_paths,
         )
+        enumerated: dict[str | None, list[Path]] = {
+            split_name: self._split_files(**split_kwargs)
+            for split_name, split_kwargs in split_inputs.items()
+        }
+
+        # Reported the way `parse` tags the records. The warning a
+        # forbidden halving logs belongs to the parse, not to a listing.
+        if split_val_to_test:
+            moved = self._val_files_moved_to_test(
+                enumerated.get("val", []),
+                has_test_files=bool(enumerated.get("test")),
+                split_val_to_test=True,
+            )
+            if moved:
+                moved_set = set(moved)
+                enumerated["val"] = [
+                    file for file in enumerated["val"] if file not in moved_set
+                ]
+                enumerated["test"] = [*enumerated.get("test", []), *moved]
+        return enumerated
 
 
 class _InstanceIds:
-    """Hand out the instance ID of each COCO annotation.
-
-    An annotation without an ``id`` gets the next integer, counting
-    from 0, that no annotation of the split uses and no earlier
-    annotation got.
-    """
+    """Hand out collision-free instance IDs for COCO annotations."""
 
     def __init__(self, annotations: list[dict[str, Any]]) -> None:
-        self._taken = {ann["id"] for ann in annotations if "id" in ann}
+        self._annotations = annotations
+        self._taken: set[Any] | None = None
         self._next = 0
 
-    def of(self, ann: dict[str, Any]) -> int:
-        """Return the instance ID of one annotation.
-
-        Returns:
-            The ``id`` of ``ann`` if it has one. Otherwise the lowest
-            integer that no annotation of the split uses and no earlier
-            call returned.
-
-        Examples:
-            >>> ids = _InstanceIds([{"id": 0}, {"id": 2}])
-            >>> ids.of({"id": 7}), ids.of({}), ids.of({})
-            (7, 1, 3)
-
-        """
+    def of(self, ann: dict[str, Any]) -> Any:
+        """Return the declared ID or the next unused integer."""
         if "id" in ann:
             return ann["id"]
-        while self._next in self._taken:
+        taken = self._taken
+        if taken is None:
+            taken = {
+                other["id"] for other in self._annotations if "id" in other
+            }
+            self._taken = taken
+        while self._next in taken:
             self._next += 1
         instance_id = self._next
+        taken.add(instance_id)
         self._next += 1
         return instance_id
 
 
 def _coco_bbox(
-    bbox: list[Any], img_w: int, img_h: int
-) -> dict[str, float] | None:
-    """Normalize a COCO ``[x, y, w, h]`` box, or ``None`` if not numeric.
+    bbox: Any,
+) -> tuple[float, float, float, float] | None:
+    """Convert a COCO box to four finite numbers.
 
     Returns:
-        The box with ``x``, ``y``, ``w`` and ``h`` as fractions of the
-        image size. ``None`` if ``bbox`` does not hold four finite
-        numbers.
-
-    Examples:
-        >>> _coco_bbox([10, 20, 30, 40], 100, 200)
-        {'x': 0.1, 'y': 0.1, 'w': 0.3, 'h': 0.2}
-        >>> _coco_bbox(["a", 0, 1, 1], 100, 100) is None
-        True
-        >>> _coco_bbox([float("nan"), 0, 1, 1], 100, 100) is None
-        True
+        The ``x``, ``y``, ``w`` and ``h`` values, or ``None`` when
+        ``bbox`` does not contain four finite numbers.
 
     """
     try:
@@ -557,7 +867,7 @@ def _coco_bbox(
         return None
     if not all(math.isfinite(value) for value in (x, y, w, h)):
         return None
-    return {"x": x / img_w, "y": y / img_h, "w": w / img_w, "h": h / img_h}
+    return x, y, w, h
 
 
 def _coco_segmentation(
@@ -566,15 +876,8 @@ def _coco_segmentation(
     """Convert a COCO polygon list or RLE dict to an LDF RLE dict.
 
     Returns:
-        The mask ``height``, ``width`` and RLE ``counts``. Polygons
-        merge into one mask. ``None`` if ``coco_seg`` is an empty list,
-        or is neither a list nor a dict.
-
-    Examples:
-        >>> _coco_segmentation({"size": [4, 5], "counts": "abc"}, 5, 4)
-        {'height': 4, 'width': 5, 'counts': 'abc'}
-        >>> _coco_segmentation([], 5, 4), _coco_segmentation(None, 5, 4)
-        (None, None)
+        The mask ``height``, ``width`` and RLE ``counts``. ``None``
+        if ``coco_seg`` is empty or has an unsupported type.
 
     """
     if isinstance(coco_seg, list):
@@ -602,17 +905,110 @@ def _coco_keypoints(
     return [(kp[0] / img_w, kp[1] / img_h, int(kp[2])) for kp in kpts]
 
 
-def clean_annotations(annotation_path: Path) -> Path:
+def _coco_annotation(
+    ann: dict[str, Any],
+    class_name: str,
+    box: tuple[float, float, float, float],
+    *,
+    img_w: int,
+    img_h: int,
+    instance_ids: _InstanceIds,
+) -> dict[str, Any]:
+    """Convert one kept COCO annotation to an LDF annotation."""
+    segmentation = _coco_segmentation(
+        ann.get("segmentation", []), img_w, img_h
+    )
+    x, y, w, h = box
+    annotation: dict[str, Any] = {
+        "class": class_name,
+        "instance_id": instance_ids.of(ann),
+        "boundingbox": {
+            "x": x / img_w,
+            "y": y / img_h,
+            "w": w / img_w,
+            "h": h / img_h,
+        },
+    }
+    if segmentation is not None:
+        annotation["segmentation"] = segmentation
+        annotation["instance_segmentation"] = segmentation
+    if "keypoints" in ann:
+        annotation["keypoints"] = {
+            "keypoints": _coco_keypoints(ann["keypoints"], img_w, img_h)
+        }
+    return annotation
+
+
+#: Containers with more children than this are written one child at a
+#: time, so that encoding a large annotation file never holds its whole
+#: encoded text in memory.
+_JSON_CHUNK_LIMIT = 256
+
+
+def _write_json(file: TextIO, value: Any) -> None:
+    """Write ``value`` the way ``json.dump`` would, in chunks.
+
+    ``json.dump`` asks its encoder for an iterator of chunks, the one mode
+    the C encoder does not implement, so it falls back to the Python
+    encoder and takes several times longer than ``json.dumps``. Encoding
+    one child at a time reaches the C encoder while holding only a single
+    child's text at once. The output is identical either way.
+
+    Args:
+        file: Text file to write to.
+        value: Value to encode.
+
+    """
+    if isinstance(value, dict) and value:
+        separator = "{"
+        for key, child in value.items():
+            if _is_large(child):
+                # `json.dumps({key: 0})` is `{<key>: 0}`; dropping the
+                # brace and the placeholder leaves the key encoded exactly
+                # as `json.dump` writes it, non-string keys included.
+                file.write(separator + json.dumps({key: 0})[1:-2])
+                _write_json(file, child)
+            else:
+                file.write(separator + json.dumps({key: child})[1:-1])
+            separator = ", "
+        file.write("}")
+    elif isinstance(value, list) and value:
+        separator = "["
+        for child in value:
+            file.write(separator)
+            if _is_large(child):
+                _write_json(file, child)
+            else:
+                file.write(json.dumps(child))
+            separator = ", "
+        file.write("]")
+    else:
+        file.write(json.dumps(value))
+
+
+def _is_large(value: Any) -> bool:
+    """Return whether ``value`` is worth writing one child at a time."""
+    return isinstance(value, (dict, list)) and len(value) > _JSON_CHUNK_LIMIT
+
+
+def clean_annotations(
+    annotation_path: Path,
+    annotation_data: dict[str, Any] | None = None,
+) -> Path:
     """Remove COCO images that are known to cause parsing issues.
 
     Args:
         annotation_path: Annotation JSON file.
+        annotation_data: Decoded contents of ``annotation_path``. Read
+            from disk when not given. The images and annotations are
+            filtered in place, so a caller passing them in is left with
+            the cleaned data.
 
     Returns:
         Path to the cleaned annotation JSON file.
 
     """
-    files_to_avoid = [
+    files_to_avoid = {
         "000000341448.jpg",
         "000000279522.jpg",
         "000000090169.jpg",
@@ -627,9 +1023,9 @@ def clean_annotations(annotation_path: Path) -> Path:
         "000000397819.jpg",
         "000000578492.jpg",
         "000000531721.jpg",
-    ]
-    with annotation_path.open(encoding="utf-8") as f:
-        annotation_data = json.load(f)
+    }
+    if annotation_data is None:
+        annotation_data = _load_annotations(annotation_path)
 
     filtered_images = [
         img
@@ -641,9 +1037,10 @@ def clean_annotations(annotation_path: Path) -> Path:
         return annotation_path
 
     filtered_image_ids = {img["id"] for img in filtered_images}
+    # `annotations` is optional in a COCO file - test sets ship without.
     filtered_annotations = [
         ann
-        for ann in annotation_data["annotations"]
+        for ann in annotation_data.get("annotations", [])
         if ann["image_id"] in filtered_image_ids
     ]
 
@@ -652,6 +1049,6 @@ def clean_annotations(annotation_path: Path) -> Path:
 
     cleaned_annotation_path = annotation_path.with_name("labels_fixed.json")
     with cleaned_annotation_path.open("w", encoding="utf-8") as f:
-        json.dump(annotation_data, f)
+        _write_json(f, annotation_data)
 
     return cleaned_annotation_path

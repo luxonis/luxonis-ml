@@ -1145,7 +1145,7 @@ class SegmentationAnnotation(Annotation):
         mask = Image.new("L", (width, height), 0)
         draw = ImageDraw.Draw(mask)
         draw.polygon(polyline, fill=1, outline=1)
-        return {"mask": np.array(mask).astype(np.uint8), **values}
+        return {**values, "mask": np.array(mask).astype(np.uint8)}
 
     @staticmethod
     def _clip_points(points: list[tuple[float, float]]) -> None:
