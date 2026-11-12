@@ -69,7 +69,7 @@ jobs:
       actions: read
       contents: read
       id-token: write
-    uses: Luxonis/luxonis-train/.github/workflows/ci.yaml@1cb5e7a04c55e693b6233a5c1b05b5de5667253f
+    uses: Luxonis/luxonis-train/.github/workflows/ci.yaml@1f9e552cacffaddaf4274e9c18ab5244912ee2c5
     with:
       concurrency_group: bom-${{ github.workflow }}-${{ github.ref }}
       cancel_in_progress: true
@@ -93,7 +93,7 @@ jobs:
       contents: read
       id-token: write
       packages: read
-    uses: Luxonis/modelconverter/.github/workflows/ci.yaml@5c13d9bb3e8935d2ca1a5a288c93346f418e4c3c
+    uses: Luxonis/modelconverter/.github/workflows/ci.yaml@3e16556e04bebaf03da49fd0aeb4bcbc0d58b469
     with:
       ml_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref        || github.head_ref }}
       modelconv_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.modelconv_ref || 'main' }}
