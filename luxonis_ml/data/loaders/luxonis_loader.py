@@ -205,7 +205,7 @@ class LuxonisLoader(BaseLoader):
         self._color_space = self._resolve_color_space(color_space)
 
         self._df = self.dataset._load_df_offline(raise_when_empty=True)
-        self._classes = self.dataset.get_classes()
+        self._classes = dict(self.dataset.get_classes())
         if self._filter_task_names is not None:
             self._filter_tasks(self._filter_task_names)
 
@@ -255,7 +255,7 @@ class LuxonisLoader(BaseLoader):
         return dict.fromkeys(self._source_names, color_space or "RGB")
 
     def _filter_tasks(self, task_names: list[str]) -> None:
-        """Keep only the rows and the classes of the given task names."""
+        """Keep only the rows of the given task names."""
         if self.dataset.metadata.tasks:
             df_task_names = set(self.dataset.metadata.tasks)
         else:
@@ -266,11 +266,6 @@ class LuxonisLoader(BaseLoader):
                 f"are not in the dataset: {extras}"
             )
         self._df = self._df.filter(pl.col("task_name").is_in(task_names))
-        self._classes = {
-            task_name: self._classes[task_name]
-            for task_name in task_names
-            if task_name in self._classes
-        }
 
     def _view_instances(self) -> list[str]:
         """List the group IDs of the splits in the view."""
@@ -771,9 +766,8 @@ class LuxonisLoader(BaseLoader):
             f"{task_name}/{task_type}": task_type
             for task_name, task_type in loaded_tasks
         }
-        dataset_n_classes = self.dataset.get_n_classes()
         n_classes = {
-            f"{task_name}/{task_type}": dataset_n_classes[task_name]
+            f"{task_name}/{task_type}": len(self._classes[task_name])
             for task_name, task_type in loaded_tasks
         }
         pipeline_stage = self._get_augmentation_pipeline_stage()
