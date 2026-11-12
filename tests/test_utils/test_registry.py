@@ -112,6 +112,31 @@ def test_autoregistry(registry: Registry):
             pass
 
 
+def test_autoregistry_subclass_controls_registration(registry: Registry):
+    class VersionedMeta(AutoRegisterMeta):
+        def __new__(
+            mcls,
+            name: str,
+            bases: tuple[type, ...],
+            attrs: dict[str, type],
+            **_kwargs: object,
+        ) -> AutoRegisterMeta:
+            new_class = super().__new__(
+                mcls, name, bases, attrs, register=False, registry=registry
+            )
+            if name != "Base":
+                registry[f"{name}:v1"] = new_class
+            return new_class
+
+    class Base(metaclass=VersionedMeta, registry=registry, register=False):
+        pass
+
+    class Node(Base):
+        pass
+
+    assert registry._module_dict == {"Node:v1": Node}
+
+
 def test_autoregistry_keeps_class_over_same_named_subclass(
     registry: Registry,
 ):
