@@ -86,14 +86,14 @@ jobs:
       (github.event_name == 'pull_request' &&
        startsWith(github.head_ref, 'release/') &&
        github.event.pull_request.base.ref == 'main')
-    # `id-token: write` is for the called workflow's GCP authentication
-    # once it uses Workload Identity Federation.
+    # The called workflow authenticates to GCP with Workload Identity
+    # Federation, so this job must allow it an OIDC token.
     permissions:
       actions: read
       contents: read
       id-token: write
       packages: read
-    uses: Luxonis/modelconverter/.github/workflows/ci.yaml@78cd732c70ec974b73cac90d76720bfcc5cb4219
+    uses: Luxonis/modelconverter/.github/workflows/ci.yaml@5c13d9bb3e8935d2ca1a5a288c93346f418e4c3c
     with:
       ml_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref        || github.head_ref }}
       modelconv_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.modelconv_ref || 'main' }}
@@ -101,7 +101,6 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_S3_ENDPOINT_URL: ${{ secrets.AWS_S3_ENDPOINT_URL }}
-      GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
       HUBAI_API_KEY: ${{ secrets.HUBAI_API_KEY }}
 
   test-luxonis-tools:
