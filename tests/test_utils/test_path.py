@@ -1,10 +1,59 @@
+import string
 from pathlib import Path
+
+from hypothesis import given
+from hypothesis import strategies as st
 
 from luxonis_ml.utils.path import (
     parse_manifest_path,
     path_to_posix,
     resolve_manifest_path,
 )
+
+WINDOWS_RESERVED_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+
+# Segments exclude names pathlib treats differently across platforms.
+segments = st.text(
+    alphabet=string.ascii_letters + string.digits + "_-",
+    min_size=1,
+    max_size=6,
+).filter(lambda segment: segment.upper() not in WINDOWS_RESERVED_NAMES)
+relative_paths = st.lists(segments, min_size=1, max_size=4)
+
+
+@given(parts=relative_paths)
+def test_separators_parse_identically(parts: list[str]):
+    posix = "/".join(parts)
+    windows = "\\".join(parts)
+
+    assert parse_manifest_path(windows) == parse_manifest_path(posix)
+    assert parse_manifest_path(windows) == Path(*parts)
+    assert path_to_posix(windows) == path_to_posix(posix) == posix
+
+
+@given(parts=relative_paths)
+def test_parse_posix_roundtrip(parts: list[str]):
+    posix = "/".join(parts)
+
+    assert path_to_posix(parse_manifest_path(posix)) == posix
+    assert parse_manifest_path(path_to_posix(posix)) == Path(*parts)
+
+
+@given(parts=relative_paths)
+def test_relative_paths_resolve_from_base_dir(parts: list[str]):
+    base_dir = Path.cwd().resolve()
+
+    resolved = resolve_manifest_path(base_dir, "\\".join(parts))
+
+    assert resolved.is_absolute()
+    assert resolved.relative_to(base_dir) == Path(*parts)
 
 
 def test_path_to_posix_normalizes_windows_separators():

@@ -47,8 +47,18 @@ def infer_layout(shape: list[int]) -> str:
         Layout code matching the number of dimensions in ``shape``.
 
     Raises:
-        ValueError: If the shape has too many dimensions for automatic
-            layout inference.
+        ValueError: If the shape is empty or has too many dimensions for
+            automatic layout inference. At most 24 dimensions are
+            supported when the leading dimension is the batch dimension;
+            otherwise, at most 23 are supported.
+
+    Note:
+        A leading dimension of size ``1`` is always taken to be the batch
+        dimension ``N``. A three-dimensional shape such as
+        ``[1, 256, 256]`` is therefore read as a batched 2D tensor rather
+        than as a single-channel ``CHW`` image, as the two are
+        indistinguishable from the shape alone. Pass an explicit layout
+        instead of relying on inference when the distinction matters.
 
     Example:
         >>> infer_layout([1, 3, 256, 256])
@@ -57,8 +67,13 @@ def infer_layout(shape: list[int]) -> str:
         'HWC'
         >>> infer_layout([1, 19, 7, 8])
         'NCDE'
+        >>> infer_layout([1, 256, 256])
+        'NCD'
 
     """
+    if not shape:
+        raise ValueError("Cannot infer the layout of an empty shape.")
+
     layout = []
     i = 0
     if shape[0] == 1:
@@ -78,7 +93,7 @@ def infer_layout(shape: list[int]) -> str:
                 f"Too many dimensions ({len(shape)}) for automatic layout."
             )
 
-        if letter not in layout:
+        if letter != "N":
             layout.append(letter)
         i += 1
     return "".join(layout)

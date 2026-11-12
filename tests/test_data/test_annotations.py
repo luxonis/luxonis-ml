@@ -1,12 +1,16 @@
 import io
 import json
 from pathlib import Path
+from typing import TypeAlias
 
 import cv2
 import numpy as np
 import polars as pl
 import pydantic
 import pytest
+from hypothesis import assume, given
+from hypothesis import strategies as st
+from hypothesis.extra import numpy as npst
 from pytest_subtests import SubTests
 
 from luxonis_ml.data.datasets.annotation import (
@@ -17,6 +21,8 @@ from luxonis_ml.data.datasets.annotation import (
     Detection,
     InstanceSegmentationAnnotation,
     KeypointAnnotation,
+    KeypointVisibility,
+    NormalizedFloat,
     SegmentationAnnotation,
     load_annotation,
 )
@@ -25,6 +31,53 @@ from luxonis_ml.data.utils.parquet import (
     ParquetFileManager,
     ParquetRecord,
 )
+
+Keypoint: TypeAlias = tuple[
+    NormalizedFloat, NormalizedFloat, KeypointVisibility
+]
+
+# Coordinates are normalized to [0, 1]; anything within [-2, 2] is
+# clipped into that range and anything beyond it is rejected.
+normalized = st.floats(0, 1)
+clippable = st.floats(-2, 2)
+out_of_clipping_range = st.floats(2, 1e6, exclude_min=True) | st.floats(
+    -1e6, -2, exclude_max=True
+)
+binary_masks = npst.arrays(
+    np.uint8,
+    npst.array_shapes(min_dims=2, max_dims=2, min_side=1, max_side=8),
+    elements=st.integers(0, 1),
+)
+mask_stacks = npst.arrays(
+    np.uint8,
+    npst.array_shapes(min_dims=3, max_dims=3, min_side=1, max_side=8),
+    elements=st.integers(0, 1),
+)
+
+ClassifiedMasks: TypeAlias = tuple[np.ndarray, list[int], int]
+
+
+def keypoint_lists(coordinates: st.SearchStrategy[float]):
+    return st.lists(
+        st.tuples(coordinates, coordinates, st.integers(0, 2)),
+        min_size=1,
+        max_size=5,
+    )
+
+
+@st.composite
+def classified_masks(draw: st.DrawFn) -> ClassifiedMasks:
+    """Draw a stack of binary masks with a class ID for each of them."""
+    masks = draw(mask_stacks)
+    n_classes = draw(st.integers(1, 4))
+    classes = draw(
+        st.lists(
+            st.integers(0, n_classes - 1),
+            min_size=len(masks),
+            max_size=len(masks),
+        )
+    )
+    return masks, classes, n_classes
 
 
 def test_valid_identifier():
@@ -213,6 +266,92 @@ def test_bbox_annotation(subtests: SubTests):
         )
 
 
+@given(x=clippable, y=clippable, w=clippable, h=clippable)
+def test_bbox_clipping(x: float, y: float, w: float, h: float):
+    bbox = BBoxAnnotation(x=x, y=y, w=w, h=h)
+
+    assert 0 <= bbox.x <= 1
+    assert 0 <= bbox.y <= 1
+    assert 0 <= bbox.w <= 1
+    assert 0 <= bbox.h <= 1
+    assert bbox.x + bbox.w <= 1
+    assert bbox.y + bbox.h <= 1
+
+
+@given(x=normalized, y=normalized, w=normalized, h=normalized)
+def test_valid_bbox_is_unchanged(x: float, y: float, w: float, h: float):
+    assume(x + w <= 1)
+    assume(y + h <= 1)
+
+    bbox = BBoxAnnotation(x=x, y=y, w=w, h=h)
+
+    assert (bbox.x, bbox.y, bbox.w, bbox.h) == (x, y, w, h)
+
+
+@given(x=clippable, y=clippable, w=clippable, h=clippable)
+def test_bbox_clipping_is_idempotent(x: float, y: float, w: float, h: float):
+    clipped = BBoxAnnotation(x=x, y=y, w=w, h=h)
+
+    assert BBoxAnnotation(**clipped.model_dump()) == clipped
+
+
+@given(
+    value=out_of_clipping_range, field=st.sampled_from(["x", "y", "w", "h"])
+)
+def test_bbox_rejects_extreme_values(value: float, field: str):
+    values = {"x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0, field: value}
+
+    with pytest.raises(ValueError, match="outside of automatic clipping"):
+        BBoxAnnotation(**values)
+
+
+@given(keypoints=keypoint_lists(clippable))
+def test_keypoint_clipping(keypoints: list[Keypoint]):
+    annotation = KeypointAnnotation(keypoints=keypoints)
+
+    for (x, y, visibility), (*_, expected_visibility) in zip(
+        annotation.keypoints, keypoints, strict=True
+    ):
+        assert 0 <= x <= 1
+        assert 0 <= y <= 1
+        assert visibility == expected_visibility
+
+
+@given(keypoints=keypoint_lists(clippable))
+def test_keypoint_clipping_does_not_mutate_input(keypoints: list[Keypoint]):
+    original = list(keypoints)
+
+    KeypointAnnotation(keypoints=keypoints)
+
+    assert keypoints == original
+
+
+@given(keypoints=keypoint_lists(normalized))
+def test_valid_keypoints_are_unchanged(keypoints: list[Keypoint]):
+    assert KeypointAnnotation(keypoints=keypoints).keypoints == keypoints
+
+
+@given(
+    value=out_of_clipping_range,
+    axis=st.sampled_from(["x", "y"]),
+    n_valid=st.integers(0, 3),
+)
+def test_keypoints_reject_extreme_values(
+    value: float, axis: str, n_valid: int
+):
+    valid: Keypoint = (0.5, 0.5, 2)
+    invalid: Keypoint = (value, 0.5, 2) if axis == "x" else (0.5, value, 2)
+
+    with pytest.raises(pydantic.ValidationError):
+        KeypointAnnotation(keypoints=[*n_valid * [valid], invalid])
+
+
+@given(visibility=st.integers().filter(lambda value: value not in {0, 1, 2}))
+def test_keypoints_reject_unknown_visibility(visibility: int):
+    with pytest.raises(pydantic.ValidationError):
+        KeypointAnnotation(keypoints=[(0.5, 0.5, visibility)])  # pyright: ignore[reportArgumentType]
+
+
 def test_keypoints_annotation(subtests: SubTests):
     with subtests.test("no_auto_clip"):
         with pytest.raises(pydantic.ValidationError):
@@ -232,6 +371,7 @@ def test_keypoints_annotation(subtests: SubTests):
         kpt_ann = KeypointAnnotation(keypoints=[(-2, 2, 2)])
         assert 0 <= kpt_ann.keypoints[0][0] <= 1
         assert 0 <= kpt_ann.keypoints[0][1] <= 1
+
     with subtests.test("numpy"):
         keypoints = KeypointAnnotation(keypoints=[(0.1, 0.2, 2)])
         assert np.allclose(keypoints.to_numpy(), np.array([0.1, 0.2, 2]))
@@ -244,6 +384,61 @@ def test_keypoints_annotation(subtests: SubTests):
             KeypointAnnotation.combine_to_numpy(keypoints_list),
             np.array([[0.1, 0.2, 2], [0.2, 0.3, 0], [0.3, 0.4, 1]]),
         )
+
+
+@given(mask=binary_masks)
+def test_mask_rle_roundtrip(mask: np.ndarray):
+    annotation = SegmentationAnnotation(mask=mask)  # pyright: ignore[reportCallIssue]
+
+    assert (annotation.height, annotation.width) == mask.shape
+    assert np.array_equal(annotation.to_numpy(), mask)
+
+
+@given(mask=binary_masks)
+def test_segmentation_from_rle(mask: np.ndarray):
+    from_mask = SegmentationAnnotation(mask=mask)  # pyright: ignore[reportCallIssue]
+    from_counts = SegmentationAnnotation(
+        counts=from_mask.counts,
+        height=from_mask.height,
+        width=from_mask.width,
+    )
+
+    assert from_counts == from_mask
+    assert np.array_equal(from_counts.to_numpy(), mask)
+
+
+@given(classified=classified_masks())
+def test_semantic_segmentation_combine(classified: ClassifiedMasks):
+    masks, classes, n_classes = classified
+    annotations = [
+        SegmentationAnnotation(mask=mask)  # pyright: ignore[reportCallIssue]
+        for mask in masks
+    ]
+
+    combined = SegmentationAnnotation.combine_to_numpy(
+        annotations, classes, n_classes
+    )
+
+    expected = np.zeros((n_classes, *masks.shape[1:]), dtype=masks.dtype)
+    claimed = np.zeros(masks.shape[1:], dtype=bool)
+    for mask, class_id in zip(masks, classes, strict=True):
+        available = mask.astype(bool) & ~claimed
+        expected[class_id, available] = 1
+        claimed |= mask.astype(bool)
+
+    assert np.array_equal(combined, expected)
+
+
+@given(masks=mask_stacks)
+def test_instance_segmentation_combine(masks: np.ndarray):
+    annotations = [
+        InstanceSegmentationAnnotation(mask=mask)  # pyright: ignore[reportCallIssue]
+        for mask in masks
+    ]
+
+    combined = InstanceSegmentationAnnotation.combine_to_numpy(annotations)
+
+    assert np.array_equal(combined, masks)
 
 
 @pytest.fixture
