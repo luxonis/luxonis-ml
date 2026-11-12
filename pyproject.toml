@@ -303,3 +303,6 @@ exclude_also = [
   "logger\\.",
   "pytest\\.skip",
 ]
+
+[tool.typos.default.extend-words]
+UDO = "UDO"

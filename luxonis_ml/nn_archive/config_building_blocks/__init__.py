@@ -11,6 +11,7 @@ from .base_models import (
     Metadata,
     Output,
     PreprocessingBlock,
+    RuntimeDependencies,
 )
 from .enums import DataType, InputType
 
@@ -24,4 +25,5 @@ __all__ = [
     "Metadata",
     "Output",
     "PreprocessingBlock",
+    "RuntimeDependencies",
 ]
