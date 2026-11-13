@@ -6,7 +6,7 @@ aiosignal==1.4.0
 annotated-types==0.8.0
 async-timeout==5.0.1 ; python_full_version < '3.11'
 attrs==26.1.0
-certifi==2026.7.22
+certifi==2026.10.23
 cffi==2.1.1 ; platform_python_implementation != 'PyPy'
 charset-normalizer==3.5.2
 colorama==0.4.6 ; sys_platform == 'win32'
@@ -16,36 +16,39 @@ decorator==5.3.1
 docstring-parser==0.18.0
 frozenlist==1.8.0
 fsspec==2026.9.0
-gcsfs==2026.10.0
-google-api-core==2.42.0
+gcsfs==2026.10.1
+google-api-core==2.43.0
 google-auth==2.62.0
 google-auth-oauthlib==1.5.0
 google-cloud-core==2.8.0
-google-cloud-storage==3.17.0
-google-cloud-storage-control==1.16.0
+google-cloud-storage==3.17.1
+google-cloud-storage-control==1.17.0
 google-crc32c==1.9.0
 google-resumable-media==2.11.0
-googleapis-common-protos==1.75.5
-grpc-google-iam-v1==0.14.5
-grpcio==1.84.0
-grpcio-status==1.84.0
+googleapis-common-protos==1.76.0
+grpc-google-iam-v1==0.14.6
+grpcio==1.84.1
+grpcio-status==1.84.1
 idna==3.20
 loguru==0.7.3
 markdown-it-py==4.2.0
 mdurl==0.1.2
-multidict==6.9.1
+multidict==7.1.0 ; python_full_version < '3.11'
+multidict==7.2.1 ; python_full_version >= '3.11'
 oauthlib==4.0.0
 opentelemetry-api==1.45.1
 propcache==0.5.4
 proto-plus==1.29.0
-protobuf==6.33.6
+protobuf==7.36.2
 pyasn1==0.6.4
 pyasn1-modules==0.4.2
-pycparser==3.11 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
+pycparser==3.11 ; python_full_version < '3.11' and implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
+pycparser==3.12 ; python_full_version >= '3.11' and implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
 pydantic==2.14.1
 pydantic-core==2.50.1
 pydantic-extra-types==2.11.1
-pydantic-settings==2.15.0
+pydantic-settings==2.15.0 ; python_full_version < '3.11'
+pydantic-settings==2.16.1 ; python_full_version >= '3.11'
 pygments==2.21.0
 python-dotenv==1.2.4
 pyyaml==6.0.3
