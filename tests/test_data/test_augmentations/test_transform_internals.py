@@ -1,8 +1,9 @@
 import numpy as np
 import pytest
 
-from luxonis_ml.data.augmentations import MixUp, Mosaic4
+from luxonis_ml.data.augmentations import BatchTransform, MixUp, Mosaic4
 from luxonis_ml.data.augmentations.custom import (
+    CutMix,
     HorizontalSymmetricKeypointsFlip,
     TransposeSymmetricKeypoints,
     VerticalSymmetricKeypointsFlip,
@@ -141,6 +142,24 @@ def test_classification_defaults_to_a_single_absent_class() -> None:
     )
 
     assert output.tolist() == [1.0]
+
+
+@pytest.mark.parametrize(
+    ("transform", "params"),
+    [
+        (Mosaic4(height=16, width=16, p=1.0), {}),
+        (MixUp(p=1.0), {}),
+        (CutMix(p=1.0), {"x1": 0, "y1": 0, "x2": 8, "y2": 8}),
+    ],
+)
+def test_batch_transforms_join_multi_label_classes(
+    transform: BatchTransform, params: dict[str, int]
+) -> None:
+    output = transform.apply_to_classification(
+        [np.array([1.0, 1.0, 0.0]), np.array([0.0, 1.0, 1.0])], **params
+    )
+
+    assert output.tolist() == [1.0, 1.0, 1.0]
 
 
 @pytest.mark.parametrize("flip", FLIPS)
