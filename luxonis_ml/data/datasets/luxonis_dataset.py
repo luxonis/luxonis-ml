@@ -700,7 +700,8 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             / self._dataset_name
             / "annotations"
         )
-        files = list(path.glob("*.parquet"))
+        # Shard names are zero-padded counters; keep record rows in order.
+        files = sorted(path.glob("*.parquet"))
         if not files:
             if raise_when_empty:
                 raise FileNotFoundError(

@@ -58,7 +58,7 @@ class FiftyOneClassificationParser(BaseParser):
 
     A list of class indices gives the image each of these classes, as in
     the multi-label layout of ``FiftyOneImageClassificationDataset``. An
-    empty list adds the image without labels.
+    empty list or ``null`` adds the image without labels.
 
     This parser supports the FiftyOne image classification export layout.
 
@@ -155,11 +155,12 @@ class FiftyOneClassificationParser(BaseParser):
 
 
 def _image_records(
-    img_path: Path, target: int | list[int], classes: list[str]
+    img_path: Path, target: int | list[int] | None, classes: list[str]
 ) -> DatasetIterator:
-    """Yield one record per class, or one without labels for ``[]``."""
-    if target == []:
+    """Yield one record per class, or one without labels for null or []."""
+    if target is None or target == []:
         yield {"file": img_path, "annotation": None}
+        return
     for class_idx in target if isinstance(target, list) else [target]:
         yield {"file": img_path, "annotation": {"class": classes[class_idx]}}
 

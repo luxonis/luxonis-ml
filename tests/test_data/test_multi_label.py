@@ -294,12 +294,24 @@ def _classes_by_image(
                     "classes": ["bird", "cat", "dog"],
                     "labels": {
                         "000001": [1, 2],
-                        "000002": 1,
+                        "000002": [1],
                         "000003": [0, 1, 2],
                     },
                 },
             },
             id="fiftyone",
+        ),
+        pytest.param(
+            DatasetType.FIFTYONECLS,
+            [MULTI_LABEL[2]],
+            {
+                "train/data/000001.jpg": 1,
+                "train/labels.json": {
+                    "classes": ["cat"],
+                    "labels": {"000001": 0},
+                },
+            },
+            id="fiftyone-single-label",
         ),
     ],
 )
@@ -353,6 +365,16 @@ def test_export_writes_the_format(
             id="clsdir-other-image-same-name",
         ),
         pytest.param(
+            DatasetType.CLSDIR,
+            {
+                "train/cat/a.jpg": 0,
+                "train/dog/a.jpg": 0,
+                "train/bird/a.jpg": 0,
+            },
+            {0: {"cat", "dog", "bird"}},
+            id="clsdir-three-copies-one-sample",
+        ),
+        pytest.param(
             DatasetType.FIFTYONECLS,
             {
                 "train/data/a.jpg": 0,
@@ -370,13 +392,14 @@ def test_export_writes_the_format(
             {
                 "train/data/a.jpg": 0,
                 "train/data/b.jpg": 1,
+                "train/data/c.jpg": 2,
                 "train/labels.json": {
                     "classes": ["cat", "dog"],
-                    "labels": {"a": [0, 1], "b": []},
+                    "labels": {"a": [0, 1], "b": [], "c": None},
                 },
             },
-            {0: {"cat", "dog"}, 1: set()},
-            id="fiftyone-empty-list",
+            {0: {"cat", "dog"}, 1: set(), 2: set()},
+            id="fiftyone-unlabeled",
         ),
     ],
 )
@@ -392,6 +415,7 @@ def test_parse_reads_the_format(
 
     dataset = _parse(tempdir / "source", dataset_type, dataset_name)
 
+    assert len(dataset) == len(expected)
     assert _classes_by_image(dataset, images) == expected
 
 
@@ -407,7 +431,29 @@ def test_clsdir_parse_groups_links_by_their_name(
 
     dataset = _parse(tempdir / "source", DatasetType.CLSDIR, dataset_name)
 
+    assert len(dataset) == 1
     assert _classes_by_image(dataset, images) == {0: {"cat", "dog"}}
+
+
+def test_fiftyone_label_shape_is_consistent_across_splits(
+    dataset_name: str, tempdir: Path
+):
+    images = _images(tempdir)
+    dataset = _dataset(dataset_name, MULTI_LABEL, images)
+    dataset.make_splits(
+        {"train": [images[1]], "val": [images[0], images[2]]},
+        replace_old_splits=True,
+    )
+
+    dataset.export(tempdir / "export", dataset_type=DatasetType.FIFTYONECLS)
+
+    root = tempdir / "export" / dataset.identifier
+    for split in ("train", "validation"):
+        labels = json.loads((root / split / "labels.json").read_text())[
+            "labels"
+        ]
+        assert labels
+        assert all(isinstance(target, list) for target in labels.values())
 
 
 @pytest.mark.parametrize(
@@ -429,11 +475,13 @@ def test_round_trip_keeps_the_labels(
     images = _images(tempdir)
     dataset = _dataset(dataset_name, records, images)
 
-    dataset.export(tempdir / "export", dataset_type=dataset_type)
-    imported = _parse(
-        tempdir / "export" / dataset.identifier,
-        dataset_type,
-        f"{dataset_name}_imported",
-    )
-
-    assert _rows_by_image(imported, images) == _rows_by_image(dataset, images)
+    expected = _rows_by_image(dataset, images)
+    for cycle in range(2):
+        output = tempdir / f"export_{cycle}"
+        dataset.export(output, dataset_type=dataset_type)
+        dataset = _parse(
+            output / dataset.identifier,
+            dataset_type,
+            f"{dataset_name}_imported_{cycle}",
+        )
+        assert _rows_by_image(dataset, images) == expected

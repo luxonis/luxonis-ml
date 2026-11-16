@@ -1,6 +1,6 @@
 """Parser for classification datasets with one directory per class."""
 
-import filecmp
+import hashlib
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -122,23 +122,29 @@ class ClassificationDirectoryParser(BaseParser):
     def _image_classes(self, class_dir: Path) -> dict[Path, list[str]]:
         """Map each image of a split to its class directory names."""
         image_classes: dict[Path, list[str]] = {}
-        images_by_name: defaultdict[str, list[Path]] = defaultdict(list)
+        images_by_name: dict[str, Path] = {}
+        images_by_content: defaultdict[str, dict[bytes, Path]] = defaultdict(
+            dict
+        )
         for class_path in class_dir.iterdir():
             if not class_path.is_dir():
                 continue
             for img_path in self._list_images(class_path):
                 path = img_path.absolute().resolve()
-                same_name = images_by_name[img_path.name]
-                image = next(
-                    (
-                        p
-                        for p in same_name
-                        if filecmp.cmp(p, path, shallow=False)
-                    ),
-                    None,
-                )
-                if image is None:
-                    same_name.append(path)
-                    image = path
+                image = images_by_name.setdefault(img_path.name, path)
+                if image != path:
+                    same_name = images_by_content[img_path.name]
+                    if not same_name:
+                        same_name[_file_sha256(image)] = image
+                    image = same_name.setdefault(_file_sha256(path), path)
                 image_classes.setdefault(image, []).append(class_path.name)
         return image_classes
+
+
+def _file_sha256(path: Path) -> bytes:
+    """Hash an image in chunks so memory use is independent of file size."""
+    digest = hashlib.sha256()
+    with path.open("rb") as image:
+        while chunk := image.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.digest()
