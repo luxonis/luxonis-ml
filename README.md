@@ -133,15 +133,15 @@ pip install luxonis-ml[data]
 
 Each module has its own extra, so you install only what you use:
 
-| Extra        | Installs the dependencies of                              |
-| ------------ | --------------------------------------------------------- |
-| `ldf`        | `luxonis_ml.ldf`                                          |
-| `data`       | `luxonis_ml.data`, and `luxonis_ml.ldf` with it           |
-| `tracker`    | `luxonis_ml.tracker`, except `mlflow` and `opencv-python` |
-| `telemetry`  | `luxonis_ml.telemetry`, with the PostHog backend          |
-| `nn_archive` | `luxonis_ml.nn_archive`                                   |
-| `utils`      | `luxonis_ml.utils`                                        |
-| `all`        | All of the above, and all of the extras below             |
+| Extra        | Installs the dependencies of                         |
+| ------------ | ---------------------------------------------------- |
+| `ldf`        | `luxonis_ml.ldf`                                     |
+| `data`       | `luxonis_ml.data`, and `luxonis_ml.ldf` with it      |
+| `tracker`    | `luxonis_ml.tracker`, without the SDK of any backend |
+| `telemetry`  | `luxonis_ml.telemetry`, with the PostHog backend     |
+| `nn_archive` | `luxonis_ml.nn_archive`                              |
+| `utils`      | `luxonis_ml.utils`                                   |
+| `all`        | All of the above, and all of the extras below        |
 
 The `data`, `ldf`, `tracker`, and `utils` modules fail on import when you do
 not install their extra. The message names the extra. `luxonis_ml.telemetry`
@@ -152,15 +152,17 @@ backend.
 
 These extras add support for specific cloud services and integrations:
 
-| Extra      | Adds support for                     |
-| ---------- | ------------------------------------ |
-| `gcs`      | Google Cloud Storage                 |
-| `s3`       | AWS S3                               |
-| `roboflow` | Dataset downloads from Roboflow      |
-| `mlflow`   | MLflow tracking and artifact storage |
+| Extra         | Adds support for                       |
+| ------------- | -------------------------------------- |
+| `gcs`         | Google Cloud Storage                   |
+| `s3`          | AWS S3                                 |
+| `roboflow`    | Dataset downloads from Roboflow        |
+| `mlflow`      | MLflow tracking and artifact storage   |
+| `tensorboard` | The TensorBoard backend of the tracker |
+| `wandb`       | The WandB backend of the tracker       |
 
 > [!NOTE]
-> `LuxonisML` installs these four dependencies for you on first use. If you open a `gs://`, `gcs://`, `s3://`, `mlflow://`, or `roboflow://` path and the package is absent, `LuxonisML` installs it and continues. Install the extra yourself when you want a reproducible environment or an offline machine.
+> `LuxonisML` installs the `gcs`, `s3`, `roboflow`, and `mlflow` dependencies for you on first use. If you open a `gs://`, `gcs://`, `s3://`, `mlflow://`, or `roboflow://` path and the package is absent, `LuxonisML` installs it and continues. Install the extra yourself when you want a reproducible environment or an offline machine. A tracker backend does not install its SDK. It fails at the start, and the message names the extra.
 
 **Examples**:
 
@@ -279,7 +281,7 @@ from luxonis_ml.tracker import LuxonisTracker
 tracker = LuxonisTracker(
     project_name="parking_lot",
     run_name="baseline",
-    is_tensorboard=True,
+    tensorboard=True,
 )
 
 tracker.log_metric("loss", 0.42, step=1)
@@ -287,7 +289,7 @@ tracker.close()
 ```
 
 > [!NOTE]
-> The `tracker` extra does not install every dependency of `luxonis_ml.tracker`. The module imports `mlflow` and `cv2` at import time, so install `mlflow` and `opencv-python` as well: `pip install "luxonis-ml[tracker,mlflow]" opencv-python`. Install `torch` for TensorBoard and `wandb` for Weights & Biases.
+> Install the extra of each backend that you enable: `tensorboard`, `wandb`, or `mlflow`. For example, `pip install "luxonis-ml[tracker,tensorboard,mlflow]"`. A backend imports its SDK only when it starts, so `luxonis_ml.tracker` imports with the `tracker` extra alone.
 
 <a name="cli"></a>
 
