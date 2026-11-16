@@ -107,8 +107,9 @@ class MixUp(BatchTransform):
         Combines the masks pixel by pixel. A pixel keeps the classes of
         the mask associated with the higher :math:`\alpha`. Where that
         mask has no class, the pixel takes the classes of the other mask.
-        The loader adds its ``background`` class only after the
-        augmentations, so the objects of both images stay in the mask.
+        The loader fills its generated ``background`` class only after
+        augmentation, so it does not hide the other image's objects.
+        Explicitly annotated background participates as a normal class.
 
         Args:
             masks_batch: Masks to transform. Each mask should be of shape
@@ -135,9 +136,14 @@ class MixUp(BatchTransform):
 
         """
         mask1, mask2 = masks_batch
+        mask_ndim = max(mask1.ndim, mask2.ndim)
+        if mask1.ndim == 2 and mask_ndim == 3:
+            mask1 = mask1[..., None]
         if mask2.size > 0:
             mask2 = self._resize(mask2, image_shapes, "mask")
-            if mask2.ndim == 2:
+            if mask_ndim == 2:
+                mask2 = mask2.reshape(mask2.shape[:2])
+            elif mask2.ndim == 2:
                 mask2 = mask2[..., None]
 
         if mask1.size == 0:
@@ -148,7 +154,9 @@ class MixUp(BatchTransform):
         dominant, other = (mask1, mask2) if alpha >= 0.5 else (mask2, mask1)
         # The classes of a pixel are one vector across the channels, so a
         # pixel takes the whole vector of one mask, never a mix of the two.
-        unassigned = ~dominant.any(axis=-1)
+        unassigned = (
+            dominant == 0 if dominant.ndim == 2 else ~dominant.any(axis=-1)
+        )
         dominant[unassigned] = other[unassigned]
         return dominant
 

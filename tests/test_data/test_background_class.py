@@ -76,6 +76,10 @@ def apart(dataset_name: str, tempdir: Path) -> LuxonisDataset:
 
     ``dog`` covers rows 0-99 of the first image and ``cat`` covers rows
     300-399 of the second. No mask covers the other rows.
+
+    Returns:
+        A two-class dataset with separated foreground regions.
+
     """
     dog = np.zeros((SIZE, SIZE), dtype=np.uint8)
     dog[:100] = 1
@@ -157,7 +161,10 @@ def test_overlapping_masks_do_not_hide_uncovered_pixels(
     assert np.array_equal(mask.sum(axis=0), np.ones((SIZE, SIZE)))
 
 
-def test_mixup_keeps_the_objects_of_both_images(apart: LuxonisDataset):
+@pytest.mark.parametrize("alpha", [0.7, 0.3])
+def test_mixup_keeps_the_objects_of_both_images(
+    apart: LuxonisDataset, alpha: float
+):
     """MixUp sees the pixels without a class as empty.
 
     The loader adds the background class after the augmentations, so
@@ -165,7 +172,7 @@ def test_mixup_keeps_the_objects_of_both_images(apart: LuxonisDataset):
     """
     classes, mask = augmented_mask(
         apart,
-        {"name": "MixUp", "params": {"p": 1.0}},
+        {"name": "MixUp", "params": {"alpha": alpha, "p": 1.0}},
     )
 
     assert np.array_equal(mask.sum(axis=0), np.ones((SIZE, SIZE)))
@@ -189,6 +196,8 @@ def test_a_padded_pixel_gets_the_background_class(apart: LuxonisDataset):
     assert np.array_equal(mask.sum(axis=0), np.ones((SIZE, SIZE)))
     assert mask[classes["background"], :100].all()
 
+
+def test_a_polyline_mask_needs_no_image_to_measure():
     """An LDF 1.0 polyline carries no mask size, only normalized points."""
     left_half = json.dumps(
         {"points": [[0.0, 0.0], [0.5, 0.0], [0.5, 1.0], [0.0, 1.0]]}
