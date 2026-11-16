@@ -130,6 +130,49 @@ def test_augmentation_uses_the_background_class_count(
     )
 
 
+@pytest.mark.parametrize("views", [("train", "val"), ("val", "train")])
+def test_background_classes_are_consistent_across_views(
+    dataset_name: str, tempdir: Path, views: tuple[str, str]
+):
+    """A fully covered validation split uses the training class IDs."""
+    paths = [create_image(i, tempdir) for i in range(2)]
+    masks = [np.ones((SIZE, SIZE), dtype=np.uint8) for _ in paths]
+    masks[0][SIZE // 2 :] = 0
+
+    def generator() -> DatasetIterator:
+        for path, mask, class_name in zip(
+            paths, masks, ["cat", "dog"], strict=True
+        ):
+            yield {
+                "file": path,
+                "annotation": {
+                    "class": class_name,
+                    "segmentation": {"mask": mask},
+                },
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits=False)
+    dataset.make_splits({"train": paths[:1], "val": paths[1:]})
+    loaders = {view: LuxonisLoader(dataset, view=view) for view in views}
+
+    for view, loader in loaders.items():
+        assert loader.get_classes() == {
+            "": {"background": 0, "cat": 1, "dog": 2}
+        }
+        class_id = 1 if view == "train" else 2
+        foreground = masks[class_id - 1]
+        expected = np.zeros((3, SIZE, SIZE), dtype=np.uint8)
+        expected[class_id] = foreground
+        expected[0] = 1 - foreground
+        labels = loader[0].labels
+        np.testing.assert_array_equal(labels["/segmentation"], expected)
+        np.testing.assert_array_equal(
+            labels["/classification"], np.eye(3)[class_id]
+        )
+
+    assert dataset.get_classes() == {"": {"cat": 0, "dog": 1}}
+
+
 def test_overlapping_masks_do_not_hide_uncovered_pixels(
     overlapped: LuxonisDataset,
 ):

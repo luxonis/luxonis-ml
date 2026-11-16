@@ -8,9 +8,10 @@
     from luxonis_ml.data.utils import visualize
 
     dataset = LuxonisDataset("parking_lot")
-    sample = LuxonisLoader(dataset)[0]
+    loader = LuxonisLoader(dataset)
+    sample = loader[0]
     image = visualize(
-        sample.images["image"], "image", sample.labels, dataset.get_classes()
+        sample.images["image"], "image", sample.labels, loader.get_classes()
     )
 
 This package collects public helper APIs used by dataset creation, parsing,
