@@ -3,7 +3,7 @@
 annotated-types==0.8.0
 attrs==26.1.0
 backoff==2.2.1
-certifi==2026.7.22
+certifi==2026.10.23
 charset-normalizer==3.5.2
 colorama==0.4.6 ; sys_platform == 'win32'
 cyclopts==4.25.3
@@ -14,11 +14,12 @@ idna==3.20
 loguru==0.7.3
 markdown-it-py==4.2.0
 mdurl==0.1.2
-posthog==7.68.0
+posthog==7.75.11
 pydantic==2.14.1
 pydantic-core==2.50.1
 pydantic-extra-types==2.11.1
-pydantic-settings==2.15.0
+pydantic-settings==2.15.0 ; python_full_version < '3.11'
+pydantic-settings==2.16.1 ; python_full_version >= '3.11'
 pygments==2.21.0
 python-dotenv==1.2.4
 pyyaml==6.0.3
