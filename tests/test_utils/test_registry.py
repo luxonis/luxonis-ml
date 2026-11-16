@@ -1,6 +1,7 @@
 import types
 
 import pytest
+from pydantic import BaseModel, ValidationError
 
 from luxonis_ml.utils.registry import AutoRegisterMeta, Registry
 
@@ -135,6 +136,139 @@ def test_autoregistry_subclass_controls_registration(registry: Registry):
         pass
 
     assert registry._module_dict == {"Node:v1": Node}
+
+
+def test_autoregistry_decorator(registry: Registry[type]):
+    base = registry.autoregister()(types.new_class("Base"))
+    a = types.new_class("A", (base,))
+    b = types.new_class("B", (base,), {"register_name": "AliasB"})
+    c = types.new_class("C", (base,), {"register": False})
+
+    assert registry.get("A") is a
+    assert registry.get("AliasB") is b
+    assert "B" not in registry
+    assert c.__name__ == "C"
+    assert "C" not in registry
+
+
+def test_autoregistry_decorator_with_pydantic_metaclass(
+    registry: Registry[type],
+):
+    class Base(BaseModel):
+        value: int
+
+    base = registry.autoregister()(Base)
+    child = types.new_class("Child", (base,), {"extra": "forbid"})
+    alias = types.new_class("Aliased", (base,), {"register_name": "Alias"})
+    skipped = types.new_class("Skipped", (base,), {"register": False})
+
+    assert registry._module_dict == {"Child": child, "Alias": alias}
+    assert child.model_validate({"value": "2"}).value == 2
+    assert skipped.model_validate({"value": 3}).value == 3
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        child.model_validate({"value": 2, "unexpected": 1})
+
+
+def test_autoregistry_decorator_keeps_existing_hooks(
+    registry: Registry[type],
+):
+    calls: list[tuple[str, str]] = []
+    other = Registry[type]("other")
+
+    class Parent:
+        def __init_subclass__(cls) -> None:
+            calls.append(("parent", cls.__name__))
+            super().__init_subclass__()
+
+    class Base(Parent):
+        def __init_subclass__(cls, *, tag: str) -> None:
+            assert cls.__name__ not in registry
+            assert cls.__name__ not in other
+            calls.append((tag, cls.__name__))
+            super().__init_subclass__()
+
+    calls.clear()
+    base = other.autoregister()(registry.autoregister()(Base))
+    child = types.new_class("Child", (base,), {"tag": "base"})
+
+    assert calls == [("base", "Child"), ("parent", "Child")]
+    assert registry.get("Child") is child
+    assert other.get("Child") is child
+
+    alias = types.new_class(
+        "Aliased", (base,), {"tag": "base", "register_name": "Alias"}
+    )
+    skipped = types.new_class(
+        "Skipped", (base,), {"tag": "base", "register": False}
+    )
+    for registered in (registry, other):
+        assert registered.get("Alias") is alias
+        assert "Aliased" not in registered
+        assert skipped.__name__ not in registered
+
+
+def test_autoregistry_decorator_forwards_inherited_controls(
+    registry: Registry[type],
+):
+    other = Registry[type]("other")
+    ancestor = registry.autoregister()(types.new_class("Ancestor"))
+    base = other.autoregister()(types.new_class("Base", (ancestor,)))
+
+    alias = types.new_class("Aliased", (base,), {"register_name": "Alias"})
+    skipped = types.new_class("Skipped", (base,), {"register": False})
+
+    for registered in (registry, other):
+        assert registered.get("Alias") is alias
+        assert "Aliased" not in registered
+        assert skipped.__name__ not in registered
+
+
+@pytest.mark.parametrize(
+    ("register", "register_name"), [(False, None), (True, "Alias")]
+)
+def test_autoregistry_decorator_isolates_nested_class_controls(
+    registry: Registry[type], *, register: bool, register_name: str | None
+):
+    helpers = Registry[type]("helpers")
+    helper_base = helpers.autoregister()(types.new_class("HelperBase"))
+    created_helpers: list[type] = []
+
+    @registry.autoregister()
+    class Base:
+        def __init_subclass__(cls) -> None:
+            created_helpers.append(types.new_class("Helper", (helper_base,)))
+            super().__init_subclass__()
+
+    child = types.new_class(
+        "Child",
+        (Base,),
+        {"register": register, "register_name": register_name},
+    )
+
+    assert helpers.get("Helper") is created_helpers[0]
+    assert len(helpers) == 1
+    if register:
+        assert registry.get("Alias") is child
+    else:
+        assert len(registry) == 0
+
+
+def test_autoregistry_decorator_handles_same_named_classes(
+    registry: Registry[type],
+):
+    base = registry.autoregister()(types.new_class("Base"))
+    first = type("Node", (base,), {})
+
+    class Proxy:
+        pass
+
+    proxy = type("Node", (Proxy, first), {})
+    assert issubclass(proxy, first)
+    assert registry.get("Node") is first
+
+    second = type("Node", (base,), {})
+    assert first is not second
+    assert registry.get("Node") is second
 
 
 def test_autoregistry_keeps_class_over_same_named_subclass(
