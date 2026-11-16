@@ -1,0 +1,12 @@
+# BOM workflows upload downstream coverage under other flags. Measure this
+# repository's coverage with the report from its own test suite.
+coverage:
+  status:
+    project:
+      default:
+        flags:
+          - pytest-ubuntu-latest
+    patch:
+      default:
+        flags:
+          - pytest-ubuntu-latest
