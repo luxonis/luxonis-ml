@@ -10,7 +10,7 @@ from typing_extensions import Unpack, deprecated, override
 
 T = TypeVar("T", bound=type)
 
-_AUTOREGISTER_CONTROLS: ContextVar[tuple[bool, str | None] | None] = (
+_AUTOREGISTER_CONTROLS: ContextVar[tuple[type, bool, str | None] | None] = (
     ContextVar("autoregister_controls", default=None)
 )
 
@@ -22,13 +22,13 @@ def _call_init_subclass(
     controls: tuple[bool, str | None],
     kwargs: dict[str, object],
 ) -> tuple[bool, str | None]:
-    """Call the cooperative hook with scoped registration controls."""
+    """Call the cooperative hook with controls scoped to this class."""
     inherited_controls = _AUTOREGISTER_CONTROLS.get()
     token = None
-    if inherited_controls is None:
-        token = _AUTOREGISTER_CONTROLS.set(controls)
+    if inherited_controls is None or inherited_controls[0] is not cls:
+        token = _AUTOREGISTER_CONTROLS.set((cls, *controls))
     else:
-        controls = inherited_controls
+        controls = inherited_controls[1:]
     try:
         if original_hook is None:
             super(base, cls).__init_subclass__(**kwargs)
