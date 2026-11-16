@@ -1,5 +1,6 @@
 import string
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from hypothesis import given
 from hypothesis import strategies as st
@@ -48,12 +49,13 @@ def test_parse_posix_roundtrip(parts: list[str]):
 
 @given(parts=relative_paths)
 def test_relative_paths_resolve_from_base_dir(parts: list[str]):
-    base_dir = Path.cwd().resolve()
+    with TemporaryDirectory() as directory:
+        base_dir = Path(directory).resolve()
 
-    resolved = resolve_manifest_path(base_dir, "\\".join(parts))
+        resolved = resolve_manifest_path(base_dir, "\\".join(parts))
 
-    assert resolved.is_absolute()
-    assert resolved.relative_to(base_dir) == Path(*parts)
+        assert resolved.is_absolute()
+        assert resolved.relative_to(base_dir) == Path(*parts)
 
 
 def test_path_to_posix_normalizes_windows_separators():
