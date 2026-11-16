@@ -48,6 +48,10 @@ def inspect(
         bool,
         Parameter(alias="-h", negative=()),
     ] = False,
+    runtime_dependencies: Annotated[
+        bool,
+        Parameter(negative=()),
+    ] = False,
     buildinfo: Annotated[
         bool,
         Parameter(alias="-b", negative=()),
@@ -63,6 +67,7 @@ def inspect(
         metadata: Print metadata.
         outputs: Print outputs info.
         heads: Print heads info.
+        runtime_dependencies: Print runtime dependency info.
         buildinfo: Print build info if available.
 
     Raises:
@@ -70,8 +75,10 @@ def inspect(
             ``config.json`` is not a file, for example a directory.
 
     """
-    if not any([inputs, metadata, outputs, heads, buildinfo]):
-        inputs = metadata = outputs = heads = True
+    if not any(
+        [inputs, metadata, outputs, heads, runtime_dependencies, buildinfo]
+    ):
+        inputs = metadata = outputs = heads = runtime_dependencies = True
 
     with tarfile.open(path) as tar:
         extracted_cfg = _open_member(tar, "config.json")
@@ -98,6 +105,13 @@ def inspect(
         rich_print(Panel.fit(Pretty(cfg.model.inputs), title="Inputs"))
     if outputs:
         rich_print(Panel.fit(Pretty(cfg.model.outputs), title="Outputs"))
+    if runtime_dependencies and cfg.model.runtime_dependencies is not None:
+        rich_print(
+            Panel.fit(
+                Pretty(cfg.model.runtime_dependencies),
+                title="Runtime Dependencies",
+            )
+        )
 
 
 @app.command

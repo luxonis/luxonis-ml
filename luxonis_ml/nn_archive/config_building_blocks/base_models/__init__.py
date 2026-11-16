@@ -7,6 +7,7 @@ from .head import Head, HeadMetadata, HeadType
 from .input import Input, PreprocessingBlock
 from .metadata import Metadata
 from .output import Output
+from .runtime_dependencies import RuntimeDependencies
 
 __all__ = [
     "Head",
@@ -16,4 +17,5 @@ __all__ = [
     "Metadata",
     "Output",
     "PreprocessingBlock",
+    "RuntimeDependencies",
 ]

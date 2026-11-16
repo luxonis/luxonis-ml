@@ -43,15 +43,22 @@ class FiftyOneClassificationExporter(BaseExporter):
         {
             "classes": ["class1", "class2", ...],
             "labels": {
-                "000001": 0,  # index into classes array
-                "000002": 1,
+                "000001": [0],  # indices into classes array
+                "000002": [0, 1],  # an image with two classes
                 ...
             }
         }
 
+    If any image has multiple classes, all images in all splits get sorted
+    lists of class indices. FiftyOne requires one label type per field.
+    Exports containing only single-label images keep scalar class indices.
+
+    This format combines image-level classes into one classification task;
+    it cannot preserve task names. Use NATIVE to retain separate tasks.
+
     Attributes:
         class_to_idx: Class-name to index mapping.
-        split_labels: Per-split image-stem to class-index mapping.
+        split_labels: Per-split image stem mapped to its class indices.
         split_image_counter: Per-split image counter used for exported
             filenames.
 
@@ -76,7 +83,7 @@ class FiftyOneClassificationExporter(BaseExporter):
             dataset_identifier, output_path, max_partition_size_gb
         )
         self.class_to_idx: dict[str, int] = {}
-        self.split_labels: dict[str, dict[str, int]] = {}
+        self.split_labels: dict[str, dict[str, list[int]]] = {}
         self.split_image_counter: dict[str, int] = {}
 
     def get_split_names(self) -> dict[str, str]:
@@ -123,9 +130,13 @@ class FiftyOneClassificationExporter(BaseExporter):
 
             split = split_of_group(prepared_ldf, group_id)
 
-            # Take first classification label
-            class_name = next(iter(whole_image_classes(entry)), None)
-            if class_name is None:
+            class_ids = sorted(
+                {
+                    self.class_to_idx[cname]
+                    for cname in whole_image_classes(entry)
+                }
+            )
+            if not class_ids:
                 continue
 
             self.split_image_counter[split] += 1
@@ -148,7 +159,7 @@ class FiftyOneClassificationExporter(BaseExporter):
 
             # Store label mapping (without extension, just the padded number)
             label_key = f"{idx:06d}"
-            self.split_labels[split][label_key] = self.class_to_idx[class_name]
+            self.split_labels[split][label_key] = class_ids
 
         self._dump_annotations(
             {"classes": sorted_classes, "split_labels": self.split_labels},
@@ -165,6 +176,11 @@ class FiftyOneClassificationExporter(BaseExporter):
     ) -> None:
         classes = annotation_data["classes"]
         split_labels = annotation_data["split_labels"]
+        multilabel = any(
+            len(class_ids) > 1
+            for labels in split_labels.values()
+            for class_ids in labels.values()
+        )
 
         for split_name, labels in split_labels.items():
             if not labels:
@@ -183,7 +199,13 @@ class FiftyOneClassificationExporter(BaseExporter):
 
             labels_data = {
                 "classes": classes,
-                "labels": labels,
+                "labels": (
+                    labels
+                    if multilabel
+                    else {
+                        key: class_ids[0] for key, class_ids in labels.items()
+                    }
+                ),
             }
             (split_path / "labels.json").write_text(
                 json.dumps(labels_data), encoding="utf-8"

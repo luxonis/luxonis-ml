@@ -1,6 +1,106 @@
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from luxonis_ml.utils import is_acyclic, traverse_graph
+
+
+@st.composite
+def dags(draw: st.DrawFn, min_nodes: int = 0) -> dict[str, list[str]]:
+    """Build a random acyclic predecessor graph.
+
+    Node ``i`` may only depend on nodes with a lower index, which makes
+    a cycle impossible by construction. The keys are shuffled so that
+    traversals cannot rely on insertion order.
+
+    Returns:
+        Acyclic graph with randomized labels and insertion order.
+
+    """
+    names = list(
+        draw(
+            st.permutations(
+                [f"node{i}" for i in range(draw(st.integers(min_nodes, 8)))]
+            )
+        )
+    )
+
+    graph: dict[str, list[str]] = {}
+    for i, name in enumerate(names):
+        candidates = st.sampled_from(names[:i]) if i else st.nothing()
+        graph[name] = draw(st.lists(candidates, unique=True))
+
+    return dict(draw(st.permutations(list(graph.items()))))
+
+
+@st.composite
+def cyclic_graphs(draw: st.DrawFn) -> dict[str, list[str]]:
+    graph = draw(dags(min_nodes=1))
+    cycle = draw(
+        st.lists(st.sampled_from(sorted(graph)), min_size=1, unique=True)
+    )
+    for node, successor in zip(cycle, [*cycle[1:], cycle[0]], strict=True):
+        graph[node] = [*graph[node], successor]
+    return graph
+
+
+def index_nodes(graph: dict[str, list[str]]) -> dict[str, int]:
+    return {name: i for i, name in enumerate(graph)}
+
+
+@given(graph=dags())
+def test_dags_are_acyclic(graph: dict[str, list[str]]):
+    assert is_acyclic(graph)
+
+
+@given(graph=cyclic_graphs())
+def test_cycles_are_detected(graph: dict[str, list[str]]):
+    assert not is_acyclic(graph)
+
+
+@given(graph=dags())
+def test_traversal_order(graph: dict[str, list[str]]):
+    nodes = index_nodes(graph)
+    visited: list[str] = []
+
+    for name, value, predecessors, remaining in traverse_graph(graph, nodes):
+        assert name not in visited
+        assert value == nodes[name]
+        assert predecessors == graph[name]
+        assert set(predecessors) <= set(visited)
+
+        visited.append(name)
+        assert remaining == sorted(set(nodes) - set(visited))
+
+    assert set(visited) == set(nodes)
+
+
+@given(graph=dags())
+def test_traversal_ignores_insertion_order(graph: dict[str, list[str]]):
+    nodes = index_nodes(graph)
+    reversed_graph = dict(reversed(list(graph.items())))
+    reversed_nodes = dict(reversed(list(nodes.items())))
+
+    assert list(traverse_graph(graph, nodes)) == list(
+        traverse_graph(reversed_graph, reversed_nodes)
+    )
+
+
+@given(graph=dags())
+def test_traversal_does_not_mutate_graph(graph: dict[str, list[str]]):
+    original = {
+        name: list(predecessors) for name, predecessors in graph.items()
+    }
+
+    list(traverse_graph(graph, index_nodes(graph)))
+
+    assert graph == original
+
+
+@given(graph=cyclic_graphs())
+def test_traversal_rejects_cycles(graph: dict[str, list[str]]):
+    with pytest.raises(RuntimeError, match="Malformed graph"):
+        list(traverse_graph(graph, index_nodes(graph)))
 
 
 @pytest.mark.parametrize(
@@ -8,10 +108,10 @@ from luxonis_ml.utils import is_acyclic, traverse_graph
     [
         ({}, True),
         ({"a": []}, True),
+        ({"a": ["a"]}, False),
         ({"a": ["b"], "b": ["a"]}, False),
         ({"a": ["b"], "b": []}, True),
         ({"a": ["b"], "b": ["c"], "c": ["a"]}, False),
-        ({"a": ["b"], "b": ["c"], "c": []}, True),
         ({"a": ["b", "c"], "b": ["d"], "c": ["d"], "d": []}, True),
         ({"a": ["b", "c"], "b": ["d"], "c": ["d"], "d": ["a"]}, False),
     ],
@@ -62,18 +162,3 @@ def test_traverse(
 ):
     result = list(traverse_graph(graph, nodes))
     assert result == expected
-
-
-@pytest.mark.parametrize(
-    ("graph", "nodes"),
-    [
-        ({"a": ["b"], "b": ["a"]}, {"a": 1, "b": 2}),
-        (
-            {"a": ["b", "c"], "b": ["d"], "c": ["d"], "d": ["a"]},
-            {"a": 1, "b": 2, "c": 3, "d": 4},
-        ),
-    ],
-)
-def test_traverse_fail(graph: dict[str, list[str]], nodes: dict[str, int]):
-    with pytest.raises(RuntimeError):
-        list(traverse_graph(graph, nodes))

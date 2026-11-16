@@ -1,11 +1,35 @@
 import json
+import uuid
 from typing import cast
 
 import numpy as np
 import polars as pl
+from hypothesis import given
+from hypothesis import strategies as st
 from pycocotools import mask as mask_utils
 
+from luxonis_ml.data.utils import merge_uuids
 from luxonis_ml.data.utils.data_utils import get_heatmaps
+
+uuid_lists = st.lists(st.uuids().map(str), min_size=1, max_size=8)
+
+
+@given(uuids=uuid_lists, data=st.data())
+def test_merging_does_not_depend_on_order(
+    uuids: list[str], data: st.DataObject
+):
+    shuffled = data.draw(st.permutations(uuids))
+
+    assert merge_uuids(uuids) == merge_uuids(shuffled)
+
+
+@given(uuids=uuid_lists)
+def test_merging_is_deterministic(uuids: list[str]):
+    merged = merge_uuids(uuids)
+
+    assert isinstance(merged, uuid.UUID)
+    assert merged == merge_uuids(uuids)
+    assert merged == merge_uuids(iter(uuids))
 
 
 def test_heatmaps_count_only_the_sampled_rows():

@@ -274,7 +274,17 @@ def test_filter_task_names(randint: int, tempdir: Path):
     loader = LuxonisLoader(dataset, filter_task_names=["animals"])
 
     assert len(loader) == 2
-    assert loader._classes == {"animals": {"cat": 0, "dog": 1}}
+    assert loader.get_classes() == {"animals": {"cat": 0, "dog": 1}}
+    assert dataset.get_classes() == {
+        "animals": {"cat": 0, "dog": 1},
+        "vehicles": {"car": 0, "truck": 1},
+    }
+
+    returned_classes = loader.get_classes()
+    returned_classes["animals"]["cat"] = 99
+    returned_classes.clear()
+    assert loader.get_classes() == {"animals": {"cat": 0, "dog": 1}}
+    assert dataset.get_classes()["animals"]["cat"] == 0
 
     labels_by_sample = [labels for _, labels in loader]
     for labels in labels_by_sample:

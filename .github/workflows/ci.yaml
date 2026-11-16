@@ -100,6 +100,11 @@ jobs:
     needs: [type-check, semgrep, docs]
     runs-on: ${{ matrix.os }}
 
+    # `id-token: write` lets the GCP auth step get a GitHub OIDC token.
+    permissions:
+      contents: read
+      id-token: write
+
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -107,7 +112,12 @@ jobs:
       ROBOFLOW_API_KEY: ${{ secrets.ROBOFLOW_API_KEY }}
       ULTRALYTICS_API_KEY: ${{ secrets.ULTRALYTICS_API_KEY }}
       LUXONISML_BUCKET: luxonis-test-bucket
-      GHC_ENABLED: ${{ secrets.GCP_CREDENTIALS != null }}
+      # GitHub issues an OIDC token to every run except pull requests from
+      # forks and from Dependabot, so those skip the GCP authentication.
+      GHC_ENABLED: >-
+        ${{ github.event_name != 'pull_request' ||
+        (github.event.pull_request.head.repo.full_name == github.repository &&
+        github.actor != 'dependabot[bot]') }}
 
     steps:
       - name: Checkout
@@ -133,11 +143,12 @@ jobs:
         run: uv sync --locked
 
       - name: Authenticate to Google Cloud
-        if: ${{ env.GHC_ENABLED }}
+        if: ${{ env.GHC_ENABLED == 'true' }}
         id: google-auth
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
         with:
-          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+          workload_identity_provider: projects/644916086121/locations/global/workloadIdentityPools/github-actions/providers/luxonis
+          service_account: ml-ci-github@easyml-394818.iam.gserviceaccount.com
           create_credentials_file: true
           export_environment_variables: true
           token_format: access_token

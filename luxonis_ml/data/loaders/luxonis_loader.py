@@ -205,7 +205,7 @@ class LuxonisLoader(BaseLoader):
         self._color_space = self._resolve_color_space(color_space)
 
         self._df = self.dataset._load_df_offline(raise_when_empty=True)
-        self._classes = self.dataset.get_classes()
+        self._classes = dict(self.dataset.get_classes())
         if self._filter_task_names is not None:
             self._filter_tasks(self._filter_task_names)
 
@@ -255,7 +255,7 @@ class LuxonisLoader(BaseLoader):
         return dict.fromkeys(self._source_names, color_space or "RGB")
 
     def _filter_tasks(self, task_names: list[str]) -> None:
-        """Keep only the rows and the classes of the given task names."""
+        """Keep only the rows and class maps of the given task names."""
         if self.dataset.metadata.tasks:
             df_task_names = set(self.dataset.metadata.tasks)
         else:
@@ -308,6 +308,23 @@ class LuxonisLoader(BaseLoader):
                 **{name: i + 1 for name, i in classes.items()},
             }
 
+    def get_classes(self) -> dict[str, dict[str, int]]:
+        """Return the class IDs used by this loader's output labels.
+
+        Only selected tasks are included. A segmentation task may include
+        a generated background class that is absent from the dataset's
+        stored class map. Use this mapping when interpreting or visualizing
+        loader output.
+
+        Returns:
+            A copy of the class-name-to-ID mapping for each loaded task.
+
+        """
+        return {
+            task_name: dict(classes)
+            for task_name, classes in self._classes.items()
+        }
+
     @override
     def __len__(self) -> int:
         """Return the number of samples in the loader.
@@ -355,6 +372,7 @@ class LuxonisLoader(BaseLoader):
 
         if not self._exclude_empty_annotations:
             img_dict, labels = self._add_empty_annotations(img_dict, labels)
+        self._fill_background(labels)
 
         # Albumentations needs RGB
         bgr_sources = [k for k, v in self._color_space.items() if v == "BGR"]
@@ -372,6 +390,8 @@ class LuxonisLoader(BaseLoader):
         `SegmentationAnnotation.combine_to_numpy` does, and
         ``pycocotools`` measures it without a decode.
 
+        Inspect all samples of the selected tasks, across dataset splits,
+        so every view uses the same class IDs and channel counts.
         A sample with no mask gives no verdict on its task.
 
         Returns:
@@ -379,10 +399,7 @@ class LuxonisLoader(BaseLoader):
 
         """
         samples = (
-            self._df.filter(
-                (pl.col("task_type") == "segmentation")
-                & pl.col("group_id").is_in(self._instances)
-            )
+            self._df.filter(pl.col("task_type") == "segmentation")
             .group_by(["group_id", "task_name"])
             .agg(pl.col("annotation"))
         )
@@ -435,16 +452,32 @@ class LuxonisLoader(BaseLoader):
         if task_type == "instance_segmentation":
             return np.zeros((0, image_height, image_width))
         if task_type == "segmentation":
-            classes = self._classes[task_name]
-            mask = np.zeros((len(classes), image_height, image_width))
-            if f"{task_name}/{task_type}" in self._tasks_without_background:
-                mask[classes["background"]] = 1
-            return mask
+            return np.zeros(
+                (len(self._classes[task_name]), image_height, image_width)
+            )
         if task_type == "classification" or task_is_metadata(
             f"{task_name}/{task_type}"
         ):
             return np.zeros((len(self._classes[task_name]),))
         return None
+
+    def _fill_background(self, labels: Labels) -> None:
+        """Give the pixels that no class claims to the background class.
+
+        The loader fills the class after the augmentations. A batch
+        augmentation such as `MixUp` thus sees these pixels as empty,
+        and they can take the classes of the other sample. A pixel that
+        a spatial augmentation pads also gets the class.
+
+        """
+        for task in self._tasks_without_background:
+            array = labels.get(task)
+            if array is None:
+                continue
+            task_name, _ = split_task(task)
+            unassigned_pixels = ~np.any(array, axis=0)
+            background_idx = self._classes[task_name]["background"]
+            array[background_idx, unassigned_pixels] = 1
 
     def _load_data(
         self, idx: int
@@ -603,16 +636,11 @@ class LuxonisLoader(BaseLoader):
         class_ids = [class_id for _, _, class_id in instances]
 
         task_name, _ = split_task(task)
-        array = anns[0].combine_to_numpy(
+        return anns[0].combine_to_numpy(
             anns,
             class_ids,
             len(self._classes[task_name]),
         )
-        if task in self._tasks_without_background:
-            unassigned_pixels = ~np.any(array, axis=0)
-            background_idx = self._classes[task_name]["background"]
-            array[background_idx, unassigned_pixels] = 1
-        return array
 
     def _load_with_augmentations(
         self, idx: int, augmentations: AugmentationEngine
@@ -771,9 +799,8 @@ class LuxonisLoader(BaseLoader):
             f"{task_name}/{task_type}": task_type
             for task_name, task_type in loaded_tasks
         }
-        dataset_n_classes = self.dataset.get_n_classes()
         n_classes = {
-            f"{task_name}/{task_type}": dataset_n_classes[task_name]
+            f"{task_name}/{task_type}": len(self._classes[task_name])
             for task_name, task_type in loaded_tasks
         }
         pipeline_stage = self._get_augmentation_pipeline_stage()
