@@ -355,6 +355,7 @@ class LuxonisLoader(BaseLoader):
 
         if not self._exclude_empty_annotations:
             img_dict, labels = self._add_empty_annotations(img_dict, labels)
+        self._fill_background(labels)
 
         # Albumentations needs RGB
         bgr_sources = [k for k, v in self._color_space.items() if v == "BGR"]
@@ -435,16 +436,32 @@ class LuxonisLoader(BaseLoader):
         if task_type == "instance_segmentation":
             return np.zeros((0, image_height, image_width))
         if task_type == "segmentation":
-            classes = self._classes[task_name]
-            mask = np.zeros((len(classes), image_height, image_width))
-            if f"{task_name}/{task_type}" in self._tasks_without_background:
-                mask[classes["background"]] = 1
-            return mask
+            return np.zeros(
+                (len(self._classes[task_name]), image_height, image_width)
+            )
         if task_type == "classification" or task_is_metadata(
             f"{task_name}/{task_type}"
         ):
             return np.zeros((len(self._classes[task_name]),))
         return None
+
+    def _fill_background(self, labels: Labels) -> None:
+        """Give the pixels that no class claims to the background class.
+
+        The loader fills the class after the augmentations. A batch
+        augmentation such as `MixUp` thus sees these pixels as empty,
+        and they can take the classes of the other sample. A pixel that
+        a spatial augmentation pads also gets the class.
+
+        """
+        for task in self._tasks_without_background:
+            array = labels.get(task)
+            if array is None:
+                continue
+            task_name, _ = split_task(task)
+            unassigned_pixels = ~np.any(array, axis=0)
+            background_idx = self._classes[task_name]["background"]
+            array[background_idx, unassigned_pixels] = 1
 
     def _load_data(
         self, idx: int
@@ -603,16 +620,11 @@ class LuxonisLoader(BaseLoader):
         class_ids = [class_id for _, _, class_id in instances]
 
         task_name, _ = split_task(task)
-        array = anns[0].combine_to_numpy(
+        return anns[0].combine_to_numpy(
             anns,
             class_ids,
             len(self._classes[task_name]),
         )
-        if task in self._tasks_without_background:
-            unassigned_pixels = ~np.any(array, axis=0)
-            background_idx = self._classes[task_name]["background"]
-            array[background_idx, unassigned_pixels] = 1
-        return array
 
     def _load_with_augmentations(
         self, idx: int, augmentations: AugmentationEngine
