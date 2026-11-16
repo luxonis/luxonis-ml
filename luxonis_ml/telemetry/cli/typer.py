@@ -1,3 +1,5 @@
+"""Telemetry instrumentation for the commands of a ``typer.Typer``."""
+
 from typing import Any
 
 from luxonis_ml.telemetry.cli.shared import join_command, wrap_command_callback

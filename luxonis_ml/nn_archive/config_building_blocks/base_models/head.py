@@ -1,3 +1,5 @@
+"""Parser head schema of an NN Archive model."""
+
 from abc import ABC
 
 from pydantic import BaseModel, Field

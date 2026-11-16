@@ -40,7 +40,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Union, get_args, get_origin
 
-from pydantic import AliasChoices, AliasPath, BaseModel, ValidationError
+from pydantic import AliasChoices, BaseModel, ValidationError
 from pydantic.fields import FieldInfo
 from pydantic_core import ErrorDetails
 from rich.console import Console, Group, RenderableType
@@ -262,8 +262,8 @@ def install_excepthook(*, use_rich: bool = True, enabled: bool = True) -> None:
     """Configure summaries for uncaught validation errors.
 
     Wraps ``sys.excepthook`` with one that first lets the previously
-    installed hook run — so the traceback still shows where the error came
-    from, and crash reporters still see it — and then prints a readable
+    installed hook run (so the traceback still shows where the error came
+    from, and crash reporters still see it) and then prints a readable
     summary of the ``ValidationError`` as the last thing the reader sees. An
     existing Luxonis hook is reconfigured, or removed when ``enabled`` is
     False. Calling this more than once is harmless.
@@ -317,12 +317,17 @@ def _validated_model(error: ValidationError) -> type[BaseModel] | None:
     """Recover the model that raised ``error`` from its traceback.
 
     Pydantic enters its Rust validator from a single Python frame, and that
-    frame still holds the model — as ``cls`` for ``BaseModel.model_validate``
+    frame still holds the model: as ``cls`` for ``BaseModel.model_validate``
     and its siblings, as ``self`` for ``Model(**data)``. Only pydantic's own
     frames are searched, so a model that merely happens to be the ``self``
     of a calling method cannot be mistaken for the one being validated, and
     the innermost match wins. A ``pydantic.TypeAdapter`` yields nothing, since
     what it validates need not be a model at all.
+
+    Returns:
+        The model class held by the innermost pydantic frame, or None
+        if no pydantic frame holds one.
+
     """
     found: type[BaseModel] | None = None
     traceback = error.__traceback__
@@ -345,7 +350,7 @@ def _default_title(
 ) -> str:
     count = len(problems)
     plural = "problem" if count == 1 else "problems"
-    return f"Invalid {error.title} — {count} {plural} found"
+    return f"Invalid {error.title} - {count} {plural} found"
 
 
 def _group_union_errors(
@@ -394,28 +399,29 @@ def _nested_unions(
     container elements and a member that fails on its own type. Read on
     their own, they contradict each other: each one describes a different
     alternative, but nothing in its location says so.
+
+    Returns:
+        The locations of these unions. Only the outermost union on the
+        location of a failure counts, and none is found without
+        ``model``. A union is left out when one member fails on its own
+        type and another one has a missing or an unexpected field.
+
     """
     tags: dict[tuple[Any, ...], set[str]] = {}
     direct_members: set[tuple[Any, ...]] = set()
     name_errors_below_members: set[tuple[Any, ...]] = set()
     for error in errors:
         loc = tuple(error["loc"])
-        for length, tag in enumerate(loc):
-            if not isinstance(tag, str):
-                continue
-            annotations, _ = _resolve_location(model, loc[:length])
-            members = _union_members(annotations)
-            if not members or not any(
-                _tag_matches(tag, member) for member in members
-            ):
-                continue
-            parent = loc[:length]
-            tags.setdefault(parent, set()).add(tag)
-            if length == len(loc) - 1:
-                direct_members.add(parent)
-            elif error["type"] in _OWN_NAME_ERRORS:
-                name_errors_below_members.add(parent)
-            break
+        union_tag = _first_union_tag(loc, model)
+        if union_tag is None:
+            continue
+        length, tag = union_tag
+        parent = loc[:length]
+        tags.setdefault(parent, set()).add(tag)
+        if length == len(loc) - 1:
+            direct_members.add(parent)
+        elif error["type"] in _OWN_NAME_ERRORS:
+            name_errors_below_members.add(parent)
     return {
         parent
         for parent, seen in tags.items()
@@ -427,6 +433,26 @@ def _nested_unions(
             parent in direct_members and parent in name_errors_below_members
         )
     }
+
+
+def _first_union_tag(
+    loc: tuple[Any, ...], model: type[BaseModel] | None
+) -> tuple[int, str] | None:
+    """Find the first element of a location that tags a union member.
+
+    Returns:
+        The depth of the element in ``loc`` and the tag, or None if no
+        element tags a union member.
+
+    """
+    for length, tag in enumerate(loc):
+        if not isinstance(tag, str):
+            continue
+        annotations, _ = _resolve_location(model, loc[:length])
+        members = _union_members(annotations)
+        if members and any(_tag_matches(tag, member) for member in members):
+            return length, tag
+    return None
 
 
 def _names_a_field(loc: Sequence[Any], depth: int) -> bool:
@@ -564,6 +590,12 @@ def _union_problem(
     A member that failed on its own type is named and nothing more. A
     member that failed deeper down is named together with the reason, so
     that the reader keeps the detail the collapsing would otherwise lose.
+
+    Returns:
+        A problem at the location of the union, with one message for
+        all its failed members. It carries the input value only if a
+        member failed on its own type.
+
     """
     depth = len(parent)
     header = "does not match any of the allowed types"
@@ -592,7 +624,7 @@ def _member_reason(
     message, hint = _describe(error, loc, model)
     inside = _location_below(loc, parent, model)
     if inside:
-        message = f"{inside} — {message}"
+        message = f"{inside} - {message}"
     if hint is not None:
         message = f"{message} ({hint})"
     return f"{name}: {message}"
@@ -737,7 +769,7 @@ def _validation_aliases(field: FieldInfo) -> list[str]:
     for choice in choices:
         if isinstance(choice, str):
             keys.append(choice)
-        elif isinstance(choice, AliasPath) and choice.path:
+        elif choice.path:
             keys.append(str(choice.path[0]))
     return keys
 

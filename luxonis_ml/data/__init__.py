@@ -374,26 +374,16 @@ with guard_missing_extra("data"):
 
 def _load_dataset_plugins() -> None:  # pragma: no cover
     """Register external dataset ``BaseDataset`` plugins."""
-    for entry_point in _get_entry_points_subset("dataset_plugins"):
+    for entry_point in entry_points(group="dataset_plugins"):
         plugin_class = entry_point.load()
         DATASETS_REGISTRY.register(module=plugin_class)
 
 
 def _load_loader_plugins() -> None:  # pragma: no cover
     """Register external dataset ``BaseLoader`` plugins."""
-    for entry_point in _get_entry_points_subset("loader_plugins"):
+    for entry_point in entry_points(group="loader_plugins"):
         plugin_class = entry_point.load()
         LOADERS_REGISTRY.register(module=plugin_class)
-
-
-def _get_entry_points_subset(key: str) -> list:
-    entry_points_obj = entry_points()
-    if isinstance(entry_points_obj, dict):
-        # py3.8 specific
-        selected_entry_points = entry_points_obj.get(key, [])
-    else:
-        selected_entry_points = entry_points_obj.select(group=key)
-    return selected_entry_points
 
 
 _load_dataset_plugins()

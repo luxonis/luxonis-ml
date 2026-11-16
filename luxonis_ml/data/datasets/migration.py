@@ -168,4 +168,4 @@ def migrate_metadata(
         new_metadata["tasks"] = dict(tasks)
 
     metadata.update(new_metadata)
-    return Metadata(**metadata)  # type: ignore
+    return Metadata(**metadata)  # pyright: ignore[reportArgumentType]

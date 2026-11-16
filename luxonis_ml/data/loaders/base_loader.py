@@ -1,3 +1,5 @@
+"""Abstract loader interface and the registry of loader classes."""
+
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 
@@ -42,8 +44,8 @@ class BaseLoader(
     def __iter__(self) -> Iterator[LoaderOutput]:
         """Iterate over the dataset.
 
-        Returns:
-            Iterator over loader outputs.
+        Yields:
+            The loader output of each sample, in index order.
 
         """
         for i in range(len(self)):

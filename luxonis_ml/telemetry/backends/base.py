@@ -1,3 +1,5 @@
+"""Base class and name registry for telemetry backends."""
+
 from abc import ABC, abstractmethod
 
 from luxonis_ml.telemetry.config import TelemetryConfig
@@ -13,6 +15,12 @@ class TelemetryBackend(ABC):
     """Base class for telemetry backends."""
 
     def __init__(self, config: TelemetryConfig) -> None:
+        """Create the backend.
+
+        Args:
+            config: Telemetry configuration of the backend.
+
+        """
         self.config = config
 
     @abstractmethod

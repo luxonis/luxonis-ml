@@ -1,10 +1,12 @@
+import types
+
 import pytest
 
 from luxonis_ml.utils.registry import AutoRegisterMeta, Registry
 
 
 @pytest.fixture
-def registry() -> Registry:
+def registry() -> Registry[type]:
     return Registry("test")
 
 
@@ -17,7 +19,7 @@ def test_creation():
     assert repr(registry) == "Registry('test')"
 
 
-def test_registry(registry: Registry):
+def test_registry(registry: Registry[type]):
     assert not registry._module_dict
     assert len(registry) == 0
 
@@ -110,6 +112,31 @@ def test_autoregistry(registry: Registry):
             pass
 
 
+def test_autoregistry_subclass_controls_registration(registry: Registry):
+    class VersionedMeta(AutoRegisterMeta):
+        def __new__(
+            mcls,
+            name: str,
+            bases: tuple[type, ...],
+            attrs: dict[str, type],
+            **_kwargs: object,
+        ) -> AutoRegisterMeta:
+            new_class = super().__new__(
+                mcls, name, bases, attrs, register=False, registry=registry
+            )
+            if name != "Base":
+                registry[f"{name}:v1"] = new_class
+            return new_class
+
+    class Base(metaclass=VersionedMeta, registry=registry, register=False):
+        pass
+
+    class Node(Base):
+        pass
+
+    assert registry._module_dict == {"Node:v1": Node}
+
+
 def test_autoregistry_keeps_class_over_same_named_subclass(
     registry: Registry,
 ):
@@ -140,3 +167,12 @@ def test_autoregistry_replaces_redefined_class(registry: Registry):
 
     assert first is not second
     assert registry.get("Node") is second
+
+
+def test_autoregistry_rejects_unknown_class_keywords(registry: Registry):
+    class Base(metaclass=AutoRegisterMeta, registry=registry, register=False):
+        pass
+
+    with pytest.raises(TypeError, match="alias"):
+        types.new_class("Node", (Base,), {"alias": "Other"})
+    assert len(registry) == 0

@@ -3,11 +3,13 @@
 import json
 import shutil
 import sys
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
 import polars as pl
 from semver.version import Version
+from typing_extensions import override
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
@@ -20,6 +22,13 @@ from luxonis_ml.enums import DatasetType
 from luxonis_ml.ldf import DatasetRecord
 from luxonis_ml.utils.path import path_to_posix
 
+_LABEL_FIELDS = (
+    "boundingbox",
+    "segmentation",
+    "instance_segmentation",
+    "keypoints",
+)
+
 
 class NativeExporter(BaseExporter):
     """Exporter for native LDF directory format.
@@ -27,6 +36,11 @@ class NativeExporter(BaseExporter):
     Native export writes split directories with copied media and an
     ``annotations.json`` file. Each annotation entry follows the same
     record-level shape accepted by `NativeParser` and `LuxonisDataset.add`.
+
+    Each entry holds one detection: its class and all of its labels. An
+    image with more than one class, such as a multi-label classification
+    sample, gets one entry for each class. A label without a class and
+    without an ``instance_id`` gets an entry of its own.
 
     ``sample_metadata`` is exported as a JSON object next to ``file`` or
     ``files``. It is **record-level metadata**, not an annotation label.
@@ -73,7 +87,19 @@ class NativeExporter(BaseExporter):
         max_partition_size_gb: float | None,
         *,
         ldf_version: Version | None = None,
-    ):
+    ) -> None:
+        """Create the exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Maximum partition size in GiB, or
+                ``None`` to disable partitioning.
+            ldf_version: LDF version to write. ``None`` selects
+                `LDF_VERSION`. An older version drops the record fields
+                that it does not know.
+
+        """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
@@ -82,11 +108,20 @@ class NativeExporter(BaseExporter):
 
     @staticmethod
     def get_split_names() -> dict[str, str]:
+        """Return the directory name of each split.
+
+        Returns:
+            The ``train``, ``val`` and ``test`` splits, each mapped to
+            its own name.
+
+        """
         return {"train": "train", "val": "val", "test": "test"}
 
+    @override
     def supported_ann_types(self) -> list[str]:
         return DatasetType.NATIVE.supported_annotation_formats
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         annotation_splits: dict[str, list[dict[str, Any]]] = {
             k: [] for k in self.get_split_names()
@@ -98,9 +133,7 @@ class NativeExporter(BaseExporter):
         copied_files: set[Path] = set()
 
         for group_key, group_df in grouped_df:
-            group_id = (
-                group_key[0] if isinstance(group_key, tuple) else group_key
-            )
+            group_id = group_key[0]
             split = split_of_group(prepared_ldf, group_id)
 
             matched_df = grouped_image_sources.filter(
@@ -110,8 +143,8 @@ class NativeExporter(BaseExporter):
             group_source_names = matched_df.get_column("source_name").to_list()
 
             records = [
-                self._process_row(row, group_source_names, group_files)
-                for row in group_df.iter_rows(named=True)
+                self._process_detection(rows, group_source_names, group_files)
+                for rows in _split_detections(group_df.iter_rows(named=True))
             ]
 
             ann_size = sum(sys.getsizeof(r) for r in records)
@@ -154,25 +187,23 @@ class NativeExporter(BaseExporter):
             return {k: [] for k in self.get_split_names()}
         return annotation_splits
 
-    def _process_row(
+    def _process_detection(
         self,
-        row: dict[str, Any],
+        rows: list[dict[str, Any]],
         group_source_names: list[str],
         group_files: list[str],
     ) -> dict[str, Any]:
-        task_name = row["task_name"]
-        class_name = row["class_name"]
-        instance_id = row["instance_id"]
-        task_type = row["task_type"]
-        ann_str = row["annotation"]
+        """Build one native record from the rows of one detection."""
+        first = rows[0]
 
-        source_to_file = {
-            name: path_to_posix(
-                Path("images")
-                / f"{self.image_indices.setdefault(Path(f), len(self.image_indices))}{Path(f).suffix}"
+        source_to_file: dict[str, str] = {}
+        for name, f in zip(group_source_names, group_files, strict=True):
+            index = self.image_indices.setdefault(
+                Path(f), len(self.image_indices)
             )
-            for name, f in zip(group_source_names, group_files, strict=True)
-        }
+            source_to_file[name] = path_to_posix(
+                Path("images") / f"{index}{Path(f).suffix}"
+            )
 
         multi_source = len(source_to_file) > 1
         record: dict[str, Any] = {
@@ -181,31 +212,29 @@ class NativeExporter(BaseExporter):
                 if multi_source
                 else source_to_file[group_source_names[0]]
             ),
-            "task_name": task_name,
+            "task_name": first["task_name"],
             "sample_metadata": DatasetRecord.decode_metadata(
-                row.get("sample_metadata")
+                first.get("sample_metadata")
             ),
         }
 
-        if ann_str is not None:
-            data = json.loads(ann_str)
+        if first["annotation"] is not None:
             ann: dict[str, Any] = {
-                "instance_id": instance_id,
-                "class": class_name,
+                "instance_id": first["instance_id"],
+                "class": first["class_name"],
             }
-            if task_type in (
-                "boundingbox",
-                "segmentation",
-                "instance_segmentation",
-                "keypoints",
-            ):
-                ann[task_type] = data
-            elif task_type.startswith("metadata/"):
-                ann["metadata"] = {task_type[9:]: data}
+            for row in rows:
+                task_type = row["task_type"]
+                data = json.loads(row["annotation"])
+                if task_type in _LABEL_FIELDS:
+                    ann[task_type] = data
+                elif task_type.startswith("metadata/"):
+                    ann.setdefault("metadata", {})[task_type[9:]] = data
             record["annotation"] = ann
 
         return self._downgrade(record)
 
+    @override
     def _dump_annotations(
         self,
         annotation_splits: dict[str, list[dict[str, Any]]],
@@ -237,7 +266,72 @@ class NativeExporter(BaseExporter):
         )
         return output_path / name
 
+    @override
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:
         return self._base_path(output_path, part) / split / "images"
+
+
+def _split_detections(
+    rows: Iterable[dict[str, Any]],
+) -> Iterator[list[dict[str, Any]]]:
+    """Split the rows of one group into the rows of each detection.
+
+    A record writes the rows of its detection one after the other, and
+    the ``classification`` row comes last. So a detection ends after its
+    ``classification`` row. A row of another task, instance, class or
+    sample metadata starts the next detection, and so does a task type
+    that the current detection already has. The key alone is not
+    sufficient, because each detection without an ``instance_id`` has the
+    ID ``-1``. All the rows of a record share its sample metadata.
+
+    A row without a class and without an ``instance_id`` is a detection
+    of its own. Such a record writes no ``classification`` row, so the
+    rows do not show where it ends.
+
+    Yields:
+        The rows of each detection, in the order of the group.
+
+    Example:
+        >>> def row(instance_id, task_type, metadata="{}"):
+        ...     return {
+        ...         "task_name": "",
+        ...         "instance_id": instance_id,
+        ...         "class_name": None,
+        ...         "task_type": task_type,
+        ...         "sample_metadata": metadata,
+        ...     }
+        >>> rows = [
+        ...     row(-1, "boundingbox"),
+        ...     row(-1, "metadata/text"),
+        ...     row(0, "boundingbox"),
+        ...     row(0, "metadata/text"),
+        ...     row(1, "boundingbox", '{"frame": 1}'),
+        ...     row(1, "metadata/text", '{"frame": 2}'),
+        ... ]
+        >>> [len(detection) for detection in _split_detections(rows)]
+        [1, 1, 2, 1, 1]
+
+    """
+    detection: list[dict[str, Any]] = []
+    for row in rows:
+        if detection and (
+            detection[-1]["task_type"] == "classification"
+            or (row["class_name"] is None and row["instance_id"] == -1)
+            or any(
+                row[key] != detection[-1][key]
+                for key in (
+                    "task_name",
+                    "instance_id",
+                    "class_name",
+                    "sample_metadata",
+                )
+            )
+            or any(row["task_type"] == r["task_type"] for r in detection)
+        ):
+            yield detection
+            detection = []
+        detection.append(row)
+    if detection:
+        yield detection

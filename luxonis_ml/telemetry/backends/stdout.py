@@ -1,6 +1,9 @@
+"""Telemetry backend that logs each event as JSON through ``loguru``."""
+
 import json
 
 from loguru import logger
+from typing_extensions import override
 
 from luxonis_ml.telemetry.backends.base import (
     TELEMETRY_BACKENDS,
@@ -13,6 +16,7 @@ from luxonis_ml.telemetry.events import TelemetryEvent
 class StdoutBackend(TelemetryBackend):
     """Backend that logs telemetry to stdout."""
 
+    @override
     def capture(self, event: TelemetryEvent) -> None:
         """Log a telemetry event as JSON."""
         payload = event.to_payload()

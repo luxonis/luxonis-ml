@@ -18,7 +18,7 @@ def dotenv_file(tempdir: Path) -> Generator[Path]:
 def test_environ(dotenv_file: Path):
     environ = Environ(
         POSTGRES_USER="user",
-        _env_file=dotenv_file,  # type: ignore
+        _env_file=dotenv_file,  # pyright: ignore[reportCallIssue]
     )
     assert environ.POSTGRES_USER == "user"
     assert isinstance(environ.POSTGRES_PASSWORD, SecretStr)

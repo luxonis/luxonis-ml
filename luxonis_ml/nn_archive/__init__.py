@@ -4,7 +4,8 @@ The `luxonis_ml.nn_archive` package collects the schema models and helper
 functions used to create NN Archive tar files. An archive stores
 ``config.json`` alongside compiled model executables so model metadata,
 input/output definitions, tensor layouts, and parser-head configuration can
-travel with the executable artifact.
+travel with the executable artifact. Archives may also bundle declared runtime
+libraries required by the executable.
 
 
 Example:
@@ -30,6 +31,7 @@ See:
 
 from .archive_generator import ArchiveGenerator
 from .config import Config
+from .config_building_blocks import RuntimeDependencies
 from .model import Model
 from .utils import infer_layout, is_nn_archive
 
@@ -37,6 +39,7 @@ __all__ = [
     "ArchiveGenerator",
     "Config",
     "Model",
+    "RuntimeDependencies",
     "infer_layout",
     "is_nn_archive",
 ]

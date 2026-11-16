@@ -3,14 +3,14 @@
 A `Palette` hands each new class the next color from a **color generator**:
 a callable ``int -> Color`` that maps a sequence position to a color. The default
 generator, `GoldenRatioColors`, offsets each hue from the last by the golden
-angle (~137.5°) so no two classes land on a near-identical hue — the failure mode a
+angle (~137.5°) so no two classes land on a near-identical hue, the failure mode a
 fixed palette (or a hash into one) can't avoid once the class count approaches the
 palette size. Class labels stay on this distinct-hue scheme on purpose; the
 Luxonis brand colors are reserved for chrome (see
 `luxonis_ml.utils.color.brand`), though `SequenceColors` lets a caller anchor a
 palette to the brand :data:`BRAND_COLORS` when they want to.
 
-Swapping the whole color scheme is a single argument — ``Palette(generator=...)`` —
+Swapping the whole color scheme is a single argument (``Palette(generator=...)``),
 so the strategy lives in exactly one place and callers only ever touch
 `Palette.color_for`.
 
@@ -18,7 +18,7 @@ Because the spacing guarantee only holds for *sequential* indices, colors are
 assigned in order of first appearance and memoized: within a process, a class keeps
 its color across every image (the module-level :data:`DEFAULT_PALETTE` is shared).
 The trade-off is that a class's color depends on the order classes are first seen,
-not on its name alone — stable within a run and across runs that request classes in
+not on its name alone: stable within a run and across runs that request classes in
 the same order, but not across arbitrary reorderings. Pin a color explicitly with
 `Palette.pin` or by pre-registering classes in a fixed order when a name must map
 to one exact color forever.
@@ -51,7 +51,7 @@ BRAND_COLORS: tuple[Color, ...] = (
 )
 """The Luxonis brand color sequence, for use with `SequenceColors`."""
 
-# (sqrt(5) - 1) / 2 — the golden ratio's conjugate. Stepping the hue by this each
+# (sqrt(5) - 1) / 2 is the golden ratio's conjugate. Stepping the hue by this each
 # time is the classic low-discrepancy way to spread points around a circle.
 _GOLDEN_CONJUGATE = 0.6180339887498949
 

@@ -1,8 +1,15 @@
+"""Parser for FiftyOne image classification datasets.
+
+Also holds `clean_imagenet_annotations`, which fixes known label
+errors of ImageNet exports.
+"""
+
 import json
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
@@ -44,9 +51,14 @@ class FiftyOneClassificationParser(BaseParser):
             "classes": ["class1", "class2", ...],
             "labels": {
                 "image_stem": class_index,
+                "other_stem": [class_index, class_index],
                 ...
             }
         }
+
+    A list of class indices gives the image each of these classes, as in
+    the multi-label layout of ``FiftyOneImageClassificationDataset``. An
+    empty list or ``null`` adds the image without labels.
 
     This parser supports the FiftyOne image classification export layout.
 
@@ -55,6 +67,7 @@ class FiftyOneClassificationParser(BaseParser):
     _SPLIT_NAMES: tuple[str, ...] = ("train", "validation", "test")
 
     @staticmethod
+    @override
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -69,7 +82,7 @@ class FiftyOneClassificationParser(BaseParser):
             return None
 
         try:
-            with open(labels_path) as f:
+            with labels_path.open(encoding="utf-8") as f:
                 labels_data = json.load(f)
             if "classes" not in labels_data or "labels" not in labels_data:
                 return None
@@ -78,6 +91,7 @@ class FiftyOneClassificationParser(BaseParser):
 
         return {"split_path": split_path}
 
+    @override
     def from_dir(
         self, dataset_dir: Path, **kwargs
     ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -102,6 +116,7 @@ class FiftyOneClassificationParser(BaseParser):
 
         return added_train_imgs, added_val_imgs, added_test_imgs
 
+    @override
     def from_split(self, split_path: Path) -> ParserOutput:
         labels_path = split_path / "labels.json"
         data_path = split_path / "data"
@@ -110,7 +125,7 @@ class FiftyOneClassificationParser(BaseParser):
         if is_flat_structure:
             labels_path = clean_imagenet_annotations(labels_path)
 
-        with open(labels_path) as f:
+        with labels_path.open(encoding="utf-8") as f:
             labels_data = json.load(f)
 
         classes = labels_data["classes"]
@@ -120,7 +135,7 @@ class FiftyOneClassificationParser(BaseParser):
         stem_to_path = {img.stem: img for img in images}
 
         def generator() -> DatasetIterator:
-            for image_stem, class_idx in labels.items():
+            for image_stem, target in labels.items():
                 if image_stem not in stem_to_path:
                     self._warn_skipped_annotation(
                         ParserIssue.MISSING_IMAGE_STEM,
@@ -130,17 +145,24 @@ class FiftyOneClassificationParser(BaseParser):
                     )
                     continue
 
-                img_path = stem_to_path[image_stem]
-                class_name = classes[class_idx]
-
-                yield {
-                    "file": img_path,
-                    "annotation": {"class": class_name},
-                }
+                yield from _image_records(
+                    stem_to_path[image_stem], target, classes
+                )
 
         added_images = self._get_added_images(generator())
 
         return generator(), {}, added_images
+
+
+def _image_records(
+    img_path: Path, target: int | list[int] | None, classes: list[str]
+) -> DatasetIterator:
+    """Yield one record per class, or one without labels for null or []."""
+    if target is None or target == []:
+        yield {"file": img_path, "annotation": None}
+        return
+    for class_idx in target if isinstance(target, list) else [target]:
+        yield {"file": img_path, "annotation": {"class": classes[class_idx]}}
 
 
 def clean_imagenet_annotations(labels_path: Path) -> Path:
@@ -172,7 +194,7 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
         Path to the cleaned labels file.
 
     """
-    with open(labels_path) as f:
+    with labels_path.open(encoding="utf-8") as f:
         labels_data = json.load(f)
 
     classes = labels_data["classes"]
@@ -222,7 +244,7 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
     labels_data["labels"] = labels
 
     cleaned_labels_path = labels_path.with_name("labels_fixed.json")
-    with open(cleaned_labels_path, "w") as f:
+    with cleaned_labels_path.open("w", encoding="utf-8") as f:
         json.dump(labels_data, f)
 
     logger.info(f"Cleaned annotations saved to {cleaned_labels_path}")

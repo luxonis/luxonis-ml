@@ -1,10 +1,13 @@
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from luxonis_ml.data import DatasetIterator, LuxonisLoader
-from luxonis_ml.typing import Params
 from tests.test_data.utils import create_dataset, create_image
+
+if TYPE_CHECKING:
+    from luxonis_ml.typing import Params
 
 
 @pytest.mark.parametrize("n_samples", range(20))
@@ -16,7 +19,7 @@ def test_empty(dataset_name: str, tempdir: Path, n_samples: int):
         },
         {
             "name": "Mosaic4",
-            "params": {"p": 1.0, "out_width": 640, "out_height": 640},
+            "params": {"p": 1.0, "width": 640, "height": 640},
         },
     ]
 

@@ -1,3 +1,5 @@
+"""`CutMix` augmentation that pastes a patch of one image into another."""
+
 import math
 from typing import Any, Literal
 
@@ -40,11 +42,12 @@ class CutMix(BatchTransform):
     def __init__(
         self,
         alpha: float = 1.0,
+        *,
         keep_aspect_ratio: bool = True,
         bbox_min_visibility: float = 0.5,
         occluded_bbox_strategy: Literal["keep", "clip"] = "keep",
         p: float = 0.5,
-    ):
+    ) -> None:
         r"""Create a CutMix augmentation.
 
         Args:
@@ -105,7 +108,7 @@ class CutMix(BatchTransform):
             occluded_bbox_strategy
         )
         self._resize_transform = create_letterbox_or_resize(
-            keep_aspect_ratio, 1, 1
+            keep_aspect_ratio=keep_aspect_ratio, height=1, width=1
         )
 
     @override
@@ -211,10 +214,11 @@ class CutMix(BatchTransform):
             mask = np.zeros_like(mask2)
         else:
             mask = mask1.copy()
-            if mask2.size == 0:
-                mask2 = np.zeros_like(mask)
-            else:
-                mask2 = self._match_dimensions(mask2, mask)
+            mask2 = (
+                np.zeros_like(mask)
+                if mask2.size == 0
+                else self._match_dimensions(mask2, mask)
+            )
 
         mask[y1:y2, x1:x2] = mask2[y1:y2, x1:x2]
         return mask
@@ -315,14 +319,14 @@ class CutMix(BatchTransform):
         else:
             bbox1 = self._occlude_bboxes(
                 bbox1,
-                image_shapes[0][0],
-                image_shapes[0][1],
-                x1,
-                y1,
-                x2,
-                y2,
-                self._bbox_min_visibility,
-                self._occluded_bbox_strategy,
+                height=image_shapes[0][0],
+                width=image_shapes[0][1],
+                x1=x1,
+                y1=y1,
+                x2=x2,
+                y2=y2,
+                min_visibility=self._bbox_min_visibility,
+                strategy=self._occluded_bbox_strategy,
             )
 
         if bbox2.size == 0:
@@ -336,7 +340,13 @@ class CutMix(BatchTransform):
                 orig_width=image_shapes[1][1],
             )
             bbox2 = self._clip_bboxes_to_patch(
-                bbox2, image_shapes[0][0], image_shapes[0][1], x1, y1, x2, y2
+                bbox2,
+                height=image_shapes[0][0],
+                width=image_shapes[0][1],
+                x1=x1,
+                y1=y1,
+                x2=x2,
+                y2=y2,
             )
 
         return np.concatenate([bbox1, bbox2], axis=0)
@@ -382,7 +392,12 @@ class CutMix(BatchTransform):
             keypoints1 = self._empty_rows(keypoints1, 5)
         else:
             keypoints1 = self._mark_keypoints_in_patch(
-                keypoints1.copy(), x1, y1, x2, y2, visible_inside=False
+                keypoints1.copy(),
+                x1=x1,
+                y1=y1,
+                x2=x2,
+                y2=y2,
+                visible_inside=False,
             )
 
         if keypoints2.size == 0:
@@ -397,7 +412,12 @@ class CutMix(BatchTransform):
                 orig_width=image_shapes[1][1],
             )
             keypoints2 = self._mark_keypoints_in_patch(
-                keypoints2.copy(), x1, y1, x2, y2, visible_inside=True
+                keypoints2.copy(),
+                x1=x1,
+                y1=y1,
+                x2=x2,
+                y2=y2,
+                visible_inside=True,
             )
 
         return np.concatenate([keypoints1, keypoints2], axis=0)
@@ -474,11 +494,9 @@ class CutMix(BatchTransform):
             return self._resize_transform.apply_to_bboxes(
                 data, *padding, **kwargs
             )
-        if target_type == "keypoints":
-            return self._resize_transform.apply_to_keypoints(
-                data, *padding, **kwargs
-            )
-        raise ValueError(f"Unsupported target type: {target_type}")
+        return self._resize_transform.apply_to_keypoints(
+            data, *padding, **kwargs
+        )
 
     @staticmethod
     def _compute_patch(
@@ -502,6 +520,7 @@ class CutMix(BatchTransform):
     @staticmethod
     def _clip_bboxes_to_patch(
         bboxes: np.ndarray,
+        *,
         height: int,
         width: int,
         x1: int,
@@ -526,6 +545,7 @@ class CutMix(BatchTransform):
     @staticmethod
     def _occlude_bboxes(
         bboxes: np.ndarray,
+        *,
         height: int,
         width: int,
         x1: int,
@@ -540,6 +560,13 @@ class CutMix(BatchTransform):
         Boxes the patch hides past ``min_visibility`` are zeroed out. Under
         the ``"clip"`` strategy the survivors are also shrunk to the part
         of themselves the patch does not reach.
+
+        Returns:
+            A new array with a row for each box in ``bboxes``, in
+            normalized coordinates. A hidden box has its four coordinates
+            set to zero, and its other columns are kept. ``bboxes`` itself
+            comes back when it is empty or the patch has no area.
+
         """
         if bboxes.size == 0 or x1 == x2 or y1 == y2:
             return bboxes
@@ -594,6 +621,12 @@ class CutMix(BatchTransform):
         box that avoids the patch altogether, and a box the patch never
         reaches comes back unchanged because one of its strips is the box
         itself.
+
+        Returns:
+            ``bboxes``, changed in place. Its first four columns hold the
+            largest uncovered part of each box. A box the patch covers
+            whole collapses to zero area.
+
         """
         left, top, right, bottom = (bboxes[:, i] for i in range(4))
         candidates = np.stack(
@@ -620,6 +653,7 @@ class CutMix(BatchTransform):
     @staticmethod
     def _mark_keypoints_in_patch(
         keypoints: np.ndarray,
+        *,
         x1: int,
         y1: int,
         x2: int,

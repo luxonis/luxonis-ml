@@ -16,7 +16,7 @@ from luxonis_ml.utils import is_acyclic, traverse_graph
         ({"a": ["b", "c"], "b": ["d"], "c": ["d"], "d": ["a"]}, False),
     ],
 )
-def test_acyclic(graph: dict[str, list[str]], acyclic: bool):
+def test_acyclic(graph: dict[str, list[str]], *, acyclic: bool):
     assert is_acyclic(graph) == acyclic
 
 

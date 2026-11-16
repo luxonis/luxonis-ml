@@ -1,3 +1,5 @@
+"""Helpers to download files and to look up file paths in an index."""
+
 import shutil
 from pathlib import Path
 from types import ModuleType
@@ -26,7 +28,8 @@ def get_file(
     remote_path: PosixPathType,
     local_path: PathType,
     mlflow_instance: ModuleType | None = ...,
-    default: PathType = ...,
+    *,
+    default: PathType,
 ) -> Path: ...
 
 
@@ -37,6 +40,24 @@ def get_file(
     mlflow_instance: ModuleType | None = None,
     default: PathType | None = None,
 ) -> Path | None:
+    """Download a file from ``fs`` and return its local path.
+
+    On ``shutil.SameFileError``, return ``local_path`` joined with the
+    name of ``remote_path``. On any other error, return ``default``.
+
+    Args:
+        fs: Filesystem to download from.
+        remote_path: Path of the file in ``fs``.
+        local_path: Local destination path.
+        mlflow_instance: Optional MLflow module for downloads from an
+            active run.
+        default: Path to return when the download fails.
+
+    Returns:
+        Path of the local file, or ``default`` if the download
+        fails.
+
+    """
     try:
         return fs.get_file(remote_path, local_path, mlflow_instance)
     except shutil.SameFileError:
@@ -59,7 +80,7 @@ def find_filepath_uuid(
     filepath: PathType,
     index: pl.DataFrame | None,
     *,
-    raise_on_missing: Literal[True] = ...,
+    raise_on_missing: Literal[True],
 ) -> str: ...
 
 
@@ -130,7 +151,7 @@ def find_filepath_group_id(
     filepath: PathType,
     index: pl.DataFrame | None,
     *,
-    raise_on_missing: Literal[True] = ...,
+    raise_on_missing: Literal[True],
 ) -> str: ...
 
 
@@ -203,7 +224,7 @@ def get_dir(
     local_dir: PathType,
     mlflow_instance: ModuleType | None = ...,
     *,
-    default: Path = ...,
+    default: Path,
 ) -> Path: ...
 
 
@@ -215,6 +236,24 @@ def get_dir(
     *,
     default: PathType | None = None,
 ) -> Path | None:
+    """Download a directory from ``fs`` and return its local path.
+
+    On ``shutil.SameFileError``, return ``local_dir`` joined with the
+    name of ``remote_path``. On any other error, return ``default``.
+
+    Args:
+        fs: Filesystem to download from.
+        remote_path: Path of the directory in ``fs``.
+        local_dir: Local destination directory.
+        mlflow_instance: Optional MLflow module for downloads from an
+            active run.
+        default: Path to return when the download fails.
+
+    Returns:
+        Path of the local directory, or ``default`` if the download
+        fails.
+
+    """
     try:
         return fs.get_dir(remote_path, local_dir, mlflow_instance)
     except shutil.SameFileError:

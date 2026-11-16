@@ -1,3 +1,9 @@
+"""Telemetry configuration and its product-level defaults.
+
+`TelemetryConfig.from_environ` reads the ``LUXONIS_TELEMETRY_*``
+variables and falls back to `TelemetryDefaults`.
+"""
+
 from dataclasses import dataclass
 from typing import TypeVar
 

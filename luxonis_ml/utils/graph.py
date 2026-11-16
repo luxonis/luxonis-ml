@@ -1,3 +1,8 @@
+"""Topological traversal and cycle check for predecessor graphs.
+
+A graph maps each node name to the names of its predecessors.
+"""
+
 from collections.abc import Iterator, Mapping
 from copy import deepcopy
 from typing import TypeVar
@@ -8,8 +13,9 @@ T = TypeVar("T")
 def traverse_graph(
     graph: dict[str, list[str]], nodes: Mapping[str, T]
 ) -> Iterator[tuple[str, T, list[str], list[str]]]:
-    """Traverse the graph in topological order, starting from the nodes
-    with no predecessors.
+    """Traverse the graph in topological order.
+
+    The traversal starts from the nodes with no predecessors.
 
     Example:
         >>> graph = {"a": ["b"], "b": []}
@@ -98,8 +104,7 @@ def is_acyclic(graph: dict[str, list[str]]) -> bool:
     visited: set[str] = set()
     recursion_stack: set[str] = set()
 
-    for node in graph:
-        if node not in visited and dfs(node, visited, recursion_stack):
-            return False
-
-    return True
+    return not any(
+        node not in visited and dfs(node, visited, recursion_stack)
+        for node in graph
+    )

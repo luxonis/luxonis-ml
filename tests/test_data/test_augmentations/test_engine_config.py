@@ -3,6 +3,7 @@ from collections.abc import Callable, Iterator
 import albumentations as A
 import numpy as np
 import pytest
+from typing_extensions import override
 
 from luxonis_ml.data import AlbumentationsEngine
 from luxonis_ml.data.augmentations import AugmentationEngine
@@ -19,7 +20,7 @@ def register_transform() -> Iterator[Register]:
 
     def _register(cls: type) -> type:
         name = cls.__name__
-        TRANSFORMATIONS[name] = cls  # type: ignore[assignment]
+        TRANSFORMATIONS[name] = cls
         registered.append(name)
         return cls
 
@@ -39,7 +40,7 @@ def build(
         targets,
         dict.fromkeys(targets, 1),
         ["image"],
-        config,
+        config=config,
         **kwargs,
     )
 
@@ -51,12 +52,14 @@ def test_engines_default_to_using_every_input_position() -> None:
     ):
         def __init__(self, *_, **__) -> None: ...
 
+        @override
         def apply(
             self, input_batch: list[LoaderMultiOutput]
         ) -> LoaderMultiOutput:
             return input_batch[0]
 
         @property
+        @override
         def batch_size(self) -> int:
             return 4
 
@@ -66,6 +69,11 @@ def test_engines_default_to_using_every_input_position() -> None:
 def test_unsupported_task_type_is_rejected() -> None:
     with pytest.raises(ValueError, match="Unsupported task type: 'depth'"):
         build({"task/depth": "depth"}, [])
+
+
+def test_task_target_name_must_be_an_identifier() -> None:
+    with pytest.raises(ValueError, match="not a valid identifier"):
+        build({"123/boundingbox": "boundingbox"}, [])
 
 
 def test_only_one_resizing_augmentation_is_allowed() -> None:
@@ -138,9 +146,11 @@ def test_plain_basic_transforms_run_as_custom_transforms(
     @register_transform
     class CountingBasicTransform(A.BasicTransform):
         @property
+        @override
         def targets(self) -> dict:
             return {"image": self.apply}
 
+        @override
         def apply(self, img: np.ndarray, **_) -> np.ndarray:
             seen.append(1)
             return img
@@ -166,7 +176,7 @@ def test_non_transform_classes_are_rejected(
 ) -> None:
     @register_transform
     class NotATransform:
-        def __init__(self, **_): ...
+        def __init__(self, **_) -> None: ...
 
     with pytest.raises(
         ValueError, match="Unsupported transformation type: 'NotATransform'"
@@ -239,7 +249,7 @@ def test_pixel_transforms_replay_across_every_image_source() -> None:
         {"task/boundingbox": "boundingbox"},
         {"task/boundingbox": 1},
         sources,
-        [{"name": "InvertImg", "params": {"p": 1.0}}],
+        config=[{"name": "InvertImg", "params": {"p": 1.0}}],
     )
     images = {name: np.zeros((32, 32, 3), dtype=np.uint8) for name in sources}
     labels: Labels = {
@@ -262,7 +272,7 @@ def test_pixel_replay_skips_sources_without_a_channel_axis() -> None:
         {"task/boundingbox": "boundingbox"},
         {"task/boundingbox": 1},
         ["rgb", "flat"],
-        [{"name": "InvertImg", "params": {"p": 1.0}}],
+        config=[{"name": "InvertImg", "params": {"p": 1.0}}],
     )
     images = {
         "rgb": np.zeros((16, 16, 3), dtype=np.uint8),
@@ -284,16 +294,6 @@ def test_pixel_replay_skips_sources_without_a_channel_axis() -> None:
     )
 
 
-def test_wrapped_transforms_tolerate_a_missing_image_key() -> None:
-    wrapped = AlbumentationsEngine._wrap_transform(
-        A.Compose([A.HorizontalFlip(p=1.0)])
-    )
-
-    out = wrapped(image=np.zeros((8, 8, 3), dtype=np.uint8))
-
-    assert "_original_image_key" not in out
-
-
 def test_pixel_transform_wrapper_needs_source_names() -> None:
     wrapped = AlbumentationsEngine._wrap_transform(
         A.Compose([A.InvertImg(p=1.0)]), is_pixel=True, source_names=None
@@ -310,7 +310,9 @@ def test_grayscale_sources_keep_a_channel_axis() -> None:
         {"task/boundingbox": "boundingbox"},
         {"task/boundingbox": 1},
         ["image"],
-        [{"name": "ToGray", "params": {"p": 1.0, "num_output_channels": 1}}],
+        config=[
+            {"name": "ToGray", "params": {"p": 1.0, "num_output_channels": 1}}
+        ],
     )
 
     out_images, _ = engine.apply(

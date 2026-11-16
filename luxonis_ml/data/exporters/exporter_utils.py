@@ -1,9 +1,10 @@
 """Helpers shared by the dataset exporters."""
 
+import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 import cv2
 import numpy as np
@@ -14,6 +15,8 @@ from pycocotools import mask as maskUtils
 if TYPE_CHECKING:
     from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
     from luxonis_ml.data.exporters.base_exporter import BaseExporter
+
+BBox: TypeAlias = tuple[int, float, float, float, float]
 
 
 class PreparedLDF:
@@ -33,7 +36,17 @@ class PreparedLDF:
         splits: dict[str, Any],
         processed_df: pl.DataFrame,
         grouped_image_sources: pl.DataFrame,
-    ):
+    ) -> None:
+        """Create the container.
+
+        Args:
+            splits: Split names mapped to group IDs.
+            processed_df: Annotation dataframe with paths resolved to
+                readable files.
+            grouped_image_sources: Unique rows of group ID, source name
+                and file path.
+
+        """
         self.splits = splits
         self.processed_df = processed_df
         self.grouped_image_sources = grouped_image_sources
@@ -59,7 +72,7 @@ class PreparedLDF:
         if splits is None:
             raise ValueError("Cannot export dataset without splits")
 
-        df = dataset._load_df_offline(raise_when_empty=True).with_row_count(
+        df = dataset._load_df_offline(raise_when_empty=True).with_row_index(
             "row_idx"
         )
 
@@ -92,7 +105,7 @@ class PreparedLDF:
         annotated = df.filter(pl.col("annotation").is_not_null())
         annotated_groups = annotated.select("group_id").unique()["group_id"]
         noann_first = df.filter(
-            ~pl.col("group_id").is_in(annotated_groups)
+            ~pl.col("group_id").is_in(annotated_groups.implode())
         ).unique(subset=["group_id"], keep="first")
 
         processed_df = (
@@ -135,11 +148,12 @@ def check_group_file_correspondence(prepared_ldf: PreparedLDF) -> None:
         pl.col("file").n_unique().alias("file_count")
     )
     invalid_groups = group_to_files.filter(pl.col("file_count") > 1)
-    assert invalid_groups.is_empty(), (
-        "Each annotation instance must correspond to exactly one file. "
-        f"Found groups with multiple files: {invalid_groups['group_id'].to_list()}"
-        f"To export multiple files (e.g. RGB, depth) per instance, export to Native format"
-    )
+    if not invalid_groups.is_empty():
+        raise AssertionError(
+            "Each annotation instance must correspond to exactly one file. "
+            f"Found groups with multiple files: {invalid_groups['group_id'].to_list()}"
+            f"To export multiple files (e.g. RGB, depth) per instance, export to Native format"
+        )
 
 
 def exporter_specific_annotation_warning(
@@ -188,7 +202,8 @@ def split_of_group(prepared_ldf: PreparedLDF, group_id: Any) -> str:
         (s for s, ids in prepared_ldf.splits.items() if group_id in ids),
         None,
     )
-    assert split is not None, "group must belong to a split"
+    if split is None:
+        raise AssertionError("group must belong to a split")
     return split
 
 
@@ -234,18 +249,19 @@ def create_zip_output(
 
 
 def get_single_skeleton(
-    allow_keypoints: bool, skeletons: dict[str, Any] | None = None
+    *, allow_keypoints: bool, skeletons: dict[str, Any] | None = None
 ) -> tuple[list[str], list[list[int]]]:
     """Return labels and COCO-style edges for the single skeleton.
 
-    Edges are converted to 1-based indices per COCO spec.
+    Returns:
+        The keypoint labels of the first skeleton, and its edges as
+        pairs of 1-based keypoint indices. Both lists are empty when
+        ``allow_keypoints`` is ``False`` or ``skeletons`` is ``None``.
+
     """
     if not allow_keypoints or skeletons is None:
         return [], []
-    if isinstance(skeletons, dict):
-        sk = next(iter(skeletons.values()))
-    else:  # list
-        sk = skeletons[0]
+    sk = next(iter(skeletons.values()))
     labels = list(sk.get("labels", []))
     edges = sk.get("edges", [])
     # COCO expects 1-based indices in skeleton
@@ -270,7 +286,7 @@ def decode_rle_with_pycoco(ann: dict[str, Any]) -> np.ndarray:
     # pycocotools expects an RLE object with 'size' and 'counts'
     rle = {"size": [h, w], "counts": counts.encode("utf-8")}
 
-    m = maskUtils.decode(rle)  # type: ignore[arg-type]
+    m = maskUtils.decode(rle)  # pyright: ignore[reportArgumentType]
     return np.array(m, dtype=np.uint8, order="C")
 
 
@@ -281,43 +297,114 @@ def annotation_to_polygons(
 
     Args:
         ann: Annotation with ``height``, ``width`` and ``counts`` keys.
-        file_path: Path of the annotated image. The function does not
-            read it.
+        file_path: Path of the annotated image. The warning for a mask
+            that fails to decode names it.
 
     Returns:
         One polygon for each outer contour with at least 3 points. An
         annotation without ``counts``, or one that fails to decode, gives
         no polygon.
 
+    Examples:
+        >>> from pathlib import Path
+        >>> annotation_to_polygons({"height": 4, "width": 4}, Path("a.png"))
+        []
+
     """
-    polygons: list[list[tuple[float, float]]] = []
+    if "counts" not in ann:
+        return []
 
     # COCO RLE -> decode to mask -> contours -> polygons
-    if "counts" in ann:
-        H = int(ann["height"])
-        W = int(ann["width"])
-        rle = {"size": [H, W], "counts": ann["counts"]}
-        try:
-            mask = maskUtils.decode(rle)  # type: ignore
-            if mask.ndim == 3:
-                mask = mask[:, :, 0]
-            mask = (mask > 0).astype(np.uint8)
+    H = int(ann["height"])
+    W = int(ann["width"])
+    rle = {"size": [H, W], "counts": ann["counts"]}
+    try:
+        mask = (maskUtils.decode(rle) > 0).astype(np.uint8)  # pyright: ignore[reportArgumentType]
+        contours, _ = cv2.findContours(
+            mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        return [
+            [(float(x) / W, float(y) / H) for x, y in cnt.squeeze(1).tolist()]
+            for cnt in contours
+            if len(cnt) >= 3
+        ]
+    except (TypeError, ValueError, IndexError, OverflowError, cv2.error):
+        logger.warning(
+            f"Failed to decode the COCO RLE mask of {file_path}; "
+            "skipping this instance."
+        )
+        return []
 
-            contours, _ = cv2.findContours(
-                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-            )
-            for cnt in contours:
-                if len(cnt) < 3:
-                    continue
-                cnt = cnt.squeeze(1)
-                poly = [(float(x) / W, float(y) / H) for x, y in cnt.tolist()]
-                if len(poly) >= 3:
-                    polygons.append(poly)
-        except Exception:
-            logger.warning(
-                "Failed to decode COCO RLE; skipping this instance.",
-                RuntimeWarning,
-            )
-        return polygons
 
-    return polygons
+def whole_image_rows(df: pl.DataFrame, task_type: str) -> pl.DataFrame:
+    """Return the rows of a task type that describe the whole image.
+
+    Such a row has the instance ID -1.
+
+    Returns:
+        The matching rows of ``df``, in their original order.
+
+    """
+    return df.filter(
+        (pl.col("task_type") == task_type) & (pl.col("instance_id") == -1)
+    )
+
+
+def whole_image_classes(df: pl.DataFrame) -> list[str]:
+    """List the whole-image classification class names, in row order."""
+    classes = whole_image_rows(df, "classification")["class_name"].to_list()
+    return [str(cname) for cname in classes if cname]
+
+
+def register_class(
+    cname: str, class_to_id: dict[str, int], class_names: list[str]
+) -> int:
+    """Return the ID of a class; a new class gets the next free ID."""
+    if cname not in class_to_id:
+        class_to_id[cname] = len(class_to_id)
+        class_names.append(cname)
+    return class_to_id[cname]
+
+
+def yolo_bbox_label(
+    row: dict[str, Any], class_to_id: dict[str, int], class_names: list[str]
+) -> BBox | None:
+    """Return the class ID and the top-left ``x, y, w, h`` of a box row.
+
+    An unseen class is added to ``class_to_id`` and ``class_names``.
+
+    Returns:
+        The class ID and the box, with ``0.0`` for a missing value.
+        ``None`` for a row of another task type, without an annotation
+        or without a class.
+
+    Examples:
+        >>> class_to_id, class_names = {}, []
+        >>> row = {
+        ...     "task_type": "boundingbox",
+        ...     "class_name": "car",
+        ...     "annotation": '{"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4}',
+        ... }
+        >>> yolo_bbox_label(row, class_to_id, class_names)
+        (0, 0.1, 0.2, 0.3, 0.4)
+        >>> yolo_bbox_label(
+        ...     {**row, "class_name": None}, class_to_id, class_names
+        ... )
+        >>> class_names
+        ['car']
+
+    """
+    if row["annotation"] is None or row["task_type"] != "boundingbox":
+        return None
+    cname = row["class_name"]
+    if not cname:
+        return None
+    cid = register_class(cname, class_to_id, class_names)
+    data = json.loads(row["annotation"])
+    return (
+        cid,
+        float(data.get("x", 0.0)),
+        float(data.get("y", 0.0)),
+        float(data.get("w", 0.0)),
+        float(data.get("h", 0.0)),
+    )

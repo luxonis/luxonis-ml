@@ -15,6 +15,7 @@ VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 
 
 def main() -> None:
+    """Print the current version, or set a new one and print it."""
     args = parse_args()
     current = read_version(args.path)
 
@@ -28,6 +29,12 @@ def main() -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse the command-line arguments.
+
+    Returns:
+        Namespace with ``path`` and ``new_version``.
+
+    """
     parser = argparse.ArgumentParser(
         description="Read or change a `__version__` declaration."
     )
@@ -51,10 +58,37 @@ def parse_args() -> argparse.Namespace:
 
 
 def read_version(path: Path) -> str:
+    """Return the ``__version__`` string declared in a file.
+
+    Args:
+        path: File that declares ``__version__``.
+
+    Returns:
+        Value of the ``__version__`` string.
+
+    """
     return str(_version_node(path.read_text(encoding="utf-8"), path).value)
 
 
 def resolve_version(current: str, request: str) -> str:
+    """Return the new version that ``request`` asks for.
+
+    A request of ``"major"``, ``"minor"``, or ``"patch"`` increases
+    that part and resets the lower parts. Any other request must be an
+    explicit version.
+
+    Args:
+        current: Current version, such as ``"1.2.3"``.
+        request: ``"major"``, ``"minor"``, ``"patch"``, or an explicit
+            version.
+
+    Returns:
+        New version string.
+
+    Raises:
+        SystemExit: If the new version is not above ``current``.
+
+    """
     major, minor, patch = parse_version(current)
     if request == "major":
         new_version = (major + 1, 0, 0)
@@ -74,6 +108,18 @@ def resolve_version(current: str, request: str) -> str:
 
 
 def parse_version(version: str) -> tuple[int, int, int]:
+    """Split a ``major.minor.patch`` version into three integers.
+
+    Args:
+        version: Version string, such as ``"1.2.3"``.
+
+    Returns:
+        Major, minor, and patch numbers.
+
+    Raises:
+        SystemExit: If ``version`` does not have the form ``1.2.3``.
+
+    """
     if not VERSION_PATTERN.match(version):
         raise SystemExit(
             f"Expected 'major', 'minor', 'patch', or a version of the form "
@@ -84,6 +130,16 @@ def parse_version(version: str) -> tuple[int, int, int]:
 
 
 def write_version(path: Path, new_version: str) -> None:
+    """Replace the ``__version__`` string in ``path``.
+
+    The new value is written in double quotes. The rest of the file
+    stays unchanged.
+
+    Args:
+        path: File that declares ``__version__``.
+        new_version: Version to write, such as ``"1.2.3"``.
+
+    """
     text = path.read_text(encoding="utf-8")
     node = _version_node(text, path)
     lines = text.splitlines(keepends=True)

@@ -15,6 +15,7 @@ ULTRALYTICS_NDJSON_EXPORT_TYPES = {
 
 
 def _export_and_reimport(
+    *,
     url: str,
     dataset_type: DatasetType,
     dataset_name: str,
@@ -22,8 +23,12 @@ def _export_and_reimport(
     tempdir: Path,
     initial_parse_kwargs: dict | None = None,
 ) -> tuple[LuxonisDataset, LuxonisDataset]:
-    """Parse -> export -> re-import and return (original_dataset,
-    reimported_dataset) to compare the two.
+    """Parse, export and re-import a dataset.
+
+    Returns:
+        The dataset parsed from ``url``, and the dataset parsed back
+        from the first ZIP archive of its ``dataset_type`` export.
+
     """
     url = f"{storage_url}/{url}"
     dataset = LuxonisParser(
@@ -147,8 +152,13 @@ DATASETS = [
 
 
 def build_params():
-    """Expand DATASETS x supported annotation types x registry combos
-    into pytest params.
+    """Expand DATASETS x annotation types x registry combos into params.
+
+    Returns:
+        A ``pytest.param`` with the URL, the dataset type, the collector
+        and the initial parse kwargs for each combination. The COCO 2017
+        archive gets no Ultralytics NDJSON combination.
+
     """
     params = []
     for ds in DATASETS:
@@ -183,6 +193,7 @@ def build_params():
     build_params(),
 )
 def test_export_import_equivalence(
+    *,
     dataset_name: str,
     storage_url: str,
     tempdir: Path,

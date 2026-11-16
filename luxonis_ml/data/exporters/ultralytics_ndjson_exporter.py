@@ -1,15 +1,19 @@
+"""Export to the Ultralytics NDJSON format."""
+
 import json
 from pathlib import Path
 from typing import Any, Literal, cast
 
 import numpy as np
 from PIL import Image
+from typing_extensions import override
 
 from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
     annotation_to_polygons,
     check_group_file_correspondence,
     exporter_specific_annotation_warning,
+    register_class,
     split_of_group,
 )
 from luxonis_ml.enums import DatasetType
@@ -40,7 +44,20 @@ class UltralyticsNDJSONExporter(BaseExporter):
         *,
         dataset_type: DatasetType,
         ndjson_task: UltralyticsTask,
-    ):
+    ) -> None:
+        """Create the exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Maximum partition size in GiB, or
+                ``None`` to disable partitioning.
+            dataset_type: Export format. Its annotation formats are the
+                supported types, except for the ``"pose"`` task.
+            ndjson_task: Ultralytics task to write: ``"detect"``,
+                ``"segment"`` or ``"pose"``.
+
+        """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
@@ -52,13 +69,22 @@ class UltralyticsNDJSONExporter(BaseExporter):
         self._image_size_cache: dict[Path, tuple[int, int]] = {}
 
     def get_split_names(self) -> dict[str, str]:
+        """Return the directory name of each split.
+
+        Returns:
+            The ``train``, ``val`` and ``test`` splits, each mapped to
+            its own name.
+
+        """
         return {"train": "train", "val": "val", "test": "test"}
 
+    @override
     def supported_ann_types(self) -> list[str]:
         if self.ndjson_task == "pose":
             return ["keypoints", "boundingbox"]
         return self.dataset_type.supported_annotation_formats
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
         exporter_specific_annotation_warning(
@@ -74,7 +100,7 @@ class UltralyticsNDJSONExporter(BaseExporter):
         copied_files: set[Path] = set()
 
         for key, group_df in grouped:
-            file_name, group_id = cast(tuple[str, Any], key)
+            file_name, group_id = cast("tuple[str, Any]", key)
             logical_split = split_of_group(prepared_ldf, group_id)
             split = self.get_split_names()[logical_split]
 
@@ -137,13 +163,11 @@ class UltralyticsNDJSONExporter(BaseExporter):
             ):
                 continue
 
-            if class_name not in self.class_to_id:
-                self.class_to_id[class_name] = len(self.class_to_id)
-                self.class_names.append(class_name)
-
+            cid = register_class(
+                class_name, self.class_to_id, self.class_names
+            )
             instance = instances.setdefault(
-                (class_name, int(instance_id)),
-                {"class_id": self.class_to_id[class_name]},
+                (class_name, int(instance_id)), {"class_id": cid}
             )
             instance[task_type] = json.loads(annotation)
 
@@ -189,20 +213,25 @@ class UltralyticsNDJSONExporter(BaseExporter):
             ]
             return {"segments": segments} if segments else {}
 
-        poses = [
-            pose_line
-            for instance in instances.values()
-            if "keypoints" in instance
-            for pose_line in [
-                self._keypoints_to_line(
-                    int(instance["class_id"]),
-                    instance.get("boundingbox"),
-                    instance["keypoints"],
-                )
-            ]
-            if pose_line is not None
-        ]
+        poses = self._pose_lines(instances)
         return {"pose": poses} if poses else {}
+
+    def _pose_lines(
+        self, instances: dict[tuple[str, int], dict[str, Any]]
+    ) -> list[list[float | int]]:
+        """Return one pose line per instance with keypoints."""
+        poses = []
+        for instance in instances.values():
+            if "keypoints" not in instance:
+                continue
+            pose_line = self._keypoints_to_line(
+                int(instance["class_id"]),
+                instance.get("boundingbox"),
+                instance["keypoints"],
+            )
+            if pose_line is not None:
+                poses.append(pose_line)
+        return poses
 
     def _maybe_roll_partition(
         self,
@@ -225,6 +254,7 @@ class UltralyticsNDJSONExporter(BaseExporter):
             return {split: [] for split in self.get_split_names().values()}
         return annotation_splits
 
+    @override
     def _dump_annotations(
         self,
         annotation_splits: dict[str, list[dict[str, Any]]],
@@ -246,14 +276,17 @@ class UltralyticsNDJSONExporter(BaseExporter):
         header = self._dataset_header()
         lines = [json.dumps(header, separators=(",", ":"))]
 
-        for split_name in self.get_split_names().values():
-            for record in annotation_splits.get(split_name, []):
-                lines.append(json.dumps(record, separators=(",", ":")))
+        lines.extend(
+            json.dumps(record, separators=(",", ":"))
+            for split_name in self.get_split_names().values()
+            for record in annotation_splits.get(split_name, [])
+        )
 
         (base / "dataset.ndjson").write_text(
             "\n".join(lines) + "\n", encoding="utf-8"
         )
 
+    @override
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:

@@ -410,10 +410,9 @@ def yield_batches(
             dictionaries are expected to expose the same keys.
         batch_size: Maximum number of samples in each yielded batch.
 
-    Returns:
-        Iterator over dictionaries grouped by key. For an input chunk of
-        :math:`B` samples, each yielded value maps every key to a list of
-        :math:`B` values.
+    Yields:
+        One dictionary for each chunk. For a chunk of :math:`B` samples,
+        the dictionary maps every key to a list of :math:`B` values.
 
     Examples:
         >>> samples = [

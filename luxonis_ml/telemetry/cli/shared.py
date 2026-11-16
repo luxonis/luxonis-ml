@@ -1,3 +1,8 @@
+"""Command wrapping helpers shared by the Typer and Cyclopts adapters.
+
+A wrapped callback captures one ``cli_command`` event per call.
+"""
+
 import inspect
 import time
 from collections.abc import Callable, Iterable
@@ -24,7 +29,7 @@ def wrap_command_callback(
     include_system_metadata: bool | None,
 ) -> Callable[..., Any]:
     """Wrap a command callback to emit telemetry for execution."""
-    telemetry_func = cast(_TelemetryCallable, func)
+    telemetry_func = cast("_TelemetryCallable", func)
 
     if getattr(telemetry_func, "_telemetry_skip", False):
         return func
@@ -80,7 +85,7 @@ def wrap_command_callback(
                     start=start,
                 )
 
-        cast(_TelemetryCallable, async_wrapper)._telemetry_wrapped = True
+        cast("_TelemetryCallable", async_wrapper)._telemetry_wrapped = True
         return async_wrapper
 
     @wraps(func)
@@ -100,13 +105,13 @@ def wrap_command_callback(
                 start=start,
             )
 
-    cast(_TelemetryCallable, wrapper)._telemetry_wrapped = True
+    cast("_TelemetryCallable", wrapper)._telemetry_wrapped = True
     return wrapper
 
 
 def skip_telemetry(func: Callable[..., Any]) -> Callable[..., Any]:
     """Mark a command callback as excluded from telemetry."""
-    cast(_TelemetryCallable, func)._telemetry_skip = True
+    cast("_TelemetryCallable", func)._telemetry_skip = True
     return func
 
 

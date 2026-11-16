@@ -1,3 +1,5 @@
+"""`AugmentationEngine` base class and the registry of its subclasses."""
+
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
 from typing import Final, Literal
@@ -20,6 +22,13 @@ class AugmentationEngine(
     registry=AUGMENTATION_ENGINES,
     register=False,
 ):
+    """Abstract base class for augmentation engines.
+
+    Subclasses implement ``__init__``, `apply` and `batch_size`. They
+    are registered in `AUGMENTATION_ENGINES` automatically, under the
+    class name or under the ``register_name`` class keyword.
+    """
+
     @abstractmethod
     def __init__(
         self,
@@ -28,6 +37,7 @@ class AugmentationEngine(
         targets: Mapping[str, str],
         n_classes: Mapping[str, int],
         source_names: list[str],
+        *,
         config: Iterable[Params],
         keep_aspect_ratio: bool,
         is_validation_pipeline: bool | None = None,
@@ -35,7 +45,7 @@ class AugmentationEngine(
         min_bbox_visibility: float = 0.0,
         seed: int | None = None,
         bbox_area_threshold: float = 0.0004,
-    ):
+    ) -> None:
         """Initialize augmentation pipeline from configuration.
 
         Args:

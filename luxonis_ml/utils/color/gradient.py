@@ -114,7 +114,7 @@ class Gradient:
             self.stops, self.stops[1:], strict=False
         ):
             if clamped <= p1:
-                # Slope first, then offset — the order ``np.interp`` uses, so a
+                # Slope first, then offset: the order ``np.interp`` uses, so a
                 # scalar lookup rounds exactly like the same value in `colorize`.
                 span, offset = p1 - p0, clamped - p0
                 return Color(
@@ -158,7 +158,7 @@ class Gradient:
 
 # Preset colormaps. The perceptually-uniform families (viridis, magma, inferno,
 # plasma, turbo) are approximated with a handful of anchor colors sampled from
-# the matplotlib originals — close enough for visualization, without shipping a
+# the matplotlib originals: close enough for visualization, without shipping a
 # 256-entry lookup table. Classics (jet, hot, coolwarm, grayscale) round it out.
 _PRESETS: dict[str, tuple[str, ...]] = {
     "viridis": (

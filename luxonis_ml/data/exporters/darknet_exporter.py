@@ -1,6 +1,9 @@
-import json
+"""Export bounding boxes to the Darknet format."""
+
 from pathlib import Path
 from typing import Any, cast
+
+from typing_extensions import override
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
@@ -8,6 +11,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
     check_group_file_correspondence,
     exporter_specific_annotation_warning,
     split_of_group,
+    yolo_bbox_label,
 )
 from luxonis_ml.enums import DatasetType
 
@@ -26,7 +30,16 @@ class DarknetExporter(BaseExporter):
         dataset_identifier: str,
         output_path: Path,
         max_partition_size_gb: float | None,
-    ):
+    ) -> None:
+        """Create the exporter.
+
+        Args:
+            dataset_identifier: Name of the export directory.
+            output_path: Directory where the export is written.
+            max_partition_size_gb: Maximum partition size in GiB, or
+                ``None`` to disable partitioning.
+
+        """
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
@@ -35,11 +48,20 @@ class DarknetExporter(BaseExporter):
 
     @staticmethod
     def get_split_names() -> dict[str, str]:
+        """Return the directory name of each split.
+
+        Returns:
+            Split names mapped to directory names. The ``val`` split
+            becomes ``valid``.
+
+        """
         return {"train": "train", "val": "valid", "test": "test"}
 
+    @override
     def supported_ann_types(self) -> list[str]:
         return DatasetType.DARKNET.supported_annotation_formats
 
+    @override
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
         exporter_specific_annotation_warning(
@@ -56,7 +78,7 @@ class DarknetExporter(BaseExporter):
         copied_files: set[Path] = set()
 
         for key, group_df in grouped:
-            file_name, group_id = cast(tuple[str, Any], key)
+            file_name, group_id = cast("tuple[str, Any]", key)
             split_key = split_of_group(prepared_ldf, group_id)
             split_name = self.get_split_names()[split_key]
 
@@ -98,31 +120,12 @@ class DarknetExporter(BaseExporter):
         label_lines: list[str] = []
 
         for row in group_df.iter_rows(named=True):
-            ttype = row["task_type"]
-            ann_str = row["annotation"]
-            cname = row["class_name"]
-
-            if ttype != "boundingbox" or ann_str is None:
+            label = yolo_bbox_label(row, self.class_to_id, self.class_names)
+            if label is None:
                 continue
-
-            # Register class if new
-            if cname and cname not in self.class_to_id:
-                self.class_to_id[cname] = len(self.class_to_id)
-                self.class_names.append(cname)
-
-            if not cname or cname not in self.class_to_id:
-                continue
-
-            data = json.loads(ann_str)
-            x_tl = float(data.get("x", 0.0))
-            y_tl = float(data.get("y", 0.0))
-            w = float(data.get("w", 0.0))
-            h = float(data.get("h", 0.0))
-
+            cid, x_tl, y_tl, w, h = label
             cx = x_tl + w / 2.0
             cy = y_tl + h / 2.0
-
-            cid = self.class_to_id[cname]
             label_lines.append(f"{cid} {cx:.12f} {cy:.12f} {w:.12f} {h:.12f}")
 
         return label_lines
@@ -145,6 +148,7 @@ class DarknetExporter(BaseExporter):
             return {v: {} for v in self.get_split_names().values()}
         return labels_by_split
 
+    @override
     def _dump_annotations(
         self,
         labels_by_split: dict[str, dict[str, list[str]]],
@@ -177,6 +181,7 @@ class DarknetExporter(BaseExporter):
                 encoding="utf-8",
             )
 
+    @override
     def _get_data_path(
         self, output_path: Path, split_name: str, part: int | None = None
     ) -> Path:

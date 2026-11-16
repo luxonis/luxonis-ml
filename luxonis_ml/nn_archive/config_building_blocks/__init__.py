@@ -1,3 +1,8 @@
+"""Schemas and enums that make up an NN Archive model config.
+
+They describe the model inputs, outputs, metadata, and parser heads.
+"""
+
 from .base_models import (
     Head,
     HeadMetadata,
@@ -6,6 +11,7 @@ from .base_models import (
     Metadata,
     Output,
     PreprocessingBlock,
+    RuntimeDependencies,
 )
 from .enums import DataType, InputType
 
@@ -19,4 +25,5 @@ __all__ = [
     "Metadata",
     "Output",
     "PreprocessingBlock",
+    "RuntimeDependencies",
 ]

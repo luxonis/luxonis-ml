@@ -34,7 +34,7 @@ def run(spec: SampleSpec) -> tuple[dict[str, np.ndarray], Labels]:
         spec.targets,
         spec.n_classes,
         spec.source_names,
-        spec.config,
+        config=spec.config,
         seed=42,
     )
     labels: Labels = {}
