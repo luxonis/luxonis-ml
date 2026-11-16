@@ -242,7 +242,11 @@ def check_type(value: Any, typ: type[T]) -> TypeGuard[T]:
 
     """
     try:
-        typeguard.check_type(value, typ)
+        typeguard.check_type(
+            value,
+            typ,
+            collection_check_strategy=typeguard.CollectionCheckStrategy.ALL_ITEMS,
+        )
     except (typeguard.TypeCheckError, TypeError):
         return False
     return True
