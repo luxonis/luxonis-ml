@@ -314,7 +314,7 @@ def inspect(
     draw_names = keypoint_labels in ("names", "full")
     draw = partial(
         visualize,
-        classes=dataset.get_classes(),
+        classes=loader.get_classes(),
         blend_all=blend_all,
         categorical_encodings=dataset.get_categorical_encodings(),
         skeletons=dataset.get_skeletons() if skeletons or draw_names else None,

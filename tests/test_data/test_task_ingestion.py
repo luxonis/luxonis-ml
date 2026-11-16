@@ -117,7 +117,7 @@ def test_task_ingestion(
 
     dataset.add(generator2()).make_splits((1, 0, 0))
     classes = dataset.get_classes()
-    assert set(classes["landmass"]) == {"background", "water", "grass"}
+    assert set(classes["landmass"]) == {"water", "grass"}
     assert set(classes["animals"]) == {"dog", "cat"}
 
     assert compute_histogram(dataset) == {
@@ -155,7 +155,7 @@ def test_task_ingestion(
 
     dataset.add(generator3()).make_splits((1, 0, 0))
     classes = dataset.get_classes()
-    assert set(classes["landmass"]) == {"background", "water", "grass"}
+    assert set(classes["landmass"]) == {"water", "grass"}
     assert set(classes["animals"]) == {"dog", "cat"}
 
     assert compute_histogram(dataset) == {
@@ -212,7 +212,7 @@ def test_task_ingestion(
     dataset.add(generator4()).make_splits((1, 0, 0))
     classes = dataset.get_classes()
 
-    assert set(classes["landmass"]) == {"background", "water", "grass"}
+    assert set(classes["landmass"]) == {"water", "grass"}
     assert set(classes["animals"]) == {"dog", "cat"}
     assert set(classes["landmass-2"]) == {"water"}
     assert set(classes["detection"]) == {"bike"}
