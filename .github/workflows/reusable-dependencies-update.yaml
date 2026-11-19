@@ -15,8 +15,12 @@ on:
         description: "Version of uv to lock with. Empty selects the latest."
         type: string
         default: ""
+      app-client-id:
+        description: "Client ID of the GitHub App whose token this workflow uses"
+        type: string
+        required: true
     secrets:
-      WORKFLOW_SECRET:
+      APP_PRIVATE_KEY:
         required: true
 
 permissions:
@@ -27,10 +31,19 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
+      - name: Create the GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          token: ${{ secrets.WORKFLOW_SECRET }}
+          token: ${{ steps.app-token.outputs.token }}
           persist-credentials: false
 
       - name: Install uv
@@ -49,7 +62,7 @@ jobs:
       - name: Create or update pull request
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1
         with:
-          token: ${{ secrets.WORKFLOW_SECRET }}
+          token: ${{ steps.app-token.outputs.token }}
           branch: chore/update-python-dependencies
           delete-branch: true
           commit-message: "chore: update Python dependencies"
