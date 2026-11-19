@@ -14,5 +14,6 @@ jobs:
     with:
       app-client-id: ${{ vars.ML_BOT_APP_CLIENT_ID }}
       export-script: tools/export_requirements.sh
+      uv-version: "0.13.9"
     secrets:
       APP_PRIVATE_KEY: ${{ secrets.ML_BOT_APP_PRIVATE_KEY }}
