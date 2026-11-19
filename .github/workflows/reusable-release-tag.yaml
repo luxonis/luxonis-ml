@@ -40,6 +40,10 @@ jobs:
           client-id: ${{ inputs.app-client-id }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           permission-contents: write
+          # GitHub refuses a release whose target differs from `main` in
+          # `.github/workflows/` unless the token can write workflows. That
+          # happens when a workflow change merges before this job runs.
+          permission-workflows: write
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
