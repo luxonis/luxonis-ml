@@ -6,22 +6,22 @@ colorama==0.4.6 ; sys_platform == 'win32'
 cyclopts==4.25.3
 docstring-parser==0.18.0
 fsspec==2026.9.0
-loguru==0.7.3
-markdown-it-py==4.2.0
+loguru==0.8.0
+markdown-it-py==4.3.0
 mdurl==0.1.2
-pydantic==2.14.1
-pydantic-core==2.50.1
+pydantic==2.14.3
+pydantic-core==2.50.4
 pydantic-extra-types==2.11.1
 pydantic-settings==2.15.0 ; python_full_version < '3.11'
-pydantic-settings==2.16.1 ; python_full_version >= '3.11'
+pydantic-settings==2.16.2 ; python_full_version >= '3.11'
 pygments==2.21.0
 python-dotenv==1.2.4
 pyyaml==6.0.3
 rich==15.0.0
 rich-rst==2.2.0
-semver==3.1.0
+semver==3.1.1
 tomli==2.5.0 ; python_full_version < '3.11'
 typeguard==4.6.0
 typing-extensions==4.16.0
-typing-inspection==0.4.4
-win32-setctime==1.2.0 ; sys_platform == 'win32'
+typing-inspection==0.4.5
+win32-setctime==1.2.1 ; sys_platform == 'win32'

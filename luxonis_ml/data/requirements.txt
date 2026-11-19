@@ -18,15 +18,15 @@ cyclopts==4.25.3
 defusedxml==0.7.1
 docstring-parser==0.18.0
 filelock==4.1.0 ; python_full_version < '3.11'
-filelock==4.2.4 ; python_full_version >= '3.11'
+filelock==4.2.10 ; python_full_version >= '3.11'
 fonttools==4.65.0 ; python_full_version < '3.11'
-fonttools==4.67.0 ; python_full_version >= '3.11'
+fonttools==4.68.0 ; python_full_version >= '3.11'
 fsspec==2026.9.0
-gdown==6.4.2
+gdown==6.5.1
 idna==3.20
 kiwisolver==1.5.1
-loguru==0.7.3
-markdown-it-py==4.2.0
+loguru==0.8.0
+markdown-it-py==4.3.0
 matplotlib==3.10.9 ; python_full_version < '3.11'
 matplotlib==3.11.2 ; python_full_version >= '3.11'
 mdurl==0.1.2
@@ -41,11 +41,11 @@ pillow-heif==1.8.1
 polars==1.44.2
 polars-runtime-32==1.44.2
 pycocotools==2.0.11
-pydantic==2.14.1
-pydantic-core==2.50.1
+pydantic==2.14.3
+pydantic-core==2.50.4
 pydantic-extra-types==2.11.1
 pydantic-settings==2.15.0 ; python_full_version < '3.11'
-pydantic-settings==2.16.1 ; python_full_version >= '3.11'
+pydantic-settings==2.16.2 ; python_full_version >= '3.11'
 pygments==2.21.0
 pyparsing==3.3.3
 pysocks==1.7.1
@@ -58,17 +58,17 @@ rich-rst==2.2.0
 scipy==1.15.3 ; python_full_version < '3.11'
 scipy==1.17.1 ; python_full_version == '3.11.*'
 scipy==1.18.1 ; python_full_version >= '3.12'
-semver==3.1.0
+semver==3.1.1
 simsimd==6.5.16
 six==1.17.0
 soupsieve==2.10 ; python_full_version < '3.11.5'
-soupsieve==3.0.4 ; python_full_version >= '3.11.5'
-stringzilla==5.3.1
+soupsieve==4.1 ; python_full_version >= '3.11.5'
+stringzilla==5.3.2
 tomli==2.5.0 ; python_full_version < '3.11'
 tqdm==4.70.1
 typeguard==4.6.0
 typing-extensions==4.16.0
-typing-inspection==0.4.4
-tzdata==2026.5 ; sys_platform == 'win32'
+typing-inspection==0.4.5
+tzdata==2026.6 ; sys_platform == 'win32'
 urllib3==2.8.0
-win32-setctime==1.2.0 ; sys_platform == 'win32'
+win32-setctime==1.2.1 ; sys_platform == 'win32'
