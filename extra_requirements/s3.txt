@@ -16,17 +16,17 @@ frozenlist==1.8.0
 fsspec==2026.9.0
 idna==3.20
 jmespath==1.1.0
-loguru==0.7.3
-markdown-it-py==4.2.0
+loguru==0.8.0
+markdown-it-py==4.3.0
 mdurl==0.1.2
 multidict==7.1.0 ; python_full_version < '3.11'
 multidict==7.2.1 ; python_full_version >= '3.11'
 propcache==0.5.4
-pydantic==2.14.1
-pydantic-core==2.50.1
+pydantic==2.14.3
+pydantic-core==2.50.4
 pydantic-extra-types==2.11.1
 pydantic-settings==2.15.0 ; python_full_version < '3.11'
-pydantic-settings==2.16.1 ; python_full_version >= '3.11'
+pydantic-settings==2.16.2 ; python_full_version >= '3.11'
 pygments==2.21.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.4
@@ -34,13 +34,13 @@ pyyaml==6.0.3
 rich==15.0.0
 rich-rst==2.2.0
 s3fs==2026.9.0
-semver==3.1.0
+semver==3.1.1
 six==1.17.0
 tomli==2.5.0 ; python_full_version < '3.11'
 typeguard==4.6.0
 typing-extensions==4.16.0
-typing-inspection==0.4.4
+typing-inspection==0.4.5
 urllib3==2.8.0
-win32-setctime==1.2.0 ; sys_platform == 'win32'
-wrapt==2.5.1
+win32-setctime==1.2.1 ; sys_platform == 'win32'
+wrapt==2.5.2
 yarl==1.25.1
