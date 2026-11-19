@@ -11,5 +11,7 @@ permissions:
 jobs:
   update-github-actions:
     uses: ./.github/workflows/reusable-actions-update.yaml
+    with:
+      app-client-id: ${{ vars.ML_BOT_APP_CLIENT_ID }}
     secrets:
-      WORKFLOW_SECRET: ${{ secrets.WORKFLOW_SECRET }}
+      APP_PRIVATE_KEY: ${{ secrets.ML_BOT_APP_PRIVATE_KEY }}

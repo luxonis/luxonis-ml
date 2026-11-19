@@ -11,8 +11,12 @@ on:
         description: "Comma-separated labels of the pull request"
         type: string
         default: automated
+      app-client-id:
+        description: "Client ID of the GitHub App whose token this workflow uses"
+        type: string
+        required: true
     secrets:
-      WORKFLOW_SECRET:
+      APP_PRIVATE_KEY:
         required: true
 
 permissions:
@@ -23,16 +27,26 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
+      - name: Create the GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+
       # `persist-credentials` must stay enabled: the updater below pushes its
       # branch with a plain `git push`, relying on the token this step writes
       # into the local git config.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # zizmor: ignore[artipacked]
         with:
-          token: ${{ secrets.WORKFLOW_SECRET }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Run GitHub Actions Version Updater
         uses: saadmk11/github-actions-version-updater@d8781caf11d11168579c8e5e94f62b068038f442
         with:
-          token: ${{ secrets.WORKFLOW_SECRET }}
+          token: ${{ steps.app-token.outputs.token }}
           update_version_with: "release-commit-sha"
           pull_request_labels: ${{ inputs.pull-request-labels }}

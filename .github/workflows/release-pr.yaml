@@ -15,8 +15,9 @@ jobs:
   release-pr:
     uses: ./.github/workflows/reusable-release-pr.yaml
     with:
+      app-client-id: ${{ vars.ML_BOT_APP_CLIENT_ID }}
       version: ${{ inputs.version }}
       version-file: luxonis_ml/__init__.py
       project-name: LuxonisML
     secrets:
-      WORKFLOW_SECRET: ${{ secrets.WORKFLOW_SECRET }}
+      APP_PRIVATE_KEY: ${{ secrets.ML_BOT_APP_PRIVATE_KEY }}

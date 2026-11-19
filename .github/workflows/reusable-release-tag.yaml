@@ -18,8 +18,12 @@ on:
           input alone.
         type: string
         default: "-beta"
+      app-client-id:
+        description: "Client ID of the GitHub App whose token this workflow uses"
+        type: string
+        required: true
     secrets:
-      WORKFLOW_SECRET:
+      APP_PRIVATE_KEY:
         required: true
 
 permissions:
@@ -29,6 +33,18 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      - name: Create the GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          # GitHub refuses a release whose target differs from `main` in
+          # `.github/workflows/` unless the token can write workflows. That
+          # happens when a workflow change merges before this job runs.
+          permission-workflows: write
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -55,9 +71,9 @@ jobs:
 
       - name: Create the release
         env:
-          # The default token cannot start another workflow. The personal
-          # token makes the release event start the publish workflows.
-          GH_TOKEN: ${{ secrets.WORKFLOW_SECRET }}
+          # The default token cannot start another workflow. The app token
+          # makes the release event start the publish workflows.
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG: v${{ steps.version.outputs.version }}${{ inputs.tag-suffix }}
           TARGET: ${{ github.event.pull_request.merge_commit_sha }}
         run: |
