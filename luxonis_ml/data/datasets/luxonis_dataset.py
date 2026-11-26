@@ -506,17 +506,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         splits_self = self._load_splits(self._metadata_path)
         splits_other = self._load_splits(other._metadata_path)
-        uuids_to_merge: set[str] = set()
-        if splits_to_merge is not None:
-            uuids_to_merge = {
-                uuid
-                for split_name in splits_to_merge
-                for uuid in splits_other.get(split_name, [])
-            }
-            df_other = df_other.filter(df_other["uuid"].is_in(uuids_to_merge))
-            splits_other = {
-                k: v for k, v in splits_other.items() if k in splits_to_merge
-            }
+        df_other, splits_other, uuids_to_merge = self._filter_merge_splits(
+            df_other, splits_other, splits_to_merge
+        )
 
         if preserve_source:
             df_self = self._with_source_dataset(df_self, self._dataset_name)
@@ -555,6 +547,26 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         target_dataset._merge_metadata_with(other)
 
         return target_dataset
+
+    @staticmethod
+    def _filter_merge_splits(
+        df: pl.DataFrame,
+        splits: dict[str, list[str]],
+        splits_to_merge: list[str] | None,
+    ) -> tuple[pl.DataFrame, dict[str, list[str]], set[str]]:
+        """Select incoming records, splits, and media UUIDs for a merge."""
+        if splits_to_merge is None:
+            return df, splits, set()
+        uuids_to_merge = {
+            uuid
+            for split_name in splits_to_merge
+            for uuid in splits.get(split_name, [])
+        }
+        return (
+            df.filter(df["uuid"].is_in(uuids_to_merge)),
+            {k: v for k, v in splits.items() if k in splits_to_merge},
+            uuids_to_merge,
+        )
 
     @staticmethod
     def _with_source_dataset(

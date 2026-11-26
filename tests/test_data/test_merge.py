@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import cast
 
 import polars as pl
 import pytest
@@ -127,7 +128,7 @@ def test_merge_preserves_original_source_across_merges(
     )
     result = third.merge_with(merged, preserve_source=True)
     assert {
-        sample.metadata["source_dataset"]
+        cast("str", sample.metadata["source_dataset"])
         for sample in LuxonisLoader(result, view=["train", "val"])
     } == {"dataset_1", "dataset_2", "dataset_3", "original_dataset"}
 
