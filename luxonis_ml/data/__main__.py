@@ -1050,6 +1050,7 @@ def merge(
         str | None,
         Parameter(alias="-t"),
     ] = None,
+    preserve_source: bool = False,
 ):
     """Merge two datasets stored in the same type of bucket.
 
@@ -1064,6 +1065,9 @@ def merge(
         bucket_storage: Storage type for both datasets.
         team_id: Team ID to use for the new dataset.
             If not provided, the team ID of the target dataset will be used.
+        preserve_source: Store each sample's original dataset name in
+            ``sample_metadata["source_dataset"]``. Existing values are kept
+            across repeated merges. Defaults to False.
 
     Raises:
         SystemExit: If either dataset does not exist, or if the user
@@ -1112,6 +1116,7 @@ def merge(
         new_dataset_name=new_name,
         splits_to_merge=split_list,
         team_id=team_id,
+        preserve_source=preserve_source,
     )
 
     if inplace:

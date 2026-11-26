@@ -450,6 +450,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         new_dataset_name: str | None = None,
         splits_to_merge: list[str] | None = None,
         team_id: str | None = None,
+        preserve_source: bool = False,
     ) -> "LuxonisDataset":
         """Merge another dataset into this or a new dataset.
 
@@ -461,6 +462,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 ``False``.
             splits_to_merge: Optional split names to merge.
             team_id: Optional team identifier for a newly created dataset.
+            preserve_source: Add each sample's original dataset name to
+                ``sample_metadata["source_dataset"]``. Existing values are
+                preserved across repeated merges. Duplicate samples keep
+                this dataset's metadata. Defaults to ``False``.
 
         Returns:
             Dataset containing the merged data.
@@ -513,7 +518,13 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 k: v for k, v in splits_other.items() if k in splits_to_merge
             }
 
-        target_dataset._save_df_offline(pl.concat([df_self, df_other]))
+        if preserve_source:
+            df_self = self._with_source_dataset(df_self, self._dataset_name)
+            df_other = self._with_source_dataset(df_other, other._dataset_name)
+
+        target_dataset._save_df_offline(
+            pl.concat([df_self, df_other], how="diagonal_relaxed")
+        )
 
         splits_other = {
             split_name: [
@@ -544,6 +555,24 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         target_dataset._merge_metadata_with(other)
 
         return target_dataset
+
+    @staticmethod
+    def _with_source_dataset(
+        df: pl.DataFrame, dataset_name: str
+    ) -> pl.DataFrame:
+        """Fill missing source provenance while preserving record metadata."""
+        return df.with_columns(
+            pl.col("sample_metadata").map_elements(
+                lambda value: json.dumps(
+                    {
+                        "source_dataset": dataset_name,
+                        **DatasetRecord.decode_metadata(value),
+                    }
+                ),
+                return_dtype=pl.String,
+                skip_nulls=False,
+            )
+        )
 
     def _merge_target(
         self,

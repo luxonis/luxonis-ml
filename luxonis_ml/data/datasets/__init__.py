@@ -227,7 +227,23 @@ dataset.
         dataset2,
         inplace=False,
         new_dataset_name="parking_lot_merged",
+        preserve_source=True,
     )
+
+With ``preserve_source=True``, samples from both datasets receive their
+original dataset name in ``sample_metadata["source_dataset"]``. Other metadata
+and existing ``source_dataset`` values are preserved, including when merging
+an already merged dataset. Duplicate samples keep the target dataset's
+metadata. The option defaults to ``False``.
+
+The CLI exposes the same option:
+
+.. code-block:: bash
+
+    luxonis_ml data merge dataset_2 dataset_1 --new-name merged --preserve-source
+
+`LuxonisLoader` returns this field in `LoaderOutput.metadata`, making the
+sample's dataset of origin available to training code.
 
 Remote synchronization is explicit and controlled by `UpdateMode`:
 
