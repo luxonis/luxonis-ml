@@ -227,7 +227,18 @@ dataset.
         dataset2,
         inplace=False,
         new_dataset_name="parking_lot_merged",
+        preserve_source=True,
     )
+
+When merging, ``preserve_source=True`` can be set. If it is set, samples from
+both datasets receive their original dataset name in
+``sample_metadata["source_dataset"]``. The option defaults to ``False``.
+
+``preserve_source`` can also be invoked when merging datasets using the CLI:
+
+.. code-block:: bash
+
+    luxonis_ml data merge dataset_2 dataset_1 --new-name merged --preserve-source
 
 Remote synchronization is explicit and controlled by `UpdateMode`:
 

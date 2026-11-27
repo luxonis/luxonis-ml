@@ -450,6 +450,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         new_dataset_name: str | None = None,
         splits_to_merge: list[str] | None = None,
         team_id: str | None = None,
+        preserve_source: bool = False,
     ) -> "LuxonisDataset":
         """Merge another dataset into this or a new dataset.
 
@@ -461,6 +462,10 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 ``False``.
             splits_to_merge: Optional split names to merge.
             team_id: Optional team identifier for a newly created dataset.
+            preserve_source: Add each sample's original dataset name to
+                ``sample_metadata["source_dataset"]``. Existing values are
+                preserved across repeated merges. Duplicate samples keep
+                this dataset's metadata. Defaults to ``False``.
 
         Returns:
             Dataset containing the merged data.
@@ -501,19 +506,17 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         splits_self = self._load_splits(self._metadata_path)
         splits_other = self._load_splits(other._metadata_path)
-        uuids_to_merge: set[str] = set()
-        if splits_to_merge is not None:
-            uuids_to_merge = {
-                uuid
-                for split_name in splits_to_merge
-                for uuid in splits_other.get(split_name, [])
-            }
-            df_other = df_other.filter(df_other["uuid"].is_in(uuids_to_merge))
-            splits_other = {
-                k: v for k, v in splits_other.items() if k in splits_to_merge
-            }
+        df_other, splits_other, uuids_to_merge = self._filter_merge_splits(
+            df_other, splits_other, splits_to_merge
+        )
 
-        target_dataset._save_df_offline(pl.concat([df_self, df_other]))
+        if preserve_source:
+            df_self = self._with_source_dataset(df_self, self._dataset_name)
+            df_other = self._with_source_dataset(df_other, other._dataset_name)
+
+        target_dataset._save_df_offline(
+            pl.concat([df_self, df_other], how="diagonal_relaxed")
+        )
 
         splits_other = {
             split_name: [
@@ -544,6 +547,44 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         target_dataset._merge_metadata_with(other)
 
         return target_dataset
+
+    @staticmethod
+    def _filter_merge_splits(
+        df: pl.DataFrame,
+        splits: dict[str, list[str]],
+        splits_to_merge: list[str] | None,
+    ) -> tuple[pl.DataFrame, dict[str, list[str]], set[str]]:
+        """Select incoming records, splits, and media UUIDs for a merge."""
+        if splits_to_merge is None:
+            return df, splits, set()
+        uuids_to_merge = {
+            uuid
+            for split_name in splits_to_merge
+            for uuid in splits.get(split_name, [])
+        }
+        return (
+            df.filter(df["uuid"].is_in(uuids_to_merge)),
+            {k: v for k, v in splits.items() if k in splits_to_merge},
+            uuids_to_merge,
+        )
+
+    @staticmethod
+    def _with_source_dataset(
+        df: pl.DataFrame, dataset_name: str
+    ) -> pl.DataFrame:
+        """Fill missing source provenance while preserving record metadata."""
+        return df.with_columns(
+            pl.col("sample_metadata").map_elements(
+                lambda value: json.dumps(
+                    {
+                        "source_dataset": dataset_name,
+                        **DatasetRecord.decode_metadata(value),
+                    }
+                ),
+                return_dtype=pl.String,
+                skip_nulls=False,
+            )
+        )
 
     def _merge_target(
         self,
