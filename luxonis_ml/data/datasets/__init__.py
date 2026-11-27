@@ -230,8 +230,9 @@ dataset.
         preserve_source=True,
     )
 
-When merging, ``preserve_source=True`` can be set. If it is set, samples from both datasets receive their
-original dataset name in ``sample_metadata["source_dataset"]``. The option defaults to ``False``.
+When merging, ``preserve_source=True`` can be set. If it is set, samples from
+both datasets receive their original dataset name in
+``sample_metadata["source_dataset"]``. The option defaults to ``False``.
 
 ``preserve_source`` can also be invoked when merging datasets using the CLI:
 
